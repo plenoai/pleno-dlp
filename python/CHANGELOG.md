@@ -3,6 +3,16 @@
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `examples/pleno_anonymize_bridge.py` — adapter wrapping any
+  ``saas_scraper.Connector`` as a
+  ``pleno_pii_scanner.sources.base.SourceConnector``. Demonstrates that
+  the two pipelines share the Document protocol; tests round-trip every
+  field. Skipped when ``pleno-pii-scanner`` isn't installed.
+
 ## [0.2.0] - 2026-05-06
 
 Initial Python release. Tag pattern is `py-vX.Y.Z` to coexist with the
