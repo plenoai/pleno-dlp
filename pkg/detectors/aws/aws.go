@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 
-	"github.com/plenoai/pleno-secret-scanner/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 // AKIA[0-9A-Z]{16} is the canonical access-key-id shape. ASIA covers temporary

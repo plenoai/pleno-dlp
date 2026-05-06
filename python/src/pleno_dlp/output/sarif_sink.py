@@ -12,7 +12,7 @@ import json
 from collections.abc import AsyncIterable
 from typing import IO, Any
 
-from pleno_secret_scanner.findings import Finding
+from pleno_dlp.findings import Finding
 
 _VERSION = "0.2.0"
 
@@ -40,9 +40,9 @@ class SarifSink:
                 {
                     "tool": {
                         "driver": {
-                            "name": "pleno-secret-scanner",
+                            "name": "pleno-dlp",
                             "version": _VERSION,
-                            "informationUri": "https://github.com/plenoai/pleno-secret-scanner",
+                            "informationUri": "https://github.com/plenoai/pleno-dlp",
                             "rules": list(rules.values()),
                         }
                     },

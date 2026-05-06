@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/plenoai/pleno-secret-scanner/pkg/engine"
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 )
 
 // Sink is the output contract. It extends engine.Sink with no extra methods

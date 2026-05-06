@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from pleno_secret_scanner import backends, output
+from pleno_dlp import backends, output
 
 
 def test_backend_factory_known_names() -> None:

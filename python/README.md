@@ -1,37 +1,41 @@
-# pleno-secret-scanner (Python)
+# pleno-dlp (Python)
 
-Python CLI that scans SaaS content for leaked secrets, backed by
-[saas-retriever](https://github.com/plenoai/saas-retriever) for source
-collection (API-only — no scraping) and a pluggable detection backend
-(trufflehog, gitleaks, or a tiny built-in regex set).
+Unified DLP scanner for SaaS content — **secrets** (trufflehog /
+gitleaks / native regex) and **PII** (delegating to
+[pleno-anonymize](https://github.com/plenoai/pleno-anonymize)) — backed
+by [saas-retriever](https://github.com/plenoai/saas-retriever) for
+API-only source collection.
 
-The Go binary in this repo (`cmd/pleno-secret-scanner`) remains for
-filesystem-only scans; the Python package is the path forward for SaaS.
+The Go binary in this repo (`cmd/pleno-dlp`) remains for filesystem-only
+scans; the Python package is the path forward for SaaS.
 
 ## Install
 
 ```sh
-uv tool install pleno-secret-scanner
+uv tool install pleno-dlp
 # or
-pipx install pleno-secret-scanner
+pipx install pleno-dlp
+
+# Add the PII backend (pulls pleno-anonymize):
+uv tool install 'pleno-dlp[pii]'
 ```
 
 ## Usage
 
 ```sh
-# Scan an entire GitHub org (code + issues + PRs across every repo)
-GITHUB_TOKEN=ghp_... pleno-secret-scanner scan github --owner plenoai
+# Secret scan over an entire GitHub org (code + issues + PRs across every repo)
+GITHUB_TOKEN=ghp_... pleno-dlp scan github --owner plenoai
 
 # Scan a single repo, only code, with trufflehog verification
-pleno-secret-scanner scan github --owner plenoai --repo saas-retriever \
+pleno-dlp scan github --owner plenoai --repo saas-retriever \
     --resource code --backend trufflehog
 
-# Issue + PR conversations only (skip code)
-pleno-secret-scanner scan github --owner plenoai \
-    --resource issues --resource prs
+# Issue + PR conversations only, PII detection (requires pleno-anonymize)
+pleno-dlp scan github --owner plenoai \
+    --resource issues --resource prs --backend pii
 
 # SARIF output for GitHub code-scanning ingestion
-pleno-secret-scanner scan github --owner plenoai \
+pleno-dlp scan github --owner plenoai \
     --format sarif > findings.sarif
 ```
 
@@ -40,19 +44,19 @@ Anonymous works for public content but is rate-limited to 60 req/h.
 
 ## Backends
 
-| Backend | Verifies | System dep |
-|---|---|---|
-| trufflehog | yes (per-detector) | `trufflehog` CLI on PATH |
-| gitleaks | no | `gitleaks` CLI on PATH |
-| native | no | none — bundled regex set (AWS, GitHub PAT, Slack bot, OpenAI, Anthropic) |
+| Backend | Class | Verifies | System dep |
+|---|---|---|---|
+| trufflehog | secret | yes (per-detector) | `trufflehog` CLI on PATH |
+| gitleaks | secret | no | `gitleaks` CLI on PATH |
+| native | secret | no | none — bundled regex (AWS, GitHub PAT, Slack bot, OpenAI, Anthropic) |
+| pii | PII | n/a | `pleno-anonymize` (installed via `pleno-dlp[pii]` extra) |
 
 ## Connectors
 
-Anything `saas-retriever` provides. v0.1.x ships **github** with
-org-wide enumeration + per-repo code / issues / PRs (with comments and
-unified diffs). Slack / Jira / Confluence / Notion / GitLab / Bitbucket
-return as standalone API connectors in subsequent saas-retriever
-releases.
+Anything `saas-retriever` provides. Today: **github** with org-wide
+enumeration plus per-repo code / issues / PRs (comments and unified
+diffs). Slack / Jira / Confluence / Notion / GitLab / Bitbucket land as
+standalone API connectors in subsequent saas-retriever releases.
 
 ## Release
 

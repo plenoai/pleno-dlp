@@ -15,7 +15,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/plenoai/pleno-secret-scanner/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/sources"
 	"golang.org/x/sync/errgroup"
 )
 

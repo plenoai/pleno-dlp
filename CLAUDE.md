@@ -1,24 +1,44 @@
-# pleno-secret-scanner
+# pleno-dlp
 
-Go-native secret scanner. Detector interface is trufflehog-compatible; source connectors are reimplemented under `pkg/sources/`.
+Unified DLP scanner — secrets and PII over filesystem and SaaS content.
+Detector interface is trufflehog-compatible (Go); SaaS sources flow
+through [saas-retriever](https://github.com/plenoai/saas-retriever) on
+the Python side.
 
-## Harness: secret-scanner
+## Harness: pleno-dlp
 
-**Goal:** build and evolve a Go CLI that scans, verifies, and reports secrets, using trufflehog-compatible detectors plus our own source connectors.
+**Goal:** maintain and evolve the unified DLP scanner — Go binary
+(filesystem-only) + Python package (SaaS via saas-retriever, secret +
+PII backends).
 
-**Trigger:** invoke the `secret-scanner-orchestrator` skill when a request involves any of:
+**Trigger:** invoke the `secret-scanner-orchestrator` skill when a
+request involves any of:
 - adding or modifying detectors or sources
 - engine, CLI, output-format, or CI changes
-- detector or source interface changes (high blast radius)
+- detector / source / backend interface changes (high blast radius)
+- PII backend integration with pleno-anonymize
 
-Single-file greps and trivial questions should be answered directly without invoking the orchestrator.
+Single-file greps and trivial questions should be answered directly
+without invoking the orchestrator.
 
 ## Workflow rules
 
-- All packages live in a single Go module rooted at this repo. New packages go under `pkg/<area>/<name>/` without their own `go.mod` (single-module configuration).
-- Tests must pass `go test ./... -race`. Race-detector failures block PRs.
-- Releases are triggered exclusively by `vX.Y.Z` tag pushes that fan out to GoReleaser via GitHub Actions trusted publishing. `main` push does **not** publish (this is a CLI binary, not a service).
-- Because this tool itself handles secret material, every new detector must either implement `Verify()` or be explicitly marked as unverified-only.
+- All Go packages live in a single Go module rooted at this repo. New
+  packages go under `pkg/<area>/<name>/` without their own `go.mod`
+  (single-module configuration).
+- Go tests must pass `go test ./... -race`. Race-detector failures block
+  PRs.
+- Python tests must pass `uv run --frozen pytest` and stay ruff + mypy
+  strict-clean.
+- Releases trigger exclusively by tag push:
+  - `vX.Y.Z` → Go binary release via GoReleaser trusted publishing.
+  - `py-vX.Y.Z` → Python package release to PyPI via trusted publishing.
+- `main` push runs build + tests only — it does not publish (this is a
+  CLI binary, not a service).
+- Because this tool handles secret material, every new secret detector
+  must either implement `Verify()` or be explicitly marked
+  unverified-only. PII backends must mark findings with
+  `finding_class="pii"` so downstream callers can route by class.
 
 ## Change history
 
@@ -28,3 +48,5 @@ Single-file greps and trivial questions should be answered directly without invo
 | 2026-05-06 | Translated harness to English | `.claude/`, `CLAUDE.md` | Operator language preference |
 | 2026-05-06 | MVP end-to-end (filesystem source + AWS/GitHub/Slack/OpenAI/Anthropic detectors + scan CLI + json/sarif/table output) | `pkg/`, `cmd/` | Make the scanner usable from the command line; 51 race-clean tests, 11/11 e2e checks |
 | 2026-05-06 | Python package 0.2.0 consuming saas-scraper (native/trufflehog/gitleaks backends, json/sarif/table sinks, CLI) | `python/`, `.github/workflows/{test,release}-py.yml` | SaaS-source path; Go binary keeps filesystem scope. Tag pattern `py-vX.Y.Z` |
+| 2026-05-06 | Python 0.4.0 — switch to saas-retriever (API-only, no Playwright) | `python/` | Org-wide GitHub support, no Chromium |
+| 2026-05-07 | Rebrand `pleno-secret-scanner` → `pleno-dlp`; Python 0.5.0 with PII backend slot | repo-wide | Unified DLP scanner consolidating secret + PII scans; pleno-anonymize trims to PII model + API only |

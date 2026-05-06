@@ -11,7 +11,7 @@ from collections.abc import AsyncIterable
 from dataclasses import asdict
 from typing import IO
 
-from pleno_secret_scanner.findings import Finding
+from pleno_dlp.findings import Finding
 
 
 class JsonSink:

@@ -84,7 +84,7 @@ Flaky tests are recorded in `_workspace/flaky-tests.md` and prioritised for repa
 ```bash
 # tests/e2e/01_filesystem_aws.sh
 set -euo pipefail
-out=$(./bin/pleno-secret-scanner filesystem testdata/aws-key/ --json --no-verification)
+out=$(./bin/pleno-dlp filesystem testdata/aws-key/ --json --no-verification)
 echo "$out" | jq -e '.[] | select(.detector_type=="AWS")' > /dev/null
 ```
 
@@ -103,7 +103,7 @@ echo "$out" | jq -e '.[] | select(.detector_type=="AWS")' > /dev/null
 - Expected: <expected outcome>
 - Actual: <what happened, with snippet>
 - Affected modules: pkg/...
-- Reproducer: `go test ./pkg/.../  -run Test...` or `./bin/pleno-secret-scanner ...`
+- Reproducer: `go test ./pkg/.../  -run Test...` or `./bin/pleno-dlp ...`
 - Suspected root cause: <interface mismatch / metadata loss / race / other>
 - Owner: @<agent>
 ```

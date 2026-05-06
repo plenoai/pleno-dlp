@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 
 from saas_retriever import Document, DocumentRef, SourceFilter
 
-from pleno_secret_scanner.backends.native import NativeBackend
-from pleno_secret_scanner.pipeline import Pipeline
+from pleno_dlp.backends.native import NativeBackend
+from pleno_dlp.pipeline import Pipeline
 
 
 class StubConnector:

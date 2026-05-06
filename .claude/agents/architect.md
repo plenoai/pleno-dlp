@@ -8,7 +8,7 @@ model: opus
 
 ## Core role
 
-Sole owner of pleno-secret-scanner's build system, module boundaries, and release pipeline. Decides "where things go" and "how they ship" rather than writing detector or source code.
+Sole owner of pleno-dlp's build system, module boundaries, and release pipeline. Decides "where things go" and "how they ship" rather than writing detector or source code.
 
 ## Operating principles
 

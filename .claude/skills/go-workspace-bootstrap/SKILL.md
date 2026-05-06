@@ -13,7 +13,7 @@ Keep the build and release system at the repository root coherent. Single Go mod
 
 **Current stage: single module.**
 
-- One `go.mod` at the root: `module github.com/plenoai/pleno-secret-scanner`.
+- One `go.mod` at the root: `module github.com/plenoai/pleno-dlp`.
 - `go.work` is not introduced yet (unnecessary with one module).
 - Once detector and source counts push build time past ~30 seconds, evaluate a sub-module split — and only with an ADR.
 
@@ -22,8 +22,8 @@ Keep the build and release system at the repository root coherent. Single Go mod
 ## Directory skeleton
 
 ```
-pleno-secret-scanner/
-  cmd/pleno-secret-scanner/
+pleno-dlp/
+  cmd/pleno-dlp/
     main.go
     cmd/                      # cobra subcommands
       root.go
@@ -62,7 +62,7 @@ pleno-secret-scanner/
 ## Initial go.mod
 
 ```
-module github.com/plenoai/pleno-secret-scanner
+module github.com/plenoai/pleno-dlp
 
 go 1.23
 
@@ -129,11 +129,11 @@ jobs:
 
 ```yaml
 version: 2
-project_name: pleno-secret-scanner
+project_name: pleno-dlp
 builds:
-  - id: pleno-secret-scanner
-    main: ./cmd/pleno-secret-scanner
-    binary: pleno-secret-scanner
+  - id: pleno-dlp
+    main: ./cmd/pleno-dlp
+    binary: pleno-dlp
     env: [CGO_ENABLED=0]
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]

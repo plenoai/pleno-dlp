@@ -12,7 +12,7 @@ and no JSON round-trip.
 ### Run
 
 ```sh
-uv pip install pleno-secret-scanner pleno-pii-scanner pleno-pii-scanner-recognizers
+uv pip install pleno-dlp pleno-pii-scanner pleno-pii-scanner-recognizers
 playwright install chromium
 
 python -m examples.pleno_anonymize_bridge slack --workspace acme

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pleno_secret_scanner.findings import Finding, _redact
+from pleno_dlp.findings import Finding, _redact
 
 
 def test_redact_keeps_first_four_last_two() -> None:

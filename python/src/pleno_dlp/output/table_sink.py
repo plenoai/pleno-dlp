@@ -11,7 +11,7 @@ from typing import IO
 from rich.console import Console
 from rich.table import Table
 
-from pleno_secret_scanner.findings import Finding
+from pleno_dlp.findings import Finding
 
 
 class TableSink:

@@ -19,7 +19,7 @@ from typing import Any
 
 from saas_retriever import Document
 
-from pleno_secret_scanner.findings import Finding
+from pleno_dlp.findings import Finding
 
 
 class GitleaksBackend:

@@ -5,8 +5,8 @@ import (
 	"io"
 	"sync"
 
-	"github.com/plenoai/pleno-secret-scanner/pkg/engine"
-	"github.com/plenoai/pleno-secret-scanner/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/engine"
+	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
 // jsonRecord is the wire shape for one finding. Keep field names stable —

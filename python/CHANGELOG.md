@@ -5,6 +5,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-07
+
+### Changed
+
+- **Rebrand**: ``pleno-secret-scanner`` → ``pleno-dlp``. The package is a
+  unified DLP scanner now: secret detection (trufflehog / gitleaks /
+  native) plus PII detection. The previous PyPI name remains in
+  the registry as a historical artifact; new releases publish under
+  ``pleno-dlp``. CLI entry point is also ``pleno-dlp``.
+- Repository renamed to ``plenoai/pleno-dlp``. GitHub redirects the
+  old name; the canonical URL is ``github.com/plenoai/pleno-dlp``.
+
+### Added
+
+- ``pii`` backend (planned) — delegates to
+  [pleno-anonymize](https://github.com/plenoai/pleno-anonymize)'s PII
+  model API. Install via the ``pleno-dlp[pii]`` extra. Findings carry
+  the same ``Finding`` shape as secret hits, with ``finding_class="pii"``
+  to distinguish.
+
 ## [0.4.0] - 2026-05-06
 
 ### Changed
@@ -66,12 +86,13 @@ legacy Go binary's `vX.Y.Z` tags in the same repo.
 - `Pipeline` — wires a saas-scraper Connector to a Backend and emits
   Findings.
 - Output sinks: `json` (NDJSON), `sarif` (SARIF 2.1.0), `table` (rich).
-- `pleno-secret-scanner` Typer CLI: `scan <connector>`,
+- `pleno-dlp` Typer CLI: `scan <connector>`,
   `list-connectors`, `list-backends`, `version`. `scan` exit code 1 on
   any finding, 0 on clean — convenient for CI gating.
 - GitHub Actions: ruff + mypy + pytest matrix on Python 3.12 / 3.13;
   tag-pushed PyPI trusted publishing via `pypa/gh-action-pypi-publish`.
 
-[0.4.0]: https://github.com/plenoai/pleno-secret-scanner/releases/tag/py-v0.4.0
-[0.3.0]: https://github.com/plenoai/pleno-secret-scanner/releases/tag/py-v0.3.0
-[0.2.0]: https://github.com/plenoai/pleno-secret-scanner/releases/tag/py-v0.2.0
+[0.5.0]: https://github.com/plenoai/pleno-dlp/releases/tag/py-v0.5.0
+[0.4.0]: https://github.com/plenoai/pleno-dlp/releases/tag/py-v0.4.0
+[0.3.0]: https://github.com/plenoai/pleno-dlp/releases/tag/py-v0.3.0
+[0.2.0]: https://github.com/plenoai/pleno-dlp/releases/tag/py-v0.2.0

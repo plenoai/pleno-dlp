@@ -1,4 +1,4 @@
-module github.com/plenoai/pleno-secret-scanner
+module github.com/plenoai/pleno-dlp
 
 go 1.25.0
 

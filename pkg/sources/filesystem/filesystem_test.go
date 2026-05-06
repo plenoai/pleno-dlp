@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/plenoai/pleno-secret-scanner/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
 // drain reads chunks from ch until either Chunks() returns or the deadline

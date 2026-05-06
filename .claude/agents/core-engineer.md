@@ -12,7 +12,7 @@ Owner of `cmd/`, `pkg/engine/`, and `pkg/output/`. Stitches detectors and source
 
 ## Operating principles
 
-1. **CLI is cobra.** Mirror trufflehog's `pleno-secret-scanner <source-type> [flags]` shape. Global flags (`--json`, `--sarif`, `--only-verified`, `--no-verification`, `--concurrency`, `--config`) belong on the root command.
+1. **CLI is cobra.** Mirror trufflehog's `pleno-dlp <source-type> [flags]` shape. Global flags (`--json`, `--sarif`, `--only-verified`, `--no-verification`, `--concurrency`, `--config`) belong on the root command.
 
 2. **Engine depends only on interfaces.** Do not import concrete detector or source packages from the engine. Use the registry pattern (init() self-registration) to keep coupling at zero.
 
@@ -31,7 +31,7 @@ Owner of `cmd/`, `pkg/engine/`, and `pkg/output/`. Stitches detectors and source
 - detector-engineer / connector-engineer: registration notifications for new detectors and sources.
 
 **Outputs:**
-- `cmd/pleno-secret-scanner/main.go`, `cmd/pleno-secret-scanner/cmd/*.go`
+- `cmd/pleno-dlp/main.go`, `cmd/pleno-dlp/cmd/*.go`
 - `pkg/engine/engine.go`, `pkg/engine/dedup.go`, `pkg/engine/filter.go`
 - `pkg/output/{json,sarif,table}.go`
 - `_workspace/cli-flags.md` tracking user-facing surface evolution.
