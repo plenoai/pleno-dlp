@@ -1,7 +1,7 @@
 [project]
 name = "pleno-dlp"
-version = "0.5.0"
-description = "Unified DLP scanner for SaaS sources — secret detection (trufflehog, gitleaks, native regex) plus PII detection (pleno-anonymize). API-driven content collection via saas-retriever (org-wide GitHub: code + issues + PRs; slack / jira / confluence / notion / gitlab / bitbucket land as upstream connectors ship)."
+version = "0.6.0"
+description = "Unified DLP scanner for SaaS sources — secret detection (trufflehog, gitleaks, native regex) plus PII detection (pleno-anonymize). API-driven content collection via saas-retriever: GitHub, GitLab, Bitbucket, Slack, Notion, Confluence, Jira."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.12"
@@ -19,7 +19,7 @@ classifiers = [
     "Topic :: Security",
 ]
 dependencies = [
-    "saas-retriever>=0.1.0",
+    "saas-retriever>=1.0.0",
     "typer>=0.12",
     "rich>=13.9",
     # `pii` backend posts to pleno-anonymize's /api/analyze; we depend

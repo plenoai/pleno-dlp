@@ -273,7 +273,7 @@ wheels = [
 
 [[package]]
 name = "pleno-dlp"
-version = "0.5.0"
+version = "0.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -298,7 +298,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "rich", specifier = ">=13.9" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.7" },
-    { name = "saas-retriever", specifier = ">=0.1.0" },
+    { name = "saas-retriever", specifier = ">=1.0.0" },
     { name = "typer", specifier = ">=0.12" },
 ]
 provides-extras = ["dev", "pii"]
@@ -390,16 +390,16 @@ wheels = [
 
 [[package]]
 name = "saas-retriever"
-version = "0.1.0"
+version = "1.0.0"
 source = { registry = "https://pypi.org/simple/" }
 dependencies = [
     { name = "httpx" },
     { name = "rich" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9f/7d/349d97aa25a34589ad479b3a08f6a1cb7527d06dbcf542713e182e738563/saas_retriever-0.1.0.tar.gz", hash = "sha256:80d60b59f5cb058bfd3fa1d4ec478662455ab3d028d03e451e06dd983e9731fd", size = 26060, upload-time = "2026-05-06T14:13:18.604Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/df/b4/34e08a1d926daa249793a7601866cae49e2d0e9d6194237f1ffb4e5ec608/saas_retriever-1.0.0.tar.gz", hash = "sha256:7a6581360e33dd48ec8d2f264648afadfdc283ab377629588baac189451b95e3", size = 74906, upload-time = "2026-05-06T16:47:35.639Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/33/c0/601ed5858fa0ab474926e8400d3321b6b3dd81f8fe4b3b555f61f17c4d94/saas_retriever-0.1.0-py3-none-any.whl", hash = "sha256:6f8add4a0a934025ceff81bcd8fb8ea6d6cb994340b28078ec0349b52c3569fa", size = 28672, upload-time = "2026-05-06T14:13:17.2Z" },
+    { url = "https://files.pythonhosted.org/packages/63/63/6353e40ee3a8eff6ec43741597dca9598c86b249d4c0b7a9c22f330d7c61/saas_retriever-1.0.0-py3-none-any.whl", hash = "sha256:a8542a990b354858446d0df29943a6976a7cc58ecd645dfb956e778a5d7f3ade", size = 89657, upload-time = "2026-05-06T16:47:34.378Z" },
 ]
 
 [[package]]
