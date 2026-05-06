@@ -30,7 +30,7 @@ from pleno_dlp.pipeline import Pipeline
 
 app = typer.Typer(
     name="pleno-dlp",
-    help="Scan SaaS sources for leaked secrets.",
+    help="Unified DLP scanner — secrets and PII over SaaS sources.",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -51,10 +51,11 @@ def cmd_list_connectors() -> None:
 def cmd_list_backends() -> None:
     """List available detection backends."""
     console = Console()
-    table = Table("name", "verifies", "system dep", title="backends")
-    table.add_row("native", "no", "none (bundled regex)")
-    table.add_row("trufflehog", "yes", "trufflehog on PATH")
-    table.add_row("gitleaks", "no", "gitleaks on PATH")
+    table = Table("name", "class", "verifies", "system dep", title="backends")
+    table.add_row("native", "secret", "no", "none (bundled regex)")
+    table.add_row("trufflehog", "secret", "yes", "trufflehog on PATH")
+    table.add_row("gitleaks", "secret", "no", "gitleaks on PATH")
+    table.add_row("pii", "pii", "n/a", "pleno-anonymize server (HTTP API)")
     console.print(table)
 
 
@@ -85,6 +86,16 @@ def cmd_scan(
     include: list[str] = typer.Option([], "--include"),
     exclude: list[str] = typer.Option([], "--exclude"),
     out: Path | None = typer.Option(None, "--out"),
+    pii_base_url: str = typer.Option(
+        "http://127.0.0.1:8000",
+        "--pii-base-url",
+        help="pleno-anonymize server URL for the `pii` backend.",
+    ),
+    pii_language: str = typer.Option(
+        "ja",
+        "--pii-language",
+        help="Language hint for the `pii` backend: ja or en.",
+    ),
 ) -> None:
     """Scan one connector with one backend and emit findings."""
     if connector not in registry.names():
@@ -92,7 +103,12 @@ def cmd_scan(
         raise typer.Exit(2)
 
     flt = SourceFilter(include=tuple(include), exclude=tuple(exclude), since=_parse_since(since))
-    backend_obj = backends.make(backend)
+    if backend == "pii":
+        backend_obj = backends.make(
+            backend, base_url=pii_base_url, language=pii_language
+        )
+    else:
+        backend_obj = backends.make(backend)
     sink = output.make(format)
 
     connector_kwargs: dict[str, Any] = {}

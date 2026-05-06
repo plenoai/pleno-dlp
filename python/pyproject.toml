@@ -22,6 +22,11 @@ dependencies = [
     "saas-retriever>=0.1.0",
     "typer>=0.12",
     "rich>=13.9",
+    # `pii` backend posts to pleno-anonymize's /api/analyze; we depend
+    # on httpx directly rather than relying on saas-retriever's
+    # transitive pin so a future saas-retriever release that drops
+    # httpx (unlikely, but) can't silently break the PII path.
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +36,10 @@ dev = [
     "ruff>=0.7",
     "mypy>=1.13",
 ]
+# Reserved for an in-process pleno-anonymize binding once that wheel
+# stabilises; today the `pii` backend uses the HTTP API, which needs no
+# extras beyond the base install.
+pii = []
 
 [project.scripts]
 pleno-dlp = "pleno_dlp.cli:app"

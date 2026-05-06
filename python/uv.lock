@@ -273,9 +273,10 @@ wheels = [
 
 [[package]]
 name = "pleno-dlp"
-version = "0.4.0"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "rich" },
     { name = "saas-retriever" },
     { name = "typer" },
@@ -291,6 +292,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
@@ -299,7 +301,7 @@ requires-dist = [
     { name = "saas-retriever", specifier = ">=0.1.0" },
     { name = "typer", specifier = ">=0.12" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "pii"]
 
 [[package]]
 name = "pluggy"
