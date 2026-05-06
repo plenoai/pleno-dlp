@@ -23,4 +23,5 @@ coverage.html
 # Claude scratch
 .claude/worktrees/
 .claude/_workspace/
+.claude/scheduled_tasks.lock
 /_workspace/
