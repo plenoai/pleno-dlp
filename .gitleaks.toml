@@ -1,4 +1,4 @@
-title = "pleno-secret-scanner gitleaks config"
+title = "pleno-dlp gitleaks config"
 
 [extend]
 useDefault = true
@@ -10,7 +10,7 @@ useDefault = true
 description = "Detector test fixtures contain non-secret pattern strings"
 paths = [
   '''pkg/detectors/.*_test\.go''',
-  '''cmd/pleno-secret-scanner/cmd/.*_test\.go''',
+  '''cmd/pleno-dlp/cmd/.*_test\.go''',
   '''pkg/output/.*_test\.go''',
   '''python/tests/.*\.py''',
 ]

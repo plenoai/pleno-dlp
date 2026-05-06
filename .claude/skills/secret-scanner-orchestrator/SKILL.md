@@ -1,13 +1,13 @@
 ---
 name: secret-scanner-orchestrator
-description: Coordinates the five-agent team for pleno-secret-scanner (architect, detector-engineer, connector-engineer, core-engineer, qa) when work spans detectors, sources, engine, CLI, output, or release. Trigger when the user asks to add or modify detectors or sources, change interfaces, change engine/CLI/output, work on the release pipeline, or follows up with phrases like "rerun", "redo", "patch", "improve based on the previous run", "just the <area>". Do not trigger for one-line greps or pure factual questions about the repo — answer those directly.
+description: Coordinates the five-agent team for pleno-dlp (architect, detector-engineer, connector-engineer, core-engineer, qa) when work spans detectors, sources, engine, CLI, output, or release. Trigger when the user asks to add or modify detectors or sources, change interfaces, change engine/CLI/output, work on the release pipeline, or follows up with phrases like "rerun", "redo", "patch", "improve based on the previous run", "just the <area>". Do not trigger for one-line greps or pure factual questions about the repo — answer those directly.
 ---
 
 # secret-scanner-orchestrator
 
 ## Purpose
 
-Drive every meaningful change in pleno-secret-scanner (detector or source additions, interface revisions, engine/CLI/output changes, release work) through the five-agent team, while keeping trufflehog-compatible detector interfaces and our reimplemented source connectors aligned.
+Drive every meaningful change in pleno-dlp (detector or source additions, interface revisions, engine/CLI/output changes, release work) through the five-agent team, while keeping trufflehog-compatible detector interfaces and our reimplemented source connectors aligned.
 
 ## Execution mode
 

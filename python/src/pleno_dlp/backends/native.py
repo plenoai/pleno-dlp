@@ -15,7 +15,7 @@ from collections.abc import AsyncIterator
 
 from saas_retriever import Document
 
-from pleno_secret_scanner.findings import Finding
+from pleno_dlp.findings import Finding
 
 # Each rule is (rule_id, compiled regex). Patterns are deliberately
 # narrow — false positives in a secret scanner are noisy and erode trust.

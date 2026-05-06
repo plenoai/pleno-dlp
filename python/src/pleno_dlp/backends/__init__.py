@@ -18,7 +18,7 @@ from typing import Protocol, runtime_checkable
 
 from saas_retriever import Document
 
-from pleno_secret_scanner.findings import Finding
+from pleno_dlp.findings import Finding
 
 
 @runtime_checkable
@@ -39,9 +39,9 @@ class Backend(Protocol):
 
 def make(name: str) -> Backend:
     """Construct a Backend by name. Raises ValueError on unknown names."""
-    from pleno_secret_scanner.backends.gitleaks import GitleaksBackend
-    from pleno_secret_scanner.backends.native import NativeBackend
-    from pleno_secret_scanner.backends.trufflehog import TrufflehogBackend
+    from pleno_dlp.backends.gitleaks import GitleaksBackend
+    from pleno_dlp.backends.native import NativeBackend
+    from pleno_dlp.backends.trufflehog import TrufflehogBackend
 
     backends: dict[str, type[Backend]] = {
         "native": NativeBackend,

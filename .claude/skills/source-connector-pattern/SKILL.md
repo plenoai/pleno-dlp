@@ -50,7 +50,7 @@ import (
     "io/fs"
     "path/filepath"
 
-    "github.com/plenoai/pleno-secret-scanner/pkg/sources"
+    "github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
 type Source struct {
@@ -152,7 +152,7 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 ```go
 package sources
 
-import "github.com/plenoai/pleno-secret-scanner/pkg/sources/filesystem"
+import "github.com/plenoai/pleno-dlp/pkg/sources/filesystem"
 
 func init() {
     Register(SourceFilesystem, func() Source { return &filesystem.Source{} })

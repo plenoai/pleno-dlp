@@ -14,9 +14,9 @@ pleno-anonymize side.
 Usage::
 
     # In a venv with both packages installed:
-    #   uv pip install pleno-secret-scanner pleno-pii-scanner pleno-pii-scanner-recognizers
+    #   uv pip install pleno-dlp pleno-pii-scanner pleno-pii-scanner-recognizers
     #   playwright install chromium
-    python -m pleno_secret_scanner.examples.pleno_anonymize_bridge slack --workspace acme
+    python -m pleno_dlp.examples.pleno_anonymize_bridge slack --workspace acme
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from saas_retriever.registry import registry
 
 if TYPE_CHECKING:
     # Imported lazily inside the function body so this example file remains
-    # importable without pleno-anonymize installed (pleno-secret-scanner's
+    # importable without pleno-anonymize installed (pleno-dlp's
     # own test suite never installs it). Type-checker still sees the names.
     from pleno_pii_scanner.sources.base import (
         Capabilities,

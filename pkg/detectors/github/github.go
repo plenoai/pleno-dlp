@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/plenoai/pleno-secret-scanner/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 // apiBase is overridable from tests so verification can hit an httptest server.

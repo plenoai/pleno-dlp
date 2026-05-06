@@ -55,8 +55,8 @@ import (
     "net/http"
     "regexp"
 
-    "github.com/plenoai/pleno-secret-scanner/pkg/common/httpclient"
-    "github.com/plenoai/pleno-secret-scanner/pkg/detectors"
+    "github.com/plenoai/pleno-dlp/pkg/common/httpclient"
+    "github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 type Scanner struct{ client *http.Client }
@@ -123,7 +123,7 @@ func (s Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 ```go
 package detectors
 
-import _ "github.com/plenoai/pleno-secret-scanner/pkg/detectors/github"
+import _ "github.com/plenoai/pleno-dlp/pkg/detectors/github"
 ```
 
 Or register explicitly via `init()`:

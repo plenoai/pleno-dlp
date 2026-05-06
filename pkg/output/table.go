@@ -7,7 +7,7 @@ import (
 	"sync"
 	"text/tabwriter"
 
-	"github.com/plenoai/pleno-secret-scanner/pkg/engine"
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 )
 
 // tableSink renders findings as a column-aligned ASCII table. The header is

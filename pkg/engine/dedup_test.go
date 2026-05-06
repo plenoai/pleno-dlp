@@ -5,8 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/plenoai/pleno-secret-scanner/pkg/detectors"
-	"github.com/plenoai/pleno-secret-scanner/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
 // recordingSink captures every Emit so tests can assert on what slipped

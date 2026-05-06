@@ -17,8 +17,8 @@ from dataclasses import dataclass
 
 from saas_retriever import Connector, SourceFilter
 
-from pleno_secret_scanner.backends import Backend
-from pleno_secret_scanner.findings import Finding
+from pleno_dlp.backends import Backend
+from pleno_dlp.findings import Finding
 
 
 @dataclass(frozen=True, slots=True)

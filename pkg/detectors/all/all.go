@@ -4,9 +4,9 @@
 package all
 
 import (
-	_ "github.com/plenoai/pleno-secret-scanner/pkg/detectors/anthropic"
-	_ "github.com/plenoai/pleno-secret-scanner/pkg/detectors/aws"
-	_ "github.com/plenoai/pleno-secret-scanner/pkg/detectors/github"
-	_ "github.com/plenoai/pleno-secret-scanner/pkg/detectors/openai"
-	_ "github.com/plenoai/pleno-secret-scanner/pkg/detectors/slack"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/anthropic"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/aws"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/github"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/openai"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/slack"
 )

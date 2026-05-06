@@ -6,10 +6,10 @@ import io
 import json
 from collections.abc import AsyncIterator
 
-from pleno_secret_scanner.findings import Finding
-from pleno_secret_scanner.output.json_sink import JsonSink
-from pleno_secret_scanner.output.sarif_sink import SarifSink
-from pleno_secret_scanner.output.table_sink import TableSink
+from pleno_dlp.findings import Finding
+from pleno_dlp.output.json_sink import JsonSink
+from pleno_dlp.output.sarif_sink import SarifSink
+from pleno_dlp.output.table_sink import TableSink
 
 
 def _f(rule_id: str = "aws-access-key-id", verified: bool = False, line: int | None = 1) -> Finding:
@@ -51,7 +51,7 @@ async def test_sarif_sink_emits_valid_envelope() -> None:
     doc = json.loads(buf.getvalue())
     assert doc["version"] == "2.1.0"
     run = doc["runs"][0]
-    assert run["tool"]["driver"]["name"] == "pleno-secret-scanner"
+    assert run["tool"]["driver"]["name"] == "pleno-dlp"
     rules = run["tool"]["driver"]["rules"]
     assert {r["id"] for r in rules} == {"aws-access-key-id", "github-pat"}
     assert len(run["results"]) == 2

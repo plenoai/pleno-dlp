@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/plenoai/pleno-secret-scanner/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 var apiBase = "https://api.anthropic.com"

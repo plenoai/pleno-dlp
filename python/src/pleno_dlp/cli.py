@@ -1,11 +1,11 @@
-"""pleno-secret-scanner command-line interface.
+"""pleno-dlp command-line interface.
 
-    pleno-secret-scanner list-connectors
-    pleno-secret-scanner list-backends
-    pleno-secret-scanner scan github --owner plenoai
-    pleno-secret-scanner scan github --owner plenoai --repo saas-retriever \\
+    pleno-dlp list-connectors
+    pleno-dlp list-backends
+    pleno-dlp scan github --owner plenoai
+    pleno-dlp scan github --owner plenoai --repo saas-retriever \\
         --resource code --resource issues --resource prs
-    pleno-secret-scanner scan github --owner plenoai \\
+    pleno-dlp scan github --owner plenoai \\
         --backend trufflehog --format sarif > findings.sarif
 """
 
@@ -25,11 +25,11 @@ from saas_retriever import SourceFilter
 from saas_retriever import connectors as _connectors  # noqa: F401  registry side-effect
 from saas_retriever.registry import registry
 
-from pleno_secret_scanner import __version__, backends, output
-from pleno_secret_scanner.pipeline import Pipeline
+from pleno_dlp import __version__, backends, output
+from pleno_dlp.pipeline import Pipeline
 
 app = typer.Typer(
-    name="pleno-secret-scanner",
+    name="pleno-dlp",
     help="Scan SaaS sources for leaked secrets.",
     no_args_is_help=True,
     add_completion=False,

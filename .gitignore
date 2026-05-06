@@ -18,7 +18,7 @@ coverage.html
 .env.local
 
 # Build artifacts
-/pleno-secret-scanner
+/pleno-dlp
 
 # Claude scratch
 .claude/worktrees/

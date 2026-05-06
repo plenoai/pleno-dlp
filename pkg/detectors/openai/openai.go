@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/plenoai/pleno-secret-scanner/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 var apiBase = "https://api.openai.com"

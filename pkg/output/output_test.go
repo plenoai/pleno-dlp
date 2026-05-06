@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/plenoai/pleno-secret-scanner/pkg/detectors"
-	"github.com/plenoai/pleno-secret-scanner/pkg/engine"
-	"github.com/plenoai/pleno-secret-scanner/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/engine"
+	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
 // sample builds a deterministic Finding for golden tests. Centralised so the
@@ -131,7 +131,7 @@ func TestSARIFSinkShape(t *testing.T) {
 	}
 	run := runs[0].(map[string]any)
 	driver := run["tool"].(map[string]any)["driver"].(map[string]any)
-	if driver["name"] != "pleno-secret-scanner" {
+	if driver["name"] != "pleno-dlp" {
 		t.Errorf("driver.name: %v", driver["name"])
 	}
 	results := run["results"].([]any)

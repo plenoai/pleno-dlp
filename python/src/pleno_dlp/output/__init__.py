@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterable
 from typing import IO, Protocol
 
-from pleno_secret_scanner.findings import Finding
+from pleno_dlp.findings import Finding
 
 
 class Sink(Protocol):
@@ -23,9 +23,9 @@ class Sink(Protocol):
 
 def make(format: str) -> Sink:
     """Construct a sink by format name. Raises ValueError on unknown."""
-    from pleno_secret_scanner.output.json_sink import JsonSink
-    from pleno_secret_scanner.output.sarif_sink import SarifSink
-    from pleno_secret_scanner.output.table_sink import TableSink
+    from pleno_dlp.output.json_sink import JsonSink
+    from pleno_dlp.output.sarif_sink import SarifSink
+    from pleno_dlp.output.table_sink import TableSink
 
     sinks: dict[str, type[Sink]] = {
         "json": JsonSink,

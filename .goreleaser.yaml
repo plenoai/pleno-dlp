@@ -1,10 +1,10 @@
 version: 2
-project_name: pleno-secret-scanner
+project_name: pleno-dlp
 
 builds:
-  - id: pleno-secret-scanner
-    main: ./cmd/pleno-secret-scanner
-    binary: pleno-secret-scanner
+  - id: pleno-dlp
+    main: ./cmd/pleno-dlp
+    binary: pleno-dlp
     env:
       - CGO_ENABLED=0
     goos: [linux, darwin, windows]

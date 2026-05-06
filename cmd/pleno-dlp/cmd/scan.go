@@ -1,4 +1,4 @@
-// Package cmd hosts cobra subcommands for the pleno-secret-scanner binary.
+// Package cmd hosts cobra subcommands for the pleno-dlp binary.
 // Each subcommand registers itself with Root from a package-level init(),
 // so adding a command means adding one file here — not editing main.go.
 package cmd
@@ -14,9 +14,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/plenoai/pleno-secret-scanner/pkg/engine"
-	"github.com/plenoai/pleno-secret-scanner/pkg/output"
-	"github.com/plenoai/pleno-secret-scanner/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/engine"
+	"github.com/plenoai/pleno-dlp/pkg/output"
+	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
 // Root is the top-level cobra command. main.go calls Root.Execute(); every
@@ -24,7 +24,7 @@ import (
 // variable so tests can introspect the wired-up command tree without
 // triggering os.Exit.
 var Root = &cobra.Command{
-	Use:           "pleno-secret-scanner",
+	Use:           "pleno-dlp",
 	Short:         "Scan sources for leaked secrets",
 	SilenceUsage:  true,
 	SilenceErrors: true,

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pytest
 from saas_retriever import Document, DocumentRef
 
-from pleno_secret_scanner.backends.native import NativeBackend
+from pleno_dlp.backends.native import NativeBackend
 
 
 def _doc(text: str) -> Document:

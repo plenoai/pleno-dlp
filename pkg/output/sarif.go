@@ -5,7 +5,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/plenoai/pleno-secret-scanner/pkg/engine"
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 )
 
 // SARIF 2.1.0 minimal envelope. We only fill the fields that GitHub code
@@ -85,8 +85,8 @@ func (s *sarifSink) Close() error {
 		Version: "2.1.0",
 		Runs: []sarifRun{{
 			Tool: sarifTool{Driver: sarifDriver{
-				Name:           "pleno-secret-scanner",
-				InformationURI: "https://github.com/plenoai/pleno-secret-scanner",
+				Name:           "pleno-dlp",
+				InformationURI: "https://github.com/plenoai/pleno-dlp",
 			}},
 			Results: s.results,
 		}},
