@@ -19,11 +19,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- ``pii`` backend (planned) — delegates to
-  [pleno-anonymize](https://github.com/plenoai/pleno-anonymize)'s PII
-  model API. Install via the ``pleno-dlp[pii]`` extra. Findings carry
-  the same ``Finding`` shape as secret hits, with ``finding_class="pii"``
-  to distinguish.
+- ``pii`` backend — delegates to
+  [pleno-anonymize](https://github.com/plenoai/pleno-anonymize)'s
+  ``POST /api/analyze`` endpoint. Configure the server URL via
+  ``--pii-base-url`` (default ``http://127.0.0.1:8000``) and the
+  language hint via ``--pii-language`` (``ja`` or ``en``). Findings
+  reuse the existing ``Finding`` shape with ``finding_class="pii"``,
+  ``rule_id`` set to the Presidio entity type (``EMAIL_ADDRESS``,
+  ``PERSON``, ``JP_MY_NUMBER``, ...), and ``score`` populated from the
+  recognizer confidence. ``finding_class="secret"`` is the default so
+  every existing secret backend keeps emitting the previous shape.
+- ``Finding.score`` and ``Finding.finding_class`` fields. Sinks are
+  free to ignore them (back-compat); they round-trip through every
+  backend factory and through every output format.
 
 ## [0.4.0] - 2026-05-06
 
