@@ -1,16 +1,23 @@
 // Command pleno-secret-scanner is a Go-native secret scanner with a
 // trufflehog-compatible detector layer and a fresh source-connector layer.
 //
-// Subcommands are added under pkg-internal cmd/ files (filesystem.go,
-// git.go, github.go, ...) by core-engineer. This entrypoint is intentionally
-// thin so that subcommand wiring stays where it belongs.
+// Subcommand wiring lives in cmd/pleno-secret-scanner/cmd/*.go. This file
+// is intentionally thin: build metadata injection, blank-import manifests,
+// and the exit-code mapping are the only concerns here.
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
+	"github.com/plenoai/pleno-secret-scanner/cmd/pleno-secret-scanner/cmd"
+
+	// Blank-imports activate detector and source self-registration. Each
+	// concrete provider lives behind a manifest package so adding one is a
+	// one-line edit there, not here.
+	_ "github.com/plenoai/pleno-secret-scanner/pkg/detectors/all"
+	_ "github.com/plenoai/pleno-secret-scanner/pkg/sources/all"
 )
 
 var (
@@ -19,17 +26,14 @@ var (
 )
 
 func main() {
-	root := &cobra.Command{
-		Use:           "pleno-secret-scanner",
-		Short:         "Scan sources for leaked secrets",
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		Version:       fmt.Sprintf("%s (%s)", version, commit),
+	cmd.SetVersion(version, commit)
+	err := cmd.Execute(context.Background())
+	if err == nil {
+		return
 	}
-	// Subcommands (filesystem, git, github, ...) are registered by their own
-	// init() functions in cmd/pleno-secret-scanner/cmd/*.go.
-	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+	if cmd.IsFindingsError(err) {
 		os.Exit(1)
 	}
+	fmt.Fprintln(os.Stderr, "error:", err)
+	os.Exit(2)
 }

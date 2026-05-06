@@ -1,0 +1,15 @@
+title = "pleno-secret-scanner gitleaks config"
+
+[extend]
+useDefault = true
+
+# Detector unit tests deliberately embed dummy tokens that match real-secret
+# patterns. They never reach a provider — the verify path is mocked. Allowlist
+# them at the path level so contributors don't reach for noisy inline pragmas.
+[[allowlists]]
+description = "Detector test fixtures contain non-secret pattern strings"
+paths = [
+  '''pkg/detectors/.*_test\.go''',
+  '''cmd/pleno-secret-scanner/cmd/.*_test\.go''',
+  '''pkg/output/.*_test\.go''',
+]
