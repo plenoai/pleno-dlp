@@ -1,47 +1,47 @@
 ---
 name: qa-cross-boundary
-description: detector·source·engine·output 의 경계면 정합성을 검증한다. 인터페이스(Detector, Source, Result, Chunk) 시그니처 일치, chunk metadata 가 출력까지 살아 전달되는지, race detector 통과, e2e CLI 시나리오 통과를 확인한다. qa 에이전트 전용. 새 detector·source 통합 직후, 인터페이스 변경 후, 회귀 의심 시 사용한다.
+description: Validate correctness across detector, source, engine, and output boundaries — interface compatibility, chunk metadata propagation, race-detector cleanliness, and end-to-end CLI scenarios. qa agent only. Use immediately after a detector or source integrates, after interface changes, or when a regression is suspected.
 ---
 
 # qa-cross-boundary
 
-## 목적
+## Purpose
 
-존재 확인이 아니라 **경계면 교차 비교** 를 한다. 각 모듈이 단독으로는 컴파일·테스트 통과해도, 모듈끼리 만나는 지점에서 shape 불일치가 흔히 발생한다. 본 스킬은 그 경계의 정합성에 집중한다.
+Move past "does it exist" and verify the seams: each module compiles in isolation, but the bugs live where modules meet. This skill targets those seams.
 
-## 검증 매트릭스
+## Validation matrix
 
-| ID | 경계 | 검증 방법 | 빈도 |
+| ID | Boundary | Method | Cadence |
 |---|---|---|---|
-| B1 | Detector interface | 모든 detector 가 `Detector` interface 충족 + `var _ detectors.Detector = (*Scanner)(nil)` 컴파일 가드 | detector 추가/수정 시 |
-| B2 | Source interface | 모든 source 가 `Source` interface 충족 | source 추가/수정 시 |
-| B3 | Chunk → detector prefilter | 각 source 의 대표 fixture 청크에 대해 적어도 1개 detector 의 키워드가 매칭되는지 (그렇지 않으면 source 가 "의미있는" 데이터를 emit 하지 않는 것) | source 추가 시 |
-| B4 | Result → output | detector 가 emit 한 모든 필드 (Type, Verified, Raw redacted, RawV2, Redacted, ExtraData) 가 JSON·SARIF·table 출력 각각에서 살아남는지 | detector 추가/수정, output 수정 시 |
-| B5 | metadata 전파 | source 가 채운 SourceMetadata 가 Chunk → Result → output 까지 살아 도달하는지 (특히 SARIF locations) | source/output 수정 시 |
-| B6 | race | `go test ./... -race -count=1` 통과 | PR 마다 |
-| B7 | e2e CLI | testdata fixture 5개 (filesystem with AWS, git with GH PAT, github mock with Slack, etc.) 에 대해 CLI 실행 후 expected 결과 매칭 | PR 마다 |
-| B8 | Verify 폴백 | 각 detector 의 Verify 가 mock 서버에서 200/401/429/timeout 4가지 케이스 정상 처리 | Verify 수정 시 |
+| B1 | Detector interface | every detector satisfies `Detector` via a `var _ detectors.Detector = (*Scanner)(nil)` compile-time guard | on detector add/edit |
+| B2 | Source interface | every source satisfies `Source` analogously | on source add/edit |
+| B3 | Chunk → detector prefilter | for each source's representative fixture, at least one detector's keywords match (otherwise the source is emitting "meaningless" data, or the fixture is wrong) | on source add |
+| B4 | Result → output | every emitted Result field (Type, Verified, Raw redacted, RawV2, Redacted, ExtraData) survives JSON, SARIF, and table output | on detector or output change |
+| B5 | Metadata propagation | source-populated metadata reaches output (especially SARIF locations) | on source or output change |
+| B6 | Race | `go test ./... -race -count=1` is clean | every PR |
+| B7 | e2e CLI | five testdata scenarios (filesystem with AWS, git with GH PAT, github mock with Slack, etc.) match expected output | every PR |
+| B8 | Verify fallback | each detector's Verify behaves correctly under mocked 200/401/429/timeout | on Verify change |
 
-## 절차
+## Procedures
 
-### 1. 인터페이스 정합 (B1, B2)
+### 1. Interface conformance (B1, B2)
 
 ```bash
 go build ./...
 go vet ./...
 ```
 
-`var _ detectors.Detector = (*Scanner)(nil)` 같은 컴파일타임 가드 누락된 detector·source 색출:
+Hunt for missing compile-time guards:
 
 ```bash
 rg -L 'var _ (detectors\.Detector|sources\.Source)' pkg/detectors pkg/sources
 ```
 
-누락 발견 시 owner 에게 SendMessage + TaskCreate.
+When missing, SendMessage the owner and TaskCreate.
 
-### 2. 키워드 prefilter (B3)
+### 2. Keyword prefilter (B3)
 
-각 source 의 fixture 청크 상에서 detector 키워드 hit 통계 수집. fixture 가 모두 키워드 미스면 fixture 가 잘못 만들어진 것 (실제 데이터 시그널 부재).
+Walk each source's fixture chunks and count keyword hits per detector. Any source whose fixtures hit zero keywords means the fixture is not a real signal — fix the fixture.
 
 ```go
 // tests/integration/prefilter_test.go
@@ -56,11 +56,11 @@ for _, src := range sourceFixtures {
 }
 ```
 
-### 3. Result/metadata 전파 (B4, B5)
+### 3. Result / metadata propagation (B4, B5)
 
-대표 fixture 1개를 골라:
-- detector 가 만든 Result 의 모든 필드 → JSON output 의 필드와 1:1 비교
-- SARIF output 의 `locations[0].physicalLocation` 이 source metadata 에서 옴을 확인
+Pick one canonical fixture and assert:
+- every Result field maps 1:1 to JSON output
+- SARIF `locations[0].physicalLocation` originates from source metadata
 
 ```go
 got := runScan(t, "testdata/git-with-ghpat")
@@ -69,17 +69,17 @@ require.NotEmpty(t, got.Results[0].Source.Git.Commit)
 require.NotEmpty(t, got.Results[0].Source.Git.File)
 ```
 
-### 4. race (B6)
+### 4. Race (B6)
 
 ```bash
 go test ./... -race -count=1 -timeout 5m
 ```
 
-flaky 테스트는 별도 `_workspace/flaky-tests.md` 에 기록 + 우선 수리 대상.
+Flaky tests are recorded in `_workspace/flaky-tests.md` and prioritised for repair.
 
 ### 5. e2e CLI (B7)
 
-`tests/e2e/` 에 셸 기반 시나리오:
+`tests/e2e/` hosts shell-driven scenarios:
 
 ```bash
 # tests/e2e/01_filesystem_aws.sh
@@ -88,33 +88,33 @@ out=$(./bin/pleno-secret-scanner filesystem testdata/aws-key/ --json --no-verifi
 echo "$out" | jq -e '.[] | select(.detector_type=="AWS")' > /dev/null
 ```
 
-### 6. Verify mock (B8)
+### 6. Verify mocks (B8)
 
-`pkg/common/httpclient/testserver.go` 에 mock 서버 헬퍼. 각 detector 의 `_verify_test.go` 가 4 시나리오 (200/401/429/timeout) 를 돌려야 함.
+`pkg/common/httpclient/testserver.go` provides a mock helper. Every detector's `_verify_test.go` exercises 200 / 401 / 429 / timeout.
 
-## 회귀 보고 형식
+## Regression report format
 
 `_workspace/qa-report-<YYYY-MM-DD>.md`:
 
 ```markdown
-## 회귀: <한줄 요약>
+## Regression: <one-line summary>
 
-- 시나리오: <어떤 입력/조건>
-- 기대: <어떤 결과가 나와야 하는가>
-- 실제: <무엇이 일어났는가, 출력 일부 첨부>
-- 영향 모듈: pkg/...
-- 재현: `go test ./pkg/.../  -run Test...` or `./bin/pleno-secret-scanner ...`
-- 추정 원인: <인터페이스 mismatch / metadata 누락 / race / 기타>
+- Scenario: <input/condition>
+- Expected: <expected outcome>
+- Actual: <what happened, with snippet>
+- Affected modules: pkg/...
+- Reproducer: `go test ./pkg/.../  -run Test...` or `./bin/pleno-secret-scanner ...`
+- Suspected root cause: <interface mismatch / metadata loss / race / other>
 - Owner: @<agent>
 ```
 
-## 작동 원칙
+## Operating principles
 
-1. **자동 수정 시도하지 않는다.** 발견·재현·보고에 집중. 수정은 owner 의 책임.
-2. **flaky 처리.** 동일 테스트가 3회 중 1회만 실패하면 즉시 `_workspace/flaky-tests.md` 등록 + owner 알림. 무시하지 않는다.
-3. **실 API 호출 금지.** Verify 는 항상 mock 서버. 실 토큰 사용 금지.
-4. **incremental.** 모듈 통합마다 즉시 검증. 한꺼번에 검증하면 원인 추적 비용이 폭증.
+1. **No auto-fixes.** Detect, reproduce, report — fixing belongs to the owner.
+2. **Flaky tracking.** A test failing 1-of-3 immediately enters `_workspace/flaky-tests.md`; never silently rerun.
+3. **No real API calls.** Verify always runs against the mock server. Real tokens are forbidden.
+4. **Incremental.** Validate as soon as a module integrates. Sweeping at the end balloons the cost of attribution.
 
-## 이전 산출물이 있을 때
+## When prior artifacts exist
 
-`_workspace/qa-report-*.md` 최근 5건과 `_workspace/flaky-tests.md` 를 먼저 읽고, 같은 패턴이 다시 잡히는지 우선 확인한다. 반복 회귀는 근본 원인 ADR 작성 요청.
+Read the latest five `_workspace/qa-report-*.md` and `_workspace/flaky-tests.md` first, and check whether the same patterns are recurring. Repeated regressions warrant an ADR root-cause request.

@@ -1,26 +1,28 @@
 # pleno-secret-scanner
 
-Go-native secret scanner. Detector interface is trufflehog-compatible; source connectors are reimplemented in `pkg/sources/`.
+Go-native secret scanner. Detector interface is trufflehog-compatible; source connectors are reimplemented under `pkg/sources/`.
 
-## 하네스: secret-scanner
+## Harness: secret-scanner
 
-**목표:** trufflehog 호환 Detector + 자체 Source 커넥터로 시크릿을 스캔/검증/리포트하는 Go CLI를 구축·진화시킨다.
+**Goal:** build and evolve a Go CLI that scans, verifies, and reports secrets, using trufflehog-compatible detectors plus our own source connectors.
 
-**트리거:** 본 리포지토리에서 다음 작업 요청이 들어오면 `secret-scanner-orchestrator` 스킬을 사용한다.
-- 새 detector / source 추가, 기존 detector·source 수정
-- 엔진/CLI/출력 포맷/CI 변경
-- detector·source 인터페이스 변경 (대규모 영향)
-- 단순 질문이나 단일 파일 grep 등은 직접 응답.
+**Trigger:** invoke the `secret-scanner-orchestrator` skill when a request involves any of:
+- adding or modifying detectors or sources
+- engine, CLI, output-format, or CI changes
+- detector or source interface changes (high blast radius)
 
-## 워크플로우 규칙
+Single-file greps and trivial questions should be answered directly without invoking the orchestrator.
 
-- 모듈 모두 `go.work`로 묶인 Go workspace. 새 패키지는 `pkg/<area>/<name>/` 아래에 `go.mod` 없이 단일 모듈로 추가한다 (현 시점 단일 모듈 구성).
-- 테스트는 `go test ./... -race`. PR 단위로 race detector 통과를 강제한다.
-- 배포는 `vX.Y.Z` 태그 push로 GoReleaser가 GitHub Releases 발행 (trusted publishing). main push 즉시 배포는 하지 않는다 (CLI tool이므로).
-- secret 노출 위험이 큰 도구이므로, 새 detector는 반드시 `Verify()` 구현 또는 명시적 unverified 표기를 갖는다.
+## Workflow rules
 
-## 변경 이력
+- All packages live in a single Go module rooted at this repo. New packages go under `pkg/<area>/<name>/` without their own `go.mod` (single-module configuration).
+- Tests must pass `go test ./... -race`. Race-detector failures block PRs.
+- Releases are triggered exclusively by `vX.Y.Z` tag pushes that fan out to GoReleaser via GitHub Actions trusted publishing. `main` push does **not** publish (this is a CLI binary, not a service).
+- Because this tool itself handles secret material, every new detector must either implement `Verify()` or be explicitly marked as unverified-only.
 
-| 날짜 | 변경 내용 | 대상 | 사유 |
-|------|----------|------|------|
-| 2026-05-06 | 초기 하네스 구성 (5 에이전트, 5 스킬) | 전체 | pleno-anonymize 참조하여 신규 구축 |
+## Change history
+
+| Date | Change | Target | Reason |
+|------|--------|--------|--------|
+| 2026-05-06 | Initial harness (5 agents, 5 skills) + Go scaffold | repo-wide | Spun up from pleno-anonymize as a reference |
+| 2026-05-06 | Translated harness to English | `.claude/`, `CLAUDE.md` | Operator language preference |
