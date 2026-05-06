@@ -7,6 +7,12 @@
         --resource code --resource issues --resource prs
     pleno-dlp scan github --owner plenoai \\
         --backend trufflehog --format sarif > findings.sarif
+    pleno-dlp scan slack --token xoxb-... --option include_threads=false
+    pleno-dlp scan gitlab --option group=acme --token glpat-... \\
+        --option auth=pat
+    pleno-dlp scan jira --option flavor=cloud \\
+        --option base_url=https://acme.atlassian.net \\
+        --option email=alice@example.com --option api_token=xyz
 """
 
 from __future__ import annotations
@@ -61,30 +67,52 @@ def cmd_list_backends() -> None:
 
 @app.command("scan")
 def cmd_scan(
-    connector: str = typer.Argument(..., help="saas-retriever connector name (currently: github)."),
+    connector: str = typer.Argument(
+        ...,
+        help=(
+            "saas-retriever connector name. One of: "
+            "github, gitlab, bitbucket, notion, confluence, jira, slack."
+        ),
+    ),
     backend: str = typer.Option("native", "--backend", help="Detection backend."),
     format: str = typer.Option("table", "--format", help="Output format: json|sarif|table."),
-    owner: str | None = typer.Option(None, "--owner", help="Org or user. Required for the github connector."),
-    repo: str | None = typer.Option(None, "--repo", help="Single repo (omit for org-wide enumeration)."),
+    owner: str | None = typer.Option(None, "--owner", help="GitHub: org or user. (github only)"),
+    repo: str | None = typer.Option(None, "--repo", help="GitHub: single repo. (github only)"),
     token: str | None = typer.Option(
         None,
         "--token",
-        help="API token. Falls back to GITHUB_TOKEN env var, then `gh auth token`.",
+        help=(
+            "API token. github falls back to GITHUB_TOKEN env / `gh auth token`. "
+            "Other connectors: pass the provider token directly (xoxb-… for slack, "
+            "glpat-… for gitlab, app password for bitbucket, etc.)."
+        ),
     ),
     resources: list[str] = typer.Option(
         [],
         "--resource",
         help=(
-            "GitHub resource(s) to scan, repeatable. One or more of "
-            "code|issues|prs. Default: all three."
+            "Connector resource(s) to scan, repeatable. "
+            "github: code|issues|prs. gitlab: code|issues|mrs. "
+            "bitbucket: code|issues|prs. Default: all supported."
         ),
     ),
     include_archived: bool = typer.Option(
-        False, "--include-archived", help="Include archived repos in org-wide GitHub scans."
+        False, "--include-archived", help="Include archived repos / pages where applicable."
     ),
     since: str | None = typer.Option(None, "--since"),
     include: list[str] = typer.Option([], "--include"),
     exclude: list[str] = typer.Option([], "--exclude"),
+    options: list[str] = typer.Option(
+        [],
+        "--option",
+        "-o",
+        help=(
+            "Generic key=value passed to the connector factory. Repeatable. "
+            "Strings auto-coerced to bool/int when literal. "
+            "Examples: --option group=acme, --option flavor=cloud, "
+            "--option include_threads=false, --option base_url=https://x."
+        ),
+    ),
     out: Path | None = typer.Option(None, "--out"),
     pii_base_url: str = typer.Option(
         "http://127.0.0.1:8000",
@@ -119,6 +147,14 @@ def cmd_scan(
         connector_kwargs["resources"] = frozenset(resources)
     if include_archived:
         connector_kwargs["include_archived"] = True
+    for raw in options:
+        if "=" not in raw:
+            raise typer.BadParameter(
+                f"--option must be key=value; got {raw!r}",
+                param_hint="--option",
+            )
+        key, _, value = raw.partition("=")
+        connector_kwargs[key] = _coerce_option(value)
 
     rc = asyncio.run(
         _run(
@@ -166,6 +202,27 @@ def _filter_supported_kwargs(connector: str, kwargs: dict[str, Any]) -> dict[str
     code = init.__code__
     accepted = set(code.co_varnames[: code.co_argcount + code.co_kwonlyargcount])
     return {k: v for k, v in kwargs.items() if k in accepted}
+
+
+def _coerce_option(value: str) -> Any:
+    """Auto-coerce common scalar literals so connectors get the type they expect.
+
+    Strings that look like ``true``/``false``/integers are converted; everything
+    else passes through untouched. Connectors that need richer typing (lists,
+    nested dicts) should be invoked programmatically rather than via the CLI.
+    """
+    lowered = value.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    if lowered == "none" or lowered == "null":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    return value
 
 
 _SINCE_RE = re.compile(r"^\s*(\d+)\s*([smhdw])\s*$")
