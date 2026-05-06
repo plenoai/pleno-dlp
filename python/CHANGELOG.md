@@ -5,6 +5,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-06
+
+### Changed
+
+- **API-only collection**: switched from ``saas-scraper`` (browser /
+  Playwright) to [``saas-retriever``](https://pypi.org/project/saas-retriever/)
+  (REST API). No more Chromium dependency, no more SAML SSO race;
+  authentication is a token via ``--token``, ``GITHUB_TOKEN`` env var,
+  or ``gh auth token``.
+- ``scan`` CLI no longer takes ``--workspace`` / ``--project`` /
+  ``--headed`` / ``--profile-dir`` (browser-only knobs). New
+  ``--token`` and ``--include-archived`` reflect the API surface.
+- ``scan github --owner <org>`` (no ``--repo``) now performs an
+  **org-wide enumeration** by default — every repo under the org is
+  walked. Pair with ``--include-archived`` if archived repos matter.
+- Default ``--resource`` set is now **code + issues + prs** (was
+  ``code`` only). Override with explicit ``--resource`` flags to narrow.
+
+### Removed
+
+- Dependency on ``saas-scraper``. Uninstall it after upgrading: it has
+  no remaining consumers.
+- Slack / Jira / Confluence / Notion / GitLab / Bitbucket connectors
+  (browser-driven). Each returns later as a standalone API connector
+  in saas-retriever.
+
 ## [0.3.0] - 2026-05-06
 
 ### Added
@@ -46,5 +72,6 @@ legacy Go binary's `vX.Y.Z` tags in the same repo.
 - GitHub Actions: ruff + mypy + pytest matrix on Python 3.12 / 3.13;
   tag-pushed PyPI trusted publishing via `pypa/gh-action-pypi-publish`.
 
+[0.4.0]: https://github.com/plenoai/pleno-secret-scanner/releases/tag/py-v0.4.0
 [0.3.0]: https://github.com/plenoai/pleno-secret-scanner/releases/tag/py-v0.3.0
 [0.2.0]: https://github.com/plenoai/pleno-secret-scanner/releases/tag/py-v0.2.0

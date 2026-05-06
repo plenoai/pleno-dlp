@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from saas_scraper import Document, DocumentRef
+from saas_retriever import Document, DocumentRef
 
 from pleno_secret_scanner.backends.native import NativeBackend
 

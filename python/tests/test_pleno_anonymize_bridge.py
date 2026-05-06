@@ -1,4 +1,4 @@
-"""Bridge: saas_scraper.Document round-trips into a pleno_pii_scanner.Document.
+"""Bridge: saas_retriever.Document round-trips into a pleno_pii_scanner.Document.
 
 Skipped when pleno-pii-scanner is not installed in the environment — the
 bridge is an example, not a hard dependency. CI in the same job that
@@ -12,13 +12,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from saas_scraper.core import (
+from saas_retriever.core import (
     Document as ScraperDocument,
 )
-from saas_scraper.core import (
+from saas_retriever.core import (
     DocumentRef as ScraperDocumentRef,
 )
-from saas_scraper.core import (
+from saas_retriever.core import (
     Principal as ScraperPrincipal,
 )
 

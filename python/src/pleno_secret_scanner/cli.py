@@ -2,11 +2,11 @@
 
     pleno-secret-scanner list-connectors
     pleno-secret-scanner list-backends
-    pleno-secret-scanner scan <connector> [--backend native|trufflehog|gitleaks]
-                                          [--format json|sarif|table]
-                                          [--workspace ...] [--owner ...] [--repo ...]
-                                          [--since 7d] [--out PATH]
-                                          [--headed] [--profile-dir DIR]
+    pleno-secret-scanner scan github --owner plenoai
+    pleno-secret-scanner scan github --owner plenoai --repo saas-retriever \\
+        --resource code --resource issues --resource prs
+    pleno-secret-scanner scan github --owner plenoai \\
+        --backend trufflehog --format sarif > findings.sarif
 """
 
 from __future__ import annotations
@@ -21,9 +21,9 @@ from typing import Any
 import typer
 from rich.console import Console
 from rich.table import Table
-from saas_scraper import BrowserSession, SourceFilter
-from saas_scraper import connectors as _connectors  # noqa: F401  registry side-effect
-from saas_scraper.registry import registry
+from saas_retriever import SourceFilter
+from saas_retriever import connectors as _connectors  # noqa: F401  registry side-effect
+from saas_retriever.registry import registry
 
 from pleno_secret_scanner import __version__, backends, output
 from pleno_secret_scanner.pipeline import Pipeline
@@ -60,28 +60,31 @@ def cmd_list_backends() -> None:
 
 @app.command("scan")
 def cmd_scan(
-    connector: str = typer.Argument(..., help="saas-scraper connector name."),
+    connector: str = typer.Argument(..., help="saas-retriever connector name (currently: github)."),
     backend: str = typer.Option("native", "--backend", help="Detection backend."),
     format: str = typer.Option("table", "--format", help="Output format: json|sarif|table."),
-    workspace: str | None = typer.Option(None, "--workspace"),
-    owner: str | None = typer.Option(None, "--owner"),
-    repo: str | None = typer.Option(None, "--repo"),
-    project: str | None = typer.Option(None, "--project"),
+    owner: str | None = typer.Option(None, "--owner", help="Org or user. Required for the github connector."),
+    repo: str | None = typer.Option(None, "--repo", help="Single repo (omit for org-wide enumeration)."),
+    token: str | None = typer.Option(
+        None,
+        "--token",
+        help="API token. Falls back to GITHUB_TOKEN env var, then `gh auth token`.",
+    ),
     resources: list[str] = typer.Option(
         [],
         "--resource",
         help=(
-            "GitHub: which resource(s) to scan. Repeatable. "
-            "One or more of code|issues|prs (default: code). "
-            "Ignored by other connectors."
+            "GitHub resource(s) to scan, repeatable. One or more of "
+            "code|issues|prs. Default: all three."
         ),
+    ),
+    include_archived: bool = typer.Option(
+        False, "--include-archived", help="Include archived repos in org-wide GitHub scans."
     ),
     since: str | None = typer.Option(None, "--since"),
     include: list[str] = typer.Option([], "--include"),
     exclude: list[str] = typer.Option([], "--exclude"),
     out: Path | None = typer.Option(None, "--out"),
-    headed: bool = typer.Option(False, "--headed"),
-    profile_dir: Path | None = typer.Option(None, "--profile-dir"),
 ) -> None:
     """Scan one connector with one backend and emit findings."""
     if connector not in registry.names():
@@ -93,14 +96,13 @@ def cmd_scan(
     sink = output.make(format)
 
     connector_kwargs: dict[str, Any] = {}
-    for k, v in (("workspace", workspace), ("owner", owner), ("repo", repo), ("project", project)):
+    for k, v in (("owner", owner), ("repo", repo), ("token", token)):
         if v is not None:
             connector_kwargs[k] = v
     if resources:
-        # frozenset matches GitHubConnector's accepted shape; other
-        # connectors that don't accept `resources=` will have it filtered
-        # out by `_filter_supported_kwargs` before construction.
         connector_kwargs["resources"] = frozenset(resources)
+    if include_archived:
+        connector_kwargs["include_archived"] = True
 
     rc = asyncio.run(
         _run(
@@ -110,8 +112,6 @@ def cmd_scan(
             sink=sink,
             filter=flt,
             out=out,
-            headless=not headed,
-            profile_dir=profile_dir,
         )
     )
     raise typer.Exit(rc)
@@ -125,20 +125,17 @@ async def _run(
     sink: output.Sink,
     filter: SourceFilter,
     out: Path | None,
-    headless: bool,
-    profile_dir: Path | None,
 ) -> int:
     """Drive the pipeline. Exit code 0 = clean, 1 = findings, 2 = error."""
     stream = sys.stdout if out is None else out.open("w", encoding="utf-8")
     try:
-        async with BrowserSession(headless=headless, profile_dir=profile_dir) as session:
-            kwargs = _filter_supported_kwargs(connector, connector_kwargs)
-            scraper = registry.create(connector, session=session, **kwargs)
-            try:
-                pipeline = Pipeline(connector=scraper, backend=backend)
-                count = await sink.emit(pipeline.run(filter), stream=stream)
-            finally:
-                await scraper.close()
+        kwargs = _filter_supported_kwargs(connector, connector_kwargs)
+        retriever = registry.create(connector, **kwargs)
+        try:
+            pipeline = Pipeline(connector=retriever, backend=backend)
+            count = await sink.emit(pipeline.run(filter), stream=stream)
+        finally:
+            await retriever.close()
         return 1 if count > 0 else 0
     finally:
         if out is not None:

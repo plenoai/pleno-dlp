@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
-from saas_scraper import Document, DocumentRef, SourceFilter
+from saas_retriever import Document, DocumentRef, SourceFilter
 
 from pleno_secret_scanner.backends.native import NativeBackend
 from pleno_secret_scanner.pipeline import Pipeline

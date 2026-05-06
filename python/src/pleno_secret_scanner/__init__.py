@@ -4,7 +4,7 @@ Public surface:
 
 * ``Finding`` — wire-format struct for one secret hit.
 * ``Backend`` — protocol every detection backend honours.
-* ``Pipeline`` — wires a saas-scraper connector to a backend and a sink.
+* ``Pipeline`` — wires a saas-retriever connector to a backend and a sink.
 * ``backends`` namespace — built-in trufflehog / gitleaks / native.
 """
 
@@ -13,4 +13,4 @@ from pleno_secret_scanner.findings import Finding
 from pleno_secret_scanner.pipeline import Pipeline
 
 __all__ = ["Backend", "Finding", "Pipeline"]
-__version__ = "0.3.0"
+__version__ = "0.4.0"

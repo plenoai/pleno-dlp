@@ -1,6 +1,6 @@
 """Detection backends.
 
-A `Backend` consumes a `saas_scraper.Document` (text payload) and yields
+A `Backend` consumes a `saas_retriever.Document` (text payload) and yields
 `Finding`s. We ship three implementations:
 
 * ``native`` — pure-python regex set (no system deps).
@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
-from saas_scraper import Document
+from saas_retriever import Document
 
 from pleno_secret_scanner.findings import Finding
 

@@ -1,14 +1,14 @@
-"""Bridge a saas-scraper Connector into pleno-anonymize's pii-scanner.
+"""Bridge a saas-retriever Connector into pleno-anonymize's pii-scanner.
 
-Why this file exists: saas-scraper and pleno-anonymize both speak a
+Why this file exists: saas-retriever and pleno-anonymize both speak a
 ``Document`` / ``DocumentRef`` / ``Principal`` / ``SourceFilter`` shape
-that was deliberately kept field-compatible. A ``saas_scraper.Document``
+that was deliberately kept field-compatible. A ``saas_retriever.Document``
 can be translated into a ``pleno_pii_scanner.sources.base.Document`` with
 a one-line field copy — no schema migration, no JSON round-trip.
 
 This module ships the adapter as runnable code so the contract can be
 type-checked in CI and exercised manually before we promote it into a
-proper ``pleno-pii-scanner-saas-scraper`` workspace package on the
+proper ``pleno-pii-scanner-saas-retriever`` workspace package on the
 pleno-anonymize side.
 
 Usage::
@@ -26,11 +26,11 @@ import sys
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
-from saas_scraper import BrowserSession
-from saas_scraper import SourceFilter as ScraperFilter
-from saas_scraper import connectors as _connectors  # noqa: F401  registry side-effect
-from saas_scraper.core import Document as ScraperDocument
-from saas_scraper.registry import registry
+from saas_retriever import BrowserSession
+from saas_retriever import SourceFilter as ScraperFilter
+from saas_retriever import connectors as _connectors  # noqa: F401  registry side-effect
+from saas_retriever.core import Document as ScraperDocument
+from saas_retriever.registry import registry
 
 if TYPE_CHECKING:
     # Imported lazily inside the function body so this example file remains
@@ -52,9 +52,9 @@ if TYPE_CHECKING:
 
 
 def _to_pii_document(doc: ScraperDocument) -> PiiDocument:
-    """Translate one saas-scraper Document into a pleno-anonymize Document.
+    """Translate one saas-retriever Document into a pleno-anonymize Document.
 
-    Field-for-field copy. The shapes were aligned at saas-scraper 0.1.0
+    Field-for-field copy. The shapes were aligned at saas-retriever 0.1.0
     so this stays a one-liner — if it grows, a field has drifted and
     one of the two packages needs a corresponding migration.
     """
@@ -101,7 +101,7 @@ def _to_pii_document(doc: ScraperDocument) -> PiiDocument:
 
 
 class SaasScraperAdapter:
-    """Wrap a saas-scraper Connector behind pleno-anonymize's SourceConnector.
+    """Wrap a saas-retriever Connector behind pleno-anonymize's SourceConnector.
 
     Implements the minimum surface (id, kind, discover, fetch,
     capabilities, close) so a scheduler can drive it. ``Cursor`` and
@@ -145,7 +145,7 @@ class SaasScraperAdapter:
         self,
         ref: PiiDocumentRef,
     ) -> AsyncIterator[PiiDocument]:
-        from saas_scraper.core import DocumentRef as ScraperDocumentRef
+        from saas_retriever.core import DocumentRef as ScraperDocumentRef
 
         scraper_ref = ScraperDocumentRef(
             source_id=ref.source_id,

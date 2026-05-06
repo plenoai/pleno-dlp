@@ -19,7 +19,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
-from saas_scraper import Document
+from saas_retriever import Document
 
 from pleno_secret_scanner.findings import Finding
 

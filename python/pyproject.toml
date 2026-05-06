@@ -1,7 +1,7 @@
 [project]
 name = "pleno-secret-scanner"
-version = "0.3.0"
-description = "Scan SaaS sources for leaked secrets. Backend-agnostic (trufflehog, gitleaks, native regex), source-agnostic (every connector saas-scraper provides — incl. GitHub issues + PRs from saas-scraper 0.5)."
+version = "0.4.0"
+description = "Scan SaaS sources for leaked secrets. Backend-agnostic (trufflehog, gitleaks, native regex). API-driven content collection via saas-retriever (org-wide GitHub: code + issues + PRs)."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.12"
@@ -19,7 +19,7 @@ classifiers = [
     "Topic :: Security",
 ]
 dependencies = [
-    "saas-scraper>=0.5.0",
+    "saas-retriever>=0.1.0",
     "typer>=0.12",
     "rich>=13.9",
 ]
@@ -66,7 +66,7 @@ strict = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["saas_scraper", "saas_scraper.*"]
+module = ["saas_retriever", "saas_retriever.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
