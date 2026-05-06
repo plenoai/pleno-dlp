@@ -27,3 +27,4 @@ Single-file greps and trivial questions should be answered directly without invo
 | 2026-05-06 | Initial harness (5 agents, 5 skills) + Go scaffold | repo-wide | Spun up from pleno-anonymize as a reference |
 | 2026-05-06 | Translated harness to English | `.claude/`, `CLAUDE.md` | Operator language preference |
 | 2026-05-06 | MVP end-to-end (filesystem source + AWS/GitHub/Slack/OpenAI/Anthropic detectors + scan CLI + json/sarif/table output) | `pkg/`, `cmd/` | Make the scanner usable from the command line; 51 race-clean tests, 11/11 e2e checks |
+| 2026-05-06 | Python package 0.2.0 consuming saas-scraper (native/trufflehog/gitleaks backends, json/sarif/table sinks, CLI) | `python/`, `.github/workflows/{test,release}-py.yml` | SaaS-source path; Go binary keeps filesystem scope. Tag pattern `py-vX.Y.Z` |
