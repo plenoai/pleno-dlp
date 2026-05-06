@@ -67,6 +67,15 @@ def cmd_scan(
     owner: str | None = typer.Option(None, "--owner"),
     repo: str | None = typer.Option(None, "--repo"),
     project: str | None = typer.Option(None, "--project"),
+    resources: list[str] = typer.Option(
+        [],
+        "--resource",
+        help=(
+            "GitHub: which resource(s) to scan. Repeatable. "
+            "One or more of code|issues|prs (default: code). "
+            "Ignored by other connectors."
+        ),
+    ),
     since: str | None = typer.Option(None, "--since"),
     include: list[str] = typer.Option([], "--include"),
     exclude: list[str] = typer.Option([], "--exclude"),
@@ -87,6 +96,11 @@ def cmd_scan(
     for k, v in (("workspace", workspace), ("owner", owner), ("repo", repo), ("project", project)):
         if v is not None:
             connector_kwargs[k] = v
+    if resources:
+        # frozenset matches GitHubConnector's accepted shape; other
+        # connectors that don't accept `resources=` will have it filtered
+        # out by `_filter_supported_kwargs` before construction.
+        connector_kwargs["resources"] = frozenset(resources)
 
     rc = asyncio.run(
         _run(
