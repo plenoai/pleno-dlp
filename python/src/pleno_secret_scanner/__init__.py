@@ -13,4 +13,4 @@ from pleno_secret_scanner.findings import Finding
 from pleno_secret_scanner.pipeline import Pipeline
 
 __all__ = ["Backend", "Finding", "Pipeline"]
-__version__ = "0.2.0"
+__version__ = "0.3.0"

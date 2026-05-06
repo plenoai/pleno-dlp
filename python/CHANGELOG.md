@@ -5,13 +5,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-06
+
 ### Added
 
+- ``scan`` CLI gains ``--resource`` (repeatable) for the GitHub
+  connector. Pass ``--resource code --resource issues --resource prs``
+  to scan all three (saas-scraper 0.5.0+). Other connectors ignore the
+  flag; the supported-kwargs filter strips it before construction.
 - `examples/pleno_anonymize_bridge.py` — adapter wrapping any
   ``saas_scraper.Connector`` as a
   ``pleno_pii_scanner.sources.base.SourceConnector``. Demonstrates that
   the two pipelines share the Document protocol; tests round-trip every
   field. Skipped when ``pleno-pii-scanner`` isn't installed.
+
+### Changed
+
+- Bumped ``saas-scraper`` floor to ``>=0.5.0`` for GitHub issue / PR
+  scrape support.
 
 ## [0.2.0] - 2026-05-06
 
@@ -35,4 +46,5 @@ legacy Go binary's `vX.Y.Z` tags in the same repo.
 - GitHub Actions: ruff + mypy + pytest matrix on Python 3.12 / 3.13;
   tag-pushed PyPI trusted publishing via `pypa/gh-action-pypi-publish`.
 
+[0.3.0]: https://github.com/plenoai/pleno-secret-scanner/releases/tag/py-v0.3.0
 [0.2.0]: https://github.com/plenoai/pleno-secret-scanner/releases/tag/py-v0.2.0

@@ -24,8 +24,12 @@ playwright install chromium
 # Scan a Slack workspace using the trufflehog backend (requires trufflehog on PATH)
 pleno-secret-scanner scan slack --workspace acme --backend trufflehog
 
-# Scan a GitHub repo with the built-in native backend (no system deps)
+# Scan a GitHub repo (code only, default)
 pleno-secret-scanner scan github --owner plenoai --repo saas-scraper
+
+# Also scan issues + PR conversations and diffs
+pleno-secret-scanner scan github --owner plenoai --repo saas-scraper \
+    --resource code --resource issues --resource prs
 
 # Output formats
 pleno-secret-scanner scan slack --workspace acme --format sarif > findings.sarif
