@@ -10,7 +10,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.15.0.
+### Added
+
+- **15 more secret detectors** — batch 19 (constants 275..289):
+  OVHCloud, EquinixMetal, Civo, Exoscale, BuddyCI, SemaphoreCI,
+  JenkinsX, AssemblyAI, ElevenLabs, Deepgram, Front, CrispChat, Drift,
+  Vanta, OneSignal. Total now **283 secret + 4 PII = 287 detectors**.
+  IaaS / cloud (OVHCloud, EquinixMetal, Civo, Exoscale), CI / DevOps
+  (BuddyCI, SemaphoreCI, JenkinsX), AI / ML (AssemblyAI, ElevenLabs,
+  Deepgram), email / comms (Front, CrispChat, Drift), security /
+  compliance (Vanta), and mobile push (OneSignal). OVHCloud and
+  Exoscale ship unverified-by-design — both require HMAC-SHA1 query
+  signing with material we won't reconstruct from a chunk. CrispChat
+  is unverified-by-design because its (Identifier, Key) pair must be
+  HTTP-Basic-encoded and the Identifier half is not always co-located.
+  SemaphoreCI uses per-org hosts (`<org>.semaphoreci.com`) and
+  JenkinsX uses per-installation hosts; both ship with apiBase
+  override so verification fires only when the host is configured.
+  Front uses JWT-shaped 3-segment tokens and is distinct from FrontEgg
+  (different product, different shape — FrontEgg is a UUID
+  client_id+secret pair). OneSignal accepts both the legacy 48-char
+  alnum key and the new `os_v2_app_<base32>{50+}` v2 shape.
 
 ## [0.15.0] — 2026-05-08
 

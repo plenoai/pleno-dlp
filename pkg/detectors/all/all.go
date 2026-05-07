@@ -337,4 +337,25 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/slackusertoken"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/spacelift"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vercelaigateway"
+	// batch 19 — IaaS / cloud (ovhcloud, equinixmetal, civo, exoscale), CI /
+	// DevOps (buddyci, semaphoreci, jenkinsx), AI / ML (assemblyai,
+	// elevenlabs, deepgram), email / comms (front, crispchat, drift),
+	// security / compliance (vanta), mobile push (onesignal). OVHCloud /
+	// Exoscale / CrispChat / SemaphoreCI / JenkinsX are unverified-by-default
+	// (HMAC-signed, paired-secret-only, or per-installation hosts).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/assemblyai"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/buddyci"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/civo"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/crispchat"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/deepgram"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/drift"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/elevenlabs"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/equinixmetal"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/exoscale"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/front"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/jenkinsx"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/onesignal"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/ovhcloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/semaphoreci"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vanta"
 )
