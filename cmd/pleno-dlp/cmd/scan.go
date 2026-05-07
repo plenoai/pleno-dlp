@@ -45,11 +45,12 @@ func SetVersion(version, commit string) {
 // flags (paths, repo, since, ...) live on the corresponding subcommand to
 // keep cobra's --help output narrow and to give each kind its own validation.
 type scanFlags struct {
-	format      string
-	verify      bool
-	concurrency int
-	rulesPath   string
-	failOn      string
+	format        string
+	verify        bool
+	concurrency   int
+	rulesPath     string
+	failOn        string
+	allowlistPath string
 }
 
 var scanOpts scanFlags
@@ -138,6 +139,7 @@ func init() {
 	scanCmd.PersistentFlags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.failOn, "fail-on", "any", "minimum severity that triggers exit 1: any|info|low|medium|high|critical")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file that mutes known false positives (auto-discovers .pleno-allow.json from the repo root)")
 
 	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.include, "include", nil, "glob(s) to include (matched against root-relative paths and basenames)")
 	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.exclude, "exclude", nil, "glob(s) to exclude (in addition to default excludes)")
@@ -261,12 +263,25 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		return err
 	}
 
-	// Wrap with the counting+dedup chain. Order matters: dedup is the outer
-	// layer so the counter only sees unique findings, which makes the exit
-	// code reflect what the user actually saw.
+	allowlist, err := loadAllowlistMaybe(scanOpts.allowlistPath)
+	if err != nil {
+		return err
+	}
+
+	// Wrap with the counting+dedup+allowlist chain. Order matters:
+	//   - dedup is outermost so the counter only sees unique findings,
+	//     which makes the exit code reflect what the user actually saw.
+	//   - allowlist sits inside dedup so suppressed entries don't poison
+	//     the dedup map (a different finding nearby should still emit).
 	counter := &countingSink{inner: sink, threshold: threshold}
-	deduped := engine.NewDedup(counter)
+	allowed := engine.NewAllowlist(allowlist, counter)
+	deduped := engine.NewDedup(allowed)
 	defer func() { _ = sink.Close() }()
+	defer func() {
+		if n := engine.SuppressedCounter(allowed); n > 0 {
+			fmt.Fprintf(cmd.ErrOrStderr(), "allowlist: suppressed %d finding(s)\n", n)
+		}
+	}()
 
 	eng := engine.NewWithDetectors(dets, engine.Options{
 		Verify:      scanOpts.verify,
@@ -325,6 +340,52 @@ func isTerminalReader(r io.Reader) bool {
 		return false
 	}
 	return info.Mode()&os.ModeCharDevice != 0
+}
+
+// loadAllowlistMaybe loads the allowlist file at explicitPath when set,
+// otherwise auto-discovers `.pleno-allow.json` walking up from the
+// process's cwd. Returns (nil, nil) when neither is present so the
+// engine layer's nil-allowlist pass-through kicks in.
+//
+// Auto-discovery walks up to 8 directories (covers nested monorepos
+// without scanning the entire filesystem). The first match wins.
+func loadAllowlistMaybe(explicitPath string) (*engine.Allowlist, error) {
+	if explicitPath != "" {
+		return engine.LoadAllowlistFile(explicitPath)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, nil
+	}
+	dir := wd
+	for i := 0; i < 8; i++ {
+		candidate := dir + string(os.PathSeparator) + ".pleno-allow.json"
+		if _, err := os.Stat(candidate); err == nil {
+			return engine.LoadAllowlistFile(candidate)
+		}
+		parent := dirParent(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return nil, nil
+}
+
+// dirParent returns dir's parent. Inlined here rather than depending on
+// path/filepath.Dir to keep the auto-discovery loop transparent — Dir's
+// behaviour at root differs subtly across platforms and we want the
+// loop bound to win, not Dir's edge cases.
+func dirParent(dir string) string {
+	for i := len(dir) - 1; i >= 0; i-- {
+		if dir[i] == os.PathSeparator {
+			if i == 0 {
+				return string(os.PathSeparator)
+			}
+			return dir[:i]
+		}
+	}
+	return dir
 }
 
 // errFindingsFound is the sentinel used to signal "scan succeeded but

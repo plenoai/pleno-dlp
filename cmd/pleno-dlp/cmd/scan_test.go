@@ -142,6 +142,7 @@ func resetScanOpts() {
 	scanOpts.concurrency = 8
 	scanOpts.rulesPath = ""
 	scanOpts.failOn = "any"
+	scanOpts.allowlistPath = ""
 }
 
 // TestScanFilesystemWithCustomRules drives the full CLI with a custom
@@ -213,6 +214,37 @@ func TestScanStdin_FindsSecretFromPipe(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "test-pipe") {
 		t.Errorf("expected --label to ride through to output:\n%s", out.String())
+	}
+}
+
+// TestScanFilesystemWithAllowlist proves a leaked AKIAIOSFODNN7EXAMPLE
+// fixture is muted by an allowlist file pointed at via --allowlist.
+// Without the allowlist this would trip errFindingsFound.
+func TestScanFilesystemWithAllowlist(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+
+	dir := t.TempDir()
+	target := dir + "/leak.txt"
+	if err := writeFile(target, "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\nAWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	allow := dir + "/.pleno-allow.json"
+	if err := writeFile(allow, `{"entries":[{"detector":"AWS","reason":"trufflehog dummy"}]}`); err != nil {
+		t.Fatalf("seed allow: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"scan", "--allowlist", allow, "--format", "json", "filesystem", target})
+
+	err := Root.Execute()
+	if IsFindingsError(err) {
+		t.Fatalf("allowlist should suppress AWS finding; output:\n%s\nstderr:\n%s", out.String(), errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "allowlist: suppressed") {
+		t.Errorf("expected suppression notice on stderr; got:\n%s", errBuf.String())
 	}
 }
 
