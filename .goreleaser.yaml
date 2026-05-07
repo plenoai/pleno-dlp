@@ -1,6 +1,10 @@
 version: 2
 project_name: pleno-dlp
 
+before:
+  hooks:
+    - go mod tidy
+
 builds:
   - id: pleno-dlp
     main: ./cmd/pleno-dlp
@@ -9,6 +13,8 @@ builds:
       - CGO_ENABLED=0
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
+    flags:
+      - -trimpath
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
@@ -20,12 +26,45 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
+    files:
+      - LICENSE
+      - README.md
 
 checksum:
   name_template: 'checksums.txt'
 
+# Software Bill of Materials per release artifact. anchore/syft is the
+# de-facto standard SBOM generator GitHub's attestation action accepts.
+sboms:
+  - artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.sbom.json"
+
 release:
   prerelease: auto
+  draft: false
+  footer: |
+    ---
+    Verify the release with:
+    ```
+    gh attestation verify --owner plenoai pleno-dlp_{os}_{arch}.tar.gz
+    ```
 
 changelog:
   use: github
+  sort: asc
+  groups:
+    - title: 'New detectors'
+      regexp: '^.*?feat\(detectors\)'
+      order: 0
+    - title: 'New sources'
+      regexp: '^.*?feat\(sources\)'
+      order: 1
+    - title: 'Engine and CLI'
+      regexp: '^.*?feat'
+      order: 2
+    - title: 'Bug fixes'
+      regexp: '^.*?fix'
+      order: 3
+    - title: 'Other'
+      order: 999
