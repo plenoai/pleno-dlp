@@ -759,6 +759,36 @@ func (t DetectorType) String() string {
 		return "Turso"
 	case Knock:
 		return "Knock"
+	case Shippo:
+		return "Shippo"
+	case EasyPost:
+		return "EasyPost"
+	case TaxJar:
+		return "TaxJar"
+	case Avalara:
+		return "Avalara"
+	case BambooHR:
+		return "BambooHR"
+	case Paylocity:
+		return "Paylocity"
+	case DeepSeek:
+		return "DeepSeek"
+	case MonsterAPI:
+		return "MonsterAPI"
+	case FriendliAI:
+		return "FriendliAI"
+	case AppDynamics:
+		return "AppDynamics"
+	case ElasticAPM:
+		return "ElasticAPM"
+	case Lightstep:
+		return "Lightstep"
+	case EmailJS:
+		return "EmailJS"
+	case Mailjet:
+		return "Mailjet"
+	case Hasura:
+		return "Hasura"
 	default:
 		return "Unknown"
 	}

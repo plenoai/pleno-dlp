@@ -574,6 +574,35 @@ const (
 	Baseten
 	Turso
 	Knock
+	// batch 25 — appended in wire-stable order, never reorder. Shipping /
+	// e-commerce (Shippo, EasyPost, TaxJar, Avalara), HR / payroll (BambooHR,
+	// Paylocity), AI / inference (DeepSeek, MonsterAPI, FriendliAI),
+	// observability / APM (AppDynamics, ElasticAPM, Lightstep), email / comms
+	// (EmailJS, Mailjet), and database / IaaS (Hasura). Avalara, Mailjet, and
+	// EmailJS are paired-credential detectors using RawV2 (account+license,
+	// api_key+api_secret, user_id+access_token). BambooHR / AppDynamics /
+	// ElasticAPM / Hasura are unverified-by-default — each requires a
+	// per-tenant / per-deployment / per-controller host that isn't in the
+	// chunk; verify only fires when an apiBase override is supplied.
+	// Paylocity is unverified-by-default for the same reason (sandbox vs
+	// prod gateway). FriendliAI tokens use the `flp_` prefix; DeepSeek
+	// reuses the OpenAI `sk-` shape so the deepseek keyword window keeps
+	// the detector disjoint from OpenAI.
+	Shippo
+	EasyPost
+	TaxJar
+	Avalara
+	BambooHR
+	Paylocity
+	DeepSeek
+	MonsterAPI
+	FriendliAI
+	AppDynamics
+	ElasticAPM
+	Lightstep
+	EmailJS
+	Mailjet
+	Hasura
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
