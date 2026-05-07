@@ -230,7 +230,9 @@ func TestScanFilesystemWithAllowlist(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	allow := dir + "/.pleno-allow.json"
-	if err := writeFile(allow, `{"entries":[{"detector":"AWS","reason":"trufflehog dummy"}]}`); err != nil {
+	// Path-based allowlist — covers AWS plus any generic high-entropy
+	// hits the catch-all detector raises against the same fixture.
+	if err := writeFile(allow, `{"entries":[{"path":"leak.txt","reason":"trufflehog dummies"}]}`); err != nil {
 		t.Fatalf("seed allow: %v", err)
 	}
 
