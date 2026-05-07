@@ -233,6 +233,21 @@ var ruleDescriptions = map[string]string{
 	detectors.OpenRouter.String():         "OpenRouter API key (sk-or-v1-)",
 	detectors.Together.String():           "Together.ai API key (64-char hex) near together keyword",
 	detectors.Dropbox.String():            "Dropbox short-lived (sl.) or app token near dropbox keyword",
+	detectors.AzureAD.String():            "Azure AD (Entra ID) client secret + app id pair — unverified by design (tenant unknown)",
+	detectors.Telegram.String():           "Telegram Bot API token (<bot_id>:<base64>)",
+	detectors.Shodan.String():             "Shodan API key (32-char alphanumeric) near shodan keyword",
+	detectors.VirusTotal.String():         "VirusTotal API key (64-char hex) near virustotal keyword",
+	detectors.Doppler.String():            "Doppler service / personal token (dp.<scope>.…)",
+	detectors.Vault.String():              "HashiCorp Vault token (hvs./hvb./s.) — unverified by design (server URL unknown)",
+	detectors.Algolia.String():            "Algolia admin API key + application id pair near algolia keyword",
+	detectors.Airtable.String():           "Airtable PAT (pat…) or legacy API key (key…) near airtable keyword",
+	detectors.Grafana.String():            "Grafana service-account token (glsa_) — unverified by design (host unknown)",
+	detectors.LaunchDarkly.String():       "LaunchDarkly access (api-) or SDK (sdk-) key",
+	detectors.Auth0.String():              "Auth0 management API token (JWT-shaped) near auth0 keyword — unverified by design (audience unknown)",
+	detectors.Buildkite.String():          "Buildkite agent (bkua_) or API access (bka_) token",
+	detectors.CircleCI.String():           "CircleCI project (CCIPRJ_) or personal API token near circleci keyword",
+	detectors.Snyk.String():               "Snyk API token (UUID) near snyk keyword",
+	detectors.Spotify.String():            "Spotify client_id + client_secret pair (full app scope)",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

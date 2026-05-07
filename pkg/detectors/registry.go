@@ -151,6 +151,36 @@ func (t DetectorType) String() string {
 		return "Together"
 	case Dropbox:
 		return "Dropbox"
+	case AzureAD:
+		return "AzureAD"
+	case Telegram:
+		return "Telegram"
+	case Shodan:
+		return "Shodan"
+	case VirusTotal:
+		return "VirusTotal"
+	case Doppler:
+		return "Doppler"
+	case Vault:
+		return "Vault"
+	case Algolia:
+		return "Algolia"
+	case Airtable:
+		return "Airtable"
+	case Grafana:
+		return "Grafana"
+	case LaunchDarkly:
+		return "LaunchDarkly"
+	case Auth0:
+		return "Auth0"
+	case Buildkite:
+		return "Buildkite"
+	case CircleCI:
+		return "CircleCI"
+	case Snyk:
+		return "Snyk"
+	case Spotify:
+		return "Spotify"
 	default:
 		return "Unknown"
 	}
