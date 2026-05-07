@@ -21,6 +21,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/output"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/verify"
 )
 
 // Root is the top-level cobra command. main.go calls Root.Execute(); every
@@ -47,6 +48,7 @@ func SetVersion(version, commit string) {
 type scanFlags struct {
 	format        string
 	verify        bool
+	verifyRPS     int
 	concurrency   int
 	rulesPath     string
 	failOn        string
@@ -136,6 +138,7 @@ func init() {
 	// `scan filesystem --format json` and `scan git --format json` consistent.
 	scanCmd.PersistentFlags().StringVar(&scanOpts.format, "format", "table", "output format: json, sarif, table")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.verify, "verify", false, "verify candidate secrets against upstream APIs")
+	scanCmd.PersistentFlags().IntVar(&scanOpts.verifyRPS, "verify-rps", 10, "per-host requests-per-second cap during --verify (0 = disable rate limiting)")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.failOn, "fail-on", "any", "minimum severity that triggers exit 1: any|info|low|medium|high|critical")
@@ -237,6 +240,16 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// chunks instead of leaving worker goroutines blocked on send.
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Install the per-host verify rate limiter when --verify is on.
+	// Detectors all share http.DefaultTransport, so wrapping it here
+	// — once, before any detector runs — covers the entire scan
+	// without per-detector refactoring. We restore on exit so unit
+	// tests in the same process aren't affected by leftover state.
+	if scanOpts.verify {
+		prev := verify.Install(scanOpts.verifyRPS)
+		defer verify.Restore(prev)
+	}
 
 	if err := src.Init(ctx, "cli", 0, 0, scanOpts.verify, cfg, scanOpts.concurrency); err != nil {
 		return fmt.Errorf("init %s source: %w", kind, err)

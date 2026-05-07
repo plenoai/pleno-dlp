@@ -139,6 +139,7 @@ func TestScanFailOnGate(t *testing.T) {
 func resetScanOpts() {
 	scanOpts.format = "table"
 	scanOpts.verify = false
+	scanOpts.verifyRPS = 10
 	scanOpts.concurrency = 8
 	scanOpts.rulesPath = ""
 	scanOpts.failOn = "any"
