@@ -334,6 +334,32 @@ const (
 	Browserstack
 	StabilityAI
 	CiscoMeraki
+	// batch 16 — appended in wire-stable order, never reorder. Identity / SSO
+	// (Webex, PingIdentity), security tooling (Tenable, Rapid7, CrowdStrike,
+	// Wiz, SonarQube), email/marketing (MailerLite, ActiveCampaign, Drip),
+	// CDN/storage/media (BunnyCDN, Vimeo, Cloudinary), video infra (Mux),
+	// webhooks (Hookdeck). Wiz / ActiveCampaign / PingIdentity are
+	// unverified-by-design — Wiz uses tenant-specific hosts
+	// (api.<tenant>.app.wiz.io), ActiveCampaign needs <account>.api-us1.com,
+	// and PingIdentity has per-region hosts (api.pingone.com / .eu / .asia /
+	// .ca). Tenable / CrowdStrike / Mux / Cloudinary are paired (id+secret)
+	// detectors using RawV2. Hookdeck `hookdeck_live_` matches surface
+	// SeverityCritical when verified (handled by DefaultSeverity).
+	Webex
+	Tenable
+	Rapid7
+	CrowdStrike
+	Wiz
+	SonarQube
+	MailerLite
+	ActiveCampaign
+	Drip
+	BunnyCDN
+	Vimeo
+	Cloudinary
+	PingIdentity
+	Mux
+	Hookdeck
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

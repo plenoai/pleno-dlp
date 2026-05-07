@@ -489,6 +489,36 @@ func (t DetectorType) String() string {
 		return "StabilityAI"
 	case CiscoMeraki:
 		return "CiscoMeraki"
+	case Webex:
+		return "Webex"
+	case Tenable:
+		return "Tenable"
+	case Rapid7:
+		return "Rapid7"
+	case CrowdStrike:
+		return "CrowdStrike"
+	case Wiz:
+		return "Wiz"
+	case SonarQube:
+		return "SonarQube"
+	case MailerLite:
+		return "MailerLite"
+	case ActiveCampaign:
+		return "ActiveCampaign"
+	case Drip:
+		return "Drip"
+	case BunnyCDN:
+		return "BunnyCDN"
+	case Vimeo:
+		return "Vimeo"
+	case Cloudinary:
+		return "Cloudinary"
+	case PingIdentity:
+		return "PingIdentity"
+	case Mux:
+		return "Mux"
+	case Hookdeck:
+		return "Hookdeck"
 	default:
 		return "Unknown"
 	}
