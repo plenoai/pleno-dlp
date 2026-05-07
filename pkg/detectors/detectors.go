@@ -32,6 +32,16 @@ const (
 	Cloudflare
 	SendGrid
 	Twilio
+	DigitalOcean
+	Sentry
+	MongoDBAtlas
+	HubSpot
+	SalesforceRefresh
+	NewRelic
+	PagerDuty
+	Postman
+	Mailgun
+	TerraformCloud
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

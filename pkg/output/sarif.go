@@ -193,6 +193,16 @@ var ruleDescriptions = map[string]string{
 	detectors.JWT.String():                "JSON Web Token",
 	detectors.PrivateKeyPEM.String():      "Private key (PEM-encoded RSA/EC/OPENSSH/...)",
 	detectors.GenericHighEntropy.String(): "Generic high-entropy string near a credential keyword",
+	detectors.DigitalOcean.String():       "DigitalOcean personal access token (dop_v1_)",
+	detectors.Sentry.String():             "Sentry DSN (project ingest credential)",
+	detectors.MongoDBAtlas.String():       "MongoDB Atlas programmatic API key pair (public + private)",
+	detectors.HubSpot.String():            "HubSpot Private App access token (pat-)",
+	detectors.SalesforceRefresh.String():  "Salesforce OAuth refresh token (5Aep861)",
+	detectors.NewRelic.String():           "New Relic license / ingest / insert key",
+	detectors.PagerDuty.String():          "PagerDuty REST API token",
+	detectors.Postman.String():            "Postman API key (PMAK-)",
+	detectors.Mailgun.String():            "Mailgun API key (legacy or new format)",
+	detectors.TerraformCloud.String():     "Terraform Cloud / Enterprise user API token (atlasv1)",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
