@@ -27,12 +27,30 @@ func TestScanHelp(t *testing.T) {
 	}
 }
 
-func TestScanRequiresPath(t *testing.T) {
+func TestScanFilesystemRequiresPath(t *testing.T) {
 	// Args validation runs before RunE, so we can drive it without exercising
 	// the source registry. Using cobra.Command.Args directly avoids state
 	// bleed from sibling tests that may have flipped help flags on Root.
-	if err := scanCmd.Args(scanCmd, []string{}); err == nil {
-		t.Errorf("expected error when no path given")
+	if err := scanFilesystemCmd.Args(scanFilesystemCmd, []string{}); err == nil {
+		t.Errorf("expected error when no path given to scan filesystem")
+	}
+}
+
+func TestScanGitHelp(t *testing.T) {
+	// `scan git --help` must mention every git-specific flag so users can
+	// discover them without reading the README.
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+	Root.SetArgs([]string{"scan", "git", "--help"})
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("scan git --help: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{"--repo", "--branch", "--since", "--max-depth", "--include", "--exclude"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("scan git help missing %q in:\n%s", want, got)
+		}
 	}
 }
 
