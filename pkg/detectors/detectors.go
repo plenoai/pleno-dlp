@@ -140,6 +140,26 @@ const (
 	TencentCloud
 	TerraformCloudTeam
 	Zendesk
+	// batch 8 — appended in wire-stable order, never reorder. Connection-
+	// string and URL-embedded credentials (Redis/Postgres/MySQL/MongoDB/
+	// RabbitMQ/Kafka/SMTP/HTTP-basic-auth) plus container-registry tokens
+	// (Docker Hub PAT, GHCR), AWS S3 / GCS presigned URLs, Azure SQL
+	// connection strings, kubeconfig files, and Adobe.io key+secret pairs.
+	Redis
+	Postgres
+	MySQL
+	MongoDB
+	RabbitMQ
+	Kafka
+	BasicAuth
+	SMTP
+	AdobeIO
+	DockerHub
+	GHCR
+	AWSS3PresignedURL
+	GCSSignedURL
+	AzureSQLConnString
+	Kubeconfig
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

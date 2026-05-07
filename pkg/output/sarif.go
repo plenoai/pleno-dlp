@@ -282,6 +282,21 @@ var ruleDescriptions = map[string]string{
 	detectors.TencentCloud.String():       "Tencent Cloud SecretId (AKID) + SecretKey pair — unverified by design (region unknown, audit-log-bound)",
 	detectors.TerraformCloudTeam.String(): "Terraform Cloud / Enterprise team API token (atlasv1) near team keyword",
 	detectors.Zendesk.String():            "Zendesk API token + operator email pair — unverified by design (subdomain unknown)",
+	detectors.Redis.String():              "Redis connection URI with embedded password (redis://:password@host) — unverified by design (host tenant-specific)",
+	detectors.Postgres.String():           "PostgreSQL connection URI with embedded password (postgres://user:password@host) — unverified by design (host tenant-specific)",
+	detectors.MySQL.String():              "MySQL connection URI with embedded password (mysql://user:password@host) — unverified by design (host tenant-specific)",
+	detectors.MongoDB.String():            "MongoDB connection URI with embedded password (mongodb://, mongodb+srv://) — unverified by design (cluster tenant-specific)",
+	detectors.RabbitMQ.String():           "RabbitMQ AMQP URI with embedded password (amqp(s)://user:password@host) — unverified by design (broker tenant-specific)",
+	detectors.Kafka.String():              "Kafka SASL/PLAIN credentials (sasl.password / JAAS PlainLoginModule) — unverified by design (broker tenant-specific)",
+	detectors.BasicAuth.String():          "HTTP/HTTPS/FTP URL with embedded Basic-auth userinfo (https://user:password@host) — unverified by design (host unbounded)",
+	detectors.SMTP.String():               "SMTP submission URI with embedded password (smtp(s)://user:password@host) — unverified by design (host tenant-specific)",
+	detectors.AdobeIO.String():            "Adobe.io api_key + client_secret pair, verified against IMS /ims/token/v3 client_credentials POST",
+	detectors.DockerHub.String():          "Docker Hub personal access token (dckr_pat_…) — unverified by design (username required, not always in chunk)",
+	detectors.GHCR.String():               "GitHub Container Registry token (gh[posru]_… co-occurring with ghcr.io), verified against ghcr.io/v2/",
+	detectors.AWSS3PresignedURL.String():  "AWS S3 presigned URL (X-Amz-Algorithm=AWS4-HMAC-SHA256) — unverified by design (issuing the URL would fetch the underlying object)",
+	detectors.GCSSignedURL.String():       "GCS V4 signed URL (X-Goog-Algorithm=GOOG4-RSA-SHA256) — unverified by design (issuing the URL would fetch the underlying object)",
+	detectors.AzureSQLConnString.String(): "Azure SQL Database connection string (Server=…database.windows.net;…;Password=…) — unverified by design (host tenant-specific)",
+	detectors.Kubeconfig.String():         "kubeconfig YAML credential field (client-certificate-data / client-key-data / token under kind: Config) — unverified by design (cluster API host tenant-specific)",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
