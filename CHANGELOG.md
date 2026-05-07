@@ -10,23 +10,28 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.1.0. Will be cut as **v0.2.0**.
+Anything merged to `main` since v0.2.0.
+
+## [0.2.0] — 2026-05-08
 
 ### Added
 
-- **42 secret detectors** ported from trufflehog's surface, each with
+- **57 secret detectors** ported from trufflehog's surface, each with
   `Keywords` / `FromData` / `Type` / `Verify`:
   - **Cloud / infra** — AWS, GCP service-account, Azure storage key,
     DigitalOcean, Cloudflare, Heroku, Render, Fly.io, Vercel, Netlify,
-    Terraform Cloud
-  - **VCS / dev tooling** — GitHub PAT, GitLab PAT, npm, PyPI,
-    Hugging Face, Postman, Atlassian
-  - **AI** — OpenAI, Anthropic
-  - **Comms / SaaS** — Slack bot tokens, Slack webhooks, Twilio,
-    SendGrid, Mailgun, Mailchimp, Brevo, Postmark, Notion, Linear,
-    Asana, Mixpanel, Segment, Okta, HubSpot, Salesforce refresh
+    Terraform Cloud, Dropbox
+  - **VCS / dev tooling** — GitHub PAT, GitLab PAT, Bitbucket Cloud,
+    npm, PyPI, Hugging Face, Postman, Atlassian, Jira, Confluence
+  - **AI** — OpenAI, Anthropic, Cohere, Replicate, Mistral, Groq,
+    OpenRouter, Together
+  - **Comms / SaaS** — Slack bot tokens, Slack webhooks, Discord,
+    Twilio, SendGrid, Mailgun, Mailchimp, Brevo, Postmark, Notion,
+    Linear, Asana, Mixpanel, Segment, Okta, HubSpot, Intercom,
+    Salesforce refresh
   - **Observability** — Datadog, Sentry, New Relic, PagerDuty
-  - **Payments / data** — Stripe, MongoDB Atlas
+  - **Payments / data** — Stripe, Square, PayPal, Plaid,
+    MongoDB Atlas
   - **Format-shaped** — JWT, PEM private keys
 - **Decoder pipeline** (`pkg/decoder`) — base64 (std + url-safe + raw),
   percent-encoding, hex. Decoded variants are scanned alongside the
@@ -80,5 +85,6 @@ Anything merged to `main` since v0.1.0. Will be cut as **v0.2.0**.
   Slack bot, OpenAI, Anthropic) + JSON / SARIF / table output +
   cobra `scan` CLI. 51 race-clean tests.
 
-[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.1.0
