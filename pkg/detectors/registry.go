@@ -91,6 +91,36 @@ func (t DetectorType) String() string {
 		return "Mailgun"
 	case TerraformCloud:
 		return "TerraformCloud"
+	case Vercel:
+		return "Vercel"
+	case Netlify:
+		return "Netlify"
+	case Heroku:
+		return "Heroku"
+	case Render:
+		return "Render"
+	case FlyIO:
+		return "FlyIO"
+	case Atlassian:
+		return "Atlassian"
+	case Notion:
+		return "Notion"
+	case Linear:
+		return "Linear"
+	case Asana:
+		return "Asana"
+	case Mixpanel:
+		return "Mixpanel"
+	case Segment:
+		return "Segment"
+	case Brevo:
+		return "Brevo"
+	case Mailchimp:
+		return "Mailchimp"
+	case Postmark:
+		return "Postmark"
+	case Okta:
+		return "Okta"
 	default:
 		return "Unknown"
 	}

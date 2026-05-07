@@ -203,6 +203,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Postman.String():            "Postman API key (PMAK-)",
 	detectors.Mailgun.String():            "Mailgun API key (legacy or new format)",
 	detectors.TerraformCloud.String():     "Terraform Cloud / Enterprise user API token (atlasv1)",
+	detectors.Vercel.String():             "Vercel API access token (24-char) near vercel keyword",
+	detectors.Netlify.String():            "Netlify personal access token (nfp_)",
+	detectors.Heroku.String():             "Heroku API token (UUID) near heroku keyword",
+	detectors.Render.String():             "Render API key (rnd_)",
+	detectors.FlyIO.String():              "Fly.io macaroon token (fm1_/fm2_)",
+	detectors.Atlassian.String():          "Atlassian Cloud API token (24-char) near atlassian keyword",
+	detectors.Notion.String():             "Notion integration token (secret_)",
+	detectors.Linear.String():             "Linear personal API key (lin_api_)",
+	detectors.Asana.String():              "Asana personal access token (1/<gid>/<hex>)",
+	detectors.Mixpanel.String():           "Mixpanel service account credential pair (account.id + secret)",
+	detectors.Segment.String():            "Segment write key (32-char) near segment keyword",
+	detectors.Brevo.String():              "Brevo / Sendinblue API key (xkeysib-)",
+	detectors.Mailchimp.String():          "Mailchimp API key (32-hex-us<dc>)",
+	detectors.Postmark.String():           "Postmark server API token (UUID) near postmark keyword",
+	detectors.Okta.String():               "Okta API token (00...) — tenant URL required to verify",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
