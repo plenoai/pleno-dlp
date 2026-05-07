@@ -1,22 +1,25 @@
 # pleno-dlp
 
 Trufflehog-compatible DLP scanner — secrets **and** PII — over the local
-filesystem, git history, and SaaS content. AGPL-3.0.
+filesystem, git history, stdin, and SaaS content. AGPL-3.0.
 
 ```sh
 go install github.com/plenoai/pleno-dlp/cmd/pleno-dlp@latest
 
 pleno-dlp scan filesystem ./repo
 pleno-dlp scan git --repo ./repo --max-depth 200
+git diff | pleno-dlp scan stdin --label git-diff
 pleno-dlp scan filesystem ./repo --format sarif --verify > findings.sarif
+pleno-dlp detectors list                        # audit registered coverage
 ```
 
 Two surfaces in one repo. Pick the one that matches your scan target:
 
-- **Go binary** (`cmd/pleno-dlp/`) — filesystem and local git history.
-  Trufflehog-compatible detector interface, archive-aware (zip / tar /
-  tar.gz / gzip), base64 / percent / hex decoder pipeline. Tag pattern
-  `vX.Y.Z`. This README.
+- **Go binary** (`cmd/pleno-dlp/`, this README) — filesystem, local git
+  history, and stdin. Trufflehog-compatible detector interface,
+  archive-aware (zip / tar / tar.gz / gzip), base64 / percent / hex
+  decoder pipeline. **77 detectors** built-in (73 secrets + 4 PII).
+  Tag pattern `vX.Y.Z`.
 - **Python package** (`python/`) — SaaS sources via
   [saas-retriever](https://pypi.org/project/saas-retriever/) (GitHub,
   GitLab, Bitbucket, Slack, Notion, Confluence, Jira). Backends:
@@ -24,44 +27,26 @@ Two surfaces in one repo. Pick the one that matches your scan target:
   delegated PII inference. Tag pattern `py-vX.Y.Z`. See
   [`python/README.md`](python/README.md).
 
-## Detector matrix
+## Detector coverage
 
-27 detectors today. Verify column lists detectors that can confirm a
-candidate against the upstream provider (`--verify` flag); detectors
-without an upstream verification path emit findings as
-`Verified=false`.
+77 built-in detectors. Every secret detector that can confirm against
+an upstream provider implements `Verify` (run with `--verify`); the rest
+emit `Verified=false` with rotation guidance in the output.
 
-| Detector | Match | Verify |
-|---|---|---|
-| AWS | `AKIA…` access-key + nearest 40-char secret | `sts:GetCallerIdentity` |
-| GCP service account | JSON key blob | OAuth token exchange |
-| Azure storage key | base64 88-char | regex only |
-| GitHub | classic + fine-grained PAT | `GET /user` |
-| GitLab | `glpat-…` | `GET /personal_access_tokens/self` |
-| Stripe | `sk_live_` / `sk_test_` / `rk_live_` | `GET /v1/charges` |
-| Slack bot | `xoxb-…` | `auth.test` |
-| Slack webhook | `hooks.slack.com/services/…` | regex only |
-| OpenAI | `sk-…` | `GET /v1/models` |
-| Anthropic | `sk-ant-…` | `GET /v1/models` |
-| Datadog | API key + App key pair | `GET /api/v1/validate` |
-| NPM | `npm_…` | `GET /-/whoami` |
-| PyPI | `pypi-AgEIc…` | `GET upload.pypi.org/legacy/` |
-| HuggingFace | `hf_…` | `GET /api/whoami-v2` |
-| Cloudflare | API token (keyword-gated) | `GET /user/tokens/verify` |
-| SendGrid | `SG.…` | `GET /v3/scopes` |
-| Twilio | `AC…` SID + 32-hex auth token pair | `GET /Accounts/<sid>.json` |
-| JWT | three-segment base64url | regex only (decodes claims to ExtraData) |
-| Private key (PEM) | `-----BEGIN … PRIVATE KEY-----` | regex only |
-| DigitalOcean | `dop_v1_…` | `GET /v2/account` |
-| Sentry DSN | `https://<32hex>@…/<id>` | regex only |
-| MongoDB Atlas | public+private key pair | `GET /api/atlas/v2/orgs` (Basic) |
-| HubSpot | `pat-…` | `GET /integrations/v1/me` |
-| Salesforce refresh | `5Aep861…` OAuth refresh | regex only (Severity=Medium) |
-| New Relic | NRRA / NRAK / NRII keys | `GET /v2/applications.json` (NRRA only) |
-| PagerDuty | 20-char alnum (keyword-gated) | `GET /users` |
-| Postman | `PMAK-…` | `GET /me` |
-| Mailgun | `key-…` (legacy) / `…-…-…` (new) | `GET /v3/domains` |
-| Terraform Cloud | `…atlasv1.…` | `GET /api/v2/account/details` |
+| Class | Providers |
+|---|---|
+| **Cloud / infra** | AWS, GCP service-account, Azure storage key, DigitalOcean, Cloudflare, Heroku, Render, Fly.io, Vercel, Netlify, Terraform Cloud, Dropbox |
+| **VCS / dev tooling** | GitHub PAT, GitLab PAT, Bitbucket Cloud, npm, PyPI, Hugging Face, Postman, Atlassian, Jira, Confluence, Buildkite, CircleCI |
+| **AI** | OpenAI, Anthropic, Cohere, Replicate, Mistral, Groq, OpenRouter, Together |
+| **Comms / SaaS** | Slack bot, Slack webhook, Discord, Twilio, SendGrid, Mailgun, Mailchimp, Brevo, Postmark, Notion, Linear, Asana, Mixpanel, Segment, Telegram, Okta, HubSpot, Intercom, Salesforce refresh, Spotify |
+| **Observability** | Datadog, Sentry, New Relic, PagerDuty, Shodan, VirusTotal |
+| **Payments / data** | Stripe, Square, PayPal, Plaid, MongoDB Atlas |
+| **Format-shaped** | JWT, PEM private keys, **Generic high-entropy** (catch-all near credential keywords) |
+| **Secrets management / IAM** | AzureAD, Doppler, Vault, Algolia, Airtable, Grafana, LaunchDarkly, Auth0, Snyk |
+| **PII (`finding_class=pii`)** | Email, US SSN, Credit card (Luhn-validated), IBAN (mod-97 validated) |
+
+Run `pleno-dlp detectors list` for the live registry, or
+`pleno-dlp detectors list --format json` for machine-readable output.
 
 Add org-specific patterns without forking the binary — see
 [Custom rules](#custom-rules) below.
@@ -73,10 +58,11 @@ Every finding carries a Severity:
 | When | Severity |
 |---|---|
 | Verified=true | Critical |
-| Unverified explicit detector | High |
+| Unverified explicit secret detector | High |
 | Generic high-entropy / JWT / PEM unverified | Medium |
+| PII (any kind) | Medium |
 
-Use `--fail-on` to choose what blocks the build:
+`--fail-on` chooses what blocks the build:
 
 ```sh
 pleno-dlp scan filesystem ./repo --fail-on critical    # only Critical = exit 1
@@ -88,6 +74,30 @@ SARIF output maps Severity to GitHub Code Scanning levels (Critical/High
 → error, Medium → warning, Low/Info → note). `partialFingerprints`
 carries `secret/v1` (sha256(detector|raw)) so GitHub dedups the same
 leak across PRs.
+
+## Allowlist (mute known false positives)
+
+`--allowlist <path>` plus auto-discovery of `.pleno-allow.json` from
+the process cwd. Entries match by detector type, raw secret literal,
+raw secret regex, and path glob (AND across non-empty fields):
+
+```json
+{
+  "entries": [
+    {"detector": "AWS", "raw": "AKIAIOSFODNN7EXAMPLE",
+     "reason": "trufflehog dummy"},
+    {"path": "fixtures/**/*.env",
+     "reason": "local test fixtures"},
+    {"raw_regex": "^sk-test_",
+     "reason": "Stripe test-mode keys"},
+    {"detector": "PIIEmail", "path": "docs/**",
+     "reason": "documented contact emails"}
+  ]
+}
+```
+
+Suppression count surfaces on stderr (`allowlist: suppressed N`),
+flagging stale rules.
 
 ## Custom rules
 
@@ -107,10 +117,9 @@ JSON file passed via `--rules`:
 ]
 ```
 
-`keywords` are required (they gate the regex from running on every
-chunk). `verify_url` is optional; when set, a 200 response counts as
-verified, 401/403 as unverified, transport errors surface as
-`VerificationErr`.
+`keywords` are required — they gate the regex from running on every
+chunk. `verify_url` is optional; 200 = verified, 401/403 = unverified,
+transport errors surface as `VerificationErr`.
 
 ```sh
 pleno-dlp scan filesystem ./repo --rules ./acme-rules.json
@@ -125,26 +134,33 @@ The engine expands every chunk through:
    `ExtraData["archive_path"] = "outer.zip!inner.tar.gz!leak.env"` so
    the trail is visible in output.
 2. **Decoder pipeline** — base64 (std + url-safe), percent-encoded, hex
-   (>=40 chars). Decoded variants are scanned alongside the original;
+   (≥40 chars). Decoded variants are scanned alongside the original;
    hits stamp `ExtraData["decoded_from"]`.
 
-A printable-byte gate keeps binary noise from reaching detectors and
-hard limits (50 MiB per entry, 200 MiB total expanded, depth cap)
-defeat zip-bomb DoS.
+A printable-byte gate keeps binary noise from reaching detectors. Hard
+limits (50 MiB per entry, 200 MiB total expanded, depth cap) defuse
+zip-bomb DoS.
 
-## Git history scan
+## Sources
 
 ```sh
-pleno-dlp scan git --repo ./repo
+# Filesystem (recursive walk)
+pleno-dlp scan filesystem ./repo \
+  --include 'src/**' --exclude '**/*_test.go' \
+  --no-default-excludes  # opt-in: re-scan .git, node_modules, vendor, ...
+
+# Local git history
 pleno-dlp scan git --repo ./repo --branch main --max-depth 500
 pleno-dlp scan git --repo ./repo --since 2024-01-01T00:00:00Z
-pleno-dlp scan git --repo ./repo --include 'src/**' --exclude '**/*_test.go'
+
+# Stdin (one chunk read from os.Stdin)
+git diff | pleno-dlp scan stdin --label git-diff
+kubectl get secret app-config -o yaml | pleno-dlp scan stdin
 ```
 
-Walks every commit reachable from HEAD (or `--branch`) oldest-first,
-diffs each commit against its first parent, emits one Chunk per
-added/modified blob with full GitMeta (repo path, commit SHA, file,
-first-changed line, committer email).
+Default filesystem excludes (`.git`, `.hg`, `.svn`, `node_modules`,
+`vendor`, `target`, `dist`, `build`, `__pycache__`, `.venv`, `.tox`)
+keep most scans tractable; pass `--no-default-excludes` to opt out.
 
 ## Output formats
 
@@ -164,6 +180,15 @@ Pipe SARIF to GitHub Code Scanning:
     sarif_file: findings.sarif
 ```
 
+## Shell completions
+
+```sh
+source <(pleno-dlp completion bash)
+pleno-dlp completion zsh > "${fpath[1]}/_pleno-dlp"
+pleno-dlp completion fish | source
+pleno-dlp completion powershell | Out-String | Invoke-Expression
+```
+
 ## Install
 
 ```sh
@@ -171,7 +196,8 @@ Pipe SARIF to GitHub Code Scanning:
 go install github.com/plenoai/pleno-dlp/cmd/pleno-dlp@latest
 
 # Pre-built archive (linux / darwin / windows × amd64 / arm64)
-# https://github.com/plenoai/pleno-dlp/releases
+# https://github.com/plenoai/pleno-dlp/releases — every release
+# ships a syft SBOM alongside each archive.
 
 # From source
 git clone https://github.com/plenoai/pleno-dlp
