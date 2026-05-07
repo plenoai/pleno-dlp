@@ -248,6 +248,10 @@ var ruleDescriptions = map[string]string{
 	detectors.CircleCI.String():           "CircleCI project (CCIPRJ_) or personal API token near circleci keyword",
 	detectors.Snyk.String():               "Snyk API token (UUID) near snyk keyword",
 	detectors.Spotify.String():            "Spotify client_id + client_secret pair (full app scope)",
+	detectors.PIIEmail.String():           "Email address (PII) — finding_class=pii",
+	detectors.PIIUSSSN.String():           "US Social Security Number xxx-xx-xxxx (PII) — finding_class=pii",
+	detectors.PIICreditCard.String():      "Credit card number with valid Luhn checksum (PII) — finding_class=pii",
+	detectors.PIIIBAN.String():            "International Bank Account Number with valid mod-97 checksum (PII) — finding_class=pii",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

@@ -181,6 +181,14 @@ func (t DetectorType) String() string {
 		return "Snyk"
 	case Spotify:
 		return "Spotify"
+	case PIIEmail:
+		return "PIIEmail"
+	case PIIUSSSN:
+		return "PIIUSSSN"
+	case PIICreditCard:
+		return "PIICreditCard"
+	case PIIIBAN:
+		return "PIIIBAN"
 	default:
 		return "Unknown"
 	}
