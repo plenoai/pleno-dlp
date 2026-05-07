@@ -12,6 +12,19 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.5.0.
 
+### Added
+
+- **`--include-detectors` / `--exclude-detectors`** scoping flags for the
+  `scan` subcommand. Comma-separated, case-insensitive, validated against
+  the live registry — typos error out instead of silently producing zero
+  findings. Custom rules (`--rules`) pass through unfiltered.
+
+### Fixed
+
+- Dedup key now incorporates the stdin label, so two distinct stdin scans
+  with different `--label` values no longer collapse a shared secret into
+  a single finding.
+
 ## [0.5.0] — 2026-05-08
 
 ### Added

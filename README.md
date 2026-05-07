@@ -76,6 +76,16 @@ SARIF output maps Severity to GitHub Code Scanning levels (Critical/High
 carries `secret/v1` (sha256(detector|raw)) so GitHub dedups the same
 leak across PRs.
 
+Scope by detector when one provider is too noisy for a particular repo:
+
+```sh
+pleno-dlp scan filesystem ./repo --exclude-detectors GenericHighEntropy
+pleno-dlp scan filesystem ./repo --include-detectors AWS,GitHub,Stripe
+```
+
+Names match `pleno-dlp detectors list --format names` (case-insensitive).
+Unknown names error so a typo can't silently downgrade the scan.
+
 ## Allowlist (mute known false positives)
 
 `--allowlist <path>` plus auto-discovery of `.pleno-allow.json` from
