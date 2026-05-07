@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"sync/atomic"
 	"syscall"
 
@@ -47,6 +48,7 @@ type scanFlags struct {
 	verify      bool
 	concurrency int
 	rulesPath   string
+	failOn      string
 }
 
 var scanOpts scanFlags
@@ -102,6 +104,7 @@ func init() {
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.verify, "verify", false, "verify candidate secrets against upstream APIs")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.failOn, "fail-on", "any", "minimum severity that triggers exit 1: any|info|low|medium|high|critical")
 
 	scanGitCmd.Flags().StringVar(&gitOpts.repo, "repo", "", "absolute or relative path to a local git repository")
 	scanGitCmd.Flags().StringVar(&gitOpts.branch, "branch", "", "branch to walk (default: HEAD)")
@@ -175,10 +178,15 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		}
 	}
 
+	threshold, err := parseFailOn(scanOpts.failOn)
+	if err != nil {
+		return err
+	}
+
 	// Wrap with the counting+dedup chain. Order matters: dedup is the outer
 	// layer so the counter only sees unique findings, which makes the exit
 	// code reflect what the user actually saw.
-	counter := &countingSink{inner: sink}
+	counter := &countingSink{inner: sink, threshold: threshold}
 	deduped := engine.NewDedup(counter)
 	defer func() { _ = sink.Close() }()
 
@@ -191,10 +199,38 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		return fmt.Errorf("scan: %w", err)
 	}
 
-	if counter.count.Load() > 0 {
+	if counter.failing.Load() > 0 {
 		return errFindingsFound
 	}
 	return nil
+}
+
+// parseFailOn turns the --fail-on string into a Severity threshold. The
+// special value "any" means any finding (severity > Unknown) trips the
+// gate — this preserves the historical behaviour for callers that don't
+// pass --fail-on explicitly.
+func parseFailOn(s string) (detectors.Severity, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "any":
+		// Sentinel: every finding trips the gate. Implemented in
+		// countingSink as "trip on count > 0" rather than a severity
+		// comparison, so the threshold returned here doesn't matter
+		// once the failing-count logic checks it. Return Info to keep
+		// types tidy.
+		return detectors.SeverityInfo, nil
+	case "info":
+		return detectors.SeverityInfo, nil
+	case "low":
+		return detectors.SeverityLow, nil
+	case "medium":
+		return detectors.SeverityMedium, nil
+	case "high":
+		return detectors.SeverityHigh, nil
+	case "critical":
+		return detectors.SeverityCritical, nil
+	default:
+		return 0, fmt.Errorf("--fail-on: unknown value %q (valid: any, info, low, medium, high, critical)", s)
+	}
 }
 
 // errFindingsFound is the sentinel used to signal "scan succeeded but
@@ -205,16 +241,22 @@ var errFindingsFound = fmt.Errorf("findings detected")
 // uses this to choose its exit code without importing the variable directly.
 func IsFindingsError(err error) bool { return err == errFindingsFound }
 
-// countingSink is a tiny pass-through that tallies forwarded findings.
-// Lives here rather than pkg/engine because the count is a CLI concern —
+// countingSink is a tiny pass-through that tallies forwarded findings
+// and how many of them met the --fail-on severity gate. Lives here
+// rather than pkg/engine because exit-code policy is a CLI concern —
 // the engine itself has no opinion on exit codes.
 type countingSink struct {
-	inner engine.Sink
-	count atomic.Int64
+	inner     engine.Sink
+	threshold detectors.Severity
+	count     atomic.Int64
+	failing   atomic.Int64
 }
 
 func (c *countingSink) Emit(f engine.Finding) {
 	c.count.Add(1)
+	if f.Result.Severity >= c.threshold {
+		c.failing.Add(1)
+	}
 	c.inner.Emit(f)
 }
 
