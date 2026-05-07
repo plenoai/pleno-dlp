@@ -477,6 +477,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Airbrake.String():               "Airbrake user API token (>=40 alnum) near airbrake keyword, verified via /api/v4/projects on api.airbrake.io with `?key=` query param",
 	detectors.Materialize.String():            "Materialize Cloud app password (`mzp_<base64url>{40+}`) near materialize keyword, verified via /api/users/me on api.materialize.com with Bearer auth",
 	detectors.BeyondIdentity.String():         "Beyond Identity API token (>=40 base64url) near beyondidentity / byndid keyword — verified via /v1/tenants/me on the per-tenant host (`api-<region>.byndid.com`); apiBase override required",
+	detectors.KeyCDN.String():                 "KeyCDN API key (>=20 alnum) near keycdn keyword, verified via /zones.json on api.keycdn.com using HTTP Basic auth (key as user, empty password)",
+	detectors.Mailtrap.String():               "Mailtrap API token (>=32 alnum) near mailtrap keyword, verified via /api/accounts on mailtrap.io with `Api-Token: <token>` header",
+	detectors.GetResponse.String():            "GetResponse API key (32-hex) near getresponse keyword, verified via /v3/accounts on api.getresponse.com using `X-Auth-Token: api-key <key>` header",
+	detectors.Amplitude.String():              "Amplitude analytics API key + secret pair (32-hex each) near amplitude keyword, verified via /api/2/usersearch on amplitude.com with HTTP Basic auth (RawV2 carries the secret)",
+	detectors.FullStory.String():              "FullStory API key (>=40 base64url) near fullstory keyword, verified via /operations/v1 on api.fullstory.com with `Authorization: Basic <key>` header",
+	detectors.Heap.String():                   "Heap analytics server-side key (`heap_<base62>{32+}`) near heap keyword, verified via /api/public/v0/auth_token on heapanalytics.com with Bearer auth",
+	detectors.Hotjar.String():                 "Hotjar API token (`hjar_<base64url>{40+}`) near hotjar keyword, verified via /v1/sites on api.hotjar.com with Bearer auth",
+	detectors.Optimizely.String():             "Optimizely personal access token (>=40 base64url) near optimizely keyword, verified via /v2/projects on api.optimizely.com with Bearer auth",
+	detectors.Transifex.String():              "Transifex API token (`1/[a-f0-9]{40}` or >=40 alnum) near transifex keyword, verified via /api/2/user on rest.api.transifex.com using HTTP Basic auth (user `api`, token as password)",
+	detectors.Crowdin.String():                "Crowdin personal access token (>=40 base64url) near crowdin keyword, verified via /api/v2/user on api.crowdin.com with Bearer auth",
+	detectors.DocuSign.String():               "DocuSign integration key / access token (>=40 base64url JWT) near docusign keyword — verified via /restapi/v2.1/accounts on the per-environment host (demo / na2 / eu); apiBase override required",
+	detectors.Qdrant.String():                 "Qdrant Cloud API key (>=40 base64url) near qdrant keyword — verified via /collections on the per-cluster host; apiBase override required",
+	detectors.SurrealDB.String():              "SurrealDB Cloud token (>=40 base64url) near surrealdb / surreal keyword — verified via /sql on the per-instance host; apiBase override required",
+	detectors.Leaseweb.String():               "Leaseweb API key + secret pair (32-hex each) near leaseweb keyword, verified via /v1/account on api.leaseweb.com with `X-Lsw-Auth: <key>` and HMAC `X-Lsw-Sign` (RawV2 carries the secret)",
+	detectors.PostageApp.String():             "PostageApp API key (32-hex) near postageapp keyword, verified via /v.1.0/get_account_info.json on api.postageapp.com with form `api_key=<key>`",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

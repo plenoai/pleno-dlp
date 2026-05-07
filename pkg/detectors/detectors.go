@@ -471,6 +471,31 @@ const (
 	Airbrake
 	Materialize
 	BeyondIdentity
+	// batch 21 — appended in wire-stable order, never reorder. CDN / IaaS
+	// (KeyCDN, Leaseweb), email (Mailtrap, GetResponse, PostageApp),
+	// analytics (Amplitude, FullStory, Heap, Hotjar, Optimizely),
+	// localization (Transifex, Crowdin), e-sign (DocuSign), vector DB
+	// (Qdrant), DBaaS (SurrealDB). Amplitude and Leaseweb are paired
+	// key+secret detectors using RawV2. DocuSign / Qdrant / SurrealDB are
+	// unverified-by-default (per-tenant or per-cluster host requires
+	// apiBase override). Heap server-side keys use the `heap_` prefix;
+	// Hotjar uses `hjar_` prefix. Mailtrap tokens use a long alphanumeric
+	// shape near the `mailtrap` keyword (verified via /api/accounts).
+	KeyCDN
+	Mailtrap
+	GetResponse
+	Amplitude
+	FullStory
+	Heap
+	Hotjar
+	Optimizely
+	Transifex
+	Crowdin
+	DocuSign
+	Qdrant
+	SurrealDB
+	Leaseweb
+	PostageApp
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

@@ -380,4 +380,25 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pusherbeams"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pushover"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/secureframe"
+	// batch 21 — CDN / IaaS (keycdn, leaseweb), email (mailtrap, getresponse,
+	// postageapp), analytics (amplitude, fullstory, heap, hotjar, optimizely),
+	// localization (transifex, crowdin), e-sign (docusign), vector DB (qdrant),
+	// DBaaS (surrealdb). Amplitude / Leaseweb are paired key+secret detectors
+	// using RawV2. DocuSign / Qdrant / SurrealDB are unverified-by-default
+	// (per-tenant / per-cluster hosts requiring apiBase override).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/amplitude"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/crowdin"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/docusign"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/fullstory"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/getresponse"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/heap"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/hotjar"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/keycdn"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/leaseweb"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/mailtrap"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/optimizely"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/postageapp"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/qdrant"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/surrealdb"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/transifex"
 )
