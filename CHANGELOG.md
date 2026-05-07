@@ -10,7 +10,48 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.2.0.
+Anything merged to `main` since v0.3.0.
+
+## [0.3.0] — 2026-05-08
+
+### Added
+
+- **31 more secret detectors** — batches 5 (15) + 6 (15) + the
+  built-in generic high-entropy detector. Total now **88 secret
+  detectors**:
+  - Batch 5 (61..75): AzureAD, Telegram, Shodan, VirusTotal,
+    Doppler, Vault, Algolia, Airtable, Grafana, LaunchDarkly,
+    Auth0, Buildkite, CircleCI, Snyk, Spotify
+  - Batch 6 (80..94): AWSSession, AzureSAS, GCPOAuth, GCPAPIKey,
+    BitbucketServer, GitLabDeploy, Codecov, Rollbar, Bugsnag,
+    SumoLogic, Honeycomb, Tailscale, Figma, Zoom, Klaviyo
+  - Constant 13 (`GenericHighEntropy`): catch-all that fires on
+    20–128 char runs scoring ≥ 4.0 bits/byte Shannon entropy when
+    a credential keyword sits within 256 bytes
+- **4 PII detectors** with `finding_class="pii"`:
+  - PIIEmail (RFC5322 conservative shape with TLD requirement)
+  - PIIUSSSN (xxx-xx-xxxx, rejects reserved blocks)
+  - PIICreditCard (Luhn-validated with network labelling)
+  - PIIIBAN (mod-97 validated with per-country length table)
+- **Allowlist** (`pkg/engine/allowlist.go`) — `--allowlist <path>`
+  plus auto-discovery of `.pleno-allow.json`. Match by detector
+  type, raw literal, raw regex, and path glob (AND).
+- **Stdin source** — `pleno-dlp scan stdin` reads `os.Stdin`,
+  `--label` overrides the pseudo-path. TTY guard prevents silent
+  blocking on keyboard input.
+- **`detectors list` introspection** — `--format table|json|names`,
+  output deterministic across runs (sorted by type), powered by the
+  same registry the scanner uses.
+- **Shell completions** — `pleno-dlp completion <bash|zsh|fish|powershell>`.
+- **CHANGELOG.md**, refreshed README with full coverage matrix and
+  recipes.
+
+### Changed
+
+- README detector matrix replaced with class-grouped table (77+
+  detectors don't fit a per-row spec table).
+- Default severity for the four PII types is Medium — information
+  leak severity vs the High default for unverified credentials.
 
 ## [0.2.0] — 2026-05-08
 
@@ -85,6 +126,7 @@ Anything merged to `main` since v0.2.0.
   Slack bot, OpenAI, Anthropic) + JSON / SARIF / table output +
   cobra `scan` CLI. 51 race-clean tests.
 
-[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.1.0
