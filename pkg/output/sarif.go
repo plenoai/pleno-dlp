@@ -212,27 +212,31 @@ func toSARIFResult(f engine.Finding) sarifResult {
 		}
 		r.Locations = []sarifLocation{loc}
 	}
-	if len(f.Result.ExtraData) > 0 {
-		props := make(map[string]any, len(f.Result.ExtraData)+1)
-		for k, v := range f.Result.ExtraData {
-			props[k] = v
-		}
-		props["verified"] = f.Result.Verified
-		r.Properties = props
-	} else {
-		r.Properties = map[string]any{"verified": f.Result.Verified}
+	props := make(map[string]any, len(f.Result.ExtraData)+2)
+	for k, v := range f.Result.ExtraData {
+		props[k] = v
 	}
+	props["verified"] = f.Result.Verified
+	props["severity"] = f.Result.Severity.String()
+	r.Properties = props
 	return r
 }
 
-// levelFor maps a finding to a SARIF level. Verified findings are
-// always "error" (high confidence, deserves blocking the build);
-// unverified are "warning" so noisy regex hits don't break CI gates.
+// levelFor maps a finding to a SARIF level. Critical and High findings
+// surface as "error" so CI gates can fail on them; Medium is "warning"
+// (noisy regex hits surface but don't block); Low/Info is "note".
+// The mapping uses Severity rather than Verified directly so detectors
+// that override severity (e.g. a custom rule marking a hit Critical
+// even when unverified) propagate cleanly.
 func levelFor(f engine.Finding) string {
-	if f.Result.Verified {
+	switch f.Result.Severity {
+	case detectors.SeverityCritical, detectors.SeverityHigh:
 		return "error"
+	case detectors.SeverityMedium:
+		return "warning"
+	default:
+		return "note"
 	}
-	return "warning"
 }
 
 // fingerprints produces stable cross-run identifiers GitHub uses to

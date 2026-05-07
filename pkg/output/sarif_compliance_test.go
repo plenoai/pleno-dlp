@@ -119,25 +119,29 @@ func TestSARIF_StableOrdering(t *testing.T) {
 	}
 }
 
-// TestSARIF_VerifiedFindingIsError encodes the level mapping policy:
-// verified=true → "error" (block CI), verified=false → "warning"
-// (surface but don't block). Changing this policy without updating the
-// docs would silently flip CI gating semantics for every consumer.
-func TestSARIF_VerifiedFindingIsError(t *testing.T) {
+// TestSARIF_SeverityDrivesLevel encodes the level mapping policy:
+// Critical/High → "error" (block CI), Medium → "warning" (surface
+// without blocking), Low/Info/Unknown → "note". Changing this policy
+// without updating consumers would silently flip CI gating semantics.
+func TestSARIF_SeverityDrivesLevel(t *testing.T) {
 	cases := []struct {
-		name     string
-		verified bool
-		want     string
+		name string
+		sev  detectors.Severity
+		want string
 	}{
-		{"verified", true, "error"},
-		{"unverified", false, "warning"},
+		{"critical", detectors.SeverityCritical, "error"},
+		{"high", detectors.SeverityHigh, "error"},
+		{"medium", detectors.SeverityMedium, "warning"},
+		{"low", detectors.SeverityLow, "note"},
+		{"info", detectors.SeverityInfo, "note"},
+		{"unknown defaults to note", detectors.SeverityUnknown, "note"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
 			s, _ := NewSink("sarif", &buf)
 			f := sample()
-			f.Result.Verified = tc.verified
+			f.Result.Severity = tc.sev
 			s.Emit(f)
 			_ = s.Close()
 			var doc map[string]any

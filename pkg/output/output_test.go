@@ -20,6 +20,7 @@ func sample() engine.Finding {
 		Result: detectors.Result{
 			DetectorType: detectors.AWS,
 			Verified:     true,
+			Severity:     detectors.SeverityCritical,
 			Raw:          []byte("AKIAIOSFODNN7EXAMPLE"),
 			Redacted:     "AKIA…AMPLE",
 			ExtraData:    map[string]string{"account": "123456789012"},

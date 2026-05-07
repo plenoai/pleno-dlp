@@ -14,6 +14,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/custom"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/output"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
@@ -44,6 +46,7 @@ type scanFlags struct {
 	format      string
 	verify      bool
 	concurrency int
+	rulesPath   string
 }
 
 var scanOpts scanFlags
@@ -98,6 +101,7 @@ func init() {
 	scanCmd.PersistentFlags().StringVar(&scanOpts.format, "format", "table", "output format: json, sarif, table")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.verify, "verify", false, "verify candidate secrets against upstream APIs")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
 
 	scanGitCmd.Flags().StringVar(&gitOpts.repo, "repo", "", "absolute or relative path to a local git repository")
 	scanGitCmd.Flags().StringVar(&gitOpts.branch, "branch", "", "branch to walk (default: HEAD)")
@@ -160,6 +164,17 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		return err
 	}
 
+	dets := detectors.All()
+	if scanOpts.rulesPath != "" {
+		extra, err := custom.LoadFile(scanOpts.rulesPath)
+		if err != nil {
+			return err
+		}
+		for _, d := range extra {
+			dets = append(dets, d)
+		}
+	}
+
 	// Wrap with the counting+dedup chain. Order matters: dedup is the outer
 	// layer so the counter only sees unique findings, which makes the exit
 	// code reflect what the user actually saw.
@@ -167,7 +182,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	deduped := engine.NewDedup(counter)
 	defer func() { _ = sink.Close() }()
 
-	eng := engine.New(engine.Options{
+	eng := engine.NewWithDetectors(dets, engine.Options{
 		Verify:      scanOpts.verify,
 		Concurrency: scanOpts.concurrency,
 	}, deduped)
