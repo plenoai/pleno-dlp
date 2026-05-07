@@ -10,7 +10,25 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.16.0.
+### Added
+
+- **15 more secret detectors** — batch 20 (constants 290..304):
+  FirebaseCloudMessaging, APNs, Pushover, BranchIO, PusherBeams,
+  Drata, Secureframe, OneTrust, Pipedrive, Close, DNSimple, NvidiaNGC,
+  Airbrake, Materialize, BeyondIdentity. Total now **298 secret + 4
+  PII = 302 detectors**. Mobile push (FirebaseCloudMessaging legacy
+  server keys, APNs .p8 PEM, Pushover application tokens, Branch.io
+  paired key+secret, PusherBeams 32-hex secrets), compliance /
+  security (Drata, Secureframe, OneTrust), CRM (Pipedrive, Close.com),
+  DNS (DNSimple), AI infra (NvidiaNGC `nvapi-` tokens), error tracking
+  (Airbrake), database (Materialize Cloud `mzp_` app passwords), and
+  identity / IAM (BeyondIdentity). APNs ships only the .p8 PEM and is
+  unverified-by-design (issuer + key_id required for JWT issuance,
+  distinct from AppStoreConnect because APNs targets push endpoints
+  rather than store APIs). PusherBeams is distinct from PusherChannels
+  — Beams is the push-notification SDK with separate instance + secret.
+  OneTrust and BeyondIdentity use per-tenant hosts so verify requires
+  apiBase override. Branch.io is paired key+secret using RawV2.
 
 ## [0.16.0] — 2026-05-08
 

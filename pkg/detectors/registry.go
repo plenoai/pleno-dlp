@@ -609,6 +609,36 @@ func (t DetectorType) String() string {
 		return "Vanta"
 	case OneSignal:
 		return "OneSignal"
+	case FirebaseCloudMessaging:
+		return "FirebaseCloudMessaging"
+	case APNs:
+		return "APNs"
+	case Pushover:
+		return "Pushover"
+	case BranchIO:
+		return "BranchIO"
+	case PusherBeams:
+		return "PusherBeams"
+	case Drata:
+		return "Drata"
+	case Secureframe:
+		return "Secureframe"
+	case OneTrust:
+		return "OneTrust"
+	case Pipedrive:
+		return "Pipedrive"
+	case Close:
+		return "Close"
+	case DNSimple:
+		return "DNSimple"
+	case NvidiaNGC:
+		return "NvidiaNGC"
+	case Airbrake:
+		return "Airbrake"
+	case Materialize:
+		return "Materialize"
+	case BeyondIdentity:
+		return "BeyondIdentity"
 	default:
 		return "Unknown"
 	}
