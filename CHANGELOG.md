@@ -10,7 +10,28 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.9.0.
+Anything merged to `main` since v0.10.0.
+
+## [0.10.0] — 2026-05-08
+
+### Added
+
+- **15 more secret detectors** — batch 13 (constants 185..199):
+  Aiven, YugabyteCloud, CockroachCloud, Fauna, Tinybird,
+  ClickHouseCloud, Neon, GitLabPipeline, ArgoCD, TektonHub, Spinnaker,
+  ConstantContact, Vonage, Workato, AikidoSecurity. Total now
+  **193 secret + 4 PII = 197 detectors**. Vonage and ClickHouseCloud
+  emit pair detectors (RawV2 carries the second half). Self-hosted CI
+  surfaces (ArgoCD, TektonHub, Spinnaker) are unverified-by-design —
+  per-tenant Gate-API host not predictable. GitLabPipeline trigger
+  tokens are unverified by design too: probing would actually start
+  a pipeline (destructive side effect). Swaps from the original list:
+  Buildkite Agent → Spinnaker (Buildkite already covered),
+  GitLabRunner → AikidoSecurity (`glrt-` already in GitLabDeploy
+  regex), Snyk Org → Workato (Snyk already covered). Sentry
+  legacy DSN-with-secret and Pardot JWT skipped — both need careful
+  disambiguation against existing detectors and were left for a
+  follow-up batch.
 
 ## [0.9.0] — 2026-05-08
 
@@ -247,7 +268,8 @@ Anything merged to `main` since v0.9.0.
   Slack bot, OpenAI, Anthropic) + JSON / SARIF / table output +
   cobra `scan` CLI. 51 race-clean tests.
 
-[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.10.0
 [0.9.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.9.0
 [0.8.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.8.0
 [0.7.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.7.0
