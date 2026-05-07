@@ -46,13 +46,15 @@ func SetVersion(version, commit string) {
 // flags (paths, repo, since, ...) live on the corresponding subcommand to
 // keep cobra's --help output narrow and to give each kind its own validation.
 type scanFlags struct {
-	format        string
-	verify        bool
-	verifyRPS     int
-	concurrency   int
-	rulesPath     string
-	failOn        string
-	allowlistPath string
+	format            string
+	verify            bool
+	verifyRPS         int
+	concurrency       int
+	rulesPath         string
+	failOn            string
+	allowlistPath     string
+	includeDetectors  []string
+	excludeDetectors  []string
 }
 
 var scanOpts scanFlags
@@ -143,6 +145,8 @@ func init() {
 	scanCmd.PersistentFlags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.failOn, "fail-on", "any", "minimum severity that triggers exit 1: any|info|low|medium|high|critical")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file that mutes known false positives (auto-discovers .pleno-allow.json from the repo root)")
+	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated, case-insensitive Type names; see `pleno-dlp detectors list`). Custom rules from --rules count as GenericHighEntropy.")
+	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.excludeDetectors, "exclude-detectors", nil, "skip these detectors (comma-separated, case-insensitive Type names). Applied after --include-detectors.")
 
 	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.include, "include", nil, "glob(s) to include (matched against root-relative paths and basenames)")
 	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.exclude, "exclude", nil, "glob(s) to exclude (in addition to default excludes)")
@@ -260,7 +264,14 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		return err
 	}
 
-	dets := detectors.All()
+	dets, err := filterDetectors(detectors.All(), scanOpts.includeDetectors, scanOpts.excludeDetectors)
+	if err != nil {
+		return err
+	}
+	// Custom rules pass through unfiltered: --rules is an explicit opt-in,
+	// so the operator already chose to run them. Filtering would also be
+	// awkward — custom rules all share Type=GenericHighEntropy, so an
+	// `--include-detectors aws` would silently drop every custom rule.
 	if scanOpts.rulesPath != "" {
 		extra, err := custom.LoadFile(scanOpts.rulesPath)
 		if err != nil {
@@ -309,6 +320,65 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		return errFindingsFound
 	}
 	return nil
+}
+
+// filterDetectors narrows a detector slice by include / exclude name lists.
+// Names are matched case-insensitively against DetectorType.String(). Both
+// lists may contain comma-separated entries from cobra's StringSlice
+// behaviour (the user typed `--include-detectors aws,github`) — those are
+// already split for us.
+//
+// Validation: an unknown name returns an error rather than silently doing
+// nothing. Typos in CI configs would otherwise emit zero findings without
+// any signal — exactly the false-confidence failure mode this scanner
+// exists to prevent.
+//
+// Order: include first (treated as an allowlist; empty means "all"), then
+// exclude removes from that result. Both nil → return as-is.
+func filterDetectors(in []detectors.Detector, include, exclude []string) ([]detectors.Detector, error) {
+	if len(include) == 0 && len(exclude) == 0 {
+		return in, nil
+	}
+	known := map[string]struct{}{}
+	for _, d := range in {
+		known[strings.ToLower(d.Type().String())] = struct{}{}
+	}
+	normalise := func(names []string, label string) (map[string]struct{}, error) {
+		set := make(map[string]struct{}, len(names))
+		for _, raw := range names {
+			n := strings.ToLower(strings.TrimSpace(raw))
+			if n == "" {
+				continue
+			}
+			if _, ok := known[n]; !ok {
+				return nil, fmt.Errorf("--%s: unknown detector %q (run `pleno-dlp detectors list --format names` to see registered types)", label, raw)
+			}
+			set[n] = struct{}{}
+		}
+		return set, nil
+	}
+	incSet, err := normalise(include, "include-detectors")
+	if err != nil {
+		return nil, err
+	}
+	excSet, err := normalise(exclude, "exclude-detectors")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]detectors.Detector, 0, len(in))
+	for _, d := range in {
+		name := strings.ToLower(d.Type().String())
+		if len(incSet) > 0 {
+			if _, ok := incSet[name]; !ok {
+				continue
+			}
+		}
+		if _, drop := excSet[name]; drop {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out, nil
 }
 
 // parseFailOn turns the --fail-on string into a Severity threshold. The

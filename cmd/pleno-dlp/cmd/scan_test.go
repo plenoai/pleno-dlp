@@ -2,9 +2,12 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 
 	// Blank imports mirror main.go so unit tests on the scan command
 	// exercise the same registry the binary does. Without these,
@@ -144,6 +147,8 @@ func resetScanOpts() {
 	scanOpts.rulesPath = ""
 	scanOpts.failOn = "any"
 	scanOpts.allowlistPath = ""
+	scanOpts.includeDetectors = nil
+	scanOpts.excludeDetectors = nil
 }
 
 // TestScanFilesystemWithCustomRules drives the full CLI with a custom
@@ -268,4 +273,100 @@ func TestScanStdin_NoFindingsExitsZero(t *testing.T) {
 	if err := Root.Execute(); err != nil {
 		t.Fatalf("clean stdin scan should succeed; got %v\noutput:\n%s", err, out.String())
 	}
+}
+
+// TestFilterDetectors_Include narrows the registry by include list.
+// Case-insensitive matching is exercised here by passing lowercase names.
+func TestFilterDetectors_Include(t *testing.T) {
+	in := []detectors.Detector{stubDet{detectors.AWS}, stubDet{detectors.GitHub}, stubDet{detectors.OpenAI}}
+	got, err := filterDetectors(in, []string{"aws", "github"}, nil)
+	if err != nil {
+		t.Fatalf("filter: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 detectors, got %d", len(got))
+	}
+}
+
+func TestFilterDetectors_Exclude(t *testing.T) {
+	in := []detectors.Detector{stubDet{detectors.AWS}, stubDet{detectors.GitHub}, stubDet{detectors.OpenAI}}
+	got, err := filterDetectors(in, nil, []string{"AWS"})
+	if err != nil {
+		t.Fatalf("filter: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 after excluding AWS, got %d", len(got))
+	}
+	for _, d := range got {
+		if d.Type() == detectors.AWS {
+			t.Errorf("AWS slipped past exclude")
+		}
+	}
+}
+
+func TestFilterDetectors_IncludeThenExclude(t *testing.T) {
+	in := []detectors.Detector{stubDet{detectors.AWS}, stubDet{detectors.GitHub}, stubDet{detectors.OpenAI}}
+	got, err := filterDetectors(in, []string{"aws", "github"}, []string{"github"})
+	if err != nil {
+		t.Fatalf("filter: %v", err)
+	}
+	if len(got) != 1 || got[0].Type() != detectors.AWS {
+		t.Fatalf("want only AWS after include={aws,github} exclude={github}, got %+v", got)
+	}
+}
+
+func TestFilterDetectors_UnknownNameErrors(t *testing.T) {
+	in := []detectors.Detector{stubDet{detectors.AWS}}
+	if _, err := filterDetectors(in, []string{"awz"}, nil); err == nil {
+		t.Errorf("typo should error, not silently match nothing")
+	}
+	if _, err := filterDetectors(in, nil, []string{"awz"}); err == nil {
+		t.Errorf("typo in exclude should error")
+	}
+}
+
+func TestFilterDetectors_NoFlagsPassthrough(t *testing.T) {
+	in := []detectors.Detector{stubDet{detectors.AWS}, stubDet{detectors.GitHub}}
+	got, err := filterDetectors(in, nil, nil)
+	if err != nil {
+		t.Fatalf("filter: %v", err)
+	}
+	if len(got) != len(in) {
+		t.Errorf("no-op filter mutated slice: %d -> %d", len(in), len(got))
+	}
+}
+
+// TestScanFilesystemFiltersDetectors drives the full CLI: --exclude-detectors
+// must remove the detector from the live scan, not just from --help output.
+func TestScanFilesystemFiltersDetectors(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+
+	dir := t.TempDir()
+	target := dir + "/leak.txt"
+	// Real-shaped AWS access-key id; verified=false but the AWS detector
+	// will still emit it. Excluding the detector should silence it.
+	if err := os.WriteFile(target, []byte("AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"scan", "--exclude-detectors", "aws,generichighentropy", "--format", "json", "filesystem", target})
+
+	err := Root.Execute()
+	if IsFindingsError(err) {
+		t.Fatalf("--exclude-detectors aws should silence the AWS finding; output:\n%s", out.String())
+	}
+}
+
+// stubDet is a minimal Detector for unit tests that don't care about
+// scanning behaviour — only Type() is exercised by filterDetectors.
+type stubDet struct{ t detectors.DetectorType }
+
+func (s stubDet) Type() detectors.DetectorType    { return s.t }
+func (s stubDet) Keywords() []string              { return nil }
+func (s stubDet) FromData(_ context.Context, _ bool, _ []byte) ([]detectors.Result, error) {
+	return nil, nil
 }
