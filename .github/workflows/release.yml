@@ -33,11 +33,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Generate build provenance attestations for every archive +
-      # checksums file goreleaser produced. `gh attestation verify`
-      # consumes these to prove the artifact came from this repo +
-      # this commit.
-      - uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # v1.4.4
+      # Build provenance attestations require GitHub Advanced Security
+      # or a public repo. The plenoai org currently runs this repo as
+      # private without GHAS, so we skip the attestation step rather
+      # than fail every release. Once the repo flips public (or GHAS
+      # ships), drop the `if:` and the step lights up.
+      - if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # v1.4.4
         with:
           subject-path: |
             dist/*.tar.gz
