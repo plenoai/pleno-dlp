@@ -514,4 +514,27 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pingone"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/ringcentral"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/signalwire"
+	// batch 27 — wire-stable order, never reorder. Frontier-AI (writer),
+	// storage / DBaaS (filebase, storj, mongodbrealm), DevOps / CI (cloudbees,
+	// codeship, okteto), CRM / sales (freshsales, copper), reviews (trustpilot),
+	// endpoint security (sentinelone), customer support (gladly, helpscout),
+	// email validation (mailboxlayer, hunter). CloudBees / Filebase / Storj /
+	// MongoDBRealm / Freshsales / SentinelOne / Gladly are unverified-by-default
+	// (per-tenant / per-bucket / per-app / per-region host). Copper / HelpScout
+	// use RawV2 for paired creds.
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/cloudbees"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/codeship"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/copper"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/filebase"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/freshsales"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gladly"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/helpscout"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/hunter"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/mailboxlayer"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/mongodbrealm"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/okteto"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sentinelone"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/storj"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/trustpilot"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/writer"
 )

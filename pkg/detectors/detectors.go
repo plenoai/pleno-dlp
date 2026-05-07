@@ -627,6 +627,31 @@ const (
 	RingCentral
 	DialPad
 	SignalWire
+	// batch 27 — appended in wire-stable order, never reorder. Frontier-AI
+	// (Writer), storage / DBaaS (Filebase, Storj, MongoDBRealm), DevOps / CI
+	// (CloudBees, Codeship, Okteto), CRM / sales (Freshsales, Copper),
+	// reviews (Trustpilot), endpoint security (SentinelOne), customer support
+	// (Gladly, HelpScout), and email validation (Mailboxlayer, Hunter).
+	// CloudBees / Filebase / Storj / MongoDBRealm / Freshsales / SentinelOne /
+	// Gladly are unverified-by-default — each requires a per-tenant /
+	// per-bucket / per-app / per-realm host that isn't in the chunk; verify
+	// only fires when an apiBase override is supplied. HelpScout / Copper
+	// use RawV2 for paired credentials (app_id+app_secret, user_email+api_key).
+	Writer
+	Filebase
+	Storj
+	MongoDBRealm
+	CloudBees
+	Codeship
+	Okteto
+	Freshsales
+	Copper
+	Trustpilot
+	SentinelOne
+	Gladly
+	HelpScout
+	Mailboxlayer
+	Hunter
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
