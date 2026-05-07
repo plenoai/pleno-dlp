@@ -101,6 +101,8 @@ func jsonSourceOf(c *sources.Chunk) jsonSource {
 	case c.SourceMetadata.Slack != nil:
 		md["channel"] = c.SourceMetadata.Slack.Channel
 		md["timestamp"] = c.SourceMetadata.Slack.Timestamp
+	case c.SourceMetadata.Stdin != nil:
+		md["label"] = c.SourceMetadata.Stdin.Label
 	}
 	if len(md) > 0 {
 		out.Metadata = md

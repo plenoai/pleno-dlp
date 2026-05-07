@@ -80,6 +80,8 @@ func tableLocationOf(f engine.Finding) string {
 		return "gs://" + md.GCS.Bucket + "/" + md.GCS.Object
 	case md.Slack != nil:
 		return md.Slack.Channel + "@" + md.Slack.Timestamp
+	case md.Stdin != nil:
+		return md.Stdin.Label
 	}
 	return f.Chunk.SourceType.String()
 }

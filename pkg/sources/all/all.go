@@ -6,4 +6,5 @@ package all
 import (
 	_ "github.com/plenoai/pleno-dlp/pkg/sources/filesystem"
 	_ "github.com/plenoai/pleno-dlp/pkg/sources/git"
+	_ "github.com/plenoai/pleno-dlp/pkg/sources/stdin"
 )

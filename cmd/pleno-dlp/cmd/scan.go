@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -62,7 +63,8 @@ var scanCmd = &cobra.Command{
 	Short: "Scan a source for leaked secrets",
 	Long: "Scan a source for leaked secrets. Supported kinds:\n" +
 		"  filesystem  walk one or more local paths\n" +
-		"  git         walk the commit history of a local git repo",
+		"  git         walk the commit history of a local git repo\n" +
+		"  stdin       read input from os.Stdin (e.g. `git diff | pleno-dlp scan stdin`)",
 }
 
 // scanFilesystemCmd preserves the original `scan <path>...` semantics under
@@ -108,6 +110,26 @@ var scanGitCmd = &cobra.Command{
 	RunE:  runScanGit,
 }
 
+// stdinFlags captures stdin-specific options. Label rides through to
+// StdinMeta.Label so output formatters render something more useful than
+// the default "<stdin>" placeholder.
+type stdinFlags struct {
+	label    string
+	maxBytes int64
+}
+
+var stdinOpts stdinFlags
+
+// scanStdinCmd reads a single chunk from os.Stdin. We refuse to attach a
+// terminal — a TTY on stdin is almost certainly a user mistake (forgot to
+// pipe), and silently waiting for input wedges scripts.
+var scanStdinCmd = &cobra.Command{
+	Use:   "stdin",
+	Short: "Scan input piped to standard input",
+	Args:  cobra.NoArgs,
+	RunE:  runScanStdin,
+}
+
 func init() {
 	// Persistent flags on scanCmd so every subcommand inherits them — keeps
 	// `scan filesystem --format json` and `scan git --format json` consistent.
@@ -130,8 +152,12 @@ func init() {
 	scanGitCmd.Flags().StringSliceVar(&gitOpts.exclude, "exclude", nil, "glob(s) to exclude")
 	_ = scanGitCmd.MarkFlagRequired("repo")
 
+	scanStdinCmd.Flags().StringVar(&stdinOpts.label, "label", "", "label for the stdin input (rendered in output; default \"<stdin>\")")
+	scanStdinCmd.Flags().Int64Var(&stdinOpts.maxBytes, "max-bytes", 0, "buffer cap for stdin (0 = default 64 MiB); excess input is truncated and the run exits non-zero")
+
 	scanCmd.AddCommand(scanFilesystemCmd)
 	scanCmd.AddCommand(scanGitCmd)
+	scanCmd.AddCommand(scanStdinCmd)
 	Root.AddCommand(scanCmd)
 }
 
@@ -151,6 +177,36 @@ func runScanFilesystem(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("encode source config: %w", err)
 	}
 	return runScanCommon(cmd, src, cfg, "filesystem")
+}
+
+func runScanStdin(cmd *cobra.Command, _ []string) error {
+	// Refuse to block on a TTY. Stdin scans are pipe-only by design;
+	// silently waiting for keyboard input is an almost-certain bug in
+	// the caller's pipeline. The check is best-effort — non-files (eg
+	// in tests, where we hand a Buffer to runStdinScan via cmd.SetIn)
+	// won't fail this guard because their Stat fails outright.
+	if isTerminalReader(cmd.InOrStdin()) {
+		return fmt.Errorf("stdin source: refusing to read from a terminal — pipe input via `cmd | pleno-dlp scan stdin`")
+	}
+	src := sources.New(sources.SourceStdin)
+	if src == nil {
+		return fmt.Errorf("stdin source is not registered (missing pkg/sources/all import?)")
+	}
+	cfg, err := json.Marshal(map[string]any{
+		"label":     stdinOpts.label,
+		"max_bytes": stdinOpts.maxBytes,
+	})
+	if err != nil {
+		return fmt.Errorf("encode source config: %w", err)
+	}
+	// Pass cmd.InOrStdin() through to the source so cobra-level rebinding
+	// (cmd.SetIn) reaches the reader; production stays on os.Stdin.
+	if r := cmd.InOrStdin(); r != nil {
+		if setter, ok := src.(interface{ SetReader(io.Reader) }); ok {
+			setter.SetReader(r)
+		}
+	}
+	return runScanCommon(cmd, src, cfg, "stdin")
 }
 
 func runScanGit(cmd *cobra.Command, _ []string) error {
@@ -253,6 +309,22 @@ func parseFailOn(s string) (detectors.Severity, error) {
 	default:
 		return 0, fmt.Errorf("--fail-on: unknown value %q (valid: any, info, low, medium, high, critical)", s)
 	}
+}
+
+// isTerminalReader reports whether r is the process's terminal stdin.
+// True only when r is *os.File AND that file is a character device — any
+// other reader (test buffer, piped file, redirected fd) returns false so
+// we don't accidentally block scripted callers.
+func isTerminalReader(r io.Reader) bool {
+	f, ok := r.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 // errFindingsFound is the sentinel used to signal "scan succeeded but

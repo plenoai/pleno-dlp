@@ -21,6 +21,7 @@ const (
 	SourceAzureBlob
 	SourceBitbucket
 	SourceNotion
+	SourceStdin
 )
 
 // Metadata is a discriminated union of source-specific location info. Each
@@ -33,6 +34,7 @@ type Metadata struct {
 	S3         *S3Meta
 	GCS        *GCSMeta
 	Slack      *SlackMeta
+	Stdin      *StdinMeta
 }
 
 type FilesystemMeta struct {
@@ -74,6 +76,13 @@ type SlackMeta struct {
 	Channel   string
 	Timestamp string
 	Permalink string
+}
+
+// StdinMeta describes a chunk read from standard input. Label defaults to
+// "<stdin>" but callers can override it (e.g. `--label "git diff"`) so the
+// output formatters render something more useful than a generic placeholder.
+type StdinMeta struct {
+	Label string
 }
 
 // Chunk is a unit of data emitted by a Source for detectors to scan. Sources
