@@ -491,4 +491,27 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/paylocity"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/shippo"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/taxjar"
+	// batch 26 — wire-stable order, never reorder. AI / inference (ai21labs,
+	// octoai), identity / SSO (pingone, forgerock, keycloak), marketing
+	// (marketo, eloqua, pardot), customer messaging (kustomer, freshchat),
+	// IaaS (oraclecloud, ibmcloud), and comms / SMS (ringcentral, dialpad,
+	// signalwire). PingOne / KeyCloak / Marketo / Eloqua / Pardot / RingCentral
+	// / SignalWire use RawV2 for the paired secret. ForgeRock / KeyCloak /
+	// Marketo / Eloqua / OracleCloud / SignalWire are unverified-by-default
+	// (per-tenant / per-realm / per-region host required).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/ai21labs"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/dialpad"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/eloqua"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/forgerock"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/freshchat"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/ibmcloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/keycloak"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/kustomer"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/marketo"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/octoai"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/oraclecloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pardot"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pingone"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/ringcentral"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/signalwire"
 )

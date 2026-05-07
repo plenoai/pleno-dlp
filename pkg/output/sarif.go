@@ -552,6 +552,21 @@ var ruleDescriptions = map[string]string{
 	detectors.EmailJS.String():                "EmailJS user_id + private access_token pair near emailjs keyword, verified via /api/v1.0/account on api.emailjs.com with Bearer auth (RawV2 carries the access_token)",
 	detectors.Mailjet.String():                "Mailjet API key + API secret pair (each 32-hex) near mailjet keyword, verified via /v3/REST/myprofile on api.mailjet.com with HTTP Basic auth (RawV2 carries the secret)",
 	detectors.Hasura.String():                 "Hasura Cloud admin secret (40+ alnum) near hasura keyword — unverified by design (per-project host `<project>.hasura.app`), apiBase override required",
+	detectors.AI21Labs.String():               "AI21 Labs API key (32+ alnum) near ai21 keyword, verified via /studio/v1/tokenize on api.ai21.com with Bearer auth",
+	detectors.OctoAI.String():                 "OctoAI / OctoML inference token (40+ alnum / JWT-shape) near octoai / octoml keyword, verified via /v1/models on text.octoai.run with Bearer auth",
+	detectors.PingOne.String():                "PingOne worker app client_id + client_secret pair near pingone keyword, verified via /as/token on auth.pingone.com with HTTP Basic auth (RawV2 carries the secret)",
+	detectors.ForgeRock.String():              "ForgeRock / Ping Identity Cloud SSO token (40+ alnum) near forgerock keyword — unverified by design (per-tenant host `<tenant>.forgeblocks.com`), apiBase override required",
+	detectors.KeyCloak.String():               "Keycloak client_id + client_secret pair near keycloak keyword — unverified by design (per-deployment host + realm required), apiBase override required (RawV2 carries the secret)",
+	detectors.Marketo.String():                "Marketo REST API client_id + client_secret pair near marketo / mktorest keyword — unverified by design (per-munchkin host `<munchkin>.mktorest.com`), apiBase override required (RawV2 carries the secret)",
+	detectors.Eloqua.String():                 "Oracle Eloqua REST API client_id + client_secret pair near eloqua keyword — unverified by design (per-pod host `secure.p<NN>.eloqua.com`), apiBase override required (RawV2 carries the secret)",
+	detectors.Pardot.String():                 "Salesforce Pardot / Account Engagement business_unit_id + access_token pair near pardot keyword, verified via /api/v5/objects/account on pi.pardot.com with Bearer + Pardot-Business-Unit-Id header (RawV2 carries the token)",
+	detectors.Kustomer.String():               "Kustomer API token (40+ alnum / JWT-shape) near kustomer keyword, verified via /v1/users/current on api.kustomerapp.com with Bearer auth",
+	detectors.Freshchat.String():              "Freshchat API token (40+ alnum / JWT-shape) near freshchat keyword, verified via /v2/agents on api.freshchat.com with Bearer auth",
+	detectors.OracleCloud.String():            "Oracle Cloud Infrastructure (OCI) auth token (32+ alnum) near oraclecloud / ocid1. / oci_ keyword — unverified by design (per-region tenancy host required), apiBase override required",
+	detectors.IBMCloud.String():               "IBM Cloud IAM API key (40+ alnum) near ibmcloud / ibm_cloud keyword, verified via /identity/token on iam.cloud.ibm.com with the IAM apikey grant_type",
+	detectors.RingCentral.String():            "RingCentral OAuth client_id + client_secret pair near ringcentral keyword, verified via /restapi/oauth/token on platform.ringcentral.com with HTTP Basic auth (RawV2 carries the secret)",
+	detectors.DialPad.String():                "Dialpad API token (40+ alnum) near dialpad keyword, verified via /api/v2/users on dialpad.com with Bearer auth",
+	detectors.SignalWire.String():             "SignalWire project_id + API token pair near signalwire keyword — unverified by design (per-space host `<space>.signalwire.com`), apiBase override required (RawV2 carries the token)",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

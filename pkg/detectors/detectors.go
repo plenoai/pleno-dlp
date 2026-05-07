@@ -603,6 +603,30 @@ const (
 	EmailJS
 	Mailjet
 	Hasura
+	// batch 26 — appended in wire-stable order, never reorder. AI / inference
+	// (AI21Labs, OctoAI), identity / SSO (PingOne, ForgeRock, KeyCloak),
+	// marketing (Marketo, Eloqua, Pardot), customer messaging (Kustomer,
+	// Freshchat), IaaS (OracleCloud, IBMCloud), and comms / SMS (RingCentral,
+	// DialPad, SignalWire). RingCentral / SignalWire / Marketo / Eloqua /
+	// Pardot use RawV2 for paired credentials. ForgeRock / KeyCloak / OracleCloud
+	// are unverified-by-default — each requires a per-tenant / per-realm /
+	// per-region host that isn't in the chunk; verify only fires when an
+	// apiBase override is supplied.
+	AI21Labs
+	OctoAI
+	PingOne
+	ForgeRock
+	KeyCloak
+	Marketo
+	Eloqua
+	Pardot
+	Kustomer
+	Freshchat
+	OracleCloud
+	IBMCloud
+	RingCentral
+	DialPad
+	SignalWire
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
