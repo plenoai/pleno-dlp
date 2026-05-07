@@ -12,6 +12,33 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.24.0.
 
+### Added
+
+- **15 more secret detectors** — batch 28 (constants 410..424):
+  AlephAlpha, Inflection, CharacterAI, Hyperbolic, LeptonAI, NovitaAI,
+  Kickbox, AbstractAPI, NeverBounce, Snov, Apollo, Lemlist, Authentik,
+  Etherscan, Alchemy. Total now **418 secret + 4 PII = 422 detectors**.
+  AI / inference (AlephAlpha Bearer via /users/me on api.aleph-alpha.com,
+  Inflection Bearer via /v1/models on api.inflection.ai, CharacterAI
+  `Token ` header via /chat/user on plus.character.ai, Hyperbolic JWT-
+  shaped Bearer via /v1/models on api.hyperbolic.xyz, LeptonAI Bearer
+  via /api/v1/workspace on dashboard.lepton.ai, NovitaAI `sk_`-prefixed
+  Bearer via /v3/user on api.novita.ai), email validation / lead-gen
+  (Kickbox `live_`/`test_` apikey query param via /v2/verify on
+  api.kickbox.com, AbstractAPI 32-hex api_key query param via
+  /v1/?api_key=... on emailvalidation.abstractapi.com, NeverBounce
+  `secret_`/`private_` key query param via /v4/account/info on
+  api.neverbounce.com, Snov OAuth2 client_id+client_secret pair via
+  /v1/oauth/access_token client_credentials grant on api.snov.io —
+  RawV2, Apollo X-Api-Key header via /v1/auth/health on api.apollo.io,
+  Lemlist user_email+api_key Basic auth via /api/team on
+  api.lemlist.com — RawV2), identity (Authentik 60+ alnum tokens —
+  unverified-by-default per-tenant host `<tenant>.goauthentik.io` or
+  self-hosted), and blockchain explorers / RPC (Etherscan 34-alnum
+  apikey query param via /api?module=stats&action=ethsupply on
+  api.etherscan.io, Alchemy 32-alnum URL-embedded JSON-RPC key via
+  /v2/<key> eth_blockNumber on eth-mainnet.g.alchemy.com).
+
 ## [0.24.0] — 2026-05-08
 
 ### Added

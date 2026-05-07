@@ -849,6 +849,36 @@ func (t DetectorType) String() string {
 		return "Mailboxlayer"
 	case Hunter:
 		return "Hunter"
+	case AlephAlpha:
+		return "AlephAlpha"
+	case Inflection:
+		return "Inflection"
+	case CharacterAI:
+		return "CharacterAI"
+	case Hyperbolic:
+		return "Hyperbolic"
+	case LeptonAI:
+		return "LeptonAI"
+	case NovitaAI:
+		return "NovitaAI"
+	case Kickbox:
+		return "Kickbox"
+	case AbstractAPI:
+		return "AbstractAPI"
+	case NeverBounce:
+		return "NeverBounce"
+	case Snov:
+		return "Snov"
+	case Apollo:
+		return "Apollo"
+	case Lemlist:
+		return "Lemlist"
+	case Authentik:
+		return "Authentik"
+	case Etherscan:
+		return "Etherscan"
+	case Alchemy:
+		return "Alchemy"
 	default:
 		return "Unknown"
 	}

@@ -537,4 +537,25 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/storj"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/trustpilot"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/writer"
+	// batch 28 — wire-stable order, never reorder. AI / inference (alephalpha,
+	// inflection, characterai, hyperbolic, leptonai, novitaai), email validation
+	// / lead-gen (kickbox, abstractapi, neverbounce, snov, apollo, lemlist),
+	// identity (authentik), and blockchain explorers / RPC (etherscan, alchemy).
+	// Snov / Lemlist use RawV2 for the paired secret. Authentik is unverified-
+	// by-default (per-tenant host required).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/abstractapi"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/alchemy"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/alephalpha"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/apollo"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/authentik"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/characterai"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/etherscan"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/hyperbolic"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/inflection"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/kickbox"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/lemlist"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/leptonai"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/neverbounce"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/novitaai"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/snov"
 )

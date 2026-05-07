@@ -652,6 +652,29 @@ const (
 	HelpScout
 	Mailboxlayer
 	Hunter
+	// batch 28 — appended in wire-stable order, never reorder. AI / inference
+	// (AlephAlpha, Inflection, CharacterAI, Hyperbolic, LeptonAI, NovitaAI),
+	// email validation / lead-gen (Kickbox, AbstractAPI, NeverBounce, Snov,
+	// Apollo, Lemlist), identity (Authentik), and blockchain explorers /
+	// RPC (Etherscan, Alchemy). Snov / Lemlist use RawV2 for the paired
+	// secret. Authentik is unverified-by-default (per-tenant host
+	// `<tenant>.goauthentik.io` not in the chunk); verify only fires when
+	// an apiBase override is supplied.
+	AlephAlpha
+	Inflection
+	CharacterAI
+	Hyperbolic
+	LeptonAI
+	NovitaAI
+	Kickbox
+	AbstractAPI
+	NeverBounce
+	Snov
+	Apollo
+	Lemlist
+	Authentik
+	Etherscan
+	Alchemy
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

@@ -582,6 +582,21 @@ var ruleDescriptions = map[string]string{
 	detectors.HelpScout.String():              "Help Scout app_id + app_secret pair near helpscout keyword, verified via /v2/oauth2/token on api.helpscout.net with client_credentials grant (RawV2 carries the secret)",
 	detectors.Mailboxlayer.String():           "Mailboxlayer email verification access_key (32 hex) near mailboxlayer keyword, verified via /api/check on apilayer.net with access_key query param",
 	detectors.Hunter.String():                 "Hunter.io email-finder API key (40 hex) near hunter keyword, verified via /v2/account on api.hunter.io with api_key query param",
+	detectors.AlephAlpha.String():             "Aleph Alpha API token (40+ alnum) near aleph keyword, verified via /users/me on api.aleph-alpha.com with Bearer auth",
+	detectors.Inflection.String():             "Inflection AI API token (40+ alnum) near inflection keyword, verified via /v1/models on api.inflection.ai with Bearer auth",
+	detectors.CharacterAI.String():            "Character.AI session token (40-80 hex) near character keyword, verified via /chat/user on plus.character.ai with Token auth header",
+	detectors.Hyperbolic.String():             "Hyperbolic AI inference token (JWT-shaped eyJ...eyJ...sig) near hyperbolic keyword, verified via /v1/models on api.hyperbolic.xyz with Bearer auth",
+	detectors.LeptonAI.String():               "Lepton AI workspace token (32+ alnum) near lepton keyword, verified via /api/v1/workspace on dashboard.lepton.ai with Bearer auth",
+	detectors.NovitaAI.String():               "Novita AI API key (`sk_`-prefixed alnum) near novita keyword, verified via /v3/user on api.novita.ai with Bearer auth",
+	detectors.Kickbox.String():                "Kickbox email-verification key (`live_`/`test_` alnum) near kickbox keyword, verified via /v2/verify on api.kickbox.com with apikey query param",
+	detectors.AbstractAPI.String():            "AbstractAPI key (32 hex) near abstract keyword, verified via /v1/?api_key=... on emailvalidation.abstractapi.com with api_key query param",
+	detectors.NeverBounce.String():            "NeverBounce API key (`secret_`/`private_` alnum) near neverbounce keyword, verified via /v4/account/info on api.neverbounce.com with key query param",
+	detectors.Snov.String():                   "Snov.io OAuth2 client_id + client_secret pair near snov keyword, verified via /v1/oauth/access_token (client_credentials) on api.snov.io (RawV2 carries the secret)",
+	detectors.Apollo.String():                 "Apollo.io sales-engagement API key (22 alnum) near apollo keyword, verified via /v1/auth/health on api.apollo.io with X-Api-Key header",
+	detectors.Lemlist.String():                "Lemlist user_email + api_key pair near lemlist keyword, verified via /api/team on api.lemlist.com with HTTP Basic auth (RawV2 carries the api_key)",
+	detectors.Authentik.String():              "Authentik identity-provider token (60+ alnum) near authentik keyword — unverified by design (per-tenant host `<tenant>.goauthentik.io` or self-hosted), apiBase override required",
+	detectors.Etherscan.String():              "Etherscan blockchain explorer API key (34 alnum) near etherscan keyword, verified via /api?module=stats&action=ethsupply on api.etherscan.io with apikey query param",
+	detectors.Alchemy.String():                "Alchemy blockchain RPC API key (32 alnum) near alchemy keyword, verified via JSON-RPC eth_blockNumber on eth-mainnet.g.alchemy.com/v2/<key>",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
