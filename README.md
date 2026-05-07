@@ -18,8 +18,8 @@ Two surfaces in one repo. Pick the one that matches your scan target:
 - **Go binary** (`cmd/pleno-dlp/`, this README) — filesystem, local git
   history, and stdin. Trufflehog-compatible detector interface,
   archive-aware (zip / tar / tar.gz / gzip), base64 / percent / hex
-  decoder pipeline, per-host verify rate limiter. **407 detectors**
-  built-in (403 secrets + 4 PII). Tag pattern `vX.Y.Z`.
+  decoder pipeline, per-host verify rate limiter. **422 detectors**
+  built-in (418 secrets + 4 PII). Tag pattern `vX.Y.Z`.
 - **Python package** (`python/`) — SaaS sources via
   [saas-retriever](https://pypi.org/project/saas-retriever/) (GitHub,
   GitLab, Bitbucket, Slack, Notion, Confluence, Jira). Backends:
@@ -29,7 +29,7 @@ Two surfaces in one repo. Pick the one that matches your scan target:
 
 ## Detector coverage
 
-407 built-in detectors. Every secret detector that can confirm against
+422 built-in detectors. Every secret detector that can confirm against
 an upstream provider implements `Verify` (run with `--verify`); the rest
 emit `Verified=false` with rotation guidance in the output.
 
