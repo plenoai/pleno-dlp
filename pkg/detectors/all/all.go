@@ -131,4 +131,22 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/rabbitmq"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/redis"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/smtp"
+	// batch 9 — wire-stable order, never reorder. Enterprise SaaS leverage
+	// tokens (project-management, alt-cloud GPU/IaaS, edge-Redis, DB platform,
+	// auth, BaaS service-role).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/clerk"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/clickup"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gitter"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/launchnotes"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/linode"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/modal"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/monday"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/paperspace"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/planetscale"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/runpod"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/scaleway"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/supabase"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/trello"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/upstashredis"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vultr"
 )
