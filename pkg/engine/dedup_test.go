@@ -103,6 +103,35 @@ func TestDedupCloseDelegates(t *testing.T) {
 	}
 }
 
+func TestDedupKey_DistinguishesStdinLabels(t *testing.T) {
+	// Same secret arriving from two stdin invocations with different
+	// labels (`git diff` vs `kubectl get secret`) must not dedup —
+	// they're materially different scans, and collapsing them would
+	// hide the second leak.
+	rec := &recordingSink{}
+	s := NewDedup(rec)
+
+	mk := func(label string) Finding {
+		return Finding{
+			Detector: detectors.AWS,
+			Result:   detectors.Result{Raw: []byte("AKIA0000000000000000")},
+			Chunk: &sources.Chunk{
+				SourceType: sources.SourceStdin,
+				SourceMetadata: sources.Metadata{
+					Stdin: &sources.StdinMeta{Label: label},
+				},
+			},
+		}
+	}
+	s.Emit(mk("git-diff"))
+	s.Emit(mk("k8s-secrets"))
+	s.Emit(mk("git-diff")) // same as first → must dedup
+
+	if got := len(rec.findings); got != 2 {
+		t.Fatalf("expected 2 distinct labels to flow through; got %d", got)
+	}
+}
+
 func TestDedupConcurrent(t *testing.T) {
 	rec := &recordingSink{}
 	s := NewDedup(rec)

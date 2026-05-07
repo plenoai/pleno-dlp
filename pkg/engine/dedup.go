@@ -68,6 +68,14 @@ func dedupKey(f Finding) string {
 			path = "gs://" + md.GCS.Bucket + "/" + md.GCS.Object
 		case md.Slack != nil:
 			path = md.Slack.Channel + "@" + md.Slack.Timestamp
+		case md.Stdin != nil:
+			// Stdin produces one chunk per scan, so the key needs to
+			// include the stdin label to avoid collapsing distinct
+			// scans of differently-labelled stdin streams. The
+			// dedup map is per-process anyway, so the worst case is
+			// over-suppression within a single run — but explicit is
+			// better than relying on default-branch behaviour.
+			path = "stdin:" + md.Stdin.Label
 		default:
 			path = f.Chunk.SourceType.String()
 		}
