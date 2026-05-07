@@ -42,6 +42,21 @@ const (
 	Postman
 	Mailgun
 	TerraformCloud
+	Vercel
+	Netlify
+	Heroku
+	Render
+	FlyIO
+	Atlassian
+	Notion
+	Linear
+	Asana
+	Mixpanel
+	Segment
+	Brevo
+	Mailchimp
+	Postmark
+	Okta
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
