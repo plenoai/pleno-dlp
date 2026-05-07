@@ -254,6 +254,31 @@ const (
 	AWX
 	ConcourseCI
 	TeamCity
+	// batch 13 — appended in wire-stable order, never reorder. Modern
+	// DBaaS platforms (Aiven, YugabyteCloud, CockroachCloud, Fauna,
+	// Tinybird, ClickHouseCloud, Neon), CI/CD bearer tokens distinct from
+	// shapes already handled (GitLabPipeline trigger UUID, ArgoCD JWT,
+	// TektonHub, Spinnaker), email/marketing (ConstantContact), telephony
+	// (Vonage), enterprise integration platforms (Workato, AikidoSecurity).
+	// ClickHouseCloud is a key+secret pair (Raw + RawV2 like AWS/R2).
+	// GitLabPipeline trigger tokens grant pipeline-execute scope on the
+	// project, not full GitLab API access — distinct from existing GitLab
+	// PAT/Deploy tokens.
+	Aiven
+	YugabyteCloud
+	CockroachCloud
+	Fauna
+	Tinybird
+	ClickHouseCloud
+	Neon
+	GitLabPipeline
+	ArgoCD
+	TektonHub
+	Spinnaker
+	ConstantContact
+	Vonage
+	Workato
+	AikidoSecurity
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

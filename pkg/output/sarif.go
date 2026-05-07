@@ -357,6 +357,21 @@ var ruleDescriptions = map[string]string{
 	detectors.AWX.String():                "AWX / Ansible Tower OAuth2 Bearer token (40-char base62) near awx_token / ansible_tower — unverified by design (self-hosted)",
 	detectors.ConcourseCI.String():        "Concourse CI fly local-user bearer token (28+ char base64) near concourse keyword — unverified by design (self-hosted)",
 	detectors.TeamCity.String():           "JetBrains TeamCity server access token (40+ char base62 / eyJ JWT) near teamcity keyword — unverified by design (self-hosted / per-customer subdomain)",
+	detectors.Aiven.String():              "Aiven personal access token (32+ char base62) near aiven keyword, verified via /v1/me with `Authorization: aivenv1 <token>`",
+	detectors.YugabyteCloud.String():      "YugabyteDB Managed (Yugabyte Cloud) API key (64+ char base64url) near yugabyte keyword, verified via /api/public/v1/accounts with Bearer auth",
+	detectors.CockroachCloud.String():     "Cockroach Cloud API key (`ccdb_<base62>`) verified via /api/v1/clusters with Bearer auth",
+	detectors.Fauna.String():              "FaunaDB admin/server secret (`fnAd…` / `fnAk…`) verified via /version with Bearer auth",
+	detectors.Tinybird.String():           "Tinybird auth token (UUID) near tinybird keyword, verified via /v0/datasources with Bearer auth",
+	detectors.ClickHouseCloud.String():    "ClickHouse Cloud key id (32-char) + secret (40+ char base64url) pair — unverified by design (per-org host)",
+	detectors.Neon.String():               "Neon serverless Postgres API key (`neon_<base62>`) verified via /api/v2/users/me with Bearer auth",
+	detectors.GitLabPipeline.String():     "GitLab pipeline trigger token (40-hex or UUID) near pipeline_trigger keyword — unverified by design (verify would actually run the pipeline)",
+	detectors.ArgoCD.String():             "Argo CD API token (JWT-shaped) near argocd_token keyword — unverified by design (self-hosted Gate API host)",
+	detectors.TektonHub.String():          "Tekton Hub API token (40+ char base62) near tekton keyword — unverified by design (community / self-hosted)",
+	detectors.Spinnaker.String():          "Spinnaker (Netflix) API token (40+ char base62 / eyJ JWT) near spinnaker keyword — unverified by design (self-hosted Gate API)",
+	detectors.ConstantContact.String():    "Constant Contact API access token (Bearer JWT or 32+ base62) near constant_contact keyword, verified via /v3/account/summary with Bearer auth",
+	detectors.Vonage.String():             "Vonage (Nexmo) API key (8-char) + secret (16-char) pair, verified via /v0.1/users with HTTP Basic; surfaces SeverityCritical when verified (paid SMS/voice scope)",
+	detectors.Workato.String():            "Workato API token (40+ base62) near workato keyword, verified via /api/users/me with Bearer auth",
+	detectors.AikidoSecurity.String():     "Aikido Security API token (40+ base62) near aikido keyword, verified via /api/public/v1/me with Bearer auth",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

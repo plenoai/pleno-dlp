@@ -399,6 +399,36 @@ func (t DetectorType) String() string {
 		return "ConcourseCI"
 	case TeamCity:
 		return "TeamCity"
+	case Aiven:
+		return "Aiven"
+	case YugabyteCloud:
+		return "YugabyteCloud"
+	case CockroachCloud:
+		return "CockroachCloud"
+	case Fauna:
+		return "Fauna"
+	case Tinybird:
+		return "Tinybird"
+	case ClickHouseCloud:
+		return "ClickHouseCloud"
+	case Neon:
+		return "Neon"
+	case GitLabPipeline:
+		return "GitLabPipeline"
+	case ArgoCD:
+		return "ArgoCD"
+	case TektonHub:
+		return "TektonHub"
+	case Spinnaker:
+		return "Spinnaker"
+	case ConstantContact:
+		return "ConstantContact"
+	case Vonage:
+		return "Vonage"
+	case Workato:
+		return "Workato"
+	case AikidoSecurity:
+		return "AikidoSecurity"
 	default:
 		return "Unknown"
 	}
