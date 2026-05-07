@@ -10,7 +10,26 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.3.0.
+Anything merged to `main` since v0.4.0.
+
+## [0.4.0] — 2026-05-08
+
+### Added
+
+- **15 more secret detectors** — batch 7 (constants 95..109): AlibabaCloud,
+  AzureApp, Databricks, DatadogAppKey, DopplerCLI, Freshdesk,
+  GCPIDToken, HashiCorpCloud, LaunchDarklyRelay, Ngrok, Opsgenie,
+  Snowflake, TencentCloud, TerraformCloudTeam, Zendesk. Total now
+  **103 secret + 4 PII = 107 detectors**.
+- **Per-host verify rate limiter** (`pkg/verify`) — `--verify-rps`
+  (default 10) installs a `RateLimitedTransport` as
+  `http.DefaultTransport`. Every detector that uses the default
+  client is rate-limited automatically without per-detector
+  refactoring. `--verify-rps 0` disables limiting.
+- **`.pre-commit-hooks.yaml`** so consumers can adopt pleno-dlp via
+  pre-commit with one block in `.pre-commit-config.yaml`.
+- **`docs/recipes/`** — GitHub Actions, GitLab CI, pre-commit, and
+  allowlist-pattern recipes.
 
 ## [0.3.0] — 2026-05-08
 
@@ -126,7 +145,8 @@ Anything merged to `main` since v0.3.0.
   Slack bot, OpenAI, Anthropic) + JSON / SARIF / table output +
   cobra `scan` CLI. 51 race-clean tests.
 
-[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.1.0
