@@ -19,6 +19,7 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/dropbox"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/flyio"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gcp"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/generic"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/github"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gitlab"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/groq"
