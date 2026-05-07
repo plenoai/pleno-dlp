@@ -37,9 +37,9 @@ func SetVersion(version, commit string) {
 	Root.Version = fmt.Sprintf("%s (%s)", version, commit)
 }
 
-// scanFlags holds the per-invocation flag values. Bound once at init() and
-// read inside RunE — cobra's Flags() introspection works fine but a struct
-// keeps the dependency graph between flag and use site explicit.
+// scanFlags holds flags that apply across every source kind. Per-source
+// flags (paths, repo, since, ...) live on the corresponding subcommand to
+// keep cobra's --help output narrow and to give each kind its own validation.
 type scanFlags struct {
 	format      string
 	verify      bool
@@ -48,43 +48,111 @@ type scanFlags struct {
 
 var scanOpts scanFlags
 
-// scanCmd is the only subcommand in the MVP. It walks one or more filesystem
-// paths, runs every registered detector, and prints findings in the chosen
-// format. Exit code is 1 when any finding is emitted so CI can `set -e`.
+// scanCmd is the parent command for source-specific subcommands. We keep
+// it routable on its own (no positional args required) so that `scan
+// --help` still describes the shared flags. The first positional arg
+// selects the source kind: `scan filesystem <paths>` or `scan git --repo`.
 var scanCmd = &cobra.Command{
-	Use:   "scan <path> [path...]",
-	Short: "Scan filesystem paths for leaked secrets",
+	Use:   "scan <kind> [args...]",
+	Short: "Scan a source for leaked secrets",
+	Long: "Scan a source for leaked secrets. Supported kinds:\n" +
+		"  filesystem  walk one or more local paths\n" +
+		"  git         walk the commit history of a local git repo",
+}
+
+// scanFilesystemCmd preserves the original `scan <path>...` semantics under
+// the new `scan filesystem <path>...` form. Keeping it as an explicit
+// subcommand removes the implicit-default ambiguity.
+var scanFilesystemCmd = &cobra.Command{
+	Use:   "filesystem <path> [path...]",
+	Short: "Scan local filesystem paths",
 	Args:  cobra.MinimumNArgs(1),
-	RunE:  runScan,
+	RunE:  runScanFilesystem,
+}
+
+// gitFlags captures git-specific configuration. Defined alongside scanCmd
+// because git is a first-class source for the v1 scope.
+type gitFlags struct {
+	repo     string
+	branch   string
+	since    string
+	maxDepth int
+	include  []string
+	exclude  []string
+}
+
+var gitOpts gitFlags
+
+// scanGitCmd walks a local git repository's history. Remote URLs are not
+// accepted yet — pair this with a separate `clone` step if you need that.
+var scanGitCmd = &cobra.Command{
+	Use:   "git --repo <path>",
+	Short: "Scan a local git repository's commit history",
+	Args:  cobra.NoArgs,
+	RunE:  runScanGit,
 }
 
 func init() {
-	scanCmd.Flags().StringVar(&scanOpts.format, "format", "table", "output format: json, sarif, table")
-	scanCmd.Flags().BoolVar(&scanOpts.verify, "verify", false, "verify candidate secrets against upstream APIs")
-	scanCmd.Flags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
+	// Persistent flags on scanCmd so every subcommand inherits them — keeps
+	// `scan filesystem --format json` and `scan git --format json` consistent.
+	scanCmd.PersistentFlags().StringVar(&scanOpts.format, "format", "table", "output format: json, sarif, table")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.verify, "verify", false, "verify candidate secrets against upstream APIs")
+	scanCmd.PersistentFlags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
+
+	scanGitCmd.Flags().StringVar(&gitOpts.repo, "repo", "", "absolute or relative path to a local git repository")
+	scanGitCmd.Flags().StringVar(&gitOpts.branch, "branch", "", "branch to walk (default: HEAD)")
+	scanGitCmd.Flags().StringVar(&gitOpts.since, "since", "", "RFC3339 cutoff; commits older than this are skipped")
+	scanGitCmd.Flags().IntVar(&gitOpts.maxDepth, "max-depth", 0, "cap on commits walked (0 = unbounded)")
+	scanGitCmd.Flags().StringSliceVar(&gitOpts.include, "include", nil, "glob(s) to include (matched against repo-relative paths)")
+	scanGitCmd.Flags().StringSliceVar(&gitOpts.exclude, "exclude", nil, "glob(s) to exclude")
+	_ = scanGitCmd.MarkFlagRequired("repo")
+
+	scanCmd.AddCommand(scanFilesystemCmd)
+	scanCmd.AddCommand(scanGitCmd)
 	Root.AddCommand(scanCmd)
 }
 
-// runScan is the cobra entrypoint. We intentionally route through helper
-// functions that don't touch os.Exit so tests can drive the same code path
-// without forking a subprocess.
-func runScan(cmd *cobra.Command, args []string) error {
+func runScanFilesystem(cmd *cobra.Command, args []string) error {
+	src := sources.New(sources.SourceFilesystem)
+	if src == nil {
+		return fmt.Errorf("filesystem source is not registered (missing pkg/sources/all import?)")
+	}
+	cfg, err := json.Marshal(map[string]any{"paths": args})
+	if err != nil {
+		return fmt.Errorf("encode source config: %w", err)
+	}
+	return runScanCommon(cmd, src, cfg, "filesystem")
+}
+
+func runScanGit(cmd *cobra.Command, _ []string) error {
+	src := sources.New(sources.SourceGit)
+	if src == nil {
+		return fmt.Errorf("git source is not registered (missing pkg/sources/all import?)")
+	}
+	cfg, err := json.Marshal(map[string]any{
+		"repo":      gitOpts.repo,
+		"branch":    gitOpts.branch,
+		"since":     gitOpts.since,
+		"max_depth": gitOpts.maxDepth,
+		"include":   gitOpts.include,
+		"exclude":   gitOpts.exclude,
+	})
+	if err != nil {
+		return fmt.Errorf("encode source config: %w", err)
+	}
+	return runScanCommon(cmd, src, cfg, "git")
+}
+
+// runScanCommon centralises the source-init -> engine.Run -> sink wiring so
+// the per-kind RunE functions only have to translate flags into a JSON config.
+func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind string) error {
 	// SIGINT / SIGTERM cancel the context so the engine drains in-flight
 	// chunks instead of leaving worker goroutines blocked on send.
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	src := sources.New(sources.SourceFilesystem)
-	if src == nil {
-		return fmt.Errorf("filesystem source is not registered (missing pkg/sources/all import?)")
-	}
-
-	cfg, err := json.Marshal(map[string]any{"paths": args})
-	if err != nil {
-		return fmt.Errorf("encode source config: %w", err)
-	}
 	if err := src.Init(ctx, "cli", 0, 0, scanOpts.verify, cfg, scanOpts.concurrency); err != nil {
-		return fmt.Errorf("init filesystem source: %w", err)
+		return fmt.Errorf("init %s source: %w", kind, err)
 	}
 
 	sink, err := output.NewSink(scanOpts.format, cmd.OutOrStdout())
@@ -109,9 +177,6 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	if counter.count.Load() > 0 {
-		// Surface non-zero exit without printing to stderr — cobra would
-		// double-print the error otherwise. SilenceErrors on Root keeps it
-		// quiet, but we still need a sentinel cobra recognises.
 		return errFindingsFound
 	}
 	return nil
