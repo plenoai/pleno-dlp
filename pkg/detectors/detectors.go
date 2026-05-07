@@ -307,6 +307,33 @@ const (
 	Wasabi
 	Stytch
 	Cloud66
+	// batch 15 — appended in wire-stable order, never reorder. Identity /
+	// DevOps (AzureDevOps), self-hosted CI / build (Jenkins, GoCD, Bamboo),
+	// productivity / workflow (Smartsheet, Wrike, Productboard, Miro,
+	// Lucidchart), build artifacts (SonatypeNexus), mobile / app distribution
+	// (AppStoreConnect, Bitrise, Browserstack), generative AI (StabilityAI),
+	// and network / security (CiscoMeraki). Self-hosted shapes (Jenkins,
+	// GoCD, Bamboo, SonatypeNexus) are unverified-by-design — the host is not
+	// in the chunk. AppStoreConnect ships only the .p8 PEM and is unverified
+	// (issuer_id + key_id required for JWT issuance). Browserstack is a paired
+	// username+access-key detector (RawV2). Live keys with explicit `live`
+	// prefixes (Stripe, Mollie, Stytch) follow the existing Critical-on-
+	// verify convention.
+	AzureDevOps
+	Jenkins
+	GoCD
+	Bamboo
+	Smartsheet
+	Wrike
+	Productboard
+	Miro
+	Lucidchart
+	SonatypeNexus
+	AppStoreConnect
+	Bitrise
+	Browserstack
+	StabilityAI
+	CiscoMeraki
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

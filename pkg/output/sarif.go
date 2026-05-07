@@ -387,6 +387,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Wasabi.String():             "Wasabi access key + secret pair (S3-compatible) near wasabi keyword — unverified by design (multi-region SigV4 signing)",
 	detectors.Stytch.String():             "Stytch project secret (secret-test-/secret-live-) near stytch keyword — unverified by design (project_id required for Basic auth); secret-live- surfaces SeverityCritical",
 	detectors.Cloud66.String():            "Cloud66 personal access token (64-hex) near cloud66 keyword, verified via /3/account.json with Bearer auth",
+	detectors.AzureDevOps.String():        "Azure DevOps personal access token (52-char base32) near azure_devops / dev.azure.com keyword, verified via /_apis/connectionData with HTTP Basic auth",
+	detectors.Jenkins.String():            "Jenkins API token (11<32-hex>) near jenkins keyword — unverified by design (self-hosted host not in chunk)",
+	detectors.GoCD.String():               "GoCD server token (40+ alnum) near gocd keyword — unverified by design (self-hosted host not in chunk)",
+	detectors.Bamboo.String():             "Atlassian Bamboo personal access token (>=24 base64) near bamboo keyword — unverified by design (self-hosted host not in chunk)",
+	detectors.Smartsheet.String():         "Smartsheet API access token (>=24 base32-style) near smartsheet keyword, verified via /2.0/users/me with Bearer auth",
+	detectors.Wrike.String():              "Wrike permanent access token (>=40 base64url) near wrike keyword, verified via /api/v4/contacts?me=true with Bearer auth",
+	detectors.Productboard.String():       "Productboard API key (>=32 base64url) near productboard keyword, verified via /companies with Bearer auth and X-Version: 1",
+	detectors.Miro.String():               "Miro OAuth access token (>=40 base64url) near miro keyword, verified via /v2/users/me with Bearer auth",
+	detectors.Lucidchart.String():         "Lucidchart API token (>=40 base64url) near lucidchart keyword, verified via /users/me with Bearer auth",
+	detectors.SonatypeNexus.String():      "Sonatype Nexus user token (NXRT-<base64url>) near nexus keyword — unverified by design (self-hosted host not in chunk)",
+	detectors.AppStoreConnect.String():    "App Store Connect .p8 PEM private key near app_store_connect keyword — unverified by design (issuer_id + key_id required for JWT signing)",
+	detectors.Bitrise.String():            "Bitrise personal access token (>=40 base64url) near bitrise keyword, verified via /v0.1/me with Bearer auth",
+	detectors.Browserstack.String():       "Browserstack username + access key pair near browserstack keyword, verified via /automate/plan.json with HTTP Basic auth",
+	detectors.StabilityAI.String():        "Stability AI API key (sk-<base62>{>=40}) near stability keyword (distinct shape gating from OpenAI), verified via /v1/user/account with Bearer auth",
+	detectors.CiscoMeraki.String():        "Cisco Meraki API key (40-char hex) near meraki keyword, verified via /api/v1/organizations with X-Cisco-Meraki-API-Key header",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

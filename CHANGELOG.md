@@ -10,7 +10,44 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.11.0.
+### Added
+
+- **15 more secret detectors** — batch 15 (constants 215..229):
+  AzureDevOps, Jenkins, GoCD, Bamboo, Smartsheet, Wrike, Productboard,
+  Miro, Lucidchart, SonatypeNexus, AppStoreConnect, Bitrise,
+  Browserstack, StabilityAI, CiscoMeraki. Total now
+  **223 secret + 4 PII = 227 detectors**. Browserstack is a paired
+  (username + access key) detector emitted via RawV2 — verified with
+  HTTP Basic against /automate/plan.json. AzureDevOps verifies via
+  /_apis/connectionData with HTTP Basic (empty user, PAT as password).
+  Self-hosted shapes (Jenkins, GoCD, Bamboo, SonatypeNexus) and
+  AppStoreConnect (.p8 PEM, needs issuer_id + key_id for JWT signing)
+  are unverified-by-design — host or signing inputs not in the chunk.
+  StabilityAI uses the `sk-` prefix that overlaps with OpenAI's shape;
+  the `stability` keyword window plus base62-only suffix gating
+  bound the false-positive rate. CiscoMeraki uses the
+  `X-Cisco-Meraki-API-Key` header (idiomatic for the platform);
+  Smartsheet, Wrike, Productboard, Miro, Lucidchart, and Bitrise all
+  verify via Bearer-auth read-only endpoints.
+
+  Swaps from the candidate list, with rationale:
+  - **Asana** already covered (batch 4) → **Wrike** (alt workflow API).
+  - **Auth0 M2M** would collide with existing Auth0 detector (batch 5)
+    → **AzureDevOps** (identity / DevOps slot).
+  - **TravisCI / CodeShip** ambiguous against existing CI coverage →
+    **Bamboo** (Atlassian self-hosted CI, distinct from Confluence /
+    Jira API tokens we already detect).
+  - **Sumo Logic Source** would collide with existing SumoLogic →
+    **CiscoMeraki** (network / security platform with no existing
+    detector).
+  - **Honeycomb Beeline** same shape window as existing Honeycomb →
+    skipped, replaced by **AppStoreConnect**.
+  - **HuggingFace Inference** already covered as HuggingFace →
+    **StabilityAI** (frontier image-gen platform).
+  - **JFrog Pipelines** would collide with existing JFrog →
+    **SonatypeNexus** (distinct artifact-platform shape).
+  - **Webex / Workspace ONE / Ping Identity / Beyond Identity** all
+    deferred — identity slot taken by AzureDevOps; revisit in batch 16.
 
 ## [0.11.0] — 2026-05-08
 
