@@ -462,6 +462,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Drift.String():                  "Drift API token (>=32 base64url) near drift keyword, verified via /core/v1/users/list on driftapi.com with Bearer auth",
 	detectors.Vanta.String():                  "Vanta API token ((vat_|usr_)?<base62>{40+}) near vanta keyword, verified via /v1/integrations on api.vanta.com with Bearer auth",
 	detectors.OneSignal.String():              "OneSignal REST API key (legacy 48-char alnum or `os_v2_app_<base32>{50+}`) near onesignal keyword, verified via /api/v1/apps on api.onesignal.com using `Authorization: Basic <key>`",
+	detectors.FirebaseCloudMessaging.String(): "Firebase Cloud Messaging legacy server key (`AAAA<base64url>:APA91b<base64url>{134+}`) near fcm / firebase keyword, verified via /fcm/send on fcm.googleapis.com using `Authorization: key=<token>`",
+	detectors.APNs.String():                   "Apple Push Notification service .p8 PEM private key near apns / apple_push keyword — unverified by design (issuer + key_id required for JWT issuance)",
+	detectors.Pushover.String():               "Pushover application token (30-char alnum) near pushover keyword, verified via /1/sounds.json on api.pushover.net using POST form `token=<token>`",
+	detectors.BranchIO.String():               "Branch.io key (`key_(live|test)_<base62>{32+}`) + matching secret (`secret_(live|test)_<base62>{32+}`) paired RawV2 near branch / branch_io keyword, verified via /v1/app on api2.branch.io with branch_secret query param",
+	detectors.PusherBeams.String():            "Pusher Beams secret key (32-hex) near pusher_beams / beams keyword — unverified by design (instance_id required for /publish_api endpoint)",
+	detectors.Drata.String():                  "Drata API token (>=40 base64url) near drata keyword, verified via /v1/users on public-api.drata.com with Bearer auth",
+	detectors.Secureframe.String():            "Secureframe API token (>=40 base64url) near secureframe keyword, verified via /v1/users on api.secureframe.com with Bearer auth",
+	detectors.OneTrust.String():               "OneTrust integration token (>=40 base64url) near onetrust keyword — verified via /api/v1/tenants on the per-tenant host (`<tenant>.onetrust.com`); apiBase override required",
+	detectors.Pipedrive.String():              "Pipedrive personal API token (40-hex) near pipedrive keyword, verified via /v1/users/me on api.pipedrive.com with `?api_token=` query param",
+	detectors.Close.String():                  "Close.com API key (`api_<base62>{40+}`) near close.com / closecrm keyword, verified via /api/v1/me/ on api.close.com with HTTP basic auth (key as user, empty password)",
+	detectors.DNSimple.String():               "DNSimple API token (>=40 alnum) near dnsimple keyword, verified via /v2/whoami on api.dnsimple.com with Bearer auth",
+	detectors.NvidiaNGC.String():              "NVIDIA NGC API key (`nvapi-<base64url>{40+}`) near nvidia / ngc / nvapi keyword, verified via /v2/org on api.ngc.nvidia.com with Bearer auth",
+	detectors.Airbrake.String():               "Airbrake user API token (>=40 alnum) near airbrake keyword, verified via /api/v4/projects on api.airbrake.io with `?key=` query param",
+	detectors.Materialize.String():            "Materialize Cloud app password (`mzp_<base64url>{40+}`) near materialize keyword, verified via /api/users/me on api.materialize.com with Bearer auth",
+	detectors.BeyondIdentity.String():         "Beyond Identity API token (>=40 base64url) near beyondidentity / byndid keyword — verified via /v1/tenants/me on the per-tenant host (`api-<region>.byndid.com`); apiBase override required",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

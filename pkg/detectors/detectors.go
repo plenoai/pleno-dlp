@@ -442,6 +442,35 @@ const (
 	Drift
 	Vanta
 	OneSignal
+	// batch 20 — appended in wire-stable order, never reorder. Mobile push
+	// (FirebaseCloudMessaging, APNs, Pushover, BranchIO, PusherBeams),
+	// compliance / security (Drata, Secureframe, OneTrust), CRM
+	// (Pipedrive, Close), DNS (DNSimple), AI infra (NvidiaNGC), error
+	// tracking (Airbrake), database (Materialize), and identity / IAM
+	// (BeyondIdentity). APNs ships only the .p8 PEM and is unverified
+	// (issuer + key_id required for JWT issuance, distinct from
+	// AppStoreConnect because APNs JWTs target push endpoints rather
+	// than App Store APIs). BranchIO is a paired key+secret detector
+	// using RawV2. PusherBeams is distinct from PusherChannels — Beams
+	// is the push-notification SDK with separate instance + secret.
+	// OneTrust uses per-tenant hosts (`<tenant>.onetrust.com`) so verify
+	// requires apiBase override. Drata / Secureframe verify against
+	// public api hosts. NvidiaNGC tokens use the `nvapi-` prefix.
+	FirebaseCloudMessaging
+	APNs
+	Pushover
+	BranchIO
+	PusherBeams
+	Drata
+	Secureframe
+	OneTrust
+	Pipedrive
+	Close
+	DNSimple
+	NvidiaNGC
+	Airbrake
+	Materialize
+	BeyondIdentity
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

@@ -358,4 +358,26 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/ovhcloud"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/semaphoreci"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vanta"
+	// batch 20 — mobile push (firebasecloudmessaging, apns, pushover,
+	// branchio, pusherbeams), compliance (drata, secureframe, onetrust),
+	// CRM (pipedrive, closecrm), DNS (dnsimple), AI (nvidiangc), error
+	// tracking (airbrake), database (materialize), identity
+	// (beyondidentity). APNs / PusherBeams / OneTrust / BeyondIdentity
+	// are unverified-by-default (per-tenant hosts or paired secrets
+	// missing from the chunk).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/airbrake"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/apns"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/beyondidentity"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/branchio"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/closecrm"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/dnsimple"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/drata"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/firebasecloudmessaging"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/materialize"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/nvidiangc"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/onetrust"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pipedrive"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pusherbeams"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pushover"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/secureframe"
 )
