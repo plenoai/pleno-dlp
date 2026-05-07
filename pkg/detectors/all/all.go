@@ -251,4 +251,26 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/wasabi"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/wise"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/zoho"
+	// batch 15 — wire-stable order, never reorder. Identity/DevOps (AzureDevOps),
+	// self-hosted CI / build (Jenkins, GoCD, Bamboo), productivity / workflow
+	// (Smartsheet, Wrike, Productboard, Miro, Lucidchart), build artifacts
+	// (SonatypeNexus), mobile / app distribution (AppStoreConnect, Bitrise,
+	// Browserstack), generative AI (StabilityAI), network / security
+	// (CiscoMeraki). Self-hosted Jenkins / GoCD / Bamboo / SonatypeNexus and
+	// AppStoreConnect are unverified-by-design.
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/appstoreconnect"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/azuredevops"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/bamboo"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/bitrise"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/browserstack"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/ciscomeraki"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gocd"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/jenkins"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/lucidchart"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/miro"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/productboard"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/smartsheet"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sonatypenexus"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/stabilityai"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/wrike"
 )

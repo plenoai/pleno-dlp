@@ -459,6 +459,36 @@ func (t DetectorType) String() string {
 		return "Stytch"
 	case Cloud66:
 		return "Cloud66"
+	case AzureDevOps:
+		return "AzureDevOps"
+	case Jenkins:
+		return "Jenkins"
+	case GoCD:
+		return "GoCD"
+	case Bamboo:
+		return "Bamboo"
+	case Smartsheet:
+		return "Smartsheet"
+	case Wrike:
+		return "Wrike"
+	case Productboard:
+		return "Productboard"
+	case Miro:
+		return "Miro"
+	case Lucidchart:
+		return "Lucidchart"
+	case SonatypeNexus:
+		return "SonatypeNexus"
+	case AppStoreConnect:
+		return "AppStoreConnect"
+	case Bitrise:
+		return "Bitrise"
+	case Browserstack:
+		return "Browserstack"
+	case StabilityAI:
+		return "StabilityAI"
+	case CiscoMeraki:
+		return "CiscoMeraki"
 	default:
 		return "Unknown"
 	}
