@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/plenoai/pleno-dlp/pkg/decoder"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
@@ -68,16 +69,35 @@ func (e *Engine) Run(ctx context.Context, src sources.Source) error {
 }
 
 func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
+	// Variants[0] is always c.Data unchanged (Source=""). Subsequent
+	// entries are base64/percent/hex decode results, included only when
+	// the chunk contained candidate runs. The cost is one regex sweep
+	// per chunk on the cold path — paid once whether or not any detector
+	// runs — and amortises against the keyword-matching that follows.
+	variants := decoder.Variants(c.Data)
+
 	for _, d := range e.dets {
-		if !keywordMatch(c.Data, d.Keywords()) {
-			continue
-		}
-		results, err := d.FromData(ctx, e.opts.Verify, c.Data)
-		if err != nil {
-			continue
-		}
-		for _, r := range results {
-			e.sink.Emit(Finding{Result: r, Chunk: c, Detector: d.Type()})
+		kws := d.Keywords()
+		for _, v := range variants {
+			if !keywordMatch(v.Data, kws) {
+				continue
+			}
+			results, err := d.FromData(ctx, e.opts.Verify, v.Data)
+			if err != nil {
+				continue
+			}
+			for _, r := range results {
+				if v.Source != "" {
+					// Mark which decode produced the hit so output
+					// can disambiguate "found in base64-encoded
+					// payload" from "found in plain text".
+					if r.ExtraData == nil {
+						r.ExtraData = map[string]string{}
+					}
+					r.ExtraData["decoded_from"] = v.Source
+				}
+				e.sink.Emit(Finding{Result: r, Chunk: c, Detector: d.Type()})
+			}
 		}
 	}
 }
