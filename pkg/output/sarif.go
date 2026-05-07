@@ -218,6 +218,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Mailchimp.String():          "Mailchimp API key (32-hex-us<dc>)",
 	detectors.Postmark.String():           "Postmark server API token (UUID) near postmark keyword",
 	detectors.Okta.String():               "Okta API token (00...) — tenant URL required to verify",
+	detectors.Jira.String():               "Atlassian Jira API token (24-char) near jira keyword — unverified by design",
+	detectors.Confluence.String():         "Atlassian Confluence API token (24-char) near confluence keyword — unverified by design",
+	detectors.BitbucketCloud.String():     "Bitbucket Cloud access token (ATCTT3xFfGF0…) or app password near bitbucket keyword",
+	detectors.Square.String():             "Square access token (EAAA…) or sandbox token (sq0atp-)",
+	detectors.PayPal.String():             "PayPal REST client_id + client_secret pair (full account access)",
+	detectors.Plaid.String():              "Plaid client_id + secret pair (linked-bank-account access)",
+	detectors.Discord.String():            "Discord bot token (id.timestamp.hmac base64url segments)",
+	detectors.Cohere.String():             "Cohere API key (40-char) near cohere keyword",
+	detectors.Replicate.String():          "Replicate API token (r8_)",
+	detectors.Mistral.String():            "Mistral AI API key (32-char) near mistral keyword",
+	detectors.Groq.String():               "Groq Cloud API key (gsk_)",
+	detectors.Intercom.String():           "Intercom access token (dG9rOg…)",
+	detectors.OpenRouter.String():         "OpenRouter API key (sk-or-v1-)",
+	detectors.Together.String():           "Together.ai API key (64-char hex) near together keyword",
+	detectors.Dropbox.String():            "Dropbox short-lived (sl.) or app token near dropbox keyword",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

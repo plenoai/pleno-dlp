@@ -121,6 +121,36 @@ func (t DetectorType) String() string {
 		return "Postmark"
 	case Okta:
 		return "Okta"
+	case Jira:
+		return "Jira"
+	case Confluence:
+		return "Confluence"
+	case BitbucketCloud:
+		return "BitbucketCloud"
+	case Square:
+		return "Square"
+	case PayPal:
+		return "PayPal"
+	case Plaid:
+		return "Plaid"
+	case Discord:
+		return "Discord"
+	case Cohere:
+		return "Cohere"
+	case Replicate:
+		return "Replicate"
+	case Mistral:
+		return "Mistral"
+	case Groq:
+		return "Groq"
+	case Intercom:
+		return "Intercom"
+	case OpenRouter:
+		return "OpenRouter"
+	case Together:
+		return "Together"
+	case Dropbox:
+		return "Dropbox"
 	default:
 		return "Unknown"
 	}
