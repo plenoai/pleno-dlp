@@ -57,6 +57,22 @@ const (
 	Mailchimp
 	Postmark
 	Okta
+	// batch 4 — appended in wire-stable order; never reorder.
+	Jira
+	Confluence
+	BitbucketCloud
+	Square
+	PayPal
+	Plaid
+	Discord
+	Cohere
+	Replicate
+	Mistral
+	Groq
+	Intercom
+	OpenRouter
+	Together
+	Dropbox
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
