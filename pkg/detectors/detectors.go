@@ -73,6 +73,22 @@ const (
 	OpenRouter
 	Together
 	Dropbox
+	// batch 5 — appended in wire-stable order; never reorder.
+	AzureAD
+	Telegram
+	Shodan
+	VirusTotal
+	Doppler
+	Vault
+	Algolia
+	Airtable
+	Grafana
+	LaunchDarkly
+	Auth0
+	Buildkite
+	CircleCI
+	Snyk
+	Spotify
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
