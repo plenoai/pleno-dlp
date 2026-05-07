@@ -328,6 +328,8 @@ func sarifLocationOf(f engine.Finding) (string, int) {
 		return "gs://" + md.GCS.Bucket + "/" + md.GCS.Object, 0
 	case md.Slack != nil:
 		return md.Slack.Permalink, 0
+	case md.Stdin != nil:
+		return md.Stdin.Label, 0
 	}
 	return "", 0
 }

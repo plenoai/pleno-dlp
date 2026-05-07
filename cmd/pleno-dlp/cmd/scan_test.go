@@ -186,3 +186,51 @@ func TestScanFilesystemWithCustomRules(t *testing.T) {
 func writeFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o600)
 }
+
+// TestScanStdin_FindsSecretFromPipe drives the stdin subcommand end-to-end
+// by injecting a Buffer for cobra's input. Confirms that a piped secret
+// surfaces a finding (errFindingsFound), and that StdinMeta.Label rides
+// through to the JSON output via --label.
+func TestScanStdin_FindsSecretFromPipe(t *testing.T) {
+	resetScanOpts() // pre-emptive: cobra persistent flags retain prior --rules
+	t.Cleanup(resetScanOpts)
+	t.Cleanup(func() {
+		stdinOpts.label = ""
+		stdinOpts.maxBytes = 0
+	})
+
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+	// AKIAIOSFODNN7EXAMPLE is the canonical AWS dummy access key — the
+	// AWS detector's keyword + regex should match it without verification.
+	Root.SetIn(strings.NewReader("aws_access_key=AKIAIOSFODNN7EXAMPLE\n"))
+	Root.SetArgs([]string{"scan", "--format", "json", "stdin", "--label", "test-pipe"})
+
+	err := Root.Execute()
+	if !IsFindingsError(err) {
+		t.Fatalf("expected findings error from stdin scan; got %v\noutput:\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "test-pipe") {
+		t.Errorf("expected --label to ride through to output:\n%s", out.String())
+	}
+}
+
+func TestScanStdin_NoFindingsExitsZero(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+	t.Cleanup(func() {
+		stdinOpts.label = ""
+		stdinOpts.maxBytes = 0
+	})
+
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+	Root.SetIn(strings.NewReader("nothing secret here, just plain text\n"))
+	Root.SetArgs([]string{"scan", "--format", "json", "stdin"})
+
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("clean stdin scan should succeed; got %v\noutput:\n%s", err, out.String())
+	}
+}

@@ -53,6 +53,8 @@ func (t SourceType) String() string {
 		return "bitbucket"
 	case SourceNotion:
 		return "notion"
+	case SourceStdin:
+		return "stdin"
 	default:
 		return "unknown"
 	}
