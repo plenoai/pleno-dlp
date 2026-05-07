@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -42,12 +43,28 @@ func (d *stubKeywordDet) FromData(_ context.Context, _ bool, data []byte) ([]det
 	return []detectors.Result{{DetectorType: detectors.AWS, Raw: data}}, nil
 }
 
+// engineRecordingSink mirrors the production countingSink shape: scan
+// workers Emit concurrently from multiple goroutines, so the slice
+// append must be lock-protected. Without the mutex, -race fails this
+// test intermittently when Engine.opts.Concurrency > 1.
 type engineRecordingSink struct {
+	mu       sync.Mutex
 	findings []Finding
 }
 
-func (s *engineRecordingSink) Emit(f Finding) { s.findings = append(s.findings, f) }
-func (s *engineRecordingSink) Close() error   { return nil }
+func (s *engineRecordingSink) Emit(f Finding) {
+	s.mu.Lock()
+	s.findings = append(s.findings, f)
+	s.mu.Unlock()
+}
+func (s *engineRecordingSink) Close() error { return nil }
+func (s *engineRecordingSink) Findings() []Finding {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Finding, len(s.findings))
+	copy(out, s.findings)
+	return out
+}
 
 func TestRunWithStats_CountsChunksBytesFindings(t *testing.T) {
 	src := &stubSource{chunks: []*sources.Chunk{
@@ -75,8 +92,8 @@ func TestRunWithStats_CountsChunksBytesFindings(t *testing.T) {
 	if stats.Duration <= 0 {
 		t.Errorf("duration must be positive, got %v", stats.Duration)
 	}
-	if len(sink.findings) != 2 {
-		t.Errorf("sink got %d findings, want 2", len(sink.findings))
+	if got := sink.Findings(); len(got) != 2 {
+		t.Errorf("sink got %d findings, want 2", len(got))
 	}
 }
 
