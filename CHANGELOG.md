@@ -10,7 +10,26 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.12.0.
+Anything merged to `main` since v0.13.0.
+
+## [0.13.0] — 2026-05-08
+
+### Added
+
+- **15 more secret detectors** — batch 16 (constants 230..244):
+  Webex, Tenable, Rapid7, CrowdStrike, Wiz, SonarQube, MailerLite,
+  ActiveCampaign, Drip, BunnyCDN, Vimeo, Cloudinary, PingIdentity,
+  Mux, Hookdeck. Total now **238 secret + 4 PII = 242 detectors**.
+  Tenable, CrowdStrike, Mux, Cloudinary emit pair detectors (RawV2 carries
+  the second half of the credential triple). Hookdeck `hookdeck_live_`
+  surfaces SeverityCritical when verified. Wiz, ActiveCampaign, and
+  PingIdentity are unverified-by-design — tenant / per-region host not
+  predictable from the chunk. Verified detectors (Webex /v1/people/me,
+  Rapid7 /idr/v1/users/me, SonarQube /api/authentication/validate,
+  MailerLite /api/subscribers/me, Drip /v2/accounts, BunnyCDN /apikey,
+  Vimeo /me, Hookdeck /sources, Mux /video/v1/assets,
+  Cloudinary /v1_1/&lt;cloud&gt;/usage, Tenable /session, CrowdStrike
+  /oauth2/token) all use read-only or auth-only endpoints.
 
 ## [0.12.0] — 2026-05-08
 
@@ -337,7 +356,8 @@ Anything merged to `main` since v0.12.0.
   Slack bot, OpenAI, Anthropic) + JSON / SARIF / table output +
   cobra `scan` CLI. 51 race-clean tests.
 
-[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.13.0
 [0.12.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.12.0
 [0.11.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.11.0
 [0.10.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.10.0
