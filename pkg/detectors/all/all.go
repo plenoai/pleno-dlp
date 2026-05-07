@@ -210,4 +210,23 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/teamcity"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/uptimerobot"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/victorops"
+	// batch 13 — wire-stable order, never reorder. Modern DBaaS platforms,
+	// CI/CD bearer tokens distinct from existing GitLab PAT/Deploy shapes,
+	// email/marketing (Constant Contact), telephony (Vonage), and
+	// enterprise integration platforms (Workato, Aikido).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/aikidosecurity"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/aiven"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/argocd"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/clickhousecloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/cockroachcloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/constantcontact"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/fauna"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gitlabpipeline"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/neon"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/spinnaker"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/tektonhub"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/tinybird"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vonage"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/workato"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/yugabytecloud"
 )
