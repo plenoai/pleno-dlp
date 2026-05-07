@@ -249,6 +249,36 @@ func (t DetectorType) String() string {
 		return "TerraformCloudTeam"
 	case Zendesk:
 		return "Zendesk"
+	case Redis:
+		return "Redis"
+	case Postgres:
+		return "Postgres"
+	case MySQL:
+		return "MySQL"
+	case MongoDB:
+		return "MongoDB"
+	case RabbitMQ:
+		return "RabbitMQ"
+	case Kafka:
+		return "Kafka"
+	case BasicAuth:
+		return "BasicAuth"
+	case SMTP:
+		return "SMTP"
+	case AdobeIO:
+		return "AdobeIO"
+	case DockerHub:
+		return "DockerHub"
+	case GHCR:
+		return "GHCR"
+	case AWSS3PresignedURL:
+		return "AWSS3PresignedURL"
+	case GCSSignedURL:
+		return "GCSSignedURL"
+	case AzureSQLConnString:
+		return "AzureSQLConnString"
+	case Kubeconfig:
+		return "Kubeconfig"
 	default:
 		return "Unknown"
 	}

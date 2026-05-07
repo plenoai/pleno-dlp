@@ -113,4 +113,22 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/tencentcloud"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/terraformcloudteam"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/zendesk"
+	// batch 8 — wire-stable order, never reorder. Connection-string and
+	// URL-embedded credentials, container-registry tokens, AWS S3 / GCS
+	// presigned URLs, Azure SQL connection strings, kubeconfig, Adobe.io.
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/adobeio"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/awss3presigned"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/azuresqlconn"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/basicauth"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/dockerhub"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gcssignedurl"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/ghcr"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/kafka"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/kubeconfig"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/mongodb"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/mysql"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/postgres"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/rabbitmq"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/redis"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/smtp"
 )
