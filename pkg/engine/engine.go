@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/decoder"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
@@ -77,6 +78,52 @@ func (e *Engine) Run(ctx context.Context, src sources.Source) error {
 }
 
 func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
+	// Archive expansion runs first: if the chunk is a zip / tar / gzip,
+	// every inner entry becomes a synthetic chunk and is scanned in
+	// place. Plain (non-archive) chunks fall through to the decoder
+	// pipeline below unchanged. archive.Walk returns nil quickly for
+	// non-archive bytes, so the cold path is one byte-prefix compare.
+	if archive.LooksLikeArchive(c.Data) {
+		entries, _ := archive.Walk(archiveRootName(c), c.Data, archive.Limits{})
+		for _, entry := range entries {
+			inner := *c // shallow copy preserves source metadata
+			inner.Data = entry.Data
+			// Embed the inner archive path into the finding's
+			// ExtraData via the dedup keying — the chunk metadata
+			// stays as the on-disk file, the entry path travels
+			// alongside via Result.ExtraData["archive_path"]
+			// stamped after detection.
+			e.scanChunkLeaf(ctx, &inner, entry.Path)
+		}
+		return
+	}
+	e.scanChunkLeaf(ctx, c, "")
+}
+
+// archiveRootName picks a meaningful identifier for the outer archive
+// when composing inner entry paths. Falls back to the chunk's source
+// type when no filesystem-shaped name is available.
+func archiveRootName(c *sources.Chunk) string {
+	if c == nil {
+		return ""
+	}
+	md := c.SourceMetadata
+	switch {
+	case md.Filesystem != nil:
+		return md.Filesystem.Path
+	case md.Git != nil:
+		return md.Git.File
+	case md.GitHub != nil:
+		return md.GitHub.File
+	}
+	return c.SourceName
+}
+
+// scanChunkLeaf runs every detector against a single chunk after archive
+// expansion. archivePath is non-empty for inner entries; empty for plain
+// chunks. The path is stamped into Result.ExtraData so output can render
+// "leak.txt!secret.env" trails.
+func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePath string) {
 	// Variants[0] is always c.Data unchanged (Source=""). Subsequent
 	// entries are base64/percent/hex decode results, included only when
 	// the chunk contained candidate runs. The cost is one regex sweep
@@ -109,6 +156,12 @@ func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
 				// triageable downstream.
 				if r.Severity == detectors.SeverityUnknown {
 					r.Severity = detectors.DefaultSeverity(d.Type(), r.Verified)
+				}
+				if archivePath != "" {
+					if r.ExtraData == nil {
+						r.ExtraData = map[string]string{}
+					}
+					r.ExtraData["archive_path"] = archivePath
 				}
 				e.sink.Emit(Finding{Result: r, Chunk: c, Detector: d.Type()})
 			}
