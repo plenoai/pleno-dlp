@@ -401,4 +401,26 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/qdrant"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/surrealdb"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/transifex"
+	// batch 22 — wire-stable order, never reorder. AI/ML (nomic, jina, runway),
+	// data (motherduck, dolthub), observability (betterstack, dynatrace,
+	// appsignal, scoutapm), auth (descope), email/messaging (mandrill,
+	// customerio, iterable), telephony (plivo), payments (paddle). CustomerIO,
+	// Plivo and ScoutAPM are paired credential detectors using RawV2.
+	// Dynatrace is unverified-by-default (per-tenant host requires apiBase
+	// override).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/appsignal"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/betterstack"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/customerio"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/descope"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/dolthub"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/dynatrace"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/iterable"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/jina"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/mandrill"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/motherduck"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/nomic"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/paddle"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/plivo"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/runway"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/scoutapm"
 )

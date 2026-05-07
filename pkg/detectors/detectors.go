@@ -496,6 +496,31 @@ const (
 	SurrealDB
 	Leaseweb
 	PostageApp
+	// batch 22 — appended in wire-stable order, never reorder. AI/ML infra
+	// (Nomic, Jina, Runway), data warehouse / DBaaS (MotherDuck, DoltHub),
+	// observability (BetterStack, Dynatrace, AppSignal, ScoutAPM), auth
+	// (Descope), email / messaging (Mandrill, CustomerIO, Iterable),
+	// telephony (Plivo), and payments (Paddle). CustomerIO and Plivo are
+	// paired credentials (site_id+api_key, auth_id+auth_token) using
+	// RawV2; ScoutAPM is also a paired (org_id, key) detector. Dynatrace
+	// is unverified-by-default — tokens carry the public id segment but
+	// the per-tenant host (`<env>.live.dynatrace.com`) isn't in the chunk,
+	// so verify requires apiBase override.
+	Nomic
+	Jina
+	Runway
+	MotherDuck
+	DoltHub
+	BetterStack
+	Dynatrace
+	AppSignal
+	ScoutAPM
+	Descope
+	Mandrill
+	CustomerIO
+	Iterable
+	Plivo
+	Paddle
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

@@ -12,6 +12,28 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.18.0.
 
+### Added
+
+- **15 more secret detectors** — batch 22 (constants 320..334):
+  Nomic, Jina, Runway, MotherDuck, DoltHub, BetterStack, Dynatrace,
+  AppSignal, ScoutAPM, Descope, Mandrill, CustomerIO, Iterable, Plivo,
+  Paddle. Total now **328 secret + 4 PII = 332 detectors**. AI / ML
+  infra (Nomic Atlas `nk-` Bearer, Jina AI `jina_` Bearer, Runway ML
+  `key_` Bearer with `X-Runway-Version`), data warehouse / DBaaS
+  (MotherDuck JWT Bearer, DoltHub `token <pat>`), observability
+  (BetterStack/Logtail Bearer, Dynatrace `dt0c01.<id>.<secret>` —
+  unverified-by-default per-tenant host, AppSignal 32-hex query-param
+  auth, ScoutAPM paired agent_key + api_key Basic auth), auth (Descope
+  management `K2` Bearer), email / messaging (Mandrill 22-char API key
+  via JSON body, Customer.io paired site_id+api_key Basic auth,
+  Iterable `Api-Key` header), telephony (Plivo paired `MA`/`SA` auth_id
+  + token Basic auth), and payments (Paddle Billing
+  `pdl_(live|sdbx)_apikey_` Bearer with sandbox host fallback).
+  ScoutAPM, CustomerIO, and Plivo use `RawV2` to surface the paired
+  secret. Dynatrace ships an `apiBase` override so verify can be
+  exercised in tests but stays disabled in production until a tenant
+  host is supplied. 2220 race-clean tests across 347 packages.
+
 ## [0.18.0] — 2026-05-08
 
 ### Added

@@ -669,6 +669,36 @@ func (t DetectorType) String() string {
 		return "Leaseweb"
 	case PostageApp:
 		return "PostageApp"
+	case Nomic:
+		return "Nomic"
+	case Jina:
+		return "Jina"
+	case Runway:
+		return "Runway"
+	case MotherDuck:
+		return "MotherDuck"
+	case DoltHub:
+		return "DoltHub"
+	case BetterStack:
+		return "BetterStack"
+	case Dynatrace:
+		return "Dynatrace"
+	case AppSignal:
+		return "AppSignal"
+	case ScoutAPM:
+		return "ScoutAPM"
+	case Descope:
+		return "Descope"
+	case Mandrill:
+		return "Mandrill"
+	case CustomerIO:
+		return "CustomerIO"
+	case Iterable:
+		return "Iterable"
+	case Plivo:
+		return "Plivo"
+	case Paddle:
+		return "Paddle"
 	default:
 		return "Unknown"
 	}

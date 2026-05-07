@@ -492,6 +492,21 @@ var ruleDescriptions = map[string]string{
 	detectors.SurrealDB.String():              "SurrealDB Cloud token (>=40 base64url) near surrealdb / surreal keyword — verified via /sql on the per-instance host; apiBase override required",
 	detectors.Leaseweb.String():               "Leaseweb API key + secret pair (32-hex each) near leaseweb keyword, verified via /v1/account on api.leaseweb.com with `X-Lsw-Auth: <key>` and HMAC `X-Lsw-Sign` (RawV2 carries the secret)",
 	detectors.PostageApp.String():             "PostageApp API key (32-hex) near postageapp keyword, verified via /v.1.0/get_account_info.json on api.postageapp.com with form `api_key=<key>`",
+	detectors.Nomic.String():                  "Nomic Atlas API key (`nk-<base64url>{40+}`) near nomic keyword, verified via /v1/user on api-atlas.nomic.ai with Bearer auth",
+	detectors.Jina.String():                   "Jina AI API key (`jina_<base64url>{40+}`) near jina keyword, verified via /v1/embeddings on api.jina.ai with Bearer auth",
+	detectors.Runway.String():                 "Runway ML API key (`key_<hex>{48+}`) near runway / runwayml keyword, verified via /v1/organization on api.dev.runwayml.com with Bearer auth",
+	detectors.MotherDuck.String():             "MotherDuck access token (>=80 base64url JWT) near motherduck keyword, verified via /v1/databases on api.motherduck.com with Bearer auth",
+	detectors.DoltHub.String():                "DoltHub personal access token (>=40 base64url) near dolthub keyword, verified via /api/v1alpha1/{owner}/profile on dolthub.com with `authorization: token <pat>`",
+	detectors.BetterStack.String():            "Better Stack (Logtail) team API token (>=24 alnum) near betterstack / better_stack / logtail keyword, verified via /api/v2/teams on uptime.betterstack.com with Bearer auth",
+	detectors.Dynatrace.String():              "Dynatrace API token (`dt0c01.<id>.<secret>`) near dynatrace keyword — verified via /api/v1/config/clusterversion on the per-tenant host (`<env>.live.dynatrace.com`); apiBase override required",
+	detectors.AppSignal.String():              "AppSignal push API key (32-hex) near appsignal keyword, verified via /1/auth on push.appsignal.com with `?api_key=<key>` query parameter",
+	detectors.ScoutAPM.String():               "Scout APM agent key + secret pair (account ID and 64-char key) near scout / scoutapm / scout_apm keyword, verified via /api/v0/check on scoutapm.com with HTTP Basic auth (RawV2 carries the secret)",
+	detectors.Descope.String():                "Descope management key (`K2<base64url>{40+}`) near descope keyword, verified via /v1/mgmt/project/list on api.descope.com with Bearer auth",
+	detectors.Mandrill.String():               "Mandrill API key (22-char URL-safe alnum) near mandrill keyword, verified via /api/1.0/users/ping on mandrillapp.com with form `key=<api_key>`",
+	detectors.CustomerIO.String():             "Customer.io tracking site_id + api_key pair (each 20 alnum) near customerio / customer_io keyword, verified via /api/v1/customers on track.customer.io with HTTP Basic auth (RawV2 carries the api_key)",
+	detectors.Iterable.String():               "Iterable API key (>=40 alnum) near iterable keyword, verified via /api/users/byEmail on api.iterable.com with `Api-Key: <key>` header",
+	detectors.Plivo.String():                  "Plivo Auth ID + Auth Token pair (auth_id starts `MA` / `SA` then 18 alnum, token >=40 base64url) near plivo keyword, verified via /v1/Account/{auth_id}/ on api.plivo.com with HTTP Basic auth (RawV2 carries the auth token)",
+	detectors.Paddle.String():                 "Paddle Billing API key (`pdl_(live|sdbx)_apikey_<base64url>{40+}`) near paddle keyword, verified via /event-types on api.paddle.com with Bearer auth (sandbox host `sandbox-api.paddle.com`)",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
