@@ -89,6 +89,14 @@ const (
 	CircleCI
 	Snyk
 	Spotify
+	// PII class — appended in wire-stable order; never reorder. PII
+	// detectors set ExtraData["finding_class"]="pii" so downstream
+	// callers can route by class (rotate-the-token logic for secrets vs
+	// access-control logic for PII).
+	PIIEmail
+	PIIUSSSN
+	PIICreditCard
+	PIIIBAN
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
@@ -155,6 +163,13 @@ func DefaultSeverity(t DetectorType, verified bool) Severity {
 	case GenericHighEntropy:
 		return SeverityMedium
 	case JWT, PrivateKeyPEM:
+		return SeverityMedium
+	case PIIEmail, PIIUSSSN, PIICreditCard, PIIIBAN:
+		// PII has no "verified" pathway — these are pattern matches with
+		// no upstream API to confirm. Medium reflects information-leak
+		// severity vs the High default for unverified credentials. PII
+		// rotation isn't a thing; the appropriate response is access
+		// control, redaction, or removal.
 		return SeverityMedium
 	default:
 		return SeverityHigh
