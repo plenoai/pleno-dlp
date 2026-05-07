@@ -414,6 +414,34 @@ const (
 	PusherChannels
 	Hetzner
 	Pumble
+	// batch 19 — appended in wire-stable order, never reorder. IaaS / cloud
+	// (OVHCloud, EquinixMetal, Civo, Exoscale), CI / DevOps (BuddyCI,
+	// SemaphoreCI, JenkinsX), AI / ML (AssemblyAI, ElevenLabs, Deepgram),
+	// email / comms (Front, CrispChat, Drift), security / compliance (Vanta),
+	// and mobile push (OneSignal). OVHCloud / Exoscale / CrispChat are
+	// unverified-by-design — OVH and Exoscale require HMAC signing, Crisp
+	// needs the Identifier half of the (Identifier, Key) pair which is not
+	// always co-located with the key. SemaphoreCI / JenkinsX use per-org /
+	// per-installation hosts not in the chunk; verify only fires when an
+	// apiBase override is supplied. Front uses JWT-shaped tokens distinct
+	// from the existing FrontEgg client_id+client_secret pair (unrelated
+	// products). OneSignal accepts both the 48-char legacy key and the
+	// `os_v2_app_<base32>` v2 shape.
+	OVHCloud
+	EquinixMetal
+	Civo
+	Exoscale
+	BuddyCI
+	SemaphoreCI
+	JenkinsX
+	AssemblyAI
+	ElevenLabs
+	Deepgram
+	Front
+	CrispChat
+	Drift
+	Vanta
+	OneSignal
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

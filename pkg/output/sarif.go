@@ -447,6 +447,21 @@ var ruleDescriptions = map[string]string{
 	detectors.PusherChannels.String():         "Pusher Channels app secret (20-char alnum) near pusher keyword — unverified by design (HMAC signing requires app_id + cluster not in chunk)",
 	detectors.Hetzner.String():                "Hetzner Cloud API token (64-char base62) near hcloud/hetzner keyword, verified via /v1/servers on api.hetzner.cloud with Bearer auth",
 	detectors.Pumble.String():                 "Pumble team-chat API token (>=40 alnum) near pumble keyword, verified via /listUsers on Pumble API addons host using `Api-Key` header",
+	detectors.OVHCloud.String():               "OVH Cloud (application_key / application_secret / consumer_key) 32-char triple near ovh / consumer_key keyword — unverified by design (HMAC-SHA1 signing required)",
+	detectors.EquinixMetal.String():           "Equinix Metal (formerly Packet) API token (32-char alnum) near equinix / packet / metal_api keyword, verified via /metal/v1/user on api.equinix.com using `X-Auth-Token` header",
+	detectors.Civo.String():                   "Civo Cloud API key (50-char alnum) near civo keyword, verified via /v2/account on api.civo.com with Bearer auth",
+	detectors.Exoscale.String():               "Exoscale IaaS API key (`EXO<base62>{56}`) + secret (paired RawV2) near exoscale keyword — unverified by design (HMAC-SHA1 query signing required)",
+	detectors.BuddyCI.String():                "Buddy CI personal access token (>=40 base64url) near buddy / buddy.works keyword, verified via /user on api.buddy.works with Bearer auth",
+	detectors.SemaphoreCI.String():            "Semaphore CI 2.0 API token (>=40 alnum) near semaphore keyword — verified via /api/v1alpha/projects on the per-org host (`<org>.semaphoreci.com`); apiBase override required",
+	detectors.JenkinsX.String():               "Jenkins X (jx) API token (>=40 alnum) near jenkinsx / jx_ keyword — unverified by default (per-installation host required); apiBase override enables verify",
+	detectors.AssemblyAI.String():             "AssemblyAI API key (32-char hex) near assemblyai keyword, verified via /v2/transcript on api.assemblyai.com using `Authorization: <key>` (no Bearer prefix)",
+	detectors.ElevenLabs.String():             "ElevenLabs API key (32-char hex) near elevenlabs / xi-api-key keyword, verified via /v1/user on api.elevenlabs.io using `xi-api-key` header",
+	detectors.Deepgram.String():               "Deepgram API key (40-char hex) near deepgram keyword, verified via /v1/projects on api.deepgram.com using `Authorization: Token <key>`",
+	detectors.Front.String():                  "Front (frontapp.com) API token (JWT-shaped 3-segment base64url) near frontapp / fronthq / front_api keyword, verified via /me on api2.frontapp.com with Bearer auth",
+	detectors.CrispChat.String():              "Crisp Chat plugin key (>=40 base64url) near crisp keyword — unverified by design (Identifier+Key paired auth required)",
+	detectors.Drift.String():                  "Drift API token (>=32 base64url) near drift keyword, verified via /core/v1/users/list on driftapi.com with Bearer auth",
+	detectors.Vanta.String():                  "Vanta API token ((vat_|usr_)?<base62>{40+}) near vanta keyword, verified via /v1/integrations on api.vanta.com with Bearer auth",
+	detectors.OneSignal.String():              "OneSignal REST API key (legacy 48-char alnum or `os_v2_app_<base32>{50+}`) near onesignal keyword, verified via /api/v1/apps on api.onesignal.com using `Authorization: Basic <key>`",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

@@ -579,6 +579,36 @@ func (t DetectorType) String() string {
 		return "Hetzner"
 	case Pumble:
 		return "Pumble"
+	case OVHCloud:
+		return "OVHCloud"
+	case EquinixMetal:
+		return "EquinixMetal"
+	case Civo:
+		return "Civo"
+	case Exoscale:
+		return "Exoscale"
+	case BuddyCI:
+		return "BuddyCI"
+	case SemaphoreCI:
+		return "SemaphoreCI"
+	case JenkinsX:
+		return "JenkinsX"
+	case AssemblyAI:
+		return "AssemblyAI"
+	case ElevenLabs:
+		return "ElevenLabs"
+	case Deepgram:
+		return "Deepgram"
+	case Front:
+		return "Front"
+	case CrispChat:
+		return "CrispChat"
+	case Drift:
+		return "Drift"
+	case Vanta:
+		return "Vanta"
+	case OneSignal:
+		return "OneSignal"
 	default:
 		return "Unknown"
 	}
