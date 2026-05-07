@@ -10,10 +10,19 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.5.0.
+Anything merged to `main` since v0.6.0.
+
+## [0.6.0] — 2026-05-08
 
 ### Added
 
+- **15 more secret detectors** — batch 9 (constants 125..139): ClickUp,
+  Monday, Trello, Gitter, LaunchNotes, Paperspace, RunPod, Modal,
+  Linode, Vultr, Scaleway, UpstashRedis, PlanetScale, Clerk, Supabase.
+  Total now **133 secret + 4 PII = 137 detectors**. PlanetScale service
+  tokens, Clerk `sk_live_`, and Supabase `service_role` JWTs surface as
+  Critical (admin-equivalent unverified). Trello / Modal / PlanetScale
+  emit pair detectors (RawV2 carries the second half of the credential).
 - **`--include-detectors` / `--exclude-detectors`** scoping flags for the
   `scan` subcommand. Comma-separated, case-insensitive, validated against
   the live registry — typos error out instead of silently producing zero
@@ -187,7 +196,8 @@ Anything merged to `main` since v0.5.0.
   Slack bot, OpenAI, Anthropic) + JSON / SARIF / table output +
   cobra `scan` CLI. 51 race-clean tests.
 
-[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.6.0
 [0.5.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.5.0
 [0.4.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.3.0

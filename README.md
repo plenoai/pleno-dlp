@@ -18,8 +18,8 @@ Two surfaces in one repo. Pick the one that matches your scan target:
 - **Go binary** (`cmd/pleno-dlp/`, this README) — filesystem, local git
   history, and stdin. Trufflehog-compatible detector interface,
   archive-aware (zip / tar / tar.gz / gzip), base64 / percent / hex
-  decoder pipeline, per-host verify rate limiter. **122 detectors**
-  built-in (118 secrets + 4 PII). Tag pattern `vX.Y.Z`.
+  decoder pipeline, per-host verify rate limiter. **137 detectors**
+  built-in (133 secrets + 4 PII). Tag pattern `vX.Y.Z`.
 - **Python package** (`python/`) — SaaS sources via
   [saas-retriever](https://pypi.org/project/saas-retriever/) (GitHub,
   GitLab, Bitbucket, Slack, Notion, Confluence, Jira). Backends:
@@ -29,7 +29,7 @@ Two surfaces in one repo. Pick the one that matches your scan target:
 
 ## Detector coverage
 
-122 built-in detectors. Every secret detector that can confirm against
+137 built-in detectors. Every secret detector that can confirm against
 an upstream provider implements `Verify` (run with `--verify`); the rest
 emit `Verified=false` with rotation guidance in the output.
 
@@ -38,7 +38,9 @@ emit `Verified=false` with rotation guidance in the output.
 | **Cloud / infra** | AWS, AWS session token, AWS S3 presigned URL, GCP service-account, GCP API key, GCP OAuth, GCP ID token, GCS signed URL, Azure storage key, Azure SAS, AzureAD, AzureApp, Azure SQL conn-string, AlibabaCloud, TencentCloud, DigitalOcean, Cloudflare, Heroku, Render, Fly.io, Vercel, Netlify, Terraform Cloud, Terraform Cloud Team, Dropbox, kubeconfig |
 | **VCS / dev tooling** | GitHub PAT, GitHub Container Registry, GitLab PAT, GitLab Deploy, Bitbucket Cloud, Bitbucket Server, npm, PyPI, Hugging Face, Postman, Atlassian, Jira, Confluence, Buildkite, CircleCI, Codecov, Adobe.io, Docker Hub PAT |
 | **AI** | OpenAI, Anthropic, Cohere, Replicate, Mistral, Groq, OpenRouter, Together |
-| **Comms / SaaS** | Slack bot, Slack webhook, Discord, Twilio, SendGrid, Mailgun, Mailchimp, Brevo, Postmark, Notion, Linear, Asana, Mixpanel, Segment, Telegram, Okta, HubSpot, Intercom, Salesforce refresh, Spotify, Zoom, Klaviyo, Zendesk, Freshdesk |
+| **Comms / SaaS** | Slack bot, Slack webhook, Discord, Twilio, SendGrid, Mailgun, Mailchimp, Brevo, Postmark, Notion, Linear, Asana, Mixpanel, Segment, Telegram, Okta, HubSpot, Intercom, Salesforce refresh, Spotify, Zoom, Klaviyo, Zendesk, Freshdesk, ClickUp, Monday, Trello, Gitter, LaunchNotes, Clerk |
+| **GPU / IaaS** | Paperspace, RunPod, Modal, Linode, Vultr, Scaleway |
+| **DBaaS / edge** | UpstashRedis, PlanetScale, Supabase |
 | **Observability** | Datadog, Datadog AppKey, Sentry, New Relic, PagerDuty, Opsgenie, Shodan, VirusTotal, Honeycomb, Sumo Logic, Rollbar, Bugsnag |
 | **Payments / data** | Stripe, Square, PayPal, Plaid, MongoDB Atlas, Snowflake, Databricks |
 | **Connection strings** | Redis, Postgres, MySQL, MongoDB URI, RabbitMQ, Kafka SASL, basic-auth URL, SMTP |
