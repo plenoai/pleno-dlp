@@ -117,6 +117,29 @@ const (
 	Figma
 	Zoom
 	Klaviyo
+	// batch 7 — appended in wire-stable order, never reorder. Enterprise-
+	// parity coverage: Alibaba/Tencent (regional clouds), Azure App Service
+	// secrets distinct from AzureAD client secrets, Databricks PATs,
+	// Datadog application keys (single-key surface), Doppler CLI tokens
+	// (different scope+endpoint than service tokens), Freshdesk / Zendesk
+	// support-platform tokens, GCP ID tokens, HashiCorp Cloud Platform,
+	// LaunchDarkly relay-proxy tokens, ngrok / Opsgenie SRE tooling,
+	// Snowflake JWT keypair auth, Terraform Cloud team tokens.
+	AlibabaCloud
+	AzureApp
+	Databricks
+	DatadogAppKey
+	DopplerCLI
+	Freshdesk
+	GCPIDToken
+	HashiCorpCloud
+	LaunchDarklyRelay
+	Ngrok
+	Opsgenie
+	Snowflake
+	TencentCloud
+	TerraformCloudTeam
+	Zendesk
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

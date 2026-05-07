@@ -219,6 +219,36 @@ func (t DetectorType) String() string {
 		return "Zoom"
 	case Klaviyo:
 		return "Klaviyo"
+	case AlibabaCloud:
+		return "AlibabaCloud"
+	case AzureApp:
+		return "AzureApp"
+	case Databricks:
+		return "Databricks"
+	case DatadogAppKey:
+		return "DatadogAppKey"
+	case DopplerCLI:
+		return "DopplerCLI"
+	case Freshdesk:
+		return "Freshdesk"
+	case GCPIDToken:
+		return "GCPIDToken"
+	case HashiCorpCloud:
+		return "HashiCorpCloud"
+	case LaunchDarklyRelay:
+		return "LaunchDarklyRelay"
+	case Ngrok:
+		return "Ngrok"
+	case Opsgenie:
+		return "Opsgenie"
+	case Snowflake:
+		return "Snowflake"
+	case TencentCloud:
+		return "TencentCloud"
+	case TerraformCloudTeam:
+		return "TerraformCloudTeam"
+	case Zendesk:
+		return "Zendesk"
 	default:
 		return "Unknown"
 	}

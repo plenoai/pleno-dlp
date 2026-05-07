@@ -267,6 +267,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Figma.String():              "Figma personal access token (figd_/figpat_)",
 	detectors.Zoom.String():               "Zoom OAuth client_id + client_secret pair (full account scope)",
 	detectors.Klaviyo.String():            "Klaviyo private (pk_) or site (sk_) API key",
+	detectors.AlibabaCloud.String():       "Alibaba Cloud AccessKey id (LTAI) + secret pair — unverified by design (region unknown, audit-log-bound)",
+	detectors.AzureApp.String():           "Azure AD legacy v1 application secret (no tilde) + client_id pair — unverified by design (tenant unknown)",
+	detectors.Databricks.String():         "Databricks personal access token (dapi…) — unverified by design (workspace host unknown)",
+	detectors.DatadogAppKey.String():      "Datadog Application key standalone (40 hex) — paired path delegated to datadog detector",
+	detectors.DopplerCLI.String():         "Doppler CLI token (dp.cli.…)",
+	detectors.Freshdesk.String():          "Freshdesk API key near freshdesk keyword — unverified by design (subdomain unknown)",
+	detectors.GCPIDToken.String():         "Google-issued OIDC ID token (audience-bound JWT) — unverified by design (audience unknown)",
+	detectors.HashiCorpCloud.String():     "HashiCorp Cloud Platform access token (hcp.…)",
+	detectors.LaunchDarklyRelay.String():  "LaunchDarkly relay-proxy service token (relay-proxy-<uuid>)",
+	detectors.Ngrok.String():              "ngrok personal auth or API token near ngrok keyword",
+	detectors.Opsgenie.String():           "Opsgenie API integration key (UUID) near opsgenie keyword",
+	detectors.Snowflake.String():          "Snowflake JWT keypair-auth token — unverified by design (account host + public key unknown)",
+	detectors.TencentCloud.String():       "Tencent Cloud SecretId (AKID) + SecretKey pair — unverified by design (region unknown, audit-log-bound)",
+	detectors.TerraformCloudTeam.String(): "Terraform Cloud / Enterprise team API token (atlasv1) near team keyword",
+	detectors.Zendesk.String():            "Zendesk API token + operator email pair — unverified by design (subdomain unknown)",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
