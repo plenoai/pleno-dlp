@@ -10,7 +10,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.8.0.
+Anything merged to `main` since v0.9.0.
+
+## [0.9.0] — 2026-05-08
+
+### Added
+
+- **15 more secret detectors** — batch 12 (constants 170..184):
+  SplunkHEC, ElasticCloud, LogzIO, Coralogix, Loggly, UptimeRobot,
+  Pingdom, Honeybadger, Raygun, Statuspage, VictorOps, PagerTree,
+  AWX, ConcourseCI, TeamCity. Total now **178 secret + 4 PII =
+  182 detectors**. Self-hosted observability and CI surfaces
+  (Splunk HEC, Elastic Cloud, AWX, ConcourseCI, TeamCity) are
+  unverified-by-design — per-tenant host not predictable from the
+  chunk. Swaps from the original list: DatadogAppKey → Pingdom
+  (already covered by batch 7), Bugsnag → Raygun (already in batch
+  6), NewRelic Insights → UptimeRobot (covered by existing newrelic
+  detector via `NRII-` regex).
 
 ## [0.8.0] — 2026-05-08
 
@@ -231,7 +247,8 @@ Anything merged to `main` since v0.8.0.
   Slack bot, OpenAI, Anthropic) + JSON / SARIF / table output +
   cobra `scan` CLI. 51 race-clean tests.
 
-[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.9.0
 [0.8.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.8.0
 [0.7.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.7.0
 [0.6.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.6.0
