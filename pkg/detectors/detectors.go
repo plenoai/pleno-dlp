@@ -24,6 +24,14 @@ const (
 	JWT
 	PrivateKeyPEM
 	GenericHighEntropy
+	// New constants are appended below — values are wire-stable, never reorder.
+	Datadog
+	NPM
+	PyPI
+	HuggingFace
+	Cloudflare
+	SendGrid
+	Twilio
 )
 
 // Result is what a detector emits per match. Mirrors trufflehog's Result so
