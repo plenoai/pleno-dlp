@@ -447,4 +447,26 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/snipcart"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/squadcast"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/woodpecker"
+	// batch 24 — wire-stable order, never reorder. Payments (Braintree paired
+	// access_token shape, Dwolla key+secret pair, Klarna paired username+
+	// password Basic auth), HR / recruiting (Lever, Greenhouse, Gusto, Deel,
+	// Rippling), auth (PropelAuth Bearer), AI / ML / GPU infra (LambdaLabs,
+	// Anyscale, SambaNova, Baseten), DBaaS (Turso), notifications (Knock
+	// `sk_(test|live)_`). Braintree / Dwolla / Klarna use RawV2 for the paired
+	// secret. Knock live-prefix surfaces SeverityCritical via DefaultSeverity.
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/anyscale"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/baseten"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/braintree"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/deel"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/dwolla"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/greenhouse"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gusto"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/klarna"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/knock"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/lambdalabs"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/lever"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/propelauth"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/rippling"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sambanova"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/turso"
 )

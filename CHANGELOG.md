@@ -10,6 +10,33 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **15 more secret detectors** — batch 24 (constants 350..364):
+  Braintree, Dwolla, Klarna, Lever, Greenhouse, Gusto, Deel, Rippling,
+  PropelAuth, LambdaLabs, Anyscale, SambaNova, Baseten, Turso, Knock.
+  Total now **358 secret + 4 PII = 362 detectors**. Payments
+  (Braintree `access_token$<env>$<merchant>$<32 hex>` Bearer routed to
+  api.braintreegateway.com vs api.sandbox.braintreegateway.com by the
+  embedded env segment, Dwolla paired key+secret Basic auth via /token,
+  Klarna paired username `PK<digits>_<8>` + password Basic auth via
+  /payments/v1/sessions), HR / recruiting / payroll (Lever 40-hex Basic
+  auth via /v1/users on api.lever.co, Greenhouse 40+ alnum Basic auth
+  via /v1/users on harvest.greenhouse.io, Gusto Bearer via /v1/me on
+  api.gusto.com, Deel Bearer via /rest/v2/users/me on api.letsdeel.com,
+  Rippling Bearer via /platform/api/me on api.rippling.com), auth
+  (PropelAuth Bearer via /api/backend/v1/end_user_api_keys/validate on
+  auth.propelauth.com), AI / ML / GPU infra (LambdaLabs Basic auth with
+  key as username via /api/v1/instance-types on cloud.lambdalabs.com,
+  Anyscale `esct_` Bearer via /api/v2/users/me on console.anyscale.com,
+  SambaNova Bearer via /v1/models on api.sambanova.ai, Baseten
+  `Api-Key <key>` via /api/v1/models on app.baseten.co), DBaaS (Turso
+  Bearer via /v1/auth/validate-token on api.turso.tech), notifications
+  (Knock `sk_(test|live)_` Bearer via /v1/users on api.knock.app —
+  `sk_live_` verified surfaces SeverityCritical via DefaultSeverity).
+  Braintree, Dwolla, and Klarna are paired-credential detectors using
+  RawV2. 2421 race-clean tests across 377 packages.
+
 Anything merged to `main` since v0.20.0.
 
 ## [0.20.0] — 2026-05-08
