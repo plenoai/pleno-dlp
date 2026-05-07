@@ -5,7 +5,8 @@ on:
 
 permissions:
   contents: write
-  id-token: write
+  id-token: write    # SLSA provenance + GitHub attestation
+  attestations: write
 
 jobs:
   goreleaser:
@@ -14,12 +15,31 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+
       - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
         with:
-          go-version: "1.23"
+          go-version-file: go.mod
+          cache: true
+
+      # syft drives goreleaser's SBOM step. Pinned via the official
+      # anchore install action so a typo in the binary name doesn't slip
+      # through.
+      - uses: anchore/sbom-action/download-syft@9ea5a5b96728fb22624cd2d2d0d1d98a6b2f10d6 # v0.16.1
+
       - uses: goreleaser/goreleaser-action@9c156ee8a17a598857849441385a2041ef570552 # v6.3.0
         with:
           version: "~> v2"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Generate build provenance attestations for every archive +
+      # checksums file goreleaser produced. `gh attestation verify`
+      # consumes these to prove the artifact came from this repo +
+      # this commit.
+      - uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # v1.4.4
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
