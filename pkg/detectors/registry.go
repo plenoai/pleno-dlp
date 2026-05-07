@@ -369,6 +369,36 @@ func (t DetectorType) String() string {
 		return "Railway"
 	case Telnyx:
 		return "Telnyx"
+	case SplunkHEC:
+		return "SplunkHEC"
+	case ElasticCloud:
+		return "ElasticCloud"
+	case LogzIO:
+		return "LogzIO"
+	case Coralogix:
+		return "Coralogix"
+	case Loggly:
+		return "Loggly"
+	case UptimeRobot:
+		return "UptimeRobot"
+	case Pingdom:
+		return "Pingdom"
+	case Honeybadger:
+		return "Honeybadger"
+	case Raygun:
+		return "Raygun"
+	case Statuspage:
+		return "Statuspage"
+	case VictorOps:
+		return "VictorOps"
+	case PagerTree:
+		return "PagerTree"
+	case AWX:
+		return "AWX"
+	case ConcourseCI:
+		return "ConcourseCI"
+	case TeamCity:
+		return "TeamCity"
 	default:
 		return "Unknown"
 	}

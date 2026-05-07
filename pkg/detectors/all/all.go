@@ -190,4 +190,24 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/telnyx"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/voyageai"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/weaviate"
+	// batch 12 — wire-stable order, never reorder. Observability +
+	// log-aggregator tokens, uptime monitoring, error-tracking, incident /
+	// status, and CI/CD bearer tokens. Self-hosted (AWX, ConcourseCI,
+	// TeamCity) and per-customer-host SaaS (SplunkHEC, ElasticCloud) are
+	// unverified-by-design because the host isn't in the chunk.
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/awx"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/concourseci"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/coralogix"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/elasticcloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/honeybadger"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/loggly"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/logzio"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pagertree"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pingdom"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/raygun"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/splunkhec"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/statuspage"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/teamcity"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/uptimerobot"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/victorops"
 )

@@ -342,6 +342,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Mapbox.String():             "Mapbox secret token (sk.<jwt>) — public pk. tokens deliberately not surfaced; verified via /tokens/v2/<username>; surfaces SeverityCritical",
 	detectors.Railway.String():            "Railway API token (UUID) near railway keyword, verified via /graphql/v2 { me { id } } with Bearer auth",
 	detectors.Telnyx.String():             "Telnyx V2 API key (KEY<32+ alnum>) near telnyx keyword, verified via /v2/messaging_profiles with Bearer auth",
+	detectors.SplunkHEC.String():          "Splunk HEC token (UUID) near splunk_hec / services/collector keyword — unverified by design (per-customer hostnames)",
+	detectors.ElasticCloud.String():       "Elastic Cloud / Elasticsearch API key (id:secret base64-url pair) near elastic / elasticsearch — unverified by design (per-deployment hostnames)",
+	detectors.LogzIO.String():             "Logz.io account API token (32-hex) near logz keyword, verified via /v1/whoami with X-API-TOKEN header",
+	detectors.Coralogix.String():          "Coralogix API token (32-hex) near coralogix keyword, verified via /api/v1/users with Bearer auth",
+	detectors.Loggly.String():             "Loggly customer token (UUID) near loggly keyword, verified via /inputs/<token> on logs-01.loggly.com",
+	detectors.UptimeRobot.String():        "UptimeRobot API key (u<digits>-<32 alnum> main, m<digits>-<32 alnum> monitor) near uptimerobot, verified via POST /v2/getAccountDetails",
+	detectors.Pingdom.String():            "Pingdom API token (40-80 char base62) near pingdom keyword, verified via /api/3.1/checks with Bearer auth",
+	detectors.Honeybadger.String():        "Honeybadger personal API token (hbp_<base62>) near honeybadger, verified via /v2/projects with Basic auth (token as user)",
+	detectors.Raygun.String():             "Raygun personal access token (UUID) near raygun keyword, verified via /v3/applications with X-ApiKey header",
+	detectors.Statuspage.String():         "Atlassian Statuspage API key (UUID) near statuspage keyword, verified via /v1/pages with `OAuth <token>` authorization",
+	detectors.VictorOps.String():          "VictorOps / Splunk On-Call API key (UUID) near victorops, verified via /api-public/v1/team with X-VO-Api-Key header",
+	detectors.PagerTree.String():          "PagerTree integration token (32-hex) near pagertree keyword, verified via /api/v4/integrations with Bearer auth",
+	detectors.AWX.String():                "AWX / Ansible Tower OAuth2 Bearer token (40-char base62) near awx_token / ansible_tower — unverified by design (self-hosted)",
+	detectors.ConcourseCI.String():        "Concourse CI fly local-user bearer token (28+ char base64) near concourse keyword — unverified by design (self-hosted)",
+	detectors.TeamCity.String():           "JetBrains TeamCity server access token (40+ char base62 / eyJ JWT) near teamcity keyword — unverified by design (self-hosted / per-customer subdomain)",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
