@@ -312,6 +312,21 @@ var ruleDescriptions = map[string]string{
 	detectors.PlanetScale.String():        "PlanetScale service token id (pscale_oauth_/pscale_tkn_) + secret pair — admin-equivalent, surfaces SeverityCritical",
 	detectors.Clerk.String():              "Clerk secret key (sk_test_/sk_live_) near clerk keyword — sk_live_ surfaces SeverityCritical",
 	detectors.Supabase.String():           "Supabase service-role key (JWT with role=service_role) near supabase keyword — unverified by design (project URL tenant-specific); service_role surfaces SeverityCritical",
+	detectors.OneLogin.String():           "OneLogin API client_secret (64-hex) near onelogin keyword, verified via /api/2/users with `Authorization: bearer:<token>`",
+	detectors.JumpCloud.String():          "JumpCloud admin API key (40-hex) near jumpcloud keyword, verified via /api/systemusers with `x-api-key`",
+	detectors.Twitch.String():             "Twitch OAuth client_secret / app-access token (30-char alnum) near twitch keyword, verified via /oauth2/validate",
+	detectors.Lacework.String():           "Lacework API access token (`<base64>_<hex>` shape) near lacework keyword, verified via /api/v2/AccessTokens",
+	detectors.DroneCI.String():            "Drone CI personal access token (24+ alnum) near drone keyword — unverified by design (server URL tenant-specific)",
+	detectors.Harness.String():            "Harness CI/CD personal access token (`pat.<account>.<id>.<secret>` 4-segment dotted) verified via /ng/api/user/currentUser",
+	detectors.Sysdig.String():             "Sysdig API token (UUID or 40-hex) near sysdig keyword, verified via /api/v1/user/me",
+	detectors.Lokalise.String():           "Lokalise API token (40-hex) near lokalise keyword, verified via /api2/projects with `x-api-token`",
+	detectors.Pulumi.String():             "Pulumi Cloud access token (`pul-<40-hex>`) verified via /api/user with `Authorization: token <pat>`",
+	detectors.Coda.String():               "Coda API token (UUID or 40+ alnum) near coda keyword, verified via /apis/v1/whoami",
+	detectors.LoopsSo.String():            "Loops.so API key (32-hex) near loops keyword, verified via /api/v1/api-key",
+	detectors.AppCenter.String():          "Microsoft App Center API token (40-hex) near appcenter keyword, verified via /v0.1/user with `X-API-Token`",
+	detectors.Bitwarden.String():          "Bitwarden Secrets Manager (BWS) machine-account access token (`0.<uuid>.<base64>:<base64>`) — unverified by design; surfaces SeverityCritical",
+	detectors.Resend.String():             "Resend API key (`re_<base62>`) verified via /domains with Bearer auth",
+	detectors.Helcim.String():             "Helcim payment API token (32-hex) near helcim keyword, verified via /v2/connect-test; surfaces SeverityCritical",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

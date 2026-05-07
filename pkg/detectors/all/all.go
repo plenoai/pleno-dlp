@@ -149,4 +149,25 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/trello"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/upstashredis"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vultr"
+	// batch 10 — wire-stable order, never reorder. Identity + IT-management
+	// (OneLogin, JumpCloud), CI/CD (DroneCI, Harness), observability + cloud-
+	// security (Lacework, Sysdig), localization (Lokalise), IaC platform
+	// (Pulumi), docs/notes (Coda), email/comms (LoopsSo, Resend), mobile-app
+	// platform (AppCenter), creator-platform OAuth (Twitch), secrets-manager
+	// machine accounts (Bitwarden), and payments (Helcim).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/appcenter"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/bitwarden"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/coda"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/droneci"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/harness"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/helcim"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/jumpcloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/lacework"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/lokalise"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/loopsso"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/onelogin"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pulumi"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/resend"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sysdig"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/twitch"
 )

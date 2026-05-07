@@ -12,6 +12,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.6.0.
 
+### Added
+
+- **15 more secret detectors** — batch 10 (constants 140..154): OneLogin,
+  JumpCloud, Twitch, Lacework, DroneCI, Harness, Sysdig, Lokalise, Pulumi,
+  Coda, LoopsSo, AppCenter, Bitwarden, Resend, Helcim. Total now
+  **148 secret + 4 PII = 152 detectors**. Bitwarden machine-account tokens
+  and Helcim payment tokens surface as Critical even unverified (rotation
+  is the only safe remediation). DroneCI is unverified-by-design (server
+  URL tenant-specific). Bitwarden, the original list candidates Auth0
+  Management and Klaviyo Private were swapped because both already exist
+  in earlier batches under the same shapes.
+
 ## [0.6.0] — 2026-05-08
 
 ### Added
