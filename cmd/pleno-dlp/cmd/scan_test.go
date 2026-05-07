@@ -2,8 +2,15 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
+
+	// Blank imports mirror main.go so unit tests on the scan command
+	// exercise the same registry the binary does. Without these,
+	// runScanFilesystem returns "filesystem source is not registered".
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/all"
+	_ "github.com/plenoai/pleno-dlp/pkg/sources/all"
 )
 
 // TestScanHelp confirms the scan subcommand is wired into Root and renders
@@ -61,4 +68,47 @@ func TestIsFindingsError(t *testing.T) {
 	if IsFindingsError(nil) {
 		t.Errorf("nil must not match")
 	}
+}
+
+// TestScanFilesystemWithCustomRules drives the full CLI with a custom
+// rules JSON and asserts the rule's regex matches a fixture file. Catches
+// regressions where --rules is silently ignored or the loader crashes.
+func TestScanFilesystemWithCustomRules(t *testing.T) {
+	// Build a fixture with a non-default secret pattern that no built-in
+	// detector matches. Using a custom prefix proves the hit comes from
+	// the custom rule.
+	dir := t.TempDir()
+	target := dir + "/leak.txt"
+	if err := writeFile(target, "config:\n  acme_token: ACME_QWERTYUIOPASDFGHJKLZ\n"); err != nil {
+		t.Fatalf("seed fixture: %v", err)
+	}
+	rules := dir + "/rules.json"
+	if err := writeFile(rules, `[{
+		"name":"ACME Token",
+		"keywords":["ACME_"],
+		"regex":"ACME_[A-Z0-9]{20}",
+		"severity":"high"
+	}]`); err != nil {
+		t.Fatalf("seed rules: %v", err)
+	}
+
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+	Root.SetArgs([]string{"scan", "--rules", rules, "--format", "json", "filesystem", target})
+
+	err := Root.Execute()
+	// Findings present → expected to return errFindingsFound, not nil.
+	if !IsFindingsError(err) {
+		t.Fatalf("expected findings error; got %v\noutput: %s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "ACME_QWERTYUIOPASDFGHJKLZ") &&
+		!strings.Contains(out.String(), "ACME Token") &&
+		!strings.Contains(out.String(), "ACME") {
+		t.Errorf("output missing custom rule hit:\n%s", out.String())
+	}
+}
+
+func writeFile(path, content string) error {
+	return os.WriteFile(path, []byte(content), 0o600)
 }

@@ -34,12 +34,46 @@ const (
 	Twilio
 )
 
+// Severity classifies a finding for triage. Output formatters map this to
+// SARIF level / table glyph / JSON field. Values are stable across releases.
+type Severity int8
+
+const (
+	SeverityUnknown  Severity = 0
+	SeverityInfo     Severity = 1
+	SeverityLow      Severity = 2
+	SeverityMedium   Severity = 3
+	SeverityHigh     Severity = 4
+	SeverityCritical Severity = 5
+)
+
+// String returns the lowercase wire form of a Severity. Unknown is rendered
+// as "info" so legacy results without a Severity field don't surface as the
+// literal "unknown" — that would falsely look like a triage failure.
+func (s Severity) String() string {
+	switch s {
+	case SeverityCritical:
+		return "critical"
+	case SeverityHigh:
+		return "high"
+	case SeverityMedium:
+		return "medium"
+	case SeverityLow:
+		return "low"
+	default:
+		return "info"
+	}
+}
+
 // Result is what a detector emits per match. Mirrors trufflehog's Result so
 // detectors can be ported in either direction.
 type Result struct {
 	DetectorType    DetectorType
 	Verified        bool
 	VerificationErr error
+	// Severity classifies the finding for triage. When zero (the default),
+	// the engine derives one from Verified and DetectorType via DefaultSeverity.
+	Severity Severity
 	// Raw is the matched secret bytes. Never logged in plaintext.
 	Raw []byte
 	// RawV2 is a paired secret (e.g. AWS secret access key when Raw is the
@@ -48,6 +82,26 @@ type Result struct {
 	// Redacted is a safe-to-display rendering (prefix + ellipsis).
 	Redacted  string
 	ExtraData map[string]string
+}
+
+// DefaultSeverity assigns a severity when a detector hasn't picked one.
+// Verified findings are Critical (a real, working credential is the highest-
+// risk leak class). Unverified hits from explicit detectors are High.
+// Generic high-entropy hits are Medium because false-positive rates are
+// non-trivial. JWT / private key pem hits unverified are Medium for the
+// same reason — finding the token doesn't confirm it's still active.
+func DefaultSeverity(t DetectorType, verified bool) Severity {
+	if verified {
+		return SeverityCritical
+	}
+	switch t {
+	case GenericHighEntropy:
+		return SeverityMedium
+	case JWT, PrivateKeyPEM:
+		return SeverityMedium
+	default:
+		return SeverityHigh
+	}
 }
 
 // Detector is the trufflehog-compatible detector contract. Keywords gates the
