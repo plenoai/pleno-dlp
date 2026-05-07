@@ -293,4 +293,26 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vimeo"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/webex"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/wiz"
+	// batch 17 — wire-stable order, never reorder. Identity/SSO (WorkOS,
+	// FrontEgg, Kinde, Hanko), CI/DevOps/artifacts (GitHubFineGrained,
+	// AzureContainerRegistry, Quay, Replit), email/comms (PostmarkAccount,
+	// Beehiiv), DNS/edge (NS1), generative AI (Perplexity, DeepInfra, XAI),
+	// payments (GoCardless). Kinde / Hanko / AzureContainerRegistry are
+	// unverified-by-default — they need per-tenant or per-registry hosts the
+	// chunk doesn't carry.
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/azurecr"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/beehiiv"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/deepinfra"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/frontegg"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/githubfinegrained"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gocardless"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/hanko"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/kinde"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/ns1"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/perplexity"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/postmarkaccount"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/quay"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/replit"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/workos"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/xai"
 )

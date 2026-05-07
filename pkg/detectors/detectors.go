@@ -360,6 +360,33 @@ const (
 	PingIdentity
 	Mux
 	Hookdeck
+	// batch 17 — appended in wire-stable order, never reorder. Identity / SSO
+	// (WorkOS, FrontEgg, Kinde, Hanko), CI / DevOps / artifacts (GitHubFineGrained,
+	// AzureContainerRegistry, Quay, Replit), email / comms (PostmarkAccount,
+	// Beehiiv), DNS / edge (NS1), generative AI (Perplexity, DeepInfra, XAI),
+	// payments (GoCardless). GitHubFineGrained is a separate type from GitHub
+	// because the `github_pat_` prefix is structurally distinct from
+	// `ghp_/gho_/ghu_/ghs_/ghr_` and warrants its own identity. PostmarkAccount
+	// is distinct from Postmark (server token) because it grants account-wide
+	// scope. AzureContainerRegistry is distinct from AzureApp/AzureAD because
+	// it's a registry refresh token — different surface area. GoCardless live
+	// vs sandbox prefixes follow the Stripe / Mollie / Stytch convention:
+	// `live_` verified -> SeverityCritical (DefaultSeverity).
+	WorkOS
+	FrontEgg
+	Kinde
+	Hanko
+	GitHubFineGrained
+	AzureContainerRegistry
+	Quay
+	Replit
+	PostmarkAccount
+	Beehiiv
+	NS1
+	Perplexity
+	DeepInfra
+	XAI
+	GoCardless
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

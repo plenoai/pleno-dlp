@@ -417,6 +417,21 @@ var ruleDescriptions = map[string]string{
 	detectors.PingIdentity.String():       "PingOne worker app secret (UUID) near ping_identity keyword — unverified by design (per-region host required)",
 	detectors.Mux.String():                "Mux access token id (UUID) + secret pair near mux keyword, verified via /video/v1/assets with HTTP Basic auth",
 	detectors.Hookdeck.String():           "Hookdeck API key (hookdeck_test_/hookdeck_live_ prefix) — verified via /sources with Bearer auth; hookdeck_live_ surfaces SeverityCritical when verified",
+	detectors.WorkOS.String():                 "WorkOS API key (sk_test_/sk_live_ prefix, base62) near workos keyword, verified via /users on api.workos.com with Bearer auth",
+	detectors.FrontEgg.String():               "FrontEgg vendor client_id + client_secret pair (UUID each) near frontegg keyword, verified via POST /auth/vendor with JSON body",
+	detectors.Kinde.String():                  "Kinde Auth M2M secret / API key near kinde keyword (>=40 base64url) — verified via /api/v1/users with Bearer auth on a per-tenant host (apiBase override required)",
+	detectors.Hanko.String():                  "Hanko Cloud admin API key near hanko keyword (>=32 base64url-ish) — verified via /webhooks with Bearer auth on a per-tenant host (apiBase override required)",
+	detectors.GitHubFineGrained.String():      "GitHub fine-grained personal access token (github_pat_<82>) — verified via /user on api.github.com with Bearer auth; distinct from classic ghp_/gho_/ghu_/ghs_/ghr_ shapes",
+	detectors.AzureContainerRegistry.String(): "Azure Container Registry refresh/access token (JWT-shaped) near azurecr/acr_ keywords — unverified by design (per-registry host <name>.azurecr.io required)",
+	detectors.Quay.String():                   "Quay.io OAuth access token (>=40 alnum) near quay keyword, verified via /api/v1/user on quay.io with Bearer auth",
+	detectors.Replit.String():                 "Replit deploy / API token (>=40 base62) near replit keyword, verified via /data/me on replit.com with Bearer auth",
+	detectors.PostmarkAccount.String():        "Postmark Account API token (UUID) near postmark_account keyword — distinct from server-scope Postmark; verified via /servers using X-Postmark-Account-Token header",
+	detectors.Beehiiv.String():                "Beehiiv API key (>=40 alnum) near beehiiv keyword, verified via /v2/publications on api.beehiiv.com with Bearer auth",
+	detectors.NS1.String():                    "NS1 (IBM NS1 Connect) API key (>=16 alnum) near ns1/nsone keyword, verified via /v1/account/usage on api.nsone.net using X-NSONE-Key header",
+	detectors.Perplexity.String():             "Perplexity AI API key (pplx-<base62>) — verified via POST /chat/completions on api.perplexity.ai with Bearer auth (token-good vs token-bad split via 400 vs 401)",
+	detectors.DeepInfra.String():              "DeepInfra API token (>=40 alnum) near deepinfra keyword, verified via /v1/openai/models on api.deepinfra.com with Bearer auth",
+	detectors.XAI.String():                    "xAI Grok API key (xai-<base62>{40+}) — verified via /v1/api-key on api.x.ai with Bearer auth",
+	detectors.GoCardless.String():             "GoCardless live_<base64url>{40+} or sandbox_<base64url>{40+} near gocardless keyword, verified via /creditors on api.gocardless.com (live) or api-sandbox.gocardless.com (sandbox); live_ verified surfaces SeverityCritical",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
