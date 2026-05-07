@@ -10,7 +10,37 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.21.0.
+### Added
+
+- **15 more secret detectors** — batch 25 (constants 365..379):
+  Shippo, EasyPost, TaxJar, Avalara, BambooHR, Paylocity, DeepSeek,
+  MonsterAPI, FriendliAI, AppDynamics, ElasticAPM, Lightstep, EmailJS,
+  Mailjet, Hasura. Total now **373 secret + 4 PII = 377 detectors**.
+  Shipping / e-commerce (Shippo `shippo_(live|test)_` `ShippoToken`
+  auth via /v1/addresses on api.goshippo.com — `shippo_live_` verified
+  surfaces SeverityCritical via DefaultSeverity, EasyPost `EZAK`/`EZTK`
+  Basic auth via /api/v2/api_keys on api.easypost.com, TaxJar Bearer
+  via /v2/categories on api.taxjar.com, Avalara paired account+license
+  Basic auth via /api/v2/utilities/ping on rest.avatax.com — RawV2),
+  HR / payroll (BambooHR Basic auth — unverified-by-default per-tenant
+  subdomain, Paylocity OAuth client_id+secret pair — unverified-by-
+  default sandbox vs production gateway — RawV2), AI / inference
+  (DeepSeek `sk-` Bearer via /v1/models on api.deepseek.com — keyword-
+  gated to stay disjoint from OpenAI, MonsterAPI Bearer via /v1/health
+  on api.monsterapi.ai, FriendliAI `flp_` Bearer via /v1/models on
+  api.friendli.ai), observability / APM (AppDynamics paired
+  client@account+secret — unverified-by-default per-controller host —
+  RawV2, ElasticAPM Bearer — unverified-by-default per-deployment APM
+  Server host, Lightstep Bearer via /public/v0.2/projects on
+  api.lightstep.com), email / comms (EmailJS paired user_id+access_token
+  Bearer via /api/v1.0/account on api.emailjs.com — RawV2, Mailjet
+  paired 32-hex key+secret Basic auth via /v3/REST/myprofile on
+  api.mailjet.com — RawV2), database / IaaS (Hasura admin secret —
+  unverified-by-default per-project host `<project>.hasura.app`).
+  Avalara, Paylocity, AppDynamics, EmailJS, Mailjet are paired-credential
+  detectors using RawV2. BambooHR, Paylocity, AppDynamics, ElasticAPM,
+  Hasura ship unverified-by-default (apiBase override required).
+  2531 race-clean tests across 392 packages.
 
 ## [0.21.0] — 2026-05-08
 

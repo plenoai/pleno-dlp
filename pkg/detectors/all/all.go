@@ -469,4 +469,26 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/rippling"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sambanova"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/turso"
+	// batch 25 — wire-stable order, never reorder. Shipping / e-commerce
+	// (shippo, easypost, taxjar, avalara), HR / payroll (bamboohr, paylocity),
+	// AI / inference (deepseek, monsterapi, friendliai), observability / APM
+	// (appdynamics, elasticapm, lightstep), email / comms (emailjs, mailjet),
+	// database / IaaS (hasura). Avalara / Mailjet / EmailJS use RawV2 for the
+	// paired secret. BambooHR / AppDynamics / ElasticAPM / Hasura / Paylocity
+	// are unverified-by-default (per-tenant host required).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/appdynamics"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/avalara"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/bamboohr"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/deepseek"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/easypost"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/elasticapm"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/emailjs"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/friendliai"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/hasura"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/lightstep"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/mailjet"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/monsterapi"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/paylocity"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/shippo"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/taxjar"
 )

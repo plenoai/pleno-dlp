@@ -537,6 +537,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Baseten.String():                "Baseten API key (40+ alnum) near baseten keyword, verified via /api/v1/models on app.baseten.co with `Api-Key <key>` auth",
 	detectors.Turso.String():                  "Turso platform API token (40+ alnum) near turso keyword, verified via /v1/auth/validate-token on api.turso.tech with Bearer auth",
 	detectors.Knock.String():                  "Knock notifications service API key (`sk_(test|live)_<32+ alnum>`), verified via /v1/users on api.knock.app with Bearer auth — `sk_live_` verified surfaces SeverityCritical via DefaultSeverity",
+	detectors.Shippo.String():                 "Shippo shipping API key (`shippo_(live|test)_<40+ alnum>`), verified via /v1/addresses on api.goshippo.com with `ShippoToken <key>` auth",
+	detectors.EasyPost.String():               "EasyPost API key (`EZAK<alnum>` or `EZTK<alnum>`), verified via /api/v2/api_keys on api.easypost.com with HTTP Basic auth (key as username)",
+	detectors.TaxJar.String():                 "TaxJar API token (40+ alnum) near taxjar keyword, verified via /v2/categories on api.taxjar.com with Bearer auth",
+	detectors.Avalara.String():                "Avalara AvaTax account_id + license_key pair near avalara / avatax keyword, verified via /api/v2/utilities/ping on rest.avatax.com (sandbox: sandbox-rest.avatax.com) with HTTP Basic auth (RawV2 carries the license)",
+	detectors.BambooHR.String():               "BambooHR API key (40+ alnum) near bamboohr keyword — unverified by design (per-subdomain host `<co>.bamboohr.com`), apiBase override required",
+	detectors.Paylocity.String():              "Paylocity OAuth client_id + client_secret pair near paylocity keyword — unverified by design (sandbox vs production gateway), apiBase override required (RawV2 carries the secret)",
+	detectors.DeepSeek.String():               "DeepSeek API key (`sk-<48+ alnum>`) near deepseek keyword, verified via /v1/models on api.deepseek.com with Bearer auth",
+	detectors.MonsterAPI.String():             "MonsterAPI inference API key (40+ alnum) near monsterapi keyword, verified via /v1/health on api.monsterapi.ai with Bearer auth",
+	detectors.FriendliAI.String():             "FriendliAI API token (`flp_<32+ alnum>`), verified via /v1/models on api.friendli.ai with Bearer auth",
+	detectors.AppDynamics.String():            "AppDynamics API client + secret pair near appdynamics keyword — unverified by design (per-controller host `<acct>.saas.appdynamics.com`), apiBase override required (RawV2 carries the secret)",
+	detectors.ElasticAPM.String():             "Elastic APM secret token (40+ alnum) near elastic-apm / elasticapm keyword — unverified by design (per-deployment APM Server host), apiBase override required",
+	detectors.Lightstep.String():              "Lightstep / ServiceNow Cloud Observability API key (40+ alnum) near lightstep keyword, verified via /public/v0.2/projects on api.lightstep.com with Bearer auth",
+	detectors.EmailJS.String():                "EmailJS user_id + private access_token pair near emailjs keyword, verified via /api/v1.0/account on api.emailjs.com with Bearer auth (RawV2 carries the access_token)",
+	detectors.Mailjet.String():                "Mailjet API key + API secret pair (each 32-hex) near mailjet keyword, verified via /v3/REST/myprofile on api.mailjet.com with HTTP Basic auth (RawV2 carries the secret)",
+	detectors.Hasura.String():                 "Hasura Cloud admin secret (40+ alnum) near hasura keyword — unverified by design (per-project host `<project>.hasura.app`), apiBase override required",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
