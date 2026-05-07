@@ -12,8 +12,8 @@ import (
 func TestVariantsAlwaysIncludesOriginal(t *testing.T) {
 	original := []byte("nothing to decode here")
 	got := Variants(original)
-	if len(got) == 0 || !bytes.Equal(got[0], original) {
-		t.Fatalf("expected original first; got %v", got)
+	if len(got) == 0 || !bytes.Equal(got[0].Data, original) || got[0].Source != "" {
+		t.Fatalf("expected original first with empty Source; got %+v", got)
 	}
 }
 
@@ -70,7 +70,7 @@ func TestBase64DecodeRejectsBinaryNoise(t *testing.T) {
 		if i == 0 {
 			continue // original always present
 		}
-		if bytes.Contains(v, bin) {
+		if bytes.Contains(v.Data, bin) {
 			t.Fatalf("decoder forwarded binary-only decode (variant %d)", i)
 		}
 	}
@@ -84,17 +84,28 @@ func TestMixedCaseHexRejected(t *testing.T) {
 	mixed := strings.Repeat("aF", 40)
 	chunk := []byte(mixed)
 	variants := Variants(chunk)
-	// At minimum, original is present; hex-decoded `aF...` would be
-	// 0xaF bytes which fail mostlyPrintable, so no extra variants.
 	for i, v := range variants {
 		if i == 0 {
 			continue
 		}
-		// 0xaf repeated is non-printable; if any variant matches it
-		// we have a regression.
-		if bytes.Contains(v, bytes.Repeat([]byte{0xaf}, 40)) {
+		if bytes.Contains(v.Data, bytes.Repeat([]byte{0xaf}, 40)) {
 			t.Fatalf("hex decoder leaked non-printable bytes: variant %d", i)
 		}
+	}
+}
+
+func TestVariantsTagSource(t *testing.T) {
+	akia := "AKIAIOSFODNN7EXAMPLE"
+	hidden := base64.StdEncoding.EncodeToString([]byte("Authorization: " + akia))
+	variants := Variants([]byte("AUTH=" + hidden))
+	var sawBase64 bool
+	for _, v := range variants {
+		if v.Source == "base64" {
+			sawBase64 = true
+		}
+	}
+	if !sawBase64 {
+		t.Fatal("expected at least one variant with Source=\"base64\"")
 	}
 }
 
@@ -120,9 +131,9 @@ func TestMostlyPrintable(t *testing.T) {
 	}
 }
 
-func containsBytes(variants [][]byte, needle []byte) bool {
+func containsBytes(variants []Variant, needle []byte) bool {
 	for _, v := range variants {
-		if bytes.Contains(v, needle) {
+		if bytes.Contains(v.Data, needle) {
 			return true
 		}
 	}

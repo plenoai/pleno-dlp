@@ -53,21 +53,29 @@ var hexRun = regexp.MustCompile(`(?:[a-f0-9]{40,}|[A-F0-9]{40,})`)
 // the decode pass — they're almost never how a secret is hidden.
 var percentEncoded = regexp.MustCompile(`(?:%[0-9A-Fa-f]{2}){2,}`)
 
+// Variant pairs a decoded byte slice with the decoder that produced it.
+// The original chunk uses Source="" so callers can branch on the empty
+// string to detect "this is the unmodified input".
+type Variant struct {
+	Source string
+	Data   []byte
+}
+
 // Variants returns the original chunk plus any decoded forms produced by
 // inspecting data for embedded base64 / percent / hex runs. The original
 // is always the first element so callers may iterate without a special
 // case for "no decode applied".
-func Variants(data []byte) [][]byte {
-	out := [][]byte{data}
+func Variants(data []byte) []Variant {
+	out := []Variant{{Data: data}}
 
 	if v := decodeBase64(data); v != nil {
-		out = append(out, v)
+		out = append(out, Variant{Source: "base64", Data: v})
 	}
 	if v := decodePercent(data); v != nil {
-		out = append(out, v)
+		out = append(out, Variant{Source: "percent", Data: v})
 	}
 	if v := decodeHex(data); v != nil {
-		out = append(out, v)
+		out = append(out, Variant{Source: "hex", Data: v})
 	}
 	return out
 }
