@@ -789,6 +789,36 @@ func (t DetectorType) String() string {
 		return "Mailjet"
 	case Hasura:
 		return "Hasura"
+	case AI21Labs:
+		return "AI21Labs"
+	case OctoAI:
+		return "OctoAI"
+	case PingOne:
+		return "PingOne"
+	case ForgeRock:
+		return "ForgeRock"
+	case KeyCloak:
+		return "KeyCloak"
+	case Marketo:
+		return "Marketo"
+	case Eloqua:
+		return "Eloqua"
+	case Pardot:
+		return "Pardot"
+	case Kustomer:
+		return "Kustomer"
+	case Freshchat:
+		return "Freshchat"
+	case OracleCloud:
+		return "OracleCloud"
+	case IBMCloud:
+		return "IBMCloud"
+	case RingCentral:
+		return "RingCentral"
+	case DialPad:
+		return "DialPad"
+	case SignalWire:
+		return "SignalWire"
 	default:
 		return "Unknown"
 	}

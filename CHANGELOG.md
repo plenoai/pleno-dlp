@@ -10,7 +10,37 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.22.0.
+### Added
+
+- **15 more secret detectors** — batch 26 (constants 380..394):
+  AI21Labs, OctoAI, PingOne, ForgeRock, KeyCloak, Marketo, Eloqua,
+  Pardot, Kustomer, Freshchat, OracleCloud, IBMCloud, RingCentral,
+  DialPad, SignalWire. Total now **388 secret + 4 PII = 392 detectors**.
+  AI / inference (AI21Labs Bearer via /studio/v1/tokenize on
+  api.ai21.com, OctoAI / OctoML Bearer via /v1/models on
+  text.octoai.run), identity / SSO (PingOne worker app paired
+  client_id+secret Basic auth via /as/token on auth.pingone.com — RawV2,
+  ForgeRock Bearer via /am/json/serverinfo/version — unverified-by-
+  default per-tenant `<tenant>.forgeblocks.com`, KeyCloak paired
+  client_id+secret via /protocol/openid-connect/token — unverified-by-
+  default per-deployment realm host — RawV2), marketing (Marketo paired
+  client_id+secret via /identity/oauth/token — unverified-by-default
+  per-munchkin host — RawV2, Eloqua paired client_id+secret Basic auth
+  via /api/REST/2.0/system/user/current — unverified-by-default per-pod
+  host — RawV2, Pardot business_unit_id+access_token Bearer +
+  Pardot-Business-Unit-Id header via /api/v5/objects/account on
+  pi.pardot.com — RawV2), customer messaging (Kustomer Bearer via
+  /v1/users/current on api.kustomerapp.com, Freshchat Bearer via
+  /v2/agents on api.freshchat.com), IaaS (OracleCloud OCI auth signature
+  — unverified-by-default per-region tenancy host, IBMCloud IAM apikey
+  grant via /identity/token on iam.cloud.ibm.com), comms / SMS
+  (RingCentral paired client_id+secret Basic auth via /restapi/oauth/token
+  on platform.ringcentral.com — RawV2, DialPad Bearer via /api/v2/users
+  on dialpad.com, SignalWire paired project_id+token Basic auth via
+  /api/laml/2010-04-01/Accounts — unverified-by-default per-space host
+  `<space>.signalwire.com` — RawV2). Seven detectors use `RawV2` to
+  surface the paired secret. Six detectors ship `apiBase` override hooks
+  for unverified-by-design tenant / deployment / region hosts.
 
 ## [0.22.0] — 2026-05-08
 
