@@ -11,6 +11,8 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/decoder"
@@ -35,9 +37,45 @@ type Options struct {
 }
 
 type Engine struct {
-	opts Options
-	dets []detectors.Detector
-	sink Sink
+	opts  Options
+	dets  []detectors.Detector
+	sink  Sink
+	stats statsCounters
+}
+
+// Stats summarises a completed scan. It is the user-facing snapshot derived
+// from the engine's atomic counters; safe to serialise as JSON.
+//
+// Chunks counts every leaf chunk after archive expansion (one zip entry
+// scanned = one chunk). Bytes counts the raw bytes fed to the keyword
+// match — decoder variants don't double-count. Findings is the count
+// before dedup; the CLI's countingSink owns the post-dedup tally.
+type Stats struct {
+	Chunks   int64         `json:"chunks"`
+	Bytes    int64         `json:"bytes"`
+	Findings int64         `json:"findings"`
+	Duration time.Duration `json:"duration"`
+}
+
+// statsCounters holds the engine-side atomic counters. Lives alongside the
+// Engine rather than as a separate field on Run so partial progress is
+// observable from another goroutine if ever needed (eg a future progress
+// reporter polling on a tick).
+type statsCounters struct {
+	chunks   atomic.Int64
+	bytes    atomic.Int64
+	findings atomic.Int64
+}
+
+// Stats returns a snapshot of the engine counters. Run() calls this at the
+// end and stamps Duration; callers that want intermediate progress can poll
+// this directly (Duration will be zero in that case).
+func (e *Engine) Stats() Stats {
+	return Stats{
+		Chunks:   e.stats.chunks.Load(),
+		Bytes:    e.stats.bytes.Load(),
+		Findings: e.stats.findings.Load(),
+	}
 }
 
 func New(opts Options, sink Sink) *Engine {
@@ -56,8 +94,18 @@ func NewWithDetectors(dets []detectors.Detector, opts Options, sink Sink) *Engin
 }
 
 // Run streams chunks from src and dispatches them across worker goroutines.
-// Returns when src.Chunks returns or ctx is cancelled.
+// Returns when src.Chunks returns or ctx is cancelled. Engine stats are
+// available via Stats() during and after Run; the returned Stats has its
+// Duration field stamped from the wall-clock time of the call.
 func (e *Engine) Run(ctx context.Context, src sources.Source) error {
+	_, err := e.RunWithStats(ctx, src)
+	return err
+}
+
+// RunWithStats is Run plus a Stats snapshot. The CLI uses this to render
+// "Scanned N chunks in T" on stderr without re-fetching from the engine.
+func (e *Engine) RunWithStats(ctx context.Context, src sources.Source) (Stats, error) {
+	start := time.Now()
 	ch := make(chan *sources.Chunk, e.opts.Concurrency*2)
 
 	var wg sync.WaitGroup
@@ -74,7 +122,9 @@ func (e *Engine) Run(ctx context.Context, src sources.Source) error {
 	srcErr := src.Chunks(ctx, ch)
 	close(ch)
 	wg.Wait()
-	return srcErr
+	s := e.Stats()
+	s.Duration = time.Since(start)
+	return s, srcErr
 }
 
 func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
@@ -124,6 +174,8 @@ func archiveRootName(c *sources.Chunk) string {
 // chunks. The path is stamped into Result.ExtraData so output can render
 // "leak.txt!secret.env" trails.
 func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePath string) {
+	e.stats.chunks.Add(1)
+	e.stats.bytes.Add(int64(len(c.Data)))
 	// Variants[0] is always c.Data unchanged (Source=""). Subsequent
 	// entries are base64/percent/hex decode results, included only when
 	// the chunk contained candidate runs. The cost is one regex sweep
@@ -163,6 +215,7 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 					}
 					r.ExtraData["archive_path"] = archivePath
 				}
+				e.stats.findings.Add(1)
 				e.sink.Emit(Finding{Result: r, Chunk: c, Detector: d.Type()})
 			}
 		}

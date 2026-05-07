@@ -149,6 +149,7 @@ func resetScanOpts() {
 	scanOpts.allowlistPath = ""
 	scanOpts.includeDetectors = nil
 	scanOpts.excludeDetectors = nil
+	scanOpts.quiet = false
 }
 
 // TestScanFilesystemWithCustomRules drives the full CLI with a custom

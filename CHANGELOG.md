@@ -18,6 +18,12 @@ Anything merged to `main` since v0.5.0.
   `scan` subcommand. Comma-separated, case-insensitive, validated against
   the live registry — typos error out instead of silently producing zero
   findings. Custom rules (`--rules`) pass through unfiltered.
+- **End-of-scan summary** on stderr: `scanned N chunk(s), B byte(s),
+  F finding(s) in T`. Suppress with `--quiet`. Powered by a new
+  `engine.Stats{Chunks,Bytes,Findings,Duration}` struct returned from
+  the new `Engine.RunWithStats()` API; `Engine.Run()` is unchanged for
+  back-compat. Counters are atomic so the snapshot is safe to read
+  during a scan.
 
 ### Fixed
 

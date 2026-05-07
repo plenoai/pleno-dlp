@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -55,6 +56,7 @@ type scanFlags struct {
 	allowlistPath     string
 	includeDetectors  []string
 	excludeDetectors  []string
+	quiet             bool
 }
 
 var scanOpts scanFlags
@@ -147,6 +149,7 @@ func init() {
 	scanCmd.PersistentFlags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file that mutes known false positives (auto-discovers .pleno-allow.json from the repo root)")
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated, case-insensitive Type names; see `pleno-dlp detectors list`). Custom rules from --rules count as GenericHighEntropy.")
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.excludeDetectors, "exclude-detectors", nil, "skip these detectors (comma-separated, case-insensitive Type names). Applied after --include-detectors.")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.quiet, "quiet", false, "suppress the end-of-scan summary line on stderr (use in scripted callers parsing stderr)")
 
 	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.include, "include", nil, "glob(s) to include (matched against root-relative paths and basenames)")
 	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.exclude, "exclude", nil, "glob(s) to exclude (in addition to default excludes)")
@@ -312,8 +315,19 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		Concurrency: scanOpts.concurrency,
 	}, deduped)
 
-	if err := eng.Run(ctx, src); err != nil {
+	stats, err := eng.RunWithStats(ctx, src)
+	if err != nil {
 		return fmt.Errorf("scan: %w", err)
+	}
+
+	// End-of-scan summary on stderr so it doesn't pollute --format json /
+	// sarif output. Single line so scripts can parse it; --quiet skips
+	// it for callers that prefer silence (eg structured pipelines).
+	if !scanOpts.quiet {
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"scanned %d chunk(s), %d byte(s), %d finding(s) in %s\n",
+			stats.Chunks, stats.Bytes, counter.count.Load(), stats.Duration.Round(time.Millisecond),
+		)
 	}
 
 	if counter.failing.Load() > 0 {
