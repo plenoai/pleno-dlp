@@ -183,6 +183,29 @@ const (
 	PlanetScale
 	Clerk
 	Supabase
+	// batch 10 — appended in wire-stable order, never reorder. Identity
+	// + IT-management (OneLogin, JumpCloud), CI/CD (DroneCI, Harness),
+	// observability + cloud-security (Lacework, Sysdig), localization
+	// (Lokalise), IaC platform (Pulumi), docs/notes (Coda), email/comms
+	// (LoopsSo, Resend), mobile-app platform (AppCenter), creator-platform
+	// OAuth (Twitch), secrets-manager machine accounts (Bitwarden), and
+	// payments (Helcim). Bitwarden + Helcim ship as SeverityCritical
+	// because their leak surface is destructive money/secret access.
+	OneLogin
+	JumpCloud
+	Twitch
+	Lacework
+	DroneCI
+	Harness
+	Sysdig
+	Lokalise
+	Pulumi
+	Coda
+	LoopsSo
+	AppCenter
+	Bitwarden
+	Resend
+	Helcim
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

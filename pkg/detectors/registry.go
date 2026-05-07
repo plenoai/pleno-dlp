@@ -309,6 +309,36 @@ func (t DetectorType) String() string {
 		return "Clerk"
 	case Supabase:
 		return "Supabase"
+	case OneLogin:
+		return "OneLogin"
+	case JumpCloud:
+		return "JumpCloud"
+	case Twitch:
+		return "Twitch"
+	case Lacework:
+		return "Lacework"
+	case DroneCI:
+		return "DroneCI"
+	case Harness:
+		return "Harness"
+	case Sysdig:
+		return "Sysdig"
+	case Lokalise:
+		return "Lokalise"
+	case Pulumi:
+		return "Pulumi"
+	case Coda:
+		return "Coda"
+	case LoopsSo:
+		return "LoopsSo"
+	case AppCenter:
+		return "AppCenter"
+	case Bitwarden:
+		return "Bitwarden"
+	case Resend:
+		return "Resend"
+	case Helcim:
+		return "Helcim"
 	default:
 		return "Unknown"
 	}
