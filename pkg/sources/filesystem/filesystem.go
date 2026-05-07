@@ -29,10 +29,20 @@ func init() {
 	sources.Register(sources.SourceFilesystem, func() sources.Source { return &Source{} })
 }
 
-// Config is the JSON shape passed to Init.
+// Config is the JSON shape passed to Init. Include / Exclude take
+// `path/filepath.Match` glob syntax (no `**` recursion — directories
+// pruned by walking the tree, not by globbing). Both lists are matched
+// against the path RELATIVE to its config root, so `--exclude
+// node_modules` does the right thing whether the user passes
+// `./repo` or `/abs/path/repo`. Default-on excludes ship in
+// commonExcludes (the .git, vendor, node_modules patterns every team
+// turns off the same way) — set DisableDefaultExcludes to scan them.
 type Config struct {
-	Paths        []string `json:"paths"`
-	MaxSizeBytes int64    `json:"max_size_bytes"`
+	Paths                  []string `json:"paths"`
+	MaxSizeBytes           int64    `json:"max_size_bytes"`
+	Include                []string `json:"include,omitempty"`
+	Exclude                []string `json:"exclude,omitempty"`
+	DisableDefaultExcludes bool     `json:"disable_default_excludes,omitempty"`
 }
 
 type Source struct {
@@ -42,6 +52,24 @@ type Source struct {
 	verify      bool
 	concurrency int
 	cfg         Config
+	excludes    []string
+}
+
+// commonExcludes are skipped by default. Users can opt back in with
+// DisableDefaultExcludes. Each entry matches a directory or file name
+// (NOT a path) so a glob deep in the tree still applies.
+var commonExcludes = []string{
+	".git",
+	".hg",
+	".svn",
+	"node_modules",
+	"vendor",
+	"target",
+	"dist",
+	"build",
+	"__pycache__",
+	".venv",
+	".tox",
 }
 
 func (s *Source) Type() sources.SourceType { return sources.SourceFilesystem }
@@ -66,6 +94,14 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, v
 			return fmt.Errorf("filesystem: path %q: %w", p, err)
 		}
 	}
+	// Validate every glob pattern up front so a typo surfaces here
+	// rather than mid-walk. filepath.Match returns ErrBadPattern for
+	// unmatched brackets etc.; we treat that as a fatal config error.
+	for _, p := range append(append([]string{}, cfg.Include...), cfg.Exclude...) {
+		if _, err := filepath.Match(p, ""); err != nil {
+			return fmt.Errorf("filesystem: invalid glob %q: %w", p, err)
+		}
+	}
 	if concurrency <= 0 {
 		concurrency = 1
 	}
@@ -75,6 +111,10 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, v
 	s.verify = verify
 	s.concurrency = concurrency
 	s.cfg = cfg
+	s.excludes = append([]string{}, cfg.Exclude...)
+	if !cfg.DisableDefaultExcludes {
+		s.excludes = append(s.excludes, commonExcludes...)
+	}
 	return nil
 }
 
@@ -103,11 +143,28 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 			if err := gctx.Err(); err != nil {
 				return err
 			}
+			// Directory pruning before per-entry checks: if a directory
+			// matches any exclude, skip the whole subtree. This is the
+			// payoff for default excludes — `node_modules` adds zero
+			// walk cost when it's the first thing pruned.
+			if d.IsDir() {
+				if path != root && s.excluded(d.Name(), relPath(root, path)) {
+					return fs.SkipDir
+				}
+				return nil
+			}
 			// Skip symlinks entirely — do not follow, do not emit. Lstat'd by WalkDir.
 			if d.Type()&os.ModeSymlink != 0 {
 				return nil
 			}
 			if !d.Type().IsRegular() {
+				return nil
+			}
+			rel := relPath(root, path)
+			if s.excluded(d.Name(), rel) {
+				return nil
+			}
+			if !s.included(d.Name(), rel) {
 				return nil
 			}
 			info, err := d.Info()
@@ -187,6 +244,53 @@ func (s *Source) emitFile(ctx context.Context, absPath string, ch chan<- *source
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// excluded returns true when name OR rel matches any exclude glob. We
+// match against both the basename and the relative path so `vendor`
+// (a basename) and `pkg/*/_generated/*` (a path glob) both work.
+func (s *Source) excluded(name, rel string) bool {
+	for _, g := range s.excludes {
+		if matchGlob(g, name) || matchGlob(g, rel) {
+			return true
+		}
+	}
+	return false
+}
+
+// included returns true when no Include patterns are configured (the
+// default — every file is included) or rel/name matches one. When
+// Include is set, exclusion still wins: --exclude '*_test.go'
+// --include 'pkg/**' won't include test files in pkg.
+func (s *Source) included(name, rel string) bool {
+	if len(s.cfg.Include) == 0 {
+		return true
+	}
+	for _, g := range s.cfg.Include {
+		if matchGlob(g, name) || matchGlob(g, rel) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchGlob is filepath.Match with a tiny wrapper: a malformed pattern
+// (already rejected at Init) must never panic mid-walk, so a runtime
+// match error is treated as "no match" rather than fatal.
+func matchGlob(pattern, name string) bool {
+	ok, _ := filepath.Match(pattern, name)
+	return ok
+}
+
+// relPath returns path relative to root using forward slashes so glob
+// patterns are portable across OS. Returns the original path on error
+// (rare — same volume guaranteed by the walk).
+func relPath(root, path string) string {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(rel)
 }
 
 // isBinary returns true if any of the first binarySniffLen bytes is NUL.

@@ -75,6 +75,17 @@ var scanFilesystemCmd = &cobra.Command{
 	RunE:  runScanFilesystem,
 }
 
+// fsFlags captures filesystem-specific configuration. Mirrors gitOpts
+// so users get the same --include/--exclude vocabulary across kinds.
+type fsFlags struct {
+	include                []string
+	exclude                []string
+	maxSizeBytes           int64
+	disableDefaultExcludes bool
+}
+
+var fsOpts fsFlags
+
 // gitFlags captures git-specific configuration. Defined alongside scanCmd
 // because git is a first-class source for the v1 scope.
 type gitFlags struct {
@@ -106,6 +117,11 @@ func init() {
 	scanCmd.PersistentFlags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.failOn, "fail-on", "any", "minimum severity that triggers exit 1: any|info|low|medium|high|critical")
 
+	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.include, "include", nil, "glob(s) to include (matched against root-relative paths and basenames)")
+	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.exclude, "exclude", nil, "glob(s) to exclude (in addition to default excludes)")
+	scanFilesystemCmd.Flags().Int64Var(&fsOpts.maxSizeBytes, "max-size", 0, "skip files larger than this many bytes (0 = default 10 MiB)")
+	scanFilesystemCmd.Flags().BoolVar(&fsOpts.disableDefaultExcludes, "no-default-excludes", false, "disable default excludes (.git, node_modules, vendor, target, ...)")
+
 	scanGitCmd.Flags().StringVar(&gitOpts.repo, "repo", "", "absolute or relative path to a local git repository")
 	scanGitCmd.Flags().StringVar(&gitOpts.branch, "branch", "", "branch to walk (default: HEAD)")
 	scanGitCmd.Flags().StringVar(&gitOpts.since, "since", "", "RFC3339 cutoff; commits older than this are skipped")
@@ -124,7 +140,13 @@ func runScanFilesystem(cmd *cobra.Command, args []string) error {
 	if src == nil {
 		return fmt.Errorf("filesystem source is not registered (missing pkg/sources/all import?)")
 	}
-	cfg, err := json.Marshal(map[string]any{"paths": args})
+	cfg, err := json.Marshal(map[string]any{
+		"paths":                    args,
+		"include":                  fsOpts.include,
+		"exclude":                  fsOpts.exclude,
+		"max_size_bytes":           fsOpts.maxSizeBytes,
+		"disable_default_excludes": fsOpts.disableDefaultExcludes,
+	})
 	if err != nil {
 		return fmt.Errorf("encode source config: %w", err)
 	}
