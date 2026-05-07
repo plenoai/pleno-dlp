@@ -160,6 +160,29 @@ const (
 	GCSSignedURL
 	AzureSQLConnString
 	Kubeconfig
+	// batch 9 — appended in wire-stable order, never reorder. Enterprise
+	// SaaS leverage tokens not yet covered: project-management (ClickUp,
+	// Monday, Trello), realtime chat (Gitter), release-notes (LaunchNotes),
+	// alt-cloud GPU/IaaS (Paperspace, RunPod, Modal, Linode, Vultr,
+	// Scaleway), edge-Redis (Upstash), DB platform (PlanetScale), auth
+	// platform (Clerk), and BaaS service-role (Supabase). Pair detectors
+	// here use RawV2: trello (key+token), modal (id+secret), planetscale
+	// (token-id+secret).
+	ClickUp
+	Monday
+	Trello
+	Gitter
+	LaunchNotes
+	Paperspace
+	RunPod
+	Modal
+	Linode
+	Vultr
+	Scaleway
+	UpstashRedis
+	PlanetScale
+	Clerk
+	Supabase
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

@@ -279,6 +279,36 @@ func (t DetectorType) String() string {
 		return "AzureSQLConnString"
 	case Kubeconfig:
 		return "Kubeconfig"
+	case ClickUp:
+		return "ClickUp"
+	case Monday:
+		return "Monday"
+	case Trello:
+		return "Trello"
+	case Gitter:
+		return "Gitter"
+	case LaunchNotes:
+		return "LaunchNotes"
+	case Paperspace:
+		return "Paperspace"
+	case RunPod:
+		return "RunPod"
+	case Modal:
+		return "Modal"
+	case Linode:
+		return "Linode"
+	case Vultr:
+		return "Vultr"
+	case Scaleway:
+		return "Scaleway"
+	case UpstashRedis:
+		return "UpstashRedis"
+	case PlanetScale:
+		return "PlanetScale"
+	case Clerk:
+		return "Clerk"
+	case Supabase:
+		return "Supabase"
 	default:
 		return "Unknown"
 	}

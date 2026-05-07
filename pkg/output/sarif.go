@@ -297,6 +297,21 @@ var ruleDescriptions = map[string]string{
 	detectors.GCSSignedURL.String():       "GCS V4 signed URL (X-Goog-Algorithm=GOOG4-RSA-SHA256) — unverified by design (issuing the URL would fetch the underlying object)",
 	detectors.AzureSQLConnString.String(): "Azure SQL Database connection string (Server=…database.windows.net;…;Password=…) — unverified by design (host tenant-specific)",
 	detectors.Kubeconfig.String():         "kubeconfig YAML credential field (client-certificate-data / client-key-data / token under kind: Config) — unverified by design (cluster API host tenant-specific)",
+	detectors.ClickUp.String():            "ClickUp personal API token (pk_<digits>_<32 uppercase alnum>) near clickup keyword",
+	detectors.Monday.String():             "Monday.com API token (JWT) near monday keyword, verified via /v2 GraphQL { me { id } }",
+	detectors.Trello.String():             "Trello API key (32-hex) + token (64-hex) pair, verified via /1/members/me",
+	detectors.Gitter.String():             "Gitter personal access token (40-hex) near gitter keyword, verified via /v1/user/me",
+	detectors.LaunchNotes.String():        "LaunchNotes API key (ln_) — unverified by design (no read endpoint, write API is destructive)",
+	detectors.Paperspace.String():         "Paperspace API key (40-char base64url) near paperspace keyword, verified via /users/getPublicProfile",
+	detectors.RunPod.String():             "RunPod API key near runpod keyword, verified via GraphQL { myself { id } }",
+	detectors.Modal.String():              "Modal token id (ak-) + token secret (as-) pair — unverified by design (workspace short-name not in chunk)",
+	detectors.Linode.String():             "Linode personal access token (64-hex) near linode keyword, verified via /v4/account",
+	detectors.Vultr.String():              "Vultr API key (36-char uppercase alnum) near vultr keyword, verified via /v2/account",
+	detectors.Scaleway.String():           "Scaleway secret key (UUID) near scaleway keyword, verified via /account/v3/users with X-Auth-Token",
+	detectors.UpstashRedis.String():       "Upstash Redis REST token near upstash keyword — unverified by design (per-database host not predictable)",
+	detectors.PlanetScale.String():        "PlanetScale service token id (pscale_oauth_/pscale_tkn_) + secret pair — admin-equivalent, surfaces SeverityCritical",
+	detectors.Clerk.String():              "Clerk secret key (sk_test_/sk_live_) near clerk keyword — sk_live_ surfaces SeverityCritical",
+	detectors.Supabase.String():           "Supabase service-role key (JWT with role=service_role) near supabase keyword — unverified by design (project URL tenant-specific); service_role surfaces SeverityCritical",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
