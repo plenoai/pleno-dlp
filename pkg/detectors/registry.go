@@ -639,6 +639,36 @@ func (t DetectorType) String() string {
 		return "Materialize"
 	case BeyondIdentity:
 		return "BeyondIdentity"
+	case KeyCDN:
+		return "KeyCDN"
+	case Mailtrap:
+		return "Mailtrap"
+	case GetResponse:
+		return "GetResponse"
+	case Amplitude:
+		return "Amplitude"
+	case FullStory:
+		return "FullStory"
+	case Heap:
+		return "Heap"
+	case Hotjar:
+		return "Hotjar"
+	case Optimizely:
+		return "Optimizely"
+	case Transifex:
+		return "Transifex"
+	case Crowdin:
+		return "Crowdin"
+	case DocuSign:
+		return "DocuSign"
+	case Qdrant:
+		return "Qdrant"
+	case SurrealDB:
+		return "SurrealDB"
+	case Leaseweb:
+		return "Leaseweb"
+	case PostageApp:
+		return "PostageApp"
 	default:
 		return "Unknown"
 	}

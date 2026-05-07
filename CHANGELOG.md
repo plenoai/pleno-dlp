@@ -10,7 +10,26 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.17.0.
+### Added
+
+- **15 more secret detectors** — batch 21 (constants 305..319):
+  KeyCDN, Mailtrap, GetResponse, Amplitude, FullStory, Heap, Hotjar,
+  Optimizely, Transifex, Crowdin, DocuSign, Qdrant, SurrealDB, Leaseweb,
+  PostageApp. Total now **313 secret + 4 PII = 317 detectors**. CDN /
+  IaaS (KeyCDN HTTP Basic auth, Leaseweb paired key+secret with
+  `X-Lsw-Auth` header), email / transactional (Mailtrap `Api-Token`,
+  GetResponse `X-Auth-Token: api-key`, PostageApp form `api_key`),
+  product analytics (Amplitude paired key+secret HTTP Basic, FullStory
+  `Authorization: Basic`, Heap `heap_` Bearer, Hotjar `hjar_` Bearer,
+  Optimizely Bearer), localization (Transifex Basic with `api` user,
+  Crowdin Bearer), e-signature (DocuSign JWT — unverified-by-default,
+  per-environment hosts), vector DB (Qdrant Cloud `api-key` —
+  unverified-by-default, per-cluster host), and DBaaS (SurrealDB Cloud
+  Bearer JWT — unverified-by-default, per-instance host). Amplitude and
+  Leaseweb use `RawV2` to surface the paired secret. DocuSign / Qdrant /
+  SurrealDB ship `apiBase` overrides so verify can be exercised in tests
+  but stays disabled in production until a host is supplied. 2115
+  race-clean tests across 332 packages.
 
 ## [0.17.0] — 2026-05-08
 
