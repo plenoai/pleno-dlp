@@ -70,6 +70,80 @@ func TestIsFindingsError(t *testing.T) {
 	}
 }
 
+// TestParseFailOn covers the --fail-on parser. Unknown values must
+// fail loudly so a typo in CI config doesn't silently downgrade the
+// gate (`--fail-on critcal` would otherwise pass through unchecked).
+func TestParseFailOn(t *testing.T) {
+	cases := []struct {
+		in      string
+		wantErr bool
+	}{
+		{"any", false},
+		{"", false},
+		{"info", false},
+		{"low", false},
+		{"medium", false},
+		{"high", false},
+		{"critical", false},
+		{"CRITICAL", false},
+		{" critical ", false},
+		{"extreme", true},
+		{"verified", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			_, err := parseFailOn(tc.in)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("parseFailOn(%q) err = %v, wantErr %v", tc.in, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestScanFailOnGate asserts --fail-on=critical does NOT exit non-zero
+// when only High findings are present (custom rule severity=high).
+// Today's behaviour without --fail-on still trips on any finding.
+func TestScanFailOnGate(t *testing.T) {
+	t.Cleanup(resetScanOpts) // global flag state is shared across tests
+	dir := t.TempDir()
+	target := dir + "/leak.txt"
+	if err := writeFile(target, "ACME_QWERTYUIOPASDFGHJKLZ\n"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	rules := dir + "/rules.json"
+	if err := writeFile(rules, `[{
+		"name":"ACME Token",
+		"keywords":["ACME_"],
+		"regex":"ACME_[A-Z0-9]{20}",
+		"severity":"high"
+	}]`); err != nil {
+		t.Fatalf("seed rules: %v", err)
+	}
+
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+	Root.SetArgs([]string{"scan", "--rules", rules, "--fail-on", "critical", "--format", "json", "filesystem", target})
+
+	err := Root.Execute()
+	// High finding under a Critical gate should NOT trip findings error.
+	if IsFindingsError(err) {
+		t.Fatalf("--fail-on=critical should not trip on High; output:\n%s", out.String())
+	}
+}
+
+// resetScanOpts restores the default values cobra wired up at init() so
+// flag state set by one test doesn't leak into the next. Cobra's
+// PersistentFlags retains the last value seen — without this reset the
+// next test runs with whatever --fail-on the previous test set.
+func resetScanOpts() {
+	scanOpts.format = "table"
+	scanOpts.verify = false
+	scanOpts.concurrency = 8
+	scanOpts.rulesPath = ""
+	scanOpts.failOn = "any"
+}
+
 // TestScanFilesystemWithCustomRules drives the full CLI with a custom
 // rules JSON and asserts the rule's regex matches a fixture file. Catches
 // regressions where --rules is silently ignored or the loader crashes.
