@@ -729,6 +729,36 @@ func (t DetectorType) String() string {
 		return "GetStream"
 	case Lark:
 		return "Lark"
+	case Braintree:
+		return "Braintree"
+	case Dwolla:
+		return "Dwolla"
+	case Klarna:
+		return "Klarna"
+	case Lever:
+		return "Lever"
+	case Greenhouse:
+		return "Greenhouse"
+	case Gusto:
+		return "Gusto"
+	case Deel:
+		return "Deel"
+	case Rippling:
+		return "Rippling"
+	case PropelAuth:
+		return "PropelAuth"
+	case LambdaLabs:
+		return "LambdaLabs"
+	case Anyscale:
+		return "Anyscale"
+	case SambaNova:
+		return "SambaNova"
+	case Baseten:
+		return "Baseten"
+	case Turso:
+		return "Turso"
+	case Knock:
+		return "Knock"
 	default:
 		return "Unknown"
 	}

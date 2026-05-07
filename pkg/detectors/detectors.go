@@ -547,6 +547,33 @@ const (
 	Bandwidth
 	GetStream
 	Lark
+	// batch 24 — appended in wire-stable order, never reorder. Payments
+	// (Braintree paired access_token shape, Dwolla key+secret pair, Klarna
+	// paired username+password Basic auth), HR / recruiting (Lever, Greenhouse,
+	// Gusto, Deel, Rippling), auth (PropelAuth Bearer), AI / ML / GPU infra
+	// (LambdaLabs, Anyscale, SambaNova, Baseten), DBaaS (Turso), and
+	// notifications (Knock `sk_(test|live)_`). Braintree, Dwolla, and Klarna are
+	// paired (RawV2 carries the secret half). LambdaLabs uses HTTP Basic auth
+	// with the key as the username (no separate password). Knock follows the
+	// Stripe / Mollie / Stytch live-prefix convention: `sk_live_` verified
+	// surfaces SeverityCritical via DefaultSeverity. PropelAuth and Rippling
+	// share the per-tenant-host concern but have public api hosts they can fall
+	// back on (auth.propelauth.com, api.rippling.com), so verify ships enabled.
+	Braintree
+	Dwolla
+	Klarna
+	Lever
+	Greenhouse
+	Gusto
+	Deel
+	Rippling
+	PropelAuth
+	LambdaLabs
+	Anyscale
+	SambaNova
+	Baseten
+	Turso
+	Knock
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

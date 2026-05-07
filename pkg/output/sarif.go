@@ -522,6 +522,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Bandwidth.String():              "Bandwidth.com API username + password pair (each 10+ alnum) near bandwidth keyword, verified via /api/accounts on dashboard.bandwidth.com with HTTP Basic auth (RawV2 carries the password)",
 	detectors.GetStream.String():              "Stream / getstream.io chat / activity feed api_key + api_secret pair near getstream / stream_io keyword — unverified by design (HMAC-signed JWTs, no cleartext-secret read endpoint)",
 	detectors.Lark.String():                   "Lark / Feishu Open Platform app_id (`cli_<16 hex>`) + app_secret (32 alnum) pair, verified via /open-apis/auth/v3/tenant_access_token/internal on open.larksuite.com with JSON body (RawV2 carries the app_secret)",
+	detectors.Braintree.String():              "Braintree access token (`access_token$(production|sandbox)$<merchant>$<32 hex>`) verified via /merchants/<id> on api.braintreegateway.com / api.sandbox.braintreegateway.com with Bearer auth (RawV2 carries the merchant id)",
+	detectors.Dwolla.String():                 "Dwolla app key + secret pair (each 50+ base64-ish) near dwolla keyword, verified via /token on api.dwolla.com (sandbox: api-sandbox.dwolla.com) with HTTP Basic auth (RawV2 carries the secret)",
+	detectors.Klarna.String():                 "Klarna paired username (`PK<digits>_<8>`) + password Basic-auth credential near klarna keyword, verified via /payments/v1/sessions on api.klarna.com (RawV2 carries the password)",
+	detectors.Lever.String():                  "Lever recruiting API key (40-hex) near lever keyword, verified via /v1/users on api.lever.co with HTTP Basic auth (key as username)",
+	detectors.Greenhouse.String():             "Greenhouse Harvest API key (40+ alnum) near greenhouse keyword, verified via /v1/users on harvest.greenhouse.io with HTTP Basic auth (key as username)",
+	detectors.Gusto.String():                  "Gusto OAuth bearer token (40+ hex) near gusto keyword, verified via /v1/me on api.gusto.com with Bearer auth",
+	detectors.Deel.String():                   "Deel API token (40+ alnum) near deel keyword, verified via /rest/v2/users/me on api.letsdeel.com with Bearer auth",
+	detectors.Rippling.String():               "Rippling API token (40+ alnum) near rippling keyword, verified via /platform/api/me on api.rippling.com with Bearer auth",
+	detectors.PropelAuth.String():             "PropelAuth backend API key (40+ alnum) near propelauth keyword, verified via /api/backend/v1/end_user_api_keys/validate on auth.propelauth.com with Bearer auth",
+	detectors.LambdaLabs.String():             "Lambda Labs Cloud API key (40+ alnum) near lambdalabs / lambda_labs keyword, verified via /api/v1/instance-types on cloud.lambdalabs.com with HTTP Basic auth (key as username)",
+	detectors.Anyscale.String():               "Anyscale API key (`esct_<base64ish>` or 40+ alnum) near anyscale keyword, verified via /api/v2/users/me on console.anyscale.com with Bearer auth",
+	detectors.SambaNova.String():              "SambaNova Cloud API key (40+ alnum) near sambanova keyword, verified via /v1/models on api.sambanova.ai with Bearer auth",
+	detectors.Baseten.String():                "Baseten API key (40+ alnum) near baseten keyword, verified via /api/v1/models on app.baseten.co with `Api-Key <key>` auth",
+	detectors.Turso.String():                  "Turso platform API token (40+ alnum) near turso keyword, verified via /v1/auth/validate-token on api.turso.tech with Bearer auth",
+	detectors.Knock.String():                  "Knock notifications service API key (`sk_(test|live)_<32+ alnum>`), verified via /v1/users on api.knock.app with Bearer auth — `sk_live_` verified surfaces SeverityCritical via DefaultSeverity",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
