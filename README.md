@@ -18,8 +18,8 @@ Two surfaces in one repo. Pick the one that matches your scan target:
 - **Go binary** (`cmd/pleno-dlp/`, this README) — filesystem, local git
   history, and stdin. Trufflehog-compatible detector interface,
   archive-aware (zip / tar / tar.gz / gzip), base64 / percent / hex
-  decoder pipeline, per-host verify rate limiter. **107 detectors**
-  built-in (103 secrets + 4 PII). Tag pattern `vX.Y.Z`.
+  decoder pipeline, per-host verify rate limiter. **122 detectors**
+  built-in (118 secrets + 4 PII). Tag pattern `vX.Y.Z`.
 - **Python package** (`python/`) — SaaS sources via
   [saas-retriever](https://pypi.org/project/saas-retriever/) (GitHub,
   GitLab, Bitbucket, Slack, Notion, Confluence, Jira). Backends:
@@ -29,20 +29,21 @@ Two surfaces in one repo. Pick the one that matches your scan target:
 
 ## Detector coverage
 
-107 built-in detectors. Every secret detector that can confirm against
+122 built-in detectors. Every secret detector that can confirm against
 an upstream provider implements `Verify` (run with `--verify`); the rest
 emit `Verified=false` with rotation guidance in the output.
 
 | Class | Providers |
 |---|---|
-| **Cloud / infra** | AWS, GCP service-account, Azure storage key, DigitalOcean, Cloudflare, Heroku, Render, Fly.io, Vercel, Netlify, Terraform Cloud, Dropbox |
-| **VCS / dev tooling** | GitHub PAT, GitLab PAT, Bitbucket Cloud, npm, PyPI, Hugging Face, Postman, Atlassian, Jira, Confluence, Buildkite, CircleCI |
+| **Cloud / infra** | AWS, AWS session token, AWS S3 presigned URL, GCP service-account, GCP API key, GCP OAuth, GCP ID token, GCS signed URL, Azure storage key, Azure SAS, AzureAD, AzureApp, Azure SQL conn-string, AlibabaCloud, TencentCloud, DigitalOcean, Cloudflare, Heroku, Render, Fly.io, Vercel, Netlify, Terraform Cloud, Terraform Cloud Team, Dropbox, kubeconfig |
+| **VCS / dev tooling** | GitHub PAT, GitHub Container Registry, GitLab PAT, GitLab Deploy, Bitbucket Cloud, Bitbucket Server, npm, PyPI, Hugging Face, Postman, Atlassian, Jira, Confluence, Buildkite, CircleCI, Codecov, Adobe.io, Docker Hub PAT |
 | **AI** | OpenAI, Anthropic, Cohere, Replicate, Mistral, Groq, OpenRouter, Together |
-| **Comms / SaaS** | Slack bot, Slack webhook, Discord, Twilio, SendGrid, Mailgun, Mailchimp, Brevo, Postmark, Notion, Linear, Asana, Mixpanel, Segment, Telegram, Okta, HubSpot, Intercom, Salesforce refresh, Spotify |
-| **Observability** | Datadog, Sentry, New Relic, PagerDuty, Shodan, VirusTotal |
-| **Payments / data** | Stripe, Square, PayPal, Plaid, MongoDB Atlas |
+| **Comms / SaaS** | Slack bot, Slack webhook, Discord, Twilio, SendGrid, Mailgun, Mailchimp, Brevo, Postmark, Notion, Linear, Asana, Mixpanel, Segment, Telegram, Okta, HubSpot, Intercom, Salesforce refresh, Spotify, Zoom, Klaviyo, Zendesk, Freshdesk |
+| **Observability** | Datadog, Datadog AppKey, Sentry, New Relic, PagerDuty, Opsgenie, Shodan, VirusTotal, Honeycomb, Sumo Logic, Rollbar, Bugsnag |
+| **Payments / data** | Stripe, Square, PayPal, Plaid, MongoDB Atlas, Snowflake, Databricks |
+| **Connection strings** | Redis, Postgres, MySQL, MongoDB URI, RabbitMQ, Kafka SASL, basic-auth URL, SMTP |
 | **Format-shaped** | JWT, PEM private keys, **Generic high-entropy** (catch-all near credential keywords) |
-| **Secrets management / IAM** | AzureAD, Doppler, Vault, Algolia, Airtable, Grafana, LaunchDarkly, Auth0, Snyk |
+| **Secrets management / IAM** | Doppler, DopplerCLI, Vault, HashiCorpCloud, Algolia, Airtable, Grafana, LaunchDarkly, LaunchDarkly Relay, Auth0, Snyk, Tailscale, Figma, Ngrok |
 | **PII (`finding_class=pii`)** | Email, US SSN, Credit card (Luhn-validated), IBAN (mod-97 validated) |
 
 Run `pleno-dlp detectors list` for the live registry, or
