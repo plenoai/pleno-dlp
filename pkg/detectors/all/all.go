@@ -170,4 +170,24 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/resend"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sysdig"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/twitch"
+	// batch 11 — wire-stable order, never reorder. Frontier-model admin
+	// keys (Anthropic Console), AI infra (Pinecone, Weaviate, VoyageAI,
+	// Fireworks, Cerebras), GitHub Apps installation tokens, JFrog
+	// Artifactory, Pendo, PostHog, Sentry user tokens, Cloudflare R2
+	// access-key + secret pair, Mapbox secret tokens, Railway, Telnyx.
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/anthropicadmin"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/cerebras"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/cloudflarer2"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/fireworks"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/githubapp"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/jfrog"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/mapbox"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pendo"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pinecone"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/posthog"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/railway"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sentryuser"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/telnyx"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/voyageai"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/weaviate"
 )

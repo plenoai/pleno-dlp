@@ -206,6 +206,30 @@ const (
 	Bitwarden
 	Resend
 	Helcim
+	// batch 11 — appended in wire-stable order, never reorder. Frontier-model
+	// admin keys (Anthropic Console), AI infra (Pinecone, Weaviate, VoyageAI,
+	// Fireworks, Cerebras), GitHub Apps installation tokens (distinct from
+	// PATs), JFrog Artifactory access tokens, Pendo integration JWTs,
+	// PostHog project keys, Sentry user tokens, Cloudflare R2 access-key +
+	// secret pair (S3-compatible), Mapbox secret tokens, Railway API tokens,
+	// and Telnyx messaging API keys. AnthropicAdmin / CloudflareR2 / Mapbox
+	// secret keys all surface SeverityCritical because they grant full
+	// account-level scope on the issuing platform.
+	AnthropicAdmin
+	Pinecone
+	Weaviate
+	VoyageAI
+	Fireworks
+	Cerebras
+	GitHubApp
+	JFrog
+	Pendo
+	PostHog
+	SentryUser
+	CloudflareR2
+	Mapbox
+	Railway
+	Telnyx
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

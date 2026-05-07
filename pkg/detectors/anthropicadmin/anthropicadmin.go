@@ -1,13 +1,17 @@
-// Package anthropic detects Anthropic API keys (sk-ant-…) and verifies them
-// with a 1-token /v1/messages probe.
-package anthropic
+// Package anthropicadmin detects Anthropic Console admin API keys
+// (`sk-ant-admin-...`) which are distinct from runtime API keys
+// (`sk-ant-api03-...`). Admin keys grant Console-scope access — billing,
+// workspace membership, key rotation — so they surface SeverityCritical.
+//
+// Verification calls /v1/organizations/me, the documented admin-scoped
+// endpoint, with the same `x-api-key` + `anthropic-version` headers used
+// by the runtime API. A 200 confirms the key is admin-scoped and active.
+package anthropicadmin
 
 import (
-	"bytes"
 	"context"
 	"net/http"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -17,17 +21,15 @@ var apiBase = "https://api.anthropic.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var keyRe = regexp.MustCompile(`\b(sk-ant-[A-Za-z0-9_-]{20,})\b`)
-
-// probeBody is the smallest legal /v1/messages request — 1 max token, single
-// user turn. Sufficient to distinguish 401/403 (bad key) from 200 (valid).
-var probeBody = []byte(`{"model":"claude-haiku-4-5","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`)
+// sk-ant-admin- + 20+ base62/_-/.. The pkg/detectors/anthropic package
+// owns sk-ant- generally; we own only the admin- subset.
+var keyRe = regexp.MustCompile(`\b(sk-ant-admin-[A-Za-z0-9_-]{20,})\b`)
 
 type Scanner struct{}
 
-func (Scanner) Type() detectors.DetectorType { return detectors.Anthropic }
+func (Scanner) Type() detectors.DetectorType { return detectors.AnthropicAdmin }
 
-func (Scanner) Keywords() []string { return []string{"sk-ant-"} }
+func (Scanner) Keywords() []string { return []string{"sk-ant-admin-"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	matches := keyRe.FindAll(data, -1)
@@ -35,17 +37,20 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		return nil, nil
 	}
 	out := make([]detectors.Result, 0, len(matches))
+	seen := map[string]struct{}{}
 	for _, m := range matches {
 		token := string(m)
-		// Admin keys (sk-ant-admin-...) are owned by the AnthropicAdmin
-		// detector — skip them here so we don't double-report.
-		if strings.HasPrefix(token, "sk-ant-admin-") {
+		if _, dup := seen[token]; dup {
 			continue
 		}
+		seen[token] = struct{}{}
 		res := detectors.Result{
-			DetectorType: detectors.Anthropic,
+			DetectorType: detectors.AnthropicAdmin,
 			Raw:          []byte(token),
 			Redacted:     redact(token),
+			// Admin keys revoke/rotate every credential on the org;
+			// surface SeverityCritical even unverified.
+			Severity: detectors.SeverityCritical,
 		}
 		if verify {
 			v, err := s.Verify(ctx, token)
@@ -61,7 +66,7 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBase+"/v1/messages", bytes.NewReader(probeBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/v1/organizations/me", nil)
 	if err != nil {
 		return false, err
 	}
@@ -77,23 +82,18 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	switch resp.StatusCode {
 	case http.StatusOK:
 		return true, nil
-	case http.StatusUnauthorized, http.StatusForbidden:
-		return false, nil
-	case http.StatusTooManyRequests:
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
 		return false, nil
 	default:
-		// Other errors (e.g. 400 due to model mismatch) shouldn't classify as
-		// verified, but they also imply the key was authenticated. Stay strict
-		// and only return true on 200 to avoid false positives.
 		return false, nil
 	}
 }
 
 func redact(t string) string {
-	if len(t) <= 7 {
+	if len(t) <= 13 {
 		return t
 	}
-	return t[:7] + "..."
+	return t[:13] + "..."
 }
 
 func init() {

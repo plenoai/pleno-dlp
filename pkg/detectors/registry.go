@@ -339,6 +339,36 @@ func (t DetectorType) String() string {
 		return "Resend"
 	case Helcim:
 		return "Helcim"
+	case AnthropicAdmin:
+		return "AnthropicAdmin"
+	case Pinecone:
+		return "Pinecone"
+	case Weaviate:
+		return "Weaviate"
+	case VoyageAI:
+		return "VoyageAI"
+	case Fireworks:
+		return "Fireworks"
+	case Cerebras:
+		return "Cerebras"
+	case GitHubApp:
+		return "GitHubApp"
+	case JFrog:
+		return "JFrog"
+	case Pendo:
+		return "Pendo"
+	case PostHog:
+		return "PostHog"
+	case SentryUser:
+		return "SentryUser"
+	case CloudflareR2:
+		return "CloudflareR2"
+	case Mapbox:
+		return "Mapbox"
+	case Railway:
+		return "Railway"
+	case Telnyx:
+		return "Telnyx"
 	default:
 		return "Unknown"
 	}
