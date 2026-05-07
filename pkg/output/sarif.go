@@ -402,6 +402,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Browserstack.String():       "Browserstack username + access key pair near browserstack keyword, verified via /automate/plan.json with HTTP Basic auth",
 	detectors.StabilityAI.String():        "Stability AI API key (sk-<base62>{>=40}) near stability keyword (distinct shape gating from OpenAI), verified via /v1/user/account with Bearer auth",
 	detectors.CiscoMeraki.String():        "Cisco Meraki API key (40-char hex) near meraki keyword, verified via /api/v1/organizations with X-Cisco-Meraki-API-Key header",
+	detectors.Webex.String():              "Cisco Webex personal access token (>=60-char base64) near webex keyword, verified via /v1/people/me with Bearer auth",
+	detectors.Tenable.String():            "Tenable.io accessKey + secretKey pair (64-hex each) near tenable keyword, verified via /session with X-ApiKeys header",
+	detectors.Rapid7.String():             "Rapid7 InsightVM/IDR API key (UUID) near rapid7 keyword, verified via /idr/v1/users/me with X-Api-Key header",
+	detectors.CrowdStrike.String():        "CrowdStrike Falcon OAuth2 client_id (32-hex) + client_secret (40 alnum) pair near crowdstrike keyword, verified via /oauth2/token with client_credentials grant",
+	detectors.Wiz.String():                "Wiz.io service-account JWT-shaped token near wiz_io keyword — unverified by design (tenant-specific host required)",
+	detectors.SonarQube.String():          "SonarQube/SonarCloud user token (sqp_/squ_/sqa_ prefix or 40-hex near sonar keyword), verified via /api/authentication/validate with HTTP Basic auth",
+	detectors.MailerLite.String():         "MailerLite v2 JWT-shaped API token near mailerlite keyword, verified via /api/subscribers/me with Bearer auth",
+	detectors.ActiveCampaign.String():     "ActiveCampaign API key (>=60 alnum) near activecampaign keyword — unverified by design (per-account host <account>.api-us1.com required)",
+	detectors.Drip.String():               "Drip (getdrip) API token (32 alnum) near getdrip keyword, verified via /v2/accounts with HTTP Basic auth (token as username)",
+	detectors.BunnyCDN.String():           "Bunny.net account API key (UUID) near bunny keyword, verified via /apikey with AccessKey header",
+	detectors.Vimeo.String():              "Vimeo OAuth access token (>=32 alnum) near vimeo keyword, verified via /me with Bearer auth",
+	detectors.Cloudinary.String():         "Cloudinary URL credential (cloudinary://<key>:<secret>@<cloud>) — verified via /v1_1/<cloud>/usage with HTTP Basic auth",
+	detectors.PingIdentity.String():       "PingOne worker app secret (UUID) near ping_identity keyword — unverified by design (per-region host required)",
+	detectors.Mux.String():                "Mux access token id (UUID) + secret pair near mux keyword, verified via /video/v1/assets with HTTP Basic auth",
+	detectors.Hookdeck.String():           "Hookdeck API key (hookdeck_test_/hookdeck_live_ prefix) — verified via /sources with Bearer auth; hookdeck_live_ surfaces SeverityCritical when verified",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

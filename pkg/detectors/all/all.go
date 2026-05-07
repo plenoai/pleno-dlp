@@ -273,4 +273,24 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sonatypenexus"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/stabilityai"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/wrike"
+	// batch 16 — wire-stable order, never reorder. Identity/SSO (Webex,
+	// PingIdentity), security tooling (Tenable, Rapid7, CrowdStrike, Wiz,
+	// SonarQube), email/marketing (MailerLite, ActiveCampaign, Drip),
+	// CDN/storage/media (BunnyCDN, Vimeo, Cloudinary), video infra (Mux),
+	// webhooks (Hookdeck). Wiz / ActiveCampaign / PingIdentity unverified.
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/activecampaign"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/bunnycdn"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/cloudinary"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/crowdstrike"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/drip"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/hookdeck"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/mailerlite"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/mux"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pingidentity"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/rapid7"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sonarqube"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/tenable"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vimeo"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/webex"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/wiz"
 )
