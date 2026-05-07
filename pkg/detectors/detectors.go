@@ -230,6 +230,30 @@ const (
 	Mapbox
 	Railway
 	Telnyx
+	// batch 12 — appended in wire-stable order, never reorder. Observability
+	// + log-aggregator tokens (Splunk HEC, Elastic Cloud, Logz.io, Coralogix,
+	// Loggly), uptime monitoring (UptimeRobot, Pingdom), error-tracking
+	// (Honeybadger, Raygun), incident/status (Statuspage, VictorOps,
+	// PagerTree), and CI/CD bearer tokens (AWX/Ansible Tower, Concourse CI,
+	// TeamCity). Self-hosted CI/CD detectors (AWX, Concourse, TeamCity) and
+	// per-customer-host SaaS (SplunkHEC, ElasticCloud) ship without Verify
+	// because the host isn't in the chunk; keyword + shape gating bound
+	// the false-positive rate.
+	SplunkHEC
+	ElasticCloud
+	LogzIO
+	Coralogix
+	Loggly
+	UptimeRobot
+	Pingdom
+	Honeybadger
+	Raygun
+	Statuspage
+	VictorOps
+	PagerTree
+	AWX
+	ConcourseCI
+	TeamCity
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
