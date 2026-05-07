@@ -519,6 +519,36 @@ func (t DetectorType) String() string {
 		return "Mux"
 	case Hookdeck:
 		return "Hookdeck"
+	case WorkOS:
+		return "WorkOS"
+	case FrontEgg:
+		return "FrontEgg"
+	case Kinde:
+		return "Kinde"
+	case Hanko:
+		return "Hanko"
+	case GitHubFineGrained:
+		return "GitHubFineGrained"
+	case AzureContainerRegistry:
+		return "AzureContainerRegistry"
+	case Quay:
+		return "Quay"
+	case Replit:
+		return "Replit"
+	case PostmarkAccount:
+		return "PostmarkAccount"
+	case Beehiiv:
+		return "Beehiiv"
+	case NS1:
+		return "NS1"
+	case Perplexity:
+		return "Perplexity"
+	case DeepInfra:
+		return "DeepInfra"
+	case XAI:
+		return "XAI"
+	case GoCardless:
+		return "GoCardless"
 	default:
 		return "Unknown"
 	}

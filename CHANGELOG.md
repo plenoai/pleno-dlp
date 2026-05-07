@@ -12,6 +12,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.13.0.
 
+### Added
+
+- **15 more secret detectors** — batch 17 (constants 245..259):
+  WorkOS, FrontEgg, Kinde, Hanko, GitHubFineGrained,
+  AzureContainerRegistry, Quay, Replit, PostmarkAccount, Beehiiv, NS1,
+  Perplexity, DeepInfra, XAI, GoCardless. Total now **253 secret + 4 PII
+  = 257 detectors**. GitHubFineGrained is a separate type from GitHub
+  because `github_pat_<82>` is structurally distinct from
+  `ghp_/gho_/ghu_/ghs_/ghr_`. PostmarkAccount is distinct from Postmark
+  (server token) because it grants account-wide scope. FrontEgg emits a
+  paired client_id + client_secret detector via RawV2. GoCardless `live_`
+  verified surfaces SeverityCritical (and verifies against the live host;
+  `sandbox_` verifies against api-sandbox.gocardless.com). Kinde, Hanko,
+  and AzureContainerRegistry are unverified-by-default — they require a
+  per-tenant or per-registry host the chunk doesn't carry. Perplexity
+  verifies via POST /chat/completions splitting token-good (400/422) from
+  token-bad (401) without issuing a billable completion.
+
 ## [0.13.0] — 2026-05-08
 
 ### Added
