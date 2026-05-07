@@ -699,6 +699,36 @@ func (t DetectorType) String() string {
 		return "Plivo"
 	case Paddle:
 		return "Paddle"
+	case Shopify:
+		return "Shopify"
+	case Recurly:
+		return "Recurly"
+	case Chargebee:
+		return "Chargebee"
+	case FastSpring:
+		return "FastSpring"
+	case Gumroad:
+		return "Gumroad"
+	case Snipcart:
+		return "Snipcart"
+	case Gitea:
+		return "Gitea"
+	case Woodpecker:
+		return "Woodpecker"
+	case OctopusDeploy:
+		return "OctopusDeploy"
+	case Squadcast:
+		return "Squadcast"
+	case Instana:
+		return "Instana"
+	case Courier:
+		return "Courier"
+	case Bandwidth:
+		return "Bandwidth"
+	case GetStream:
+		return "GetStream"
+	case Lark:
+		return "Lark"
 	default:
 		return "Unknown"
 	}

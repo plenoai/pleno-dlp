@@ -423,4 +423,28 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/plivo"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/runway"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/scoutapm"
+	// batch 23 — wire-stable order, never reorder. E-commerce / payments
+	// (shopify, recurly, chargebee, fastspring, gumroad, snipcart), VCS / CI
+	// (gitea, woodpecker, octopusdeploy), observability (squadcast, instana),
+	// comms / messaging (courier, bandwidth, lark), and analytics / activity
+	// (getstream). Shopify / Chargebee / Gitea / Woodpecker / OctopusDeploy /
+	// Instana are unverified-by-default (per-shop / per-tenant / self-hosted
+	// host required). Bandwidth / FastSpring / Lark / GetStream are
+	// paired-credential detectors using RawV2; GetStream is unverified-by-design
+	// (HMAC-only).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/bandwidth"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/chargebee"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/courier"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/fastspring"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/getstream"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gitea"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gumroad"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/instana"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/lark"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/octopusdeploy"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/recurly"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/shopify"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/snipcart"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/squadcast"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/woodpecker"
 )

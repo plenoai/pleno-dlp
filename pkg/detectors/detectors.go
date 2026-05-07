@@ -521,6 +521,32 @@ const (
 	Iterable
 	Plivo
 	Paddle
+	// batch 23 — appended in wire-stable order, never reorder. E-commerce /
+	// payments (Shopify, Recurly, Chargebee, FastSpring, Gumroad, Snipcart),
+	// VCS / CI (Gitea, Woodpecker, OctopusDeploy), observability (Squadcast,
+	// Instana), comms / messaging (Courier, Bandwidth, Lark), and analytics /
+	// activity (GetStream). Shopify carries its API token shape (`shpat_`,
+	// `shpss_`, `shpca_`) but verify needs the per-shop `<shop>.myshopify.com`
+	// host so it ships unverified-by-default with apiBase override. Chargebee,
+	// Gitea, Woodpecker, OctopusDeploy, Instana, GetStream, FastSpring share
+	// the same per-tenant / per-host constraint and follow the same pattern.
+	// Bandwidth (account_id+token+secret), FastSpring (username+password), and
+	// Lark (app_id+app_secret) are paired-credential detectors using RawV2.
+	Shopify
+	Recurly
+	Chargebee
+	FastSpring
+	Gumroad
+	Snipcart
+	Gitea
+	Woodpecker
+	OctopusDeploy
+	Squadcast
+	Instana
+	Courier
+	Bandwidth
+	GetStream
+	Lark
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

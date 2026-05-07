@@ -10,7 +10,30 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.19.0.
+### Added
+
+- **15 more secret detectors** — batch 23 (constants 335..349):
+  Shopify, Recurly, Chargebee, FastSpring, Gumroad, Snipcart, Gitea,
+  Woodpecker, OctopusDeploy, Squadcast, Instana, Courier, Bandwidth,
+  GetStream, Lark. Total now **343 secret + 4 PII = 347 detectors**.
+  E-commerce / payments (Shopify `shp(at|ss|ca)_` Admin token —
+  unverified-by-default per-shop host, Recurly 32-alnum Basic auth,
+  Chargebee `(live|test)_` — unverified-by-default per-site host,
+  FastSpring paired username+password Basic auth, Gumroad
+  `?access_token=` query param, Snipcart Basic auth), VCS / CI
+  (Gitea 40-hex `token <pat>` — unverified-by-default self-hosted host,
+  Woodpecker CI Bearer — unverified-by-default self-hosted host,
+  OctopusDeploy `API-<26 base32>` `X-Octopus-ApiKey` — unverified-by-
+  default per-tenant host), observability (Squadcast Bearer, Instana
+  `apiToken <key>` — unverified-by-default per-tenant host), comms /
+  messaging (Courier `pk_(prod|test)_` Bearer, Bandwidth paired
+  user+pass Basic auth, Lark / Feishu paired `cli_<id>` + secret JSON
+  body), and analytics (GetStream paired api_key+api_secret HMAC —
+  unverified-by-design). FastSpring, Bandwidth, Lark, and GetStream
+  use `RawV2` to surface the paired secret. Six detectors ship `apiBase`
+  overrides so verify can be exercised in tests but stays disabled in
+  production until a host is supplied. 2316 race-clean tests across 362
+  packages.
 
 ## [0.19.0] — 2026-05-08
 
