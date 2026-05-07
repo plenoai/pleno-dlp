@@ -315,4 +315,26 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/replit"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/workos"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/xai"
+	// batch 18 — payments / banking (mercurybank, lemonsqueezy, schematic, hyperline,
+	// fattureincloud), AI infra (vercelaigateway), CI / DevOps (codefresh, earthly,
+	// spacelift), database (couchbasecapella), comms / SaaS (slackusertoken,
+	// pusherchannels, pumble), IaaS (hetzner), and registrar (gandi). Spacelift /
+	// PusherChannels are unverified-by-default (per-account host / HMAC scheme
+	// requires extra config not in chunk). SlackUserToken (xoxp-) is distinct from
+	// SlackBotToken (xoxb-).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/codefresh"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/couchbasecapella"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/earthly"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/fattureincloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gandi"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/hetzner"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/hyperline"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/lemonsqueezy"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/mercurybank"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pumble"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pusherchannels"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/schematic"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/slackusertoken"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/spacelift"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vercelaigateway"
 )

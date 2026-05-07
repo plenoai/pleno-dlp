@@ -432,6 +432,21 @@ var ruleDescriptions = map[string]string{
 	detectors.DeepInfra.String():              "DeepInfra API token (>=40 alnum) near deepinfra keyword, verified via /v1/openai/models on api.deepinfra.com with Bearer auth",
 	detectors.XAI.String():                    "xAI Grok API key (xai-<base62>{40+}) — verified via /v1/api-key on api.x.ai with Bearer auth",
 	detectors.GoCardless.String():             "GoCardless live_<base64url>{40+} or sandbox_<base64url>{40+} near gocardless keyword, verified via /creditors on api.gocardless.com (live) or api-sandbox.gocardless.com (sandbox); live_ verified surfaces SeverityCritical",
+	detectors.MercuryBank.String():            "Mercury Bank API token (>=32 base62) near mercury keyword, verified via /api/v1/accounts on api.mercury.com with Bearer auth; surfaces SeverityCritical when verified (live banking access)",
+	detectors.LemonSqueezy.String():           "Lemon Squeezy API key (JWT-shaped 3-segment base64url) near lemonsqueezy keyword, verified via /v1/users/me on api.lemonsqueezy.com with Bearer + Accept: application/vnd.api+json",
+	detectors.Schematic.String():              "Schematic (schematichq) pricing/billing API key (`api_<base62>`) near schematic keyword, verified via /v1/companies on api.schematichq.com using X-Schematic-Api-Key header",
+	detectors.Hyperline.String():              "Hyperline billing API key (>=32 base62) near hyperline keyword, verified via /v1/customers on api.hyperline.co with Bearer auth",
+	detectors.Fattureincloud.String():         "Fatture in Cloud (fattureincloud.it) API access token (>=40 base64url) near fattureincloud keyword, verified via /user/info on api-v2.fattureincloud.it with Bearer auth",
+	detectors.VercelAIGateway.String():        "Vercel AI Gateway API key (`vck_<base62>{32+}`) — distinct from Vercel deploy tokens; verified via /v1/models on ai-gateway.vercel.sh with Bearer auth",
+	detectors.Gandi.String():                  "Gandi (registrar) personal API key (>=24 base62) near gandi keyword, verified via /v5/organization/organizations on api.gandi.net using `Authorization: Apikey <key>`",
+	detectors.Codefresh.String():              "Codefresh CI/CD API key (>=40 base64url) near codefresh keyword, verified via /api/user on g.codefresh.io using `Authorization: <token>` (no Bearer prefix)",
+	detectors.Earthly.String():                "Earthly Cloud token (>=40 base62) near earthly keyword, verified via /api/v0/account/me on api.earthly.dev with Bearer auth",
+	detectors.Spacelift.String():              "Spacelift IaC API key (`s_<base62>{32+}`) near spacelift keyword — unverified by default (per-account host <account>.app.spacelift.io required); apiBase override enables verify",
+	detectors.CouchbaseCapella.String():       "Couchbase Capella API token (>=40 base64url) near couchbase/capella keyword, verified via /v4/organizations on cloudapi.cloud.couchbase.com with Bearer auth",
+	detectors.SlackUserToken.String():         "Slack user OAuth token (xoxp-) — distinct from xoxb- bot tokens; user-scope grants act-as-user; verified via /api/auth.test on slack.com with Bearer auth",
+	detectors.PusherChannels.String():         "Pusher Channels app secret (20-char alnum) near pusher keyword — unverified by design (HMAC signing requires app_id + cluster not in chunk)",
+	detectors.Hetzner.String():                "Hetzner Cloud API token (64-char base62) near hcloud/hetzner keyword, verified via /v1/servers on api.hetzner.cloud with Bearer auth",
+	detectors.Pumble.String():                 "Pumble team-chat API token (>=40 alnum) near pumble keyword, verified via /listUsers on Pumble API addons host using `Api-Key` header",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
