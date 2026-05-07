@@ -1,0 +1,21 @@
+# pre-commit hook manifest. Consumers reference this file from their
+# own .pre-commit-config.yaml:
+#
+#   repos:
+#     - repo: https://github.com/plenoai/pleno-dlp
+#       rev: v0.3.0
+#       hooks:
+#         - id: pleno-dlp
+#
+# pre-commit downloads the binary from `go install` (system_language=golang)
+# so consumers don't need to vendor it. The default args scan the
+# pre-commit-staged paths only — safe for everyday `git commit`. Larger
+# scans (full git history, --verify against upstream) belong in CI.
+- id: pleno-dlp
+  name: pleno-dlp (secrets + PII)
+  description: Scan staged files for leaked secrets and PII via pleno-dlp.
+  entry: pleno-dlp scan filesystem
+  args: ["--fail-on", "high", "--no-default-excludes"]
+  language: golang
+  types: [text]
+  pass_filenames: true

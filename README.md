@@ -180,6 +180,10 @@ Pipe SARIF to GitHub Code Scanning:
     sarif_file: findings.sarif
 ```
 
+For full workflows (PR-only diff scan, `--fail-on critical`, SARIF
+upload, verify rate limiting, pre-commit hook, GitLab CI),
+see [`docs/recipes/`](docs/recipes/).
+
 ## Shell completions
 
 ```sh
