@@ -507,6 +507,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Iterable.String():               "Iterable API key (>=40 alnum) near iterable keyword, verified via /api/users/byEmail on api.iterable.com with `Api-Key: <key>` header",
 	detectors.Plivo.String():                  "Plivo Auth ID + Auth Token pair (auth_id starts `MA` / `SA` then 18 alnum, token >=40 base64url) near plivo keyword, verified via /v1/Account/{auth_id}/ on api.plivo.com with HTTP Basic auth (RawV2 carries the auth token)",
 	detectors.Paddle.String():                 "Paddle Billing API key (`pdl_(live|sdbx)_apikey_<base64url>{40+}`) near paddle keyword, verified via /event-types on api.paddle.com with Bearer auth (sandbox host `sandbox-api.paddle.com`)",
+	detectors.Shopify.String():                "Shopify Admin API access token (`shp(at|ss|ca)_<32 hex>`) — verified via /admin/api/2023-10/shop.json on the per-shop `<shop>.myshopify.com` host; apiBase override required",
+	detectors.Recurly.String():                "Recurly subscription billing API key (32 alnum) near recurly keyword, verified via /sites on v3.recurly.com with HTTP Basic auth (key as username)",
+	detectors.Chargebee.String():              "Chargebee subscription billing API key (`(live|test)_<base64url>{20+}`) near chargebee keyword — verified via /api/v2/customers on the per-site `<site>.chargebee.com` host; apiBase override required",
+	detectors.FastSpring.String():             "FastSpring API username + password pair (each 16+ alnum) near fastspring keyword, verified via /accounts on api.fastspring.com with HTTP Basic auth (RawV2 carries the password)",
+	detectors.Gumroad.String():                "Gumroad personal access token (32+ alnum) near gumroad keyword, verified via /v2/user on api.gumroad.com with `?access_token=` query parameter",
+	detectors.Snipcart.String():               "Snipcart secret API key (50+ alnum) near snipcart keyword, verified via /api/orders on app.snipcart.com with HTTP Basic auth (key as username)",
+	detectors.Gitea.String():                  "Gitea personal access token (40-hex) near gitea keyword — verified via /api/v1/user on the self-hosted Gitea host; apiBase override required",
+	detectors.Woodpecker.String():             "Woodpecker CI access token (32+ alnum) near woodpecker keyword — verified via /api/user on the self-hosted Woodpecker host; apiBase override required",
+	detectors.OctopusDeploy.String():          "Octopus Deploy API key (`API-<26 base32>`) — verified via /api/users/me on the per-tenant `<tenant>.octopus.app` host; apiBase override required",
+	detectors.Squadcast.String():              "Squadcast API token (40+ alnum) near squadcast keyword, verified via /v3/users on api.squadcast.com with Bearer auth",
+	detectors.Instana.String():                "IBM Instana API token (40+ alnum) near instana keyword — verified via /api/instana/version on the per-tenant `<unit>-<tenant>.instana.io` host with `apiToken <key>`; apiBase override required",
+	detectors.Courier.String():                "Courier auth token (`pk_(prod|test)_<base32>{40+}`) verified via /profiles on api.courier.com with Bearer auth",
+	detectors.Bandwidth.String():              "Bandwidth.com API username + password pair (each 10+ alnum) near bandwidth keyword, verified via /api/accounts on dashboard.bandwidth.com with HTTP Basic auth (RawV2 carries the password)",
+	detectors.GetStream.String():              "Stream / getstream.io chat / activity feed api_key + api_secret pair near getstream / stream_io keyword — unverified by design (HMAC-signed JWTs, no cleartext-secret read endpoint)",
+	detectors.Lark.String():                   "Lark / Feishu Open Platform app_id (`cli_<16 hex>`) + app_secret (32 alnum) pair, verified via /open-apis/auth/v3/tenant_access_token/internal on open.larksuite.com with JSON body (RawV2 carries the app_secret)",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
