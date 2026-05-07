@@ -10,7 +10,24 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.7.0.
+### Added
+
+- **15 more secret detectors** — batch 11 (constants 155..169):
+  AnthropicAdmin, Pinecone, Weaviate, VoyageAI, Fireworks, Cerebras,
+  GitHubApp, JFrog, Pendo, PostHog, SentryUser, CloudflareR2, Mapbox,
+  Railway, Telnyx. Total now **163 secret + 4 PII = 167 detectors**.
+  Anthropic Console admin keys, Cloudflare R2 access-key + secret pair,
+  and Mapbox secret tokens surface as Critical even unverified (admin/
+  destructive scope). Anthropic detector now skips `sk-ant-admin-` so
+  the new AnthropicAdmin detector is the sole owner. PostHog is scoped
+  to `phx_` personal API keys — `phc_` project keys are publishable by
+  design. JFrog covers reference tokens (`cmVmdGtuO…` prefix); the
+  identifier-aware JWT shape stays with the JWT detector. Mapbox
+  deliberately ignores `pk.` public tokens. Swaps from the original
+  list, with rationale: Together → Fireworks (Together exists), Modal
+  /Replicate → Cerebras (both already in batch 9), GitHub fine-grained
+  PAT → JFrog Artifactory (covered by existing github detector), NPM
+  granular → Pendo (NPM exists), Heroku → Railway (Heroku exists).
 
 ## [0.7.0] — 2026-05-08
 

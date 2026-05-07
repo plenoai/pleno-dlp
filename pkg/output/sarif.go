@@ -327,6 +327,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Bitwarden.String():          "Bitwarden Secrets Manager (BWS) machine-account access token (`0.<uuid>.<base64>:<base64>`) — unverified by design; surfaces SeverityCritical",
 	detectors.Resend.String():             "Resend API key (`re_<base62>`) verified via /domains with Bearer auth",
 	detectors.Helcim.String():             "Helcim payment API token (32-hex) near helcim keyword, verified via /v2/connect-test; surfaces SeverityCritical",
+	detectors.AnthropicAdmin.String():     "Anthropic Console admin API key (sk-ant-admin-) — distinct from runtime keys, verified via /v1/organizations/me; surfaces SeverityCritical",
+	detectors.Pinecone.String():           "Pinecone API key (pcsk_<base62>) verified via /databases with Api-Key header",
+	detectors.Weaviate.String():           "Weaviate Cloud admin API key (64-char base62) near weaviate keyword, verified via /v1/meta with Bearer when cluster URL co-occurs",
+	detectors.VoyageAI.String():           "Voyage AI API key (pa-<base64url>) near voyage keyword, verified via /v1/embeddings with Bearer auth",
+	detectors.Fireworks.String():          "Fireworks AI API key (fw_<base62>) verified via /v1/models with Bearer auth",
+	detectors.Cerebras.String():           "Cerebras Cloud inference API key (csk-<base62>) verified via /v1/models with Bearer auth",
+	detectors.GitHubApp.String():          "GitHub Apps installation access token (ghs_<base62>{36}) verified via /installation/repositories — distinct from PATs",
+	detectors.JFrog.String():              "JFrog Artifactory reference token (cmVmdGtuO… prefix) verified via /artifactory/api/system/ping when host co-occurs",
+	detectors.Pendo.String():              "Pendo integration token (32-hex) near pendo keyword, verified via /api/v1/feature with x-pendo-integration-key header",
+	detectors.PostHog.String():            "PostHog personal API key (phx_<base62>) verified via /api/projects/@current; phc_ project keys are publishable and intentionally not surfaced",
+	detectors.SentryUser.String():         "Sentry user auth token (sntryu_<64-hex>) verified via /api/0/ — distinct from project DSNs handled by sentry detector",
+	detectors.CloudflareR2.String():       "Cloudflare R2 access-key-id (32-hex) + secret-access-key (64-hex) pair near r2_access_key keyword — unverified by design (per-account host); surfaces SeverityCritical",
+	detectors.Mapbox.String():             "Mapbox secret token (sk.<jwt>) — public pk. tokens deliberately not surfaced; verified via /tokens/v2/<username>; surfaces SeverityCritical",
+	detectors.Railway.String():            "Railway API token (UUID) near railway keyword, verified via /graphql/v2 { me { id } } with Bearer auth",
+	detectors.Telnyx.String():             "Telnyx V2 API key (KEY<32+ alnum>) near telnyx keyword, verified via /v2/messaging_profiles with Bearer auth",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
