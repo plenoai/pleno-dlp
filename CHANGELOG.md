@@ -10,6 +10,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Anything merged to `main` since v0.8.0.
+
+## [0.8.0] — 2026-05-08
+
 ### Added
 
 - **15 more secret detectors** — batch 11 (constants 155..169):
@@ -227,7 +231,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   Slack bot, OpenAI, Anthropic) + JSON / SARIF / table output +
   cobra `scan` CLI. 51 race-clean tests.
 
-[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.8.0
 [0.7.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.7.0
 [0.6.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.6.0
 [0.5.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.5.0
