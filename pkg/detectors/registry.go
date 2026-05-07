@@ -429,6 +429,36 @@ func (t DetectorType) String() string {
 		return "Workato"
 	case AikidoSecurity:
 		return "AikidoSecurity"
+	case Akamai:
+		return "Akamai"
+	case Fastly:
+		return "Fastly"
+	case Quip:
+		return "Quip"
+	case Box:
+		return "Box"
+	case Zoho:
+		return "Zoho"
+	case Adyen:
+		return "Adyen"
+	case Wise:
+		return "Wise"
+	case Razorpay:
+		return "Razorpay"
+	case Mollie:
+		return "Mollie"
+	case MessageBird:
+		return "MessageBird"
+	case Sinch:
+		return "Sinch"
+	case BackblazeB2:
+		return "BackblazeB2"
+	case Wasabi:
+		return "Wasabi"
+	case Stytch:
+		return "Stytch"
+	case Cloud66:
+		return "Cloud66"
 	default:
 		return "Unknown"
 	}
