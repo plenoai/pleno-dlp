@@ -372,6 +372,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Vonage.String():             "Vonage (Nexmo) API key (8-char) + secret (16-char) pair, verified via /v0.1/users with HTTP Basic; surfaces SeverityCritical when verified (paid SMS/voice scope)",
 	detectors.Workato.String():            "Workato API token (40+ base62) near workato keyword, verified via /api/users/me with Bearer auth",
 	detectors.AikidoSecurity.String():     "Aikido Security API token (40+ base62) near aikido keyword, verified via /api/public/v1/me with Bearer auth",
+	detectors.Akamai.String():             "Akamai EdgeGrid client_secret (32+ base64) near akamai keyword — unverified by design (HMAC signing scheme requires client_token + access_token + client_secret triple)",
+	detectors.Fastly.String():             "Fastly API token (32-char base62) near fastly keyword, verified via /tokens/self with Fastly-Key header",
+	detectors.Quip.String():               "Quip developer token (40+ base64) near quip keyword, verified via /1/users/current with Bearer auth",
+	detectors.Box.String():                "Box developer token (32+ alnum) near box_ keyword, verified via /2.0/users/me with Bearer auth",
+	detectors.Zoho.String():               "Zoho OAuth refresh token (1000.<base62>.<base62>) near zoho keyword — unverified by design (region-specific accounts.zoho.<tld>)",
+	detectors.Adyen.String():              "Adyen API key (AQE/AQF prefix, 40+ base64) near adyen keyword — unverified by design (merchant account name not in chunk)",
+	detectors.Wise.String():               "Wise (TransferWise) API token (UUID) near wise keyword, verified via /v2/profiles with Bearer auth",
+	detectors.Razorpay.String():           "Razorpay key id (rzp_test_/rzp_live_) + secret pair, verified via /v1/items with HTTP Basic; rzp_live_ surfaces SeverityCritical when verified",
+	detectors.Mollie.String():             "Mollie API key (live_/test_<base62>{30+}) near mollie keyword, verified via /v2/methods with Bearer auth; live_ surfaces SeverityCritical when verified",
+	detectors.MessageBird.String():        "MessageBird API access key (25+ alnum) near messagebird keyword, verified via /contacts with `Authorization: AccessKey <token>`",
+	detectors.Sinch.String():              "Sinch API key (UUID) near sinch keyword — unverified by design (project_id + region required)",
+	detectors.BackblazeB2.String():        "Backblaze B2 application key id (K00...) + key pair near b2_/backblaze keyword — unverified by design (b2_authorize_account would be a write to session-token API)",
+	detectors.Wasabi.String():             "Wasabi access key + secret pair (S3-compatible) near wasabi keyword — unverified by design (multi-region SigV4 signing)",
+	detectors.Stytch.String():             "Stytch project secret (secret-test-/secret-live-) near stytch keyword — unverified by design (project_id required for Basic auth); secret-live- surfaces SeverityCritical",
+	detectors.Cloud66.String():            "Cloud66 personal access token (64-hex) near cloud66 keyword, verified via /3/account.json with Bearer auth",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

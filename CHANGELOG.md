@@ -12,6 +12,26 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.10.0.
 
+### Added
+
+- **15 more secret detectors** — batch 14 (constants 200..214):
+  Akamai EdgeGrid, Fastly, Quip, Box, Zoho, Adyen, Wise, Razorpay,
+  Mollie, MessageBird, Sinch, BackblazeB2, Wasabi, Stytch, Cloud66.
+  Total now **208 secret + 4 PII = 212 detectors**. Razorpay (key id +
+  secret) and BackblazeB2 (key id + app key) emit pair detectors via
+  RawV2. Razorpay live, Mollie live, and Stytch live surface
+  SeverityCritical (production payment / production identity scope).
+  Akamai (HMAC signing scheme), Zoho (region-specific OAuth host),
+  Adyen (env-bound endpoint), Sinch (project_id required), BackblazeB2
+  / Wasabi (multi-region S3-compat clones), and Stytch (project_id
+  required) are unverified-by-design — verification would either need
+  state we can't infer from the chunk or trigger destructive write
+  paths. Verified detectors (Fastly /tokens/self, Quip
+  /1/users/current, Box /2.0/users/me, Wise /v2/profiles, Razorpay
+  /v1/items, Mollie /v2/methods, MessageBird /contacts, Cloud66
+  /3/account.json) all use read-only endpoints with provider-idiomatic
+  auth headers (Fastly-Key, AccessKey, Bearer, Basic).
+
 ## [0.10.0] — 2026-05-08
 
 ### Added

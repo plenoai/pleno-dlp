@@ -279,6 +279,34 @@ const (
 	Vonage
 	Workato
 	AikidoSecurity
+	// batch 14 — appended in wire-stable order, never reorder. CDN/edge
+	// (Akamai EdgeGrid, Fastly), productivity / docs (Quip, Box, Zoho),
+	// payments / fintech (Adyen, Wise, Razorpay, Mollie), telephony / SMS
+	// (MessageBird, Sinch), object storage clones of S3 (Backblaze B2,
+	// Wasabi), identity (Stytch), and PaaS (Cloud66). Razorpay and
+	// Backblaze ship as paired (key+secret) detectors using RawV2; all
+	// others are single-token. Akamai, Zoho, Adyen, Sinch, Backblaze,
+	// Wasabi, and Stytch are unverified-by-design — Akamai uses HMAC
+	// signing rather than a token-bearing read endpoint, Zoho needs the
+	// region-specific accounts.zoho.<tld>, Adyen / Stytch need
+	// environment-bound endpoints, Backblaze / Wasabi require explicit
+	// region+endpoint pairing, and Sinch needs a project_id we won't
+	// guess from the chunk.
+	Akamai
+	Fastly
+	Quip
+	Box
+	Zoho
+	Adyen
+	Wise
+	Razorpay
+	Mollie
+	MessageBird
+	Sinch
+	BackblazeB2
+	Wasabi
+	Stytch
+	Cloud66
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

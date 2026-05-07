@@ -229,4 +229,26 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vonage"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/workato"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/yugabytecloud"
+	// batch 14 — wire-stable order, never reorder. CDN/edge (Akamai,
+	// Fastly), productivity / docs (Quip, Box, Zoho), payments / fintech
+	// (Adyen, Wise, Razorpay, Mollie), telephony (MessageBird, Sinch),
+	// S3-compatible object storage (Backblaze B2, Wasabi), identity
+	// (Stytch), PaaS (Cloud66). Razorpay and Backblaze are paired
+	// (key+secret); Stytch live, Razorpay live, and Mollie live surface
+	// SeverityCritical when verified or matched.
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/adyen"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/akamai"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/backblazeb2"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/box"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/cloud66"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/fastly"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/messagebird"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/mollie"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/quip"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/razorpay"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sinch"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/stytch"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/wasabi"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/wise"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/zoho"
 )
