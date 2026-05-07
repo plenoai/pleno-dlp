@@ -12,6 +12,26 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.14.0.
 
+### Added
+
+- **15 more secret detectors** — batch 18 (constants 260..274):
+  MercuryBank, LemonSqueezy, Schematic, Hyperline, Fattureincloud,
+  VercelAIGateway, Gandi, Codefresh, Earthly, Spacelift,
+  CouchbaseCapella, SlackUserToken, PusherChannels, Hetzner, Pumble.
+  Total now **268 secret + 4 PII = 272 detectors**. MercuryBank
+  surfaces SeverityCritical when verified (live banking access via
+  api.mercury.com). SlackUserToken (xoxp-) is distinct from
+  SlackBotToken (xoxb-) because xoxp- grants user-scope (act-as-user)
+  which is broader than bot-scope. VercelAIGateway uses the `vck_`
+  prefix and is distinct from the existing Vercel deploy-token
+  detector (24-char alphanumeric, no prefix). Spacelift (per-account
+  host <account>.app.spacelift.io required) and PusherChannels (HMAC
+  scheme requires app_id + cluster) are unverified-by-default. The
+  GoogleAIStudio candidate was dropped because Gemini API keys share
+  the `AIza` prefix already covered by GCPAPIKey — substituted Gandi
+  (registrar). The OpenAIProject candidate was dropped because
+  `sk-proj-` is already covered by the existing OpenAI detector.
+
 ## [0.14.0] — 2026-05-08
 
 ### Added

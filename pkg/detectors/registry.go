@@ -549,6 +549,36 @@ func (t DetectorType) String() string {
 		return "XAI"
 	case GoCardless:
 		return "GoCardless"
+	case MercuryBank:
+		return "MercuryBank"
+	case LemonSqueezy:
+		return "LemonSqueezy"
+	case Schematic:
+		return "Schematic"
+	case Hyperline:
+		return "Hyperline"
+	case Fattureincloud:
+		return "Fattureincloud"
+	case VercelAIGateway:
+		return "VercelAIGateway"
+	case Gandi:
+		return "Gandi"
+	case Codefresh:
+		return "Codefresh"
+	case Earthly:
+		return "Earthly"
+	case Spacelift:
+		return "Spacelift"
+	case CouchbaseCapella:
+		return "CouchbaseCapella"
+	case SlackUserToken:
+		return "SlackUserToken"
+	case PusherChannels:
+		return "PusherChannels"
+	case Hetzner:
+		return "Hetzner"
+	case Pumble:
+		return "Pumble"
 	default:
 		return "Unknown"
 	}

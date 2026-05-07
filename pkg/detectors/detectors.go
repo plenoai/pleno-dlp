@@ -387,6 +387,33 @@ const (
 	DeepInfra
 	XAI
 	GoCardless
+	// batch 18 — appended in wire-stable order, never reorder. Payments / banking
+	// (MercuryBank, LemonSqueezy, Schematic, Hyperline, Fattureincloud), AI infra
+	// (VercelAIGateway), CI / DevOps (Codefresh, Earthly, Spacelift), database
+	// (CouchbaseCapella), comms / SaaS (SlackUserToken, PusherChannels, Pumble),
+	// IaaS (Hetzner), and registrar (Gandi). MercuryBank surfaces SeverityCritical
+	// when verified (live banking access). Spacelift / PusherChannels are
+	// unverified-by-default — Spacelift uses per-account hosts and Pusher
+	// requires HMAC signing with app_id + cluster not in the chunk.
+	// SlackUserToken is distinct from SlackBotToken (xoxp- vs xoxb-) because
+	// xoxp- grants user-scope (act-as-user) which is broader than bot-scope.
+	// VercelAIGateway uses the `vck_` prefix and is distinct from the existing
+	// Vercel deploy-token detector (24-char alphanumeric, no prefix).
+	MercuryBank
+	LemonSqueezy
+	Schematic
+	Hyperline
+	Fattureincloud
+	VercelAIGateway
+	Gandi
+	Codefresh
+	Earthly
+	Spacelift
+	CouchbaseCapella
+	SlackUserToken
+	PusherChannels
+	Hetzner
+	Pumble
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
