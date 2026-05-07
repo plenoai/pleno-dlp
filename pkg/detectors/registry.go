@@ -819,6 +819,36 @@ func (t DetectorType) String() string {
 		return "DialPad"
 	case SignalWire:
 		return "SignalWire"
+	case Writer:
+		return "Writer"
+	case Filebase:
+		return "Filebase"
+	case Storj:
+		return "Storj"
+	case MongoDBRealm:
+		return "MongoDBRealm"
+	case CloudBees:
+		return "CloudBees"
+	case Codeship:
+		return "Codeship"
+	case Okteto:
+		return "Okteto"
+	case Freshsales:
+		return "Freshsales"
+	case Copper:
+		return "Copper"
+	case Trustpilot:
+		return "Trustpilot"
+	case SentinelOne:
+		return "SentinelOne"
+	case Gladly:
+		return "Gladly"
+	case HelpScout:
+		return "HelpScout"
+	case Mailboxlayer:
+		return "Mailboxlayer"
+	case Hunter:
+		return "Hunter"
 	default:
 		return "Unknown"
 	}

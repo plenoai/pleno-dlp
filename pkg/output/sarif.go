@@ -567,6 +567,21 @@ var ruleDescriptions = map[string]string{
 	detectors.RingCentral.String():            "RingCentral OAuth client_id + client_secret pair near ringcentral keyword, verified via /restapi/oauth/token on platform.ringcentral.com with HTTP Basic auth (RawV2 carries the secret)",
 	detectors.DialPad.String():                "Dialpad API token (40+ alnum) near dialpad keyword, verified via /api/v2/users on dialpad.com with Bearer auth",
 	detectors.SignalWire.String():             "SignalWire project_id + API token pair near signalwire keyword — unverified by design (per-space host `<space>.signalwire.com`), apiBase override required (RawV2 carries the token)",
+	detectors.Writer.String():                 "Writer.com Writer-Key API token (40+ alnum) near writer keyword, verified via /v1/models on api.writer.com with Bearer auth",
+	detectors.Filebase.String():               "Filebase S3-compatible access_key + secret_key pair near filebase keyword — unverified by design (S3 SigV4 requires bucket + region not in chunk), apiBase override required (RawV2 carries the secret)",
+	detectors.Storj.String():                  "Storj DCS access grant / API key (40+ alnum near storj or grant prefix) — unverified by design (per-satellite host required), apiBase override required",
+	detectors.MongoDBRealm.String():           "MongoDB Realm / Atlas App Services API key (UUID-shape, 36 chars) near realm or app_services keyword — unverified by design (per-app `<app-id>` required for /api/client/v2.0/app/<app-id>/auth/providers/api-key/login), apiBase override required",
+	detectors.CloudBees.String():              "CloudBees CI / Jenkins X user_id + api_token pair near cloudbees keyword — unverified by design (per-controller host required), apiBase override required (RawV2 carries the token)",
+	detectors.Codeship.String():               "Codeship Pro API username + password pair near codeship keyword, verified via /v2/auth on api.codeship.com with HTTP Basic auth (RawV2 carries the password)",
+	detectors.Okteto.String():                 "Okteto Cloud API token (40+ alnum / `okteto_`-prefixed) near okteto keyword, verified via /api/v1/users/me on cloud.okteto.com with Bearer auth",
+	detectors.Freshsales.String():             "Freshsales / Freshworks CRM API token (40+ alnum) near freshsales / freshworks keyword — unverified by design (per-domain host `<domain>.myfreshworks.com`), apiBase override required",
+	detectors.Copper.String():                 "Copper CRM user_email + access_token pair near copper keyword, verified via /developer_api/v1/account on api.copper.com with X-PW-AccessToken / X-PW-Application / X-PW-UserEmail headers (RawV2 carries the token)",
+	detectors.Trustpilot.String():             "Trustpilot Business API key (32+ alnum) near trustpilot keyword, verified via /v1/business-units on api.trustpilot.com with apikey query param",
+	detectors.SentinelOne.String():            "SentinelOne Singularity API token (80+ alnum) near sentinelone / s1 keyword — unverified by design (per-management-console host `<console>.sentinelone.net`), apiBase override required",
+	detectors.Gladly.String():                 "Gladly customer support agent_email + api_token pair near gladly keyword — unverified by design (per-org host `<org>.gladly.com`), apiBase override required (RawV2 carries the token)",
+	detectors.HelpScout.String():              "Help Scout app_id + app_secret pair near helpscout keyword, verified via /v2/oauth2/token on api.helpscout.net with client_credentials grant (RawV2 carries the secret)",
+	detectors.Mailboxlayer.String():           "Mailboxlayer email verification access_key (32 hex) near mailboxlayer keyword, verified via /api/check on apilayer.net with access_key query param",
+	detectors.Hunter.String():                 "Hunter.io email-finder API key (40 hex) near hunter keyword, verified via /v2/account on api.hunter.io with api_key query param",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

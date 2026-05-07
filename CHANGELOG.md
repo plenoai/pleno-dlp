@@ -12,6 +12,37 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.23.0.
 
+### Added
+
+- **15 more secret detectors** — batch 27 (constants 395..409):
+  Writer, Filebase, Storj, MongoDBRealm, CloudBees, Codeship, Okteto,
+  Freshsales, Copper, Trustpilot, SentinelOne, Gladly, HelpScout,
+  Mailboxlayer, Hunter. Total now **403 secret + 4 PII = 407 detectors**.
+  Frontier-AI (Writer Bearer via /v1/models on api.writer.com), storage
+  / DBaaS (Filebase paired access_key+secret_key — unverified-by-default
+  S3 SigV4 needs bucket+region — RawV2, Storj DCS access grant — unverified-
+  by-default per-satellite host, MongoDBRealm UUID-shape API key —
+  unverified-by-default per-app id), DevOps / CI (CloudBees paired
+  user_id+api_token Basic auth — unverified-by-default per-controller
+  host — RawV2, Codeship paired username+password Basic auth via /v2/auth
+  on api.codeship.com — RawV2, Okteto Bearer via /api/v1/users/me on
+  cloud.okteto.com), CRM / sales (Freshsales `Token token=` header —
+  unverified-by-default per-domain `<domain>.myfreshworks.com`, Copper
+  paired user_email+access_token via /developer_api/v1/account on
+  api.copper.com with X-PW-AccessToken / X-PW-Application / X-PW-UserEmail
+  headers — RawV2), reviews (Trustpilot apikey query param via
+  /v1/business-units on api.trustpilot.com), endpoint security
+  (SentinelOne `ApiToken ` header — unverified-by-default per-management-
+  console `<console>.sentinelone.net`), customer support (Gladly paired
+  agent_email+api_token Basic auth — unverified-by-default per-org host —
+  RawV2, HelpScout paired app_id+app_secret OAuth client_credentials via
+  /v2/oauth2/token on api.helpscout.net — RawV2), email validation
+  (Mailboxlayer access_key query param via /api/check on apilayer.net,
+  Hunter.io api_key query param via /v2/account on api.hunter.io). Six
+  detectors use `RawV2` for paired credentials. Seven detectors ship
+  `apiBase` override hooks for unverified-by-design tenant / per-app
+  hosts.
+
 ## [0.23.0] — 2026-05-08
 
 ### Added
