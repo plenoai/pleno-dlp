@@ -57,6 +57,20 @@ func (t DetectorType) String() string {
 		return "PrivateKeyPEM"
 	case GenericHighEntropy:
 		return "GenericHighEntropy"
+	case Datadog:
+		return "Datadog"
+	case NPM:
+		return "NPM"
+	case PyPI:
+		return "PyPI"
+	case HuggingFace:
+		return "HuggingFace"
+	case Cloudflare:
+		return "Cloudflare"
+	case SendGrid:
+		return "SendGrid"
+	case Twilio:
+		return "Twilio"
 	default:
 		return "Unknown"
 	}
