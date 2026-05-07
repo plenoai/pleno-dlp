@@ -71,6 +71,26 @@ func (t DetectorType) String() string {
 		return "SendGrid"
 	case Twilio:
 		return "Twilio"
+	case DigitalOcean:
+		return "DigitalOcean"
+	case Sentry:
+		return "Sentry"
+	case MongoDBAtlas:
+		return "MongoDBAtlas"
+	case HubSpot:
+		return "HubSpot"
+	case SalesforceRefresh:
+		return "SalesforceRefresh"
+	case NewRelic:
+		return "NewRelic"
+	case PagerDuty:
+		return "PagerDuty"
+	case Postman:
+		return "Postman"
+	case Mailgun:
+		return "Mailgun"
+	case TerraformCloud:
+		return "TerraformCloud"
 	default:
 		return "Unknown"
 	}
