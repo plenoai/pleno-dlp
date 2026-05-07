@@ -97,6 +97,26 @@ const (
 	PIIUSSSN
 	PIICreditCard
 	PIIIBAN
+	// batch 6 — appended in wire-stable order; never reorder. Secret
+	// detectors land after the PII block because the wire format is
+	// append-only — even though PII is a different finding class,
+	// reusing values 80+ for non-PII detectors keeps existing PII
+	// constants pinned at 76..79.
+	AWSSession
+	AzureSAS
+	GCPOAuth
+	GCPAPIKey
+	BitbucketServer
+	GitLabDeploy
+	Codecov
+	Rollbar
+	Bugsnag
+	SumoLogic
+	Honeycomb
+	Tailscale
+	Figma
+	Zoom
+	Klaviyo
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

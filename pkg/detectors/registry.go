@@ -189,6 +189,36 @@ func (t DetectorType) String() string {
 		return "PIICreditCard"
 	case PIIIBAN:
 		return "PIIIBAN"
+	case AWSSession:
+		return "AWSSession"
+	case AzureSAS:
+		return "AzureSAS"
+	case GCPOAuth:
+		return "GCPOAuth"
+	case GCPAPIKey:
+		return "GCPAPIKey"
+	case BitbucketServer:
+		return "BitbucketServer"
+	case GitLabDeploy:
+		return "GitLabDeploy"
+	case Codecov:
+		return "Codecov"
+	case Rollbar:
+		return "Rollbar"
+	case Bugsnag:
+		return "Bugsnag"
+	case SumoLogic:
+		return "SumoLogic"
+	case Honeycomb:
+		return "Honeycomb"
+	case Tailscale:
+		return "Tailscale"
+	case Figma:
+		return "Figma"
+	case Zoom:
+		return "Zoom"
+	case Klaviyo:
+		return "Klaviyo"
 	default:
 		return "Unknown"
 	}

@@ -252,6 +252,21 @@ var ruleDescriptions = map[string]string{
 	detectors.PIIUSSSN.String():           "US Social Security Number xxx-xx-xxxx (PII) — finding_class=pii",
 	detectors.PIICreditCard.String():      "Credit card number with valid Luhn checksum (PII) — finding_class=pii",
 	detectors.PIIIBAN.String():            "International Bank Account Number with valid mod-97 checksum (PII) — finding_class=pii",
+	detectors.AWSSession.String():         "AWS temporary session credential triple (ASIA…) — unverified by design (region/audit unknown)",
+	detectors.AzureSAS.String():           "Azure Storage SAS URL with embedded sig= signature",
+	detectors.GCPOAuth.String():           "Google OAuth refresh token (1//0…)",
+	detectors.GCPAPIKey.String():          "Google Cloud / Firebase API key (AIza…)",
+	detectors.BitbucketServer.String():    "Bitbucket Server / Data Center HTTP access (BBDC-) or PAT — unverified by design (host unknown)",
+	detectors.GitLabDeploy.String():       "GitLab project / deploy / agent / runner token (gldt-/glptt-/glagent-/glsoat-/glcbt-/glrt-)",
+	detectors.Codecov.String():            "Codecov upload token (UUID) near codecov keyword",
+	detectors.Rollbar.String():            "Rollbar access token (32 hex) near rollbar keyword",
+	detectors.Bugsnag.String():            "Bugsnag API key (32 hex) near bugsnag keyword — unverified by design (no read endpoint, /notify is destructive)",
+	detectors.SumoLogic.String():          "Sumo Logic access ID + access key pair (full log archive access)",
+	detectors.Honeycomb.String():          "Honeycomb API key (hcaik_) or legacy 32-hex near honeycomb keyword",
+	detectors.Tailscale.String():          "Tailscale auth / API key (tskey-…) — unverified by design (provisioning use, no read endpoint)",
+	detectors.Figma.String():              "Figma personal access token (figd_/figpat_)",
+	detectors.Zoom.String():               "Zoom OAuth client_id + client_secret pair (full account scope)",
+	detectors.Klaviyo.String():            "Klaviyo private (pk_) or site (sk_) API key",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

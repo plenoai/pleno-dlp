@@ -1,0 +1,100 @@
+package honeycomb
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+// hcaik_ (6) + 58 base62 chars = 64 chars total.
+const dummyModern = "hcaik_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV"
+const dummyLegacy = "0123456789abcdef0123456789abcdef"
+
+func TestFromData_Modern(t *testing.T) {
+	res, err := Scanner{}.FromData(context.Background(), false, []byte("HONEYCOMB_API_KEY="+dummyModern))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected 1, got %d", len(res))
+	}
+	if string(res[0].Raw) != dummyModern {
+		t.Fatalf("raw mismatch: %q", res[0].Raw)
+	}
+}
+
+func TestFromData_Legacy(t *testing.T) {
+	res, _ := Scanner{}.FromData(context.Background(), false, []byte("HONEYCOMB_API_KEY="+dummyLegacy))
+	if len(res) != 1 {
+		t.Fatalf("expected 1 legacy hit, got %d", len(res))
+	}
+}
+
+func TestFromData_LegacyNoKeyword(t *testing.T) {
+	res, _ := Scanner{}.FromData(context.Background(), false, []byte("hex="+dummyLegacy))
+	if len(res) != 0 {
+		t.Fatalf("expected 0, got %d", len(res))
+	}
+}
+
+func TestRedact(t *testing.T) {
+	r := redact(dummyModern)
+	if r == dummyModern {
+		t.Fatal("redact didn't redact")
+	}
+	if !strings.HasPrefix(r, "hcaik_01") {
+		t.Fatalf("missing prefix: %q", r)
+	}
+}
+
+func TestVerify_OK(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Honeycomb-Team") != dummyModern {
+			t.Errorf("team header mismatch: %q", r.Header.Get("X-Honeycomb-Team"))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummyModern)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !v {
+		t.Fatal("expected verified=true")
+	}
+}
+
+func TestVerify_Unauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, _ := Scanner{}.Verify(context.Background(), dummyModern)
+	if v {
+		t.Fatal("expected verified=false")
+	}
+}
+
+func TestVerify_TransportError(t *testing.T) {
+	old := apiBase
+	apiBase = "http://127.0.0.1:1"
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummyModern)
+	if err == nil {
+		t.Fatal("expected transport error")
+	}
+	if v {
+		t.Fatal("expected verified=false on transport error")
+	}
+}
