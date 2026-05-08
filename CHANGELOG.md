@@ -12,6 +12,42 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.35.0.
 
+### Added
+
+- **15 more secret detectors** — batch 39 (constants 575..589):
+  Fiddler, Evidently, Sift, Signifyd, Kount, Intigriti, Bugcrowd,
+  Semgrep, TemporalCloud, PrefectCloud, DagsterCloud, FlyMachines,
+  VercelBlob, ModeAnalytics, PDFShift. Total now **583 secret + 4 PII
+  = 587 detectors**. LLM ops / ML monitoring (Fiddler 40-80 url-safe
+  alnum near `fiddler` keyword, Bearer via /v3/projects on
+  api.fiddler.ai; Evidently 40-80 url-safe alnum near `evidently`
+  keyword, X-Evidently-Token via /api/v2/auth/profile on
+  app.evidently.cloud), fraud / KYC (Sift accountId + apiKey pair near
+  `sift` keyword — paired (RawV2), Basic auth on api.sift.com
+  /v205/accounts; Signifyd teamId + apiKey pair near `signifyd`
+  keyword — paired (RawV2), Basic auth on api.signifyd.com /v3/teams;
+  Kount JWT-shaped token near `kount` keyword, Bearer via
+  /commerce/v1/orders on api-sandbox.kount.com), bug bounty (Intigriti
+  40-128 url-safe near `intigriti` keyword, Bearer via
+  /external/researcher/v1/me on api.intigriti.com; Bugcrowd 40-128
+  url-safe near `bugcrowd` keyword, "Authorization: Token" via /user
+  on api.bugcrowd.com), vulnerability mgmt (Semgrep 40-80 url-safe
+  near `semgrep` keyword, Bearer via /api/v1/deployments on
+  semgrep.dev), workflow / orchestration (TemporalCloud `tcsk_`
+  prefix Bearer via /api/v1/namespaces on cloud.temporal.io;
+  PrefectCloud `pnu_` prefix Bearer via /api/me on api.prefect.cloud;
+  DagsterCloud `dgc_` prefix Dagster-Cloud-Api-Token via /graphql on
+  dagster.cloud), serverless (FlyMachines `fly_` / `FlyV1` prefix
+  Bearer via /v1/apps on api.machines.dev), storage (VercelBlob
+  `vercel_blob_rw_` prefix Bearer via /v0 on
+  blob.vercel-storage.com), BI (ModeAnalytics token + secret pair
+  near `mode_analytics`/`modeanalytics`/`mode.com` keyword — paired
+  (RawV2), Basic auth on app.mode.com /api/account), document
+  (PDFShift `sk_` prefix near `pdfshift` keyword, Basic auth
+  api: + key on api.pdfshift.io /v3/credits/usage). All 15 ship live
+  Verify implementations with 200/401/500 httptest coverage. Test
+  count rises to 4,027 race-clean across 602 packages.
+
 ## [0.35.0] — 2026-05-08
 
 ### Added

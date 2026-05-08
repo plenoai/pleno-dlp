@@ -783,4 +783,27 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/traceloop"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vouched"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/zerotier"
+	// batch 39 — wire-stable order, never reorder. LLM ops / ML
+	// monitoring (fiddler, evidently), fraud / KYC (sift, signifyd,
+	// kount), bug bounty (intigriti, bugcrowd), vulnerability mgmt
+	// (semgrep), workflow / orchestration (temporalcloud, prefectcloud,
+	// dagstercloud), serverless (flymachines), storage (vercelblob),
+	// BI (modeanalytics), document (pdfshift). Sift / Signifyd / Mode
+	// use paired-credential (RawV2); VercelBlob uses `vercel_blob_rw_`
+	// prefix; rest are keyword-anchored bearer tokens.
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/bugcrowd"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/dagstercloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/evidently"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/fiddler"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/flymachines"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/intigriti"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/kount"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/modeanalytics"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pdfshift"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/prefectcloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/semgrep"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/signifyd"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sift"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/temporalcloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vercelblob"
 )
