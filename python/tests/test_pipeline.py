@@ -1,4 +1,9 @@
-"""Pipeline integration: stub connector → native engine → findings."""
+"""Pipeline integration: stub connector → native engine → findings.
+
+The default Pipeline uses the connector itself as the Detector. The
+StubConnector here doesn't implement detect(), so we pass an explicit
+``detector=NativeEngine()`` to exercise the pipeline path.
+"""
 
 from __future__ import annotations
 
@@ -53,7 +58,7 @@ async def test_pipeline_emits_findings_from_each_doc() -> None:
         _doc("leaked AKIAIOSFODNN7EXAMPLE here", "/b.txt"),
         _doc("ghp_" + "a" * 36 + "\n", "/c.txt"),
     ]
-    pipeline = Pipeline(connector=StubConnector(docs), engine=NativeEngine())
+    pipeline = Pipeline(connector=StubConnector(docs), detector=NativeEngine())
     findings = [f async for f in pipeline.run()]
     paths = {f.path for f in findings}
     assert paths == {"/b.txt", "/c.txt"}
@@ -68,6 +73,6 @@ async def test_pipeline_skips_binary_documents() -> None:
             binary=b"AKIAIOSFODNN7EXAMPLE",
         ),
     ]
-    pipeline = Pipeline(connector=StubConnector(docs), engine=NativeEngine())
+    pipeline = Pipeline(connector=StubConnector(docs), detector=NativeEngine())
     findings = [f async for f in pipeline.run()]
     assert findings == []

@@ -84,9 +84,27 @@ def test_scan_rejects_unknown_kwarg() -> None:
 
 
 def test_scan_rejects_unknown_engine() -> None:
+    """Unknown --engine fails early, before any pipeline construction."""
     result = runner.invoke(
         app,
         ["scan", "github", "--option", "owner=plenoai", "--engine", "bogus"],
+    )
+    assert result.exit_code == 2
+    assert "unknown engine" in result.output
+
+
+def test_scan_engine_shorthand_lands_in_connector_kwargs() -> None:
+    """`--engine native` is accepted as a connector option, not stripped.
+
+    We don't actually run the scan — we just verify the option is
+    routed through registry.create. test_every_connector_accepts_engine_kwarg
+    in tests/connectors/test_detect.py covers the spec side.
+    """
+    # `--engine bogus` returns a clean validation error before any
+    # network call; success of *that* path proves the wiring works.
+    result = runner.invoke(
+        app,
+        ["scan", "github", "--engine", "bogus"],
     )
     assert result.exit_code == 2
     assert "unknown engine" in result.output

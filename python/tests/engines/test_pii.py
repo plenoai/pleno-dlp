@@ -82,7 +82,7 @@ async def test_yields_one_finding_per_entity() -> None:
         return httpx.Response(200, json=body)
 
     backend = _make_backend(httpx.MockTransport(respond), language="en")
-    findings = await _collect(backend.scan(_doc(text)))
+    findings = await _collect(backend.detect(_doc(text)))
 
     assert received["url"].endswith("/api/analyze")
     assert received["body"] == {"text": text, "language": "en"}
@@ -114,7 +114,7 @@ async def test_line_numbers_count_newlines_before_offset() -> None:
         {"entity_type": "PERSON", "start": 7, "end": 18, "score": 0.9}
     ]
     backend = _make_backend(httpx.MockTransport(lambda r: httpx.Response(200, json=body)))
-    findings = await _collect(backend.scan(_doc(text)))
+    findings = await _collect(backend.detect(_doc(text)))
     assert len(findings) == 1
     assert findings[0].line == 3
     assert findings[0].raw == "yamada taro"
@@ -132,7 +132,7 @@ async def test_entities_filter_forwarded_when_set() -> None:
         httpx.MockTransport(respond),
         entities=("EMAIL_ADDRESS", "JP_MY_NUMBER"),
     )
-    await _collect(backend.scan(_doc("anything")))
+    await _collect(backend.detect(_doc("anything")))
 
     assert received["body"]["entities"] == ["EMAIL_ADDRESS", "JP_MY_NUMBER"]
 
@@ -150,7 +150,7 @@ async def test_empty_text_short_circuits_no_request() -> None:
         return httpx.Response(200, json=[])
 
     backend = _make_backend(httpx.MockTransport(respond))
-    findings = await _collect(backend.scan(_doc("   ")))
+    findings = await _collect(backend.detect(_doc("   ")))
 
     assert findings == []
     assert called is False
@@ -161,7 +161,7 @@ async def test_422_treated_as_no_findings() -> None:
     backend = _make_backend(
         httpx.MockTransport(lambda r: httpx.Response(422, json={"detail": "too long"}))
     )
-    findings = await _collect(backend.scan(_doc("anything non-empty")))
+    findings = await _collect(backend.detect(_doc("anything non-empty")))
     assert findings == []
 
 
@@ -171,7 +171,7 @@ async def test_5xx_propagates() -> None:
         httpx.MockTransport(lambda r: httpx.Response(500, text="boom"))
     )
     with pytest.raises(httpx.HTTPStatusError):
-        await _collect(backend.scan(_doc("hello")))
+        await _collect(backend.detect(_doc("hello")))
 
 
 @pytest.mark.asyncio
@@ -183,7 +183,7 @@ async def test_malformed_rows_are_skipped() -> None:
     backend = _make_backend(
         httpx.MockTransport(lambda r: httpx.Response(200, json=body))
     )
-    findings = await _collect(backend.scan(_doc("Alice and Bob")))
+    findings = await _collect(backend.detect(_doc("Alice and Bob")))
     assert len(findings) == 1
     assert findings[0].rule_id == "PERSON"
 

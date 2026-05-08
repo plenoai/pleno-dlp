@@ -31,7 +31,7 @@ class TrufflehogEngine:
     def __init__(self, binary: str = "trufflehog") -> None:
         self.binary = binary
 
-    async def scan(self, doc: Document) -> AsyncIterator[Finding]:
+    async def detect(self, doc: Document) -> AsyncIterator[Finding]:
         if doc.text is None:
             return
         if shutil.which(self.binary) is None:

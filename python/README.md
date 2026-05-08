@@ -5,12 +5,13 @@ gitleaks / native regex) and **PII** (delegating to
 [pleno-anonymize](https://github.com/plenoai/pleno-anonymize)).
 
 A *connector* models a SaaS provider — github, gitlab, bitbucket,
-slack, notion, confluence, jira — and walks its content through the
-provider's API. A *detection engine* turns text into findings; the
-four built-ins (`native`, `trufflehog`, `gitleaks`, `pii`) live under
-`pleno_dlp.engines` and apply equally to any connector's output.
+slack, notion, confluence, jira — and owns the full lifecycle: walks
+content through the provider's API, **detects** leaks in that content,
+and (optionally) verifies / revokes credentials. Detection happens
+*inside the connector*; the engine choice (`native`, `trufflehog`,
+`gitleaks`, `pii`) is a per-connector option, not a separate plugin.
 Every connector self-describes via `ConnectorSpec.capabilities`
-(`SOURCE`, optional `VERIFY` / `REVOKE` for secret-lifecycle ops).
+(`SOURCE` + `DETECT` baseline, optional `VERIFY` / `REVOKE`).
 
 `pip install pleno-dlp` pulls one wheel exposing one console script
 (`pleno-dlp`). The Go binary in this repo (`cmd/pleno-dlp`) remains
@@ -51,8 +52,7 @@ pleno-dlp scan github \
 
 # Issue + PR conversations only, PII detection (requires pleno-anonymize)
 pleno-dlp scan github --option owner=plenoai \
-    --option resources=issues,prs --engine pii \
-    --pii-base-url http://localhost:8000
+    --option resources=issues,prs --engine pii
 
 # SARIF output for GitHub code-scanning ingestion
 pleno-dlp scan github --option owner=plenoai \
@@ -74,8 +74,11 @@ to 60 req/h. Other source connectors take their token via `--token`
 
 ## Detection engines
 
-Engines are not connectors — they are stateless utilities that turn a
-``Document.text`` into ``Finding``\\s. Pick one with ``--engine``.
+Engines are the internal scanners connectors compose with. They are
+stateless utilities that turn a ``Document.text`` into ``Finding``\\s.
+Operators do not address them directly — instead pick one with
+``--engine`` (or ``--option engine=…``); the connector hands its own
+Documents to the chosen engine. Default for every connector: ``native``.
 
 | Engine | Class | Verifies | System dep |
 |---|---|---|---|
@@ -100,6 +103,10 @@ A connector advertises one or more capabilities:
 * `Capability.SOURCE` — implements the `Connector` Protocol
   (`discover` / `fetch` / `capabilities`). Every shipped connector has
   this.
+* `Capability.DETECT` — implements the `Detector` Protocol
+  (`detect(doc) -> AsyncIterator[Finding]`). Every shipped connector
+  has this; the engine choice is configured via
+  ``--option engine=…``.
 * `Capability.VERIFY` — implements the `Verifier` Protocol
   (`verify(secret) -> VerifyResult`). Today: **github** (probes
   `GET /user`).
@@ -113,16 +120,21 @@ codes: `0` = LIVE, `1` = REVOKED, `2` = UNKNOWN/unsupported.
 
 ### Adding a new connector
 
-1. Create `python/src/pleno_dlp/connectors/<name>.py`.
-2. Implement at least the `Connector` Protocol (`discover`, `fetch`,
+1. Create `python/src/pleno_dlp/connectors/<name>.py`. Subclass
+   ``DetectViaEngineMixin`` from ``pleno_dlp.connectors._detect`` so
+   ``detect()`` and the ``engine`` kwarg come for free.
+2. Implement the `Connector` Protocol (`discover`, `fetch`,
    `discover_and_fetch`, `capabilities`, `close`). Keep one
-   `httpx.AsyncClient` per instance. Optionally add `verify(secret)` /
-   `revoke(secret)` for lifecycle support.
+   `httpx.AsyncClient` per instance. Call ``self._init_engine(engine)``
+   from your ``__init__`` and ``await self._close_engine()`` from your
+   ``close()``. Optionally add `verify(secret)` / `revoke(secret)`
+   for lifecycle support.
 3. Declare a `spec: ClassVar[ConnectorSpec] = ConnectorSpec(...)`
-   with `name`, `kind`, `summary`, `capabilities` (frozenset of the
-   `Capability` values you implement; defaults to `{SOURCE}`),
-   `auth_modes`, `resources`, `options` (every `__init__` kwarg you
-   want operators to set), and `runtime` (a `Capabilities` describing
+   with `name`, `kind`, `summary`, `capabilities` (defaults to
+   ``{SOURCE, DETECT}`` — extend with ``VERIFY`` / ``REVOKE`` as
+   you implement them), `auth_modes`, `resources`, `options` (every
+   `__init__` kwarg, including `DETECT_ENGINE_OPTION` from
+   ``_detect``), and `runtime` (a `Capabilities` describing
    incremental / streaming / concurrency).
 4. End the module with `registry.register("<name>", <Class>)`.
 5. Wire the import in `pleno_dlp/connectors/__init__.py`.

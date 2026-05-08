@@ -3,12 +3,14 @@
 Public surface:
 
 * ``Document``, ``DocumentChunk``, ``DocumentRef``, ``Connector``,
-  ``IncrementalConnector``, ``Verifier``, ``Revoker``, ``Engine``,
+  ``IncrementalConnector``, ``Detector``, ``Verifier``, ``Revoker``,
   ``Principal``, ``SourceFilter``, ``Capabilities``, ``Cursor``,
   ``Subsource``, ``SUBSOURCE_METADATA_KEY`` — runtime contracts.
-  ``Connector`` is the SaaS-source contract; ``Verifier`` / ``Revoker``
-  are optional secret-lifecycle extras a connector may implement;
-  ``Engine`` is the text-scanner contract for ``pleno_dlp.engines``.
+  ``Connector`` is the SaaS-source contract; ``Detector`` is the
+  text-to-Findings contract honoured by both connectors (per-SaaS
+  detection) and engines (low-level scanners); ``Verifier`` /
+  ``Revoker`` are optional secret-lifecycle extras a connector may
+  implement.
 * ``ConnectorSpec``, ``Capability``, ``AuthMode``, ``ResourceSpec``,
   ``OptionSpec``, ``VerifyResult``, ``VerifyStatus``, ``RevokeResult``,
   ``RevokeStatus`` — the declarative contract each connector class
@@ -38,10 +40,10 @@ from pleno_dlp.core import (
     Connector,
     ConnectorSpec,
     Cursor,
+    Detector,
     Document,
     DocumentChunk,
     DocumentRef,
-    Engine,
     IncrementalConnector,
     OptionSpec,
     Principal,
@@ -85,10 +87,10 @@ __all__ = [
     "CredentialMisconfiguredError",
     "CredentialNotFoundError",
     "Cursor",
+    "Detector",
     "Document",
     "DocumentChunk",
     "DocumentRef",
-    "Engine",
     "Finding",
     "GlobalRateLimiter",
     "IncrementalConnector",
@@ -107,4 +109,4 @@ __all__ = [
     "VerifyStatus",
     "registry",
 ]
-__version__ = "0.11.0"
+__version__ = "0.12.0"

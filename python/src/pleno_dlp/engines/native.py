@@ -35,7 +35,7 @@ class NativeEngine:
 
     name = "native"
 
-    async def scan(self, doc: Document) -> AsyncIterator[Finding]:
+    async def detect(self, doc: Document) -> AsyncIterator[Finding]:
         if doc.text is None:
             return
         text = doc.text

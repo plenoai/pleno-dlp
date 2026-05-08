@@ -1,13 +1,15 @@
 """pleno-dlp command-line interface.
 
-Spec-driven across every SaaS source connector. Connector kwargs flow
-through the generic ``--option key=value`` flag (or the shorthand
-``--token``); each connector self-describes via ``ConnectorSpec``,
-which the CLI introspects for ``list``, ``describe``, and validation.
+Spec-driven across every SaaS source connector. Connector kwargs
+flow through the generic ``--option key=value`` flag (or the
+shorthands ``--token`` / ``--engine``); each connector self-describes
+via ``ConnectorSpec``, which the CLI introspects for ``list``,
+``describe``, and validation.
 
-Detection engines (regex / trufflehog / gitleaks / pii) are *not*
-connectors — they are picked with ``--engine`` and instantiated
-directly from ``pleno_dlp.engines``.
+Detection happens *inside the connector* — picking ``--engine X`` is
+just a connector option that swaps the engine the connector composes
+internally. Operators address detection by SaaS unit; the engine
+choice is a per-connector knob, not a separate plugin.
 
     pleno-dlp list                          # every connector
     pleno-dlp list --capability verify      # connectors with VERIFY
@@ -43,11 +45,11 @@ from pleno_dlp import (
     OptionSpec,
     SourceFilter,
     __version__,
-    engines,
     output,
 )
 from pleno_dlp import connectors as _connectors  # noqa: F401  registry side-effect
 from pleno_dlp.core import Verifier, VerifyStatus
+from pleno_dlp.engines import ENGINE_NAMES
 from pleno_dlp.pipeline import Pipeline
 from pleno_dlp.registry import registry
 
@@ -57,8 +59,6 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
-
-ENGINES: tuple[str, ...] = ("native", "trufflehog", "gitleaks", "pii")
 
 
 def _resolve_capability(capability: str | None) -> Capability | None:
@@ -82,9 +82,9 @@ def cmd_list(
 ) -> None:
     """List every registered SaaS connector with its capabilities, auth modes, and resources.
 
-    Detection engines are listed alongside connectors — they are not
-    in the registry but the CLI surfaces them so operators can see the
-    full toolset in one place.
+    Detection engines are listed alongside connectors as the values
+    accepted by ``--option engine=…``; they are not connectors but
+    operators want them visible in one place.
     """
     selected = _resolve_capability(capability)
     console = Console()
@@ -100,8 +100,6 @@ def cmd_list(
         table.add_row(spec.name, spec.kind, caps, auth, resources, spec.summary)
     console.print(table)
 
-    # Engines are surfaced in their own block — they're not connectors,
-    # but operators discovering "what can I run?" want them visible too.
     if selected is None:
         engine_table = Table("engine", "summary", title="detection engines (--engine)")
         engine_table.add_row("native", "Bundled regex set (AWS, GitHub, Slack, OpenAI, Anthropic).")
@@ -126,10 +124,13 @@ def cmd_scan(
         ...,
         help="Source connector name (see `pleno-dlp list`).",
     ),
-    engine: str = typer.Option(
-        "native",
+    engine: str | None = typer.Option(
+        None,
         "--engine",
-        help=f"Detection engine to apply to each Document. One of: {', '.join(ENGINES)}.",
+        help=(
+            f"Detection engine the connector should run internally. One of: "
+            f"{', '.join(ENGINE_NAMES)}. Shorthand for --option engine=…."
+        ),
     ),
     format: str = typer.Option("table", "--format", help="Output format: json|sarif|table."),
     token: str | None = typer.Option(
@@ -148,43 +149,35 @@ def cmd_scan(
         "--option",
         "-o",
         help=(
-            "Source connector kwarg `key=value`. Repeatable. true/false/int auto-coerced; "
+            "Connector kwarg `key=value`. Repeatable. true/false/int auto-coerced; "
             "comma lists become tuples. Run `pleno-dlp describe <connector>` to "
             "see the accepted keys."
         ),
     ),
     out: Path | None = typer.Option(None, "--out", help="Write findings to a file (default: stdout)."),
-    pii_base_url: str | None = typer.Option(
-        None,
-        "--pii-base-url",
-        help="Override the pii engine's `base_url` (default http://127.0.0.1:8000).",
-    ),
-    pii_language: str | None = typer.Option(
-        None,
-        "--pii-language",
-        help="Override the pii engine's `language` (ja|en).",
-    ),
 ) -> None:
-    """Scan one SaaS source connector with one detection engine and emit findings."""
+    """Scan one SaaS connector and emit findings.
+
+    Detection runs inside the connector — by default ``--engine native``,
+    overridable to ``trufflehog`` / ``gitleaks`` / ``pii``.
+    """
     if connector not in registry.names():
         typer.echo(f"unknown connector: {connector!r}. available: {', '.join(registry.names())}", err=True)
         raise typer.Exit(2)
-    if engine not in ENGINES:
-        typer.echo(f"unknown engine: {engine!r}. available: {', '.join(ENGINES)}", err=True)
+    if engine is not None and engine not in ENGINE_NAMES:
+        typer.echo(f"unknown engine: {engine!r}. available: {', '.join(ENGINE_NAMES)}", err=True)
         raise typer.Exit(2)
     source_spec = registry.spec(connector)
 
     flt = SourceFilter(include=tuple(include), exclude=tuple(exclude), since=_parse_since(since))
     sink = output.make(format)
 
-    source_kwargs = _build_kwargs(source_spec, options, token=token)
+    source_kwargs = _build_kwargs(source_spec, options, token=token, engine=engine)
 
     rc = asyncio.run(
         _run(
             connector=connector,
             connector_kwargs=source_kwargs,
-            engine_name=engine,
-            pii_overrides={"base_url": pii_base_url, "language": pii_language},
             sink=sink,
             filter=flt,
             out=out,
@@ -220,11 +213,23 @@ def cmd_verify(
     raise typer.Exit(rc)
 
 
-def _build_kwargs(spec: ConnectorSpec, raw_options: list[str], *, token: str | None = None) -> dict[str, Any]:
-    """Parse a list of `key=value` strings into a kwarg dict, spec-aware."""
+def _build_kwargs(
+    spec: ConnectorSpec,
+    raw_options: list[str],
+    *,
+    token: str | None = None,
+    engine: str | None = None,
+) -> dict[str, Any]:
+    """Parse a list of `key=value` strings into a kwarg dict, spec-aware.
+
+    ``token=…`` and ``engine=…`` shorthands map to the corresponding
+    OptionSpec entries when the connector declares them.
+    """
     out: dict[str, Any] = {}
     if token is not None and "token" in spec.accepted_kwargs():
         out["token"] = token
+    if engine is not None and "engine" in spec.accepted_kwargs():
+        out["engine"] = engine
     for raw in raw_options:
         if "=" not in raw:
             raise typer.BadParameter(
@@ -241,8 +246,6 @@ async def _run(
     *,
     connector: str,
     connector_kwargs: dict[str, Any],
-    engine_name: str,
-    pii_overrides: dict[str, str | None],
     sink: output.Sink,
     filter: SourceFilter,
     out: Path | None,
@@ -255,15 +258,11 @@ async def _run(
         except TypeError as exc:
             typer.echo(str(exc), err=True)
             return 2
-        eng = _make_engine(engine_name, pii_overrides)
         try:
-            pipeline = Pipeline(connector=source, engine=eng)
+            pipeline = Pipeline(connector=source)
             count = await sink.emit(pipeline.run(filter), stream=stream)
         finally:
             await source.close()
-            aclose = getattr(eng, "aclose", None)
-            if aclose is not None:
-                await aclose()
         return 1 if count > 0 else 0
     finally:
         if out is not None:
@@ -272,20 +271,10 @@ async def _run(
 
 async def _run_verify(connector_name: str, token: str) -> int:
     """Drive a single verify call. Exit code 0=LIVE, 1=REVOKED, 2=UNKNOWN."""
-    # The verify path needs a constructed connector instance because the
-    # Verifier protocol is implemented as a method on the connector
-    # class. A minimal kwargs payload that satisfies required options is
-    # the operator's responsibility for now — verify-only flows on most
-    # providers don't need owner/repo, so we pass an empty dict and let
-    # any TypeError surface to the operator.
     spec = registry.spec(connector_name)
     kwargs: dict[str, Any] = {}
     if "token" in spec.accepted_kwargs():
         kwargs["token"] = token
-    # Required options without a default would raise here — that's
-    # fine; the operator must supply them via a future --option
-    # extension if a provider's verify endpoint depends on tenant
-    # context (not currently the case for the connectors we ship).
     try:
         instance = registry.create(connector_name, **kwargs)
     except TypeError as exc:
@@ -314,18 +303,6 @@ async def _run_verify(connector_name: str, token: str) -> int:
             return 1
         case _:
             return 2
-
-
-def _make_engine(name: str, pii_overrides: dict[str, str | None]) -> Any:
-    """Instantiate the engine; the `pii` engine accepts CLI overrides."""
-    if name == "pii":
-        kwargs: dict[str, Any] = {}
-        if pii_overrides.get("base_url") is not None:
-            kwargs["base_url"] = pii_overrides["base_url"]
-        if pii_overrides.get("language") is not None:
-            kwargs["language"] = pii_overrides["language"]
-        return engines.PiiEngine(**kwargs)
-    return engines.make(name)
 
 
 def _coerce_option(value: str, opt: OptionSpec | None) -> Any:

@@ -35,6 +35,7 @@ from typing import Any, ClassVar
 
 import httpx
 
+from pleno_dlp.connectors._detect import DETECT_ENGINE_OPTION, DetectViaEngineMixin
 from pleno_dlp.core import (
     AuthMode,
     Capabilities,
@@ -59,7 +60,7 @@ _DEFAULT_HISTORY_LIMIT = 200
 _MAX_PAGINATION_DEPTH = 10_000
 
 
-class SlackConnector:
+class SlackConnector(DetectViaEngineMixin):
     """API-driven Slack source connector.
 
     Owns one ``httpx.AsyncClient`` for its lifetime. ``token`` may be
@@ -94,6 +95,7 @@ class SlackConnector:
             OptionSpec("team_id", "str", "Enterprise Grid team id (when token spans workspaces)."),
             OptionSpec("base_url", "url", "Slack API base URL.", default="https://slack.com/api"),
             OptionSpec("source_id", "str", "Override the synthesized source id."),
+            DETECT_ENGINE_OPTION,
         ),
         runtime=Capabilities(incremental=True, max_concurrent_fetches=4),
         docs_url="https://api.slack.com/methods",
@@ -113,6 +115,7 @@ class SlackConnector:
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: float = _DEFAULT_TIMEOUT,
         source_id: str | None = None,
+        engine: str = "native",
     ) -> None:
         if token is None and credential is not None:
             value = credential.payload.get("token")
@@ -141,6 +144,7 @@ class SlackConnector:
 
         scope = team_id or "default"
         self.id = source_id or f"slack:{scope}"
+        self._init_engine(engine)
 
         client_kwargs: dict[str, Any] = {"timeout": timeout}
         if transport is not None:
@@ -217,6 +221,7 @@ class SlackConnector:
 
     async def close(self) -> None:
         await self._client.aclose()
+        await self._close_engine()
 
     def cursor_after_run(self) -> str | None:
         if not self._high_water:

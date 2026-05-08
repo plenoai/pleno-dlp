@@ -28,6 +28,7 @@ from typing import Any, ClassVar
 
 import httpx
 
+from pleno_dlp.connectors._detect import DETECT_ENGINE_OPTION, DetectViaEngineMixin
 from pleno_dlp.connectors.notion_markdown import (
     MAX_DEPTH,
     render_blocks,
@@ -59,7 +60,7 @@ _DEFAULT_TIMEOUT = 30.0
 _DEFAULT_MAX_RETRIES = 3
 
 
-class NotionConnector:
+class NotionConnector(DetectViaEngineMixin):
     """API-driven Notion source connector."""
 
     kind = "notion"
@@ -88,6 +89,7 @@ class NotionConnector:
             OptionSpec("notion_version", "str", "Pinned Notion-Version header.", default="2022-06-28"),
             OptionSpec("max_concurrent_fetches", "int", "Override concurrency cap.", default=3),
             OptionSpec("source_id", "str", "Override the synthesized source id."),
+            DETECT_ENGINE_OPTION,
         ),
         runtime=Capabilities(incremental=False, max_concurrent_fetches=3),
         docs_url="https://developers.notion.com/reference",
@@ -108,6 +110,7 @@ class NotionConnector:
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: float = _DEFAULT_TIMEOUT,
         source_id: str | None = None,
+        engine: str = "native",
     ) -> None:
         if token is None and credential is not None:
             cred_token = credential.payload.get("token")
@@ -127,6 +130,7 @@ class NotionConnector:
         self._max_concurrent_fetches = max_concurrent_fetches
         scope = workspace_id or "default"
         self.id = source_id or f"notion:{scope}"
+        self._init_engine(engine)
 
         client_kwargs: dict[str, Any] = {"timeout": timeout}
         if transport is not None:
@@ -201,6 +205,7 @@ class NotionConnector:
 
     async def close(self) -> None:
         await self._client.aclose()
+        await self._close_engine()
 
     # --- discovery ------------------------------------------------------
 
