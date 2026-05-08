@@ -10,7 +10,39 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.31.0.
+### Added
+
+- **15 more secret detectors** — batch 35 (constants 515..529): Persona,
+  Sumsub, Onfido, Jumio, Trulioo, ZeroBounce, MailerSend, OpsLevel,
+  Codemagic, LambdaTest, SauceLabs, Browserless, Helicone, Portkey,
+  Langfuse. Total now **523 secret + 4 PII = 527 detectors**. KYC /
+  identity verification (Persona `persona_(production|sandbox)_` Bearer
+  via /api/v1/inquiries on api.withpersona.com, Sumsub paired
+  `prd|tst|sbx:` app token + secret via /resources/applicants/-/info on
+  api.sumsub.com with HTTP Basic auth, Onfido `api_(live|sandbox)_(us|eu|ca)_`
+  Token token= via /v3.6/applicants on api.onfido.com, Jumio paired
+  token+secret — unverified-by-default per-data-center
+  `<region>.netverify.com` host required, Trulioo 32-64 alnum
+  x-trulioo-api-key via /customer/v1/configuration on
+  api.globaldatacompany.com), email validation (ZeroBounce 32 hex via
+  /v2/getcredits on api.zerobounce.net query, MailerSend `mlsn.` prefix
+  Bearer via /v1/me on api.mailersend.com), DevOps / observability
+  (OpsLevel 40-64 alnum Bearer via /graphql on api.opslevel.com), mobile
+  CI (Codemagic 32-64 alnum x-auth-token via /apps on api.codemagic.io),
+  browser-testing (LambdaTest paired LT_USERNAME+LT_ACCESS_KEY via
+  /automation/api/v1/builds Basic, SauceLabs paired
+  SAUCE_USERNAME+SAUCE_ACCESS_KEY UUID via /rest/v1/users/{user} on
+  api.us-west-1.saucelabs.com Basic, Browserless 32-64 alnum token
+  query via /pressure on chrome.browserless.io), LLM observability /
+  AI gateway (Helicone `sk-helicone-` prefix Bearer via /v1/user/query
+  on api.helicone.ai, Portkey 32-64 base64url x-portkey-api-key via
+  /v1/virtual-keys on api.portkey.ai, Langfuse paired
+  `pk-lf-`+`sk-lf-` UUID via /api/public/projects on
+  cloud.langfuse.com Basic). Sumsub, Jumio, LambdaTest, SauceLabs,
+  Langfuse are paired-credential detectors using RawV2 (Raw=public/key
+  half, RawV2=key:secret per the trufflehog convention). All detectors
+  ship with positive + negative + verified-OK + 401 + 500 test coverage.
+  3613 race-clean tests across 542 packages.
 
 ## [0.31.0] — 2026-05-08
 

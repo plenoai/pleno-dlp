@@ -1059,6 +1059,36 @@ func (t DetectorType) String() string {
 		return "AbnormalSec"
 	case Ortto:
 		return "Ortto"
+	case Persona:
+		return "Persona"
+	case Sumsub:
+		return "Sumsub"
+	case Onfido:
+		return "Onfido"
+	case Jumio:
+		return "Jumio"
+	case Trulioo:
+		return "Trulioo"
+	case ZeroBounce:
+		return "ZeroBounce"
+	case MailerSend:
+		return "MailerSend"
+	case OpsLevel:
+		return "OpsLevel"
+	case Codemagic:
+		return "Codemagic"
+	case LambdaTest:
+		return "LambdaTest"
+	case SauceLabs:
+		return "SauceLabs"
+	case Browserless:
+		return "Browserless"
+	case Helicone:
+		return "Helicone"
+	case Portkey:
+		return "Portkey"
+	case Langfuse:
+		return "Langfuse"
 	default:
 		return "Unknown"
 	}
