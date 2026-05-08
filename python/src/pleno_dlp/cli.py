@@ -1,15 +1,20 @@
 """pleno-dlp command-line interface.
 
+Spec-driven: connector-specific knobs flow through the generic
+``--option key=value`` flag. Each connector self-describes via its
+``ConnectorSpec``, which the CLI introspects for ``list-connectors``,
+``describe``, and validation. Adding a new connector requires no
+changes here — implement the connector with a spec and register it.
+
     pleno-dlp list-connectors
     pleno-dlp list-backends
-    pleno-dlp scan github --owner plenoai
-    pleno-dlp scan github --owner plenoai --repo saas-retriever \\
-        --resource code --resource issues --resource prs
-    pleno-dlp scan github --owner plenoai \\
+    pleno-dlp describe github
+    pleno-dlp scan github --option owner=plenoai
+    pleno-dlp scan github --option owner=plenoai --option repo=pleno-dlp \\
+        --option resources=code,issues
+    pleno-dlp scan github --option owner=plenoai \\
         --backend trufflehog --format sarif > findings.sarif
     pleno-dlp scan slack --token xoxb-... --option include_threads=false
-    pleno-dlp scan gitlab --option group=acme --token glpat-... \\
-        --option auth=pat
     pleno-dlp scan jira --option flavor=cloud \\
         --option base_url=https://acme.atlassian.net \\
         --option email=alice@example.com --option api_token=xyz
@@ -30,7 +35,7 @@ from rich.table import Table
 
 from pleno_dlp import __version__, backends, output
 from pleno_dlp.pipeline import Pipeline
-from saas_retriever import SourceFilter
+from saas_retriever import ConnectorSpec, OptionSpec, SourceFilter
 from saas_retriever import connectors as _connectors  # noqa: F401  registry side-effect
 from saas_retriever.registry import registry
 
@@ -44,12 +49,13 @@ app = typer.Typer(
 
 @app.command("list-connectors")
 def cmd_list_connectors() -> None:
-    """List registered saas-scraper connectors."""
+    """List every registered SaaS connector with its summary and auth modes."""
     console = Console()
-    table = Table("name", "kind", title="connectors")
-    for name in registry.names():
-        kind = getattr(registry._factories[name], "kind", "?")
-        table.add_row(name, kind)
+    table = Table("name", "kind", "auth", "resources", "summary", title="connectors")
+    for spec in registry.specs():
+        auth = ", ".join(m.value for m in spec.auth_modes)
+        resources = ", ".join(r.name for r in spec.resources) or "—"
+        table.add_row(spec.name, spec.kind, auth, resources, spec.summary)
     console.print(table)
 
 
@@ -65,55 +71,46 @@ def cmd_list_backends() -> None:
     console.print(table)
 
 
+@app.command("describe")
+def cmd_describe(connector: str = typer.Argument(..., help="Connector name (see list-connectors).")) -> None:
+    """Print the connector's full spec: auth modes, resources, options, docs."""
+    if connector not in registry.names():
+        typer.echo(f"unknown connector: {connector!r}. available: {', '.join(registry.names())}", err=True)
+        raise typer.Exit(2)
+    spec = registry.spec(connector)
+    _render_describe(spec)
+
+
 @app.command("scan")
 def cmd_scan(
     connector: str = typer.Argument(
         ...,
-        help=(
-            "saas-retriever connector name. One of: "
-            "github, gitlab, bitbucket, notion, confluence, jira, slack."
-        ),
+        help="Connector name (see `pleno-dlp list-connectors`).",
     ),
     backend: str = typer.Option("native", "--backend", help="Detection backend."),
     format: str = typer.Option("table", "--format", help="Output format: json|sarif|table."),
-    owner: str | None = typer.Option(None, "--owner", help="GitHub: org or user. (github only)"),
-    repo: str | None = typer.Option(None, "--repo", help="GitHub: single repo. (github only)"),
     token: str | None = typer.Option(
         None,
         "--token",
         help=(
-            "API token. github falls back to GITHUB_TOKEN env / `gh auth token`. "
-            "Other connectors: pass the provider token directly (xoxb-… for slack, "
-            "glpat-… for gitlab, app password for bitbucket, etc.)."
+            "Shorthand for --option token=…. github falls back to "
+            "GITHUB_TOKEN env / `gh auth token` when omitted."
         ),
     ),
-    resources: list[str] = typer.Option(
-        [],
-        "--resource",
-        help=(
-            "Connector resource(s) to scan, repeatable. "
-            "github: code|issues|prs. gitlab: code|issues|mrs. "
-            "bitbucket: code|issues|prs. Default: all supported."
-        ),
-    ),
-    include_archived: bool = typer.Option(
-        False, "--include-archived", help="Include archived repos / pages where applicable."
-    ),
-    since: str | None = typer.Option(None, "--since"),
-    include: list[str] = typer.Option([], "--include"),
-    exclude: list[str] = typer.Option([], "--exclude"),
+    since: str | None = typer.Option(None, "--since", help="`<n>{s,m,h,d,w}` or ISO-8601 timestamp."),
+    include: list[str] = typer.Option([], "--include", help="Glob patterns kept (SourceFilter.include)."),
+    exclude: list[str] = typer.Option([], "--exclude", help="Glob patterns dropped (SourceFilter.exclude)."),
     options: list[str] = typer.Option(
         [],
         "--option",
         "-o",
         help=(
-            "Generic key=value passed to the connector factory. Repeatable. "
-            "Strings auto-coerced to bool/int when literal. "
-            "Examples: --option group=acme, --option flavor=cloud, "
-            "--option include_threads=false, --option base_url=https://x."
+            "Connector kwarg `key=value`. Repeatable. true/false/int auto-coerced; "
+            "comma lists become tuples. Run `pleno-dlp describe <connector>` to "
+            "see the accepted keys."
         ),
     ),
-    out: Path | None = typer.Option(None, "--out"),
+    out: Path | None = typer.Option(None, "--out", help="Write findings to a file (default: stdout)."),
     pii_base_url: str = typer.Option(
         "http://127.0.0.1:8000",
         "--pii-base-url",
@@ -129,24 +126,18 @@ def cmd_scan(
     if connector not in registry.names():
         typer.echo(f"unknown connector: {connector!r}. available: {', '.join(registry.names())}", err=True)
         raise typer.Exit(2)
+    spec = registry.spec(connector)
 
     flt = SourceFilter(include=tuple(include), exclude=tuple(exclude), since=_parse_since(since))
     if backend == "pii":
-        backend_obj = backends.make(
-            backend, base_url=pii_base_url, language=pii_language
-        )
+        backend_obj = backends.make(backend, base_url=pii_base_url, language=pii_language)
     else:
         backend_obj = backends.make(backend)
     sink = output.make(format)
 
     connector_kwargs: dict[str, Any] = {}
-    for k, v in (("owner", owner), ("repo", repo), ("token", token)):
-        if v is not None:
-            connector_kwargs[k] = v
-    if resources:
-        connector_kwargs["resources"] = frozenset(resources)
-    if include_archived:
-        connector_kwargs["include_archived"] = True
+    if token is not None:
+        connector_kwargs["token"] = token
     for raw in options:
         if "=" not in raw:
             raise typer.BadParameter(
@@ -154,7 +145,8 @@ def cmd_scan(
                 param_hint="--option",
             )
         key, _, value = raw.partition("=")
-        connector_kwargs[key] = _coerce_option(value)
+        opt = spec.option(key)
+        connector_kwargs[key] = _coerce_option(value, opt)
 
     rc = asyncio.run(
         _run(
@@ -181,8 +173,11 @@ async def _run(
     """Drive the pipeline. Exit code 0 = clean, 1 = findings, 2 = error."""
     stream = sys.stdout if out is None else out.open("w", encoding="utf-8")
     try:
-        kwargs = _filter_supported_kwargs(connector, connector_kwargs)
-        retriever = registry.create(connector, **kwargs)
+        try:
+            retriever = registry.create(connector, **connector_kwargs)
+        except TypeError as exc:
+            typer.echo(str(exc), err=True)
+            return 2
         try:
             pipeline = Pipeline(connector=retriever, backend=backend)
             count = await sink.emit(pipeline.run(filter), stream=stream)
@@ -194,35 +189,41 @@ async def _run(
             stream.close()
 
 
-def _filter_supported_kwargs(connector: str, kwargs: dict[str, Any]) -> dict[str, Any]:
-    factory = registry._factories[connector]
-    init = getattr(factory, "__init__", None)
-    if init is None:
-        return {}
-    code = init.__code__
-    accepted = set(code.co_varnames[: code.co_argcount + code.co_kwonlyargcount])
-    return {k: v for k, v in kwargs.items() if k in accepted}
+def _coerce_option(value: str, opt: OptionSpec | None) -> Any:
+    """Coerce a `--option key=value` string to the connector kwarg type.
 
-
-def _coerce_option(value: str) -> Any:
-    """Auto-coerce common scalar literals so connectors get the type they expect.
-
-    Strings that look like ``true``/``false``/integers are converted; everything
-    else passes through untouched. Connectors that need richer typing (lists,
-    nested dicts) should be invoked programmatically rather than via the CLI.
+    When the OptionSpec is known we coerce against its declared ``type``;
+    otherwise we fall back to literal scalar coercion (true/false/int).
+    Comma-separated values become tuples for `list[str]` options.
     """
+    if opt is not None:
+        match opt.type:
+            case "bool":
+                return _coerce_scalar(value)
+            case "int":
+                try:
+                    return int(value)
+                except ValueError as exc:
+                    raise typer.BadParameter(f"--option {opt.name}= expects int; got {value!r}") from exc
+            case "list[str]":
+                return tuple(p for p in (s.strip() for s in value.split(",")) if p)
+            case _:
+                return value
+    return _coerce_scalar(value)
+
+
+def _coerce_scalar(value: str) -> Any:
     lowered = value.lower()
     if lowered == "true":
         return True
     if lowered == "false":
         return False
-    if lowered == "none" or lowered == "null":
+    if lowered in {"none", "null"}:
         return None
     try:
         return int(value)
     except ValueError:
-        pass
-    return value
+        return value
 
 
 _SINCE_RE = re.compile(r"^\s*(\d+)\s*([smhdw])\s*$")
@@ -246,6 +247,27 @@ def _parse_since(spec: str | None) -> datetime | None:
         return datetime.fromisoformat(spec)
     except ValueError as exc:
         raise typer.BadParameter(f"unrecognised --since value: {spec!r}") from exc
+
+
+def _render_describe(spec: ConnectorSpec) -> None:
+    console = Console()
+    auth = ", ".join(m.value for m in spec.auth_modes) or "—"
+    console.print(f"[bold]{spec.name}[/bold] — {spec.summary}")
+    console.print(f"  kind: {spec.kind}")
+    console.print(f"  auth: {auth}")
+    if spec.docs_url:
+        console.print(f"  docs: {spec.docs_url}")
+    if spec.resources:
+        rt = Table("name", "default", "summary", title="resources")
+        for r in spec.resources:
+            rt.add_row(r.name, "yes" if r.default else "no", r.summary)
+        console.print(rt)
+    if spec.options:
+        ot = Table("option", "type", "default", "required", "secret", "help", title="options")
+        for o in spec.options:
+            default = "—" if o.default is None else repr(o.default)
+            ot.add_row(o.name, o.type, default, "yes" if o.required else "", "yes" if o.secret else "", o.help)
+        console.print(ot)
 
 
 @app.command("version")

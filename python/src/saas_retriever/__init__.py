@@ -10,7 +10,11 @@ Public API:
 * ``Document``, ``DocumentChunk``, ``DocumentRef``, ``Connector``,
   ``IncrementalConnector``, ``Principal``, ``SourceFilter``,
   ``Capabilities``, ``Cursor``, ``Subsource``, ``SUBSOURCE_METADATA_KEY``
-  — the wire contract every connector honours.
+  — the runtime wire contract every connector honours.
+* ``ConnectorSpec``, ``AuthMode``, ``ResourceSpec``, ``OptionSpec`` —
+  the declarative contract each connector class exposes as
+  ``spec``. Drives CLI ``--help`` generation, the docs matrix, and
+  registry validation.
 * ``Credential``, ``CredentialError``, ``CredentialNotFoundError``,
   ``CredentialMisconfiguredError`` — credential bundle (provider-
   specific payload) connectors take via constructor.
@@ -31,14 +35,18 @@ the SemVer surface and may be tuned between minors.
 from saas_retriever import connectors as _connectors  # noqa: F401
 from saas_retriever.core import (
     SUBSOURCE_METADATA_KEY,
+    AuthMode,
     Capabilities,
     Connector,
+    ConnectorSpec,
     Cursor,
     Document,
     DocumentChunk,
     DocumentRef,
     IncrementalConnector,
+    OptionSpec,
     Principal,
+    ResourceSpec,
     SourceFilter,
     Subsource,
 )
@@ -59,9 +67,11 @@ from saas_retriever.registry import registry
 __all__ = [
     "SUBSOURCE_METADATA_KEY",
     "AdaptiveTokenBucket",
+    "AuthMode",
     "BucketKey",
     "Capabilities",
     "Connector",
+    "ConnectorSpec",
     "Credential",
     "CredentialError",
     "CredentialMisconfiguredError",
@@ -72,11 +82,13 @@ __all__ = [
     "DocumentRef",
     "GlobalRateLimiter",
     "IncrementalConnector",
+    "OptionSpec",
     "Principal",
     "RateLimited",
+    "ResourceSpec",
     "SourceFilter",
     "Subsource",
     "registry",
 ]
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"

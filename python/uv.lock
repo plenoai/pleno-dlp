@@ -6,10 +6,6 @@ resolution-markers = [
     "python_full_version < '3.15'",
 ]
 
-[options]
-exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
-exclude-newer-span = "P1D"
-
 [[package]]
 name = "annotated-doc"
 version = "0.0.4"
@@ -270,7 +266,7 @@ wheels = [
 
 [[package]]
 name = "pleno-dlp"
-version = "0.7.0"
+version = "0.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

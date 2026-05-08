@@ -32,15 +32,19 @@ import ssl
 from collections.abc import AsyncIterator, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import httpx
 
 from saas_retriever.connectors.confluence_storage import storage_to_text
 from saas_retriever.core import (
+    AuthMode,
     Capabilities,
+    ConnectorSpec,
     Document,
     DocumentRef,
+    OptionSpec,
+    ResourceSpec,
     SourceFilter,
 )
 from saas_retriever.credentials import Credential, CredentialMisconfiguredError
@@ -82,6 +86,35 @@ class ConfluenceConnector:
     """API-driven Confluence source connector (Cloud + Data Center)."""
 
     kind = "confluence"
+    spec: ClassVar[ConnectorSpec] = ConnectorSpec(
+        name="confluence",
+        kind="confluence",
+        summary="Confluence Cloud or Data Center spaces, pages, and comments.",
+        auth_modes=(AuthMode.BASIC, AuthMode.PAT),
+        resources=(
+            ResourceSpec("pages", "Pages with rendered Storage Format body."),
+            ResourceSpec("comments", "Per-page comments folded into the page document."),
+            ResourceSpec("attachments", "Attachment refs surfaced inside the page document.", default=False),
+        ),
+        options=(
+            OptionSpec("flavor", "str", "Confluence flavor.", default="cloud", choices=("cloud", "datacenter")),
+            OptionSpec("base_url", "url", "Confluence base URL.", required=True, cli_flag="--base-url"),
+            OptionSpec("credential", "str", "Credential bundle alternative to discrete fields.", secret=True),
+            OptionSpec("token", "str", "DC HTTP access token (Bearer).", secret=True, cli_flag="--token"),
+            OptionSpec("username", "str", "DC username for HTTP Basic auth."),
+            OptionSpec("password", "str", "DC password.", secret=True),
+            OptionSpec("email", "str", "Cloud account email (paired with api_token)."),
+            OptionSpec("api_token", "str", "Cloud API token.", secret=True),
+            OptionSpec("spaces", "list[str]", "Restrict to these space keys.", default=()),
+            OptionSpec("include_archived", "bool", "Include archived pages.", default=False),
+            OptionSpec("page_size", "int", "Server pagination size.", default=100),
+            OptionSpec("ca_bundle_path", "path", "Custom CA bundle for self-managed TLS."),
+            OptionSpec("source_id", "str", "Override the synthesized source id."),
+            OptionSpec("tenant_id", "str", "Tenant id for multi-tenant orchestration."),
+        ),
+        capabilities=Capabilities(incremental=True, max_concurrent_fetches=4),
+        docs_url="https://developer.atlassian.com/cloud/confluence/rest/v1/intro/",
+    )
 
     def __init__(
         self,

@@ -38,16 +38,20 @@ import ssl
 from collections.abc import AsyncIterator, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 from urllib.parse import quote
 
 import httpx
 
 from saas_retriever.core import (
+    AuthMode,
     Capabilities,
+    ConnectorSpec,
     Document,
     DocumentRef,
+    OptionSpec,
     Principal,
+    ResourceSpec,
     SourceFilter,
 )
 from saas_retriever.credentials import Credential, CredentialMisconfiguredError
@@ -101,6 +105,36 @@ class BitbucketConnector:
     """
 
     kind = "bitbucket"
+    spec: ClassVar[ConnectorSpec] = ConnectorSpec(
+        name="bitbucket",
+        kind="bitbucket",
+        summary="Bitbucket Cloud or Server repos, PRs, and issues via the REST API.",
+        auth_modes=(AuthMode.APP_PASSWORD, AuthMode.PAT, AuthMode.BASIC),
+        resources=(
+            ResourceSpec("code", "Every blob in the default branch."),
+            ResourceSpec("prs", "Pull request threads, comments, and unified diff."),
+            ResourceSpec("issues", "Cloud-only native issue tracker."),
+        ),
+        options=(
+            OptionSpec("flavor", "str", "Bitbucket flavor.", default="cloud", choices=("cloud", "server")),
+            OptionSpec("workspace", "str", "Cloud workspace key.", cli_flag="--workspace"),
+            OptionSpec("project", "str", "Server project key.", cli_flag="--project"),
+            OptionSpec("repo_slug", "str", "Single repo slug (omit to walk every repo).", cli_flag="--repo"),
+            OptionSpec("credential", "str", "Credential bundle alternative to discrete token/password.", secret=True),
+            OptionSpec("username", "str", "Username for HTTP Basic auth (with app_password or password)."),
+            OptionSpec("app_password", "str", "Cloud app password.", secret=True),
+            OptionSpec("password", "str", "Server password (paired with username).", secret=True),
+            OptionSpec("token", "str", "HTTP access token / workspace access token (Bearer).", secret=True),
+            OptionSpec("resources", "list[str]", "Subset of resources to scan.", default=None),
+            OptionSpec("base_url", "url", "Override the API base URL (Server flavor)."),
+            OptionSpec("ca_bundle_path", "path", "Custom CA bundle for self-managed TLS."),
+            OptionSpec("max_repos", "int", "Cap on enumerated repos.", default=1000),
+            OptionSpec("max_items_per_repo", "int", "Cap on issues+PRs per repo.", default=1000),
+            OptionSpec("source_id", "str", "Override the synthesized source id."),
+        ),
+        capabilities=Capabilities(incremental=True, max_concurrent_fetches=4),
+        docs_url="https://developer.atlassian.com/cloud/bitbucket/rest/intro/",
+    )
 
     def __init__(
         self,

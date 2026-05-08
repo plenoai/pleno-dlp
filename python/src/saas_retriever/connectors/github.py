@@ -50,15 +50,19 @@ import shutil
 import subprocess
 from collections.abc import AsyncIterator, Iterable, Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 
 from saas_retriever.core import (
+    AuthMode,
     Capabilities,
+    ConnectorSpec,
     Document,
     DocumentRef,
+    OptionSpec,
     Principal,
+    ResourceSpec,
     SourceFilter,
 )
 from saas_retriever.registry import registry
@@ -80,6 +84,36 @@ class GitHubConnector:
     """
 
     kind = "github"
+    spec: ClassVar[ConnectorSpec] = ConnectorSpec(
+        name="github",
+        kind="github",
+        summary="GitHub repos, issues, and pull requests via the REST API.",
+        auth_modes=(AuthMode.PAT, AuthMode.NONE),
+        resources=(
+            ResourceSpec("code", "Every blob in the default branch."),
+            ResourceSpec("issues", "Issue threads (excluding PRs) plus comments."),
+            ResourceSpec("prs", "Pull request threads, review comments, and unified diff."),
+        ),
+        options=(
+            OptionSpec("owner", "str", "GitHub org or user.", required=True, cli_flag="--owner"),
+            OptionSpec("repo", "str", "Single repo (omit to enumerate every repo under owner).", cli_flag="--repo"),
+            OptionSpec(
+                "token",
+                "str",
+                "GitHub PAT. Falls back to GITHUB_TOKEN env / `gh auth token`.",
+                secret=True,
+                cli_flag="--token",
+            ),
+            OptionSpec("resources", "list[str]", "Subset of resources to scan.", default=None),
+            OptionSpec("base_url", "url", "GitHub API base URL (override for GHES).", default="https://api.github.com"),
+            OptionSpec("include_archived", "bool", "Include archived repos.", default=False),
+            OptionSpec("max_repos", "int", "Cap on enumerated repos.", default=1000),
+            OptionSpec("max_items_per_repo", "int", "Cap on issues+PRs per repo.", default=1000),
+            OptionSpec("source_id", "str", "Override the synthesized source id."),
+        ),
+        capabilities=Capabilities(incremental=True, max_concurrent_fetches=8),
+        docs_url="https://docs.github.com/en/rest",
+    )
 
     def __init__(
         self,

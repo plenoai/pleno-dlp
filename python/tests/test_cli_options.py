@@ -16,14 +16,27 @@ runner = CliRunner()
 
 
 def test_coerce_option_handles_bool_int_none() -> None:
-    assert _coerce_option("true") is True
-    assert _coerce_option("True") is True
-    assert _coerce_option("false") is False
-    assert _coerce_option("none") is None
-    assert _coerce_option("null") is None
-    assert _coerce_option("42") == 42
-    assert _coerce_option("xoxb-not-an-int") == "xoxb-not-an-int"
-    assert _coerce_option("https://acme.atlassian.net") == "https://acme.atlassian.net"
+    """Without a spec hint, scalar literals coerce; everything else passes through."""
+    assert _coerce_option("true", None) is True
+    assert _coerce_option("True", None) is True
+    assert _coerce_option("false", None) is False
+    assert _coerce_option("none", None) is None
+    assert _coerce_option("null", None) is None
+    assert _coerce_option("42", None) == 42
+    assert _coerce_option("xoxb-not-an-int", None) == "xoxb-not-an-int"
+    assert _coerce_option("https://acme.atlassian.net", None) == "https://acme.atlassian.net"
+
+
+def test_coerce_option_uses_spec_type_when_available() -> None:
+    """When the spec declares list[str] / int, the parser respects it."""
+    from saas_retriever import OptionSpec
+
+    list_opt = OptionSpec("resources", "list[str]", "test")
+    assert _coerce_option("code,issues", list_opt) == ("code", "issues")
+    assert _coerce_option("", list_opt) == ()
+
+    int_opt = OptionSpec("max_repos", "int", "test")
+    assert _coerce_option("500", int_opt) == 500
 
 
 def test_list_connectors_includes_every_v1_kind() -> None:
@@ -40,6 +53,28 @@ def test_scan_rejects_malformed_option() -> None:
     )
     assert result.exit_code != 0
     assert "key=value" in result.output
+
+
+def test_scan_rejects_unknown_kwarg() -> None:
+    """Spec-driven validation surfaces typos in --option keys."""
+    result = runner.invoke(
+        app,
+        ["scan", "github", "--option", "owner=plenoai", "--option", "ownr=typo"],
+    )
+    assert result.exit_code == 2
+    assert "unexpected kwargs" in result.output
+
+
+def test_describe_renders_options_table() -> None:
+    result = runner.invoke(app, ["describe", "github"])
+    assert result.exit_code == 0
+    assert "owner" in result.output
+    assert "code" in result.output
+
+
+def test_describe_unknown_connector_exits_2() -> None:
+    result = runner.invoke(app, ["describe", "salesforce"])
+    assert result.exit_code == 2
 
 
 def test_scan_rejects_unknown_connector() -> None:
