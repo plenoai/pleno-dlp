@@ -33,16 +33,20 @@ from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from fnmatch import fnmatch
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import httpx
 
 from saas_retriever.connectors.jira_adf import adf_to_text
 from saas_retriever.connectors.jira_storage import storage_to_text
 from saas_retriever.core import (
+    AuthMode,
     Capabilities,
+    ConnectorSpec,
     Document,
     DocumentRef,
+    OptionSpec,
+    ResourceSpec,
     SourceFilter,
 )
 from saas_retriever.credentials import Credential, CredentialMisconfiguredError
@@ -90,6 +94,38 @@ class JiraConnector:
     """API-driven Jira connector (Cloud + Data Center)."""
 
     kind = "jira"
+    spec: ClassVar[ConnectorSpec] = ConnectorSpec(
+        name="jira",
+        kind="jira",
+        summary="Jira Cloud or Data Center issues, comments, and attachment refs.",
+        auth_modes=(AuthMode.BASIC, AuthMode.PAT),
+        resources=(
+            ResourceSpec("issues", "Issue summary, description, reporter, assignee, status."),
+            ResourceSpec("comments", "Per-issue comments folded into the issue document."),
+            ResourceSpec("attachments", "Attachment URL refs (bodies not downloaded).", default=False),
+        ),
+        options=(
+            OptionSpec("flavor", "str", "Jira flavor.", default="cloud", choices=("cloud", "datacenter")),
+            OptionSpec("base_url", "url", "Jira base URL.", required=True, cli_flag="--base-url"),
+            OptionSpec("credential", "str", "Credential bundle alternative to discrete fields.", secret=True),
+            OptionSpec("email", "str", "Cloud account email (paired with api_token)."),
+            OptionSpec("api_token", "str", "Cloud API token.", secret=True),
+            OptionSpec("access_token", "str", "DC HTTP access token (Bearer).", secret=True),
+            OptionSpec("username", "str", "DC username for HTTP Basic auth."),
+            OptionSpec("password", "str", "DC password.", secret=True),
+            OptionSpec(
+                "projects",
+                "list[str]",
+                "Restrict to these project keys (glob patterns supported).",
+                default=(),
+            ),
+            OptionSpec("include_comments", "bool", "Fold comments into the issue Document.", default=True),
+            OptionSpec("include_attachments", "bool", "Surface attachment URL refs.", default=True),
+            OptionSpec("source_id", "str", "Override the synthesized source id."),
+        ),
+        capabilities=Capabilities(incremental=True, max_concurrent_fetches=4),
+        docs_url="https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/",
+    )
 
     def __init__(
         self,

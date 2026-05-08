@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Iterable, Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 
@@ -34,9 +34,13 @@ from saas_retriever.connectors.notion_markdown import (
     render_database_row,
 )
 from saas_retriever.core import (
+    AuthMode,
     Capabilities,
+    ConnectorSpec,
     Document,
     DocumentRef,
+    OptionSpec,
+    ResourceSpec,
     SourceFilter,
 )
 from saas_retriever.credentials import Credential, CredentialMisconfiguredError
@@ -59,6 +63,35 @@ class NotionConnector:
     """API-driven Notion source connector."""
 
     kind = "notion"
+    spec: ClassVar[ConnectorSpec] = ConnectorSpec(
+        name="notion",
+        kind="notion",
+        summary="Notion pages and database rows rendered to Markdown.",
+        auth_modes=(AuthMode.PAT,),
+        resources=(
+            ResourceSpec("pages", "Workspace pages reachable from the integration."),
+            ResourceSpec("databases", "Database rows the integration can query."),
+        ),
+        options=(
+            OptionSpec("token", "str", "Notion integration token (`secret_…`).", secret=True, cli_flag="--token"),
+            OptionSpec("credential", "str", "Credential bundle alternative to token=.", secret=True),
+            OptionSpec(
+                "pages",
+                "list[str]",
+                "Restrict to these page ids (default: search every shared page).",
+                default=(),
+            ),
+            OptionSpec("databases", "list[str]", "Restrict to these database ids.", default=()),
+            OptionSpec("include_archived", "bool", "Include archived pages/rows.", default=False),
+            OptionSpec("workspace_id", "str", "Override the source id workspace component."),
+            OptionSpec("base_url", "url", "Notion API base URL.", default="https://api.notion.com/v1"),
+            OptionSpec("notion_version", "str", "Pinned Notion-Version header.", default="2022-06-28"),
+            OptionSpec("max_concurrent_fetches", "int", "Override concurrency cap.", default=3),
+            OptionSpec("source_id", "str", "Override the synthesized source id."),
+        ),
+        capabilities=Capabilities(incremental=False, max_concurrent_fetches=3),
+        docs_url="https://developers.notion.com/reference",
+    )
 
     def __init__(
         self,

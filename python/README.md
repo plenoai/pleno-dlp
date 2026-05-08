@@ -26,25 +26,41 @@ uv tool install 'pleno-dlp[pii]'
 
 ## Usage
 
+The CLI is connector-agnostic: connector knobs flow through the generic
+``--option key=value`` flag. Run ``pleno-dlp describe <connector>`` to
+see the accepted keys, types, defaults, and which ones are secrets.
+
 ```sh
+# Discover what each connector takes
+pleno-dlp list-connectors
+pleno-dlp describe github
+
 # Secret scan over an entire GitHub org (code + issues + PRs across every repo)
-GITHUB_TOKEN=ghp_... pleno-dlp scan github --owner plenoai
+GITHUB_TOKEN=ghp_... pleno-dlp scan github --option owner=plenoai
 
 # Scan a single repo, only code, with trufflehog verification
-pleno-dlp scan github --owner plenoai --repo saas-retriever \
-    --resource code --backend trufflehog
+pleno-dlp scan github \
+    --option owner=plenoai --option repo=pleno-dlp \
+    --option resources=code --backend trufflehog
 
 # Issue + PR conversations only, PII detection (requires pleno-anonymize)
-pleno-dlp scan github --owner plenoai \
-    --resource issues --resource prs --backend pii
+pleno-dlp scan github --option owner=plenoai \
+    --option resources=issues,prs --backend pii
 
 # SARIF output for GitHub code-scanning ingestion
-pleno-dlp scan github --owner plenoai \
+pleno-dlp scan github --option owner=plenoai \
     --format sarif > findings.sarif
+
+# Slack workspace — the same shape, different connector
+pleno-dlp scan slack --token xoxb-... --option include_threads=false
 ```
 
-Auth resolution: `--token` → `GITHUB_TOKEN` env var → `gh auth token`.
-Anonymous works for public content but is rate-limited to 60 req/h.
+Auth resolution for github: `--token` → `GITHUB_TOKEN` env var →
+`gh auth token`. Anonymous works for public content but is rate-limited
+to 60 req/h. Other connectors take their token via `--token` (shorthand
+for `--option token=…`) or via `--option api_token=…` /
+`--option access_token=…` depending on the auth mode (see
+`describe`).
 
 ## Backends
 
@@ -57,10 +73,32 @@ Anonymous works for public content but is rate-limited to 60 req/h.
 
 ## Connectors
 
-Anything `saas-retriever` provides. Today: **github** with org-wide
-enumeration plus per-repo code / issues / PRs (comments and unified
-diffs). Slack / Jira / Confluence / Notion / GitLab / Bitbucket land as
-standalone API connectors in subsequent saas-retriever releases.
+Each connector self-describes via a `ConnectorSpec` (auth modes,
+resources, options, runtime capabilities). Today: **github**, **gitlab**,
+**bitbucket** (cloud + server), **slack** (xoxb / xoxp), **notion**,
+**confluence** (cloud + datacenter), **jira** (cloud + datacenter).
+Run `pleno-dlp list-connectors` for the live list and
+`pleno-dlp describe <name>` for the option sheet.
+
+### Adding a new SaaS connector
+
+1. Create `python/src/saas_retriever/connectors/<name>.py`.
+2. Implement the `Connector` protocol (`discover`, `fetch`,
+   `discover_and_fetch`, `capabilities`, `close`). Keep one
+   `httpx.AsyncClient` per instance.
+3. Declare a `spec: ClassVar[ConnectorSpec] = ConnectorSpec(...)` —
+   `name`, `kind`, `summary`, `auth_modes`, `resources`, `options`
+   (every `__init__` kwarg you want operators to set), and
+   `capabilities`. The registry rejects registration without a
+   matching spec.
+4. End the module with `registry.register("<name>", <Class>)`.
+5. Wire the import in `connectors/__init__.py` so
+   `import saas_retriever` populates the registry.
+6. Add fixtures + tests under `python/tests/saas_retriever/test_<name>.py`
+   using `httpx.MockTransport`.
+
+Once the spec lands, `pleno-dlp scan <name>` and
+`pleno-dlp describe <name>` work without touching the CLI.
 
 ## Release
 

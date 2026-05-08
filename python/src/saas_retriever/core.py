@@ -3,10 +3,10 @@
 Aligned with pleno-anonymize's ``pleno_pii_scanner.sources.base`` so a
 single Document type can flow into either pipeline without translation.
 
-v1.0.0 protocol surface:
+Public protocol surface:
 
 * ``Cursor`` — opaque per-connector resume token (str).
-* ``Capabilities`` — connector self-description (incremental, binary,
+* ``Capabilities`` — runtime self-description (incremental, binary,
   streaming, max_concurrent_fetches, content_hash_delta).
 * ``Document`` / ``DocumentChunk`` — payload (single-shot vs streamed).
 * ``DocumentRef`` — cheap metadata-only handle.
@@ -14,6 +14,12 @@ v1.0.0 protocol surface:
 * ``Subsource`` + ``SUBSOURCE_METADATA_KEY`` — sub-unit fingerprinting
   for hierarchical sources (org → repos, workspace → channels, ...).
 * ``Connector`` Protocol — the contract every connector implements.
+* ``ConnectorSpec`` (+ ``AuthMode``, ``ResourceSpec``, ``OptionSpec``)
+  — declarative metadata each connector class exposes as the
+  ``spec`` ClassVar. Drives CLI ``--help`` generation, the docs
+  matrix, and registry validation. Capabilities answers the
+  *runtime* question ("can I incrementally resume?"); ConnectorSpec
+  answers the *configuration* question ("what kwargs do you take?").
 """
 
 from __future__ import annotations
@@ -21,8 +27,9 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 from hashlib import sha256
-from typing import Protocol, runtime_checkable
+from typing import ClassVar, Protocol, runtime_checkable
 
 # Reserved DocumentRef.metadata key. Connectors that aggregate sub-units
 # (github org → repos, slack workspace → channels, gdrive → drives,
@@ -207,13 +214,101 @@ class IncrementalConnector(Protocol):
         ...
 
 
+class AuthMode(StrEnum):
+    """How a connector authenticates against the provider.
+
+    Declarative: drives CLI ``--help`` text and docs. The connector
+    constructor still accepts whatever kwargs match the spec's
+    ``options``; this enum just classifies them so operators know
+    which token shape to provide.
+    """
+
+    NONE = "none"  # public APIs, anonymous read
+    PAT = "pat"  # personal access token / API token
+    BOT_TOKEN = "bot_token"  # bot user token (slack xoxb-, github bot, ...)
+    USER_TOKEN = "user_token"  # user token (slack xoxp-, gitlab oauth)
+    APP_PASSWORD = "app_password"  # bitbucket / atlassian app password
+    OAUTH = "oauth"  # full OAuth flow (refresh tokens)
+    BASIC = "basic"  # email + api_token paired (jira/confluence cloud)
+    GH_APP = "gh_app"  # github app installation token
+    KEY_PAIR = "key_pair"  # provider-issued id+secret pair
+
+
+@dataclass(frozen=True, slots=True)
+class OptionSpec:
+    """Connector configuration knob exposed to the CLI / programmatic users.
+
+    Every kwarg the connector's ``__init__`` accepts and that operators
+    are expected to pass is declared here. Anything not declared is
+    rejected by the registry to keep typos from silently no-op'ing.
+    """
+
+    name: str  # kwarg name on the connector __init__
+    type: str  # "str" | "int" | "bool" | "list[str]" | "url" | "path"
+    help: str  # one-line operator-facing description
+    default: object | None = None
+    required: bool = False
+    secret: bool = False  # true → masked in echo/list-connectors output
+    choices: tuple[str, ...] = ()
+    cli_flag: str | None = None  # promoted long flag; None → only via --option
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceSpec:
+    """A scannable resource the connector can enumerate.
+
+    Examples: github → (code, issues, prs); slack → (messages, files);
+    notion → (pages, databases); jira → (issues, comments).
+    Operators select via ``--option resources=code,issues`` (or the
+    spec-driven ``--resource`` shorthand if exposed in the cli).
+    """
+
+    name: str  # logical resource name, e.g. "code"
+    summary: str  # one-line description
+    default: bool = True  # included when --option resources is unset
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectorSpec:
+    """Declarative metadata every connector class exposes as ``spec``.
+
+    Capabilities answers the *runtime* question ("can I incrementally
+    resume?"). ConnectorSpec answers the *configuration* question
+    ("what kwargs do you take, and how do operators authenticate?").
+
+    The registry validates that each registered connector has a
+    matching ``spec.name``, and the CLI uses ``options`` to render
+    ``--help`` and to whitelist kwargs forwarded to the constructor.
+    """
+
+    name: str  # registry key (matches the kwarg used at create() time)
+    kind: str  # provider kind (e.g. "github", "slack")
+    summary: str  # one-line summary for list-connectors
+    auth_modes: tuple[AuthMode, ...] = (AuthMode.PAT,)
+    resources: tuple[ResourceSpec, ...] = ()
+    options: tuple[OptionSpec, ...] = ()
+    capabilities: Capabilities = field(default_factory=Capabilities)
+    docs_url: str | None = None
+
+    def option(self, name: str) -> OptionSpec | None:
+        for opt in self.options:
+            if opt.name == name:
+                return opt
+        return None
+
+    def accepted_kwargs(self) -> frozenset[str]:
+        """Whitelist of kwargs the CLI / registry will forward."""
+        return frozenset(opt.name for opt in self.options)
+
+
 @runtime_checkable
 class Connector(Protocol):
     """Contract every connector implements.
 
     Construction is the connector's responsibility — the registry forwards
-    provider-specific kwargs (token, owner, base_url, ...). Connectors
-    own their own HTTP client; there is no shared session.
+    provider-specific kwargs (token, owner, base_url, ...) declared in
+    ``spec.options``. Connectors own their own HTTP client; there is no
+    shared session.
 
     Connectors must be safe to call concurrently up to
     ``capabilities().max_concurrent_fetches``. State that needs locking
@@ -221,6 +316,7 @@ class Connector(Protocol):
     instance.
     """
 
+    spec: ClassVar[ConnectorSpec]
     id: str
     kind: str
 

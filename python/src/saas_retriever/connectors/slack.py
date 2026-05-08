@@ -31,15 +31,19 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Iterable, Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 
 from saas_retriever.core import (
+    AuthMode,
     Capabilities,
+    ConnectorSpec,
     Document,
     DocumentRef,
+    OptionSpec,
     Principal,
+    ResourceSpec,
     SourceFilter,
 )
 from saas_retriever.credentials import Credential, CredentialMisconfiguredError
@@ -65,6 +69,35 @@ class SlackConnector:
     """
 
     kind = "slack"
+    spec: ClassVar[ConnectorSpec] = ConnectorSpec(
+        name="slack",
+        kind="slack",
+        summary="Slack channels, threads, and files via the Web API.",
+        auth_modes=(AuthMode.BOT_TOKEN, AuthMode.USER_TOKEN),
+        resources=(
+            ResourceSpec("messages", "Channel messages and (when enabled) threaded replies."),
+            ResourceSpec("files", "File metadata for messages with attachments.", default=False),
+        ),
+        options=(
+            OptionSpec(
+                "token",
+                "str",
+                "Slack token (xoxb- bot or xoxp- user). Mutually exclusive with credential.",
+                secret=True,
+                cli_flag="--token",
+            ),
+            OptionSpec("credential", "str", "Credential bundle whose payload['token'] holds the token.", secret=True),
+            OptionSpec("channels", "list[str]", "Restrict to these channel ids/names.", default=()),
+            OptionSpec("include_threads", "bool", "Walk threaded replies via conversations.replies.", default=True),
+            OptionSpec("include_files", "bool", "Emit refs for file attachments.", default=True),
+            OptionSpec("fetch_user_principal", "bool", "Resolve user ids to display name + email.", default=True),
+            OptionSpec("team_id", "str", "Enterprise Grid team id (when token spans workspaces)."),
+            OptionSpec("base_url", "url", "Slack API base URL.", default="https://slack.com/api"),
+            OptionSpec("source_id", "str", "Override the synthesized source id."),
+        ),
+        capabilities=Capabilities(incremental=True, max_concurrent_fetches=4),
+        docs_url="https://api.slack.com/methods",
+    )
 
     def __init__(
         self,

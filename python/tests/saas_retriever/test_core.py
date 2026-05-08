@@ -52,8 +52,10 @@ def test_source_filter_since_accepts_datetime() -> None:
 
 def test_connector_protocol_runtime_checkable() -> None:
     """A class with the right shape passes isinstance(_, Connector)."""
+    from saas_retriever import Capabilities, ConnectorSpec
 
     class _Stub:
+        spec = ConnectorSpec(name="stub", kind="stub", summary="test stub")
         id = "s"
         kind = "stub"
 
@@ -70,8 +72,6 @@ def test_connector_protocol_runtime_checkable() -> None:
                 yield  # type: ignore[unreachable]
 
         def capabilities(self):
-            from saas_retriever import Capabilities
-
             return Capabilities()
 
         async def close(self) -> None:

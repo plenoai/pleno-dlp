@@ -35,16 +35,20 @@ import asyncio
 from collections.abc import AsyncIterator, Iterable, Mapping
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import quote
 
 import httpx
 
 from saas_retriever.core import (
+    AuthMode,
     Capabilities,
+    ConnectorSpec,
     Document,
     DocumentRef,
+    OptionSpec,
     Principal,
+    ResourceSpec,
     SourceFilter,
 )
 from saas_retriever.credentials import Credential, CredentialMisconfiguredError
@@ -91,6 +95,39 @@ class GitlabConnector:
     """
 
     kind = "gitlab"
+    spec: ClassVar[ConnectorSpec] = ConnectorSpec(
+        name="gitlab",
+        kind="gitlab",
+        summary="GitLab projects, issues, and merge requests via /api/v4.",
+        auth_modes=(AuthMode.PAT, AuthMode.OAUTH),
+        resources=(
+            ResourceSpec("code", "Every blob in the default branch."),
+            ResourceSpec("issues", "Issue threads plus notes."),
+            ResourceSpec("mrs", "Merge request threads plus diffs."),
+        ),
+        options=(
+            OptionSpec("project", "str", "Single project (`namespace/path`).", cli_flag="--project"),
+            OptionSpec("group", "str", "Recursive walk of every project under this group.", cli_flag="--group"),
+            OptionSpec("token", "str", "PAT or OAuth access token.", secret=True, cli_flag="--token"),
+            OptionSpec("credential", "str", "Credential bundle alternative to token=.", secret=True),
+            OptionSpec("auth", "str", "Auth mode: pat or oauth.", default="pat", choices=("pat", "oauth")),
+            OptionSpec("resources", "list[str]", "Subset of resources to scan.", default=None),
+            OptionSpec("base_url", "url", "GitLab base URL (override for self-managed).", default="https://gitlab.com"),
+            OptionSpec("include_archived", "bool", "Include archived projects.", default=False),
+            OptionSpec(
+                "visibility",
+                "str",
+                "Filter projects by visibility.",
+                choices=("private", "internal", "public"),
+            ),
+            OptionSpec("ca_bundle_path", "path", "Custom CA bundle for self-managed TLS."),
+            OptionSpec("max_projects", "int", "Cap on enumerated projects.", default=1000),
+            OptionSpec("max_items_per_project", "int", "Cap on issues+MRs per project.", default=1000),
+            OptionSpec("source_id", "str", "Override the synthesized source id."),
+        ),
+        capabilities=Capabilities(incremental=True, max_concurrent_fetches=8),
+        docs_url="https://docs.gitlab.com/ee/api/",
+    )
 
     def __init__(
         self,
