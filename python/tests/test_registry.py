@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-# ``import saas_retriever`` alone must populate the registry. Importing
+# ``import pleno_dlp`` alone must populate the registry. Importing
 # the subpackage here is belt-and-braces in case someone refactors the
 # top-level __init__.
-import saas_retriever.connectors  # noqa: F401
-from saas_retriever import ConnectorSpec
-from saas_retriever.registry import registry
+import pleno_dlp.connectors  # noqa: F401
+from pleno_dlp import ConnectorSpec
+from pleno_dlp.registry import registry
 
 
 def test_builtin_connectors_registered() -> None:

@@ -28,12 +28,12 @@ from typing import Any, ClassVar
 
 import httpx
 
-from saas_retriever.connectors.notion_markdown import (
+from pleno_dlp.connectors.notion_markdown import (
     MAX_DEPTH,
     render_blocks,
     render_database_row,
 )
-from saas_retriever.core import (
+from pleno_dlp.core import (
     AuthMode,
     Capabilities,
     ConnectorSpec,
@@ -43,9 +43,9 @@ from saas_retriever.core import (
     ResourceSpec,
     SourceFilter,
 )
-from saas_retriever.credentials import Credential, CredentialMisconfiguredError
-from saas_retriever.rate_limit import RateLimited
-from saas_retriever.registry import registry
+from pleno_dlp.credentials import Credential, CredentialMisconfiguredError
+from pleno_dlp.rate_limit import RateLimited
+from pleno_dlp.registry import registry
 
 DEFAULT_BASE_URL = "https://api.notion.com/v1"
 # Pinned API version. Bumping requires re-validating every block /

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from saas_retriever import (
+from pleno_dlp import (
     Credential,
     CredentialError,
     CredentialMisconfiguredError,

@@ -54,7 +54,7 @@ from typing import Any, ClassVar
 
 import httpx
 
-from saas_retriever.core import (
+from pleno_dlp.core import (
     AuthMode,
     Capabilities,
     ConnectorSpec,
@@ -65,7 +65,7 @@ from saas_retriever.core import (
     ResourceSpec,
     SourceFilter,
 )
-from saas_retriever.registry import registry
+from pleno_dlp.registry import registry
 
 DEFAULT_RESOURCES: frozenset[str] = frozenset({"code", "issues", "prs"})
 SUPPORTED_RESOURCES: frozenset[str] = frozenset({"code", "issues", "prs"})

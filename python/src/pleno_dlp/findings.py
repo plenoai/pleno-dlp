@@ -34,7 +34,7 @@ def _redact(raw: str) -> str:
 class Finding:
     """One leak hit (secret or PII).
 
-    ``source_*`` fields mirror ``saas_retriever.DocumentRef`` so a
+    ``source_*`` fields mirror ``pleno_dlp.DocumentRef`` so a
     Finding can be located back to the document it came from without
     joining tables.
 

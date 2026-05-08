@@ -1,6 +1,6 @@
 """Detection backends.
 
-A ``Backend`` consumes a ``saas_retriever.Document`` (text payload) and
+A ``Backend`` consumes a ``pleno_dlp.Document`` (text payload) and
 yields ``Finding`` s. Four implementations ship:
 
 * ``native`` — pure-python regex set (no system deps).
@@ -20,8 +20,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any, Protocol, runtime_checkable
 
+from pleno_dlp.core import Document
 from pleno_dlp.findings import Finding
-from saas_retriever import Document
 
 
 @runtime_checkable

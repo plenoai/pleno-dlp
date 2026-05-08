@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 import pytest
 
-from saas_retriever.connectors.github import (
+from pleno_dlp.connectors.github import (
     DEFAULT_RESOURCES,
     GitHubConnector,
     _join_issue_text,
@@ -20,7 +20,7 @@ from saas_retriever.connectors.github import (
     _next_link,
     _parse_ts,
 )
-from saas_retriever.core import SourceFilter
+from pleno_dlp.core import SourceFilter
 
 
 def _routes(handler_map: dict[str, Any]) -> httpx.MockTransport:
@@ -125,7 +125,7 @@ def test_unknown_resource_rejected() -> None:
 def test_explicit_token_overrides_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_TOKEN", "from-env")
     monkeypatch.setattr(
-        "saas_retriever.connectors.github.shutil.which",
+        "pleno_dlp.connectors.github.shutil.which",
         lambda _: None,
     )
     conn = GitHubConnector(owner="plenoai", token="explicit")
@@ -135,7 +135,7 @@ def test_explicit_token_overrides_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_token_from_env_when_not_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_TOKEN", "from-env")
     monkeypatch.setattr(
-        "saas_retriever.connectors.github.shutil.which",
+        "pleno_dlp.connectors.github.shutil.which",
         lambda _: None,
     )
     conn = GitHubConnector(owner="plenoai")
@@ -346,7 +346,7 @@ async def test_fetch_blob_decodes_utf8() -> None:
         token="x",
         transport=httpx.MockTransport(handler),
     )
-    from saas_retriever.core import DocumentRef
+    from pleno_dlp.core import DocumentRef
 
     ref = DocumentRef(
         source_id="x",
@@ -374,7 +374,7 @@ async def test_fetch_blob_falls_back_to_binary() -> None:
         return httpx.Response(404)
 
     conn = GitHubConnector(owner="x", repo="y", token="x", transport=httpx.MockTransport(handler))
-    from saas_retriever.core import DocumentRef
+    from pleno_dlp.core import DocumentRef
 
     ref = DocumentRef(
         source_id="s",
@@ -410,7 +410,7 @@ async def test_fetch_issue_collects_body_and_comments() -> None:
         return httpx.Response(404)
 
     conn = GitHubConnector(owner="x", repo="y", token="x", transport=httpx.MockTransport(handler))
-    from saas_retriever.core import DocumentRef
+    from pleno_dlp.core import DocumentRef
 
     ref = DocumentRef(
         source_id="s",
@@ -456,7 +456,7 @@ async def test_fetch_pr_includes_diff_text() -> None:
         return httpx.Response(404)
 
     conn = GitHubConnector(owner="x", repo="y", token="x", transport=httpx.MockTransport(handler))
-    from saas_retriever.core import DocumentRef
+    from pleno_dlp.core import DocumentRef
 
     ref = DocumentRef(
         source_id="s",

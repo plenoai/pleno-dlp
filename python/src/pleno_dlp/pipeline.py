@@ -1,12 +1,12 @@
 """End-to-end scan pipeline.
 
-Wires a saas_retriever Connector to a Backend and a Sink. The pipeline owns
+Wires a pleno_dlp Connector to a Backend and a Sink. The pipeline owns
 the iteration order — it calls the connector's ``discover_and_fetch``,
 hands each Document to the backend, and forwards Findings to the sink.
 
 Concurrency note: connectors and backends are both async iterables, but
 the pipeline itself runs sequentially. Per-document parallelism would
-require a redesign of saas_retriever's BrowserSession, which is a single
+require a redesign of pleno_dlp's BrowserSession, which is a single
 Chrome instance — so we stick with serial for now.
 """
 
@@ -16,8 +16,8 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 from pleno_dlp.backends import Backend
+from pleno_dlp.core import Connector, SourceFilter
 from pleno_dlp.findings import Finding
-from saas_retriever import Connector, SourceFilter
 
 
 @dataclass(frozen=True, slots=True)

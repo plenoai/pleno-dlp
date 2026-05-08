@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 import pytest
 
-from saas_retriever import (
+from pleno_dlp import (
     SUBSOURCE_METADATA_KEY,
     Capabilities,
     DocumentChunk,

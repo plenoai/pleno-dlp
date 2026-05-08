@@ -1,7 +1,7 @@
 """Connector registry — name → factory mapping with spec validation.
 
 Connectors register themselves by importing their module (which calls
-``registry.register``). The CLI imports ``saas_retriever.connectors`` to
+``registry.register``). The CLI imports ``pleno_dlp.connectors`` to
 trigger every registration; programmatic users can either import the
 same package or register their own connectors at runtime.
 
@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, cast
 
-from saas_retriever.core import Connector, ConnectorSpec
+from pleno_dlp.core import Connector, ConnectorSpec
 
 # Looser than Callable[..., Connector] so subclasses of an abstract base —
 # whose runtime shape is a Connector but whose static type is the concrete

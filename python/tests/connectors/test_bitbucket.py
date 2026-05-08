@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 import pytest
 
-from saas_retriever.connectors.bitbucket import (
+from pleno_dlp.connectors.bitbucket import (
     DEFAULT_CLOUD_BASE_URL,
     DEFAULT_RESOURCES,
     BitbucketConnector,
@@ -25,8 +25,8 @@ from saas_retriever.connectors.bitbucket import (
     _resolve_auth,
     _retry_after_seconds,
 )
-from saas_retriever.core import SourceFilter
-from saas_retriever.credentials import Credential, CredentialMisconfiguredError
+from pleno_dlp.core import SourceFilter
+from pleno_dlp.credentials import Credential, CredentialMisconfiguredError
 
 # --- routing helpers ----------------------------------------------------
 
@@ -385,7 +385,7 @@ async def test_cloud_fetch_blob_returns_text_when_utf8() -> None:
         transport=transport,
         resources={"code"},
     )
-    from saas_retriever.core import DocumentRef
+    from pleno_dlp.core import DocumentRef
 
     ref = DocumentRef(
         source_id=c.id,
@@ -434,7 +434,7 @@ async def test_cloud_fetch_blob_falls_back_to_binary_when_not_utf8() -> None:
         transport=transport,
         resources={"code"},
     )
-    from saas_retriever.core import DocumentRef
+    from pleno_dlp.core import DocumentRef
 
     ref = DocumentRef(
         source_id=c.id,
@@ -493,7 +493,7 @@ async def test_cloud_pagination_follows_next_url() -> None:
 
 @pytest.mark.asyncio
 async def test_cloud_429_eventually_raises_rate_limited() -> None:
-    from saas_retriever.rate_limit import RateLimited
+    from pleno_dlp.rate_limit import RateLimited
 
     workspace = "acme"
     slug = "alpha"
@@ -609,7 +609,7 @@ async def test_server_fetch_blob_uses_raw_endpoint() -> None:
         transport=transport,
         resources={"code"},
     )
-    from saas_retriever.core import DocumentRef
+    from pleno_dlp.core import DocumentRef
 
     ref = DocumentRef(
         source_id=c.id,

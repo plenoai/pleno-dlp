@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 import pytest
 
-from saas_retriever.connectors.confluence import (
+from pleno_dlp.connectors.confluence import (
     ConfluenceConnector,
     _decode_cursor,
     _encode_cursor,
@@ -20,10 +20,10 @@ from saas_retriever.connectors.confluence import (
     _resolve_auth,
     _resolve_link,
 )
-from saas_retriever.connectors.confluence_storage import storage_to_text
-from saas_retriever.core import SourceFilter
-from saas_retriever.credentials import Credential, CredentialMisconfiguredError
-from saas_retriever.rate_limit import RateLimited
+from pleno_dlp.connectors.confluence_storage import storage_to_text
+from pleno_dlp.core import SourceFilter
+from pleno_dlp.credentials import Credential, CredentialMisconfiguredError
+from pleno_dlp.rate_limit import RateLimited
 
 
 def _routes(handler_map: dict[str, Any]) -> httpx.MockTransport:

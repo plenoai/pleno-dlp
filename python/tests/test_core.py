@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from saas_retriever import Connector, Document, DocumentRef, Principal, SourceFilter
+from pleno_dlp import Connector, Document, DocumentRef, Principal, SourceFilter
 
 
 def test_document_ref_fingerprint_stable() -> None:
@@ -52,7 +52,7 @@ def test_source_filter_since_accepts_datetime() -> None:
 
 def test_connector_protocol_runtime_checkable() -> None:
     """A class with the right shape passes isinstance(_, Connector)."""
-    from saas_retriever import Capabilities, ConnectorSpec
+    from pleno_dlp import Capabilities, ConnectorSpec
 
     class _Stub:
         spec = ConnectorSpec(name="stub", kind="stub", summary="test stub")

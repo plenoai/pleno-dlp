@@ -29,7 +29,7 @@ def test_coerce_option_handles_bool_int_none() -> None:
 
 def test_coerce_option_uses_spec_type_when_available() -> None:
     """When the spec declares list[str] / int, the parser respects it."""
-    from saas_retriever import OptionSpec
+    from pleno_dlp import OptionSpec
 
     list_opt = OptionSpec("resources", "list[str]", "test")
     assert _coerce_option("code,issues", list_opt) == ("code", "issues")

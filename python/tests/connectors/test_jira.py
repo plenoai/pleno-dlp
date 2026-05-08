@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 import pytest
 
-from saas_retriever.connectors.jira import (
+from pleno_dlp.connectors.jira import (
     JiraConnector,
     _build_jql,
     _decode_cursor,
@@ -17,11 +17,11 @@ from saas_retriever.connectors.jira import (
     _parse_iso,
     _resolve_auth,
 )
-from saas_retriever.connectors.jira_adf import adf_to_text
-from saas_retriever.connectors.jira_storage import storage_to_text
-from saas_retriever.core import SourceFilter
-from saas_retriever.credentials import Credential, CredentialMisconfiguredError
-from saas_retriever.rate_limit import RateLimited
+from pleno_dlp.connectors.jira_adf import adf_to_text
+from pleno_dlp.connectors.jira_storage import storage_to_text
+from pleno_dlp.core import SourceFilter
+from pleno_dlp.credentials import Credential, CredentialMisconfiguredError
+from pleno_dlp.rate_limit import RateLimited
 
 
 def _routes(handler_map: dict[str, Any]) -> httpx.MockTransport:

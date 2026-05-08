@@ -2,10 +2,10 @@
 
 Unified DLP scanner — secrets and PII over filesystem and SaaS content.
 Detector interface is trufflehog-compatible (Go); the SaaS source layer
+lives directly under `pleno_dlp.connectors.*` in the Python wheel
 (formerly the standalone
-[saas-retriever](https://github.com/plenoai/saas-retriever) package)
-is **vendored in-tree from py-v0.7.0** as the `saas_retriever`
-sub-package of the Python wheel.
+[saas-retriever](https://github.com/plenoai/saas-retriever) package
+— vendored in py-v0.7.0, namespace dropped in py-v0.9.0).
 
 ## Harness: pleno-dlp
 
@@ -93,3 +93,4 @@ without invoking the orchestrator.
 | 2026-05-08 | **Detector batch 40 — crosses 600-detector milestone** (15 fraud/LLM-ops/dev-tools/IoT detectors → 598 secrets total: riskified, forter, socure, agenta, kayako, customerly, jellyfish, swimlane, parabola, mailmodo, neo4jaura, portswigger, kagi, arduinocloud, particleio) + v0.37.0 tag-push | `pkg/detectors/`, `pkg/output/sarif.go` | 602 detectors (598 secret + 4 PII): fraud + LLM ops + IoT coverage, 4132 race-clean tests across 617 packages |
 | 2026-05-08 | Vendor `saas-retriever` 1.0.0 into the Python wheel as the `saas_retriever` sub-package (drops the external PyPI dep, both `pleno-dlp` and `saas-retriever` console scripts ship from one wheel, mypy-strict end-to-end across both packages) + py-v0.7.0 tag-push | `python/src/saas_retriever/`, `python/tests/saas_retriever/`, `python/pyproject.toml`, `python/CHANGELOG.md`, `python/README.md`, `CLAUDE.md` | Single source of truth for the unified DLP scanner: `pip install pleno-dlp` now pulls one distribution, 250 passing Python tests + 4132 race-clean Go tests |
 | 2026-05-08 | Spec-driven connector contract (`ConnectorSpec` / `AuthMode` / `ResourceSpec` / `OptionSpec` in `saas_retriever.core`); 7 connectors annotated; registry validates spec at register/create time; `pleno-dlp` CLI rewritten on top of spec — connector-specific flags removed, generic `--option k=v` handles every kwarg, new `describe <connector>` command renders the option sheet; `_filter_supported_kwargs` introspect hack retired; py-v0.8.0 tag-push | `python/src/saas_retriever/{core,registry}.py`, `python/src/saas_retriever/connectors/*.py`, `python/src/pleno_dlp/cli.py`, tests, README, CHANGELOG | Adding a new SaaS connector no longer requires CLI edits — author the connector with a spec, register it, ship. 257 passing Python tests, ruff + mypy strict clean |
+| 2026-05-08 | Drop the `saas_retriever` namespace — modules moved directly under `pleno_dlp` (`core`, `registry`, `credentials`, `rate_limit`, `connectors/*`); standalone `saas-retriever` console script and its CLI tests retired; `from pleno_dlp import ...` is the only public surface; py-v0.9.0 tag-push | `python/src/pleno_dlp/`, `python/tests/{,connectors/}*.py`, `python/pyproject.toml`, README, CHANGELOG | One package, one namespace, one mental model. 250 passing Python tests, ruff + mypy strict clean |
