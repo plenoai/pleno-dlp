@@ -10,7 +10,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.28.0.
+Anything merged to `main` since v0.29.0.
+
+## [0.29.0] — 2026-05-08
 
 ### Added
 
@@ -819,7 +821,8 @@ Anything merged to `main` since v0.28.0.
   Slack bot, OpenAI, Anthropic) + JSON / SARIF / table output +
   cobra `scan` CLI. 51 race-clean tests.
 
-[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.28.0...HEAD
+[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.29.0
 [0.28.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.28.0
 [0.27.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.27.0
 [0.26.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.26.0
