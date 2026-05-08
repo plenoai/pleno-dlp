@@ -760,4 +760,27 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/squarespace"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/tray"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/veriff"
+	// batch 38 — wire-stable order, never reorder. LLM ops / agent /
+	// tracing (traceloop, klu, langflow, openpipe), LLM security
+	// (lakera), KYC (footprint, vouched), e-commerce (magento,
+	// bigcommerce, faire), customer chat (tidio), data platforms
+	// (looker), translation (deepl), bug bounty (hackerone), networking
+	// (zerotier). Magento / Looker / BigCommerce keyword-anchor
+	// disambiguates broad token shapes; Faire / Vouched / Footprint use
+	// distinctive prefixes; HackerOne uses paired-credential (RawV2).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/bigcommerce"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/deepl"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/faire"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/footprint"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/hackerone"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/klu"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/lakera"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/langflow"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/looker"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/magento"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/openpipe"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/tidio"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/traceloop"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vouched"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/zerotier"
 )

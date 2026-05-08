@@ -12,6 +12,39 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.34.0.
 
+### Added
+
+- **15 more secret detectors** — batch 38 (constants 560..574):
+  Traceloop, Klu, Langflow, OpenPipe, Lakera, Footprint, Vouched,
+  Magento, BigCommerce, Faire, Tidio, Looker, DeepL, HackerOne,
+  ZeroTier. Total now **568 secret + 4 PII = 572 detectors**. LLM ops /
+  agent / tracing (Traceloop `tl_` Bearer via /v1/traces on
+  api.traceloop.com, Klu `klu_` Bearer via /v1/me on api.klu.ai,
+  Langflow `lf_` x-api-key via /api/v1/users/whoami on
+  api.langflow.astra.datastax.com, OpenPipe `opk_` Bearer via
+  /api/v1/me on api.openpipe.ai), LLM security (Lakera 32-64 alnum
+  near `lakera` keyword, Bearer via /v1/prompt_injection on
+  api.lakera.ai), KYC (Footprint `sk_test_`/`sk_live_` near `footprint`
+  keyword X-Footprint-Secret-Key via /users on api.onefootprint.com,
+  Vouched `pk_` near `vouched` keyword X-Api-Key via /api/jobs on
+  verify.vouched.id), e-commerce (Magento 32-hex near `magento` keyword
+  unverified-by-default per-store host required, BigCommerce 31-alnum
+  near `bigcommerce` keyword X-Auth-Token via /v2/store on
+  api.bigcommerce.com, Faire `fai_` X-FAIRE-ACCESS-TOKEN via
+  /external-api/v2/orders on www.faire.com), customer chat (Tidio
+  40-hex near `tidio` keyword X-Tidio-Openapi-Key via
+  /panel/openapi/contacts on api.tidio.co), data platforms (Looker
+  client_id + client_secret pair near `looker` keyword — paired
+  (RawV2), unverified-by-default per-tenant Looker host required),
+  translation (DeepL UUID + optional `:fx` suffix DeepL-Auth-Key via
+  /v2/usage on api-free.deepl.com), bug bounty (HackerOne identifier +
+  API-token pair near `hackerone` keyword — paired (RawV2), HTTP Basic
+  via /v1/users/me on api.hackerone.com), networking (ZeroTier 32-alnum
+  near `zerotier` keyword Bearer via /api/v1/status on
+  my.zerotier.com). Looker / HackerOne use paired-credential (RawV2);
+  Magento / Looker are unverified-by-default (per-tenant host
+  required).
+
 ## [0.34.0] — 2026-05-08
 
 ### Added

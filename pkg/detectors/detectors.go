@@ -903,6 +903,29 @@ const (
 	Veriff
 	IDnow
 	Squarespace
+	// batch 38 — appended in wire-stable order, never reorder. LLM ops /
+	// agent / tracing (Traceloop, Klu, Langflow, OpenPipe), LLM security
+	// (Lakera), KYC (Footprint, Vouched), e-commerce (Magento,
+	// BigCommerce, Faire), customer chat (Tidio), data platforms
+	// (Looker), translation (DeepL), bug bounty (HackerOne), networking
+	// (ZeroTier). Magento / BigCommerce / Looker use keyword-anchored
+	// UUID/token shapes; Faire / Vouched / Footprint use distinctive
+	// prefixes.
+	Traceloop
+	Klu
+	Langflow
+	OpenPipe
+	Lakera
+	Footprint
+	Vouched
+	Magento
+	BigCommerce
+	Faire
+	Tidio
+	Looker
+	DeepL
+	HackerOne
+	ZeroTier
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
