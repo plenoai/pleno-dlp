@@ -687,6 +687,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Mandiant.String():               "Mandiant Advantage API key + secret pair (32-64 alnum each) near mandiant / fireeye keyword, verified via /token (OAuth client_credentials) on api.intelligence.fireeye.com with HTTP Basic auth (Raw=key, RawV2=key:secret)",
 	detectors.AbnormalSec.String():            "Abnormal Security API token (32-64 alnum) near abnormal / abnormalsecurity keyword, verified via /v1/threats on api.abnormalplatform.com with Authorization Bearer header",
 	detectors.Ortto.String():                  "Ortto (Autopilot) marketing-automation API key (`pak_` prefix + 32-64 alnum) near ortto / autopilothq keyword, verified via /v1/person/get on api.ap3api.com with X-Api-Key header",
+	detectors.Persona.String():                "Persona (withpersona.com) KYC API key (`persona_(production|sandbox)_` prefix + alnum) verified via /api/v1/inquiries on api.withpersona.com with Authorization Bearer header",
+	detectors.Sumsub.String():                 "Sumsub KYC app token (`prd|tst|sbx:` prefix) + secret pair near sumsub keyword, verified via /resources/applicants/-/info on api.sumsub.com with HTTP Basic auth (RawV2 carries the secret)",
+	detectors.Onfido.String():                 "Onfido KYC API token (`api_(live|sandbox)_(us|eu|ca)_` prefix + alnum) verified via /v3.6/applicants on api.onfido.com with Authorization Token header",
+	detectors.Jumio.String():                  "Jumio KYC API token + secret pair near jumio / netverify keyword — unverified by design (per-data-center `<region>.netverify.com` host required), apiBase override required (RawV2 carries the secret)",
+	detectors.Trulioo.String():                "Trulioo GlobalGateway API key (32-64 alnum) near trulioo keyword, verified via /customer/v1/configuration on api.globaldatacompany.com with x-trulioo-api-key header",
+	detectors.ZeroBounce.String():             "ZeroBounce email-validation API key (32 hex) near zerobounce keyword, verified via /v2/getcredits on api.zerobounce.net with api_key query parameter",
+	detectors.MailerSend.String():             "MailerSend API token (`mlsn.` prefix + JWT-shaped suffix) verified via /v1/me on api.mailersend.com with Authorization Bearer header",
+	detectors.OpsLevel.String():               "OpsLevel API token (40-64 alnum) near opslevel keyword, verified via /graphql on api.opslevel.com with Authorization Bearer header",
+	detectors.Codemagic.String():              "Codemagic mobile-CI API token (32-64 alnum) near codemagic keyword, verified via /apps on api.codemagic.io with x-auth-token header",
+	detectors.LambdaTest.String():             "LambdaTest username + access_key pair near LT_ACCESS_KEY keyword, verified via /automation/api/v1/builds on api.lambdatest.com with HTTP Basic auth (RawV2 carries the access_key)",
+	detectors.SauceLabs.String():              "Sauce Labs username + access_key (UUID) pair near SAUCE_ACCESS_KEY keyword, verified via /rest/v1/users/{user} on api.us-west-1.saucelabs.com with HTTP Basic auth (RawV2 carries the access_key)",
+	detectors.Browserless.String():            "Browserless API token (32-64 alnum) near browserless keyword, verified via /pressure on chrome.browserless.io with token query parameter",
+	detectors.Helicone.String():               "Helicone LLM-observability API key (`sk-helicone-` prefix + alnum) verified via /v1/user/query on api.helicone.ai with Authorization Bearer header",
+	detectors.Portkey.String():                "Portkey AI-gateway API key (32-64 base64url) near portkey keyword, verified via /v1/virtual-keys on api.portkey.ai with x-portkey-api-key header",
+	detectors.Langfuse.String():               "Langfuse public + secret key pair (`pk-lf-` + `sk-lf-` UUID-shaped) verified via /api/public/projects on cloud.langfuse.com with HTTP Basic auth (RawV2 carries the secret_key)",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

@@ -694,4 +694,25 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/totango"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vertexai"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vitally"
+	// batch 35 — wire-stable order, never reorder. KYC / identity verification
+	// (persona, sumsub, onfido, jumio, trulioo), email validation (zerobounce,
+	// mailersend), DevOps / observability (opslevel), mobile CI (codemagic),
+	// browser-testing (lambdatest, saucelabs, browserless), LLM observability
+	// / AI gateway (helicone, portkey, langfuse). Sumsub / Jumio / SauceLabs /
+	// Langfuse / LambdaTest are paired-credential detectors using RawV2.
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/browserless"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/codemagic"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/helicone"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/jumio"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/lambdatest"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/langfuse"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/mailersend"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/onfido"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/opslevel"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/persona"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/portkey"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/saucelabs"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sumsub"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/trulioo"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/zerobounce"
 )

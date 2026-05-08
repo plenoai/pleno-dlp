@@ -829,6 +829,33 @@ const (
 	Mandiant
 	AbnormalSec
 	Ortto
+	// batch 35 — appended in wire-stable order, never reorder. KYC / identity
+	// verification (Persona, Sumsub, Onfido, Jumio, Trulioo), email validation
+	// (ZeroBounce, MailerSend), DevOps / observability (OpsLevel), mobile CI
+	// (Codemagic), browser-testing (LambdaTest, SauceLabs, Browserless), LLM
+	// observability / AI gateway (Helicone, Portkey, Langfuse). Sumsub /
+	// Jumio / SauceLabs / Langfuse are paired-credential detectors using
+	// RawV2 (key+secret, accountId+secret, username+access-key, public+secret).
+	// LambdaTest is also paired (username+access-key). Onfido uses
+	// `api_(live|sandbox)_us_` prefixes; Persona uses `persona_` prefix.
+	// MailerSend tokens use the `mlsn.` prefix and JWT-shaped suffix.
+	// Helicone uses `sk-helicone-` prefix; Portkey uses the `pk-` prefix
+	// near a portkey keyword to disambiguate from other `pk-` issuers.
+	Persona
+	Sumsub
+	Onfido
+	Jumio
+	Trulioo
+	ZeroBounce
+	MailerSend
+	OpsLevel
+	Codemagic
+	LambdaTest
+	SauceLabs
+	Browserless
+	Helicone
+	Portkey
+	Langfuse
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
