@@ -950,6 +950,27 @@ const (
 	VercelBlob
 	ModeAnalytics
 	PDFShift
+	// batch 40 — appended in wire-stable order, never reorder. This batch
+	// lands the 600th detector. Fraud / risk (Riskified, Forter, Socure),
+	// LLM ops (Agenta), customer support (Kayako, Customerly), eng
+	// analytics (Jellyfish), SOAR (Swimlane), workflow (Parabola), email
+	// (Mailmodo), DBaaS (Neo4jAura), security testing (PortSwigger),
+	// search (Kagi), IoT (ArduinoCloud, ParticleIO).
+	Riskified
+	Forter
+	Socure
+	Agenta
+	Kayako
+	Customerly
+	Jellyfish
+	Swimlane
+	Parabola
+	Mailmodo
+	Neo4jAura
+	PortSwigger
+	Kagi
+	ArduinoCloud
+	ParticleIO
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

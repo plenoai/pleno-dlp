@@ -762,6 +762,21 @@ var ruleDescriptions = map[string]string{
 	detectors.VercelBlob.String():             "Vercel Blob read-write token (`vercel_blob_rw_` prefix) verified via /v0 on blob.vercel-storage.com with Authorization Bearer header",
 	detectors.ModeAnalytics.String():          "Mode Analytics API token + secret pair near mode keyword — paired (RawV2 carries token:secret), verified via HTTP Basic auth on app.mode.com /api/account",
 	detectors.PDFShift.String():               "PDFShift API key near pdfshift keyword, verified via /v3/credits/usage on api.pdfshift.io with HTTP Basic auth",
+	detectors.Riskified.String():              "Riskified merchant API token near riskified keyword, verified via api.riskified.com with Authorization Bearer header",
+	detectors.Forter.String():                 "Forter fraud-prevention API key near forter keyword, verified via api.forter.com with HTTP Basic auth",
+	detectors.Socure.String():                 "Socure identity-verification API key near socure keyword, verified via api.socure.com with SocureApiKey header",
+	detectors.Agenta.String():                 "Agenta LLM-ops API key (`agenta_` prefix) verified via /api/profile on cloud.agenta.ai with Authorization Bearer header",
+	detectors.Kayako.String():                 "Kayako support API token near kayako keyword, verified via /api/v1/me on kayako.com with X-Auth-Token header",
+	detectors.Customerly.String():             "Customerly customer-service API token near customerly keyword, verified via /v1/account on api.customerly.io with Authorization Bearer header",
+	detectors.Jellyfish.String():              "Jellyfish engineering-analytics API token near jellyfish keyword, verified via /endpoints/users/me on api.jellyfish.co with X-API-Key header",
+	detectors.Swimlane.String():               "Swimlane SOAR PAT token near swimlane keyword, verified via /api/user/me on app.swimlane.com with Private-Token header",
+	detectors.Parabola.String():               "Parabola workflow API token near parabola keyword, verified via /v2/user on api.parabola.io with Authorization Bearer header",
+	detectors.Mailmodo.String():               "Mailmodo email-marketing API key near mailmodo keyword, verified via /api/v1/lists on api.mailmodo.com with mmApiKey header",
+	detectors.Neo4jAura.String():              "Neo4j Aura DBaaS API client credential near neo4j/aura keyword, verified via /v1/instances on api.neo4j.io with Authorization Bearer header",
+	detectors.PortSwigger.String():            "PortSwigger Burp Suite Enterprise API key near portswigger/burp keyword, verified by embedding the key in the API path",
+	detectors.Kagi.String():                   "Kagi search API token (`kagi_` prefix) verified via /api/v0/search on kagi.com with Authorization Bot header",
+	detectors.ArduinoCloud.String():           "Arduino IoT Cloud client credential near arduino keyword, verified via /iot/v1/users/byme on api2.arduino.cc with Authorization Bearer header",
+	detectors.ParticleIO.String():             "Particle.io IoT access token near particle keyword, verified via /v1/user on api.particle.io with Authorization Bearer header",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

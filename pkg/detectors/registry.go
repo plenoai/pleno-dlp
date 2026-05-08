@@ -1209,6 +1209,36 @@ func (t DetectorType) String() string {
 		return "ModeAnalytics"
 	case PDFShift:
 		return "PDFShift"
+	case Riskified:
+		return "Riskified"
+	case Forter:
+		return "Forter"
+	case Socure:
+		return "Socure"
+	case Agenta:
+		return "Agenta"
+	case Kayako:
+		return "Kayako"
+	case Customerly:
+		return "Customerly"
+	case Jellyfish:
+		return "Jellyfish"
+	case Swimlane:
+		return "Swimlane"
+	case Parabola:
+		return "Parabola"
+	case Mailmodo:
+		return "Mailmodo"
+	case Neo4jAura:
+		return "Neo4jAura"
+	case PortSwigger:
+		return "PortSwigger"
+	case Kagi:
+		return "Kagi"
+	case ArduinoCloud:
+		return "ArduinoCloud"
+	case ParticleIO:
+		return "ParticleIO"
 	default:
 		return "Unknown"
 	}

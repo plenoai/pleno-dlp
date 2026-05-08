@@ -806,4 +806,25 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sift"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/temporalcloud"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vercelblob"
+	// batch 40 — wire-stable order, never reorder. This batch lands the
+	// 600th detector. Fraud / risk (riskified, forter, socure), LLM ops
+	// (agenta), customer support (kayako, customerly), eng analytics
+	// (jellyfish), SOAR (swimlane), workflow (parabola), email
+	// (mailmodo), DBaaS (neo4jaura), security testing (portswigger),
+	// search (kagi), IoT (arduinocloud, particleio).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/agenta"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/arduinocloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/customerly"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/forter"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/jellyfish"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/kagi"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/kayako"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/mailmodo"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/neo4jaura"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/parabola"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/particleio"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/portswigger"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/riskified"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/socure"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/swimlane"
 )
