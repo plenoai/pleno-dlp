@@ -2,9 +2,13 @@
 
 Unified DLP scanner for SaaS content — **secrets** (trufflehog /
 gitleaks / native regex) and **PII** (delegating to
-[pleno-anonymize](https://github.com/plenoai/pleno-anonymize)) — backed
-by [saas-retriever](https://github.com/plenoai/saas-retriever) for
-API-only source collection.
+[pleno-anonymize](https://github.com/plenoai/pleno-anonymize)). The
+SaaS source layer (formerly the standalone
+[saas-retriever](https://github.com/plenoai/saas-retriever) package) is
+**vendored in-tree from 0.7.0**: `pip install pleno-dlp` pulls one
+wheel that exposes both the `pleno-dlp` and the `saas-retriever`
+console scripts and lets you `from saas_retriever import …` without any
+extra dependency.
 
 The Go binary in this repo (`cmd/pleno-dlp`) remains for filesystem-only
 scans; the Python package is the path forward for SaaS.

@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+
 from saas_retriever.core import (
     Document as ScraperDocument,
 )

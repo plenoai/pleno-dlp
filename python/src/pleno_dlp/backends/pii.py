@@ -32,9 +32,9 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
-from saas_retriever import Document
 
 from pleno_dlp.findings import Finding
+from saas_retriever import Document
 
 _DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 _DEFAULT_TIMEOUT = 30.0

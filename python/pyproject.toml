@@ -1,7 +1,7 @@
 [project]
 name = "pleno-dlp"
-version = "0.6.0"
-description = "Unified DLP scanner for SaaS sources — secret detection (trufflehog, gitleaks, native regex) plus PII detection (pleno-anonymize). API-driven content collection via saas-retriever: GitHub, GitLab, Bitbucket, Slack, Notion, Confluence, Jira."
+version = "0.7.0"
+description = "Unified DLP scanner for SaaS sources — secret detection (trufflehog, gitleaks, native regex) plus PII detection (pleno-anonymize). Bundles saas-retriever for API-driven content collection: GitHub, GitLab, Bitbucket, Slack, Notion, Confluence, Jira."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.12"
@@ -18,15 +18,13 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Security",
 ]
+# saas-retriever was a separate PyPI package up to pleno-dlp 0.6.0 and is
+# now vendored as the `saas_retriever` sub-package in this same wheel.
+# Its runtime requirements (httpx, typer, rich) are listed below.
 dependencies = [
-    "saas-retriever>=1.0.0",
+    "httpx>=0.27",
     "typer>=0.12",
     "rich>=13.9",
-    # `pii` backend posts to pleno-anonymize's /api/analyze; we depend
-    # on httpx directly rather than relying on saas-retriever's
-    # transitive pin so a future saas-retriever release that drops
-    # httpx (unlikely, but) can't silently break the PII path.
-    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -43,6 +41,7 @@ pii = []
 
 [project.scripts]
 pleno-dlp = "pleno_dlp.cli:app"
+saas-retriever = "saas_retriever.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/plenoai/pleno-dlp"
@@ -54,7 +53,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/pleno_dlp"]
+packages = ["src/pleno_dlp", "src/saas_retriever"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src", "README.md", "LICENSE", "pyproject.toml"]
@@ -68,15 +67,16 @@ select = ["E", "F", "W", "I", "B", "UP", "N", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/pleno_dlp/cli.py" = ["B008"]
+# typer's idiomatic CLI signatures rely on `typer.Option(...)` defaults.
+"src/saas_retriever/cli.py" = ["B008"]
+# tests intentionally raise broadly when the precise exception class is
+# implementation-private (typer wraps BadParameter at runtime).
+"tests/saas_retriever/test_cli.py" = ["B017"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
 warn_unused_ignores = true
-
-[[tool.mypy.overrides]]
-module = ["saas_retriever", "saas_retriever.*"]
-ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

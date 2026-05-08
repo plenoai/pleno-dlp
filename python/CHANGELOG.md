@@ -5,6 +5,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-08
+
+### Changed
+
+- **Vendored ``saas-retriever``**. Up to 0.6.0 we depended on the
+  separate ``saas-retriever`` PyPI package; from 0.7.0 the same source
+  ships inside this wheel as a sibling top-level package called
+  ``saas_retriever``. Imports such as ``from saas_retriever import
+  Connector`` keep working unchanged — the only difference is that
+  ``pip install pleno-dlp`` no longer pulls a second distribution.
+- The ``saas-retriever`` console script is exported by this package so
+  the standalone CLI remains available (``saas-retriever list-kinds``,
+  ``saas-retriever pull github --owner …``).
+- ``saas_retriever`` is now type-checked together with ``pleno_dlp``.
+  The previous ``[[tool.mypy.overrides]]`` block that suppressed missing
+  imports for ``saas_retriever.*`` has been removed; mypy strict now
+  validates both packages end-to-end.
+
+### Removed
+
+- Runtime dependency on ``saas-retriever`` from PyPI. ``httpx``, which
+  used to come transitively from saas-retriever, is still listed as a
+  direct dependency.
+
 ## [0.5.0] - 2026-05-07
 
 ### Changed
