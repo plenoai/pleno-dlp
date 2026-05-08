@@ -1029,6 +1029,36 @@ func (t DetectorType) String() string {
 		return "BeyondTrust"
 	case GainSight:
 		return "GainSight"
+	case VertexAI:
+		return "VertexAI"
+	case RekaAI:
+		return "RekaAI"
+	case AIHorde:
+		return "AIHorde"
+	case OllamaCloud:
+		return "OllamaCloud"
+	case RunwayML:
+		return "RunwayML"
+	case Planhat:
+		return "Planhat"
+	case Vitally:
+		return "Vitally"
+	case ChurnZero:
+		return "ChurnZero"
+	case Totango:
+		return "Totango"
+	case Sendoso:
+		return "Sendoso"
+	case Paystack:
+		return "Paystack"
+	case Flutterwave:
+		return "Flutterwave"
+	case Mandiant:
+		return "Mandiant"
+	case AbnormalSec:
+		return "AbnormalSec"
+	case Ortto:
+		return "Ortto"
 	default:
 		return "Unknown"
 	}
