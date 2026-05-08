@@ -12,6 +12,32 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.32.0.
 
+### Added
+
+- **15 more secret detectors** — batch 36 (constants 530..544): LangSmith,
+  Wandb, CometML, NeptuneAI, PromptLayer, ArizeAI, Hyperproof, Etsy,
+  Walmart, WooCommerce, Missiveapp, LiveChat, HelpCrunch, DenoDeploy,
+  Twingate. Total now **538 secret + 4 PII = 542 detectors**. LLM
+  observability / experiment tracking (LangSmith `lsv2_(pt|sk)_` x-api-key
+  via /info on api.smith.langchain.com, Wandb 40-hex Basic auth `api:<key>`
+  via /graphql on api.wandb.ai, CometML 32-100 alnum Authorization via
+  /api/rest/v2/account-details on www.comet.com, NeptuneAI JWT-shape
+  Bearer via /api/leaderboard/v1/me on app.neptune.ai, PromptLayer `pl_`
+  X-API-KEY via /rest/get-prompt-template on api.promptlayer.com,
+  ArizeAI 40-80 alnum Bearer via /v1/spaces on app.arize.com), compliance
+  (Hyperproof Bearer via /v1/users/me on api.hyperproof.app), e-commerce
+  (Etsy x-api-key via /v3/application/openapi-ping on api.etsy.com,
+  Walmart paired consumer-id+secret WM headers on
+  marketplace.walmartapis.com — unverified-by-default, WooCommerce
+  paired `ck_`+`cs_` Basic auth — unverified-by-default per-store host),
+  customer support / messaging (Missiveapp Bearer via /v1/users on
+  public.missiveapp.com, LiveChat `dal:` PAT Bearer via
+  /v3.5/agent/action/list_my_profiles on api.livechatinc.com, HelpCrunch
+  JWT Bearer via /v1/agents on api.helpcrunch.com), edge serverless
+  (DenoDeploy `ddp_` Bearer via /v1/users/me on api.deno.com), zero-trust
+  networking (Twingate `tk_` / `tkt_` X-API-KEY — unverified-by-default
+  per-tenant `<network>.twingate.com` host).
+
 ## [0.32.0] — 2026-05-08
 
 ### Added

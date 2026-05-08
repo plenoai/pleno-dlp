@@ -715,4 +715,27 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sumsub"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/trulioo"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/zerobounce"
+	// batch 36 — wire-stable order, never reorder. LLM observability /
+	// experiment tracking (langsmith, wandb, cometml, neptuneai,
+	// promptlayer, arizeai), compliance (hyperproof), e-commerce (etsy,
+	// walmart, woocommerce), customer support / messaging (missiveapp,
+	// livechat, helpcrunch), edge serverless (denodeploy), zero-trust
+	// networking (twingate). WooCommerce / Walmart are paired-credential
+	// (RawV2). Twingate / WooCommerce are unverified-by-default
+	// (per-tenant / per-store host required).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/arizeai"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/cometml"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/denodeploy"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/etsy"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/helpcrunch"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/hyperproof"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/langsmith"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/livechat"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/missiveapp"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/neptuneai"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/promptlayer"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/twingate"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/walmart"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/wandb"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/woocommerce"
 )

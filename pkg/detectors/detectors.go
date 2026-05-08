@@ -856,6 +856,30 @@ const (
 	Helicone
 	Portkey
 	Langfuse
+	// batch 36 — appended in wire-stable order, never reorder. LLM
+	// observability / experiment tracking (LangSmith, Wandb, CometML,
+	// NeptuneAI, PromptLayer, ArizeAI), compliance (Hyperproof),
+	// e-commerce (Etsy, Walmart, WooCommerce), customer support /
+	// messaging (Missiveapp, LiveChat, HelpCrunch), edge serverless
+	// (DenoDeploy), and zero-trust networking (Twingate). WooCommerce
+	// is paired-credential (consumer_key + consumer_secret via RawV2).
+	// Walmart / Twingate / LiveChat / HelpCrunch / Missiveapp / Etsy
+	// keyword-anchor disambiguates broad token shapes.
+	LangSmith
+	Wandb
+	CometML
+	NeptuneAI
+	PromptLayer
+	ArizeAI
+	Hyperproof
+	Etsy
+	Walmart
+	WooCommerce
+	Missiveapp
+	LiveChat
+	HelpCrunch
+	DenoDeploy
+	Twingate
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

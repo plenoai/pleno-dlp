@@ -1089,6 +1089,36 @@ func (t DetectorType) String() string {
 		return "Portkey"
 	case Langfuse:
 		return "Langfuse"
+	case LangSmith:
+		return "LangSmith"
+	case Wandb:
+		return "Wandb"
+	case CometML:
+		return "CometML"
+	case NeptuneAI:
+		return "NeptuneAI"
+	case PromptLayer:
+		return "PromptLayer"
+	case ArizeAI:
+		return "ArizeAI"
+	case Hyperproof:
+		return "Hyperproof"
+	case Etsy:
+		return "Etsy"
+	case Walmart:
+		return "Walmart"
+	case WooCommerce:
+		return "WooCommerce"
+	case Missiveapp:
+		return "Missiveapp"
+	case LiveChat:
+		return "LiveChat"
+	case HelpCrunch:
+		return "HelpCrunch"
+	case DenoDeploy:
+		return "DenoDeploy"
+	case Twingate:
+		return "Twingate"
 	default:
 		return "Unknown"
 	}

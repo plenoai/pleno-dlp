@@ -702,6 +702,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Helicone.String():               "Helicone LLM-observability API key (`sk-helicone-` prefix + alnum) verified via /v1/user/query on api.helicone.ai with Authorization Bearer header",
 	detectors.Portkey.String():                "Portkey AI-gateway API key (32-64 base64url) near portkey keyword, verified via /v1/virtual-keys on api.portkey.ai with x-portkey-api-key header",
 	detectors.Langfuse.String():               "Langfuse public + secret key pair (`pk-lf-` + `sk-lf-` UUID-shaped) verified via /api/public/projects on cloud.langfuse.com with HTTP Basic auth (RawV2 carries the secret_key)",
+	detectors.LangSmith.String():              "LangSmith API key (`lsv2_(pt|sk)_` prefix + hex segments) verified via /info on api.smith.langchain.com with x-api-key header",
+	detectors.Wandb.String():                  "Weights & Biases API key (40 hex) near wandb keyword, verified via /graphql on api.wandb.ai with HTTP Basic auth (username `api`)",
+	detectors.CometML.String():                "Comet ML API key (32-100 alnum) near comet keyword, verified via /api/rest/v2/account-details on www.comet.com with Authorization header",
+	detectors.NeptuneAI.String():              "Neptune.ai API token (JWT shape carrying api_address) near neptune keyword, verified via /api/leaderboard/v1/me on app.neptune.ai with Authorization Bearer header",
+	detectors.PromptLayer.String():            "PromptLayer API key (`pl_` prefix + hex) verified via /rest/get-prompt-template on api.promptlayer.com with X-API-KEY header",
+	detectors.ArizeAI.String():                "Arize AI ML-observability API key (40-80 alnum) near arize keyword, verified via /v1/spaces on app.arize.com with Authorization Bearer header",
+	detectors.Hyperproof.String():             "Hyperproof compliance API token (32-64 alnum) near hyperproof keyword, verified via /v1/users/me on api.hyperproof.app with Authorization Bearer header",
+	detectors.Etsy.String():                   "Etsy Open API v3 keystring (24-32 alnum) near etsy keyword, verified via /v3/application/openapi-ping on api.etsy.com with x-api-key header",
+	detectors.Walmart.String():                "Walmart Marketplace consumer-id (UUID) + secret pair near walmart keyword — paired (RawV2 carries the secret), verified via WM headers on marketplace.walmartapis.com",
+	detectors.WooCommerce.String():            "WooCommerce REST consumer key + secret (`ck_` / `cs_` + 40 hex) — unverified by design (per-store `<store>.com/wp-json/wc/v3` host required), apiBase override required (RawV2 carries the cs)",
+	detectors.Missiveapp.String():             "Missive API token (32-64 alnum) near missive keyword, verified via /v1/users on public.missiveapp.com with Authorization Bearer header",
+	detectors.LiveChat.String():               "LiveChat personal access token (`dal:` prefix + colon-separated id/secret) verified via /v3.5/agent/action/list_my_profiles on api.livechatinc.com with Authorization Bearer header",
+	detectors.HelpCrunch.String():             "HelpCrunch API token (JWT shape) near helpcrunch keyword, verified via /v1/agents on api.helpcrunch.com with Authorization Bearer header",
+	detectors.DenoDeploy.String():             "Deno Deploy personal access token (`ddp_` prefix + alnum) verified via /v1/users/me on api.deno.com with Authorization Bearer header",
+	detectors.Twingate.String():               "Twingate API token (`tk_` / `tkt_` prefix + base64url) — unverified by design (per-tenant `<network>.twingate.com` host required), apiBase override required",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
