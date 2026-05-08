@@ -12,6 +12,39 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.28.0.
 
+### Added
+
+- **15 more secret detectors** — batch 32 (constants 470..484):
+  Watsonx, Harbor, Fivetran, Airbyte, Coinbase, Bitfinex, Kraken,
+  Outreach, SalesLoft, ZoomInfo, Gigya, MoonPay, NearRPC, PolygonRPC,
+  Sproutsocial. Total now **478 secret + 4 PII = 482 detectors**.
+  AI / inference (Watsonx 44 base64url chars Bearer via
+  /v2/foundation_model_specs on api.dataplatform.cloud.ibm.com),
+  DevOps / artifact (Harbor robot-account CLI secret —
+  unverified-by-default per-deployment host required), data
+  integration (Fivetran 20+20 alnum HTTP Basic via /v1/users on
+  api.fivetran.com paired RawV2, Airbyte JWT-shaped token —
+  unverified-by-default per-deployment host required), exchanges
+  (Coinbase 32+64 alnum unsigned-bearer via /v2/user on
+  api.coinbase.com — production HMAC path 401s, mocks verify cleanly,
+  Bitfinex 43+43 alnum unsigned-bearer via /v2/auth/r/wallets on
+  api.bitfinex.com, Kraken 56+88 base64 unsigned-bearer via
+  /0/private/Balance on api.kraken.com — all three pair RawV2 with
+  the secret half), sales / CRM (Outreach 40-80 base64url Bearer via
+  /api/v2 on api.outreach.io, SalesLoft 64-hex Bearer via /v2/me on
+  api.salesloft.com, ZoomInfo JWT Bearer via /lookup on
+  api.zoominfo.com, Sproutsocial 32-64 hex Bearer via
+  /v1/metadata/client on api.sproutsocial.com), identity (Gigya
+  `_`-prefixed apiKey + 27-char base64 secret —
+  unverified-by-default per-data-center `<region>.gigya.com` host
+  required, RawV2 carries the secret), payments (MoonPay
+  `pk_(test|live)_`/`sk_(test|live)_`-prefixed Api-Key header via
+  /v3/transactions on api.moonpay.com), and Web3 RPC (NearRPC 32-64
+  alnum near pagoda/fastnear/near-rpc keyword —
+  unverified-by-default per-endpoint provider host required,
+  PolygonRPC 32-64 alnum near polygon-rpc/polygon-zkevm keyword —
+  unverified-by-default per-endpoint provider host required).
+
 ## [0.28.0] — 2026-05-08
 
 ### Added

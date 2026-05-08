@@ -625,4 +625,28 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/prismadata"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sapariba"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/travisci"
+	// batch 32 — wire-stable order, never reorder. AI / inference (watsonx),
+	// DevOps / artifact (harbor), data integration (fivetran, airbyte),
+	// exchanges (coinbase, bitfinex, kraken), sales / CRM (outreach, salesloft,
+	// zoominfo, sproutsocial), identity (gigya), payments (moonpay), and Web3
+	// RPC (nearrpc, polygonrpc). Harbor / Airbyte / NearRPC / PolygonRPC /
+	// Gigya are unverified-by-default (per-deployment / per-tenant /
+	// per-data-center / per-endpoint host required); Coinbase / Bitfinex /
+	// Kraken ship unsigned-bearer verify (production HMAC path 401s,
+	// surfacing unverified — mocks verify cleanly).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/airbyte"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/bitfinex"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/coinbase"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/fivetran"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gigya"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/harbor"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/kraken"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/moonpay"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/nearrpc"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/outreach"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/polygonrpc"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/salesloft"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sproutsocial"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/watsonx"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/zoominfo"
 )
