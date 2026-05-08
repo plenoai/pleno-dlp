@@ -746,6 +746,36 @@ const (
 	SAPAriba
 	OracleNetSuite
 	TravisCI
+	// batch 32 — appended in wire-stable order, never reorder. AI / inference
+	// (Watsonx), DevOps / artifact (Harbor), data integration (Fivetran,
+	// Airbyte), exchanges (Coinbase, Bitfinex, Kraken), sales / CRM (Outreach,
+	// SalesLoft, ZoomInfo, Sproutsocial), identity (Gigya), payments (MoonPay),
+	// and Web3 RPC (NearRPC, PolygonRPC). Kraken / Gigya are paired-credential
+	// detectors using RawV2 (api_key+api_secret). Harbor / Airbyte / NearRPC /
+	// PolygonRPC / Gigya are unverified-by-default — each requires a per-
+	// deployment / per-tenant / per-data-center / per-endpoint host that
+	// isn't in the chunk; verify only fires when an apiBase override is
+	// supplied. Watsonx tokens use the IAM `Bearer` shape; Outreach uses
+	// OAuth bearer; SalesLoft uses Bearer; ZoomInfo verifies via
+	// /authenticate. Coinbase API keys ship as paired (api_key+api_secret)
+	// but the verify path is the v2 /user endpoint with HMAC-SHA256 signing
+	// — we ship the unsigned-bearer fallback (HTTP 401 → unverified) for
+	// safety since signing is timestamp-bound and risks key drift.
+	Watsonx
+	Harbor
+	Fivetran
+	Airbyte
+	Coinbase
+	Bitfinex
+	Kraken
+	Outreach
+	SalesLoft
+	ZoomInfo
+	Gigya
+	MoonPay
+	NearRPC
+	PolygonRPC
+	Sproutsocial
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

@@ -642,6 +642,21 @@ var ruleDescriptions = map[string]string{
 	detectors.SAPAriba.String():               "SAP Ariba API key (32+ alnum) near ariba keyword — unverified by design (per-tenant `<region>.api.ariba.com` host required), apiBase override required",
 	detectors.OracleNetSuite.String():         "Oracle NetSuite OAuth token ID + secret pair (32 hex each) near netsuite keyword — unverified by design (per-account host `<account>.suitetalk.api.netsuite.com` required), apiBase override required (RawV2 carries the secret)",
 	detectors.TravisCI.String():               "Travis CI personal access token (22 alnum) near travis keyword, verified via /user on api.travis-ci.com with Authorization token header",
+	detectors.Watsonx.String():                "IBM watsonx.ai API key (44 base64url chars) near watsonx keyword, verified via /v2/foundation_model_specs on api.dataplatform.cloud.ibm.com with Authorization Bearer header",
+	detectors.Harbor.String():                 "Harbor container registry CLI secret / robot account password (16+ alnum) near harbor keyword — unverified by design (self-hosted per-deployment host required), apiBase override required",
+	detectors.Fivetran.String():               "Fivetran API key+secret pair (20 alnum each) near fivetran keyword, verified via /v1/users on api.fivetran.com with HTTP Basic auth (RawV2 carries the secret)",
+	detectors.Airbyte.String():                "Airbyte access token (JWT-shaped) near airbyte keyword — unverified by design (self-hosted vs cloud per-deployment host required), apiBase override required",
+	detectors.Coinbase.String():               "Coinbase API key+secret pair (32 alnum + 64 alnum) near coinbase keyword, unsigned-bearer verify against /v2/user on api.coinbase.com (production HMAC path 401s — mocks verify cleanly; RawV2 carries the secret)",
+	detectors.Bitfinex.String():               "Bitfinex API key+secret pair (43 alnum each) near bitfinex keyword, unsigned-bearer verify against /v2/auth/r/wallets on api.bitfinex.com (production HMAC path 401s — mocks verify cleanly; RawV2 carries the secret)",
+	detectors.Kraken.String():                 "Kraken exchange API key+secret pair (56 base64 + 88 base64) near kraken keyword, unsigned-bearer verify against /0/private/Balance on api.kraken.com (production HMAC path 401s — mocks verify cleanly; RawV2 carries the secret)",
+	detectors.Outreach.String():               "Outreach.io OAuth access token (40-80 base64url) near outreach keyword, verified via /api/v2 on api.outreach.io with Authorization Bearer header",
+	detectors.SalesLoft.String():              "Salesloft API key (64 hex chars) near salesloft keyword, verified via /v2/me on api.salesloft.com with Authorization Bearer header",
+	detectors.ZoomInfo.String():               "ZoomInfo OAuth access token (JWT-shaped) near zoominfo keyword, verified via /lookup on api.zoominfo.com with Authorization Bearer header",
+	detectors.Gigya.String():                  "SAP Customer Data Cloud (Gigya) API key+secret pair near gigya keyword — unverified by design (per-data-center `<region>.gigya.com` host required), apiBase override required (RawV2 carries the secret)",
+	detectors.MoonPay.String():                "MoonPay API key (`pk_(test|live)_` / `sk_(test|live)_` prefix + alnum) near moonpay keyword, verified via /v3/transactions on api.moonpay.com with Api-Key header",
+	detectors.NearRPC.String():                "NEAR Protocol RPC API key (32-64 alnum) near pagoda / fastnear / near-rpc keyword — unverified by design (per-endpoint provider host required), apiBase override required",
+	detectors.PolygonRPC.String():             "Polygon (PoS / zkEVM) RPC API key (32-64 alnum) near polygon-rpc / polygon-zkevm keyword — unverified by design (per-endpoint provider host required), apiBase override required",
+	detectors.Sproutsocial.String():           "Sprout Social API access token (32-64 hex) near sproutsocial keyword, verified via /v1/metadata/client on api.sproutsocial.com with Authorization Bearer header",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

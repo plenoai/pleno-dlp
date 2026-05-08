@@ -969,6 +969,36 @@ func (t DetectorType) String() string {
 		return "OracleNetSuite"
 	case TravisCI:
 		return "TravisCI"
+	case Watsonx:
+		return "Watsonx"
+	case Harbor:
+		return "Harbor"
+	case Fivetran:
+		return "Fivetran"
+	case Airbyte:
+		return "Airbyte"
+	case Coinbase:
+		return "Coinbase"
+	case Bitfinex:
+		return "Bitfinex"
+	case Kraken:
+		return "Kraken"
+	case Outreach:
+		return "Outreach"
+	case SalesLoft:
+		return "SalesLoft"
+	case ZoomInfo:
+		return "ZoomInfo"
+	case Gigya:
+		return "Gigya"
+	case MoonPay:
+		return "MoonPay"
+	case NearRPC:
+		return "NearRPC"
+	case PolygonRPC:
+		return "PolygonRPC"
+	case Sproutsocial:
+		return "Sproutsocial"
 	default:
 		return "Unknown"
 	}
