@@ -939,6 +939,36 @@ func (t DetectorType) String() string {
 		return "Workday"
 	case Qualys:
 		return "Qualys"
+	case Nebius:
+		return "Nebius"
+	case DashScope:
+		return "DashScope"
+	case ModelScope:
+		return "ModelScope"
+	case Dify:
+		return "Dify"
+	case LobeHub:
+		return "LobeHub"
+	case FusionAuth:
+		return "FusionAuth"
+	case Casdoor:
+		return "Casdoor"
+	case EdgeDBCloud:
+		return "EdgeDBCloud"
+	case PrismaData:
+		return "PrismaData"
+	case OpenSearchCloud:
+		return "OpenSearchCloud"
+	case ChromaCloud:
+		return "ChromaCloud"
+	case Biconomy:
+		return "Biconomy"
+	case SAPAriba:
+		return "SAPAriba"
+	case OracleNetSuite:
+		return "OracleNetSuite"
+	case TravisCI:
+		return "TravisCI"
 	default:
 		return "Unknown"
 	}

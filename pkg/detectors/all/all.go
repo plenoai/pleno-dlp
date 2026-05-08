@@ -602,4 +602,27 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/typesense"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/webhookrelay"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/workday"
+	// batch 31 — wire-stable order, never reorder. AI / inference (nebius,
+	// dashscope, modelscope, dify, lobehub), identity (fusionauth, casdoor),
+	// DBaaS / search / DB cloud (edgedbcloud, prismadata, opensearchcloud,
+	// chromacloud), web3 (biconomy), enterprise (sapariba, oraclenetsuite),
+	// and CI (travisci). LobeHub / FusionAuth / Casdoor / EdgeDBCloud /
+	// OpenSearchCloud / Biconomy / SAPAriba / OracleNetSuite are
+	// unverified-by-default (per-deployment / per-tenant / per-account value
+	// required).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/biconomy"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/casdoor"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/chromacloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/dashscope"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/dify"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/edgedbcloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/fusionauth"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/lobehub"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/modelscope"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/nebius"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/opensearchcloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/oraclenetsuite"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/prismadata"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sapariba"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/travisci"
 )

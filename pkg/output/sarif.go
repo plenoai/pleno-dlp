@@ -627,6 +627,21 @@ var ruleDescriptions = map[string]string{
 	detectors.June.String():                   "June.so analytics write key (32 alnum) near june keyword, verified via /sdk/track on api.june.so with HTTP Basic auth",
 	detectors.Workday.String():                "Workday OAuth bearer token (alnum) near workday keyword — unverified by design (per-tenant `<tenant>.workday.com` host required), apiBase override required",
 	detectors.Qualys.String():                 "Qualys VMDR API username + password pair near qualys keyword — unverified by design (per-region `qualysapi.<region>.qualys.com` host required), apiBase override required (RawV2 carries the password)",
+	detectors.Nebius.String():                 "Nebius AI Studio API key (`AAAA` JWT-like prefix + alnum) near nebius keyword, verified via /v1/models on api.studio.nebius.ai with Authorization Bearer header",
+	detectors.DashScope.String():              "Alibaba DashScope / Qwen API key (`sk-` prefix + 32 alnum) near dashscope keyword, verified via /api/v1/models on dashscope.aliyuncs.com with Authorization Bearer header",
+	detectors.ModelScope.String():             "ModelScope API token (`ms-` prefix + UUID) near modelscope keyword, verified via /v1/models on api-inference.modelscope.cn with Authorization Bearer header",
+	detectors.Dify.String():                   "Dify LLM ops API key (`app-` or `dataset-` prefix + 32 alnum) near dify keyword, verified via /v1/info on api.dify.ai with Authorization Bearer header",
+	detectors.LobeHub.String():                "LobeHub / LobeChat API key (`lobehub-` prefix + alnum) near lobehub keyword — unverified by design (self-hosted per-deployment host required), apiBase override required",
+	detectors.FusionAuth.String():             "FusionAuth API key (32 hex with optional dashes) near fusionauth keyword — unverified by design (per-tenant host required), apiBase override required",
+	detectors.Casdoor.String():                "Casdoor client secret (`csdr_` prefix + alnum) near casdoor keyword — unverified by design (per-deployment host required), apiBase override required",
+	detectors.EdgeDBCloud.String():            "EdgeDB Cloud secret key (`edbt_` prefix + alnum) near edgedb keyword — unverified by design (per-instance host required), apiBase override required",
+	detectors.PrismaData.String():             "Prisma Data Platform service token (`pdp_` prefix + alnum) near prisma keyword, verified via /v1/me on cloud.prisma.io with Authorization Bearer header",
+	detectors.OpenSearchCloud.String():        "OpenSearch Service / Aiven OpenSearch credentials (`os_` prefix + alnum) near opensearch keyword — unverified by design (per-domain host required), apiBase override required",
+	detectors.ChromaCloud.String():            "Chroma Cloud API key (`ck-` prefix + alnum) near chroma keyword, verified via /api/v2/auth/identity on api.trychroma.com with X-Chroma-Token header",
+	detectors.Biconomy.String():               "Biconomy paymaster API key (`pm_` prefix + alnum) near biconomy keyword — unverified by design (per-network endpoint, posting probes consumes gas), apiBase override required",
+	detectors.SAPAriba.String():               "SAP Ariba API key (32+ alnum) near ariba keyword — unverified by design (per-tenant `<region>.api.ariba.com` host required), apiBase override required",
+	detectors.OracleNetSuite.String():         "Oracle NetSuite OAuth token ID + secret pair (32 hex each) near netsuite keyword — unverified by design (per-account host `<account>.suitetalk.api.netsuite.com` required), apiBase override required (RawV2 carries the secret)",
+	detectors.TravisCI.String():               "Travis CI personal access token (22 alnum) near travis keyword, verified via /user on api.travis-ci.com with Authorization token header",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

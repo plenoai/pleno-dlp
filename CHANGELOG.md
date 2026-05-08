@@ -12,6 +12,40 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.27.0.
 
+### Added
+
+- **15 more secret detectors** — batch 31 (constants 455..469):
+  Nebius, DashScope, ModelScope, Dify, LobeHub, FusionAuth, Casdoor,
+  EdgeDBCloud, PrismaData, OpenSearchCloud, ChromaCloud, Biconomy,
+  SAPAriba, OracleNetSuite, TravisCI. Total now **463 secret + 4 PII =
+  467 detectors**. AI / inference (Nebius `AAAA`-prefixed Bearer via
+  /v1/models on api.studio.nebius.ai, DashScope / Qwen `sk-`-prefixed
+  Bearer via /api/v1/models on dashscope.aliyuncs.com, ModelScope
+  `ms-`-prefixed UUID Bearer via /v1/models on
+  api-inference.modelscope.cn, Dify `app-`/`dataset-`-prefixed Bearer
+  via /v1/info on api.dify.ai, LobeHub `lobehub-`-prefixed Bearer —
+  unverified-by-default per-deployment host required), identity
+  (FusionAuth UUID API key — unverified-by-default per-tenant host
+  required, Casdoor `csdr_`-prefixed Bearer — unverified-by-default
+  per-deployment host required), DBaaS / search / DB cloud (EdgeDBCloud
+  `edbt_`-prefixed Bearer — unverified-by-default per-instance host
+  required, PrismaData `pdp_`-prefixed Bearer via /v1/me on
+  cloud.prisma.io, OpenSearchCloud `os_`-prefixed Bearer —
+  unverified-by-default per-domain host required, ChromaCloud
+  `ck-`-prefixed X-Chroma-Token via /api/v2/auth/identity on
+  api.trychroma.com), web3 (Biconomy `pm_`-prefixed paymaster key —
+  unverified-by-default per-network endpoint required), enterprise
+  (SAPAriba 32+ alnum apiKey header — unverified-by-default per-tenant
+  host required, OracleNetSuite OAuth1 token ID + secret pair —
+  unverified-by-default per-account host required, RawV2 carries the
+  secret), and CI (TravisCI 22 alnum `Authorization: token` via /user
+  on api.travis-ci.com). Eight detectors are unverified-by-default
+  (LobeHub, FusionAuth, Casdoor, EdgeDBCloud, OpenSearchCloud,
+  Biconomy, SAPAriba, OracleNetSuite) — each requires a per-deployment
+  / per-tenant / per-account value not present in the chunk; verify
+  only fires when an apiBase override is supplied. OracleNetSuite uses
+  `RawV2` to surface the paired token secret.
+
 ## [0.27.0] — 2026-05-08
 
 ### Added
