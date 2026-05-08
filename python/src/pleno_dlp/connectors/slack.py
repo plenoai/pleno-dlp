@@ -95,7 +95,7 @@ class SlackConnector:
             OptionSpec("base_url", "url", "Slack API base URL.", default="https://slack.com/api"),
             OptionSpec("source_id", "str", "Override the synthesized source id."),
         ),
-        capabilities=Capabilities(incremental=True, max_concurrent_fetches=4),
+        runtime=Capabilities(incremental=True, max_concurrent_fetches=4),
         docs_url="https://api.slack.com/methods",
     )
 

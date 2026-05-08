@@ -57,6 +57,7 @@ import httpx
 from pleno_dlp.core import (
     AuthMode,
     Capabilities,
+    Capability,
     ConnectorSpec,
     Document,
     DocumentRef,
@@ -64,6 +65,8 @@ from pleno_dlp.core import (
     Principal,
     ResourceSpec,
     SourceFilter,
+    VerifyResult,
+    VerifyStatus,
 )
 from pleno_dlp.registry import registry
 
@@ -88,6 +91,7 @@ class GitHubConnector:
         name="github",
         kind="github",
         summary="GitHub repos, issues, and pull requests via the REST API.",
+        capabilities=frozenset({Capability.SOURCE, Capability.VERIFY}),
         auth_modes=(AuthMode.PAT, AuthMode.NONE),
         resources=(
             ResourceSpec("code", "Every blob in the default branch."),
@@ -95,7 +99,12 @@ class GitHubConnector:
             ResourceSpec("prs", "Pull request threads, review comments, and unified diff."),
         ),
         options=(
-            OptionSpec("owner", "str", "GitHub org or user.", required=True, cli_flag="--owner"),
+            OptionSpec(
+                "owner",
+                "str",
+                "GitHub org or user. Required for `scan`; optional for `verify`.",
+                cli_flag="--owner",
+            ),
             OptionSpec("repo", "str", "Single repo (omit to enumerate every repo under owner).", cli_flag="--repo"),
             OptionSpec(
                 "token",
@@ -111,14 +120,14 @@ class GitHubConnector:
             OptionSpec("max_items_per_repo", "int", "Cap on issues+PRs per repo.", default=1000),
             OptionSpec("source_id", "str", "Override the synthesized source id."),
         ),
-        capabilities=Capabilities(incremental=True, max_concurrent_fetches=8),
+        runtime=Capabilities(incremental=True, max_concurrent_fetches=8),
         docs_url="https://docs.github.com/en/rest",
     )
 
     def __init__(
         self,
         *,
-        owner: str,
+        owner: str | None = None,
         repo: str | None = None,
         token: str | None = None,
         resources: Iterable[str] | None = None,
@@ -130,7 +139,7 @@ class GitHubConnector:
         timeout: float = _DEFAULT_TIMEOUT,
         source_id: str | None = None,
     ) -> None:
-        self.owner = owner
+        self.owner = owner or ""
         self.repo = repo
         self.token = token if token is not None else _resolve_token()
         chosen = frozenset(resources) if resources is not None else DEFAULT_RESOURCES
@@ -142,7 +151,7 @@ class GitHubConnector:
         self.include_archived = include_archived
         self.max_repos = max_repos
         self.max_items_per_repo = max_items_per_repo
-        scope = f"{owner}/{repo}" if repo else owner
+        scope = f"{self.owner}/{repo}" if repo else (self.owner or "_")
         self.id = source_id or f"github:{scope}"
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
@@ -158,6 +167,11 @@ class GitHubConnector:
         filter: SourceFilter,
         cursor: str | None = None,
     ) -> AsyncIterator[DocumentRef]:
+        if not self.owner:
+            raise ValueError(
+                "github connector requires `owner` to discover repos. "
+                "Pass --option owner=… (only `verify` works without it)."
+            )
         repos = await self._list_repos()
         for repo_info in repos:
             owner = repo_info["owner"]["login"]
@@ -204,6 +218,54 @@ class GitHubConnector:
 
     async def close(self) -> None:
         await self._client.aclose()
+
+    # --- verify ----------------------------------------------------------
+
+    async def verify(self, secret: str) -> VerifyResult:
+        """Probe ``GET /user`` with the secret as a Bearer token.
+
+        Mapping:
+        * ``200`` → LIVE; the JSON body's ``login`` becomes
+          ``actor['login']`` so a Verifier UI can surface "this token
+          belongs to alice".
+        * ``401`` → REVOKED. GitHub returns 401 for both invalid and
+          revoked tokens — operationally equivalent for our purposes.
+        * Anything else (network, 5xx, 403 sso-enforced) → UNKNOWN with
+          the response detail in ``detail``.
+        """
+        # Use a one-shot client tied to the secret so we never reuse the
+        # connector's own httpx session (which may carry a different
+        # Authorization). The base_url honours the connector's
+        # configuration so GHES verifies against the right host.
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=_DEFAULT_TIMEOUT) as client:
+            try:
+                resp = await client.get(
+                    "/user",
+                    headers={
+                        "Authorization": f"Bearer {secret}",
+                        "Accept": "application/vnd.github+json",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                )
+            except httpx.RequestError as exc:
+                return VerifyResult(status=VerifyStatus.UNKNOWN, detail=f"network: {exc!r}")
+        if resp.status_code == 200:
+            payload = resp.json()
+            actor: dict[str, str] = {}
+            if isinstance(payload, dict):
+                login = payload.get("login")
+                if isinstance(login, str):
+                    actor["login"] = login
+                acct_id = payload.get("id")
+                if isinstance(acct_id, int):
+                    actor["account_id"] = str(acct_id)
+            return VerifyResult(status=VerifyStatus.LIVE, actor=actor)
+        if resp.status_code == 401:
+            return VerifyResult(status=VerifyStatus.REVOKED, detail=resp.text[:200] or None)
+        return VerifyResult(
+            status=VerifyStatus.UNKNOWN,
+            detail=f"HTTP {resp.status_code}: {resp.text[:200]}",
+        )
 
     # --- repo enumeration ------------------------------------------------
 

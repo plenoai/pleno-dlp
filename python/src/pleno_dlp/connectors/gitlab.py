@@ -125,7 +125,7 @@ class GitlabConnector:
             OptionSpec("max_items_per_project", "int", "Cap on issues+MRs per project.", default=1000),
             OptionSpec("source_id", "str", "Override the synthesized source id."),
         ),
-        capabilities=Capabilities(incremental=True, max_concurrent_fetches=8),
+        runtime=Capabilities(incremental=True, max_concurrent_fetches=8),
         docs_url="https://docs.gitlab.com/ee/api/",
     )
 

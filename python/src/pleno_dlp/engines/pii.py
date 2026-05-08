@@ -1,4 +1,4 @@
-"""PII detection backend — delegates to pleno-anonymize's HTTP API.
+"""PII detection engine — delegates to pleno-anonymize's HTTP API.
 
 Strategy: every Document.text is POSTed to ``{base_url}/api/analyze``.
 The response is a list of Presidio ``RecognizerResult`` shaped dicts:
@@ -19,7 +19,7 @@ The user runs the anonymize server locally (``docker compose up`` from
 ``--pii-base-url`` at it, or installs the optional ``pleno-dlp[pii]``
 extra which pulls the in-process library version.
 
-Concurrency: one ``httpx.AsyncClient`` per backend instance. The
+Concurrency: one ``httpx.AsyncClient`` per engine instance. The
 pipeline calls ``scan()`` serially per document but issues one HTTP
 request per call — the underlying HTTP/2 multiplexing absorbs that
 fine. The client is closed in ``aclose()``; the pipeline calls it once
@@ -29,27 +29,20 @@ at end-of-scan.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any, ClassVar
+from typing import Any
 
 import httpx
 
-from pleno_dlp.core import (
-    AuthMode,
-    ConnectorRole,
-    ConnectorSpec,
-    Document,
-    OptionSpec,
-)
+from pleno_dlp.core import Document
 from pleno_dlp.findings import Finding
-from pleno_dlp.registry import registry
 
 _DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 _DEFAULT_TIMEOUT = 30.0
 _DEFAULT_LANGUAGE = "ja"
 
 
-class PiiDetector:
-    """Detector that delegates PII analysis to pleno-anonymize.
+class PiiEngine:
+    """Engine that delegates PII analysis to pleno-anonymize.
 
     The API is documented at
     https://github.com/plenoai/pleno-anonymize/blob/main/server/src/app.py
@@ -58,33 +51,6 @@ class PiiDetector:
     """
 
     name = "pii"
-    spec: ClassVar[ConnectorSpec] = ConnectorSpec(
-        name="pii",
-        kind="pii",
-        summary="PII analyser delegating to pleno-anonymize's /api/analyze.",
-        role=ConnectorRole.DETECTOR,
-        auth_modes=(AuthMode.NONE,),
-        options=(
-            OptionSpec(
-                "base_url",
-                "url",
-                "pleno-anonymize server URL.",
-                default="http://127.0.0.1:8000",
-                cli_flag="--pii-base-url",
-            ),
-            OptionSpec(
-                "language",
-                "str",
-                "Recognizer language hint.",
-                default="ja",
-                choices=("ja", "en"),
-                cli_flag="--pii-language",
-            ),
-            OptionSpec("entities", "list[str]", "Restrict to these Presidio entity types.", default=None),
-            OptionSpec("timeout", "int", "HTTP timeout in seconds.", default=30),
-        ),
-        docs_url="https://github.com/plenoai/pleno-anonymize",
-    )
 
     def __init__(
         self,
@@ -175,6 +141,3 @@ class PiiDetector:
         if self._owned_client and self._client is not None:
             await self._client.aclose()
             self._client = None
-
-
-registry.register("pii", PiiDetector)

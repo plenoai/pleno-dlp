@@ -112,7 +112,7 @@ class ConfluenceConnector:
             OptionSpec("source_id", "str", "Override the synthesized source id."),
             OptionSpec("tenant_id", "str", "Tenant id for multi-tenant orchestration."),
         ),
-        capabilities=Capabilities(incremental=True, max_concurrent_fetches=4),
+        runtime=Capabilities(incremental=True, max_concurrent_fetches=4),
         docs_url="https://developer.atlassian.com/cloud/confluence/rest/v1/intro/",
     )
 

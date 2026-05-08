@@ -1,8 +1,8 @@
 """CLI tests for the generic --option/-o pass-through.
 
 Exercises ``_coerce_option`` and verifies that ``list`` lists every
-shipped connector (sources + detectors). Doesn't run a full scan — the
-pipeline path is covered by ``test_pipeline.py``.
+shipped SaaS connector and every detection engine. Doesn't run a full
+scan — the pipeline path is covered by ``test_pipeline.py``.
 """
 
 from __future__ import annotations
@@ -39,11 +39,10 @@ def test_coerce_option_uses_spec_type_when_available() -> None:
     assert _coerce_option("500", int_opt) == 500
 
 
-def test_list_includes_every_kind() -> None:
+def test_list_includes_every_saas_connector_and_engine() -> None:
     result = runner.invoke(app, ["list"])
     assert result.exit_code == 0, result.output
-    for kind in (
-        # sources
+    for connector in (
         "github",
         "gitlab",
         "bitbucket",
@@ -51,25 +50,18 @@ def test_list_includes_every_kind() -> None:
         "confluence",
         "jira",
         "slack",
-        # detectors
-        "native",
-        "trufflehog",
-        "gitleaks",
-        "pii",
     ):
-        assert kind in result.output
+        assert connector in result.output
+    for engine in ("native", "trufflehog", "gitleaks", "pii"):
+        assert engine in result.output
 
 
-def test_list_role_filter() -> None:
-    sources_only = runner.invoke(app, ["list", "--role", "source"])
-    assert sources_only.exit_code == 0, sources_only.output
-    assert "github" in sources_only.output
-    assert "trufflehog" not in sources_only.output
-
-    detectors_only = runner.invoke(app, ["list", "--role", "detector"])
-    assert detectors_only.exit_code == 0, detectors_only.output
-    assert "trufflehog" in detectors_only.output
-    assert "github" not in detectors_only.output
+def test_list_capability_filter_verify() -> None:
+    """github advertises VERIFY; the others do not."""
+    result = runner.invoke(app, ["list", "--capability", "verify"])
+    assert result.exit_code == 0, result.output
+    assert "github" in result.output
+    assert "slack" not in result.output
 
 
 def test_scan_rejects_malformed_option() -> None:
@@ -91,19 +83,21 @@ def test_scan_rejects_unknown_kwarg() -> None:
     assert "unexpected kwargs" in result.output
 
 
-def test_describe_source_renders_options_table() -> None:
+def test_scan_rejects_unknown_engine() -> None:
+    result = runner.invoke(
+        app,
+        ["scan", "github", "--option", "owner=plenoai", "--engine", "bogus"],
+    )
+    assert result.exit_code == 2
+    assert "unknown engine" in result.output
+
+
+def test_describe_connector_renders_options_table() -> None:
     result = runner.invoke(app, ["describe", "github"])
     assert result.exit_code == 0
     assert "owner" in result.output
     assert "code" in result.output
     assert "source" in result.output
-
-
-def test_describe_detector_renders_role() -> None:
-    result = runner.invoke(app, ["describe", "trufflehog"])
-    assert result.exit_code == 0
-    assert "trufflehog" in result.output
-    assert "detector" in result.output
 
 
 def test_describe_unknown_connector_exits_2() -> None:
@@ -115,6 +109,18 @@ def test_scan_rejects_unknown_connector() -> None:
     result = runner.invoke(app, ["scan", "salesforce"])
     assert result.exit_code == 2
     assert "unknown connector" in result.output
+
+
+def test_verify_unknown_connector_exits_2() -> None:
+    result = runner.invoke(app, ["verify", "salesforce", "--token", "x"])
+    assert result.exit_code == 2
+
+
+def test_verify_rejects_connector_without_capability() -> None:
+    """slack does not yet implement VERIFY — must fail loud, not silently."""
+    result = runner.invoke(app, ["verify", "slack", "--token", "x"])
+    assert result.exit_code == 2
+    assert "Capability.VERIFY" in result.output
 
 
 @pytest.mark.parametrize(
@@ -130,7 +136,4 @@ def test_every_connector_is_addressable(kind: str) -> None:
     bridge wired the kind through.
     """
     result = runner.invoke(app, ["scan", kind])
-    # Either a 0/1/2 from the pipeline (fully wired) or a non-zero
-    # surfaced from the factory (missing required kwargs). What we
-    # explicitly do NOT want is the "unknown connector" string.
     assert "unknown connector" not in result.output

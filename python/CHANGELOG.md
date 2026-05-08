@@ -5,6 +5,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-05-08
+
+### Changed
+
+- **Connectors are SaaS-unit again.** A connector now models a single
+  provider (github, gitlab, bitbucket, slack, notion, confluence, jira)
+  and *uses* the detection engines internally — it is no longer the
+  case that ``trufflehog``/``gitleaks``/``native``/``pii`` are
+  registered as connectors. Detection engines live under
+  ``pleno_dlp.engines`` and are picked with ``--engine``.
+- ``ConnectorSpec.role`` (single value) was replaced with
+  ``ConnectorSpec.capabilities`` (frozenset of ``Capability``).
+  ``Capability.SOURCE`` is the baseline; ``VERIFY`` and ``REVOKE`` mark
+  optional secret-lifecycle extras.
+- ``Pipeline`` constructor takes ``engine=`` (was ``detector=``).
+- ``ConnectorSpec``'s old ``capabilities=Capabilities(...)`` field
+  was renamed to ``runtime=`` so the spec-level ``capabilities`` slot
+  could host the new ``frozenset[Capability]``.
+- ``--detector`` flag on ``scan`` is now ``--engine``.
+  ``--detector-option`` removed in favour of ``--pii-base-url`` /
+  ``--pii-language`` for the only engine with overrides.
+
+### Added
+
+- ``Verifier`` and ``Revoker`` Protocols in ``pleno_dlp.core``, plus
+  ``VerifyResult`` / ``VerifyStatus`` and ``RevokeResult`` /
+  ``RevokeStatus`` return types.
+- ``Engine`` Protocol describing the text-to-Findings contract for
+  ``pleno_dlp.engines.*``.
+- ``pleno-dlp verify <connector> --token …`` — confirms a leaked
+  credential is still live against the provider. github implements it
+  via ``GET /user``; other connectors will follow.
+- ``Capability.VERIFY`` on the github connector spec.
+- ``pleno-dlp list --capability {source,verify,revoke}`` filters
+  connectors by advertised capability.
+
+### Removed
+
+- ``ConnectorRole`` enum and ``Detector`` Protocol from
+  ``pleno_dlp.core``. Detection scanners are no longer connectors.
+- ``registry.sources()`` / ``registry.detectors()`` helpers and the
+  ``role=`` filter on ``names()`` / ``specs()``. Use
+  ``capability=Capability.SOURCE`` instead.
+- ``pleno-dlp list --role`` flag. Use ``--capability`` instead.
+
 ## [0.10.0] - 2026-05-08
 
 ### Changed

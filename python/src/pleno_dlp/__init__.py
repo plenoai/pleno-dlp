@@ -3,26 +3,30 @@
 Public surface:
 
 * ``Document``, ``DocumentChunk``, ``DocumentRef``, ``Connector``,
-  ``Detector``, ``IncrementalConnector``, ``Principal``,
-  ``SourceFilter``, ``Capabilities``, ``Cursor``, ``Subsource``,
-  ``SUBSOURCE_METADATA_KEY`` — the runtime contracts every connector
-  honours. ``Connector`` is the source-role contract;
-  ``Detector`` is the detector-role contract.
-* ``ConnectorSpec``, ``ConnectorRole``, ``AuthMode``, ``ResourceSpec``,
-  ``OptionSpec`` — the declarative contract each connector class
-  exposes as ``spec``. Drives CLI ``--help`` generation, the docs
-  matrix, and registry validation.
+  ``IncrementalConnector``, ``Verifier``, ``Revoker``, ``Engine``,
+  ``Principal``, ``SourceFilter``, ``Capabilities``, ``Cursor``,
+  ``Subsource``, ``SUBSOURCE_METADATA_KEY`` — runtime contracts.
+  ``Connector`` is the SaaS-source contract; ``Verifier`` / ``Revoker``
+  are optional secret-lifecycle extras a connector may implement;
+  ``Engine`` is the text-scanner contract for ``pleno_dlp.engines``.
+* ``ConnectorSpec``, ``Capability``, ``AuthMode``, ``ResourceSpec``,
+  ``OptionSpec``, ``VerifyResult``, ``VerifyStatus``, ``RevokeResult``,
+  ``RevokeStatus`` — the declarative contract each connector class
+  exposes as ``spec`` and the result types for the lifecycle
+  protocols. Drives CLI ``--help`` generation, the docs matrix, and
+  registry validation.
 * ``Credential``, ``CredentialError``, ``CredentialNotFoundError``,
   ``CredentialMisconfiguredError`` — credential bundle (provider-
   specific payload) connectors take via constructor.
 * ``BucketKey``, ``RateLimited``, ``AdaptiveTokenBucket``,
   ``GlobalRateLimiter`` — adaptive AIMD rate limiter primitives.
-* ``registry`` — name → factory mapping spanning both source and
-  detector connectors. Importing this package populates the registry
-  with every built-in connector.
+* ``registry`` — name → factory mapping for SaaS source connectors.
+  Importing this package populates the registry with every built-in
+  connector. Detection engines (regex / trufflehog / gitleaks / pii)
+  do *not* live here — instantiate them directly from
+  ``pleno_dlp.engines``.
 * ``Finding`` — wire-format struct for one detection (secret or PII).
-* ``Pipeline`` — wires a source connector to a detector connector and
-  a sink.
+* ``Pipeline`` — wires a source connector to an engine and a sink.
 """
 
 from pleno_dlp import connectors as _connectors  # noqa: F401  registry side-effect
@@ -30,20 +34,26 @@ from pleno_dlp.core import (
     SUBSOURCE_METADATA_KEY,
     AuthMode,
     Capabilities,
+    Capability,
     Connector,
-    ConnectorRole,
     ConnectorSpec,
     Cursor,
-    Detector,
     Document,
     DocumentChunk,
     DocumentRef,
+    Engine,
     IncrementalConnector,
     OptionSpec,
     Principal,
     ResourceSpec,
+    Revoker,
+    RevokeResult,
+    RevokeStatus,
     SourceFilter,
     Subsource,
+    Verifier,
+    VerifyResult,
+    VerifyStatus,
 )
 from pleno_dlp.credentials import (
     Credential,
@@ -67,18 +77,18 @@ __all__ = [
     "AuthMode",
     "BucketKey",
     "Capabilities",
+    "Capability",
     "Connector",
-    "ConnectorRole",
     "ConnectorSpec",
     "Credential",
     "CredentialError",
     "CredentialMisconfiguredError",
     "CredentialNotFoundError",
     "Cursor",
-    "Detector",
     "Document",
     "DocumentChunk",
     "DocumentRef",
+    "Engine",
     "Finding",
     "GlobalRateLimiter",
     "IncrementalConnector",
@@ -87,8 +97,14 @@ __all__ = [
     "Principal",
     "RateLimited",
     "ResourceSpec",
+    "RevokeResult",
+    "RevokeStatus",
+    "Revoker",
     "SourceFilter",
     "Subsource",
+    "Verifier",
+    "VerifyResult",
+    "VerifyStatus",
     "registry",
 ]
-__version__ = "0.10.0"
+__version__ = "0.11.0"

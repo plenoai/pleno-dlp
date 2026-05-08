@@ -89,7 +89,7 @@ class NotionConnector:
             OptionSpec("max_concurrent_fetches", "int", "Override concurrency cap.", default=3),
             OptionSpec("source_id", "str", "Override the synthesized source id."),
         ),
-        capabilities=Capabilities(incremental=False, max_concurrent_fetches=3),
+        runtime=Capabilities(incremental=False, max_concurrent_fetches=3),
         docs_url="https://developers.notion.com/reference",
     )
 

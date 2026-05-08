@@ -123,7 +123,7 @@ class JiraConnector:
             OptionSpec("include_attachments", "bool", "Surface attachment URL refs.", default=True),
             OptionSpec("source_id", "str", "Override the synthesized source id."),
         ),
-        capabilities=Capabilities(incremental=True, max_concurrent_fetches=4),
+        runtime=Capabilities(incremental=True, max_concurrent_fetches=4),
         docs_url="https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/",
     )
 
