@@ -5,6 +5,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-05-08
+
+### Changed
+
+- **Dropped the `saas_retriever` namespace.** The vendored modules
+  (`core`, `registry`, `credentials`, `rate_limit`, `connectors/*`)
+  now live directly under `pleno_dlp`. Connectors are reachable as
+  `pleno_dlp.connectors.<name>`; public types as
+  `pleno_dlp.{Document, Connector, ConnectorSpec, ...}`. There is one
+  package, one namespace, one mental model.
+- The standalone `saas-retriever` console script is gone. All
+  workflows go through `pleno-dlp`. Internal modules import via
+  `from pleno_dlp.core import ...` (avoids a circular re-export).
+- Test layout: `tests/connectors/test_<name>.py` for the 7 connector
+  test modules; `tests/test_{core,registry,credentials,rate_limit,
+  capabilities}.py` for the shared primitives. The vendored
+  `tests/saas_retriever/test_cli.py` was removed alongside the
+  standalone CLI.
+
+### Migration
+
+```diff
+-from saas_retriever import Document, Connector, registry
+-from saas_retriever.connectors.github import GitHubConnector
++from pleno_dlp import Document, Connector, registry
++from pleno_dlp.connectors.github import GitHubConnector
+```
+
+If you only ever used `pleno-dlp` (the CLI) you don't need to change
+anything — it kept working through the rename.
+
 ## [0.8.0] - 2026-05-08
 
 ### Changed

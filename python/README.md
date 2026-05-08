@@ -3,12 +3,9 @@
 Unified DLP scanner for SaaS content — **secrets** (trufflehog /
 gitleaks / native regex) and **PII** (delegating to
 [pleno-anonymize](https://github.com/plenoai/pleno-anonymize)). The
-SaaS source layer (formerly the standalone
-[saas-retriever](https://github.com/plenoai/saas-retriever) package) is
-**vendored in-tree from 0.7.0**: `pip install pleno-dlp` pulls one
-wheel that exposes both the `pleno-dlp` and the `saas-retriever`
-console scripts and lets you `from saas_retriever import …` without any
-extra dependency.
+SaaS source layer is bundled directly under
+`pleno_dlp.connectors.*` (from 0.9.0); `pip install pleno-dlp` pulls
+one wheel exposing one console script (`pleno-dlp`).
 
 The Go binary in this repo (`cmd/pleno-dlp`) remains for filesystem-only
 scans; the Python package is the path forward for SaaS.
@@ -82,7 +79,7 @@ Run `pleno-dlp list-connectors` for the live list and
 
 ### Adding a new SaaS connector
 
-1. Create `python/src/saas_retriever/connectors/<name>.py`.
+1. Create `python/src/pleno_dlp/connectors/<name>.py`.
 2. Implement the `Connector` protocol (`discover`, `fetch`,
    `discover_and_fetch`, `capabilities`, `close`). Keep one
    `httpx.AsyncClient` per instance.
@@ -92,9 +89,9 @@ Run `pleno-dlp list-connectors` for the live list and
    `capabilities`. The registry rejects registration without a
    matching spec.
 4. End the module with `registry.register("<name>", <Class>)`.
-5. Wire the import in `connectors/__init__.py` so
-   `import saas_retriever` populates the registry.
-6. Add fixtures + tests under `python/tests/saas_retriever/test_<name>.py`
+5. Wire the import in `pleno_dlp/connectors/__init__.py` so
+   `import pleno_dlp` populates the registry.
+6. Add fixtures + tests under `python/tests/connectors/test_<name>.py`
    using `httpx.MockTransport`.
 
 Once the spec lands, `pleno-dlp scan <name>` and

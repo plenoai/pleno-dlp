@@ -17,9 +17,9 @@ from typing import Any
 import httpx
 import pytest
 
+from pleno_dlp import Document, DocumentRef
 from pleno_dlp.backends.pii import PiiBackend
 from pleno_dlp.findings import Finding
-from saas_retriever import Document, DocumentRef
 
 
 def _doc(text: str) -> Document:

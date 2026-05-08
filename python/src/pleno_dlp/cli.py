@@ -33,11 +33,10 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from pleno_dlp import __version__, backends, output
+from pleno_dlp import ConnectorSpec, OptionSpec, SourceFilter, __version__, backends, output
+from pleno_dlp import connectors as _connectors  # noqa: F401  registry side-effect
 from pleno_dlp.pipeline import Pipeline
-from saas_retriever import ConnectorSpec, OptionSpec, SourceFilter
-from saas_retriever import connectors as _connectors  # noqa: F401  registry side-effect
-from saas_retriever.registry import registry
+from pleno_dlp.registry import registry
 
 app = typer.Typer(
     name="pleno-dlp",

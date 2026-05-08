@@ -2,7 +2,7 @@
 
 Why this file exists: saas-retriever and pleno-anonymize both speak a
 ``Document`` / ``DocumentRef`` / ``Principal`` / ``SourceFilter`` shape
-that was deliberately kept field-compatible. A ``saas_retriever.Document``
+that was deliberately kept field-compatible. A ``pleno_dlp.Document``
 can be translated into a ``pleno_pii_scanner.sources.base.Document`` with
 a one-line field copy — no schema migration, no JSON round-trip.
 
@@ -26,11 +26,11 @@ import sys
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
-from saas_retriever import BrowserSession
-from saas_retriever import SourceFilter as ScraperFilter
-from saas_retriever import connectors as _connectors  # noqa: F401  registry side-effect
-from saas_retriever.core import Document as ScraperDocument
-from saas_retriever.registry import registry
+from pleno_dlp import BrowserSession
+from pleno_dlp import SourceFilter as ScraperFilter
+from pleno_dlp import connectors as _connectors  # noqa: F401  registry side-effect
+from pleno_dlp.core import Document as ScraperDocument
+from pleno_dlp.registry import registry
 
 if TYPE_CHECKING:
     # Imported lazily inside the function body so this example file remains
@@ -145,7 +145,7 @@ class SaasScraperAdapter:
         self,
         ref: PiiDocumentRef,
     ) -> AsyncIterator[PiiDocument]:
-        from saas_retriever.core import DocumentRef as ScraperDocumentRef
+        from pleno_dlp.core import DocumentRef as ScraperDocumentRef
 
         scraper_ref = ScraperDocumentRef(
             source_id=ref.source_id,

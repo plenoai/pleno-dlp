@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 import pytest
 
-from saas_retriever.connectors.gitlab import (
+from pleno_dlp.connectors.gitlab import (
     DEFAULT_BASE_URL,
     DEFAULT_RESOURCES,
     GitlabAuthMode,
@@ -23,8 +23,8 @@ from saas_retriever.connectors.gitlab import (
     _principal,
     _resolve_credential,
 )
-from saas_retriever.core import DocumentRef, SourceFilter
-from saas_retriever.credentials import Credential, CredentialMisconfiguredError
+from pleno_dlp.core import DocumentRef, SourceFilter
+from pleno_dlp.credentials import Credential, CredentialMisconfiguredError
 
 
 def _routes(handler_map: dict[str, Any]) -> httpx.MockTransport:
@@ -465,4 +465,4 @@ async def test_fetch_mr_concatenates_diff_pages() -> None:
 # Late import: only pulled in the rate-limit tests above. Keeps the
 # module-level imports tidy at top while letting the asyncio tests
 # reference the symbol.
-from saas_retriever.rate_limit import RateLimited  # noqa: E402
+from pleno_dlp.rate_limit import RateLimited  # noqa: E402

@@ -37,9 +37,9 @@ from typing import Any, ClassVar, Literal
 
 import httpx
 
-from saas_retriever.connectors.jira_adf import adf_to_text
-from saas_retriever.connectors.jira_storage import storage_to_text
-from saas_retriever.core import (
+from pleno_dlp.connectors.jira_adf import adf_to_text
+from pleno_dlp.connectors.jira_storage import storage_to_text
+from pleno_dlp.core import (
     AuthMode,
     Capabilities,
     ConnectorSpec,
@@ -49,9 +49,9 @@ from saas_retriever.core import (
     ResourceSpec,
     SourceFilter,
 )
-from saas_retriever.credentials import Credential, CredentialMisconfiguredError
-from saas_retriever.rate_limit import RateLimited
-from saas_retriever.registry import registry
+from pleno_dlp.credentials import Credential, CredentialMisconfiguredError
+from pleno_dlp.rate_limit import RateLimited
+from pleno_dlp.registry import registry
 
 Flavor = Literal["cloud", "datacenter"]
 

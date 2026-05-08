@@ -19,8 +19,8 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
+from pleno_dlp.core import Document
 from pleno_dlp.findings import Finding
-from saas_retriever import Document
 
 
 class TrufflehogBackend:

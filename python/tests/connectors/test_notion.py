@@ -11,22 +11,22 @@ from typing import Any
 import httpx
 import pytest
 
-from saas_retriever.connectors.notion import (
+from pleno_dlp.connectors.notion import (
     NOTION_VERSION,
     NotionConnector,
     _parent_uri,
     _parse_iso,
 )
-from saas_retriever.connectors.notion_markdown import (
+from pleno_dlp.connectors.notion_markdown import (
     DEPTH_TRUNCATED_MARKER,
     MAX_DEPTH,
     render_blocks,
     render_database_row,
     render_rich_text,
 )
-from saas_retriever.core import DocumentRef, SourceFilter
-from saas_retriever.credentials import Credential, CredentialMisconfiguredError
-from saas_retriever.rate_limit import RateLimited
+from pleno_dlp.core import DocumentRef, SourceFilter
+from pleno_dlp.credentials import Credential, CredentialMisconfiguredError
+from pleno_dlp.rate_limit import RateLimited
 
 
 def _routes(handler_map: dict[str, Any]) -> httpx.MockTransport:

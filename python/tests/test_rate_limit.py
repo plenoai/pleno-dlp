@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from saas_retriever import (
+from pleno_dlp import (
     AdaptiveTokenBucket,
     BucketKey,
     GlobalRateLimiter,

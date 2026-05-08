@@ -43,7 +43,7 @@ from urllib.parse import quote
 
 import httpx
 
-from saas_retriever.core import (
+from pleno_dlp.core import (
     AuthMode,
     Capabilities,
     ConnectorSpec,
@@ -54,9 +54,9 @@ from saas_retriever.core import (
     ResourceSpec,
     SourceFilter,
 )
-from saas_retriever.credentials import Credential, CredentialMisconfiguredError
-from saas_retriever.rate_limit import RateLimited
-from saas_retriever.registry import registry
+from pleno_dlp.credentials import Credential, CredentialMisconfiguredError
+from pleno_dlp.rate_limit import RateLimited
+from pleno_dlp.registry import registry
 
 Flavor = Literal["cloud", "server"]
 
