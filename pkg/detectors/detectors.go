@@ -675,6 +675,29 @@ const (
 	Authentik
 	Etherscan
 	Alchemy
+	// batch 29 — appended in wire-stable order, never reorder. Web3 / blockchain
+	// RPC + APIs (Infura, QuickNode, Moralis, Blockfrost, Helius, TheGraph,
+	// OpenSea), vector DB (Milvus), webhook proxy (Beeceptor, Smee), identity
+	// (Ory, Supertokens), feature flags / experimentation (Statsig, GrowthBook,
+	// DevCycle). Smee / Supertokens / Milvus / QuickNode are unverified-by-
+	// default — each requires a per-channel / per-deployment / per-cluster /
+	// per-endpoint host that isn't in the chunk; verify only fires when an
+	// apiBase override is supplied.
+	Infura
+	QuickNode
+	Moralis
+	Blockfrost
+	Helius
+	TheGraph
+	OpenSea
+	Milvus
+	Beeceptor
+	Smee
+	Ory
+	Supertokens
+	Statsig
+	GrowthBook
+	DevCycle
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
