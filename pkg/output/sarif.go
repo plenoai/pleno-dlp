@@ -612,6 +612,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Statsig.String():                "Statsig Console / server-secret API key (`console-`/`secret-` prefix + alnum) near statsig keyword, verified via /v1/get_id_lists on statsigapi.net with STATSIG-API-KEY header",
 	detectors.GrowthBook.String():             "GrowthBook secret API key (`secret_admin_`/`secret_user_` prefix + alnum) near growthbook keyword, verified via /api/v1/features on api.growthbook.io with Authorization Bearer header",
 	detectors.DevCycle.String():               "DevCycle server / management API key (`dvc_server_`/`dvc_mgmt_` prefix + alnum) near devcycle keyword, verified via /v1/projects on api.devcycle.com with Authorization Bearer header",
+	detectors.PubNub.String():                 "PubNub realtime publish / subscribe / secret key (`pub-c-`/`sub-c-`/`sec-c-` UUID) near pubnub keyword, verified via /v1/keys on admin.pubnub.com with X-PN-Key header",
+	detectors.LiveKit.String():                "LiveKit realtime audio/video API key (`API` + 12 alnum) + secret pair near livekit keyword — unverified by design (per-deployment self-hosted host or LiveKit Cloud project URL required), apiBase override required (RawV2 carries the secret)",
+	detectors.AgoraIO.String():                "Agora.io realtime app ID + app certificate pair (32 hex each) near agora keyword — unverified by design (signed RTC token issuance is offline, no auth probe), RawV2 carries the certificate",
+	detectors.DailyCo.String():                "Daily.co realtime video API key (64 hex) near daily keyword, verified via /v1/rooms on api.daily.co with Authorization Bearer header",
+	detectors.Meilisearch.String():            "Meilisearch master / admin API key (32+ alnum) near meilisearch keyword — unverified by design (per-deployment host required), apiBase override required",
+	detectors.Typesense.String():              "Typesense API key (32+ alnum) near typesense keyword — unverified by design (per-deployment host required), apiBase override required",
+	detectors.Marqo.String():                  "Marqo Cloud API key (`mzpat_` prefix + alnum) near marqo keyword — unverified by design (per-cluster host required), apiBase override required",
+	detectors.Kong.String():                   "Kong Konnect personal access token (`kpat_` prefix + alnum) near kong keyword, verified via /v0/me on global.api.konghq.com with Authorization Bearer header",
+	detectors.WebhookRelay.String():           "WebhookRelay token (key + secret pair, `whrelay-` prefix + alnum) near webhookrelay keyword, verified via /v1/tokens on my.webhookrelay.com with HTTP Basic auth (RawV2 carries the secret)",
+	detectors.RequestBin.String():             "RequestBin / Pipedream webhook URL (https://*.m.pipedream.net/<id>) near pipedream/requestbin keyword — unverified by design (URL is the credential, posting probes triggers events)",
+	detectors.Ahrefs.String():                 "Ahrefs SEO API token (32+ alnum) near ahrefs keyword, verified via /v3/subscription-info on api.ahrefs.com with Authorization Bearer header",
+	detectors.Semrush.String():                "Semrush SEO API key (32 hex) near semrush keyword, verified via /management/v1/limits on api.semrush.com with `key` query param",
+	detectors.June.String():                   "June.so analytics write key (32 alnum) near june keyword, verified via /sdk/track on api.june.so with HTTP Basic auth",
+	detectors.Workday.String():                "Workday OAuth bearer token (alnum) near workday keyword — unverified by design (per-tenant `<tenant>.workday.com` host required), apiBase override required",
+	detectors.Qualys.String():                 "Qualys VMDR API username + password pair near qualys keyword — unverified by design (per-region `qualysapi.<region>.qualys.com` host required), apiBase override required (RawV2 carries the password)",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
