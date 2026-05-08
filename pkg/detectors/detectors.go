@@ -698,6 +698,30 @@ const (
 	Statsig
 	GrowthBook
 	DevCycle
+	// batch 30 — appended in wire-stable order, never reorder. Realtime /
+	// streaming (PubNub, LiveKit, AgoraIO, DailyCo), search (Meilisearch,
+	// Typesense, Marqo), API gateway / webhook proxy (Kong, WebhookRelay,
+	// RequestBin), SEO / marketing (Ahrefs, Semrush, June), enterprise
+	// (Workday, Qualys). LiveKit / AgoraIO / Meilisearch / Typesense /
+	// Marqo / RequestBin / Workday / Qualys are unverified-by-default —
+	// each requires a per-deployment / per-host / per-tenant value
+	// not present in the chunk; verify only fires when an apiBase
+	// override is supplied.
+	PubNub
+	LiveKit
+	AgoraIO
+	DailyCo
+	Meilisearch
+	Typesense
+	Marqo
+	Kong
+	WebhookRelay
+	RequestBin
+	Ahrefs
+	Semrush
+	June
+	Workday
+	Qualys
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

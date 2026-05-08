@@ -10,7 +10,40 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.26.0.
+### Added
+
+- **15 more secret detectors** — batch 30 (constants 440..454):
+  PubNub, LiveKit, AgoraIO, DailyCo, Meilisearch, Typesense, Marqo,
+  Kong, WebhookRelay, RequestBin, Ahrefs, Semrush, June, Workday,
+  Qualys. Total now **448 secret + 4 PII = 452 detectors**.
+  Realtime / streaming (PubNub `pub-c-`/`sub-c-`/`sec-c-` UUID
+  X-PN-Key via /v1/keys on admin.pubnub.com, LiveKit `API`-prefixed
+  key + secret pair — unverified-by-default per-deployment host
+  required, AgoraIO 32-hex app ID + cert pair — unverified-by-design
+  RTC tokens are signed offline, DailyCo 64-hex Bearer via /v1/rooms
+  on api.daily.co), search (Meilisearch master key — unverified-by-
+  default per-deployment host required, Typesense X-TYPESENSE-API-KEY
+  — unverified-by-default per-cluster host required, Marqo `mzpat_`-
+  prefixed x-api-key — unverified-by-default per-cluster host
+  required), API gateway / webhook proxy (Kong Konnect `kpat_`-
+  prefixed Bearer via /v0/me on global.api.konghq.com, WebhookRelay
+  UUID key + secret HTTP Basic via /v1/tokens on my.webhookrelay.com,
+  RequestBin / Pipedream webhook URL — unverified-by-design URL is
+  the credential), SEO / marketing (Ahrefs Bearer via /v3/subscription-
+  info/limits-and-usage on api.ahrefs.com, Semrush 32-hex `key` query
+  param via /management/v1/limits on api.semrush.com, June.so 32 alnum
+  HTTP Basic via /sdk/track on api.june.so), and enterprise
+  (Workday OAuth Bearer — unverified-by-default per-tenant
+  `<tenant>.workday.com` host required, Qualys VMDR username +
+  password HTTP Basic — unverified-by-default per-region
+  `qualysapi.<region>.qualys.com` host required). Eight detectors are
+  unverified-by-default (LiveKit, AgoraIO, Meilisearch, Typesense,
+  Marqo, RequestBin, Workday, Qualys) — each requires a per-deployment
+  / per-host / per-tenant value not present in the chunk; verify only
+  fires when an apiBase override is supplied (or, for AgoraIO and
+  RequestBin, never — the credential is the URL or signed offline).
+  LiveKit / WebhookRelay / AgoraIO / Qualys use `RawV2` to surface the
+  paired secret / certificate / password.
 
 ## [0.26.0] — 2026-05-08
 

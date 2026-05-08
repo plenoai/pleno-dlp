@@ -909,6 +909,36 @@ func (t DetectorType) String() string {
 		return "GrowthBook"
 	case DevCycle:
 		return "DevCycle"
+	case PubNub:
+		return "PubNub"
+	case LiveKit:
+		return "LiveKit"
+	case AgoraIO:
+		return "AgoraIO"
+	case DailyCo:
+		return "DailyCo"
+	case Meilisearch:
+		return "Meilisearch"
+	case Typesense:
+		return "Typesense"
+	case Marqo:
+		return "Marqo"
+	case Kong:
+		return "Kong"
+	case WebhookRelay:
+		return "WebhookRelay"
+	case RequestBin:
+		return "RequestBin"
+	case Ahrefs:
+		return "Ahrefs"
+	case Semrush:
+		return "Semrush"
+	case June:
+		return "June"
+	case Workday:
+		return "Workday"
+	case Qualys:
+		return "Qualys"
 	default:
 		return "Unknown"
 	}

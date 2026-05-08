@@ -580,4 +580,26 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/statsig"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/supertokens"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/thegraph"
+	// batch 30 — wire-stable order, never reorder. Realtime / streaming
+	// (pubnub, livekit, agoraio, dailyco), search (meilisearch, typesense,
+	// marqo), API gateway / webhook proxy (kong, webhookrelay, requestbin),
+	// SEO / marketing (ahrefs, semrush, june), and enterprise (workday,
+	// qualys). LiveKit / AgoraIO / Meilisearch / Typesense / Marqo /
+	// RequestBin / Workday / Qualys are unverified-by-default
+	// (per-deployment / per-host / per-tenant value required).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/agoraio"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/ahrefs"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/dailyco"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/june"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/kong"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/livekit"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/marqo"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/meilisearch"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pubnub"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/qualys"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/requestbin"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/semrush"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/typesense"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/webhookrelay"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/workday"
 )
