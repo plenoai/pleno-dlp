@@ -1,15 +1,17 @@
 # pleno-dlp
 
 Unified DLP scanner — secrets and PII over filesystem and SaaS content.
-Detector interface is trufflehog-compatible (Go); SaaS sources flow
-through [saas-retriever](https://github.com/plenoai/saas-retriever) on
-the Python side.
+Detector interface is trufflehog-compatible (Go); the SaaS source layer
+(formerly the standalone
+[saas-retriever](https://github.com/plenoai/saas-retriever) package)
+is **vendored in-tree from py-v0.7.0** as the `saas_retriever`
+sub-package of the Python wheel.
 
 ## Harness: pleno-dlp
 
 **Goal:** maintain and evolve the unified DLP scanner — Go binary
-(filesystem-only) + Python package (SaaS via saas-retriever, secret +
-PII backends).
+(filesystem-only) + Python package (vendored saas_retriever +
+secret / PII backends).
 
 **Trigger:** invoke the `secret-scanner-orchestrator` skill when a
 request involves any of:
@@ -89,3 +91,4 @@ without invoking the orchestrator.
 | 2026-05-08 | Detector batch 38 (15 LLM-ops/KYC/e-commerce/BI/translation/bug-bounty detectors → 568 secrets total: traceloop, klu, langflow, openpipe, lakera, footprint, vouched, magento, bigcommerce, faire, tidio, looker, deepl, hackerone, zerotier) + v0.35.0 tag-push | `pkg/detectors/`, `pkg/output/sarif.go` | LLM ops + e-commerce + BI/translation coverage: 572 detectors (568 secret + 4 PII), 3922 race-clean tests across 587 packages |
 | 2026-05-08 | Detector batch 39 (15 ML-monitoring/fraud/bug-bounty/workflow/serverless detectors → 583 secrets total: fiddler, evidently, sift, signifyd, kount, intigriti, bugcrowd, semgrep, temporalcloud, prefectcloud, dagstercloud, flymachines, vercelblob, modeanalytics, pdfshift) + v0.36.0 tag-push | `pkg/detectors/`, `pkg/output/sarif.go` | ML monitoring + fraud + workflow orchestration coverage: 587 detectors (583 secret + 4 PII), 4027 race-clean tests across 602 packages |
 | 2026-05-08 | **Detector batch 40 — crosses 600-detector milestone** (15 fraud/LLM-ops/dev-tools/IoT detectors → 598 secrets total: riskified, forter, socure, agenta, kayako, customerly, jellyfish, swimlane, parabola, mailmodo, neo4jaura, portswigger, kagi, arduinocloud, particleio) + v0.37.0 tag-push | `pkg/detectors/`, `pkg/output/sarif.go` | 602 detectors (598 secret + 4 PII): fraud + LLM ops + IoT coverage, 4132 race-clean tests across 617 packages |
+| 2026-05-08 | Vendor `saas-retriever` 1.0.0 into the Python wheel as the `saas_retriever` sub-package (drops the external PyPI dep, both `pleno-dlp` and `saas-retriever` console scripts ship from one wheel, mypy-strict end-to-end across both packages) + py-v0.7.0 tag-push | `python/src/saas_retriever/`, `python/tests/saas_retriever/`, `python/pyproject.toml`, `python/CHANGELOG.md`, `python/README.md`, `CLAUDE.md` | Single source of truth for the unified DLP scanner: `pip install pleno-dlp` now pulls one distribution, 250 passing Python tests + 4132 race-clean Go tests |

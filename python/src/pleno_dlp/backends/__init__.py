@@ -20,9 +20,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any, Protocol, runtime_checkable
 
-from saas_retriever import Document
-
 from pleno_dlp.findings import Finding
+from saas_retriever import Document
 
 
 @runtime_checkable

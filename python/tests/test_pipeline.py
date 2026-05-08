@@ -5,10 +5,9 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
-from saas_retriever import Document, DocumentRef, SourceFilter
-
 from pleno_dlp.backends.native import NativeBackend
 from pleno_dlp.pipeline import Pipeline
+from saas_retriever import Document, DocumentRef, SourceFilter
 
 
 class StubConnector:

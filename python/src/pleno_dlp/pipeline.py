@@ -15,10 +15,9 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
-from saas_retriever import Connector, SourceFilter
-
 from pleno_dlp.backends import Backend
 from pleno_dlp.findings import Finding
+from saas_retriever import Connector, SourceFilter
 
 
 @dataclass(frozen=True, slots=True)
