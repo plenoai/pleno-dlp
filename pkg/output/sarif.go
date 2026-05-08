@@ -717,6 +717,21 @@ var ruleDescriptions = map[string]string{
 	detectors.HelpCrunch.String():             "HelpCrunch API token (JWT shape) near helpcrunch keyword, verified via /v1/agents on api.helpcrunch.com with Authorization Bearer header",
 	detectors.DenoDeploy.String():             "Deno Deploy personal access token (`ddp_` prefix + alnum) verified via /v1/users/me on api.deno.com with Authorization Bearer header",
 	detectors.Twingate.String():               "Twingate API token (`tk_` / `tkt_` prefix + base64url) — unverified by design (per-tenant `<network>.twingate.com` host required), apiBase override required",
+	detectors.DBTCloud.String():               "dbt Cloud personal access token (`dbtu_` prefix + base64url) verified via /api/v2/accounts on cloud.getdbt.com with Authorization Token header",
+	detectors.Tray.String():                   "Tray.io master token (`tray_` prefix + alnum) near tray keyword, verified via /core/v1/me on api.tray.io with Authorization Bearer header",
+	detectors.Retool.String():                 "Retool API key (`retool_` prefix + alnum) verified via /api/v2/permissions/listGroupAndUser on api.retool.com with Authorization Bearer header",
+	detectors.Expo.String():                   "Expo personal access token (24-32 alnum) near expo keyword, verified via /v2/auth/userInfo on exp.host with Authorization Bearer header",
+	detectors.Alloy.String():                  "Alloy KYC API token + secret pair near alloy keyword — paired (RawV2 carries the secret), verified via HTTP Basic auth on sandbox.alloy.co",
+	detectors.AuditBoard.String():             "AuditBoard GRC API token (32-64 alnum) near auditboard keyword, verified via /api/v1/me on app.auditboard.com with Authorization Bearer header",
+	detectors.FireHydrant.String():            "FireHydrant incident-response API token (`fhb_` prefix + base64url) verified via /v1/ping on api.firehydrant.io with Authorization Bearer header",
+	detectors.IncidentIO.String():             "incident.io API key (`inc_` prefix + base64url) verified via /v2/identity on api.incident.io with Authorization Bearer header",
+	detectors.Rootly.String():                 "Rootly incident-response API key (`rootly_` prefix + alnum) verified via /v1/users/me on api.rootly.com with Authorization Bearer header",
+	detectors.Sleuth.String():                 "Sleuth DORA-metrics API key (40 hex) near sleuth keyword, verified via /api/1.0/projects on app.sleuth.io with Authorization apikey header",
+	detectors.Sparkpost.String():              "SparkPost transactional email API key (40 hex) near sparkpost keyword, verified via /api/v1/account on api.sparkpost.com with Authorization header",
+	detectors.SendPulse.String():              "SendPulse client_id + secret pair near sendpulse keyword — paired (RawV2 carries the secret), verified via /oauth/access_token on api.sendpulse.com",
+	detectors.Veriff.String():                 "Veriff KYC API key (UUID) + shared-secret pair near veriff keyword — paired (RawV2 carries the secret), verified via /v1/sessions on stationapi.veriff.com with X-AUTH-CLIENT header",
+	detectors.IDnow.String():                  "IDnow KYC API token (32-64 alnum) near idnow keyword, verified via /api/v1/identifications on gateway.idnow.de with X-API-KEY header",
+	detectors.Squarespace.String():            "Squarespace Commerce API key (UUID) near squarespace keyword, verified via /1.0/commerce/orders on api.squarespace.com with Authorization Bearer header",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

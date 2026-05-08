@@ -880,6 +880,29 @@ const (
 	HelpCrunch
 	DenoDeploy
 	Twingate
+	// batch 37 — appended in wire-stable order, never reorder. Data
+	// platforms (DBTCloud), low-code / workflow (Tray, Retool), mobile
+	// build (Expo), KYC / identity (Alloy, Veriff, IDnow), GRC /
+	// compliance (AuditBoard), incident response / DORA (FireHydrant,
+	// IncidentIO, Rootly, Sleuth), email / SMS (Sparkpost, SendPulse),
+	// e-commerce (Squarespace). Tray / Retool / Squarespace / Alloy
+	// keyword-anchor disambiguates broad token shapes; Sleuth /
+	// FireHydrant / IncidentIO / Rootly use distinctive prefixes.
+	DBTCloud
+	Tray
+	Retool
+	Expo
+	Alloy
+	AuditBoard
+	FireHydrant
+	IncidentIO
+	Rootly
+	Sleuth
+	Sparkpost
+	SendPulse
+	Veriff
+	IDnow
+	Squarespace
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
