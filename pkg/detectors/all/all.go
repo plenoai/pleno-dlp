@@ -649,4 +649,27 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sproutsocial"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/watsonx"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/zoominfo"
+	// batch 33 — wire-stable order, never reorder. Social-media scheduling
+	// (buffer, hootsuite), Web3 identity (magiclabs), workflow / automation
+	// (pipedream, make, n8n), accounting (sageintacct), enterprise CRM
+	// (microsoftdynamics, gainsight), marketing automation (freshmarketer),
+	// search infra (vespacloud), competitive intelligence (similarweb), and
+	// security tooling (vectra, expel, beyondtrust). MicrosoftDynamics /
+	// VespaCloud / Vectra / BeyondTrust / SageIntacct / N8N are
+	// unverified-by-default (per-tenant / self-hosted host required).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/beyondtrust"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/buffer"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/expel"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/freshmarketer"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gainsight"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/hootsuite"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/magiclabs"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/make"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/microsoftdynamics"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/n8n"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pipedream"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sageintacct"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/similarweb"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vectra"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vespacloud"
 )

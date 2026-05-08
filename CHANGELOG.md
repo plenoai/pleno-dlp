@@ -10,7 +10,36 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.29.0.
+### Added
+
+- **15 more secret detectors** — batch 33 (constants 485..499):
+  Buffer, Hootsuite, MagicLabs, Pipedream, Make, N8N, SageIntacct,
+  MicrosoftDynamics, Freshmarketer, VespaCloud, SimilarWeb, Vectra,
+  Expel, BeyondTrust, GainSight. Total now **493 secret + 4 PII = 497
+  detectors**. Social-media scheduling (Buffer 40-50 alnum via
+  /1/user.json on api.bufferapp.com with access_token query, Hootsuite
+  32-64 hex Bearer via /v1/me on platform.hootsuite.com), Web3 identity
+  (MagicLabs `sk_(live|test)_` prefix via /v1/admin/auth/user/get on
+  api.magic.link with X-Magic-Secret-Key header), workflow / automation
+  (Pipedream 32-80 hex Bearer via /v1/users/me on api.pipedream.com,
+  Make.com UUID Token via /api/v2/users/me on us1.make.com, N8N
+  JWT-shaped X-N8N-API-KEY — unverified-by-default per-deployment host
+  required), accounting (SageIntacct 12-32 alnum sender_password —
+  unverified-by-default XML envelope required), enterprise CRM
+  (MicrosoftDynamics AAD JWT Bearer via /api/data/v9.2/WhoAmI —
+  unverified-by-default per-org `<org>.crm[N].dynamics.com` host
+  required, GainSight 32-64 alnum Accesskey header via /v1/users/me on
+  api.gainsightcloud.com), marketing automation (Freshmarketer 20-32
+  alnum Token token=<key> via /crm/sales/api/me on
+  app.freshmarketer.com), search infra (VespaCloud `vespa_cloud_`
+  prefix Bearer — unverified-by-default per-application host required),
+  competitive intelligence (SimilarWeb 32 hex via api_key query on
+  api.similarweb.com), and security tooling (Vectra 32-64 hex Token
+  header — unverified-by-default per-tenant `<tenant>.vectra.ai` host
+  required, Expel 32-64 alnum Bearer via /api/v2/users/current on
+  workbench.expel.io, BeyondTrust 64-128 alnum PS-Auth header —
+  unverified-by-default per-tenant `<id>.beyondtrustcloud.com` host
+  required).
 
 ## [0.29.0] — 2026-05-08
 

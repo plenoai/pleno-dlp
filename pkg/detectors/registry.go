@@ -999,6 +999,36 @@ func (t DetectorType) String() string {
 		return "PolygonRPC"
 	case Sproutsocial:
 		return "Sproutsocial"
+	case Buffer:
+		return "Buffer"
+	case Hootsuite:
+		return "Hootsuite"
+	case MagicLabs:
+		return "MagicLabs"
+	case Pipedream:
+		return "Pipedream"
+	case Make:
+		return "Make"
+	case N8N:
+		return "N8N"
+	case SageIntacct:
+		return "SageIntacct"
+	case MicrosoftDynamics:
+		return "MicrosoftDynamics"
+	case Freshmarketer:
+		return "Freshmarketer"
+	case VespaCloud:
+		return "VespaCloud"
+	case SimilarWeb:
+		return "SimilarWeb"
+	case Vectra:
+		return "Vectra"
+	case Expel:
+		return "Expel"
+	case BeyondTrust:
+		return "BeyondTrust"
+	case GainSight:
+		return "GainSight"
 	default:
 		return "Unknown"
 	}

@@ -657,6 +657,21 @@ var ruleDescriptions = map[string]string{
 	detectors.NearRPC.String():                "NEAR Protocol RPC API key (32-64 alnum) near pagoda / fastnear / near-rpc keyword — unverified by design (per-endpoint provider host required), apiBase override required",
 	detectors.PolygonRPC.String():             "Polygon (PoS / zkEVM) RPC API key (32-64 alnum) near polygon-rpc / polygon-zkevm keyword — unverified by design (per-endpoint provider host required), apiBase override required",
 	detectors.Sproutsocial.String():           "Sprout Social API access token (32-64 hex) near sproutsocial keyword, verified via /v1/metadata/client on api.sproutsocial.com with Authorization Bearer header",
+	detectors.Buffer.String():                 "Buffer (social-media scheduling) access token (40-50 alnum) near buffer keyword, verified via /1/user.json on api.bufferapp.com with access_token query parameter",
+	detectors.Hootsuite.String():              "Hootsuite OAuth access token (32-64 hex) near hootsuite keyword, verified via /v1/me on platform.hootsuite.com with Authorization Bearer header",
+	detectors.MagicLabs.String():              "Magic (magic.link) secret API key (`sk_(live|test)_` prefix + alnum) near magic keyword, verified via /v1/admin/auth/user/get on api.magic.link with X-Magic-Secret-Key header",
+	detectors.Pipedream.String():              "Pipedream API token (32-80 hex) near pipedream keyword, verified via /v1/users/me on api.pipedream.com with Authorization Bearer header",
+	detectors.Make.String():                   "Make.com (Integromat) API token (UUID) near make.com / integromat keyword, verified via /api/v2/users/me on us1.make.com with Authorization Token header",
+	detectors.N8N.String():                    "n8n workflow-automation API key (JWT-shaped) near n8n keyword — unverified by design (self-hosted per-deployment host required), apiBase override required to verify via /api/v1/me with X-N8N-API-KEY header",
+	detectors.SageIntacct.String():            "Sage Intacct sender / user password (12-32 alnum) near intacct keyword — unverified by design (XML-over-HTTPS with multi-credential <login> envelope required), apiBase override required",
+	detectors.MicrosoftDynamics.String():      "Microsoft Dynamics 365 access token (AAD JWT) near dynamics / dataverse keyword — unverified by design (per-org `<org>.crm[N].dynamics.com` host required), apiBase override required to verify via /api/data/v9.2/WhoAmI with Authorization Bearer header",
+	detectors.Freshmarketer.String():          "Freshmarketer (Freshworks marketing) API key (20-32 alnum) near freshmarketer keyword, verified via /crm/sales/api/me on app.freshmarketer.com with Token token=<key> Authorization header",
+	detectors.VespaCloud.String():             "Vespa Cloud (search-engine PaaS) API token (`vespa_cloud_` prefix + alnum/_) near vespa keyword — unverified by design (per-application `<tenant>.<app>.<env>.z.vespa-cloud.com` host required), apiBase override required",
+	detectors.SimilarWeb.String():             "SimilarWeb API key (32 hex) near similarweb keyword, verified via /v1/website/{domain}/total-traffic-and-engagement/visits on api.similarweb.com with api_key query parameter",
+	detectors.Vectra.String():                 "Vectra AI (NDR) API token (32-64 hex) near vectra keyword — unverified by design (per-tenant `<tenant>.vectra.ai` host required), apiBase override required to verify via /api/v3.3/users with Authorization Token header",
+	detectors.Expel.String():                  "Expel (MDR) API token (32-64 alnum) near expel keyword, verified via /api/v2/users/current on workbench.expel.io with Authorization Bearer header",
+	detectors.BeyondTrust.String():            "BeyondTrust (privileged access management) API key (64-128 alnum) near beyondtrust / ps-auth keyword — unverified by design (per-tenant `<id>.beyondtrustcloud.com` host required), apiBase override required to verify via /api/public/v3/Auth/SignAppin with Authorization PS-Auth header",
+	detectors.GainSight.String():              "Gainsight customer-success API access key (32-64 alnum) near gainsight keyword, verified via /v1/users/me on api.gainsightcloud.com with Accesskey header",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

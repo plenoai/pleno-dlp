@@ -776,6 +776,35 @@ const (
 	NearRPC
 	PolygonRPC
 	Sproutsocial
+	// batch 33 — appended in wire-stable order, never reorder. Social-media
+	// scheduling (Buffer, Hootsuite), Web3 identity (MagicLabs), workflow /
+	// automation (Pipedream, Make, N8N), accounting (SageIntacct), enterprise
+	// CRM (MicrosoftDynamics, GainSight), marketing automation (Freshmarketer),
+	// search infra (VespaCloud), competitive intelligence (SimilarWeb), and
+	// security tooling (Vectra, Expel, BeyondTrust). MicrosoftDynamics /
+	// VespaCloud / Vectra / BeyondTrust are unverified-by-design — each
+	// requires a per-tenant / per-deployment / per-org host
+	// (`<org>.crm.dynamics.com`, `<tenant>.vectra.ai`,
+	// `<id>-services.beyondtrustcloud.com`, `<app>.vespa-cloud.com`) not in
+	// the chunk; verify only fires when an apiBase override is supplied.
+	// SageIntacct ships unverified because the auth surface is XML over a
+	// shared session_id — bearer probes 4xx without a multi-credential
+	// envelope.
+	Buffer
+	Hootsuite
+	MagicLabs
+	Pipedream
+	Make
+	N8N
+	SageIntacct
+	MicrosoftDynamics
+	Freshmarketer
+	VespaCloud
+	SimilarWeb
+	Vectra
+	Expel
+	BeyondTrust
+	GainSight
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
