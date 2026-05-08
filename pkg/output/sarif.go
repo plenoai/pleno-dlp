@@ -672,6 +672,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Expel.String():                  "Expel (MDR) API token (32-64 alnum) near expel keyword, verified via /api/v2/users/current on workbench.expel.io with Authorization Bearer header",
 	detectors.BeyondTrust.String():            "BeyondTrust (privileged access management) API key (64-128 alnum) near beyondtrust / ps-auth keyword — unverified by design (per-tenant `<id>.beyondtrustcloud.com` host required), apiBase override required to verify via /api/public/v3/Auth/SignAppin with Authorization PS-Auth header",
 	detectors.GainSight.String():              "Gainsight customer-success API access key (32-64 alnum) near gainsight keyword, verified via /v1/users/me on api.gainsightcloud.com with Accesskey header",
+	detectors.VertexAI.String():               "Google Vertex AI access token (AAD/OAuth-style JWT) near vertex / aiplatform keyword — unverified by design (per-project `<region>-aiplatform.googleapis.com` host required), apiBase override required to verify via /v1/projects/{project} with Authorization Bearer header",
+	detectors.RekaAI.String():                 "Reka AI API key (32-64 alnum) near reka keyword, verified via /v1/models on api.reka.ai with X-Api-Key header",
+	detectors.AIHorde.String():                "AI Horde (Stable Horde) API key (UUID-shaped) near aihorde / stablehorde keyword, verified via /api/v2/find_user on aihorde.net with apikey header",
+	detectors.OllamaCloud.String():            "Ollama Cloud API key (40-80 alnum / base64url) near ollama keyword, verified via /api/tags on ollama.com with Authorization Bearer header",
+	detectors.RunwayML.String():               "RunwayML SDK secret key (`key_` prefix + 48-64 alnum) near runwayml / runway keyword, verified via /v1/organization on api.runwayml.com with Authorization Bearer header",
+	detectors.Planhat.String():                "Planhat customer-success tenant token (32-64 alnum) near planhat keyword — unverified by design (per-tenant `<tenant>.planhat.com` host required), apiBase override required to verify via /api/users/me with Authorization Bearer header",
+	detectors.Vitally.String():                "Vitally customer-success API token (32-64 alnum) near vitally keyword, verified via /resources/v2024 on api.vitally.io with Authorization Basic header (key as username, empty password)",
+	detectors.ChurnZero.String():              "ChurnZero appKey (UUID-shaped) near churnzero keyword, verified via /i on analytics.churnzero.net with Z-AppKey header",
+	detectors.Totango.String():                "Totango service token (32-64 alnum) near totango keyword — unverified by design (per-tenant `<tenant>.totango.com` host required), apiBase override required to verify via /api/v3/accounts/search with app-token header",
+	detectors.Sendoso.String():                "Sendoso direct-mail API key (`sendoso_` prefix + 32-64 alnum) near sendoso keyword, verified via /api/v3/me on api.sendoso.com with Authorization Bearer header",
+	detectors.Paystack.String():               "Paystack secret key (`sk_(live|test)_` prefix + 40-50 alnum) near paystack keyword, verified via /transaction/totals on api.paystack.co with Authorization Bearer header (sk_live_ surfaces SeverityCritical)",
+	detectors.Flutterwave.String():            "Flutterwave secret key (`FLWSECK(_TEST|-)` prefix + 32-64 alnum) near flutterwave keyword, verified via /v3/transactions on api.flutterwave.com with Authorization Bearer header",
+	detectors.Mandiant.String():               "Mandiant Advantage API key + secret pair (32-64 alnum each) near mandiant / fireeye keyword, verified via /token (OAuth client_credentials) on api.intelligence.fireeye.com with HTTP Basic auth (Raw=key, RawV2=key:secret)",
+	detectors.AbnormalSec.String():            "Abnormal Security API token (32-64 alnum) near abnormal / abnormalsecurity keyword, verified via /v1/threats on api.abnormalplatform.com with Authorization Bearer header",
+	detectors.Ortto.String():                  "Ortto (Autopilot) marketing-automation API key (`pak_` prefix + 32-64 alnum) near ortto / autopilothq keyword, verified via /v1/person/get on api.ap3api.com with X-Api-Key header",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

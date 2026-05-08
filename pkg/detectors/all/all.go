@@ -672,4 +672,26 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/similarweb"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vectra"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vespacloud"
+	// batch 34 — wire-stable order, never reorder. Cloud-AI / inference
+	// (vertexai, rekaai, aihorde, ollamacloud, runwayml), customer-success
+	// platforms (planhat, vitally, churnzero, totango, sendoso), payments
+	// / fintech (paystack, flutterwave), security tooling (mandiant,
+	// abnormalsec), marketing automation (ortto). VertexAI / Planhat /
+	// Totango are unverified-by-default (per-project / per-tenant host
+	// required); Mandiant carries paired key + secret-id via Raw/RawV2.
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/abnormalsec"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/aihorde"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/churnzero"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/flutterwave"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/mandiant"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/ollamacloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/ortto"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/paystack"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/planhat"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/rekaai"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/runwayml"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sendoso"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/totango"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vertexai"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vitally"
 )

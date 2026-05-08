@@ -12,6 +12,35 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.30.0.
 
+### Added
+
+- **15 more secret detectors** — batch 34 (constants 500..514). **This
+  batch crosses the 500-detector milestone**: total now **508 secret + 4
+  PII = 512 detectors**. Cloud-AI / inference (VertexAI AAD/OAuth-style
+  JWT — unverified-by-default per-project `<region>-aiplatform.googleapis.com`
+  host required, RekaAI 32-64 alnum X-Api-Key via /v1/models on
+  api.reka.ai, AIHorde UUID-shaped apikey header via /api/v2/find_user
+  on aihorde.net, OllamaCloud 40-80 alnum/base64url Bearer via /api/tags
+  on ollama.com, RunwayML `key_` prefix Bearer via /v1/organization on
+  api.runwayml.com), customer-success platforms (Planhat 32-64 alnum
+  Bearer — unverified-by-default per-tenant `<tenant>.planhat.com` host
+  required, Vitally 32-64 alnum Basic auth via /resources/v2024 on
+  api.vitally.io, ChurnZero UUID Z-AppKey header via /i on
+  analytics.churnzero.net, Totango 32-64 alnum app-token —
+  unverified-by-default per-tenant `<tenant>.totango.com` host required,
+  Sendoso `sendoso_` prefix Bearer via /api/v3/me on api.sendoso.com),
+  payments / fintech (Paystack `sk_(live|test)_` 40-50 alnum Bearer via
+  /transaction/totals on api.paystack.co — sk_live_ surfaces
+  SeverityCritical, Flutterwave `FLWSECK(_TEST)?-` prefix Bearer via
+  /v3/transactions on api.flutterwave.com), security tooling (Mandiant
+  paired key+secret via OAuth client_credentials Basic auth on
+  api.intelligence.fireeye.com — Raw=key, RawV2=key:secret;
+  AbnormalSec 32-64 alnum Bearer via /v1/threats on
+  api.abnormalplatform.com), marketing automation (Ortto/Autopilot
+  `pak_` prefix X-Api-Key via /v1/person/get on api.ap3api.com).
+  All detectors ship with positive + negative + verified-OK + 401 + 500
+  test coverage. 3507 race-clean tests across 527 packages.
+
 ## [0.30.0] — 2026-05-08
 
 ### Added

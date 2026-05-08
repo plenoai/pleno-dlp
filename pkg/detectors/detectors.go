@@ -805,6 +805,30 @@ const (
 	Expel
 	BeyondTrust
 	GainSight
+	// batch 34 — appended in wire-stable order, never reorder. Cloud-AI
+	// (VertexAI, RekaAI, AIHorde, OllamaCloud, RunwayML), customer-success
+	// (Planhat, Vitally, ChurnZero, Totango, Sendoso), payments / fintech
+	// (Paystack, Flutterwave), security tooling (Mandiant, AbnormalSec),
+	// marketing automation (Ortto). VertexAI / Planhat / Totango are
+	// unverified-by-default — each requires a per-project / per-tenant host
+	// (`<region>-aiplatform.googleapis.com`, `<tenant>.planhat.com`,
+	// `<tenant>.totango.com`) not in the chunk. Mandiant carries paired
+	// key + secret-id (Raw/RawV2) and verifies via OAuth client_credentials.
+	VertexAI
+	RekaAI
+	AIHorde
+	OllamaCloud
+	RunwayML
+	Planhat
+	Vitally
+	ChurnZero
+	Totango
+	Sendoso
+	Paystack
+	Flutterwave
+	Mandiant
+	AbnormalSec
+	Ortto
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
