@@ -12,6 +12,35 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.36.0.
 
+### Added
+
+- **15 more secret detectors** — batch 40 (constants 590..604), landing
+  the **600th detector**: Riskified, Forter, Socure, Agenta, Kayako,
+  Customerly, Jellyfish, Swimlane, Parabola, Mailmodo, Neo4jAura,
+  PortSwigger, Kagi, ArduinoCloud, ParticleIO. Total now **598 secret
+  + 4 PII = 602 detectors**. Fraud / risk (Riskified 64-hex token near
+  `riskified` keyword, Bearer via api.riskified.com; Forter 40-80
+  alnum near `forter` keyword, HTTP Basic via api.forter.com; Socure
+  40-80 alnum near `socure` keyword, "Authorization: SocureApiKey"
+  header via api.socure.com), LLM ops (Agenta `agenta_` prefix Bearer
+  via /api/profile on cloud.agenta.ai), customer support (Kayako
+  40-80 alnum near `kayako` keyword, X-Auth-Token via kayako.com;
+  Customerly 40-80 alnum near `customerly` keyword, Bearer via
+  api.customerly.io), eng analytics (Jellyfish 40-80 alnum near
+  `jellyfish` keyword, X-API-Key via api.jellyfish.co), SOAR
+  (Swimlane 40-80 alnum near `swimlane` keyword, Private-Token via
+  app.swimlane.com), workflow (Parabola 32-80 alnum near `parabola`
+  keyword, Bearer via api.parabola.io), email (Mailmodo 40-80 url-safe
+  near `mailmodo` keyword, mmApiKey header via api.mailmodo.com),
+  DBaaS (Neo4jAura 40-80 url-safe near `neo4j`/`aura` keyword, Bearer
+  via api.neo4j.io), security testing (PortSwigger Burp Enterprise key
+  embedded in API path, near `portswigger`/`burp` keyword), search
+  (Kagi `kagi_` prefix Bot auth via kagi.com), IoT (ArduinoCloud
+  32-80 alnum near `arduino` keyword, Bearer via api2.arduino.cc;
+  ParticleIO 40-hex near `particle` keyword, Bearer via
+  api.particle.io). All keyword-anchored to keep generic alnum / hex
+  shapes from cross-colliding with other providers.
+
 ## [0.36.0] — 2026-05-08
 
 ### Added
