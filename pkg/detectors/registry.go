@@ -1179,6 +1179,36 @@ func (t DetectorType) String() string {
 		return "HackerOne"
 	case ZeroTier:
 		return "ZeroTier"
+	case Fiddler:
+		return "Fiddler"
+	case Evidently:
+		return "Evidently"
+	case Sift:
+		return "Sift"
+	case Signifyd:
+		return "Signifyd"
+	case Kount:
+		return "Kount"
+	case Intigriti:
+		return "Intigriti"
+	case Bugcrowd:
+		return "Bugcrowd"
+	case Semgrep:
+		return "Semgrep"
+	case TemporalCloud:
+		return "TemporalCloud"
+	case PrefectCloud:
+		return "PrefectCloud"
+	case DagsterCloud:
+		return "DagsterCloud"
+	case FlyMachines:
+		return "FlyMachines"
+	case VercelBlob:
+		return "VercelBlob"
+	case ModeAnalytics:
+		return "ModeAnalytics"
+	case PDFShift:
+		return "PDFShift"
 	default:
 		return "Unknown"
 	}

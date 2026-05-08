@@ -747,6 +747,21 @@ var ruleDescriptions = map[string]string{
 	detectors.DeepL.String():                  "DeepL API key (32 hex + `:fx` suffix or 36 hex Pro) verified via /v2/usage on api-free.deepl.com with Authorization DeepL-Auth-Key header",
 	detectors.HackerOne.String():              "HackerOne identifier + API token pair near hackerone keyword — paired (RawV2 carries the token), verified via HTTP Basic auth on api.hackerone.com /v1/me",
 	detectors.ZeroTier.String():               "ZeroTier Central API token (32 alnum) near zerotier keyword, verified via /api/v1/status on my.zerotier.com with Authorization Bearer header",
+	detectors.Fiddler.String():                "Fiddler AI bearer token near fiddler keyword, verified via /v3/projects on api.fiddler.ai with Authorization Bearer header",
+	detectors.Evidently.String():              "Evidently AI API token near evidently keyword, verified via /api/v2/auth/profile on app.evidently.cloud with X-Evidently-Token header",
+	detectors.Sift.String():                   "Sift Science API key + account id pair near sift keyword — paired (RawV2 carries id:key), verified via HTTP Basic auth on api.sift.com /v205/users",
+	detectors.Signifyd.String():               "Signifyd API key + team id pair near signifyd keyword — paired (RawV2 carries team:key), verified via HTTP Basic auth on api.signifyd.com /v3/teams",
+	detectors.Kount.String():                  "Kount API key (JWT-shaped) near kount keyword, verified via /commerce/v1/orders on api-sandbox.kount.com with Authorization Bearer header",
+	detectors.Intigriti.String():              "Intigriti researcher / company API token near intigriti keyword, verified via /external/researcher/v1/me on api.intigriti.com with Authorization Bearer header",
+	detectors.Bugcrowd.String():               "Bugcrowd API token near bugcrowd keyword, verified via /user on api.bugcrowd.com with Authorization Token header",
+	detectors.Semgrep.String():                "Semgrep API token near semgrep keyword, verified via /api/v1/deployments on semgrep.dev with Authorization Bearer header",
+	detectors.TemporalCloud.String():          "Temporal Cloud API key (`tcsk_` prefix) verified via /api/v1/namespaces on cloud.temporal.io with Authorization Bearer header",
+	detectors.PrefectCloud.String():           "Prefect Cloud API key (`pnu_` prefix) verified via /api/me on api.prefect.cloud with Authorization Bearer header",
+	detectors.DagsterCloud.String():           "Dagster Cloud user token (`dgc_` prefix) verified via /graphql on dagster.cloud with Dagster-Cloud-Api-Token header",
+	detectors.FlyMachines.String():            "Fly.io Machines API token (`fly_`/`FlyV1` prefix) verified via /v1/apps on api.machines.dev with Authorization Bearer header",
+	detectors.VercelBlob.String():             "Vercel Blob read-write token (`vercel_blob_rw_` prefix) verified via /v0 on blob.vercel-storage.com with Authorization Bearer header",
+	detectors.ModeAnalytics.String():          "Mode Analytics API token + secret pair near mode keyword — paired (RawV2 carries token:secret), verified via HTTP Basic auth on app.mode.com /api/account",
+	detectors.PDFShift.String():               "PDFShift API key near pdfshift keyword, verified via /v3/credits/usage on api.pdfshift.io with HTTP Basic auth",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

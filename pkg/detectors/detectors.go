@@ -926,6 +926,30 @@ const (
 	DeepL
 	HackerOne
 	ZeroTier
+	// batch 39 — appended in wire-stable order, never reorder. LLM ops /
+	// ML monitoring (Fiddler, Evidently), fraud / KYC (Sift, Signifyd,
+	// Kount), bug bounty (Intigriti, Bugcrowd), vulnerability mgmt
+	// (Semgrep), workflow / orchestration (TemporalCloud, PrefectCloud,
+	// DagsterCloud), serverless (FlyMachines), storage (VercelBlob),
+	// BI (ModeAnalytics), document (PDFShift). Sift / Signifyd / Mode
+	// use paired-credential (RawV2); VercelBlob uses a distinctive
+	// `vercel_blob_rw_` prefix; the rest are keyword-anchored bearer
+	// tokens.
+	Fiddler
+	Evidently
+	Sift
+	Signifyd
+	Kount
+	Intigriti
+	Bugcrowd
+	Semgrep
+	TemporalCloud
+	PrefectCloud
+	DagsterCloud
+	FlyMachines
+	VercelBlob
+	ModeAnalytics
+	PDFShift
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
