@@ -1149,6 +1149,36 @@ func (t DetectorType) String() string {
 		return "IDnow"
 	case Squarespace:
 		return "Squarespace"
+	case Traceloop:
+		return "Traceloop"
+	case Klu:
+		return "Klu"
+	case Langflow:
+		return "Langflow"
+	case OpenPipe:
+		return "OpenPipe"
+	case Lakera:
+		return "Lakera"
+	case Footprint:
+		return "Footprint"
+	case Vouched:
+		return "Vouched"
+	case Magento:
+		return "Magento"
+	case BigCommerce:
+		return "BigCommerce"
+	case Faire:
+		return "Faire"
+	case Tidio:
+		return "Tidio"
+	case Looker:
+		return "Looker"
+	case DeepL:
+		return "DeepL"
+	case HackerOne:
+		return "HackerOne"
+	case ZeroTier:
+		return "ZeroTier"
 	default:
 		return "Unknown"
 	}

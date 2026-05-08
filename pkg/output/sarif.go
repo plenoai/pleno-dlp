@@ -732,6 +732,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Veriff.String():                 "Veriff KYC API key (UUID) + shared-secret pair near veriff keyword — paired (RawV2 carries the secret), verified via /v1/sessions on stationapi.veriff.com with X-AUTH-CLIENT header",
 	detectors.IDnow.String():                  "IDnow KYC API token (32-64 alnum) near idnow keyword, verified via /api/v1/identifications on gateway.idnow.de with X-API-KEY header",
 	detectors.Squarespace.String():            "Squarespace Commerce API key (UUID) near squarespace keyword, verified via /1.0/commerce/orders on api.squarespace.com with Authorization Bearer header",
+	detectors.Traceloop.String():              "Traceloop LLM tracing API key (`tl_` prefix + alnum) verified via /v1/traces on api.traceloop.com with Authorization Bearer header",
+	detectors.Klu.String():                    "Klu LLM ops API key (`klu_` prefix + alnum) verified via /v1/me on api.klu.ai with Authorization Bearer header",
+	detectors.Langflow.String():               "Langflow API key (`lf_` prefix + alnum) verified via /api/v1/users/whoami on api.langflow.astra.datastax.com with x-api-key header",
+	detectors.OpenPipe.String():               "OpenPipe LLM gateway API key (`opk_` prefix + alnum) verified via /api/v1/me on api.openpipe.ai with Authorization Bearer header",
+	detectors.Lakera.String():                 "Lakera Guard LLM-security API key (32-64 alnum) near lakera keyword, verified via /v1/prompt_injection on api.lakera.ai with Authorization Bearer header",
+	detectors.Footprint.String():              "Footprint KYC API key (`sk_test_` or `sk_live_` prefix + alnum) verified via /users on api.onefootprint.com with X-Footprint-Secret-Key header",
+	detectors.Vouched.String():                "Vouched KYC API key (`pk_` prefix + alnum) verified via /api/jobs on verify.vouched.id with X-Api-Key header",
+	detectors.Magento.String():                "Magento (Adobe Commerce) admin access token (32 alnum) near magento keyword, unverified-by-default (per-store host required)",
+	detectors.BigCommerce.String():            "BigCommerce store API access token (`bc_` prefix + alnum) verified via /v2/store on api.bigcommerce.com with X-Auth-Token header",
+	detectors.Faire.String():                  "Faire wholesale marketplace API key (`fai_` prefix + alnum) verified via /external-api/v2/orders on www.faire.com with X-FAIRE-ACCESS-TOKEN header",
+	detectors.Tidio.String():                  "Tidio customer-chat API key (40 hex) near tidio keyword, verified via /panel/openapi/contacts on api.tidio.co with X-Tidio-Openapi-Key header",
+	detectors.Looker.String():                 "Looker API3 client_id + client_secret pair (alnum) near looker keyword — paired (RawV2 carries the secret), verified via /api/4.0/login on lookerhost",
+	detectors.DeepL.String():                  "DeepL API key (32 hex + `:fx` suffix or 36 hex Pro) verified via /v2/usage on api-free.deepl.com with Authorization DeepL-Auth-Key header",
+	detectors.HackerOne.String():              "HackerOne identifier + API token pair near hackerone keyword — paired (RawV2 carries the token), verified via HTTP Basic auth on api.hackerone.com /v1/me",
+	detectors.ZeroTier.String():               "ZeroTier Central API token (32 alnum) near zerotier keyword, verified via /api/v1/status on my.zerotier.com with Authorization Bearer header",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {
