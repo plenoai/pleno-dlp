@@ -597,6 +597,21 @@ var ruleDescriptions = map[string]string{
 	detectors.Authentik.String():              "Authentik identity-provider token (60+ alnum) near authentik keyword — unverified by design (per-tenant host `<tenant>.goauthentik.io` or self-hosted), apiBase override required",
 	detectors.Etherscan.String():              "Etherscan blockchain explorer API key (34 alnum) near etherscan keyword, verified via /api?module=stats&action=ethsupply on api.etherscan.io with apikey query param",
 	detectors.Alchemy.String():                "Alchemy blockchain RPC API key (32 alnum) near alchemy keyword, verified via JSON-RPC eth_blockNumber on eth-mainnet.g.alchemy.com/v2/<key>",
+	detectors.Infura.String():                 "Infura project ID (32 hex) near infura keyword, verified via JSON-RPC eth_blockNumber on mainnet.infura.io/v3/<id>",
+	detectors.QuickNode.String():              "QuickNode endpoint URL or token (32+ alnum) near quicknode keyword — unverified by design (per-endpoint host required), apiBase override required",
+	detectors.Moralis.String():                "Moralis Web3 API key (64+ alnum/JWT-shaped) near moralis keyword, verified via /api/v2.2/dateToBlock on deep-index.moralis.io with X-API-Key header",
+	detectors.Blockfrost.String():             "Blockfrost Cardano API key (`mainnet`/`preprod`/`preview`/`testnet` prefix + 32 alnum) near blockfrost keyword, verified via /api/v0/health on cardano-mainnet.blockfrost.io with project_id header",
+	detectors.Helius.String():                 "Helius Solana RPC API key (UUID shape) near helius keyword, verified via JSON-RPC getHealth on mainnet.helius-rpc.com/?api-key=<key>",
+	detectors.TheGraph.String():               "The Graph Studio API key (32 hex) near thegraph keyword, verified via /api/<key>/subgraphs/id/... on gateway.thegraph.com",
+	detectors.OpenSea.String():                "OpenSea API key (32 hex) near opensea keyword, verified via /api/v2/collections on api.opensea.io with X-API-KEY header",
+	detectors.Milvus.String():                 "Milvus / Zilliz Cloud API token (`db_`-prefixed alnum) near milvus keyword — unverified by design (per-cluster `<cluster>.api.zillizcloud.com` host required), apiBase override required",
+	detectors.Beeceptor.String():              "Beeceptor HTTP mock API key (32+ alnum) near beeceptor keyword, verified via /api/v1/projects on app.beeceptor.com with Authorization Bearer header",
+	detectors.Smee.String():                   "smee.io webhook proxy channel URL (https://smee.io/<id>) near smee keyword — unverified by design (channel URL is the credential, no auth probe)",
+	detectors.Ory.String():                    "Ory Network workspace API key (`ory_`-prefixed alnum) near ory keyword, verified via /projects on api.console.ory.sh with Authorization Bearer header",
+	detectors.Supertokens.String():            "SuperTokens core API key (32+ alnum) near supertokens keyword — unverified by design (per-deployment self-hosted core URL required), apiBase override required",
+	detectors.Statsig.String():                "Statsig Console / server-secret API key (`console-`/`secret-` prefix + alnum) near statsig keyword, verified via /v1/get_id_lists on statsigapi.net with STATSIG-API-KEY header",
+	detectors.GrowthBook.String():             "GrowthBook secret API key (`secret_admin_`/`secret_user_` prefix + alnum) near growthbook keyword, verified via /api/v1/features on api.growthbook.io with Authorization Bearer header",
+	detectors.DevCycle.String():               "DevCycle server / management API key (`dvc_server_`/`dvc_mgmt_` prefix + alnum) near devcycle keyword, verified via /v1/projects on api.devcycle.com with Authorization Bearer header",
 }
 
 func toSARIFResult(f engine.Finding) sarifResult {

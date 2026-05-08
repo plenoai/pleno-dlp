@@ -879,6 +879,36 @@ func (t DetectorType) String() string {
 		return "Etherscan"
 	case Alchemy:
 		return "Alchemy"
+	case Infura:
+		return "Infura"
+	case QuickNode:
+		return "QuickNode"
+	case Moralis:
+		return "Moralis"
+	case Blockfrost:
+		return "Blockfrost"
+	case Helius:
+		return "Helius"
+	case TheGraph:
+		return "TheGraph"
+	case OpenSea:
+		return "OpenSea"
+	case Milvus:
+		return "Milvus"
+	case Beeceptor:
+		return "Beeceptor"
+	case Smee:
+		return "Smee"
+	case Ory:
+		return "Ory"
+	case Supertokens:
+		return "Supertokens"
+	case Statsig:
+		return "Statsig"
+	case GrowthBook:
+		return "GrowthBook"
+	case DevCycle:
+		return "DevCycle"
 	default:
 		return "Unknown"
 	}

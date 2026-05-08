@@ -558,4 +558,26 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/neverbounce"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/novitaai"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/snov"
+	// batch 29 — wire-stable order, never reorder. Web3 / blockchain RPC +
+	// APIs (infura, quicknode, moralis, blockfrost, helius, thegraph, opensea),
+	// vector DB (milvus), webhook proxy (beeceptor, smee), identity (ory,
+	// supertokens), feature flags / experimentation (statsig, growthbook,
+	// devcycle). Smee / Supertokens / Milvus / QuickNode are unverified-
+	// by-default (per-channel / per-deployment / per-cluster / per-endpoint
+	// host required).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/beeceptor"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/blockfrost"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/devcycle"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/growthbook"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/helius"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/infura"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/milvus"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/moralis"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/opensea"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/ory"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/quicknode"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/smee"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/statsig"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/supertokens"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/thegraph"
 )

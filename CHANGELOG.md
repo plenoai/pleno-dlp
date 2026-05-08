@@ -10,7 +10,39 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.25.0.
+### Added
+
+- **15 more secret detectors** — batch 29 (constants 425..439):
+  Infura, QuickNode, Moralis, Blockfrost, Helius, TheGraph, OpenSea,
+  Milvus, Beeceptor, Smee, Ory, Supertokens, Statsig, GrowthBook,
+  DevCycle. Total now **433 secret + 4 PII = 437 detectors**.
+  Web3 / blockchain RPC + APIs (Infura 32-hex project ID JSON-RPC
+  eth_blockNumber on mainnet.infura.io/v3/<id>, QuickNode 32-64 hex
+  endpoint token — unverified-by-default per-endpoint host required,
+  Moralis 64+ alnum / JWT-shaped X-API-Key via /api/v2.2/dateToBlock
+  on deep-index.moralis.io, Blockfrost mainnet/preprod/preview/testnet-
+  prefixed project_id header via /api/v0/health on
+  cardano-mainnet.blockfrost.io, Helius UUID-shape api-key query param
+  via JSON-RPC getHealth on mainnet.helius-rpc.com, TheGraph 32-hex
+  Studio key via /api/<key>/subgraphs/id/... on gateway.thegraph.com,
+  OpenSea 32-hex X-API-KEY header via /api/v2/collections on
+  api.opensea.io), vector DB (Milvus / Zilliz `db_`-prefixed token —
+  unverified-by-default per-cluster `<cluster>.api.zillizcloud.com`
+  host required), webhook proxy (Beeceptor 32+ alnum Bearer via
+  /api/v1/projects on app.beeceptor.com, Smee.io channel URL —
+  unverified-by-design URL is the credential), identity (Ory
+  `ory_`-prefixed Bearer via /projects on api.console.ory.sh,
+  SuperTokens 32+ alnum core api-key — unverified-by-default per-
+  deployment self-hosted core URL required), and feature flags /
+  experimentation (Statsig `console-`/`secret-` prefixed STATSIG-API-KEY
+  header via /v1/get_id_lists on statsigapi.net, GrowthBook
+  `secret_admin_`/`secret_user_` Bearer via /api/v1/features on
+  api.growthbook.io, DevCycle `dvc_server_`/`dvc_mgmt_`/`dvc_client_`
+  Authorization header via /v1/projects on api.devcycle.com). Four
+  detectors are unverified-by-default (QuickNode, Milvus, Smee,
+  SuperTokens) — each requires a per-endpoint / per-cluster /
+  per-channel-URL / per-deployment value not present in the chunk;
+  verify only fires when an apiBase override is supplied.
 
 ## [0.25.0] — 2026-05-08
 
