@@ -5,6 +5,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-05-08
+
+### Changed
+
+- **Detection backends are now connectors.** ``native``, ``trufflehog``,
+  ``gitleaks``, and ``pii`` live under ``pleno_dlp.connectors`` next to
+  the SaaS sources. Each declares ``ConnectorSpec(role=DETECTOR, …)``
+  and registers through the same ``registry`` that sources use. One
+  plugin model, one registry, one mental model.
+- New ``ConnectorRole`` enum (``SOURCE`` / ``DETECTOR``) on
+  ``ConnectorSpec``. ``registry.names() / specs()`` accept an optional
+  ``role=`` filter and gain ``sources()`` / ``detectors()`` helpers.
+- ``Detector`` Protocol added in ``pleno_dlp.core`` (``scan(doc) ->
+  AsyncIterator[Finding]``). Replaces the old ``Backend`` protocol.
+- Detector classes renamed: ``NativeBackend`` → ``NativeDetector``,
+  ``TrufflehogBackend`` → ``TrufflehogDetector``, ``GitleaksBackend``
+  → ``GitleaksDetector``, ``PiiBackend`` → ``PiiDetector``.
+- ``Pipeline`` constructor takes ``connector=`` and ``detector=``
+  (was ``backend=``).
+
+### Removed
+
+- The ``pleno_dlp.backends`` sub-package (and its ``backends.make``
+  factory). Use ``registry.create(name, **kwargs)``.
+- ``pleno-dlp list-backends``. Folded into ``pleno-dlp list``, which
+  now shows a ``role`` column and accepts ``--role source|detector``.
+- ``--backend`` flag on ``scan``. Use ``--detector`` instead.
+
+### Added
+
+- ``pleno-dlp list --role detector`` / ``--role source`` filters.
+- ``--detector-option key=value`` (alias ``-D``) to forward
+  detector-specific kwargs through the same spec-driven path as
+  ``--option`` does for sources.
+- ``--pii-base-url`` / ``--pii-language`` retained as ergonomic
+  shortcuts for the most common PII detector knobs.
+
+### Migration
+
+```diff
+-from pleno_dlp.backends.native import NativeBackend
+-from pleno_dlp.backends import make
+-pipeline = Pipeline(connector=src, backend=make("trufflehog"))
++from pleno_dlp.connectors.native import NativeDetector
++from pleno_dlp import registry
++pipeline = Pipeline(connector=src, detector=registry.create("trufflehog"))
+```
+
+```diff
+-pleno-dlp list-backends
+-pleno-dlp scan github --backend trufflehog --option owner=plenoai
++pleno-dlp list --role detector
++pleno-dlp scan github --detector trufflehog --option owner=plenoai
+```
+
 ## [0.9.0] - 2026-05-08
 
 ### Changed

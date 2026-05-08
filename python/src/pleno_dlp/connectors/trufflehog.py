@@ -1,4 +1,4 @@
-"""Trufflehog subprocess backend.
+"""Trufflehog detector connector.
 
 Pipes the document body into ``trufflehog filesystem --no-update --json``
 through stdin (via a tempfile, since trufflehog requires a path). Each
@@ -17,16 +17,34 @@ import shutil
 import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
-from pleno_dlp.core import Document
+from pleno_dlp.core import (
+    AuthMode,
+    ConnectorRole,
+    ConnectorSpec,
+    Document,
+    OptionSpec,
+)
 from pleno_dlp.findings import Finding
+from pleno_dlp.registry import registry
 
 
-class TrufflehogBackend:
+class TrufflehogDetector:
     """Wraps the trufflehog CLI; verifies hits when the detector supports it."""
 
     name = "trufflehog"
+    spec: ClassVar[ConnectorSpec] = ConnectorSpec(
+        name="trufflehog",
+        kind="trufflehog",
+        summary="trufflehog CLI subprocess; verifies provider hits when supported.",
+        role=ConnectorRole.DETECTOR,
+        auth_modes=(AuthMode.NONE,),
+        options=(
+            OptionSpec("binary", "str", "Path or name of the trufflehog executable.", default="trufflehog"),
+        ),
+        docs_url="https://github.com/trufflesecurity/trufflehog",
+    )
 
     def __init__(self, binary: str = "trufflehog") -> None:
         self.binary = binary
@@ -36,7 +54,7 @@ class TrufflehogBackend:
             return
         if shutil.which(self.binary) is None:
             raise RuntimeError(
-                f"{self.binary!r} not found on PATH. Install trufflehog or pass --backend native."
+                f"{self.binary!r} not found on PATH. Install trufflehog or pass --detector native."
             )
         with tempfile.TemporaryDirectory(prefix="pleno-th-") as tmp:
             target = Path(tmp) / "document.txt"
@@ -89,3 +107,6 @@ def _map(rec: dict[str, Any], doc: Document) -> Finding | None:
         line=line if isinstance(line, int) else None,
         extra={"trufflehog_decoder": rec.get("DecoderName")} if rec.get("DecoderName") else None,
     )
+
+
+registry.register("trufflehog", TrufflehogDetector)

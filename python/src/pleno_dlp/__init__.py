@@ -3,37 +3,38 @@
 Public surface:
 
 * ``Document``, ``DocumentChunk``, ``DocumentRef``, ``Connector``,
-  ``IncrementalConnector``, ``Principal``, ``SourceFilter``,
-  ``Capabilities``, ``Cursor``, ``Subsource``, ``SUBSOURCE_METADATA_KEY``
-  — the runtime contract every connector honours.
-* ``ConnectorSpec``, ``AuthMode``, ``ResourceSpec``, ``OptionSpec`` —
-  the declarative contract each connector class exposes as ``spec``.
-  Drives CLI ``--help`` generation, the docs matrix, and registry
-  validation.
+  ``Detector``, ``IncrementalConnector``, ``Principal``,
+  ``SourceFilter``, ``Capabilities``, ``Cursor``, ``Subsource``,
+  ``SUBSOURCE_METADATA_KEY`` — the runtime contracts every connector
+  honours. ``Connector`` is the source-role contract;
+  ``Detector`` is the detector-role contract.
+* ``ConnectorSpec``, ``ConnectorRole``, ``AuthMode``, ``ResourceSpec``,
+  ``OptionSpec`` — the declarative contract each connector class
+  exposes as ``spec``. Drives CLI ``--help`` generation, the docs
+  matrix, and registry validation.
 * ``Credential``, ``CredentialError``, ``CredentialNotFoundError``,
   ``CredentialMisconfiguredError`` — credential bundle (provider-
   specific payload) connectors take via constructor.
 * ``BucketKey``, ``RateLimited``, ``AdaptiveTokenBucket``,
   ``GlobalRateLimiter`` — adaptive AIMD rate limiter primitives.
-* ``registry`` — name → factory mapping. Importing this package
-  populates the registry with every built-in connector.
+* ``registry`` — name → factory mapping spanning both source and
+  detector connectors. Importing this package populates the registry
+  with every built-in connector.
 * ``Finding`` — wire-format struct for one detection (secret or PII).
-* ``Backend`` — protocol every detection backend honours.
-* ``Pipeline`` — wires a connector to a backend and a sink.
-* ``backends`` namespace — built-in trufflehog / gitleaks / native
-  (secret detection); ``pii`` backend (delegates to pleno-anonymize)
-  is enabled when the ``pii`` extra is installed.
+* ``Pipeline`` — wires a source connector to a detector connector and
+  a sink.
 """
 
 from pleno_dlp import connectors as _connectors  # noqa: F401  registry side-effect
-from pleno_dlp.backends import Backend
 from pleno_dlp.core import (
     SUBSOURCE_METADATA_KEY,
     AuthMode,
     Capabilities,
     Connector,
+    ConnectorRole,
     ConnectorSpec,
     Cursor,
+    Detector,
     Document,
     DocumentChunk,
     DocumentRef,
@@ -64,16 +65,17 @@ __all__ = [
     "SUBSOURCE_METADATA_KEY",
     "AdaptiveTokenBucket",
     "AuthMode",
-    "Backend",
     "BucketKey",
     "Capabilities",
     "Connector",
+    "ConnectorRole",
     "ConnectorSpec",
     "Credential",
     "CredentialError",
     "CredentialMisconfiguredError",
     "CredentialNotFoundError",
     "Cursor",
+    "Detector",
     "Document",
     "DocumentChunk",
     "DocumentRef",
@@ -89,4 +91,4 @@ __all__ = [
     "Subsource",
     "registry",
 ]
-__version__ = "0.9.0"
+__version__ = "0.10.0"

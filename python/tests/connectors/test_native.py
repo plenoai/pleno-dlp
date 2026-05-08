@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pytest
 
 from pleno_dlp import Document, DocumentRef
-from pleno_dlp.backends.native import NativeBackend
+from pleno_dlp.connectors.native import NativeDetector
 
 
 def _doc(text: str) -> Document:
@@ -29,7 +29,7 @@ def _doc(text: str) -> Document:
     ],
 )
 async def test_detects_known_secret(rule_id: str, sample: str) -> None:
-    backend = NativeBackend()
+    backend = NativeDetector()
     findings = [f async for f in backend.scan(_doc(f"prefix {sample} suffix"))]
     rule_ids = {f.rule_id for f in findings}
     assert rule_id in rule_ids
@@ -40,13 +40,13 @@ async def test_detects_known_secret(rule_id: str, sample: str) -> None:
 
 
 async def test_skips_non_secrets() -> None:
-    backend = NativeBackend()
+    backend = NativeDetector()
     findings = [f async for f in backend.scan(_doc("nothing exciting here"))]
     assert findings == []
 
 
 async def test_binary_document_yields_nothing() -> None:
-    backend = NativeBackend()
+    backend = NativeDetector()
     doc = Document(
         ref=DocumentRef(source_id="t", source_kind="test", path="/x.bin"),
         binary=b"\x00\x01\x02",
@@ -56,7 +56,7 @@ async def test_binary_document_yields_nothing() -> None:
 
 
 async def test_line_number_is_correct() -> None:
-    backend = NativeBackend()
+    backend = NativeDetector()
     text = "line1\nline2\nline3 ghp_" + "a" * 36 + "\nline4"
     findings = [f async for f in backend.scan(_doc(text))]
     assert len(findings) == 1

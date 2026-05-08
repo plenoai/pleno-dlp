@@ -1,7 +1,7 @@
 """CLI tests for the generic --option/-o pass-through.
 
-Exercises ``_coerce_option`` and verifies that ``list-connectors`` lists
-every saas-retriever 1.0 connector kind. Doesn't run a full scan — the
+Exercises ``_coerce_option`` and verifies that ``list`` lists every
+shipped connector (sources + detectors). Doesn't run a full scan — the
 pipeline path is covered by ``test_pipeline.py``.
 """
 
@@ -39,11 +39,37 @@ def test_coerce_option_uses_spec_type_when_available() -> None:
     assert _coerce_option("500", int_opt) == 500
 
 
-def test_list_connectors_includes_every_v1_kind() -> None:
-    result = runner.invoke(app, ["list-connectors"])
+def test_list_includes_every_kind() -> None:
+    result = runner.invoke(app, ["list"])
     assert result.exit_code == 0, result.output
-    for kind in ("github", "gitlab", "bitbucket", "notion", "confluence", "jira", "slack"):
+    for kind in (
+        # sources
+        "github",
+        "gitlab",
+        "bitbucket",
+        "notion",
+        "confluence",
+        "jira",
+        "slack",
+        # detectors
+        "native",
+        "trufflehog",
+        "gitleaks",
+        "pii",
+    ):
         assert kind in result.output
+
+
+def test_list_role_filter() -> None:
+    sources_only = runner.invoke(app, ["list", "--role", "source"])
+    assert sources_only.exit_code == 0, sources_only.output
+    assert "github" in sources_only.output
+    assert "trufflehog" not in sources_only.output
+
+    detectors_only = runner.invoke(app, ["list", "--role", "detector"])
+    assert detectors_only.exit_code == 0, detectors_only.output
+    assert "trufflehog" in detectors_only.output
+    assert "github" not in detectors_only.output
 
 
 def test_scan_rejects_malformed_option() -> None:
@@ -65,11 +91,19 @@ def test_scan_rejects_unknown_kwarg() -> None:
     assert "unexpected kwargs" in result.output
 
 
-def test_describe_renders_options_table() -> None:
+def test_describe_source_renders_options_table() -> None:
     result = runner.invoke(app, ["describe", "github"])
     assert result.exit_code == 0
     assert "owner" in result.output
     assert "code" in result.output
+    assert "source" in result.output
+
+
+def test_describe_detector_renders_role() -> None:
+    result = runner.invoke(app, ["describe", "trufflehog"])
+    assert result.exit_code == 0
+    assert "trufflehog" in result.output
+    assert "detector" in result.output
 
 
 def test_describe_unknown_connector_exits_2() -> None:

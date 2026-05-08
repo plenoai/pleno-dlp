@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
 from pleno_dlp import Document, DocumentRef, SourceFilter
-from pleno_dlp.backends.native import NativeBackend
+from pleno_dlp.connectors.native import NativeDetector
 from pleno_dlp.pipeline import Pipeline
 
 
@@ -53,7 +53,7 @@ async def test_pipeline_emits_findings_from_each_doc() -> None:
         _doc("leaked AKIAIOSFODNN7EXAMPLE here", "/b.txt"),
         _doc("ghp_" + "a" * 36 + "\n", "/c.txt"),
     ]
-    pipeline = Pipeline(connector=StubConnector(docs), backend=NativeBackend())
+    pipeline = Pipeline(connector=StubConnector(docs), detector=NativeDetector())
     findings = [f async for f in pipeline.run()]
     paths = {f.path for f in findings}
     assert paths == {"/b.txt", "/c.txt"}
@@ -68,6 +68,6 @@ async def test_pipeline_skips_binary_documents() -> None:
             binary=b"AKIAIOSFODNN7EXAMPLE",
         ),
     ]
-    pipeline = Pipeline(connector=StubConnector(docs), backend=NativeBackend())
+    pipeline = Pipeline(connector=StubConnector(docs), detector=NativeDetector())
     findings = [f async for f in pipeline.run()]
     assert findings == []

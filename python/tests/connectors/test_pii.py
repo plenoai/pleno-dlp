@@ -1,7 +1,7 @@
 """PII backend tests — driven by httpx.MockTransport, no real anonymize server.
 
 We mock the ``POST /api/analyze`` endpoint to return canned Presidio
-``RecognizerResult`` rows and assert that ``PiiBackend`` translates each
+``RecognizerResult`` rows and assert that ``PiiDetector`` translates each
 into a ``Finding`` with the expected shape (entity_type → rule_id,
 finding_class="pii", line numbers from offset, score forwarded, raw
 substring sliced from the document text).
@@ -18,7 +18,7 @@ import httpx
 import pytest
 
 from pleno_dlp import Document, DocumentRef
-from pleno_dlp.backends.pii import PiiBackend
+from pleno_dlp.connectors.pii import PiiDetector
 from pleno_dlp.findings import Finding
 
 
@@ -40,11 +40,11 @@ def _make_backend(
     *,
     language: str = "ja",
     entities: tuple[str, ...] | None = None,
-) -> PiiBackend:
+) -> PiiDetector:
     client = httpx.AsyncClient(
         base_url="http://test", transport=handler, timeout=5.0
     )
-    return PiiBackend(language=language, entities=entities, client=client)
+    return PiiDetector(language=language, entities=entities, client=client)
 
 
 async def _collect(it: AsyncIterator[Finding]) -> list[Finding]:
@@ -191,12 +191,12 @@ async def test_malformed_rows_are_skipped() -> None:
 @pytest.mark.asyncio
 async def test_invalid_language_rejected() -> None:
     with pytest.raises(ValueError, match="language must be"):
-        PiiBackend(language="fr")
+        PiiDetector(language="fr")
 
 
 @pytest.mark.asyncio
 async def test_aclose_releases_owned_client() -> None:
-    backend = PiiBackend(base_url="http://nowhere")
+    backend = PiiDetector(base_url="http://nowhere")
     await backend._ensure_client()
     assert backend._owned_client is True
     await backend.aclose()
@@ -208,7 +208,7 @@ async def test_aclose_releases_owned_client() -> None:
 @pytest.mark.asyncio
 async def test_aclose_leaves_injected_client_alone() -> None:
     client = httpx.AsyncClient(base_url="http://nowhere")
-    backend = PiiBackend(client=client)
+    backend = PiiDetector(client=client)
     assert backend._owned_client is False
     await backend.aclose()
     # Injected client is still usable: aclose did NOT close it.
