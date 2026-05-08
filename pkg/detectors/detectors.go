@@ -722,6 +722,30 @@ const (
 	June
 	Workday
 	Qualys
+	// batch 31 — appended in wire-stable order, never reorder. AI / inference
+	// (Nebius, DashScope, ModelScope, Dify, LobeHub), identity (FusionAuth,
+	// Casdoor), DBaaS / search / DB cloud (EdgeDBCloud, PrismaData,
+	// OpenSearchCloud, ChromaCloud), web3 (Biconomy), enterprise (SAPAriba,
+	// OracleNetSuite), CI (TravisCI). LobeHub / FusionAuth / Casdoor /
+	// EdgeDBCloud / OpenSearchCloud / Biconomy / SAPAriba / OracleNetSuite
+	// are unverified-by-default — each requires a per-deployment /
+	// per-tenant / per-account value not present in the chunk; verify
+	// only fires when an apiBase override is supplied.
+	Nebius
+	DashScope
+	ModelScope
+	Dify
+	LobeHub
+	FusionAuth
+	Casdoor
+	EdgeDBCloud
+	PrismaData
+	OpenSearchCloud
+	ChromaCloud
+	Biconomy
+	SAPAriba
+	OracleNetSuite
+	TravisCI
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
