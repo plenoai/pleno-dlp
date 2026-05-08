@@ -132,7 +132,7 @@ class BitbucketConnector:
             OptionSpec("max_items_per_repo", "int", "Cap on issues+PRs per repo.", default=1000),
             OptionSpec("source_id", "str", "Override the synthesized source id."),
         ),
-        capabilities=Capabilities(incremental=True, max_concurrent_fetches=4),
+        runtime=Capabilities(incremental=True, max_concurrent_fetches=4),
         docs_url="https://developer.atlassian.com/cloud/bitbucket/rest/intro/",
     )
 

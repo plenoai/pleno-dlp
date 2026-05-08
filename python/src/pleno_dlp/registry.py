@@ -5,6 +5,10 @@ Connectors register themselves by importing their module (which calls
 trigger every registration; programmatic users can either import the
 same package or register their own connectors at runtime.
 
+Only SaaS source connectors live here — detection engines (regex,
+trufflehog, gitleaks, pii) are not connectors; they live under
+``pleno_dlp.engines`` and are constructed directly.
+
 Each registered factory must expose a ``spec: ConnectorSpec`` ClassVar
 whose ``name`` matches the registry key. ``register()`` validates the
 match, ``spec(name)`` looks the spec up, and ``create()`` filters
@@ -17,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, cast
 
-from pleno_dlp.core import ConnectorRole, ConnectorSpec
+from pleno_dlp.core import Capability, ConnectorSpec
 
 # Looser than Callable[..., Connector] so subclasses of an abstract base —
 # whose runtime shape is a Connector but whose static type is the concrete
@@ -65,27 +69,26 @@ class _Registry:
             )
         self._factories[name] = factory
 
-    def names(self, *, role: ConnectorRole | None = None) -> list[str]:
-        """Sorted list of registered connector names, optionally filtered by role."""
-        if role is None:
+    def names(self, *, capability: Capability | None = None) -> list[str]:
+        """Sorted list of registered connector names.
+
+        ``capability`` filters to connectors whose spec advertises that
+        capability (e.g. ``Capability.VERIFY`` for connectors implementing
+        the ``Verifier`` Protocol).
+        """
+        if capability is None:
             return sorted(self._factories)
-        return sorted(n for n, f in self._factories.items() if _spec_of(f).role is role)
+        return sorted(
+            n for n, f in self._factories.items() if _spec_of(f).has(capability)
+        )
 
     def spec(self, name: str) -> ConnectorSpec:
         """Return the ConnectorSpec for ``name``. KeyError if unknown."""
         return _spec_of(self._factories[name])
 
-    def specs(self, *, role: ConnectorRole | None = None) -> list[ConnectorSpec]:
-        """Every registered spec, sorted by name. Optionally filtered by role."""
-        return [self.spec(n) for n in self.names(role=role)]
-
-    def sources(self) -> list[str]:
-        """Sorted names of registered source connectors."""
-        return self.names(role=ConnectorRole.SOURCE)
-
-    def detectors(self) -> list[str]:
-        """Sorted names of registered detector connectors."""
-        return self.names(role=ConnectorRole.DETECTOR)
+    def specs(self, *, capability: Capability | None = None) -> list[ConnectorSpec]:
+        """Every registered spec, sorted by name. Optionally filtered by capability."""
+        return [self.spec(n) for n in self.names(capability=capability)]
 
     def create(self, name: str, **kwargs: Any) -> Any:
         """Instantiate the connector named ``name`` with ``kwargs``.

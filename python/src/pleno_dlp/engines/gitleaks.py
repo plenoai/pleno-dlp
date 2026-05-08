@@ -1,8 +1,8 @@
-"""Gitleaks detector connector.
+"""Gitleaks detection engine.
 
-Runs ``gitleaks detect --no-git --report-format json --report-path -`` over
-a tempfile holding the document body. Gitleaks does not verify hits; every
-Finding is emitted with ``verified=False``.
+Runs ``gitleaks detect --no-git --report-format json --report-path -``
+over a tempfile holding the document body. Gitleaks does not verify
+hits; every Finding is emitted with ``verified=False``.
 
 Requires ``gitleaks`` on PATH (``brew install gitleaks``).
 """
@@ -15,34 +15,16 @@ import shutil
 import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
-from pleno_dlp.core import (
-    AuthMode,
-    ConnectorRole,
-    ConnectorSpec,
-    Document,
-    OptionSpec,
-)
+from pleno_dlp.core import Document
 from pleno_dlp.findings import Finding
-from pleno_dlp.registry import registry
 
 
-class GitleaksDetector:
+class GitleaksEngine:
     """Wraps the gitleaks CLI (no verification)."""
 
     name = "gitleaks"
-    spec: ClassVar[ConnectorSpec] = ConnectorSpec(
-        name="gitleaks",
-        kind="gitleaks",
-        summary="gitleaks CLI subprocess; pattern matching only, no verification.",
-        role=ConnectorRole.DETECTOR,
-        auth_modes=(AuthMode.NONE,),
-        options=(
-            OptionSpec("binary", "str", "Path or name of the gitleaks executable.", default="gitleaks"),
-        ),
-        docs_url="https://github.com/gitleaks/gitleaks",
-    )
 
     def __init__(self, binary: str = "gitleaks") -> None:
         self.binary = binary
@@ -52,7 +34,7 @@ class GitleaksDetector:
             return
         if shutil.which(self.binary) is None:
             raise RuntimeError(
-                f"{self.binary!r} not found on PATH. Install gitleaks or pass --detector native."
+                f"{self.binary!r} not found on PATH. Install gitleaks or pass --engine native."
             )
         with tempfile.TemporaryDirectory(prefix="pleno-gl-") as tmp:
             tmp_path = Path(tmp)
@@ -105,6 +87,3 @@ def _map(rec: dict[str, Any], doc: Document) -> Finding | None:
         native_url=doc.ref.native_url,
         line=line if isinstance(line, int) else None,
     )
-
-
-registry.register("gitleaks", GitleaksDetector)

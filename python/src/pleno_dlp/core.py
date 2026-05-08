@@ -1,18 +1,26 @@
 """Connector contract — wire format and metadata for every plugin.
 
-The package recognises one plugin shape: a *Connector*. Connectors
-come in two roles, distinguished by ``ConnectorSpec.role``:
+A *Connector* in pleno-dlp is a SaaS provider integration: github,
+gitlab, bitbucket, slack, notion, confluence, jira. Every connector
+walks an external system and yields ``Document``\\s; the same
+connector may also expose secret-lifecycle capabilities (verify a
+token is still live, revoke it) when the provider's API supports
+them.
 
-* ``ConnectorRole.SOURCE`` — produces ``Document`` s. Honours the
-  ``Connector`` Protocol (``discover`` / ``fetch`` / ``capabilities``).
-  Examples: github, slack, jira.
-* ``ConnectorRole.DETECTOR`` — consumes ``Document`` s and produces
-  ``Finding`` s. Honours the ``Detector`` Protocol (``scan``).
-  Examples: native, trufflehog, gitleaks, pii.
+Detection itself is *not* a connector — text-to-Findings scanners
+(regex, trufflehog, gitleaks, pleno-anonymize PII) live under
+``pleno_dlp.engines`` as plain stateless utilities applied by the
+pipeline to each Document.
 
-Both roles register through the same ``registry`` and share the same
-declarative ``ConnectorSpec`` contract — operators get a uniform
-discovery / introspection / configuration surface for every plugin.
+Each connector declares what it can do via
+``ConnectorSpec.capabilities`` — a frozenset of ``Capability`` values:
+
+* ``Capability.SOURCE`` — implements the ``Connector`` Protocol
+  (``discover`` / ``fetch`` / ``capabilities``).
+* ``Capability.VERIFY`` — implements the ``Verifier`` Protocol
+  (``verify(secret) -> VerifyResult``).
+* ``Capability.REVOKE`` — implements the ``Revoker`` Protocol
+  (``revoke(secret) -> RevokeResult``).
 
 Aligned with pleno-anonymize's ``pleno_pii_scanner.sources.base`` so
 the same ``Document`` flows through either pipeline without
@@ -29,13 +37,17 @@ Public protocol surface:
 * ``Subsource`` + ``SUBSOURCE_METADATA_KEY`` — sub-unit fingerprinting
   for hierarchical sources (org → repos, workspace → channels, ...).
 * ``Connector`` Protocol — source connector runtime contract.
-* ``Detector`` Protocol — detector connector runtime contract.
-* ``ConnectorRole`` — SOURCE / DETECTOR.
+* ``Verifier`` / ``Revoker`` Protocols — optional secret-lifecycle
+  contracts a connector may implement on top of ``Connector``.
+* ``Engine`` Protocol — text-to-Finding scanner contract (engines).
+* ``VerifyResult`` / ``RevokeResult`` — return shapes for the
+  lifecycle protocols.
+* ``Capability`` — SOURCE / VERIFY / REVOKE.
 * ``ConnectorSpec`` (+ ``AuthMode``, ``ResourceSpec``, ``OptionSpec``)
   — declarative metadata each connector class exposes as the ``spec``
   ClassVar. Drives CLI ``--help`` generation, the docs matrix, and
-  registry validation. Capabilities answers the *runtime* question
-  ("can I incrementally resume?"); ConnectorSpec answers the
+  registry validation. ``Capabilities`` answers the *runtime* question
+  ("can I incrementally resume?"); ``ConnectorSpec`` answers the
   *configuration* question ("what kwargs do you take?").
 """
 
@@ -285,18 +297,22 @@ class ResourceSpec:
     default: bool = True  # included when --option resources is unset
 
 
-class ConnectorRole(StrEnum):
-    """Whether a connector produces Documents or consumes them.
+class Capability(StrEnum):
+    """What a connector is able to do.
 
-    Sources walk an external system and yield ``Document``\\s.
-    Detectors take a ``Document`` and yield ``Finding``\\s. Both
-    register through the same ``registry`` and share the same
-    ``ConnectorSpec`` shape — operators discover, configure, and
-    inspect them with one set of commands.
+    A connector spec advertises one or more capabilities. ``SOURCE`` is
+    the baseline — the connector walks the provider's content and
+    produces ``Document``\\s. ``VERIFY`` and ``REVOKE`` are
+    secret-lifecycle extras: implement ``Verifier`` to confirm a leaked
+    credential is still live, and ``Revoker`` to invalidate it.
+
+    Each capability maps to a Protocol the connector class must satisfy
+    (``Connector``, ``Verifier``, ``Revoker`` respectively).
     """
 
     SOURCE = "source"
-    DETECTOR = "detector"
+    VERIFY = "verify"
+    REVOKE = "revoke"
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,20 +327,21 @@ class ConnectorSpec:
     matching ``spec.name``, and the CLI uses ``options`` to render
     ``--help`` and to whitelist kwargs forwarded to the constructor.
 
-    ``role`` distinguishes a Source (walks an external system) from a
-    Detector (consumes Documents). Detectors leave ``resources`` and
-    ``capabilities`` at their defaults — those describe SaaS scan
-    surfaces and don't apply.
+    ``capabilities`` is the set of contracts the connector implements
+    (``SOURCE`` always; ``VERIFY`` / ``REVOKE`` when the provider's
+    API supports lifecycle operations on issued tokens).
     """
 
     name: str  # registry key (matches the kwarg used at create() time)
-    kind: str  # provider kind (e.g. "github", "slack", "trufflehog")
-    summary: str  # one-line summary for list-connectors
-    role: ConnectorRole = ConnectorRole.SOURCE
+    kind: str  # provider kind (e.g. "github", "slack")
+    summary: str  # one-line summary for `pleno-dlp list`
+    capabilities: frozenset[Capability] = field(
+        default_factory=lambda: frozenset({Capability.SOURCE})
+    )
     auth_modes: tuple[AuthMode, ...] = (AuthMode.PAT,)
     resources: tuple[ResourceSpec, ...] = ()
     options: tuple[OptionSpec, ...] = ()
-    capabilities: Capabilities = field(default_factory=Capabilities)
+    runtime: Capabilities = field(default_factory=Capabilities)
     docs_url: str | None = None
 
     def option(self, name: str) -> OptionSpec | None:
@@ -337,10 +354,13 @@ class ConnectorSpec:
         """Whitelist of kwargs the CLI / registry will forward."""
         return frozenset(opt.name for opt in self.options)
 
+    def has(self, capability: Capability) -> bool:
+        return capability in self.capabilities
+
 
 @runtime_checkable
 class Connector(Protocol):
-    """Contract every connector implements.
+    """Source-role contract every connector implements.
 
     Construction is the connector's responsibility — the registry forwards
     provider-specific kwargs (token, owner, base_url, ...) declared in
@@ -393,26 +413,109 @@ class Connector(Protocol):
         ...
 
 
-@runtime_checkable
-class Detector(Protocol):
-    """Detector connector contract — consumes a Document, yields Findings.
+class VerifyStatus(StrEnum):
+    """Liveness verdict returned by ``Verifier.verify``.
 
-    Implementations must be safe to call from a single asyncio task and
-    must not retain state between calls (the pipeline reuses one
-    Detector instance across every Document of a scan). Like
-    ``Connector``, every Detector class declares a
-    ``spec: ClassVar[ConnectorSpec]`` with ``role=DETECTOR`` so the
-    registry, CLI, and docs treat it uniformly with sources.
-
-    Use ``Finding`` from ``pleno_dlp.findings`` (re-exported at the top
-    level) as the wire shape — declaring it here would force a circular
-    import.
+    ``LIVE`` — provider accepted the credential.
+    ``REVOKED`` — provider rejected with an unambiguous "this token is
+        no longer valid" signal (401, 403, 404 on a definitive endpoint).
+    ``UNKNOWN`` — the call could not be made or the response was
+        ambiguous (network error, rate-limited, 5xx). Operators must
+        re-check before treating an UNKNOWN as either LIVE or REVOKED.
     """
 
-    spec: ClassVar[ConnectorSpec]
+    LIVE = "live"
+    REVOKED = "revoked"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class VerifyResult:
+    """Outcome of a single ``Verifier.verify`` call.
+
+    ``status`` is the headline. ``actor`` carries provider-side identity
+    metadata (e.g. ``login``, ``account_id``) when the verify endpoint
+    echoes who the token belongs to — useful for blast-radius reports.
+    ``detail`` is a free-form diagnostic for the UNKNOWN case.
+    """
+
+    status: VerifyStatus
+    actor: Mapping[str, str] = field(default_factory=dict)
+    detail: str | None = None
+
+
+class RevokeStatus(StrEnum):
+    """Outcome verdict returned by ``Revoker.revoke``.
+
+    ``REVOKED`` — provider confirmed the credential is now invalid.
+    ``ALREADY_REVOKED`` — provider reports the credential was already
+        invalid before our request (idempotent revoke).
+    ``UNSUPPORTED`` — the provider has no programmatic revoke endpoint
+        and the operator must rotate the credential out-of-band.
+    ``FAILED`` — call attempted but the provider rejected it (insufficient
+        scope, network, 5xx). The credential's status is unchanged.
+    """
+
+    REVOKED = "revoked"
+    ALREADY_REVOKED = "already_revoked"
+    UNSUPPORTED = "unsupported"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class RevokeResult:
+    """Outcome of a single ``Revoker.revoke`` call."""
+
+    status: RevokeStatus
+    detail: str | None = None
+
+
+@runtime_checkable
+class Verifier(Protocol):
+    """Optional connector capability — confirm a leaked credential is live.
+
+    Implemented by connectors whose provider exposes a
+    ``GET /me``-equivalent endpoint (github ``/user``, slack
+    ``auth.test``, …). The connector is expected to construct a
+    minimal client around ``secret`` for the duration of the call and
+    must not retain it.
+    """
+
+    async def verify(self, secret: str) -> VerifyResult:
+        """Probe the provider with ``secret`` and report liveness."""
+        ...
+
+
+@runtime_checkable
+class Revoker(Protocol):
+    """Optional connector capability — invalidate a leaked credential.
+
+    Implemented by connectors whose provider exposes a programmatic
+    revoke endpoint (slack ``auth.revoke``, github fine-grained PAT
+    delete, atlassian token revoke, …). For providers without a
+    revoke API, do not implement this protocol — the spec should omit
+    ``Capability.REVOKE`` and the operator routes through the
+    provider's UI / out-of-band rotation.
+    """
+
+    async def revoke(self, secret: str) -> RevokeResult:
+        """Best-effort revoke of ``secret``."""
+        ...
+
+
+@runtime_checkable
+class Engine(Protocol):
+    """Text-to-Findings scanner contract.
+
+    Engines are pleno-dlp-internal utilities (regex, trufflehog,
+    gitleaks, pii). They are *not* connectors and do not register in
+    the connector registry; they are constructed directly and applied
+    by the pipeline to each Document.
+    """
+
     name: str
 
     def scan(self, doc: Document) -> AsyncIterator[object]:
-        """Detect leaks (secret or PII) in ``doc.text``. Binary documents
-        are skipped upstream. Yields ``Finding``\\s."""
+        """Detect leaks in ``doc.text``. Binary documents are skipped
+        upstream. Yields ``Finding``\\s."""
         ...

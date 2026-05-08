@@ -1,4 +1,4 @@
-"""Native regex backend should hit each known rule and miss similar non-secrets."""
+"""Native regex engine should hit each known rule and miss similar non-secrets."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pytest
 
 from pleno_dlp import Document, DocumentRef
-from pleno_dlp.connectors.native import NativeDetector
+from pleno_dlp.engines.native import NativeEngine
 
 
 def _doc(text: str) -> Document:
@@ -29,8 +29,8 @@ def _doc(text: str) -> Document:
     ],
 )
 async def test_detects_known_secret(rule_id: str, sample: str) -> None:
-    backend = NativeDetector()
-    findings = [f async for f in backend.scan(_doc(f"prefix {sample} suffix"))]
+    engine = NativeEngine()
+    findings = [f async for f in engine.scan(_doc(f"prefix {sample} suffix"))]
     rule_ids = {f.rule_id for f in findings}
     assert rule_id in rule_ids
     hit = next(f for f in findings if f.rule_id == rule_id)
@@ -40,24 +40,24 @@ async def test_detects_known_secret(rule_id: str, sample: str) -> None:
 
 
 async def test_skips_non_secrets() -> None:
-    backend = NativeDetector()
-    findings = [f async for f in backend.scan(_doc("nothing exciting here"))]
+    engine = NativeEngine()
+    findings = [f async for f in engine.scan(_doc("nothing exciting here"))]
     assert findings == []
 
 
 async def test_binary_document_yields_nothing() -> None:
-    backend = NativeDetector()
+    engine = NativeEngine()
     doc = Document(
         ref=DocumentRef(source_id="t", source_kind="test", path="/x.bin"),
         binary=b"\x00\x01\x02",
     )
-    findings = [f async for f in backend.scan(doc)]
+    findings = [f async for f in engine.scan(doc)]
     assert findings == []
 
 
 async def test_line_number_is_correct() -> None:
-    backend = NativeDetector()
+    engine = NativeEngine()
     text = "line1\nline2\nline3 ghp_" + "a" * 36 + "\nline4"
-    findings = [f async for f in backend.scan(_doc(text))]
+    findings = [f async for f in engine.scan(_doc(text))]
     assert len(findings) == 1
     assert findings[0].line == 3
