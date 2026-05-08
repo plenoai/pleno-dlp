@@ -43,6 +43,7 @@ from urllib.parse import quote
 
 import httpx
 
+from pleno_dlp.connectors._detect import DETECT_ENGINE_OPTION, DetectViaEngineMixin
 from pleno_dlp.core import (
     AuthMode,
     Capabilities,
@@ -96,7 +97,7 @@ class _BearerAuth:
 _AuthMode = _BasicAuth | _BearerAuth
 
 
-class BitbucketConnector:
+class BitbucketConnector(DetectViaEngineMixin):
     """API-driven Bitbucket source connector.
 
     Owner-only construction (``workspace`` / ``project``) walks every
@@ -131,6 +132,7 @@ class BitbucketConnector:
             OptionSpec("max_repos", "int", "Cap on enumerated repos.", default=1000),
             OptionSpec("max_items_per_repo", "int", "Cap on issues+PRs per repo.", default=1000),
             OptionSpec("source_id", "str", "Override the synthesized source id."),
+            DETECT_ENGINE_OPTION,
         ),
         runtime=Capabilities(incremental=True, max_concurrent_fetches=4),
         docs_url="https://developer.atlassian.com/cloud/bitbucket/rest/intro/",
@@ -156,6 +158,7 @@ class BitbucketConnector:
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: float = _DEFAULT_TIMEOUT,
         source_id: str | None = None,
+        engine: str = "native",
     ) -> None:
         if flavor not in ("cloud", "server"):
             raise ValueError(f"unsupported bitbucket flavor: {flavor!r}")
@@ -217,6 +220,7 @@ class BitbucketConnector:
             # network even if `ca_bundle_path` is set.
             client_kwargs["verify"] = ssl.create_default_context(cafile=ca_bundle_path)
         self._client = httpx.AsyncClient(**client_kwargs)
+        self._init_engine(engine)
 
     # --- public protocol ------------------------------------------------
 
@@ -290,6 +294,7 @@ class BitbucketConnector:
 
     async def close(self) -> None:
         await self._client.aclose()
+        await self._close_engine()
 
     # --- repo enumeration ----------------------------------------------
 

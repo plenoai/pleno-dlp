@@ -54,6 +54,7 @@ from typing import Any, ClassVar
 
 import httpx
 
+from pleno_dlp.connectors._detect import DETECT_ENGINE_OPTION, DetectViaEngineMixin
 from pleno_dlp.core import (
     AuthMode,
     Capabilities,
@@ -78,7 +79,7 @@ _DEFAULT_TIMEOUT = 30.0
 _DEFAULT_MAX_RETRIES = 3
 
 
-class GitHubConnector:
+class GitHubConnector(DetectViaEngineMixin):
     """API-driven GitHub source connector.
 
     The connector owns one ``httpx.AsyncClient`` for its lifetime; call
@@ -91,7 +92,7 @@ class GitHubConnector:
         name="github",
         kind="github",
         summary="GitHub repos, issues, and pull requests via the REST API.",
-        capabilities=frozenset({Capability.SOURCE, Capability.VERIFY}),
+        capabilities=frozenset({Capability.SOURCE, Capability.DETECT, Capability.VERIFY}),
         auth_modes=(AuthMode.PAT, AuthMode.NONE),
         resources=(
             ResourceSpec("code", "Every blob in the default branch."),
@@ -119,6 +120,7 @@ class GitHubConnector:
             OptionSpec("max_repos", "int", "Cap on enumerated repos.", default=1000),
             OptionSpec("max_items_per_repo", "int", "Cap on issues+PRs per repo.", default=1000),
             OptionSpec("source_id", "str", "Override the synthesized source id."),
+            DETECT_ENGINE_OPTION,
         ),
         runtime=Capabilities(incremental=True, max_concurrent_fetches=8),
         docs_url="https://docs.github.com/en/rest",
@@ -138,6 +140,7 @@ class GitHubConnector:
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: float = _DEFAULT_TIMEOUT,
         source_id: str | None = None,
+        engine: str = "native",
     ) -> None:
         self.owner = owner or ""
         self.repo = repo
@@ -153,6 +156,7 @@ class GitHubConnector:
         self.max_items_per_repo = max_items_per_repo
         scope = f"{self.owner}/{repo}" if repo else (self.owner or "_")
         self.id = source_id or f"github:{scope}"
+        self._init_engine(engine)
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             headers=self._auth_headers(),
@@ -218,6 +222,7 @@ class GitHubConnector:
 
     async def close(self) -> None:
         await self._client.aclose()
+        await self._close_engine()
 
     # --- verify ----------------------------------------------------------
 

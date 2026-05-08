@@ -36,6 +36,7 @@ from typing import Any, ClassVar, Literal
 
 import httpx
 
+from pleno_dlp.connectors._detect import DETECT_ENGINE_OPTION, DetectViaEngineMixin
 from pleno_dlp.connectors.confluence_storage import storage_to_text
 from pleno_dlp.core import (
     AuthMode,
@@ -82,7 +83,7 @@ class _BearerAuth:
 _AuthMode = _BasicAuth | _BearerAuth
 
 
-class ConfluenceConnector:
+class ConfluenceConnector(DetectViaEngineMixin):
     """API-driven Confluence source connector (Cloud + Data Center)."""
 
     kind = "confluence"
@@ -111,6 +112,7 @@ class ConfluenceConnector:
             OptionSpec("ca_bundle_path", "path", "Custom CA bundle for self-managed TLS."),
             OptionSpec("source_id", "str", "Override the synthesized source id."),
             OptionSpec("tenant_id", "str", "Tenant id for multi-tenant orchestration."),
+            DETECT_ENGINE_OPTION,
         ),
         runtime=Capabilities(incremental=True, max_concurrent_fetches=4),
         docs_url="https://developer.atlassian.com/cloud/confluence/rest/v1/intro/",
@@ -135,6 +137,7 @@ class ConfluenceConnector:
         timeout: float = _DEFAULT_TIMEOUT,
         source_id: str | None = None,
         tenant_id: str | None = None,
+        engine: str = "native",
     ) -> None:
         if flavor not in ("cloud", "datacenter"):
             raise ValueError(f"unsupported confluence flavor: {flavor!r}")
@@ -164,6 +167,7 @@ class ConfluenceConnector:
 
         host = _host_from_base_url(base_url)
         self.id = source_id or f"confluence-{flavor}:{host}"
+        self._init_engine(engine)
         self.tenant_id = tenant_id or self.id
 
         client_kwargs: dict[str, Any] = {"timeout": timeout}
@@ -234,6 +238,7 @@ class ConfluenceConnector:
     async def close(self) -> None:
         self._page_cache.clear()
         await self._client.aclose()
+        await self._close_engine()
 
     def cursor_after_run(self) -> str | None:
         if self._high_water is None:

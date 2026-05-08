@@ -85,7 +85,7 @@ class PiiEngine:
             )
         return self._client
 
-    async def scan(self, doc: Document) -> AsyncIterator[Finding]:
+    async def detect(self, doc: Document) -> AsyncIterator[Finding]:
         """POST ``doc.text`` and yield one Finding per detected entity."""
         # The anonymize API rejects empty bodies with 422; short-circuit
         # so we don't waste a roundtrip on whitespace-only documents.

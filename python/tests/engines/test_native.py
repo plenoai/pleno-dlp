@@ -30,7 +30,7 @@ def _doc(text: str) -> Document:
 )
 async def test_detects_known_secret(rule_id: str, sample: str) -> None:
     engine = NativeEngine()
-    findings = [f async for f in engine.scan(_doc(f"prefix {sample} suffix"))]
+    findings = [f async for f in engine.detect(_doc(f"prefix {sample} suffix"))]
     rule_ids = {f.rule_id for f in findings}
     assert rule_id in rule_ids
     hit = next(f for f in findings if f.rule_id == rule_id)
@@ -41,7 +41,7 @@ async def test_detects_known_secret(rule_id: str, sample: str) -> None:
 
 async def test_skips_non_secrets() -> None:
     engine = NativeEngine()
-    findings = [f async for f in engine.scan(_doc("nothing exciting here"))]
+    findings = [f async for f in engine.detect(_doc("nothing exciting here"))]
     assert findings == []
 
 
@@ -51,13 +51,13 @@ async def test_binary_document_yields_nothing() -> None:
         ref=DocumentRef(source_id="t", source_kind="test", path="/x.bin"),
         binary=b"\x00\x01\x02",
     )
-    findings = [f async for f in engine.scan(doc)]
+    findings = [f async for f in engine.detect(doc)]
     assert findings == []
 
 
 async def test_line_number_is_correct() -> None:
     engine = NativeEngine()
     text = "line1\nline2\nline3 ghp_" + "a" * 36 + "\nline4"
-    findings = [f async for f in engine.scan(_doc(text))]
+    findings = [f async for f in engine.detect(_doc(text))]
     assert len(findings) == 1
     assert findings[0].line == 3

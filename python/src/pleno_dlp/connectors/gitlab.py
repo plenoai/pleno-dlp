@@ -40,6 +40,7 @@ from urllib.parse import quote
 
 import httpx
 
+from pleno_dlp.connectors._detect import DETECT_ENGINE_OPTION, DetectViaEngineMixin
 from pleno_dlp.core import (
     AuthMode,
     Capabilities,
@@ -84,7 +85,7 @@ class GitlabAuthMode(Enum):
 _LEGAL_AUTH_MODES = {m.value for m in GitlabAuthMode}
 
 
-class GitlabConnector:
+class GitlabConnector(DetectViaEngineMixin):
     """API-driven GitLab source connector.
 
     Owns one ``httpx.AsyncClient`` for its lifetime. Construction takes
@@ -124,6 +125,7 @@ class GitlabConnector:
             OptionSpec("max_projects", "int", "Cap on enumerated projects.", default=1000),
             OptionSpec("max_items_per_project", "int", "Cap on issues+MRs per project.", default=1000),
             OptionSpec("source_id", "str", "Override the synthesized source id."),
+            DETECT_ENGINE_OPTION,
         ),
         runtime=Capabilities(incremental=True, max_concurrent_fetches=8),
         docs_url="https://docs.gitlab.com/ee/api/",
@@ -147,6 +149,7 @@ class GitlabConnector:
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: float = _DEFAULT_TIMEOUT,
         source_id: str | None = None,
+        engine: str = "native",
     ) -> None:
         targets = [t for t in (project, group) if t is not None]
         if len(targets) != 1:
@@ -184,6 +187,7 @@ class GitlabConnector:
         elif ca_bundle_path is not None:
             client_kwargs["verify"] = ca_bundle_path
         self._client = httpx.AsyncClient(**client_kwargs)
+        self._init_engine(engine)
 
     # --- public protocol ------------------------------------------------
 
@@ -249,6 +253,7 @@ class GitlabConnector:
 
     async def close(self) -> None:
         await self._client.aclose()
+        await self._close_engine()
 
     # --- project enumeration -------------------------------------------
 

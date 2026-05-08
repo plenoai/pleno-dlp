@@ -1,6 +1,6 @@
 [project]
 name = "pleno-dlp"
-version = "0.11.0"
+version = "0.12.0"
 description = "Unified DLP scanner for SaaS sources — secret detection (trufflehog, gitleaks, native regex) plus PII detection (pleno-anonymize). API-driven content collection from GitHub, GitLab, Bitbucket, Slack, Notion, Confluence, Jira."
 readme = "README.md"
 license = "AGPL-3.0-or-later"

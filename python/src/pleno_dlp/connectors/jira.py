@@ -37,6 +37,7 @@ from typing import Any, ClassVar, Literal
 
 import httpx
 
+from pleno_dlp.connectors._detect import DETECT_ENGINE_OPTION, DetectViaEngineMixin
 from pleno_dlp.connectors.jira_adf import adf_to_text
 from pleno_dlp.connectors.jira_storage import storage_to_text
 from pleno_dlp.core import (
@@ -90,7 +91,7 @@ def _api_prefix(flavor: Flavor) -> str:
     return "/rest/api/3" if flavor == "cloud" else "/rest/api/2"
 
 
-class JiraConnector:
+class JiraConnector(DetectViaEngineMixin):
     """API-driven Jira connector (Cloud + Data Center)."""
 
     kind = "jira"
@@ -122,6 +123,7 @@ class JiraConnector:
             OptionSpec("include_comments", "bool", "Fold comments into the issue Document.", default=True),
             OptionSpec("include_attachments", "bool", "Surface attachment URL refs.", default=True),
             OptionSpec("source_id", "str", "Override the synthesized source id."),
+            DETECT_ENGINE_OPTION,
         ),
         runtime=Capabilities(incremental=True, max_concurrent_fetches=4),
         docs_url="https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/",
@@ -144,6 +146,7 @@ class JiraConnector:
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: float = _DEFAULT_TIMEOUT,
         source_id: str | None = None,
+        engine: str = "native",
     ) -> None:
         if flavor not in ("cloud", "datacenter"):
             raise ValueError(f"unsupported jira flavor: {flavor!r}")
@@ -170,6 +173,7 @@ class JiraConnector:
 
         host = _host_only(base_url)
         self.id = source_id or f"jira-{flavor}:{host}"
+        self._init_engine(engine)
 
         client_kwargs: dict[str, Any] = {"timeout": timeout}
         if transport is not None:
@@ -266,6 +270,7 @@ class JiraConnector:
             self._issue_cache.clear()
             self._high_water = None
         await self._client.aclose()
+        await self._close_engine()
 
     def cursor_after_run(self) -> str | None:
         if self._high_water is None:

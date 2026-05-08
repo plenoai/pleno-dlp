@@ -5,6 +5,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-05-09
+
+### Changed
+
+- **Detection moves inside the connector.** Every SaaS connector
+  (github, gitlab, bitbucket, slack, notion, confluence, jira)
+  now implements ``Capability.DETECT`` and exposes
+  ``async def detect(doc) -> AsyncIterator[Finding]``. The engine
+  choice (``native`` / ``trufflehog`` / ``gitleaks`` / ``pii``) is a
+  per-connector option (``--option engine=…`` or ``--engine X``
+  shorthand) — operators address detection by SaaS unit; engines are
+  the internal implementation.
+- ``Engine`` Protocol → ``Detector`` Protocol. Both connectors and
+  engines satisfy it (single ``detect(doc)`` method). ``scan(doc)``
+  on engines was renamed to ``detect(doc)``.
+- ``Pipeline`` now takes ``connector`` plus an optional ``detector``
+  override (default = the connector itself). Old
+  ``Pipeline(connector=..., engine=...)`` becomes
+  ``Pipeline(connector=..., detector=...)``.
+- ``ConnectorSpec.capabilities`` defaults to
+  ``{SOURCE, DETECT}`` — the standard SaaS connector shape.
+
+### Added
+
+- ``Capability.DETECT`` enum value.
+- ``DetectViaEngineMixin`` (internal): the boilerplate-free way to
+  give a connector a configurable internal engine.
+- ``pleno_dlp.engines.ENGINE_NAMES`` constant for CLI / spec
+  validation.
+- New tests covering per-connector ``detect()`` and the
+  ``engine=`` option roundtrip.
+
+### Removed
+
+- ``Engine`` Protocol (replaced by ``Detector``).
+
 ## [0.11.0] - 2026-05-08
 
 ### Changed

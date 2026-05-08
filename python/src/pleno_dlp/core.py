@@ -2,21 +2,24 @@
 
 A *Connector* in pleno-dlp is a SaaS provider integration: github,
 gitlab, bitbucket, slack, notion, confluence, jira. Every connector
-walks an external system and yields ``Document``\\s; the same
-connector may also expose secret-lifecycle capabilities (verify a
-token is still live, revoke it) when the provider's API supports
-them.
+walks an external system, yields ``Document``\\s, and detects leaks
+in those Documents. Detection composes one or more *engines* (regex
+/ trufflehog / gitleaks / PII) internally, but operators address
+detection by SaaS unit — there is no standalone "trufflehog
+connector".
 
-Detection itself is *not* a connector — text-to-Findings scanners
-(regex, trufflehog, gitleaks, pleno-anonymize PII) live under
-``pleno_dlp.engines`` as plain stateless utilities applied by the
-pipeline to each Document.
+Engines themselves live under ``pleno_dlp.engines`` and are stateless
+``Detector`` implementations connectors pick up at construction
+time. They are never registered in the connector registry.
 
 Each connector declares what it can do via
 ``ConnectorSpec.capabilities`` — a frozenset of ``Capability`` values:
 
 * ``Capability.SOURCE`` — implements the ``Connector`` Protocol
   (``discover`` / ``fetch`` / ``capabilities``).
+* ``Capability.DETECT`` — implements the ``Detector`` Protocol
+  (``detect(doc) -> AsyncIterator[Finding]``). Default for every
+  shipped SaaS connector; the engine choice is per-connector.
 * ``Capability.VERIFY`` — implements the ``Verifier`` Protocol
   (``verify(secret) -> VerifyResult``).
 * ``Capability.REVOKE`` — implements the ``Revoker`` Protocol
@@ -37,12 +40,13 @@ Public protocol surface:
 * ``Subsource`` + ``SUBSOURCE_METADATA_KEY`` — sub-unit fingerprinting
   for hierarchical sources (org → repos, workspace → channels, ...).
 * ``Connector`` Protocol — source connector runtime contract.
+* ``Detector`` Protocol — text-to-Finding contract honoured by both
+  connectors (per-SaaS detection) and engines (low-level scanners).
 * ``Verifier`` / ``Revoker`` Protocols — optional secret-lifecycle
   contracts a connector may implement on top of ``Connector``.
-* ``Engine`` Protocol — text-to-Finding scanner contract (engines).
 * ``VerifyResult`` / ``RevokeResult`` — return shapes for the
   lifecycle protocols.
-* ``Capability`` — SOURCE / VERIFY / REVOKE.
+* ``Capability`` — SOURCE / DETECT / VERIFY / REVOKE.
 * ``ConnectorSpec`` (+ ``AuthMode``, ``ResourceSpec``, ``OptionSpec``)
   — declarative metadata each connector class exposes as the ``spec``
   ClassVar. Drives CLI ``--help`` generation, the docs matrix, and
@@ -300,17 +304,27 @@ class ResourceSpec:
 class Capability(StrEnum):
     """What a connector is able to do.
 
-    A connector spec advertises one or more capabilities. ``SOURCE`` is
-    the baseline — the connector walks the provider's content and
-    produces ``Document``\\s. ``VERIFY`` and ``REVOKE`` are
-    secret-lifecycle extras: implement ``Verifier`` to confirm a leaked
-    credential is still live, and ``Revoker`` to invalidate it.
+    A connector spec advertises one or more capabilities:
 
-    Each capability maps to a Protocol the connector class must satisfy
-    (``Connector``, ``Verifier``, ``Revoker`` respectively).
+    * ``SOURCE`` — walks the provider's content and produces
+      ``Document``\\s. Implements the ``Connector`` Protocol.
+    * ``DETECT`` — turns a Document into ``Finding``\\s, typically by
+      composing one or more engines (regex / trufflehog / gitleaks /
+      pii) tuned for that SaaS. Implements the ``Detector`` Protocol.
+    * ``VERIFY`` — confirms a leaked credential is still live against
+      the provider's API. Implements the ``Verifier`` Protocol.
+    * ``REVOKE`` — invalidates a leaked credential through the
+      provider's API. Implements the ``Revoker`` Protocol.
+
+    The same connector class typically implements ``SOURCE`` *and*
+    ``DETECT`` — operators address detection by SaaS unit
+    (``pleno-dlp scan github``); the engine choice ("native" /
+    "trufflehog" / …) is configured per connector via ``--option
+    engine=…`` and runs internally.
     """
 
     SOURCE = "source"
+    DETECT = "detect"
     VERIFY = "verify"
     REVOKE = "revoke"
 
@@ -336,7 +350,7 @@ class ConnectorSpec:
     kind: str  # provider kind (e.g. "github", "slack")
     summary: str  # one-line summary for `pleno-dlp list`
     capabilities: frozenset[Capability] = field(
-        default_factory=lambda: frozenset({Capability.SOURCE})
+        default_factory=lambda: frozenset({Capability.SOURCE, Capability.DETECT})
     )
     auth_modes: tuple[AuthMode, ...] = (AuthMode.PAT,)
     resources: tuple[ResourceSpec, ...] = ()
@@ -504,18 +518,31 @@ class Revoker(Protocol):
 
 
 @runtime_checkable
-class Engine(Protocol):
-    """Text-to-Findings scanner contract.
+class Detector(Protocol):
+    """Text-to-Findings contract — implemented by connectors and engines.
 
-    Engines are pleno-dlp-internal utilities (regex, trufflehog,
-    gitleaks, pii). They are *not* connectors and do not register in
-    the connector registry; they are constructed directly and applied
-    by the pipeline to each Document.
+    Both shapes of "thing that turns a Document into Findings" honour
+    this Protocol:
+
+    * **SaaS connectors** advertise ``Capability.DETECT`` and provide
+      a per-provider ``detect()`` that composes engines internally
+      (typically defaulting to the bundled regex set, optionally
+      delegating to trufflehog / gitleaks / pii).
+    * **Engines** in ``pleno_dlp.engines`` (``NativeEngine``,
+      ``TrufflehogEngine``, ``GitleaksEngine``, ``PiiEngine``) are the
+      low-level scanners connectors compose with. They are *not*
+      registered as connectors — operators address detection through
+      a SaaS connector.
+
+    The Pipeline accepts any Detector. By default, a ``Pipeline``
+    wired with only a connector uses that connector as the detector
+    too, so ``pleno-dlp scan github`` runs github's discovery + its
+    own SaaS-tuned detection in one call.
     """
 
     name: str
 
-    def scan(self, doc: Document) -> AsyncIterator[object]:
+    def detect(self, doc: Document) -> AsyncIterator[object]:
         """Detect leaks in ``doc.text``. Binary documents are skipped
         upstream. Yields ``Finding``\\s."""
         ...
