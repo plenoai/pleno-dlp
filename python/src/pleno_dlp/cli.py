@@ -1,19 +1,21 @@
 """pleno-dlp command-line interface.
 
-Spec-driven: connector-specific knobs flow through the generic
-``--option key=value`` flag. Each connector self-describes via its
-``ConnectorSpec``, which the CLI introspects for ``list-connectors``,
-``describe``, and validation. Adding a new connector requires no
-changes here — implement the connector with a spec and register it.
+Spec-driven across both source and detector connectors. Connector
+kwargs flow through the generic ``--option key=value`` flag (or the
+shorthand ``--token``); each connector self-describes via
+``ConnectorSpec``, which the CLI introspects for ``list``,
+``describe``, and validation.
 
-    pleno-dlp list-connectors
-    pleno-dlp list-backends
+    pleno-dlp list                          # everything
+    pleno-dlp list --role source            # only sources
+    pleno-dlp list --role detector          # only detectors
     pleno-dlp describe github
+    pleno-dlp describe trufflehog
     pleno-dlp scan github --option owner=plenoai
     pleno-dlp scan github --option owner=plenoai --option repo=pleno-dlp \\
         --option resources=code,issues
     pleno-dlp scan github --option owner=plenoai \\
-        --backend trufflehog --format sarif > findings.sarif
+        --detector trufflehog --format sarif > findings.sarif
     pleno-dlp scan slack --token xoxb-... --option include_threads=false
     pleno-dlp scan jira --option flavor=cloud \\
         --option base_url=https://acme.atlassian.net \\
@@ -33,7 +35,14 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from pleno_dlp import ConnectorSpec, OptionSpec, SourceFilter, __version__, backends, output
+from pleno_dlp import (
+    ConnectorRole,
+    ConnectorSpec,
+    OptionSpec,
+    SourceFilter,
+    __version__,
+    output,
+)
 from pleno_dlp import connectors as _connectors  # noqa: F401  registry side-effect
 from pleno_dlp.pipeline import Pipeline
 from pleno_dlp.registry import registry
@@ -46,47 +55,56 @@ app = typer.Typer(
 )
 
 
-@app.command("list-connectors")
-def cmd_list_connectors() -> None:
-    """List every registered SaaS connector with its summary and auth modes."""
+def _resolve_role(role: str | None) -> ConnectorRole | None:
+    if role is None:
+        return None
+    try:
+        return ConnectorRole(role)
+    except ValueError as exc:
+        raise typer.BadParameter(
+            f"--role must be one of {[r.value for r in ConnectorRole]}; got {role!r}"
+        ) from exc
+
+
+@app.command("list")
+def cmd_list(
+    role: str | None = typer.Option(
+        None,
+        "--role",
+        help="Filter by role: source or detector. Default: both.",
+    ),
+) -> None:
+    """List every registered connector with its role, auth modes, and resources."""
+    selected = _resolve_role(role)
     console = Console()
-    table = Table("name", "kind", "auth", "resources", "summary", title="connectors")
-    for spec in registry.specs():
+    table = Table("name", "role", "kind", "auth", "resources", "summary", title="connectors")
+    for spec in registry.specs(role=selected):
         auth = ", ".join(m.value for m in spec.auth_modes)
         resources = ", ".join(r.name for r in spec.resources) or "—"
-        table.add_row(spec.name, spec.kind, auth, resources, spec.summary)
-    console.print(table)
-
-
-@app.command("list-backends")
-def cmd_list_backends() -> None:
-    """List available detection backends."""
-    console = Console()
-    table = Table("name", "class", "verifies", "system dep", title="backends")
-    table.add_row("native", "secret", "no", "none (bundled regex)")
-    table.add_row("trufflehog", "secret", "yes", "trufflehog on PATH")
-    table.add_row("gitleaks", "secret", "no", "gitleaks on PATH")
-    table.add_row("pii", "pii", "n/a", "pleno-anonymize server (HTTP API)")
+        table.add_row(spec.name, spec.role.value, spec.kind, auth, resources, spec.summary)
     console.print(table)
 
 
 @app.command("describe")
-def cmd_describe(connector: str = typer.Argument(..., help="Connector name (see list-connectors).")) -> None:
-    """Print the connector's full spec: auth modes, resources, options, docs."""
+def cmd_describe(connector: str = typer.Argument(..., help="Connector name (see `pleno-dlp list`).")) -> None:
+    """Print one connector's full spec: role, auth modes, resources, options, docs."""
     if connector not in registry.names():
         typer.echo(f"unknown connector: {connector!r}. available: {', '.join(registry.names())}", err=True)
         raise typer.Exit(2)
-    spec = registry.spec(connector)
-    _render_describe(spec)
+    _render_describe(registry.spec(connector))
 
 
 @app.command("scan")
 def cmd_scan(
     connector: str = typer.Argument(
         ...,
-        help="Connector name (see `pleno-dlp list-connectors`).",
+        help="Source connector name (see `pleno-dlp list --role source`).",
     ),
-    backend: str = typer.Option("native", "--backend", help="Detection backend."),
+    detector: str = typer.Option(
+        "native",
+        "--detector",
+        help="Detector connector name (see `pleno-dlp list --role detector`).",
+    ),
     format: str = typer.Option("table", "--format", help="Output format: json|sarif|table."),
     token: str | None = typer.Option(
         None,
@@ -104,54 +122,64 @@ def cmd_scan(
         "--option",
         "-o",
         help=(
-            "Connector kwarg `key=value`. Repeatable. true/false/int auto-coerced; "
+            "Source connector kwarg `key=value`. Repeatable. true/false/int auto-coerced; "
             "comma lists become tuples. Run `pleno-dlp describe <connector>` to "
             "see the accepted keys."
         ),
     ),
-    out: Path | None = typer.Option(None, "--out", help="Write findings to a file (default: stdout)."),
-    pii_base_url: str = typer.Option(
-        "http://127.0.0.1:8000",
-        "--pii-base-url",
-        help="pleno-anonymize server URL for the `pii` backend.",
+    detector_options: list[str] = typer.Option(
+        [],
+        "--detector-option",
+        "-D",
+        help=(
+            "Detector connector kwarg `key=value`. Repeatable. Run "
+            "`pleno-dlp describe <detector>` to see the accepted keys."
+        ),
     ),
-    pii_language: str = typer.Option(
-        "ja",
+    out: Path | None = typer.Option(None, "--out", help="Write findings to a file (default: stdout)."),
+    pii_base_url: str | None = typer.Option(
+        None,
+        "--pii-base-url",
+        help="Shorthand for --detector-option base_url=… on the `pii` detector.",
+    ),
+    pii_language: str | None = typer.Option(
+        None,
         "--pii-language",
-        help="Language hint for the `pii` backend: ja or en.",
+        help="Shorthand for --detector-option language=… on the `pii` detector.",
     ),
 ) -> None:
-    """Scan one connector with one backend and emit findings."""
+    """Scan one source connector with one detector and emit findings."""
     if connector not in registry.names():
-        typer.echo(f"unknown connector: {connector!r}. available: {', '.join(registry.names())}", err=True)
+        typer.echo(f"unknown connector: {connector!r}. available: {', '.join(registry.sources())}", err=True)
         raise typer.Exit(2)
-    spec = registry.spec(connector)
+    source_spec = registry.spec(connector)
+    if source_spec.role is not ConnectorRole.SOURCE:
+        typer.echo(f"{connector!r} is a {source_spec.role.value}, not a source connector.", err=True)
+        raise typer.Exit(2)
+    if detector not in registry.names():
+        typer.echo(f"unknown detector: {detector!r}. available: {', '.join(registry.detectors())}", err=True)
+        raise typer.Exit(2)
+    detector_spec = registry.spec(detector)
+    if detector_spec.role is not ConnectorRole.DETECTOR:
+        typer.echo(f"{detector!r} is a {detector_spec.role.value}, not a detector connector.", err=True)
+        raise typer.Exit(2)
 
     flt = SourceFilter(include=tuple(include), exclude=tuple(exclude), since=_parse_since(since))
-    if backend == "pii":
-        backend_obj = backends.make(backend, base_url=pii_base_url, language=pii_language)
-    else:
-        backend_obj = backends.make(backend)
     sink = output.make(format)
 
-    connector_kwargs: dict[str, Any] = {}
-    if token is not None:
-        connector_kwargs["token"] = token
-    for raw in options:
-        if "=" not in raw:
-            raise typer.BadParameter(
-                f"--option must be key=value; got {raw!r}",
-                param_hint="--option",
-            )
-        key, _, value = raw.partition("=")
-        opt = spec.option(key)
-        connector_kwargs[key] = _coerce_option(value, opt)
+    source_kwargs = _build_kwargs(source_spec, options, token=token)
+    det_kwargs = _build_kwargs(detector_spec, detector_options)
+    if pii_base_url is not None:
+        det_kwargs["base_url"] = pii_base_url
+    if pii_language is not None:
+        det_kwargs["language"] = pii_language
 
     rc = asyncio.run(
         _run(
             connector=connector,
-            connector_kwargs=connector_kwargs,
-            backend=backend_obj,
+            connector_kwargs=source_kwargs,
+            detector=detector,
+            detector_kwargs=det_kwargs,
             sink=sink,
             filter=flt,
             out=out,
@@ -160,11 +188,29 @@ def cmd_scan(
     raise typer.Exit(rc)
 
 
+def _build_kwargs(spec: ConnectorSpec, raw_options: list[str], *, token: str | None = None) -> dict[str, Any]:
+    """Parse a list of `key=value` strings into a kwarg dict, spec-aware."""
+    out: dict[str, Any] = {}
+    if token is not None and "token" in spec.accepted_kwargs():
+        out["token"] = token
+    for raw in raw_options:
+        if "=" not in raw:
+            raise typer.BadParameter(
+                f"--option must be key=value; got {raw!r}",
+                param_hint="--option",
+            )
+        key, _, value = raw.partition("=")
+        opt = spec.option(key)
+        out[key] = _coerce_option(value, opt)
+    return out
+
+
 async def _run(
     *,
     connector: str,
     connector_kwargs: dict[str, Any],
-    backend: backends.Backend,
+    detector: str,
+    detector_kwargs: dict[str, Any],
     sink: output.Sink,
     filter: SourceFilter,
     out: Path | None,
@@ -173,15 +219,19 @@ async def _run(
     stream = sys.stdout if out is None else out.open("w", encoding="utf-8")
     try:
         try:
-            retriever = registry.create(connector, **connector_kwargs)
+            source = registry.create(connector, **connector_kwargs)
+            det = registry.create(detector, **detector_kwargs)
         except TypeError as exc:
             typer.echo(str(exc), err=True)
             return 2
         try:
-            pipeline = Pipeline(connector=retriever, backend=backend)
+            pipeline = Pipeline(connector=source, detector=det)
             count = await sink.emit(pipeline.run(filter), stream=stream)
         finally:
-            await retriever.close()
+            await source.close()
+            aclose = getattr(det, "aclose", None)
+            if aclose is not None:
+                await aclose()
         return 1 if count > 0 else 0
     finally:
         if out is not None:
@@ -251,7 +301,7 @@ def _parse_since(spec: str | None) -> datetime | None:
 def _render_describe(spec: ConnectorSpec) -> None:
     console = Console()
     auth = ", ".join(m.value for m in spec.auth_modes) or "—"
-    console.print(f"[bold]{spec.name}[/bold] — {spec.summary}")
+    console.print(f"[bold]{spec.name}[/bold] ({spec.role.value}) — {spec.summary}")
     console.print(f"  kind: {spec.kind}")
     console.print(f"  auth: {auth}")
     if spec.docs_url:

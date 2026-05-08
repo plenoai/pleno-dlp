@@ -1,20 +1,28 @@
-"""Built-in regex backend.
+"""Built-in regex detector connector.
 
-Five rules covering the highest-precedence cloud + AI provider secrets:
-AWS access keys, GitHub PATs, Slack bot/user tokens, OpenAI keys, Anthropic
-keys. No verification — these are pattern matches only.
+Seven rules covering the highest-precedence cloud + AI provider secrets:
+AWS access keys, GitHub PATs (classic + fine-grained), Slack bot/user
+tokens, OpenAI keys, Anthropic keys. No verification — these are
+pattern matches only.
 
-Use this backend when you want zero system dependencies. For verified hits
-prefer the trufflehog backend.
+Use this detector when you want zero system dependencies. For verified
+hits prefer the ``trufflehog`` detector.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import AsyncIterator
+from typing import ClassVar
 
-from pleno_dlp.core import Document
+from pleno_dlp.core import (
+    AuthMode,
+    ConnectorRole,
+    ConnectorSpec,
+    Document,
+)
 from pleno_dlp.findings import Finding
+from pleno_dlp.registry import registry
 
 # Each rule is (rule_id, compiled regex). Patterns are deliberately
 # narrow — false positives in a secret scanner are noisy and erode trust.
@@ -29,10 +37,17 @@ _RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 
-class NativeBackend:
+class NativeDetector:
     """Regex-only detector, no verification."""
 
     name = "native"
+    spec: ClassVar[ConnectorSpec] = ConnectorSpec(
+        name="native",
+        kind="native",
+        summary="Built-in regex set for AWS, GitHub, Slack, OpenAI, Anthropic.",
+        role=ConnectorRole.DETECTOR,
+        auth_modes=(AuthMode.NONE,),
+    )
 
     async def scan(self, doc: Document) -> AsyncIterator[Finding]:
         if doc.text is None:
@@ -51,3 +66,6 @@ class NativeBackend:
                     line=text.count("\n", 0, m.start()) + 1,
                     verified=False,
                 )
+
+
+registry.register("native", NativeDetector)

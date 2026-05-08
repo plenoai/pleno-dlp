@@ -1,25 +1,42 @@
-"""Document / Connector protocol — wire contract for every connector.
+"""Connector contract — wire format and metadata for every plugin.
 
-Aligned with pleno-anonymize's ``pleno_pii_scanner.sources.base`` so a
-single Document type can flow into either pipeline without translation.
+The package recognises one plugin shape: a *Connector*. Connectors
+come in two roles, distinguished by ``ConnectorSpec.role``:
+
+* ``ConnectorRole.SOURCE`` — produces ``Document`` s. Honours the
+  ``Connector`` Protocol (``discover`` / ``fetch`` / ``capabilities``).
+  Examples: github, slack, jira.
+* ``ConnectorRole.DETECTOR`` — consumes ``Document`` s and produces
+  ``Finding`` s. Honours the ``Detector`` Protocol (``scan``).
+  Examples: native, trufflehog, gitleaks, pii.
+
+Both roles register through the same ``registry`` and share the same
+declarative ``ConnectorSpec`` contract — operators get a uniform
+discovery / introspection / configuration surface for every plugin.
+
+Aligned with pleno-anonymize's ``pleno_pii_scanner.sources.base`` so
+the same ``Document`` flows through either pipeline without
+translation.
 
 Public protocol surface:
 
-* ``Cursor`` — opaque per-connector resume token (str).
-* ``Capabilities`` — runtime self-description (incremental, binary,
-  streaming, max_concurrent_fetches, content_hash_delta).
+* ``Cursor`` — opaque per-source resume token (str).
+* ``Capabilities`` — runtime self-description for sources (incremental,
+  binary, streaming, max_concurrent_fetches, content_hash_delta).
 * ``Document`` / ``DocumentChunk`` — payload (single-shot vs streamed).
 * ``DocumentRef`` — cheap metadata-only handle.
 * ``SourceFilter`` — discover-time include / exclude / since filter.
 * ``Subsource`` + ``SUBSOURCE_METADATA_KEY`` — sub-unit fingerprinting
   for hierarchical sources (org → repos, workspace → channels, ...).
-* ``Connector`` Protocol — the contract every connector implements.
+* ``Connector`` Protocol — source connector runtime contract.
+* ``Detector`` Protocol — detector connector runtime contract.
+* ``ConnectorRole`` — SOURCE / DETECTOR.
 * ``ConnectorSpec`` (+ ``AuthMode``, ``ResourceSpec``, ``OptionSpec``)
-  — declarative metadata each connector class exposes as the
-  ``spec`` ClassVar. Drives CLI ``--help`` generation, the docs
-  matrix, and registry validation. Capabilities answers the
-  *runtime* question ("can I incrementally resume?"); ConnectorSpec
-  answers the *configuration* question ("what kwargs do you take?").
+  — declarative metadata each connector class exposes as the ``spec``
+  ClassVar. Drives CLI ``--help`` generation, the docs matrix, and
+  registry validation. Capabilities answers the *runtime* question
+  ("can I incrementally resume?"); ConnectorSpec answers the
+  *configuration* question ("what kwargs do you take?").
 """
 
 from __future__ import annotations
@@ -268,6 +285,20 @@ class ResourceSpec:
     default: bool = True  # included when --option resources is unset
 
 
+class ConnectorRole(StrEnum):
+    """Whether a connector produces Documents or consumes them.
+
+    Sources walk an external system and yield ``Document``\\s.
+    Detectors take a ``Document`` and yield ``Finding``\\s. Both
+    register through the same ``registry`` and share the same
+    ``ConnectorSpec`` shape — operators discover, configure, and
+    inspect them with one set of commands.
+    """
+
+    SOURCE = "source"
+    DETECTOR = "detector"
+
+
 @dataclass(frozen=True, slots=True)
 class ConnectorSpec:
     """Declarative metadata every connector class exposes as ``spec``.
@@ -279,11 +310,17 @@ class ConnectorSpec:
     The registry validates that each registered connector has a
     matching ``spec.name``, and the CLI uses ``options`` to render
     ``--help`` and to whitelist kwargs forwarded to the constructor.
+
+    ``role`` distinguishes a Source (walks an external system) from a
+    Detector (consumes Documents). Detectors leave ``resources`` and
+    ``capabilities`` at their defaults — those describe SaaS scan
+    surfaces and don't apply.
     """
 
     name: str  # registry key (matches the kwarg used at create() time)
-    kind: str  # provider kind (e.g. "github", "slack")
+    kind: str  # provider kind (e.g. "github", "slack", "trufflehog")
     summary: str  # one-line summary for list-connectors
+    role: ConnectorRole = ConnectorRole.SOURCE
     auth_modes: tuple[AuthMode, ...] = (AuthMode.PAT,)
     resources: tuple[ResourceSpec, ...] = ()
     options: tuple[OptionSpec, ...] = ()
@@ -353,4 +390,29 @@ class Connector(Protocol):
 
     async def close(self) -> None:
         """Release per-connector resources (HTTP clients, sockets)."""
+        ...
+
+
+@runtime_checkable
+class Detector(Protocol):
+    """Detector connector contract — consumes a Document, yields Findings.
+
+    Implementations must be safe to call from a single asyncio task and
+    must not retain state between calls (the pipeline reuses one
+    Detector instance across every Document of a scan). Like
+    ``Connector``, every Detector class declares a
+    ``spec: ClassVar[ConnectorSpec]`` with ``role=DETECTOR`` so the
+    registry, CLI, and docs treat it uniformly with sources.
+
+    Use ``Finding`` from ``pleno_dlp.findings`` (re-exported at the top
+    level) as the wire shape — declaring it here would force a circular
+    import.
+    """
+
+    spec: ClassVar[ConnectorSpec]
+    name: str
+
+    def scan(self, doc: Document) -> AsyncIterator[object]:
+        """Detect leaks (secret or PII) in ``doc.text``. Binary documents
+        are skipped upstream. Yields ``Finding``\\s."""
         ...

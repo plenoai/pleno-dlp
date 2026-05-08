@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, cast
 
-from pleno_dlp.core import Connector, ConnectorSpec
+from pleno_dlp.core import ConnectorRole, ConnectorSpec
 
 # Looser than Callable[..., Connector] so subclasses of an abstract base —
 # whose runtime shape is a Connector but whose static type is the concrete
@@ -65,19 +65,29 @@ class _Registry:
             )
         self._factories[name] = factory
 
-    def names(self) -> list[str]:
-        """Sorted list of registered connector names."""
-        return sorted(self._factories)
+    def names(self, *, role: ConnectorRole | None = None) -> list[str]:
+        """Sorted list of registered connector names, optionally filtered by role."""
+        if role is None:
+            return sorted(self._factories)
+        return sorted(n for n, f in self._factories.items() if _spec_of(f).role is role)
 
     def spec(self, name: str) -> ConnectorSpec:
         """Return the ConnectorSpec for ``name``. KeyError if unknown."""
         return _spec_of(self._factories[name])
 
-    def specs(self) -> list[ConnectorSpec]:
-        """Every registered spec, sorted by name. Useful for docs / CLI tables."""
-        return [self.spec(n) for n in self.names()]
+    def specs(self, *, role: ConnectorRole | None = None) -> list[ConnectorSpec]:
+        """Every registered spec, sorted by name. Optionally filtered by role."""
+        return [self.spec(n) for n in self.names(role=role)]
 
-    def create(self, name: str, **kwargs: Any) -> Connector:
+    def sources(self) -> list[str]:
+        """Sorted names of registered source connectors."""
+        return self.names(role=ConnectorRole.SOURCE)
+
+    def detectors(self) -> list[str]:
+        """Sorted names of registered detector connectors."""
+        return self.names(role=ConnectorRole.DETECTOR)
+
+    def create(self, name: str, **kwargs: Any) -> Any:
         """Instantiate the connector named ``name`` with ``kwargs``.
 
         Kwargs not declared in ``spec.accepted_kwargs()`` raise
@@ -99,8 +109,7 @@ class _Registry:
                 f"Connector {name!r} got unexpected kwargs: {', '.join(unknown)}. "
                 f"Accepted: {offered}."
             )
-        result: Connector = factory(**kwargs)
-        return result
+        return factory(**kwargs)
 
 
 registry = _Registry()

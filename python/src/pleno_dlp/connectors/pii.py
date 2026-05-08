@@ -29,20 +29,27 @@ at end-of-scan.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 
-from pleno_dlp.core import Document
+from pleno_dlp.core import (
+    AuthMode,
+    ConnectorRole,
+    ConnectorSpec,
+    Document,
+    OptionSpec,
+)
 from pleno_dlp.findings import Finding
+from pleno_dlp.registry import registry
 
 _DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 _DEFAULT_TIMEOUT = 30.0
 _DEFAULT_LANGUAGE = "ja"
 
 
-class PiiBackend:
-    """Backend that delegates PII detection to pleno-anonymize.
+class PiiDetector:
+    """Detector that delegates PII analysis to pleno-anonymize.
 
     The API is documented at
     https://github.com/plenoai/pleno-anonymize/blob/main/server/src/app.py
@@ -51,6 +58,33 @@ class PiiBackend:
     """
 
     name = "pii"
+    spec: ClassVar[ConnectorSpec] = ConnectorSpec(
+        name="pii",
+        kind="pii",
+        summary="PII analyser delegating to pleno-anonymize's /api/analyze.",
+        role=ConnectorRole.DETECTOR,
+        auth_modes=(AuthMode.NONE,),
+        options=(
+            OptionSpec(
+                "base_url",
+                "url",
+                "pleno-anonymize server URL.",
+                default="http://127.0.0.1:8000",
+                cli_flag="--pii-base-url",
+            ),
+            OptionSpec(
+                "language",
+                "str",
+                "Recognizer language hint.",
+                default="ja",
+                choices=("ja", "en"),
+                cli_flag="--pii-language",
+            ),
+            OptionSpec("entities", "list[str]", "Restrict to these Presidio entity types.", default=None),
+            OptionSpec("timeout", "int", "HTTP timeout in seconds.", default=30),
+        ),
+        docs_url="https://github.com/plenoai/pleno-anonymize",
+    )
 
     def __init__(
         self,
@@ -141,3 +175,6 @@ class PiiBackend:
         if self._owned_client and self._client is not None:
             await self._client.aclose()
             self._client = None
+
+
+registry.register("pii", PiiDetector)
