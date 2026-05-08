@@ -12,6 +12,32 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.33.0.
 
+### Added
+
+- **15 more secret detectors** — batch 37 (constants 545..559): DBTCloud,
+  Tray, Retool, Expo, Alloy, AuditBoard, FireHydrant, IncidentIO, Rootly,
+  Sleuth, Sparkpost, SendPulse, Veriff, IDnow, Squarespace. Total now
+  **553 secret + 4 PII = 557 detectors**. Data platforms (DBTCloud
+  `dbtu_` Authorization Token via /api/v2/accounts on cloud.getdbt.com),
+  low-code / workflow (Tray `tray_` Bearer via /core/v1/me on
+  api.tray.io, Retool `retool_` Bearer via
+  /api/v2/permissions/listGroupAndUser on api.retool.com), mobile build
+  (Expo Bearer via /v2/auth/userInfo on exp.host with `expo` keyword
+  anchor), KYC / identity (Alloy paired token+secret Basic auth via
+  /v1/journeys on sandbox.alloy.co, Veriff paired UUID+shared-secret
+  X-AUTH-CLIENT via /v1/sessions on stationapi.veriff.com, IDnow
+  X-API-KEY via /api/v1/identifications on gateway.idnow.de), GRC /
+  compliance (AuditBoard Bearer via /api/v1/me on app.auditboard.com),
+  incident response / DORA (FireHydrant `fhb_` Bearer via /v1/ping on
+  api.firehydrant.io, IncidentIO `inc_` Bearer via /v2/identity on
+  api.incident.io, Rootly `rootly_` Bearer via /v1/users/me on
+  api.rootly.com, Sleuth 40-hex apikey via /api/1.0/projects on
+  app.sleuth.io), email / SMS (Sparkpost 40-hex Authorization via
+  /api/v1/account on api.sparkpost.com, SendPulse paired
+  client_id+client_secret OAuth via /oauth/access_token on
+  api.sendpulse.com), e-commerce (Squarespace UUID Bearer via
+  /1.0/commerce/orders on api.squarespace.com).
+
 ## [0.33.0] — 2026-05-08
 
 ### Added

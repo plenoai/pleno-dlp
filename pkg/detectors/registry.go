@@ -1119,6 +1119,36 @@ func (t DetectorType) String() string {
 		return "DenoDeploy"
 	case Twingate:
 		return "Twingate"
+	case DBTCloud:
+		return "DBTCloud"
+	case Tray:
+		return "Tray"
+	case Retool:
+		return "Retool"
+	case Expo:
+		return "Expo"
+	case Alloy:
+		return "Alloy"
+	case AuditBoard:
+		return "AuditBoard"
+	case FireHydrant:
+		return "FireHydrant"
+	case IncidentIO:
+		return "IncidentIO"
+	case Rootly:
+		return "Rootly"
+	case Sleuth:
+		return "Sleuth"
+	case Sparkpost:
+		return "Sparkpost"
+	case SendPulse:
+		return "SendPulse"
+	case Veriff:
+		return "Veriff"
+	case IDnow:
+		return "IDnow"
+	case Squarespace:
+		return "Squarespace"
 	default:
 		return "Unknown"
 	}

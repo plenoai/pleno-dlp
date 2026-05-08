@@ -738,4 +738,26 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/walmart"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/wandb"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/woocommerce"
+	// batch 37 — wire-stable order, never reorder. Data platforms
+	// (dbtcloud), low-code / workflow (tray, retool), mobile build
+	// (expo), KYC / identity (alloy, veriff, idnow), GRC / compliance
+	// (auditboard), incident response / DORA (firehydrant, incidentio,
+	// rootly, sleuth), email / SMS (sparkpost, sendpulse), e-commerce
+	// (squarespace). Alloy / Veriff / SendPulse are paired-credential
+	// (RawV2 carries the secret half).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/alloy"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/auditboard"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/dbtcloud"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/expo"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/firehydrant"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/idnow"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/incidentio"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/retool"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/rootly"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sendpulse"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sleuth"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sparkpost"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/squarespace"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/tray"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/veriff"
 )
