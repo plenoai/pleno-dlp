@@ -34,6 +34,13 @@ func main() {
 	if cmd.IsFindingsError(err) {
 		os.Exit(1)
 	}
+	// Verify-failed is a "negative result" rather than an error: the
+	// provider responded cleanly with 401/403, the call itself succeeded.
+	// Map it to exit 1 to match `IsFindingsError` so CI scripts can dispatch
+	// uniformly on "command ran but the answer is no".
+	if cmd.IsVerifyError(err) {
+		os.Exit(1)
+	}
 	fmt.Fprintln(os.Stderr, "error:", err)
 	os.Exit(2)
 }

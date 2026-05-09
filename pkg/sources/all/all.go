@@ -4,6 +4,15 @@
 package all
 
 import (
+	// SaaS connector ports register against both the connector registry
+	// (for `pleno-dlp scan|verify <connector>` dispatch) and the source
+	// registry (so the engine drives them via the same Source contract
+	// it uses for filesystem/git/stdin). Keeping the blank-import here
+	// — rather than in cmd/ — means a fresh `go test ./...` against
+	// any package that touches sources picks up every registered SaaS
+	// connector, mirroring what happens for the local sources below.
+	_ "github.com/plenoai/pleno-dlp/pkg/connectors/github"
+
 	_ "github.com/plenoai/pleno-dlp/pkg/sources/filesystem"
 	_ "github.com/plenoai/pleno-dlp/pkg/sources/git"
 	_ "github.com/plenoai/pleno-dlp/pkg/sources/stdin"

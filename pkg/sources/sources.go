@@ -50,6 +50,12 @@ type GitMeta struct {
 	Email      string
 }
 
+// GitHubMeta is populated by the GitHub source / SaaS connector. The legacy
+// fields (Repository, Link, Commit, File, Line, Visibility) are preserved so
+// existing output formatters keep rendering. The connector port (#74) added
+// the typed fields below — Owner, Repo, Path, Sha, Branch — so downstream
+// code can address blob coordinates without re-parsing "owner/name" strings
+// or guessing whether Commit holds a commit-sha or a blob-sha.
 type GitHubMeta struct {
 	Repository string
 	Link       string
@@ -57,6 +63,11 @@ type GitHubMeta struct {
 	File       string
 	Line       int
 	Visibility string
+	Owner      string
+	Repo       string
+	Path       string
+	Sha        string
+	Branch     string
 }
 
 type S3Meta struct {
