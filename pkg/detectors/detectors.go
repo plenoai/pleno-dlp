@@ -3,7 +3,10 @@
 // pkg/detectors/<provider>/ and self-register in registry.go via init().
 package detectors
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // DetectorType is a stable identifier for each detector. Values are stable
 // across releases; new detectors get a new value, never reuse retired ones.
@@ -1064,4 +1067,35 @@ type Detector interface {
 // caller requested verification.
 type Verifier interface {
 	Verify(ctx context.Context, secret string) (bool, error)
+}
+
+// Revoker is optionally implemented by detectors (and SaaS connectors via
+// pkg/connectors) whose upstream provider exposes a revocation API for
+// the credential class they detect. Revoke MUST be idempotent: a second
+// call against an already-revoked secret returns Revoked=true with a
+// non-error provider response, never a hard failure.
+//
+// Revoke is an irreversible side effect. The CLI gates it behind
+// `--confirm` / `--dry-run` and the env var `PLENO_DLP_ALLOW_REVOKE=1`
+// (issue #73); detectors here MUST NOT perform any local gating of
+// their own — the policy lives at the CLI boundary so dry-run behaves
+// uniformly across providers.
+type Revoker interface {
+	Revoke(ctx context.Context, secret string) (RevokeResult, error)
+}
+
+// RevokeResult is what a Revoker returns. RevokedAt is the wall-clock
+// time the provider acknowledged the revocation (zero when the
+// provider does not return a timestamp; callers may stamp time.Now()
+// for log correlation). ProviderID is whatever stable identifier the
+// provider exposes for the revoked credential — token id, key id, or
+// authorization id — so audit logs can cross-reference the provider's
+// own records. Err carries non-fatal diagnostics from the provider
+// (rate-limit headers, partial-success notes); a hard failure is
+// surfaced via the second return value of Revoke.
+type RevokeResult struct {
+	Revoked    bool
+	RevokedAt  time.Time
+	ProviderID string
+	Err        error
 }
