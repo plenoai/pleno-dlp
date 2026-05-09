@@ -12,6 +12,12 @@ import (
 	// any package that touches sources picks up every registered SaaS
 	// connector, mirroring what happens for the local sources below.
 	_ "github.com/plenoai/pleno-dlp/pkg/connectors/github"
+	_ "github.com/plenoai/pleno-dlp/pkg/connectors/gitlab"
+	_ "github.com/plenoai/pleno-dlp/pkg/connectors/bitbucket"
+	_ "github.com/plenoai/pleno-dlp/pkg/connectors/notion"
+	_ "github.com/plenoai/pleno-dlp/pkg/connectors/confluence"
+	_ "github.com/plenoai/pleno-dlp/pkg/connectors/jira"
+	_ "github.com/plenoai/pleno-dlp/pkg/connectors/slack"
 
 	_ "github.com/plenoai/pleno-dlp/pkg/sources/filesystem"
 	_ "github.com/plenoai/pleno-dlp/pkg/sources/git"

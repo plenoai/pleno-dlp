@@ -31,9 +31,14 @@ type Metadata struct {
 	Filesystem *FilesystemMeta
 	Git        *GitMeta
 	GitHub     *GitHubMeta
+	GitLab     *GitLabMeta
 	S3         *S3Meta
 	GCS        *GCSMeta
 	Slack      *SlackMeta
+	Confluence *ConfluenceMeta
+	Jira       *JiraMeta
+	Notion     *NotionMeta
+	Bitbucket  *BitbucketMeta
 	Stdin      *StdinMeta
 }
 
@@ -70,6 +75,18 @@ type GitHubMeta struct {
 	Branch     string
 }
 
+// GitLabMeta is populated by the GitLab source / SaaS connector. Mirrors
+// the GitHubMeta structure so downstream formatters can render provenance
+// without provider-specific branching on coordinate shape.
+type GitLabMeta struct {
+	ProjectID int64
+	Path      string
+	Sha       string
+	Branch    string
+	Group     string
+	Project   string
+}
+
 type S3Meta struct {
 	Bucket    string
 	Key       string
@@ -87,6 +104,40 @@ type SlackMeta struct {
 	Channel   string
 	Timestamp string
 	Permalink string
+}
+
+// ConfluenceMeta is populated by the Confluence SaaS connector. It captures
+// the space, page, and content coordinates so output formatters can render
+// provenance without re-fetching the API.
+type ConfluenceMeta struct {
+	SpaceKey  string
+	SpaceName string
+	PageID    string
+	Title     string
+	URL       string
+	Type      string // "page" or "footer-comment" or "inline-comment"
+}
+
+type JiraMeta struct {
+	Project  string
+	IssueKey string
+	Part     string // "description" or "comment:<id>"
+}
+
+type NotionMeta struct {
+	PageID   string
+	Database string
+	Title    string
+	URL      string
+	Part     string // "page" or "database_row:<id>" or "block:<id>"
+}
+
+type BitbucketMeta struct {
+	Workspace string
+	Repo      string
+	Path      string
+	Commit    string
+	Branch    string
 }
 
 // StdinMeta describes a chunk read from standard input. Label defaults to

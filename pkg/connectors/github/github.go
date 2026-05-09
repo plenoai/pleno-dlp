@@ -38,6 +38,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/plenoai/pleno-dlp/pkg/connectors"
+	"github.com/plenoai/pleno-dlp/pkg/connectors/_paginate"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
@@ -263,7 +264,7 @@ func (c *Connector) listRepos(ctx context.Context) ([]repoRef, error) {
 			return nil, fmt.Errorf("github: list org %s repos: %w", c.cfg.Org, err)
 		}
 		repos = append(repos, page...)
-		next = parseLinkHeader(resp.Header.Get("Link"))
+		next = _paginate.ParseLinkHeader(resp.Header.Get("Link"))
 	}
 	return repos, nil
 }
