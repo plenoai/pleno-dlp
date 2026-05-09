@@ -2,13 +2,25 @@
 
 All notable changes to **pleno-dlp** (Go binary). Tracks tag-push
 trusted publishing — `vX.Y.Z` tags trigger GoReleaser, archives, SLSA
-build provenance, and syft SBOMs. The Python package on PyPI is
-versioned independently (`py-vX.Y.Z`).
+build provenance, and syft SBOMs.
 
 This file follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+### Removed
+
+- **Python package retired** — the `python/` tree, vendored
+  `saas_retriever`, `pleno_dlp` Python namespace, and the
+  `.github/workflows/{test-py,release-py}.yml` CI lanes are gone.
+  pleno-dlp ships as a single Go binary going forward; `py-vX.Y.Z` tags
+  are no longer published. SaaS connectors (github / gitlab / bitbucket
+  / notion / confluence / jira / slack) are tracked as native Go ports
+  in issues #74–#80; verify coverage audit in #72; revoke capability in
+  #73. This is a breaking change for callers depending on the
+  `pip install pleno-dlp` distribution — pin to py-v0.12.0 or migrate
+  to the Go binary.
 
 Anything merged to `main` since v0.37.0.
 

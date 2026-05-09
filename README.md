@@ -1,7 +1,7 @@
 # pleno-dlp
 
 Trufflehog-compatible DLP scanner — secrets **and** PII — over the local
-filesystem, git history, stdin, and SaaS content. AGPL-3.0.
+filesystem, git history, and stdin. AGPL-3.0.
 
 ```sh
 go install github.com/plenoai/pleno-dlp/cmd/pleno-dlp@latest
@@ -13,19 +13,14 @@ pleno-dlp scan filesystem ./repo --format sarif --verify > findings.sarif
 pleno-dlp detectors list                        # audit registered coverage
 ```
 
-Two surfaces in one repo. Pick the one that matches your scan target:
+Single Go binary. Trufflehog-compatible detector interface,
+archive-aware (zip / tar / tar.gz / gzip), base64 / percent / hex
+decoder pipeline, per-host verify rate limiter. **602 detectors**
+built-in (598 secrets + 4 PII). Tag pattern `vX.Y.Z`.
 
-- **Go binary** (`cmd/pleno-dlp/`, this README) — filesystem, local git
-  history, and stdin. Trufflehog-compatible detector interface,
-  archive-aware (zip / tar / tar.gz / gzip), base64 / percent / hex
-  decoder pipeline, per-host verify rate limiter. **602 detectors**
-  built-in (598 secrets + 4 PII). Tag pattern `vX.Y.Z`.
-- **Python package** (`python/`) — SaaS sources via
-  [saas-retriever](https://pypi.org/project/saas-retriever/) (GitHub,
-  GitLab, Bitbucket, Slack, Notion, Confluence, Jira). Backends:
-  trufflehog / gitleaks / native (regex) for secrets; `pii` for
-  delegated PII inference. Tag pattern `py-vX.Y.Z`. See
-  [`python/README.md`](python/README.md).
+SaaS sources (GitHub / GitLab / Bitbucket / Slack / Notion / Confluence /
+Jira) are tracked in issues #74–#80 for native Go ports — the previous
+Python package was retired in v1.0.0.
 
 ## Detector coverage
 
@@ -231,7 +226,6 @@ go build ./...
 
 Releases trigger exclusively on tag push:
 - `vX.Y.Z` → Go binary release via GoReleaser trusted publishing.
-- `py-vX.Y.Z` → Python package release to PyPI via trusted publishing.
 
 `main` push runs build + tests only.
 

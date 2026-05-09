@@ -1,24 +1,23 @@
 # pleno-dlp
 
-Unified DLP scanner — secrets and PII over filesystem and SaaS content.
-Detector interface is trufflehog-compatible (Go); the SaaS source layer
-lives directly under `pleno_dlp.connectors.*` in the Python wheel
-(formerly the standalone
-[saas-retriever](https://github.com/plenoai/saas-retriever) package
-— vendored in py-v0.7.0, namespace dropped in py-v0.9.0).
+Unified DLP scanner — secrets and PII. Single Go binary, trufflehog-
+compatible detector interface. Filesystem / git / stdin sources are in;
+SaaS connectors (GitHub / GitLab / Bitbucket / Notion / Confluence /
+Jira / Slack) are tracked as native Go ports in #74–#80 after the Python
+package retired in v1.0.0.
 
 ## Harness: pleno-dlp
 
-**Goal:** maintain and evolve the unified DLP scanner — Go binary
-(filesystem-only) + Python package (vendored saas_retriever +
-secret / PII backends).
+**Goal:** maintain and evolve the unified DLP scanner — single Go binary
+covering 600+ secret detectors + 4 PII detectors over filesystem, git,
+stdin, and (in progress) SaaS sources.
 
 **Trigger:** invoke the `secret-scanner-orchestrator` skill when a
 request involves any of:
 - adding or modifying detectors or sources
 - engine, CLI, output-format, or CI changes
-- detector / source / backend interface changes (high blast radius)
-- PII backend integration with pleno-anonymize
+- detector / source interface changes (high blast radius)
+- SaaS connector ports (#74–#80)
 
 Single-file greps and trivial questions should be answered directly
 without invoking the orchestrator.
@@ -30,17 +29,15 @@ without invoking the orchestrator.
   (single-module configuration).
 - Go tests must pass `go test ./... -race`. Race-detector failures block
   PRs.
-- Python tests must pass `uv run --frozen pytest` and stay ruff + mypy
-  strict-clean.
-- Releases trigger exclusively by tag push:
-  - `vX.Y.Z` → Go binary release via GoReleaser trusted publishing.
-  - `py-vX.Y.Z` → Python package release to PyPI via trusted publishing.
+- Releases trigger exclusively by tag push: `vX.Y.Z` → Go binary release
+  via GoReleaser trusted publishing.
 - `main` push runs build + tests only — it does not publish (this is a
   CLI binary, not a service).
 - Because this tool handles secret material, every new secret detector
   must either implement `Verify()` or be explicitly marked
-  unverified-only. PII backends must mark findings with
-  `finding_class="pii"` so downstream callers can route by class.
+  unverified-only. PII detectors must set
+  `ExtraData["finding_class"]="pii"` so downstream callers can route by
+  class.
 
 ## Change history
 
@@ -97,3 +94,4 @@ without invoking the orchestrator.
 | 2026-05-08 | Unify detection backends with sources under `pleno_dlp.connectors.*` — `ConnectorRole` (SOURCE/DETECTOR) added to `ConnectorSpec`; `Detector` Protocol added in core; native/trufflehog/gitleaks/pii moved into `connectors/`, renamed to `<X>Detector`, register through the same registry; `pleno_dlp.backends` package and `--backend` CLI flag retired (use `--detector`); `pleno-dlp list --role source\|detector` filters; py-v0.10.0 tag-push | `python/src/pleno_dlp/{core,registry,pipeline,cli,__init__}.py`, `python/src/pleno_dlp/connectors/{native,trufflehog,gitleaks,pii}.py`, tests, README, CHANGELOG | One plugin model spanning sources + detectors. 252 passing Python tests, ruff + mypy strict clean |
 | 2026-05-08 | **Re-split: connectors are SaaS-unit, engines are detection** — connectors back to per-provider (github, gitlab, …); native/trufflehog/gitleaks/pii moved to `pleno_dlp.engines.*` as plain `XEngine` classes (no spec, no registry); `ConnectorSpec.role` → `ConnectorSpec.capabilities: frozenset[Capability]` (`SOURCE`/`VERIFY`/`REVOKE`); new `Verifier`/`Revoker` Protocols + `VerifyResult`/`RevokeResult`; `Engine` Protocol; github implements `verify(secret)` against `GET /user`; CLI gains `pleno-dlp verify <connector>` and `--engine` (was `--detector`); py-v0.11.0 tag-push | `python/src/pleno_dlp/{core,registry,pipeline,cli,__init__}.py`, `python/src/pleno_dlp/engines/*.py`, `python/src/pleno_dlp/connectors/github.py`, tests, README, CHANGELOG | Right level of abstraction: connectors model providers, engines model scanners. 255 passing Python tests, ruff + src mypy strict clean |
 | 2026-05-09 | **Detection moves inside each SaaS connector** — every connector advertises `Capability.DETECT` and exposes `detect(doc) -> AsyncIterator[Finding]`; `DetectViaEngineMixin` wraps a configurable internal engine (default `native`); `Engine` Protocol → `Detector` Protocol with single `detect(doc)` method; engines' `scan` renamed `detect`; `Pipeline(connector, detector=None)` defaults to using the connector itself as Detector; CLI `--engine X` becomes a connector option shorthand (no separate engine selection); py-v0.12.0 tag-push | `python/src/pleno_dlp/{core,pipeline,cli,__init__}.py`, `python/src/pleno_dlp/connectors/{_detect,*}.py`, `python/src/pleno_dlp/engines/*.py`, tests, README, CHANGELOG | Surface is per-SaaS, engines are the internal substrate. 273 passing Python tests, ruff + src mypy strict clean |
+| 2026-05-09 | **Retire Python package — Go single-binary unification** | repo-wide | `python/` tree, `.github/workflows/{test-py,release-py}.yml`, `py-vX.Y.Z` tag pattern all removed. SaaS connectors (github / gitlab / bitbucket / notion / confluence / jira / slack) tracked as native Go ports in #74–#80. Verify coverage audit in #72, Revoke capability in #73. One language, one binary, one release pipeline. |
