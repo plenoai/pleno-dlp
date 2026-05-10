@@ -26,7 +26,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	awsdet "github.com/plenoai/pleno-dlp/pkg/detectors/aws"
 	githubdet "github.com/plenoai/pleno-dlp/pkg/detectors/github"
+	gitlabdet "github.com/plenoai/pleno-dlp/pkg/detectors/gitlab"
+	slackdet "github.com/plenoai/pleno-dlp/pkg/detectors/slack"
+	stripedet "github.com/plenoai/pleno-dlp/pkg/detectors/stripe"
+	"github.com/plenoai/pleno-dlp/pkg/verify"
 )
 
 // revokeFlags collects everything `pleno-dlp revoke` needs. Held in a
@@ -40,6 +45,16 @@ type revokeFlags struct {
 	confirm      bool
 	dryRun       bool
 	format       string
+	rateLimitRPS int
+
+	// AWS principal context. AWS revoke needs admin IAM creds plus the
+	// target user name because `iam:DeleteAccessKey` is keyed on
+	// (UserName, AccessKeyId), not the access-key id alone.
+	awsAdminAccessKeyID     string
+	awsAdminSecretAccessKey string
+	awsAdminSessionToken    string
+	awsRegion               string
+	awsUserName             string
 }
 
 var revokeOpts revokeFlags
@@ -67,13 +82,19 @@ var revokeCmd = &cobra.Command{
 }
 
 func init() {
-	revokeCmd.Flags().StringVar(&revokeOpts.detector, "detector", "", "detector type whose leaked secret should be revoked (e.g. GitHub)")
+	revokeCmd.Flags().StringVar(&revokeOpts.detector, "detector", "", "detector type whose leaked secret should be revoked (supported: github, gitlab, slack, aws, stripe)")
 	revokeCmd.Flags().StringVar(&revokeOpts.secret, "secret", "", "the leaked credential, or `-` to read it from stdin")
 	revokeCmd.Flags().StringVar(&revokeOpts.clientID, "client-id", "", "OAuth app client_id (GitHub: overrides "+githubdet.EnvClientID+")")
 	revokeCmd.Flags().StringVar(&revokeOpts.clientSecret, "client-secret", "", "OAuth app client_secret (GitHub: overrides "+githubdet.EnvClientSecret+")")
+	revokeCmd.Flags().StringVar(&revokeOpts.awsAdminAccessKeyID, "aws-admin-access-key-id", "", "AWS admin access key id used to call iam:DeleteAccessKey (overrides "+awsdet.EnvAdminAccessKeyID+")")
+	revokeCmd.Flags().StringVar(&revokeOpts.awsAdminSecretAccessKey, "aws-admin-secret-access-key", "", "AWS admin secret access key (overrides "+awsdet.EnvAdminSecretAccessKey+")")
+	revokeCmd.Flags().StringVar(&revokeOpts.awsAdminSessionToken, "aws-admin-session-token", "", "AWS admin session token, optional (overrides "+awsdet.EnvAdminSessionToken+")")
+	revokeCmd.Flags().StringVar(&revokeOpts.awsRegion, "aws-region", "", "AWS region for IAM endpoint (overrides "+awsdet.EnvRegion+", default us-east-1)")
+	revokeCmd.Flags().StringVar(&revokeOpts.awsUserName, "aws-user-name", "", "IAM user that owns the leaked access key (required for AWS revoke; overrides "+awsdet.EnvUserName+")")
 	revokeCmd.Flags().BoolVar(&revokeOpts.confirm, "confirm", false, "explicit acknowledgement that revoke is irreversible (mutually required with non-interactive runs alongside "+EnvAllowRevoke+"=1)")
 	revokeCmd.Flags().BoolVar(&revokeOpts.dryRun, "dry-run", false, "print the planned revoke without contacting the provider")
 	revokeCmd.Flags().StringVar(&revokeOpts.format, "format", "table", "output format: table, json")
+	revokeCmd.Flags().IntVar(&revokeOpts.rateLimitRPS, "rate-limit-rps", 0, "per-host requests-per-second cap during revoke (0 = disabled). Useful when revoking many secrets in a loop to avoid provider rate limits.")
 	_ = revokeCmd.MarkFlagRequired("detector")
 
 	Root.AddCommand(revokeCmd)
@@ -145,6 +166,15 @@ func runRevoke(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
+	// Per-host rate limiter is opt-in for `revoke` because the typical
+	// invocation revokes a single secret. Operators running batch revokes
+	// (e.g. an audit script that pipes many leaked tokens) set
+	// --rate-limit-rps to avoid tripping provider quotas.
+	if revokeOpts.rateLimitRPS > 0 {
+		prev := verify.Install(revokeOpts.rateLimitRPS)
+		defer verify.Restore(prev)
+	}
+
 	ctx, cancel := context.WithTimeout(cmdContext(cmd), 30*time.Second)
 	defer cancel()
 	res, runErr := r.Revoke(ctx, secret)
@@ -190,8 +220,34 @@ func resolveRevoker(name string) (detectors.Revoker, detectors.DetectorType, err
 			githubdet.SetRevokeCredentials(revokeOpts.clientID, revokeOpts.clientSecret)
 		}
 		return githubdet.Scanner{}, detectors.GitHub, nil
+	case "gitlab":
+		// GitLab PATs self-revoke (the token is its own auth) — no
+		// additional CLI plumbing required.
+		return gitlabdet.Scanner{}, detectors.GitLab, nil
+	case "slack":
+		// Slack tokens self-revoke via auth.revoke.
+		return slackdet.Scanner{}, detectors.SlackBotToken, nil
+	case "stripe":
+		// Stripe restricted keys self-revoke; secret keys (sk_) are
+		// rejected inside the detector with an explanatory error.
+		return stripedet.Scanner{}, detectors.Stripe, nil
+	case "aws":
+		// AWS revoke needs admin IAM creds + the target user name. CLI
+		// overrides take precedence; missing values fall back to the
+		// PLENO_DLP_REVOKE_AWS_* env vars inside loadRevokeCreds.
+		if revokeOpts.awsAdminAccessKeyID != "" || revokeOpts.awsAdminSecretAccessKey != "" ||
+			revokeOpts.awsAdminSessionToken != "" || revokeOpts.awsRegion != "" || revokeOpts.awsUserName != "" {
+			awsdet.SetRevokeCredentials(
+				revokeOpts.awsAdminAccessKeyID,
+				revokeOpts.awsAdminSecretAccessKey,
+				revokeOpts.awsAdminSessionToken,
+				revokeOpts.awsRegion,
+				revokeOpts.awsUserName,
+			)
+		}
+		return awsdet.Scanner{}, detectors.AWS, nil
 	default:
-		return nil, detectors.Unknown, fmt.Errorf("--detector %q: revoke not supported (supported: github)", name)
+		return nil, detectors.Unknown, fmt.Errorf("--detector %q: revoke not supported (supported: github, gitlab, slack, aws, stripe)", name)
 	}
 }
 

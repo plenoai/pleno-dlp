@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 
 	// Blank imports mirror main.go so unit tests on the scan command
 	// exercise the same registry the binary does. Without these,
@@ -150,6 +151,139 @@ func resetScanOpts() {
 	scanOpts.includeDetectors = nil
 	scanOpts.excludeDetectors = nil
 	scanOpts.quiet = false
+	scanOpts.revokeOnVerified = false
+	scanOpts.revokeDryRun = false
+}
+
+// TestScan_RevokeOnVerified_RefusesWithoutEnv asserts that scan refuses
+// early when --revoke-on-verified is set but PLENO_DLP_ALLOW_REVOKE is
+// not. This is the central CI-safety promise: an operator cannot
+// accidentally blow up live credentials by misconfiguring a CI job.
+func TestScan_RevokeOnVerified_RefusesWithoutEnv(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+	t.Setenv(EnvAllowRevoke, "")
+
+	dir := t.TempDir()
+	target := dir + "/leak.txt"
+	if err := writeFile(target, "no secrets here\n"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"scan", "--verify", "--revoke-on-verified", "--format", "json", "filesystem", target})
+
+	err := Root.Execute()
+	if err == nil {
+		t.Fatalf("scan must refuse --revoke-on-verified without %s=1", EnvAllowRevoke)
+	}
+	if !strings.Contains(err.Error(), EnvAllowRevoke) {
+		t.Errorf("error must mention %s: %v", EnvAllowRevoke, err)
+	}
+}
+
+// TestScan_RevokeOnVerified_RequiresVerify catches the obvious misuse
+// of asking us to revoke unverified candidates, which would risk
+// invalidating tokens that aren't ours.
+func TestScan_RevokeOnVerified_RequiresVerify(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+	t.Setenv(EnvAllowRevoke, "1")
+
+	dir := t.TempDir()
+	target := dir + "/leak.txt"
+	if err := writeFile(target, "no secrets here\n"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"scan", "--revoke-on-verified", "--format", "json", "filesystem", target})
+
+	err := Root.Execute()
+	if err == nil {
+		t.Fatalf("--revoke-on-verified without --verify must fail")
+	}
+	if !strings.Contains(err.Error(), "--verify") {
+		t.Errorf("error must mention --verify: %v", err)
+	}
+}
+
+// TestScan_RevokeOnVerified_DryRunBypassesEnv confirms --revoke-dry-run
+// is a usable preview path for operators who want to see what scan
+// would attempt without setting the env opt-in. The dry-run summary
+// line is emitted to stderr.
+func TestScan_RevokeOnVerified_DryRunBypassesEnv(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+	t.Setenv(EnvAllowRevoke, "")
+
+	dir := t.TempDir()
+	target := dir + "/leak.txt"
+	if err := writeFile(target, "nothing here\n"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"scan", "--verify", "--revoke-on-verified", "--revoke-dry-run", "--format", "json", "filesystem", target})
+
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("dry-run with no findings should succeed; got %v\nstderr:\n%s", err, errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "revoke:") {
+		t.Errorf("expected revoke summary on stderr; got:\n%s", errBuf.String())
+	}
+}
+
+// TestRevokingSink_VerifiedFindingDispatches drives the sink directly
+// (no filesystem, no network) to assert the wrap-then-emit contract:
+// findings still propagate downstream, AND a verified finding whose
+// detector implements Revoker triggers Revoke. This is the inner
+// invariant that the higher-level CLI tests depend on.
+func TestRevokingSink_VerifiedFindingDispatches(t *testing.T) {
+	captured := &captureSink{}
+	rev := &fakeRevoker{}
+	det := fakeDetectorWithRevoker{Revoker: rev}
+
+	rs := newRevokingSink(captured, []detectors.Detector{det}, false, &bytes.Buffer{})
+	rs.Emit(engineFinding(detectors.GitHub, true, "ghp_xxx"))
+	rs.Emit(engineFinding(detectors.GitHub, false, "ghp_yyy"))
+
+	if got := len(captured.findings); got != 2 {
+		t.Errorf("expected both findings forwarded, got %d", got)
+	}
+	if rev.calls != 1 {
+		t.Errorf("expected 1 revoke call (verified only), got %d", rev.calls)
+	}
+	if rs.attempted.Load() != 1 || rs.revoked.Load() != 1 {
+		t.Errorf("counters: attempted=%d revoked=%d, want 1/1", rs.attempted.Load(), rs.revoked.Load())
+	}
+}
+
+// TestRevokingSink_DryRunDoesNotCallProvider exercises the preview
+// path: a verified finding logs to logW but the provider is never
+// contacted. Failure here usually means the dry-run branch fell
+// through to the live revoke call.
+func TestRevokingSink_DryRunDoesNotCallProvider(t *testing.T) {
+	captured := &captureSink{}
+	rev := &fakeRevoker{}
+	det := fakeDetectorWithRevoker{Revoker: rev}
+
+	var logBuf bytes.Buffer
+	rs := newRevokingSink(captured, []detectors.Detector{det}, true, &logBuf)
+	rs.Emit(engineFinding(detectors.GitHub, true, "ghp_xxx"))
+
+	if rev.calls != 0 {
+		t.Errorf("dry-run must not call provider; got %d calls", rev.calls)
+	}
+	if !strings.Contains(logBuf.String(), "DRY-RUN") {
+		t.Errorf("dry-run must log preview line; got:\n%s", logBuf.String())
+	}
 }
 
 // TestScanFilesystemWithCustomRules drives the full CLI with a custom
@@ -370,4 +504,45 @@ func (s stubDet) Type() detectors.DetectorType    { return s.t }
 func (s stubDet) Keywords() []string              { return nil }
 func (s stubDet) FromData(_ context.Context, _ bool, _ []byte) ([]detectors.Result, error) {
 	return nil, nil
+}
+
+// captureSink records every Finding it receives so revokingSink tests
+// can assert downstream propagation.
+type captureSink struct{ findings []engine.Finding }
+
+func (c *captureSink) Emit(f engine.Finding) { c.findings = append(c.findings, f) }
+func (c *captureSink) Close() error          { return nil }
+
+// fakeRevoker counts Revoke calls and reports success.
+type fakeRevoker struct{ calls int }
+
+func (f *fakeRevoker) Revoke(_ context.Context, _ string) (detectors.RevokeResult, error) {
+	f.calls++
+	return detectors.RevokeResult{Revoked: true}, nil
+}
+
+// fakeDetectorWithRevoker pairs a stub Detector with a Revoker so the
+// type assertion inside newRevokingSink picks it up.
+type fakeDetectorWithRevoker struct{ Revoker detectors.Revoker }
+
+func (f fakeDetectorWithRevoker) Type() detectors.DetectorType { return detectors.GitHub }
+func (f fakeDetectorWithRevoker) Keywords() []string           { return []string{"ghp_"} }
+func (f fakeDetectorWithRevoker) FromData(_ context.Context, _ bool, _ []byte) ([]detectors.Result, error) {
+	return nil, nil
+}
+func (f fakeDetectorWithRevoker) Revoke(ctx context.Context, secret string) (detectors.RevokeResult, error) {
+	return f.Revoker.Revoke(ctx, secret)
+}
+
+// engineFinding builds an engine.Finding so the revoking-sink tests
+// read declaratively without reciting the full struct shape.
+func engineFinding(t detectors.DetectorType, verified bool, raw string) engine.Finding {
+	return engine.Finding{
+		Detector: t,
+		Result: detectors.Result{
+			DetectorType: t,
+			Verified:     verified,
+			Raw:          []byte(raw),
+		},
+	}
 }
