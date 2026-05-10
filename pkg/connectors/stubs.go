@@ -21,7 +21,6 @@ func init() {
 		t    sources.SourceType
 	}{
 		{"confluence", sources.SourceConfluence},
-		{"slack", sources.SourceSlack},
 	} {
 		s := s
 		Register(s.name, Connector{
