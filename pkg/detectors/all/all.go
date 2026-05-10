@@ -6,6 +6,7 @@ package all
 import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/airtable"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/algolia"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/anonymize"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/anthropic"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/asana"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/atlassian"
