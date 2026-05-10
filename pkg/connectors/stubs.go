@@ -20,7 +20,6 @@ func init() {
 		name string
 		t    sources.SourceType
 	}{
-		{"gitlab", sources.SourceGitLab},
 		{"bitbucket", sources.SourceBitbucket},
 		{"notion", sources.SourceNotion},
 		{"confluence", sources.SourceConfluence},
