@@ -20,7 +20,6 @@ func init() {
 		name string
 		t    sources.SourceType
 	}{
-		{"notion", sources.SourceNotion},
 		{"confluence", sources.SourceConfluence},
 		{"jira", sources.SourceJira},
 		{"slack", sources.SourceSlack},
