@@ -1,19 +1,14 @@
 package cmd
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/plenoai/pleno-dlp/pkg/connectors"
-	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
-// notionFlags collects the subset of Notion Config that surfaces as CLI
-// flags.
 type notionFlags struct {
 	token   string
 	apiBase string
@@ -25,7 +20,6 @@ var (
 	verifyNotionOpts notionFlags
 )
 
-// scanNotionCmd: `pleno-dlp scan notion --token <token>`.
 var scanNotionCmd = &cobra.Command{
 	Use:   "notion",
 	Short: "Scan a Notion workspace (pages and databases)",
@@ -35,7 +29,6 @@ var scanNotionCmd = &cobra.Command{
 	RunE: runScanNotion,
 }
 
-// verifyNotionCmd: `pleno-dlp verify notion [--token ... | $NOTION_TOKEN]`.
 var verifyNotionCmd = &cobra.Command{
 	Use:   "notion",
 	Short: "Verify a Notion integration token (calls GET /users/me)",
@@ -54,64 +47,26 @@ func init() {
 	verifyCmd.AddCommand(verifyNotionCmd)
 }
 
-// runScanNotion translates flags + NOTION_TOKEN into a Config JSON blob
-// and hands the rest to runScanCommon.
 func runScanNotion(cmd *cobra.Command, _ []string) error {
 	token := resolveNotionToken(scanNotionOpts.token)
 	if token == "" {
 		return errors.New("notion: --token is required (or set the NOTION_TOKEN env var)")
 	}
-	src := sources.New(sources.SourceNotion)
-	if src == nil {
-		return errors.New("notion source is not registered (missing pkg/sources/all import?)")
-	}
-	cfg, err := json.Marshal(map[string]any{
+	return runScanSaaS(cmd, "notion", connectors.Config{
 		"token":    token,
 		"api_base": scanNotionOpts.apiBase,
 		"query":    scanNotionOpts.query,
 	})
-	if err != nil {
-		return fmt.Errorf("encode source config: %w", err)
-	}
-	return runScanCommon(cmd, src, cfg, "notion")
 }
 
-// runVerifyNotion builds the connector via the registry and dispatches
-// the configured token to the connector's Verify method.
 func runVerifyNotion(cmd *cobra.Command, _ []string) error {
 	token := resolveNotionToken(verifyNotionOpts.token)
 	if token == "" {
 		return errors.New("notion: --token is required (or set the NOTION_TOKEN env var)")
 	}
-	c := connectors.New("notion")
-	if c == nil {
-		return errors.New("notion connector is not registered (missing pkg/sources/all import?)")
-	}
-	if !c.Descriptor().Capabilities.Has(connectors.CapVerify) {
-		return errors.New("notion connector does not advertise CapVerify (registry / capability mismatch)")
-	}
-	if setter, ok := c.(interface{ SetAPIBase(string) }); ok && verifyNotionOpts.apiBase != "" {
-		setter.SetAPIBase(verifyNotionOpts.apiBase)
-	}
-	v, ok := c.(connectors.Verifier)
-	if !ok {
-		return errors.New("notion connector does not implement Verifier despite CapVerify (registry drift)")
-	}
-	verified, err := v.Verify(cmdContext(cmd), token)
-	if err != nil {
-		return fmt.Errorf("notion: verify: %w", err)
-	}
-	if !verified {
-		fmt.Fprintln(cmd.OutOrStdout(), "notion: token NOT verified (401)")
-		return errVerifyFailed
-	}
-	fmt.Fprintln(cmd.OutOrStdout(), "notion: token verified")
-	return nil
+	return runVerifySaaS(cmd, "notion", token, connectors.Config{"api_base": verifyNotionOpts.apiBase})
 }
 
-// resolveNotionToken implements the documented fallback: explicit --token
-// flag wins; otherwise the NOTION_TOKEN env var is consulted; otherwise
-// the empty string is returned and the caller errors out.
 func resolveNotionToken(explicit string) string {
 	if explicit != "" {
 		return explicit

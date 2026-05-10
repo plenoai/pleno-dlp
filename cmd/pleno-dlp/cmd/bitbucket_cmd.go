@@ -1,27 +1,21 @@
 package cmd
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/plenoai/pleno-dlp/pkg/connectors"
-	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
-// bitbucketFlags collects the subset of Bitbucket Config that surfaces as CLI
-// flags. App password (Basic auth) and Bearer token are the two supported
-// auth modes.
 type bitbucketFlags struct {
-	workspace  string
-	repo       string
-	username   string
+	workspace   string
+	repo        string
+	username    string
 	appPassword string
-	token      string
-	apiBase    string
+	token       string
+	apiBase     string
 }
 
 var (
@@ -29,7 +23,6 @@ var (
 	verifyBitbucketOpts bitbucketFlags
 )
 
-// scanBitbucketCmd: `pleno-dlp scan bitbucket --workspace <ws> [--username <user> --app-password <pw>]`.
 var scanBitbucketCmd = &cobra.Command{
 	Use:   "bitbucket",
 	Short: "Scan a Bitbucket workspace or single repo (default-branch files)",
@@ -40,7 +33,6 @@ var scanBitbucketCmd = &cobra.Command{
 	RunE: runScanBitbucket,
 }
 
-// verifyBitbucketCmd: `pleno-dlp verify bitbucket [--token ... | --app-password ...]`.
 var verifyBitbucketCmd = &cobra.Command{
 	Use:   "bitbucket",
 	Short: "Verify a Bitbucket token (calls GET /2.0/user)",
@@ -62,8 +54,6 @@ func init() {
 	verifyCmd.AddCommand(verifyBitbucketCmd)
 }
 
-// runScanBitbucket translates flags + BITBUCKET_APP_PASSWORD into a Config
-// JSON blob and hands the rest to runScanCommon.
 func runScanBitbucket(cmd *cobra.Command, _ []string) error {
 	if scanBitbucketOpts.workspace == "" && scanBitbucketOpts.repo == "" {
 		return errors.New("bitbucket: one of --workspace or --repo is required")
@@ -78,11 +68,7 @@ func runScanBitbucket(cmd *cobra.Command, _ []string) error {
 	if appPassword != "" && scanBitbucketOpts.username == "" {
 		return errors.New("bitbucket: --username is required when using --app-password")
 	}
-	src := sources.New(sources.SourceBitbucket)
-	if src == nil {
-		return errors.New("bitbucket source is not registered (missing pkg/sources/all import?)")
-	}
-	cfg, err := json.Marshal(map[string]any{
+	return runScanSaaS(cmd, "bitbucket", connectors.Config{
 		"token":        token,
 		"username":     scanBitbucketOpts.username,
 		"app_password": appPassword,
@@ -90,47 +76,16 @@ func runScanBitbucket(cmd *cobra.Command, _ []string) error {
 		"repo":         scanBitbucketOpts.repo,
 		"api_base":     scanBitbucketOpts.apiBase,
 	})
-	if err != nil {
-		return fmt.Errorf("encode source config: %w", err)
-	}
-	return runScanCommon(cmd, src, cfg, "bitbucket")
 }
 
-// runVerifyBitbucket builds the connector via the registry and dispatches
-// the configured token to the connector's Verify method.
 func runVerifyBitbucket(cmd *cobra.Command, _ []string) error {
 	token, _ := resolveBitbucketAuth(verifyBitbucketOpts.token, "")
 	if token == "" {
 		return errors.New("bitbucket: --token is required for verify")
 	}
-	c := connectors.New("bitbucket")
-	if c == nil {
-		return errors.New("bitbucket connector is not registered (missing pkg/sources/all import?)")
-	}
-	if !c.Descriptor().Capabilities.Has(connectors.CapVerify) {
-		return errors.New("bitbucket connector does not advertise CapVerify (registry / capability mismatch)")
-	}
-	if setter, ok := c.(interface{ SetAPIBase(string) }); ok && verifyBitbucketOpts.apiBase != "" {
-		setter.SetAPIBase(verifyBitbucketOpts.apiBase)
-	}
-	v, ok := c.(connectors.Verifier)
-	if !ok {
-		return errors.New("bitbucket connector does not implement Verifier despite CapVerify (registry drift)")
-	}
-	verified, err := v.Verify(cmdContext(cmd), token)
-	if err != nil {
-		return fmt.Errorf("bitbucket: verify: %w", err)
-	}
-	if !verified {
-		fmt.Fprintln(cmd.OutOrStdout(), "bitbucket: token NOT verified (401)")
-		return errVerifyFailed
-	}
-	fmt.Fprintln(cmd.OutOrStdout(), "bitbucket: token verified")
-	return nil
+	return runVerifySaaS(cmd, "bitbucket", token, connectors.Config{"api_base": verifyBitbucketOpts.apiBase})
 }
 
-// resolveBitbucketAuth implements the documented fallback: explicit flag
-// wins; otherwise the BITBUCKET_APP_PASSWORD env var is consulted.
 func resolveBitbucketAuth(explicitToken, explicitAppPassword string) (token, appPassword string) {
 	if explicitToken != "" {
 		return explicitToken, ""
@@ -138,7 +93,6 @@ func resolveBitbucketAuth(explicitToken, explicitAppPassword string) (token, app
 	if explicitAppPassword != "" {
 		return "", explicitAppPassword
 	}
-	// Env fallback for app password only.
 	if pw := os.Getenv("BITBUCKET_APP_PASSWORD"); pw != "" {
 		return "", pw
 	}

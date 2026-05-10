@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -9,10 +8,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/plenoai/pleno-dlp/pkg/connectors"
-	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
-// jiraFlags collects the subset of Jira Config that surfaces as CLI flags.
 type jiraFlags struct {
 	site    string
 	email   string
@@ -27,7 +24,6 @@ var (
 	verifyJiraOpts jiraFlags
 )
 
-// scanJiraCmd: `pleno-dlp scan jira --site <site> --email <email> --token <token>`.
 var scanJiraCmd = &cobra.Command{
 	Use:   "jira",
 	Short: "Scan Jira issues for secrets (Cloud and Data Center)",
@@ -38,7 +34,6 @@ var scanJiraCmd = &cobra.Command{
 	RunE: runScanJira,
 }
 
-// verifyJiraCmd: `pleno-dlp verify jira [--token ... | $JIRA_TOKEN]`.
 var verifyJiraCmd = &cobra.Command{
 	Use:   "jira",
 	Short: "Verify a Jira token (calls GET /rest/api/3/myself)",
@@ -62,14 +57,11 @@ func init() {
 	verifyCmd.AddCommand(verifyJiraCmd)
 }
 
-// runScanJira translates flags + env into a Config JSON blob and hands
-// the rest to runScanCommon.
 func runScanJira(cmd *cobra.Command, _ []string) error {
 	token := resolveJiraToken(scanJiraOpts.token)
 	if token == "" {
 		return errors.New("jira: --token is required (or set the JIRA_TOKEN env var)")
 	}
-	email := resolveJiraEmail(scanJiraOpts.email)
 	apiBase := scanJiraOpts.apiBase
 	if apiBase == "" && scanJiraOpts.site != "" {
 		apiBase = fmt.Sprintf("https://%s.atlassian.net", scanJiraOpts.site)
@@ -77,31 +69,20 @@ func runScanJira(cmd *cobra.Command, _ []string) error {
 	if apiBase == "" {
 		return errors.New("jira: --site or --api-base is required")
 	}
-	src := sources.New(sources.SourceJira)
-	if src == nil {
-		return errors.New("jira source is not registered (missing pkg/sources/all import?)")
-	}
-	cfg, err := json.Marshal(map[string]any{
+	return runScanSaaS(cmd, "jira", connectors.Config{
 		"token":    token,
-		"email":    email,
+		"email":    resolveJiraEmail(scanJiraOpts.email),
 		"project":  scanJiraOpts.project,
 		"jql":      scanJiraOpts.jql,
 		"api_base": apiBase,
 	})
-	if err != nil {
-		return fmt.Errorf("encode source config: %w", err)
-	}
-	return runScanCommon(cmd, src, cfg, "jira")
 }
 
-// runVerifyJira builds the connector via the registry and dispatches the
-// configured token to the connector's Verify method.
 func runVerifyJira(cmd *cobra.Command, _ []string) error {
 	token := resolveJiraToken(verifyJiraOpts.token)
 	if token == "" {
 		return errors.New("jira: --token is required (or set the JIRA_TOKEN env var)")
 	}
-	email := resolveJiraEmail(verifyJiraOpts.email)
 	apiBase := verifyJiraOpts.apiBase
 	if apiBase == "" && verifyJiraOpts.site != "" {
 		apiBase = fmt.Sprintf("https://%s.atlassian.net", verifyJiraOpts.site)
@@ -109,40 +90,12 @@ func runVerifyJira(cmd *cobra.Command, _ []string) error {
 	if apiBase == "" {
 		return errors.New("jira: --site or --api-base is required")
 	}
-	c := connectors.New("jira")
-	if c == nil {
-		return errors.New("jira connector is not registered (missing pkg/sources/all import?)")
-	}
-	if !c.Descriptor().Capabilities.Has(connectors.CapVerify) {
-		return errors.New("jira connector does not advertise CapVerify (registry / capability mismatch)")
-	}
-	// Set api_base and email for verify context.
-	if setter, ok := c.(interface{ SetAPIBase(string) }); ok {
-		setter.SetAPIBase(apiBase)
-	}
-	// Inject email into config for Basic auth.
-	type emailSetter interface{ SetEmail(string) }
-	if es, ok := c.(emailSetter); ok && email != "" {
-		es.SetEmail(email)
-	}
-	v, ok := c.(connectors.Verifier)
-	if !ok {
-		return errors.New("jira connector does not implement Verifier despite CapVerify (registry drift)")
-	}
-	verified, err := v.Verify(cmdContext(cmd), token)
-	if err != nil {
-		return fmt.Errorf("jira: verify: %w", err)
-	}
-	if !verified {
-		fmt.Fprintln(cmd.OutOrStdout(), "jira: token NOT verified (401 / 403)")
-		return errVerifyFailed
-	}
-	fmt.Fprintln(cmd.OutOrStdout(), "jira: token verified")
-	return nil
+	return runVerifySaaS(cmd, "jira", token, connectors.Config{
+		"api_base": apiBase,
+		"email":    resolveJiraEmail(verifyJiraOpts.email),
+	})
 }
 
-// resolveJiraToken implements the documented fallback: explicit --token
-// wins; otherwise JIRA_TOKEN env var.
 func resolveJiraToken(explicit string) string {
 	if explicit != "" {
 		return explicit
@@ -150,8 +103,6 @@ func resolveJiraToken(explicit string) string {
 	return os.Getenv("JIRA_TOKEN")
 }
 
-// resolveJiraEmail implements the documented fallback: explicit --email
-// wins; otherwise JIRA_EMAIL env var.
 func resolveJiraEmail(explicit string) string {
 	if explicit != "" {
 		return explicit

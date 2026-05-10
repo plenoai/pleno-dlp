@@ -1,170 +1,94 @@
-// Package connectors defines the SaaSConnector contract every
-// pkg/connectors/<provider>/ implementation satisfies, plus a small
-// registry so the CLI can address connectors by name (`pleno-dlp scan
-// github`, `pleno-dlp verify slack`, `pleno-dlp revoke gitlab`).
+// Package connectors holds SaaS connectors. Each connector lives in a
+// single file at pkg/connectors/<name>.go that registers a Connector value
+// in init(). A connector is just three function fields — Scan, Verify,
+// Revoke — written like an AWS Lambda handler: auth, fetch, emit.
 //
-// A SaaSConnector is a sources.Source — it walks a provider's documents
-// and emits *sources.Chunk into the engine just like filesystem/git/stdin
-// — and additionally advertises connector-level metadata (auth modes,
-// capability flags) plus optional Verifier / Revoker behaviour against
-// the configured token. Composing Source rather than inventing a
-// parallel iterator keeps the engine ignorant of the source's origin
-// (filesystem vs SaaS) and lets every existing dedup / archive / decoder
-// pipeline pass through unchanged.
-//
-// Concrete implementations live under pkg/connectors/<provider>/ and
-// self-register via init(); none of them ship with this file (architect
-// only owns the contract, not the providers).
+// Engine integration: AsSource wraps a registered connector as a
+// sources.Source so the engine drives a SaaS scan with the same loop it
+// uses for filesystem / git / stdin. Connector authors never see
+// jobID / sourceID / concurrency plumbing.
 package connectors
 
 import (
+	"context"
+	"fmt"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
-// Capability is a bitmask describing what surfaces a connector
-// implements beyond Source iteration. Bits are stable across releases;
-// new bits are appended, never reordered.
-type Capability uint32
+// Config is the flat string→string config map a connector receives from
+// the CLI / API caller. Connectors validate the keys they care about and
+// ignore the rest.
+type Config map[string]string
 
-const (
-	// CapSource means the connector emits *sources.Chunk via the
-	// Source contract. Every SaaSConnector sets this bit by virtue
-	// of embedding sources.Source — it is listed explicitly so the
-	// registry can surface "what does this connector do?" answers
-	// without reflection.
-	CapSource Capability = 1 << iota
-	// CapVerify means the connector implements detectors.Verifier
-	// against the user-supplied token (typically a single
-	// well-known endpoint such as GitHub's GET /user).
-	CapVerify
-	// CapRevoke means the connector implements detectors.Revoker
-	// against the user-supplied token. Most providers do NOT
-	// expose a revocation API — only set this when the connector
-	// has a working Revoke implementation (issue #73).
-	CapRevoke
-)
+// Get returns cfg[key] or fallback if absent / empty.
+func (c Config) Get(key, fallback string) string {
+	if v, ok := c[key]; ok && v != "" {
+		return v
+	}
+	return fallback
+}
 
-// Has reports whether c includes every bit in want.
-func (c Capability) Has(want Capability) bool { return c&want == want }
+// Emit is the callback a Scan function uses to publish a finding-eligible
+// chunk. The framework stamps SourceID / SourceType / SourceName / Verify
+// itself; the connector only supplies the bytes and the metadata that
+// describe where they came from. Returns ctx.Err() when the consumer is
+// cancelled, so loops can short-circuit on a single error check.
+type Emit func(data []byte, meta sources.Metadata) error
 
-// AuthMode enumerates the credential-shape families a connector accepts.
-// A connector typically supports several (e.g. PAT plus OAuth plus app
-// installation token). Values are stable; new modes append.
-type AuthMode int
+// Scan walks the configured surface and emits chunks. Per-item errors
+// (one 404 in a list of 1000) should be tolerated; the returned error is
+// reserved for fatal failures (auth, ctx cancellation).
+type Scan func(ctx context.Context, cfg Config, emit Emit) error
 
-const (
-	// AuthUnknown is the zero value and indicates the connector did
-	// not classify its auth surface — treat as a configuration bug.
-	AuthUnknown AuthMode = iota
-	// AuthPAT — long-lived personal access token (`Authorization:
-	// Bearer <pat>` or provider-specific header).
-	AuthPAT
-	// AuthBearer — short-lived OAuth bearer token, treated by the
-	// transport identically to AuthPAT but distinct in audit logs.
-	AuthBearer
-	// AuthBasic — HTTP Basic with username + secret (Bitbucket app
-	// password, Atlassian email + API token).
-	AuthBasic
-	// AuthOAuth — full OAuth 2.0 dance (workspace install,
-	// refresh-token rotation handled inside the connector).
-	AuthOAuth
-	// AuthAppInstallation — GitHub App / similar installation
-	// tokens minted by JWT exchange against the provider.
-	AuthAppInstallation
-)
+// Verify reports whether secret is alive against the provider's
+// well-known endpoint (e.g. GitHub GET /user). nil means the connector
+// does not implement verify.
+type Verify func(ctx context.Context, cfg Config, secret string) (bool, error)
 
-// Descriptor is the static, connector-level metadata the registry and
-// the CLI introspect. It does NOT carry secrets — credential material
-// flows through sources.Source.Init's `config []byte` blob.
-type Descriptor struct {
-	// Name is the registry key and CLI sub-command (`github`,
-	// `gitlab`, `slack`, ...). Lowercase, no spaces.
-	Name string
-	// SourceType is the wire-stable sources.SourceType this
-	// connector emits via *sources.Chunk. Used by output formatters
-	// to dispatch on Chunk.SourceMetadata.
+// Revoke invalidates secret server-side. nil means the connector does not
+// implement revoke; callers must check before dispatching.
+type Revoke func(ctx context.Context, cfg Config, secret string) (detectors.RevokeResult, error)
+
+// Connector is the value each pkg/connectors/<name>.go file registers.
+// SourceType is required so AsSource can stamp Chunks; Scan / Verify /
+// Revoke are individually optional — set the ones the connector
+// implements, leave the rest nil.
+type Connector struct {
 	SourceType sources.SourceType
-	// AuthModes lists every credential shape the connector accepts.
-	// First entry is the documented default for `--token` flag wiring.
-	AuthModes []AuthMode
-	// Capabilities is a bitmask of CapSource / CapVerify /
-	// CapRevoke. Listing connectors with `--capability revoke` reads
-	// this field directly.
-	Capabilities Capability
+	Scan       Scan
+	Verify     Verify
+	Revoke     Revoke
 }
-
-// SaaSConnector is the contract every pkg/connectors/<provider>/
-// implementation satisfies. It composes sources.Source so the engine
-// drives a SaaS scan with the exact same loop it uses for filesystem /
-// git / stdin sources — Init parses provider-specific config (token,
-// org/repo selectors, api-base override), Chunks streams *sources.Chunk
-// into the engine, and Type returns the wire-stable sources.SourceType.
-//
-// Implementations OPTIONALLY also satisfy detectors.Verifier (verify
-// the configured token against a well-known endpoint) and
-// detectors.Revoker (revoke the configured token via a provider
-// revocation API). Whether a given connector implements those
-// optional contracts is reflected in Descriptor.Capabilities so the
-// CLI can refuse `pleno-dlp revoke <name>` early when CapRevoke is
-// unset, without reaching for a runtime type assertion failure.
-type SaaSConnector interface {
-	sources.Source
-	// Descriptor returns the static metadata for this connector.
-	// Safe to call before Init; MUST NOT depend on connector state.
-	Descriptor() Descriptor
-}
-
-// Verifier is re-exported from pkg/detectors so connector packages
-// only need a single `pkg/connectors` import to declare both their
-// SaaSConnector implementation and their Verify method.
-type Verifier = detectors.Verifier
-
-// Revoker is re-exported from pkg/detectors. Same rationale as
-// Verifier — keep connector author imports tight.
-type Revoker = detectors.Revoker
-
-// RevokeResult is re-exported from pkg/detectors.
-type RevokeResult = detectors.RevokeResult
-
-// Factory constructs a fresh, uninitialised SaaSConnector. Init must be
-// called before Chunks / Verify / Revoke. Factories MUST be cheap —
-// they run during init() registration and per `pleno-dlp <subcommand>
-// <name>` invocation.
-type Factory func() SaaSConnector
 
 var (
 	mu       sync.RWMutex
-	registry = map[string]Factory{}
+	registry = map[string]Connector{}
 )
 
-// Register installs a Factory under name. Panics on duplicate
-// registration so an accidental double-init at process start fails
-// loudly instead of silently shadowing.
-func Register(name string, f Factory) {
+// Register installs a connector under name. Panics on duplicate so an
+// accidental double-init at process start fails loudly.
+func Register(name string, c Connector) {
 	mu.Lock()
 	defer mu.Unlock()
 	if _, exists := registry[name]; exists {
 		panic("connectors: duplicate registration for " + name)
 	}
-	registry[name] = f
+	registry[name] = c
 }
 
-// New returns a fresh SaaSConnector for name, or nil if no connector
-// is registered under that name.
-func New(name string) SaaSConnector {
+// Get returns the connector registered under name. The zero Connector
+// and false are returned when name is unknown.
+func Get(name string) (Connector, bool) {
 	mu.RLock()
 	defer mu.RUnlock()
-	if f, ok := registry[name]; ok {
-		return f()
-	}
-	return nil
+	c, ok := registry[name]
+	return c, ok
 }
 
 // Names returns the registered connector names in unspecified order.
-// Callers that need stable ordering must sort the result themselves.
 func Names() []string {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -173,4 +97,65 @@ func Names() []string {
 		names = append(names, n)
 	}
 	return names
+}
+
+// AsSource wraps a registered connector as a sources.Source. The CLI
+// builds this once per scan invocation and hands it to the engine just
+// like a filesystem / git source.
+func AsSource(name string, cfg Config) (sources.Source, error) {
+	c, ok := Get(name)
+	if !ok {
+		return nil, fmt.Errorf("connectors: %q is not registered", name)
+	}
+	if c.Scan == nil {
+		return nil, fmt.Errorf("connectors: %q does not implement scan", name)
+	}
+	return &sourceAdapter{conn: c, cfg: cfg}, nil
+}
+
+type sourceAdapter struct {
+	conn       Connector
+	cfg        Config
+	sourceName string
+	sourceID   int64
+	verify     bool
+}
+
+func (s *sourceAdapter) Type() sources.SourceType { return s.conn.SourceType }
+
+// Init satisfies sources.Source. The framework owns sourceName / sourceID
+// / verify; cfg comes from the CLI via AsSource so the legacy `config`
+// blob is intentionally ignored — connector inputs flow as a typed
+// Config map, not opaque JSON.
+func (s *sourceAdapter) Init(_ context.Context, name string, _ int64, sourceID int64, verify bool, _ []byte, _ int) error {
+	s.sourceName = name
+	s.sourceID = sourceID
+	s.verify = verify
+	if s.cfg == nil {
+		s.cfg = Config{}
+	}
+	return nil
+}
+
+// Chunks runs the connector's Scan, stamping every emitted chunk with
+// the framework-owned fields (SourceID / SourceType / SourceName /
+// Verify) so the connector author only fills in Data + Metadata.
+func (s *sourceAdapter) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
+	emit := func(data []byte, meta sources.Metadata) error {
+		chunk := &sources.Chunk{
+			SourceID:       s.sourceID,
+			SourceType:     s.conn.SourceType,
+			SourceName:     s.sourceName,
+			Data:           data,
+			SourceMetadata: meta,
+			Verify:         s.verify,
+		}
+		select {
+		case ch <- chunk:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return s.conn.Scan(ctx, s.cfg, emit)
 }

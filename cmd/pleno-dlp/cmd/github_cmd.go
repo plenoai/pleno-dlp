@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -10,13 +9,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/plenoai/pleno-dlp/pkg/connectors"
-	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
 // githubFlags collects the subset of GitHub Config that surfaces as CLI
-// flags. The rest of the connector's Config (include_issues / include_prs
-// / max_blob_bytes) is intentionally omitted from the v1 surface — those
-// land alongside the follow-up source surfaces.
+// flags. The rest of the connector's Config (max_blob_bytes / concurrency)
+// is intentionally omitted from the v1 surface — those land alongside
+// follow-up source surfaces.
 type githubFlags struct {
 	org     string
 	repo    string
@@ -29,8 +27,6 @@ var (
 	verifyGitHubOpts githubFlags
 )
 
-// scanGitHubCmd: `pleno-dlp scan github --org acme [--api-base ...]`.
-// Runs the standard runScanCommon pipeline against the GitHub connector.
 var scanGitHubCmd = &cobra.Command{
 	Use:   "github",
 	Short: "Scan a GitHub org or single repo (default-branch blobs)",
@@ -40,9 +36,6 @@ var scanGitHubCmd = &cobra.Command{
 	RunE: runScanGitHub,
 }
 
-// verifyCmd is the parent of provider-specific verify subcommands. It
-// only routes to subcommands; running it bare prints help so users land
-// on a valid path quickly.
 var verifyCmd = &cobra.Command{
 	Use:   "verify <connector>",
 	Short: "Verify a SaaS connector's token against its upstream provider",
@@ -50,8 +43,6 @@ var verifyCmd = &cobra.Command{
 		"Returns exit 0 when the provider confirms the token, exit 1 otherwise.",
 }
 
-// verifyGitHubCmd: `pleno-dlp verify github [--token ... | $GITHUB_TOKEN]`.
-// Calls GET /user via the connector's Verify and renders the result.
 var verifyGitHubCmd = &cobra.Command{
 	Use:   "github",
 	Short: "Verify a GitHub PAT (calls GET /user)",
@@ -72,10 +63,6 @@ func init() {
 	Root.AddCommand(verifyCmd)
 }
 
-// runScanGitHub translates flags + GITHUB_TOKEN into a Config JSON blob
-// and hands the rest to runScanCommon — the same path filesystem / git
-// already use. The connector self-validates org/repo mutual exclusivity
-// inside Init, so the CLI only enforces "we have a token at all".
 func runScanGitHub(cmd *cobra.Command, _ []string) error {
 	if scanGitHubOpts.org == "" && scanGitHubOpts.repo == "" {
 		return errors.New("github: one of --org or --repo is required")
@@ -84,48 +71,36 @@ func runScanGitHub(cmd *cobra.Command, _ []string) error {
 	if token == "" {
 		return errors.New("github: --token is required (or set the GITHUB_TOKEN env var)")
 	}
-	src := sources.New(sources.SourceGitHub)
-	if src == nil {
-		return errors.New("github source is not registered (missing pkg/sources/all import?)")
-	}
-	cfg, err := json.Marshal(map[string]any{
+	cfg := connectors.Config{
 		"token":    token,
 		"org":      scanGitHubOpts.org,
 		"repo":     scanGitHubOpts.repo,
 		"api_base": scanGitHubOpts.apiBase,
-	})
-	if err != nil {
-		return fmt.Errorf("encode source config: %w", err)
 	}
-	return runScanCommon(cmd, src, cfg, "github")
+	src, err := connectors.AsSource("github", cfg)
+	if err != nil {
+		return err
+	}
+	return runScanCommon(cmd, src, nil, "github")
 }
 
-// runVerifyGitHub builds the connector via the registry, plumbs the
-// (optional) api-base override through SetAPIBase, and dispatches the
-// configured token to the connector's Verify method. We deliberately
-// look up via connectors.New("github") rather than importing the
-// concrete package so the dispatcher generalises trivially when more
-// `verify <connector>` subcommands land.
+// runVerifyGitHub looks up the github connector and dispatches the token
+// to its Verify function. cfg carries --api-base so the verify call lands
+// on the right base URL for GitHub Enterprise installs.
 func runVerifyGitHub(cmd *cobra.Command, _ []string) error {
 	token := resolveGitHubToken(verifyGitHubOpts.token)
 	if token == "" {
 		return errors.New("github: --token is required (or set the GITHUB_TOKEN env var)")
 	}
-	c := connectors.New("github")
-	if c == nil {
-		return errors.New("github connector is not registered (missing pkg/sources/all import?)")
-	}
-	if !c.Descriptor().Capabilities.Has(connectors.CapVerify) {
-		return errors.New("github connector does not advertise CapVerify (registry / capability mismatch)")
-	}
-	if setter, ok := c.(interface{ SetAPIBase(string) }); ok && verifyGitHubOpts.apiBase != "" {
-		setter.SetAPIBase(verifyGitHubOpts.apiBase)
-	}
-	v, ok := c.(connectors.Verifier)
+	c, ok := connectors.Get("github")
 	if !ok {
-		return errors.New("github connector does not implement Verifier despite CapVerify (registry drift)")
+		return errors.New("github connector is not registered")
 	}
-	verified, err := v.Verify(cmdContext(cmd), token)
+	if c.Verify == nil {
+		return errors.New("github connector does not implement verify")
+	}
+	cfg := connectors.Config{"api_base": verifyGitHubOpts.apiBase}
+	verified, err := c.Verify(cmdContext(cmd), cfg, token)
 	if err != nil {
 		return fmt.Errorf("github: verify: %w", err)
 	}
@@ -137,9 +112,6 @@ func runVerifyGitHub(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// resolveGitHubToken implements the documented fallback: explicit --token
-// flag wins; otherwise the GITHUB_TOKEN env var is consulted; otherwise
-// the empty string is returned and the caller errors out.
 func resolveGitHubToken(explicit string) string {
 	if explicit != "" {
 		return explicit
@@ -147,18 +119,10 @@ func resolveGitHubToken(explicit string) string {
 	return os.Getenv("GITHUB_TOKEN")
 }
 
-// errVerifyFailed signals "verify ran cleanly but the provider said no".
-// main.go can map this to a non-zero exit code without conflating it
-// with a transport / config error.
 var errVerifyFailed = errors.New("verify failed")
 
-// IsVerifyError reports whether err is the verify-failed sentinel.
-// Mirrors IsFindingsError so main.go has one shape to dispatch on.
 func IsVerifyError(err error) bool { return err == errVerifyFailed }
 
-// cmdContext returns cmd's context, falling back to context.Background()
-// when cobra hasn't installed one (notably during unit tests that build
-// commands directly without running them through ExecuteContext).
 func cmdContext(cmd *cobra.Command) context.Context {
 	if ctx := cmd.Context(); ctx != nil {
 		return ctx
