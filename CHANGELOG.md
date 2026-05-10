@@ -9,7 +9,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.40.0.
+Anything merged to `main` since v0.41.0.
+
+## [0.41.0] — 2026-05-10
 
 ### Changed
 
