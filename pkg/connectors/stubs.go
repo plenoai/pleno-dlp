@@ -21,7 +21,6 @@ func init() {
 		t    sources.SourceType
 	}{
 		{"confluence", sources.SourceConfluence},
-		{"jira", sources.SourceJira},
 		{"slack", sources.SourceSlack},
 	} {
 		s := s
