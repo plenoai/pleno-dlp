@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/verifycoverage"
 )
 
 // detectorsCmd is the parent for all introspection subcommands. Today
@@ -29,7 +30,8 @@ var detectorsCmd = &cobra.Command{
 // independent — the flag parser shouldn't suggest cross-talk between
 // them.
 type detectorsListFlags struct {
-	format string
+	format       string
+	verifyStatus bool
 }
 
 var detectorsListOpts detectorsListFlags
@@ -46,6 +48,10 @@ var detectorsListCmd = &cobra.Command{
 
 func init() {
 	detectorsListCmd.Flags().StringVar(&detectorsListOpts.format, "format", "table", "output format: table, json, names")
+	detectorsListCmd.Flags().BoolVar(&detectorsListOpts.verifyStatus, "verify-status", false,
+		"include verify-coverage class per detector "+
+			"(verified, unverified-by-design, verify-gap) — "+
+			"sourced from docs/verify-coverage.md")
 
 	detectorsCmd.AddCommand(detectorsListCmd)
 	Root.AddCommand(detectorsCmd)
@@ -58,10 +64,17 @@ type detectorRecord struct {
 	Type     string   `json:"type"`
 	Keywords []string `json:"keywords"`
 	Verifies bool     `json:"verifies"`
+	// VerifyStatus is "verified" | "unverified-by-design" | "verify-gap".
+	// Empty when --verify-status is not requested so the JSON shape
+	// stays minimal for callers that do not care about the audit class.
+	VerifyStatus string `json:"verify_status,omitempty"`
 }
 
 func runDetectorsList(cmd *cobra.Command, _ []string) error {
 	rows := buildDetectorRecords()
+	if detectorsListOpts.verifyStatus {
+		annotateVerifyStatus(rows)
+	}
 
 	switch strings.ToLower(strings.TrimSpace(detectorsListOpts.format)) {
 	case "", "table":
@@ -103,7 +116,12 @@ func buildDetectorRecords() []detectorRecord {
 
 func writeDetectorTable(w cobraWriter, rows []detectorRecord) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "DETECTOR\tVERIFIES\tKEYWORDS")
+	withStatus := detectorsListOpts.verifyStatus
+	if withStatus {
+		fmt.Fprintln(tw, "DETECTOR\tVERIFIES\tSTATUS\tKEYWORDS")
+	} else {
+		fmt.Fprintln(tw, "DETECTOR\tVERIFIES\tKEYWORDS")
+	}
 	for _, r := range rows {
 		// Cap keyword list at 3 entries per row — the full set is
 		// available via --format=json. Keeps the table narrow enough
@@ -114,10 +132,37 @@ func writeDetectorTable(w cobraWriter, rows []detectorRecord) error {
 			kw = kw[:3]
 			more = fmt.Sprintf(" +%d more", len(r.Keywords)-3)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s%s\n", r.Type, verifyMark(r.Verifies), strings.Join(kw, ", "), more)
+		if withStatus {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s%s\n", r.Type, verifyMark(r.Verifies), r.VerifyStatus, strings.Join(kw, ", "), more)
+		} else {
+			fmt.Fprintf(tw, "%s\t%s\t%s%s\n", r.Type, verifyMark(r.Verifies), strings.Join(kw, ", "), more)
+		}
 	}
 	fmt.Fprintf(tw, "\n%d detector(s) registered\n", len(rows))
 	return tw.Flush()
+}
+
+// annotateVerifyStatus fills VerifyStatus on each row using the doc's
+// classification. The rule mirrors verify-coverage.md:
+//
+//   - hasVerify  → "verified" (class a, the open-set complement; the
+//     doc never lists class=a entries)
+//   - !hasVerify → look up Classes for "unverified-by-design" / "verify-gap"
+//   - !hasVerify and not in Classes → "unknown" (a doc bug; CI test
+//     would fail before such a binary ships, but render it so the
+//     operator can spot it)
+func annotateVerifyStatus(rows []detectorRecord) {
+	for i := range rows {
+		if rows[i].Verifies {
+			rows[i].VerifyStatus = verifycoverage.ClassVerified.Label()
+			continue
+		}
+		if c, ok := verifycoverage.Lookup(rows[i].Type); ok {
+			rows[i].VerifyStatus = c.Label()
+		} else {
+			rows[i].VerifyStatus = "unknown"
+		}
+	}
 }
 
 // verifyMark renders a stable checkmark for the table. Unicode glyphs

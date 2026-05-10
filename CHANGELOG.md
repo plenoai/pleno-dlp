@@ -11,6 +11,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.38.0.
 
+### Added
+
+- `pleno-dlp detectors list --verify-status` flag. Annotates each
+  detector row with `verified` / `unverified-by-design` / `verify-gap`,
+  sourced from `docs/verify-coverage.md` via the new
+  `pkg/detectors/verifycoverage` package. Both table and JSON output
+  carry the classification; the JSON field is `verify_status` and is
+  omitted when the flag is not set so existing consumers see a
+  byte-identical shape. (#72)
+- `pkg/detectors/verifycoverage` package mirroring the doc's
+  `coverage-machine` block as a Go map, plus
+  `verifycoverage_sync_test.go` that fails CI on drift between the
+  doc and the map. Combined with the existing
+  `pkg/detectors/verifycoverage_test.go` (registry ↔ doc drift),
+  adding a non-Verifier detector now requires three coordinated edits
+  — the absence of any one fails CI. (#72)
+
 ## [0.38.0] — 2026-05-10
 
 ### Changed
