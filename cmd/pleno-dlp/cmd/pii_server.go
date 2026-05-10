@@ -20,7 +20,13 @@ import (
 //
 //	pleno-dlp scan --pii-engine=anonymize ...
 //	  └─ pleno-dlp pii-server --port <ephemeral>            (this subcommand)
-//	      └─ uvx --from <source> uvicorn server.src.app:app  (uv handles the venv)
+//	      └─ uvx --from <source> uvicorn app:app             (uv handles the venv)
+//
+// Note the import target is `app:app`, not `server.src.app:app`. After uvx
+// installs the upstream `pleno-anonymize-server` distribution, the FastAPI
+// instance is published at top-level module `app`; the in-source path
+// `server/src/app.py` does not survive packaging. Empirically verified
+// against the upstream wheel (T2.1 regression caught by qa, 2026-05-10).
 //
 // The user only needs `uvx` (the uv shipped helper) on PATH plus
 // Python 3.12+. There is no Docker dependency anywhere in this flow.
@@ -244,12 +250,20 @@ func applyGitRef(source, ref string) string {
 
 // buildPIIServerArgv constructs the full uvx argv. Pure function so
 // the unit tests can drive it without touching exec.
+//
+// The uvicorn import target is `app:app`. Once uvx resolves the
+// upstream `pleno-anonymize-server` distribution into a venv, the
+// FastAPI app is exposed at top-level module `app` — the in-source
+// directory layout (`server/src/app.py`) is collapsed by packaging.
+// An earlier draft used `server.src.app:app` and would crash on
+// cold start with `ModuleNotFoundError: No module named 'server'`;
+// see qa's 2026-05-10 regression report.
 func buildPIIServerArgv(uvxBinary, source, host string, port int) []string {
 	return []string{
 		uvxBinary,
 		"--from", source,
 		"uvicorn",
-		"server.src.app:app",
+		"app:app",
 		"--host", host,
 		"--port", strconv.Itoa(port),
 	}

@@ -47,7 +47,7 @@ Anything merged to `main` since v0.41.0.
 - `pleno-dlp pii-server` subcommand. Foreground-runs the
   pleno-anonymize HTTP server via `uvx --from
   git+https://github.com/plenoai/pleno-anonymize.git#subdirectory=server
-  uvicorn server.src.app:app --host 127.0.0.1 --port <port>`. Used
+  uvicorn app:app --host 127.0.0.1 --port <port>`. Used
   internally as the default spawn target for `--pii-engine=anonymize`;
   also runnable directly for ad-hoc local use. Flags: `--port`
   (`0` = ephemeral; resolved port is printed to stdout in the

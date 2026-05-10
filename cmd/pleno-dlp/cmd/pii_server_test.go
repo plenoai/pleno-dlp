@@ -79,7 +79,10 @@ func TestBuildPIIServerArgv(t *testing.T) {
 		"uvx",
 		"--from", "git+https://host/p.git#subdirectory=server",
 		"uvicorn",
-		"server.src.app:app",
+		// `app:app`, not `server.src.app:app` — the uvx-resolved venv
+		// publishes the FastAPI app at top-level module `app`. See
+		// buildPIIServerArgv's doc comment for the regression context.
+		"app:app",
 		"--host", "127.0.0.1",
 		"--port", "41234",
 	}
@@ -155,7 +158,7 @@ func TestRunPIIServer_FakeUvx(t *testing.T) {
 	if !strings.Contains(out, "pii-server: listening on 127.0.0.1:41234") {
 		t.Errorf("stdout missing listening line: %q", out)
 	}
-	if !strings.Contains(out, "FAKE_UVX_ARGS:--from git+https://host/p.git#subdirectory=server uvicorn server.src.app:app --host 127.0.0.1 --port 41234") {
+	if !strings.Contains(out, "FAKE_UVX_ARGS:--from git+https://host/p.git#subdirectory=server uvicorn app:app --host 127.0.0.1 --port 41234") {
 		t.Errorf("stdout missing fake-uvx argv echo: %q", out)
 	}
 }

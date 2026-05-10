@@ -194,7 +194,7 @@ this binary's bundled `pii-server` subcommand:
 pleno-dlp scan --pii-engine=anonymize ./src
   └─ pleno-dlp pii-server --port <ephemeral>     (this binary, subcommand)
       └─ uvx --from "git+https://github.com/plenoai/pleno-anonymize.git#subdirectory=server" \
-              uvicorn server.src.app:app --host 127.0.0.1 --port <ephemeral>
+              uvicorn app:app --host 127.0.0.1 --port <ephemeral>
 ```
 
 Prerequisites: [`uvx`](https://docs.astral.sh/uv/) (uv) on `PATH` and
