@@ -1,11 +1,24 @@
 // Package stripe detects Stripe live/test secret keys (sk_live_, sk_test_,
 // rk_live_) and verifies them via the /v1/charges list endpoint.
+//
+// Revoke (issue #73) only supports Stripe restricted keys (rk_test_ /
+// rk_live_) via POST /v1/api_keys/{key}/revoke with the key acting as
+// its own bearer (self-revoke). The standard sk_live_ / sk_test_ secret
+// keys do NOT expose a programmatic revoke endpoint — they must be
+// rotated via the Stripe dashboard. Revoke surfaces sk_-prefixed input
+// as an explicit unsupported error so callers don't silently believe
+// the secret is dead. HTTP 404 against the self-revoke path is treated
+// as idempotent (already revoked / never existed).
 package stripe
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -87,6 +100,110 @@ func redact(t string) string {
 	}
 	return t + "..."
 }
+
+// Revoke implements detectors.Revoker for Stripe restricted keys.
+//
+// Stripe exposes self-revocation only for restricted keys (rk_test_ /
+// rk_live_) via POST /v1/api_keys/{key}/revoke. The key authenticates
+// the request as its own Bearer token and identifies itself in the
+// path. Standard secret keys (sk_live_ / sk_test_) have no programmatic
+// revoke surface — those rotate via the dashboard, so we reject them
+// with an explicit error rather than pretending the call could succeed.
+//
+// Status handling:
+//   - 200 + {"revoked": true}  -> Revoked = true.
+//   - 200 + {"revoked": false} -> Revoked = false; non-fatal err carries
+//     the response snippet so the caller can log why Stripe declined.
+//   - 404 Not Found            -> idempotent: token already revoked or
+//     never existed. Revoked = true with a non-fatal note.
+//   - 401 Unauthorized         -> hard error (key invalid).
+//   - 429 Too Many Requests    -> hard error; we do not retry, matching
+//     the Verify policy so a rate-limited provider can't stall a scan.
+//   - other 4xx / 5xx          -> hard error with status + body snippet.
+//
+// ProviderID echoes the key's prefix-bounded id (the segment after
+// `rk_(test|live)_`) so audit logs can cross-reference revocations
+// without recording the full secret.
+func (Scanner) Revoke(ctx context.Context, secret string) (detectors.RevokeResult, error) {
+	if secret == "" {
+		return detectors.RevokeResult{}, errors.New("stripe: revoke: empty secret")
+	}
+	if !strings.HasPrefix(secret, "rk_test_") && !strings.HasPrefix(secret, "rk_live_") {
+		return detectors.RevokeResult{}, errors.New("stripe: revoke: only restricted keys (rk_test_/rk_live_) are supported; sk_ secret keys must be rotated via the dashboard")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	url := apiBase + "/v1/api_keys/" + secret + "/revoke"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return detectors.RevokeResult{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+secret)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return detectors.RevokeResult{}, err
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+
+	now := time.Now().UTC()
+	providerID := stripeProviderID(secret)
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// Read a bounded snippet so we can cheaply detect {"revoked": false}
+		// without pulling in encoding/json — the API contract is stable
+		// enough that a substring check is sufficient and keeps the
+		// dependency surface minimal.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		s := string(body)
+		if strings.Contains(s, "\"revoked\":false") || strings.Contains(s, "\"revoked\": false") {
+			return detectors.RevokeResult{Revoked: false, ProviderID: providerID, Err: fmt.Errorf("stripe: revoke: provider returned revoked=false: %s", s)}, nil
+		}
+		return detectors.RevokeResult{Revoked: true, RevokedAt: now, ProviderID: providerID}, nil
+	case http.StatusNotFound:
+		// Idempotent: key already revoked or never existed.
+		return detectors.RevokeResult{Revoked: true, RevokedAt: now, ProviderID: providerID, Err: errors.New("stripe: revoke: already revoked or never existed (HTTP 404)")}, nil
+	case http.StatusUnauthorized:
+		return detectors.RevokeResult{}, errors.New("stripe: revoke: unauthorized (HTTP 401) — key invalid or already revoked at the auth layer")
+	case http.StatusTooManyRequests:
+		return detectors.RevokeResult{}, errors.New("stripe: revoke: rate-limited (HTTP 429)")
+	default:
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return detectors.RevokeResult{}, fmt.Errorf("stripe: revoke: unexpected status %s: %s", resp.Status, string(snippet))
+	}
+}
+
+// stripeProviderID extracts the key's identifier segment so audit logs
+// can correlate without storing the full secret. For `rk_test_xyz` we
+// return `rk_test_xyz` truncated to a prefix-bounded form — Stripe does
+// not expose a separate stable id for restricted keys outside the key
+// itself, so we return the key's recognisable prefix and short tail.
+func stripeProviderID(secret string) string {
+	for _, p := range []string{"rk_live_", "rk_test_"} {
+		if strings.HasPrefix(secret, p) {
+			tailStart := len(p)
+			tailEnd := tailStart + 4
+			if tailEnd > len(secret) {
+				tailEnd = len(secret)
+			}
+			return p + secret[tailStart:tailEnd]
+		}
+	}
+	return ""
+}
+
+// Compile-time interface checks.
+var (
+	_ detectors.Detector = Scanner{}
+	_ detectors.Verifier = Scanner{}
+	_ detectors.Revoker  = Scanner{}
+)
 
 func init() {
 	detectors.Register(Scanner{})

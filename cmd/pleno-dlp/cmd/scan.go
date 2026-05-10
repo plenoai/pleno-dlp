@@ -57,6 +57,8 @@ type scanFlags struct {
 	includeDetectors  []string
 	excludeDetectors  []string
 	quiet             bool
+	revokeOnVerified  bool
+	revokeDryRun      bool
 }
 
 var scanOpts scanFlags
@@ -151,6 +153,11 @@ func init() {
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated, case-insensitive Type names; see `pleno-dlp detectors list`). Custom rules from --rules count as GenericHighEntropy.")
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.excludeDetectors, "exclude-detectors", nil, "skip these detectors (comma-separated, case-insensitive Type names). Applied after --include-detectors.")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.quiet, "quiet", false, "suppress the end-of-scan summary line on stderr (use in scripted callers parsing stderr)")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.revokeOnVerified, "revoke-on-verified", false,
+		"after a finding verifies, immediately call the detector's Revoker to invalidate the secret upstream. "+
+			"Requires --verify. Refuses to run unless "+EnvAllowRevoke+"=1 is set in the environment so a misconfigured CI cannot accidentally revoke live credentials. Detectors without a Revoker implementation are skipped.")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.revokeDryRun, "revoke-dry-run", false,
+		"when used with --revoke-on-verified, log what would be revoked without contacting the provider")
 
 	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.include, "include", nil, "glob(s) to include (matched against root-relative paths and basenames)")
 	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.exclude, "exclude", nil, "glob(s) to exclude (in addition to default excludes)")
@@ -249,6 +256,19 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// --revoke-on-verified gate (issue #73): refuse early if the
+	// environment isn't explicitly opted-in. We do this before any I/O
+	// so a misconfigured CI fails fast with a clear message rather
+	// than silently scanning and then silently skipping revocation.
+	if scanOpts.revokeOnVerified {
+		if !scanOpts.verify {
+			return fmt.Errorf("--revoke-on-verified requires --verify (revoking unverified candidates would be unsafe)")
+		}
+		if !scanOpts.revokeDryRun && os.Getenv(EnvAllowRevoke) != "1" {
+			return fmt.Errorf("--revoke-on-verified refuses to run without %s=1 (irreversible operation; set the env var to opt in or pass --revoke-dry-run)", EnvAllowRevoke)
+		}
+	}
+
 	// Install the per-host verify rate limiter when --verify is on.
 	// Detectors all share http.DefaultTransport, so wrapping it here
 	// — once, before any detector runs — covers the entire scan
@@ -302,7 +322,17 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	//   - allowlist sits inside dedup so suppressed entries don't poison
 	//     the dedup map (a different finding nearby should still emit).
 	counter := &countingSink{inner: sink, threshold: threshold}
-	allowed := engine.NewAllowlist(allowlist, counter)
+	// revokingSink wraps the counter when --revoke-on-verified is set.
+	// It sits BETWEEN allowlist and counter so allowlisted (false-positive)
+	// findings never trigger a real revocation, but the counter still
+	// reflects the original finding count for exit-code purposes.
+	var topSink engine.Sink = counter
+	var revoker *revokingSink
+	if scanOpts.revokeOnVerified {
+		revoker = newRevokingSink(counter, dets, scanOpts.revokeDryRun, cmd.ErrOrStderr())
+		topSink = revoker
+	}
+	allowed := engine.NewAllowlist(allowlist, topSink)
 	deduped := engine.NewDedup(allowed)
 	defer func() { _ = sink.Close() }()
 	defer func() {
@@ -329,6 +359,13 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 			"scanned %d chunk(s), %d byte(s), %d finding(s) in %s\n",
 			stats.Chunks, stats.Bytes, counter.count.Load(), stats.Duration.Round(time.Millisecond),
 		)
+		if revoker != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"revoke: attempted=%d revoked=%d failed=%d skipped-no-revoker=%d dry-run=%t\n",
+				revoker.attempted.Load(), revoker.revoked.Load(), revoker.failed.Load(),
+				revoker.skipped.Load(), scanOpts.revokeDryRun,
+			)
+		}
 	}
 
 	if counter.failing.Load() > 0 {
