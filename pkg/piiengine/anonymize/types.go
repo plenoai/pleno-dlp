@@ -17,8 +17,12 @@ import (
 type Config struct {
 	// Cmd is the argv to spawn. The literal token "{PORT}" is
 	// substituted with the chosen ephemeral port before exec; this
-	// lets the same Config drive `docker run`, `uvx`, or a local
-	// `uv run` without per-form branching in the supervisor.
+	// lets the same Config drive the documented `pleno-dlp pii-server`
+	// self-invocation, a direct `uvx` recipe, or a local `uv run`
+	// without per-form branching in the supervisor. Per ADR-0003 the
+	// CLI's documented default uses `pleno-dlp pii-server --port {PORT}`
+	// (which itself shells out to `uvx`); Docker is no longer
+	// recommended.
 	// Required: empty Cmd makes New return an error so callers must
 	// either supply a recipe or skip starting the supervisor entirely.
 	Cmd []string
@@ -39,9 +43,9 @@ type Config struct {
 
 	// ReadyTimeout caps how long Start waits for /ready to return 200.
 	// Defaults to 60s — spaCy + ja_ner_ja cold start is multi-second
-	// on first invocation; Docker image pull on first run can be much
-	// longer than that, so the CLI exposes --pii-engine-ready-timeout
-	// for operators who haven't pre-pulled the image.
+	// on first invocation; uvx's first-run resolve+wheel-build can be
+	// much longer than that, so the CLI exposes
+	// --pii-engine-ready-timeout for operators on a cold uv cache.
 	ReadyTimeout time.Duration
 
 	// RequestTimeout is the per-Analyze HTTP timeout. Defaults to 10s.

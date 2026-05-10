@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/plenoai/pleno-dlp/pkg/piiengine/anonymize"
@@ -54,6 +55,16 @@ func startPIIEngine(ctx context.Context, stderr io.Writer) (stop func(), err err
 	if err != nil {
 		return nil, fmt.Errorf("parse --pii-engine-cmd: %w", err)
 	}
+	// argv[0] == "pleno-dlp" means the user is using the default
+	// recipe (pii-server self-spawn). Resolve to the running binary
+	// via os.Executable so the spawn works regardless of install
+	// path — `go install`, brew, a packaged release, or a `go run`
+	// dev loop all land on the same exec target. Fallback to
+	// os.Args[0] keeps the CLI runnable on platforms where
+	// os.Executable returns an error (some chroots, certain BSDs).
+	if argv[0] == "pleno-dlp" {
+		argv[0] = resolveExecutable()
+	}
 
 	sup, err := anonymize.New(anonymize.Config{
 		Cmd:            argv,
@@ -87,6 +98,29 @@ func startPIIEngine(ctx context.Context, stderr io.Writer) (stop func(), err err
 		anonymize.SetDefault(nil)
 		_ = sup.Stop()
 	}, nil
+}
+
+// resolveExecutable returns the absolute path of the running pleno-dlp
+// binary. We prefer os.Executable (kernel-resolved, immune to PATH
+// games and shell aliases) and fall back to os.Args[0] only when the
+// stdlib reports an error. The fallback is best-effort — on some
+// platforms (chroots, exotic BSDs) the kernel can't introspect the
+// caller and the user's argv is the only signal.
+//
+// Returning the bare string "pleno-dlp" as a final fallback would
+// silently shift behavior: the supervisor's exec.Command would do a
+// PATH lookup, and a misinstalled CI runner could end up launching
+// the wrong binary version. We accept that tradeoff because
+// os.Executable failing AND os.Args being empty is already a broken
+// invocation; the supervisor's spawn-failure path will surface it.
+func resolveExecutable() string {
+	if exe, err := os.Executable(); err == nil && exe != "" {
+		return exe
+	}
+	if len(os.Args) > 0 && os.Args[0] != "" {
+		return os.Args[0]
+	}
+	return "pleno-dlp"
 }
 
 // splitArgv splits the user-supplied --pii-engine-cmd into argv tokens.

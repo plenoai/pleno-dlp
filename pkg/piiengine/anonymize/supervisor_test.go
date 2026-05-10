@@ -317,9 +317,13 @@ func TestPollReady_RespectsCallerContext(t *testing.T) {
 }
 
 func TestSubstitutePort(t *testing.T) {
-	in := []string{"docker", "run", "--rm", "-p", "{PORT}:8080", "image", "--port={PORT}"}
+	// Mirrors the CLI's documented default argv after splitArgv:
+	// `pleno-dlp pii-server --port {PORT}` plus a synthetic token
+	// proving multi-occurrence substitution (an operator might
+	// embed {PORT} in a key=value style).
+	in := []string{"pleno-dlp", "pii-server", "--port", "{PORT}", "--readiness=:{PORT}/ready"}
 	out := substitutePort(in, 41234)
-	want := []string{"docker", "run", "--rm", "-p", "41234:8080", "image", "--port=41234"}
+	want := []string{"pleno-dlp", "pii-server", "--port", "41234", "--readiness=:41234/ready"}
 	if len(out) != len(want) {
 		t.Fatalf("len mismatch: %d vs %d", len(out), len(want))
 	}

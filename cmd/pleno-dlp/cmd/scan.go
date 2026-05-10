@@ -178,8 +178,8 @@ func init() {
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngine, "pii-engine", "off",
 		"PII detection engine: 'off' disables PII detection; 'anonymize' spawns the pleno-anonymize HTTP server on a loopback port and routes PII detection through it (requires --pii-engine-cmd or the documented Docker default)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngineCmd, "pii-engine-cmd",
-		"docker run --rm -p {PORT}:8080 ghcr.io/plenoai/pleno-anonymize:latest",
-		"argv to spawn the PII engine; the literal '{PORT}' is substituted with the chosen ephemeral loopback port. Only used when --pii-engine=anonymize.")
+		"pleno-dlp pii-server --port {PORT}",
+		"argv to spawn the PII engine; the literal '{PORT}' is substituted with the chosen ephemeral loopback port. Only used when --pii-engine=anonymize. The default invokes this binary's own 'pii-server' subcommand (which uses uvx); 'pleno-dlp' as argv[0] is auto-resolved via os.Executable() so the spawn finds the running binary regardless of how it was installed.")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.piiEnginePort, "pii-engine-port", 0,
 		"loopback port for the PII engine (0 = auto-allocate). Only used when --pii-engine=anonymize.")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngineLanguage, "pii-engine-language", "auto",

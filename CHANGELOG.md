@@ -17,7 +17,7 @@ Anything merged to `main` since v0.40.0.
   (`piiemail`, `piicc`, `piiiban`, `piissn`) are removed and
   replaced by a single `PIIAnonymize` detector backed by the
   [pleno-anonymize](https://github.com/plenoai/pleno-anonymize)
-  loopback NER+regex engine (ADR-0001 / ADR-0002). New scans no
+  loopback NER+regex engine (ADR-0001 / ADR-0003). New scans no
   longer emit `PIIEmail` / `PIIUSSSN` / `PIICreditCard` / `PIIIBAN`
   finding types; SARIF rule descriptions for those four are
   removed. The corresponding `DetectorType` ordinals (76..79) stay
@@ -26,7 +26,11 @@ Anything merged to `main` since v0.40.0.
   `ExtraData["pii_kind"]` (`PERSON`, `EMAIL_ADDRESS`,
   `JP_MY_NUMBER`, `ADDRESS`, `PHONE_NUMBER`, `CREDIT_CARD`, `IBAN`,
   `US_SSN`, …); `ExtraData["finding_class"]="pii"` is unchanged so
-  downstream routing on finding class continues to work.
+  downstream routing on finding class continues to work. The engine
+  is spawned via the new `pleno-dlp pii-server` subcommand, which
+  shells out to `uvx`; the prerequisite is `uvx` on `PATH` and
+  Python 3.12+. Docker is no longer used (ADR-0003 supersedes
+  ADR-0002's earlier Docker recommendation).
 
 ### Added
 
@@ -38,6 +42,18 @@ Anything merged to `main` since v0.40.0.
   `detector: PIIAnonymize` and add a `raw_regex` or path scope to
   preserve the original intent — see
   `docs/recipes/allowlist-patterns.md` for the migration shape.
+- `pleno-dlp pii-server` subcommand. Foreground-runs the
+  pleno-anonymize HTTP server via `uvx --from
+  git+https://github.com/plenoai/pleno-anonymize.git#subdirectory=server
+  uvicorn server.src.app:app --host 127.0.0.1 --port <port>`. Used
+  internally as the default spawn target for `--pii-engine=anonymize`;
+  also runnable directly for ad-hoc local use. Flags: `--port`
+  (`0` = ephemeral; resolved port is printed to stdout in the
+  `pii-server: listening on HOST:PORT` form), `--host` (loopback /
+  RFC1918 / link-local only — refuses `0.0.0.0`), `--git-ref` (pin
+  to a tag/branch/sha), `--source` (override the uvx `--from` spec
+  for a local checkout). Pre-flight LookPath verifies `uvx` is
+  installed and emits a targeted "install uv" hint when it's not.
 
 ## [0.40.0] — 2026-05-10
 

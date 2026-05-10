@@ -39,6 +39,12 @@ func pickPort(host string) (int, error) {
 // is per-token, not whole-string, because most argv entries are
 // already split words: the supervisor doesn't try to parse a shell
 // quoted string.
+//
+// The CLI's documented default argv is
+// `pleno-dlp pii-server --port {PORT}` (ADR-0003); the {PORT} token
+// is the only piece this function rewrites. Operators with custom
+// argvs (local checkouts, alternative invokers) keep the same
+// placeholder convention.
 func substitutePort(argv []string, port int) []string {
 	out := make([]string, len(argv))
 	portStr := strconv.Itoa(port)
