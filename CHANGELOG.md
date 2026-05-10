@@ -9,7 +9,67 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.39.0.
+Anything merged to `main` since v0.40.0.
+
+## [0.40.0] — 2026-05-10
+
+### Added
+
+- Provider-side credential revocation extended from GitHub to GitLab,
+  Slack, AWS, and Stripe. Each Revoker uses the provider's
+  documented endpoint with the standard idempotency contract
+  (`Revoked=true` with a non-fatal `Err` for already-revoked /
+  not-found responses; hard error for transport / 5xx / 429). AWS
+  ships an inline SigV4 signer (no AWS SDK dependency) and is
+  classified `context-required` because `iam:DeleteAccessKey` needs
+  admin IAM creds plus the target IAM user name. (#73)
+- `pleno-dlp scan --revoke-on-verified` flag. Wraps the sink chain
+  after dedup + allowlist so a verified finding whose detector
+  implements `detectors.Revoker` is revoked in-line. Refuses to run
+  without `--verify` and without `PLENO_DLP_ALLOW_REVOKE=1`.
+  `--revoke-dry-run` previews without contacting providers. The
+  end-of-scan summary surfaces `attempted` / `revoked` / `failed` /
+  `skipped-no-revoker` counters so batch revoke runs are auditable
+  without scraping per-finding output. (#73)
+- `pleno-dlp detectors list --revoke-support` flag. Annotates each
+  detector row with `supported` / `context-required` /
+  `unsupported`, sourced from interface satisfaction
+  (`detectors.Revoker`) plus a small allowlist for context-required
+  detectors. Both table and JSON output carry the classification;
+  the JSON fields are `revokes` (bool) and `revoke_status` (string)
+  and both are omitted when the flag is not set so existing
+  consumers see a byte-identical shape. (#73)
+- `pleno-dlp revoke --rate-limit-rps` flag. Installs the per-host
+  `pkg/verify` rate limiter for the duration of a batch revoke loop
+  so many sequential revocations against the same provider do not
+  trip provider quotas. Default 0 (disabled) preserves single-shot
+  revoke latency. (#73)
+- `pleno-dlp revoke` now dispatches `gitlab` / `slack` / `aws` /
+  `stripe` in addition to the existing `github`. Provider-specific
+  overrides ride through dedicated flags
+  (`--aws-admin-access-key-id` / `--aws-admin-secret-access-key` /
+  `--aws-admin-session-token` / `--aws-region` / `--aws-user-name`)
+  with `PLENO_DLP_REVOKE_AWS_*` env-var fallbacks. (#73)
+- `docs/revoke-support.md` documenting the provider matrix, gating
+  model, idempotency contract, AWS principal-context wiring,
+  failure-handling policy, and a CI usage recipe. The runtime
+  classification (`detectors list --revoke-support`) remains the
+  canonical answer; the doc explains the why. (#73)
+
+### Notes
+
+- Detectors perform no local revoke gating. The
+  `--confirm` / `--dry-run` / `PLENO_DLP_ALLOW_REVOKE=1` /
+  `--verify` policy lives uniformly at the CLI boundary so dry-run
+  behaves identically across providers.
+- `Stripe` revoke is restricted to keys with the `rk_` prefix
+  (restricted keys). Secret keys (`sk_`) are hard-rejected before
+  any network I/O so callers cannot believe rotation succeeded.
+- `AWS` revoke without operator-supplied principal context lands in
+  `skipped-no-revoker` during `scan --revoke-on-verified` rather
+  than failing the scan. Operators batching AWS revocations should
+  script `pleno-dlp revoke --detector aws` with the correct
+  `--aws-user-name` per finding.
 
 ## [0.39.0] — 2026-05-10
 
