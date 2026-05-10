@@ -1,27 +1,37 @@
 //go:build e2e_anonymize
 
 // Package anonymize end-to-end test that drives a real
-// pleno-anonymize server. Gated behind the `e2e_anonymize` build tag
-// so default `go test ./...` runs (and CI without Docker) stay green.
+// pleno-anonymize server through the documented spawn chain:
+//
+//	pleno-dlp pii-server --port {PORT}
+//	  └─ uvx --from git+https://github.com/plenoai/pleno-anonymize.git#subdirectory=server uvicorn server.src.app:app
+//
+// Per ADR-0003 the runtime prerequisite is `uvx` on PATH plus
+// Python 3.12+ — Docker is not used. The test is gated behind the
+// `e2e_anonymize` build tag so default `go test ./...` runs (and CI
+// hosts without `uvx`) stay green.
 //
 // Run locally with:
 //
 //	go test -tags=e2e_anonymize ./pkg/piiengine/anonymize -run TestE2E_Anonymize
 //
-// The test honours the documented default supervisor command — Docker
-// running ghcr.io/plenoai/pleno-anonymize:latest — but lets operators
-// override the spawn argv via the PLENO_DLP_E2E_ANONYMIZE_CMD env var
-// (whitespace-split), e.g. for a local `uv run` checkout.
+// First run is slow (~30–60s for uv resolve+build); subsequent runs
+// hit the uv cache. Operators with a local pleno-anonymize checkout
+// can shortcut both the network fetch and the version pin via
+// `PLENO_DLP_E2E_ANONYMIZE_CMD`, e.g.
 //
-// If the chosen command's binary (the first argv token) is not on
-// PATH the test calls t.Skip — a clean checkout with neither Docker
-// nor a local pleno-anonymize must remain runnable.
+//	PLENO_DLP_E2E_ANONYMIZE_CMD="uv run --directory /path/to/pleno-anonymize/server uvicorn server.src.app:app --host 127.0.0.1 --port {PORT}"
+//
+// In that mode the test bypasses the pleno-dlp build step and uses
+// the supervised argv verbatim.
 package anonymize
 
 import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -34,22 +44,28 @@ import (
 //
 // Skip semantics:
 //
-//   - binary on first argv token missing on PATH → t.Skip (CI-friendly)
-//   - ready-timeout / spawn failure → t.Fatal (the binary IS available
+//   - `uvx` not on PATH → t.Skip (CI-friendly per ADR-0003 prerequisite)
+//   - the env-override binary missing → t.Skip
+//   - ready-timeout / spawn failure → t.Fatal (the toolchain IS available
 //     but the engine is broken — that is a real regression)
 func TestE2E_Anonymize(t *testing.T) {
-	cmd := resolveE2ECmd()
-	bin := cmd[0]
-	if _, err := exec.LookPath(bin); err != nil {
-		t.Skipf("e2e: %q not on PATH (set PLENO_DLP_E2E_ANONYMIZE_CMD to override): %v", bin, err)
+	if _, err := exec.LookPath("uvx"); err != nil {
+		t.Skipf("e2e: uvx not on PATH (install uv: https://docs.astral.sh/uv/): %v", err)
 	}
 
-	// Generous ReadyTimeout: the documented default pulls a multi-GB
-	// Docker image plus loads spaCy + ja_ner_ja on first run. Operators
-	// can pre-pull to keep this snappy on subsequent runs.
+	cmd, ephemeralBuild := resolveE2ECmd(t)
+	bin := cmd[0]
+	if _, err := exec.LookPath(bin); err != nil && !filepath.IsAbs(bin) {
+		t.Skipf("e2e: %q (argv[0]) not on PATH: %v", bin, err)
+	}
+	t.Logf("e2e: spawn argv = %v (ephemeralBuild=%v)", cmd, ephemeralBuild)
+
+	// Generous ReadyTimeout: first run resolves the uvx environment
+	// and warms spaCy + ja_ner_ja on the engine. Subsequent runs hit
+	// the uv cache and complete in a few seconds.
 	cfg := Config{
 		Cmd:            cmd,
-		ReadyTimeout:   180 * time.Second,
+		ReadyTimeout:   240 * time.Second,
 		RequestTimeout: 30 * time.Second,
 		Stderr:         testWriter{t},
 	}
@@ -59,7 +75,7 @@ func TestE2E_Anonymize(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 
 	if err := sup.Start(ctx); err != nil {
@@ -97,18 +113,51 @@ func TestE2E_Anonymize(t *testing.T) {
 	}
 }
 
-// resolveE2ECmd picks the spawn argv. Operator override via env wins;
-// otherwise the documented Docker default. The {PORT} placeholder
-// stays literal — the supervisor substitutes it at exec time.
-func resolveE2ECmd() []string {
+// resolveE2ECmd picks the spawn argv. The override env var wins; in
+// its absence we drive the documented default chain by building the
+// pleno-dlp binary into a temp dir and asking the supervisor to
+// invoke its `pii-server` subcommand. The boolean return reports
+// whether we built an ephemeral binary (true) or used an externally-
+// supplied argv (false).
+//
+// We intentionally use the absolute path of the freshly-built binary
+// (rather than the literal "pleno-dlp" sentinel that the CLI layer's
+// resolveExecutable() handles) because this test imports only the
+// supervisor package — it does not link the cmd package's argv[0]
+// rewrite. Passing an absolute path makes the spawn deterministic
+// and keeps the test self-contained.
+func resolveE2ECmd(t *testing.T) (argv []string, ephemeralBuild bool) {
+	t.Helper()
 	if v := strings.TrimSpace(os.Getenv("PLENO_DLP_E2E_ANONYMIZE_CMD")); v != "" {
-		return strings.Fields(v)
+		return strings.Fields(v), false
 	}
-	return []string{
-		"docker", "run", "--rm",
-		"-p", "{PORT}:8080",
-		"ghcr.io/plenoai/pleno-anonymize:latest",
+	bin := buildPlenoDLP(t)
+	return []string{bin, "pii-server", "--port", "{PORT}"}, true
+}
+
+// buildPlenoDLP builds cmd/pleno-dlp into a temp directory and
+// returns the absolute path. Each test gets its own binary so
+// parallel runs cannot fight over an output path.
+//
+// The repo root is located via runtime.Caller — this test file lives
+// at <repo>/pkg/piiengine/anonymize/e2e_anonymize_test.go, so the
+// module root is three parents up. We resolve the path that way
+// rather than via `go env GOMOD` to avoid an extra subprocess.
+func buildPlenoDLP(t *testing.T) string {
+	t.Helper()
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatalf("runtime.Caller(0) failed")
 	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", ".."))
+	out := filepath.Join(t.TempDir(), "pleno-dlp")
+	build := exec.Command("go", "build", "-o", out, "./cmd/pleno-dlp")
+	build.Dir = repoRoot
+	build.Stderr = testWriter{t}
+	if err := build.Run(); err != nil {
+		t.Fatalf("go build pleno-dlp: %v", err)
+	}
+	return out
 }
 
 // testWriter forwards child-process stderr lines to t.Logf so spawn

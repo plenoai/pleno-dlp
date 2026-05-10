@@ -127,9 +127,10 @@ func resolveExecutable() string {
 //
 // We keep the parser intentionally simple: whitespace-split with single
 // and double quotes preserving spans. This is sufficient for the
-// documented Docker default and for the realistic local-checkout cases
-// (`uv run --directory /path ...`); operators with truly exotic argv
-// shapes can shell out to a wrapper script.
+// documented `pleno-dlp pii-server --port {PORT}` default and for the
+// realistic local-checkout cases (`uv run --directory /path ...`);
+// operators with truly exotic argv shapes can shell out to a wrapper
+// script.
 //
 // The tradeoff is conscious: pulling in a full POSIX-shell parser would
 // add either a third-party dep (CLAUDE.md forbids it for this branch)

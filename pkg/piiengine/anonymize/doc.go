@@ -5,10 +5,12 @@
 // (spaCy + Presidio + ja_ner_ja) with no Go bindings and a multi-second
 // cold start. Per ADR-0001 we amortize that cost by spawning the server
 // once at scan start, calling POST /api/analyze per chunk, and shutting
-// it down at scan end. Per ADR-0002 the server is shipped as a Docker
-// image and the spawn argv is supplied by the caller via Config.Cmd
-// (with a {PORT} placeholder that the supervisor substitutes); this
-// supervisor never assumes a binary on $PATH.
+// it down at scan end. The spawn argv is supplied by the caller via
+// Config.Cmd (with a {PORT} placeholder that the supervisor substitutes);
+// this supervisor never assumes a binary on $PATH. Per ADR-0003 the
+// recommended default argv is `pleno-dlp pii-server --port {PORT}`,
+// which itself shells out to `uvx` to run the upstream Python server —
+// no Docker is involved (ADR-0003 supersedes ADR-0002 on that point).
 //
 // Invariants enforced by this package:
 //

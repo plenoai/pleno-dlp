@@ -172,11 +172,11 @@ func init() {
 		"when used with --revoke-on-verified, log what would be revoked without contacting the provider")
 
 	// PII engine flags. Default is "off" so the binary keeps its
-	// single-process UX for users without Docker / pleno-anonymize.
+	// single-process UX for users without uvx / Python on PATH.
 	// When --pii-engine=anonymize, runScanCommon spawns the supervisor
 	// before the scan and tears it down after.
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngine, "pii-engine", "off",
-		"PII detection engine: 'off' disables PII detection; 'anonymize' spawns the pleno-anonymize HTTP server on a loopback port and routes PII detection through it (requires --pii-engine-cmd or the documented Docker default)")
+		"PII detection engine: 'off' disables PII detection; 'anonymize' spawns the pleno-anonymize HTTP server on a loopback port and routes PII detection through it (requires uvx + Python 3.12+ on PATH; override the spawn argv via --pii-engine-cmd)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngineCmd, "pii-engine-cmd",
 		"pleno-dlp pii-server --port {PORT}",
 		"argv to spawn the PII engine; the literal '{PORT}' is substituted with the chosen ephemeral loopback port. Only used when --pii-engine=anonymize. The default invokes this binary's own 'pii-server' subcommand (which uses uvx); 'pleno-dlp' as argv[0] is auto-resolved via os.Executable() so the spawn finds the running binary regardless of how it was installed.")
