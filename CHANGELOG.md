@@ -9,20 +9,87 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Anything merged to `main` since v0.38.0.
+
+## [0.38.0] — 2026-05-10
+
+### Changed
+
+- **Connectors refactored to Lambda-handler shape.** The old contract
+  — `SaaSConnector` interface, `Descriptor` / `Capability` /
+  `AuthMode` bitmask, `Factory` constructor, separate
+  `client.go` + `pagination.go` per provider — has been replaced with
+  a flat `Connector` struct of three function fields:
+
+  ```go
+  type Connector struct {
+      SourceType sources.SourceType
+      Scan       func(ctx, cfg, emit) error
+      Verify     func(ctx, cfg, secret) (bool, error)
+      Revoke     func(ctx, cfg, secret) (RevokeResult, error)
+  }
+  ```
+
+  Every provider is now a single file at `pkg/connectors/<name>.go` in
+  `package connectors` that registers a `Connector` value in `init()`.
+  `connectors.AsSource(name, cfg)` wraps a registered connector as a
+  `sources.Source` so the engine drives it through the same loop it
+  uses for filesystem / git / stdin. Connector authors never see
+  `jobID` / `sourceID` / `concurrency` plumbing.
+
+- **All seven SaaS connectors migrated.** github (#74), gitlab (#75),
+  bitbucket (#76), notion (#77), confluence (#78, also gained an
+  initial implementation — was a stub), jira (#79), slack (#80) all
+  rewritten as single-file Lambda handlers. Behaviour preserved end to
+  end: rate limiters, pagination shapes, auth dispatch, content
+  parsers (notion markdown, jira ADF, jira/confluence storage XHTML)
+  all unchanged.
+
+- **6 cmd files slimmed.** Type assertions, `Capability.Has(...)`
+  guards, and `SetAPIBase` setter detection are gone — every
+  `runScan<Provider>` / `runVerify<Provider>` defers to the shared
+  `runScanSaaS` / `runVerifySaaS` helpers in `cmd/saas.go`.
+
+### Added
+
+- **Confluence connector.** Full implementation at
+  `pkg/connectors/confluence.go` plus
+  `cmd/pleno-dlp/cmd/confluence_cmd.go`. Surface: paginated content
+  search → per-page body emit → footer + inline comment walk. Cloud
+  Basic auth (email + API token) and Data Center PAT Bearer.
+
 ### Removed
+
+- `pkg/tfhost/` — the Terraform-provider host abandoned upstream
+  before the pivot landed (long-tail SaaS generic adapter turned out
+  to be YAGNI; native connectors are simpler and faster).
+- `pkg/connectors/_paginate/` — the GitHub / GitLab Link-header
+  parser inlined into `pkg/connectors/github.go` and reused by
+  `pkg/connectors/gitlab.go` from the same package.
+- `pkg/connectors/{github,gitlab,bitbucket,notion,confluence,jira,slack}/`
+  per-provider subpackages and their `client.go` / `pagination.go`
+  / `<name>_test.go` files. Helper sub-packages
+  (`notion/markdown`, `jira/{adf,storage}`, `confluence/storage`) are
+  preserved as stable text-conversion utilities.
+
+### Removed (carried forward from 0.37.0)
 
 - **Python package retired** — the `python/` tree, vendored
   `saas_retriever`, `pleno_dlp` Python namespace, and the
   `.github/workflows/{test-py,release-py}.yml` CI lanes are gone.
   pleno-dlp ships as a single Go binary going forward; `py-vX.Y.Z` tags
-  are no longer published. SaaS connectors (github / gitlab / bitbucket
-  / notion / confluence / jira / slack) are tracked as native Go ports
-  in issues #74–#80; verify coverage audit in #72; revoke capability in
-  #73. This is a breaking change for callers depending on the
-  `pip install pleno-dlp` distribution — pin to py-v0.12.0 or migrate
-  to the Go binary.
+  are no longer published. This is a breaking change for callers
+  depending on the `pip install pleno-dlp` distribution — pin to
+  py-v0.12.0 or migrate to the Go binary.
 
-Anything merged to `main` since v0.37.0.
+### Stats
+
+- 4241 race-clean tests across 622 packages (down from 4304 — 63
+  per-connector white-box tests deleted alongside their subpackages,
+  to be re-landed against the new Lambda-handler API in a follow-up).
+- Net code change: **+~1,300 LoC connector framework + 7 single-file
+  connectors, −~7,100 LoC** from old subpackages, helpers, and the
+  abandoned tfhost spike.
 
 ## [0.37.0] — 2026-05-08
 
