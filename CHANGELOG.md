@@ -11,6 +11,34 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.40.0.
 
+### Changed
+
+- **BREAKING (output schema):** the four legacy regex PII detectors
+  (`piiemail`, `piicc`, `piiiban`, `piissn`) are removed and
+  replaced by a single `PIIAnonymize` detector backed by the
+  [pleno-anonymize](https://github.com/plenoai/pleno-anonymize)
+  loopback NER+regex engine (ADR-0001 / ADR-0002). New scans no
+  longer emit `PIIEmail` / `PIIUSSSN` / `PIICreditCard` / `PIIIBAN`
+  finding types; SARIF rule descriptions for those four are
+  removed. The corresponding `DetectorType` ordinals (76..79) stay
+  pinned with `Deprecated:` comments so historical JSON outputs
+  decode without error. Per-finding entity type now lives in
+  `ExtraData["pii_kind"]` (`PERSON`, `EMAIL_ADDRESS`,
+  `JP_MY_NUMBER`, `ADDRESS`, `PHONE_NUMBER`, `CREDIT_CARD`, `IBAN`,
+  `US_SSN`, …); `ExtraData["finding_class"]="pii"` is unchanged so
+  downstream routing on finding class continues to work.
+
+### Added
+
+- `PIIAnonymize` detector (`pkg/detectors/anonymize/`). Calls
+  `pkg/piiengine/anonymize.Default()` to retrieve the supervisor
+  singleton; silent-skips when the engine is off (the default).
+  Severity stays Medium (PII has no verified pathway). Allowlist
+  callers should migrate `detector: PIIEmail` (etc.) entries to
+  `detector: PIIAnonymize` and add a `raw_regex` or path scope to
+  preserve the original intent — see
+  `docs/recipes/allowlist-patterns.md` for the migration shape.
+
 ## [0.40.0] — 2026-05-10
 
 ### Added

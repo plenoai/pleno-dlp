@@ -15,8 +15,9 @@ pleno-dlp detectors list                        # audit registered coverage
 
 Single Go binary. Trufflehog-compatible detector interface,
 archive-aware (zip / tar / tar.gz / gzip), base64 / percent / hex
-decoder pipeline, per-host verify rate limiter. **602 detectors**
-built-in (598 secrets + 4 PII). Tag pattern `vX.Y.Z`.
+decoder pipeline, per-host verify rate limiter. **599 detectors**
+built-in (598 secrets + 1 NER-backed PII detector). Tag pattern
+`vX.Y.Z`.
 
 SaaS sources (GitHub / GitLab / Bitbucket / Slack / Notion / Confluence /
 Jira) are tracked in issues #74–#80 for native Go ports — the previous
@@ -24,7 +25,7 @@ Python package was retired in v1.0.0.
 
 ## Detector coverage
 
-602 built-in detectors. Every secret detector that can confirm against
+599 built-in detectors. Every secret detector that can confirm against
 an upstream provider implements `Verify` (run with `--verify`); the rest
 emit `Verified=false` with rotation guidance in the output.
 
@@ -41,7 +42,7 @@ emit `Verified=false` with rotation guidance in the output.
 | **Connection strings** | Redis, Postgres, MySQL, MongoDB URI, RabbitMQ, Kafka SASL, basic-auth URL, SMTP |
 | **Format-shaped** | JWT, PEM private keys, **Generic high-entropy** (catch-all near credential keywords) |
 | **Secrets management / IAM** | Doppler, DopplerCLI, Vault, HashiCorpCloud, Algolia, Airtable, Grafana, LaunchDarkly, LaunchDarkly Relay, Auth0, Snyk, Tailscale, Figma, Ngrok |
-| **PII (`finding_class=pii`)** | Email, US SSN, Credit card (Luhn-validated), IBAN (mod-97 validated) |
+| **PII (`finding_class=pii`)** | `PIIAnonymize` — single detector backed by the [pleno-anonymize](https://github.com/plenoai/pleno-anonymize) NER+regex engine (PERSON, EMAIL_ADDRESS, ADDRESS, PHONE_NUMBER, JP_MY_NUMBER, CREDIT_CARD, IBAN, US_SSN, …). Opt-in via `--pii-engine=anonymize`. The engine ships as a Docker image; the supervisor spawns it on a loopback port at scan start (default `docker run --rm -p {PORT}:8080 ghcr.io/plenoai/pleno-anonymize:latest`, override via `--pii-engine-cmd`). The per-finding entity type lives in `properties.pii_kind`. |
 
 Run `pleno-dlp detectors list` for the live registry, or
 `pleno-dlp detectors list --format json` for machine-readable output.
@@ -102,8 +103,8 @@ raw secret regex, and path glob (AND across non-empty fields):
      "reason": "local test fixtures"},
     {"raw_regex": "^sk-test_",
      "reason": "Stripe test-mode keys"},
-    {"detector": "PIIEmail", "path": "docs/**",
-     "reason": "documented contact emails"}
+    {"detector": "PIIAnonymize", "raw_regex": "@example\\.com$",
+     "reason": "documented contact emails (matches PIIAnonymize EMAIL_ADDRESS findings)"}
   ]
 }
 ```

@@ -248,10 +248,13 @@ var ruleDescriptions = map[string]string{
 	detectors.CircleCI.String():           "CircleCI project (CCIPRJ_) or personal API token near circleci keyword",
 	detectors.Snyk.String():               "Snyk API token (UUID) near snyk keyword",
 	detectors.Spotify.String():            "Spotify client_id + client_secret pair (full app scope)",
-	detectors.PIIEmail.String():           "Email address (PII) — finding_class=pii (deprecated: superseded by PIIAnonymize, retained for wire compatibility)",
-	detectors.PIIUSSSN.String():           "US Social Security Number xxx-xx-xxxx (PII) — finding_class=pii (deprecated: superseded by PIIAnonymize, retained for wire compatibility)",
-	detectors.PIICreditCard.String():      "Credit card number with valid Luhn checksum (PII) — finding_class=pii (deprecated: superseded by PIIAnonymize, retained for wire compatibility)",
-	detectors.PIIIBAN.String():            "International Bank Account Number with valid mod-97 checksum (PII) — finding_class=pii (deprecated: superseded by PIIAnonymize, retained for wire compatibility)",
+	// PIIEmail / PIIUSSSN / PIICreditCard / PIIIBAN entries removed.
+	// Their detector implementations were retired in favour of
+	// PIIAnonymize; the wire-stable DetectorType constants stay pinned
+	// at ordinals 76..79 per ADR-0002 but no live scan emits them so
+	// no SARIF rule description is required. Decoders reading historical
+	// outputs that reference those names should fall back to a generic
+	// "deprecated PII detector" label.
 	detectors.PIIAnonymize.String():       "PII detected by the pleno-anonymize NER+regex engine (PERSON, EMAIL_ADDRESS, ADDRESS, PHONE_NUMBER, JP_MY_NUMBER, CREDIT_CARD, IBAN, US_SSN, …) — finding_class=pii, see properties.pii_kind for entity type",
 	detectors.AWSSession.String():         "AWS temporary session credential triple (ASIA…) — unverified by design (region/audit unknown)",
 	detectors.AzureSAS.String():           "Azure Storage SAS URL with embedded sig= signature",
