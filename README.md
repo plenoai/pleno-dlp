@@ -45,6 +45,10 @@ emit `Verified=false` with rotation guidance in the output.
 
 Run `pleno-dlp detectors list` for the live registry, or
 `pleno-dlp detectors list --format json` for machine-readable output.
+Add `--verify-status` to annotate each row with its
+`docs/verify-coverage.md` class — `verified`, `unverified-by-design`,
+or `verify-gap` — when you want to know what a given build will
+actually verify against upstream.
 
 Add org-specific patterns without forking the binary — see
 [Custom rules](#custom-rules) below.
