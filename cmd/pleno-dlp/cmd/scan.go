@@ -59,6 +59,18 @@ type scanFlags struct {
 	quiet             bool
 	revokeOnVerified  bool
 	revokeDryRun      bool
+	// piiEngine selects the PII engine integration. "off" (default)
+	// preserves the historical single-binary UX: the anonymize
+	// detector is registered but the supervisor handle stays nil,
+	// so it returns no findings and incurs no spawn cost. "anonymize"
+	// spawns the pleno-anonymize HTTP server for the duration of the
+	// scan and routes PII detection through it.
+	piiEngine          string
+	piiEngineCmd       string
+	piiEnginePort      int
+	piiEngineLanguage  string
+	piiEngineReady     time.Duration
+	piiEngineRequest   time.Duration
 }
 
 var scanOpts scanFlags
@@ -158,6 +170,24 @@ func init() {
 			"Requires --verify. Refuses to run unless "+EnvAllowRevoke+"=1 is set in the environment so a misconfigured CI cannot accidentally revoke live credentials. Detectors without a Revoker implementation are skipped.")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.revokeDryRun, "revoke-dry-run", false,
 		"when used with --revoke-on-verified, log what would be revoked without contacting the provider")
+
+	// PII engine flags. Default is "off" so the binary keeps its
+	// single-process UX for users without Docker / pleno-anonymize.
+	// When --pii-engine=anonymize, runScanCommon spawns the supervisor
+	// before the scan and tears it down after.
+	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngine, "pii-engine", "off",
+		"PII detection engine: 'off' disables PII detection; 'anonymize' spawns the pleno-anonymize HTTP server on a loopback port and routes PII detection through it (requires --pii-engine-cmd or the documented Docker default)")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngineCmd, "pii-engine-cmd",
+		"docker run --rm -p {PORT}:8080 ghcr.io/plenoai/pleno-anonymize:latest",
+		"argv to spawn the PII engine; the literal '{PORT}' is substituted with the chosen ephemeral loopback port. Only used when --pii-engine=anonymize.")
+	scanCmd.PersistentFlags().IntVar(&scanOpts.piiEnginePort, "pii-engine-port", 0,
+		"loopback port for the PII engine (0 = auto-allocate). Only used when --pii-engine=anonymize.")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngineLanguage, "pii-engine-language", "auto",
+		"language hint passed to the PII engine: 'ja', 'en', or 'auto' (let the engine pick). Only used when --pii-engine=anonymize.")
+	scanCmd.PersistentFlags().DurationVar(&scanOpts.piiEngineReady, "pii-engine-ready-timeout", 60*time.Second,
+		"how long to wait for the PII engine's /ready endpoint before giving up and continuing the scan without PII detection. Only used when --pii-engine=anonymize.")
+	scanCmd.PersistentFlags().DurationVar(&scanOpts.piiEngineRequest, "pii-engine-request-timeout", 10*time.Second,
+		"per-request timeout for /api/analyze calls to the PII engine. Only used when --pii-engine=anonymize.")
 
 	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.include, "include", nil, "glob(s) to include (matched against root-relative paths and basenames)")
 	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.exclude, "exclude", nil, "glob(s) to exclude (in addition to default excludes)")
@@ -277,6 +307,18 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	if scanOpts.verify {
 		prev := verify.Install(scanOpts.verifyRPS)
 		defer verify.Restore(prev)
+	}
+
+	// PII engine lifecycle. When --pii-engine=anonymize is set, spawn
+	// the pleno-anonymize HTTP server and publish it via the
+	// package-level handle so the anonymize detector can dispatch
+	// chunks against it. Spawn failure is downgraded to a single
+	// stderr warning + skip; we never abort the secret scan because
+	// the PII side-channel is unavailable.
+	if stopPII, err := startPIIEngine(ctx, cmd.ErrOrStderr()); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "pii-engine: %v — continuing without PII detection\n", err)
+	} else if stopPII != nil {
+		defer stopPII()
 	}
 
 	if err := src.Init(ctx, "cli", 0, 0, scanOpts.verify, cfg, scanOpts.concurrency); err != nil {
