@@ -1,5 +1,25 @@
 // Package stripe detects Stripe live/test secret keys (sk_live_, sk_test_,
-// rk_live_) and verifies them via the /v1/charges list endpoint.
+// rk_live_) and verifies them via /v1/account.
+//
+// Verify also enriches the finding with blast-radius metadata when the
+// upstream call succeeds (driftwood-style "what does this credential
+// actually unlock"):
+//
+//   - stripe_key_mode         live | test | restricted-live | restricted-test
+//   - stripe_account_id       acct_… returned by /v1/account
+//   - stripe_business_name    display name (when set)
+//   - stripe_country          ISO-3166-1 alpha-2 (US, JP, …)
+//   - stripe_default_currency lowercase ISO-4217 (usd, jpy, …)
+//   - stripe_livemode         "true" when /v1/account.livemode=true.
+//                             Distinguishes a sk_live_ key minted in the
+//                             live dashboard from a sk_live_-shaped fake.
+//   - stripe_charges_enabled  "true" when the account can accept
+//                             charges. live + charges_enabled is the
+//                             "real money flowing" signal.
+//   - stripe_payouts_enabled  "true" when the account can issue payouts
+//   - stripe_high_value       "true" when live + charges_enabled +
+//                             payouts_enabled. Triage flag for "this
+//                             leak can move money out of the account."
 //
 // Revoke (issue #73) only supports Stripe restricted keys (rk_test_ /
 // rk_live_) via POST /v1/api_keys/{key}/revoke with the key acting as
@@ -13,6 +33,7 @@ package stripe
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -46,45 +67,170 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	out := make([]detectors.Result, 0, len(matches))
 	for _, m := range matches {
 		token := string(m)
+		extra := map[string]string{
+			"stripe_key_mode": keyMode(token),
+		}
 		res := detectors.Result{
 			DetectorType: detectors.Stripe,
 			Raw:          []byte(token),
 			Redacted:     redact(token),
+			ExtraData:    extra,
 		}
 		if verify {
-			v, err := s.Verify(ctx, token)
-			res.Verified = v
+			verified, meta, err := verifyWithMetadata(ctx, token)
+			res.Verified = verified
 			res.VerificationErr = err
+			for k, v := range meta {
+				extra[k] = v
+			}
 		}
 		out = append(out, res)
 	}
 	return out, nil
 }
 
+// Verify implements detectors.Verifier. The richer metadata-bearing
+// path lives in verifyWithMetadata so FromData can fold it into
+// ExtraData without changing the engine contract.
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	v, _, err := verifyWithMetadata(ctx, secret)
+	return v, err
+}
+
+// verifyWithMetadata calls /v1/account, the canonical "what is this
+// key" endpoint. The body returns the full account profile we need
+// for blast-radius enrichment; on 401/403 we fall back to the
+// legacy /v1/charges check so a key that is restricted away from
+// /v1/account still verifies (e.g. some rk_*_ keys without
+// account.read scope).
+func verifyWithMetadata(ctx context.Context, secret string) (bool, map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/v1/charges", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/v1/account", nil)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+secret)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return true, nil
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
-		return false, nil
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		return true, accountMetadata(body), nil
+	case http.StatusForbidden:
+		// Restricted key without `account` resource. The key is real (a
+		// 401 would mean it's not), but we cannot enrich. Fall back to
+		// /v1/charges to confirm validity, then return verified=true
+		// without metadata.
+		return verifyChargesFallback(ctx, secret)
+	case http.StatusUnauthorized, http.StatusTooManyRequests:
+		return false, nil, nil
 	default:
-		return false, nil
+		return false, nil, nil
 	}
+}
+
+// verifyChargesFallback handles the restricted-key case: keys that
+// authenticate but lack permission to read /v1/account. Verifies via
+// /v1/charges (the original endpoint) and returns verified=true with
+// no metadata so the caller still gets the live/dead signal.
+func verifyChargesFallback(ctx context.Context, secret string) (bool, map[string]string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/v1/charges?limit=1", nil)
+	if err != nil {
+		return false, nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+secret)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return false, nil, err
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK, nil, nil
+}
+
+// accountMetadata extracts the blast-radius surface from /v1/account.
+// Empty fields are omitted so the ExtraData map stays compact.
+func accountMetadata(body []byte) map[string]string {
+	var acct struct {
+		ID              string `json:"id"`
+		Country         string `json:"country"`
+		DefaultCurrency string `json:"default_currency"`
+		DisplayName     string `json:"display_name"`
+		Email           string `json:"email"`
+		Livemode        bool   `json:"livemode"`
+		ChargesEnabled  bool   `json:"charges_enabled"`
+		PayoutsEnabled  bool   `json:"payouts_enabled"`
+		BusinessProfile struct {
+			Name string `json:"name"`
+		} `json:"business_profile"`
+	}
+	if json.Unmarshal(body, &acct) != nil {
+		return nil
+	}
+	meta := map[string]string{}
+	if acct.ID != "" {
+		meta["stripe_account_id"] = acct.ID
+	}
+	if name := firstNonEmpty(acct.BusinessProfile.Name, acct.DisplayName); name != "" {
+		meta["stripe_business_name"] = name
+	}
+	if acct.Country != "" {
+		meta["stripe_country"] = acct.Country
+	}
+	if acct.DefaultCurrency != "" {
+		meta["stripe_default_currency"] = acct.DefaultCurrency
+	}
+	if acct.Livemode {
+		meta["stripe_livemode"] = "true"
+	}
+	if acct.ChargesEnabled {
+		meta["stripe_charges_enabled"] = "true"
+	}
+	if acct.PayoutsEnabled {
+		meta["stripe_payouts_enabled"] = "true"
+	}
+	if acct.Livemode && acct.ChargesEnabled && acct.PayoutsEnabled {
+		// "Real money can move out of this account using only this key."
+		// That is the highest-impact tier of Stripe leak.
+		meta["stripe_high_value"] = "true"
+	}
+	return meta
+}
+
+// keyMode maps a key prefix to its semantic class. Available from regex
+// alone, no network call; surfaced even for unverified findings so
+// triage can sort by impact on offline scans.
+func keyMode(token string) string {
+	switch {
+	case strings.HasPrefix(token, "rk_live_"):
+		return "restricted-live"
+	case strings.HasPrefix(token, "rk_test_"):
+		return "restricted-test"
+	case strings.HasPrefix(token, "sk_live_"):
+		return "live"
+	case strings.HasPrefix(token, "sk_test_"):
+		return "test"
+	default:
+		return "unknown"
+	}
+}
+
+// firstNonEmpty returns the first non-empty string from its arguments.
+// Used to coalesce the two "name" surfaces /v1/account exposes
+// (business_profile.name, display_name) without nested if-blocks.
+func firstNonEmpty(s ...string) string {
+	for _, v := range s {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // redact preserves the recognizable provider prefix plus four chars so

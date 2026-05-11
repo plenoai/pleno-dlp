@@ -76,6 +76,21 @@ Anything merged to `main` since v0.42.0.
     `files:write`. Same Critical bucket but triage-sortable.
   - Same driftwood-style "what does this credential actually unlock"
     pattern previously shipped for `PrivateKeyPEM`, `GitHub`, `AWS`.
+- **Stripe blast-radius enrichment** (driftwood port). The Stripe
+  detector now points `Verify` at `/v1/account` instead of
+  `/v1/charges`. On success it decodes the account and stamps
+  `ExtraData` with `stripe_account_id`, `stripe_business_name`,
+  `stripe_country`, `stripe_default_currency`, `stripe_livemode`,
+  `stripe_charges_enabled`, and `stripe_payouts_enabled` so triagers
+  can immediately see *whose* Stripe account the leaked key controls
+  and whether it can move money. A live key whose account has
+  `livemode && charges_enabled && payouts_enabled` additionally gets
+  `stripe_high_value=true` (test-mode keys are forbidden from this
+  flag). Restricted keys (`rk_*`) that lack `read_write` on the
+  account resource fall back to the legacy `/v1/charges` probe so
+  verification still succeeds. Every finding (verified or not)
+  carries `stripe_key_mode` ∈ {`live`, `test`, `restricted-live`,
+  `restricted-test`, `unknown`} for sortable triage.
 
 ## [0.42.0] — 2026-05-12
 
