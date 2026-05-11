@@ -157,6 +157,53 @@ func TestSARIFSinkShape(t *testing.T) {
 	}
 }
 
+func TestSARIFSink_BlastRadiusBumpsSecuritySeverity(t *testing.T) {
+	f := sample()
+	if f.Result.ExtraData == nil {
+		f.Result.ExtraData = map[string]string{}
+	}
+	f.Result.ExtraData["blast_radius"] = "true"
+	f.Result.ExtraData["aws_privileged"] = "true"
+
+	var buf bytes.Buffer
+	s, _ := NewSink("sarif", &buf)
+	s.Emit(f)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+		t.Fatalf("not valid JSON: %v", err)
+	}
+	results := doc["runs"].([]any)[0].(map[string]any)["results"].([]any)
+	props := results[0].(map[string]any)["properties"].(map[string]any)
+	if got := props["security-severity"]; got != "9.5" {
+		t.Errorf("security-severity = %v, want 9.5 for blast_radius=true", got)
+	}
+	if got := props["blast_radius"]; got != "true" {
+		t.Errorf("blast_radius prop missing or wrong: %v", got)
+	}
+}
+
+func TestSARIFSink_NoBlastRadiusNoSecuritySeverity(t *testing.T) {
+	f := sample() // sample() has no blast_radius flag
+	var buf bytes.Buffer
+	s, _ := NewSink("sarif", &buf)
+	s.Emit(f)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+		t.Fatalf("not valid JSON: %v", err)
+	}
+	results := doc["runs"].([]any)[0].(map[string]any)["results"].([]any)
+	props := results[0].(map[string]any)["properties"].(map[string]any)
+	if _, ok := props["security-severity"]; ok {
+		t.Errorf("security-severity must be absent without blast_radius (rule-level 9.0 applies)")
+	}
+}
+
 func TestTableSinkColumns(t *testing.T) {
 	var buf bytes.Buffer
 	s, _ := NewSink("table", &buf)

@@ -800,12 +800,21 @@ func toSARIFResult(f engine.Finding) sarifResult {
 		}
 		r.Locations = []sarifLocation{loc}
 	}
-	props := make(map[string]any, len(f.Result.ExtraData)+2)
+	props := make(map[string]any, len(f.Result.ExtraData)+3)
 	for k, v := range f.Result.ExtraData {
 		props[k] = v
 	}
 	props["verified"] = f.Result.Verified
 	props["severity"] = f.Result.Severity.String()
+	// security-severity is GitHub Code Scanning's CVSS-shaped score used
+	// for sort/triage in the UI. The rule descriptor declares 9.0 for the
+	// detector class; results carrying the engine's blast_radius=true
+	// rollup (driftwood-pattern *_privileged / *_high_value / *_high_risk)
+	// promote to 9.5 so a leaked admin-scoped token sorts above a leaked
+	// read-only one when both are critical-by-class.
+	if f.Result.ExtraData["blast_radius"] == "true" {
+		props["security-severity"] = "9.5"
+	}
 	r.Properties = props
 	return r
 }
