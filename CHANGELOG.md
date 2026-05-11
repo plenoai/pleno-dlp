@@ -91,6 +91,21 @@ Anything merged to `main` since v0.42.0.
   verification still succeeds. Every finding (verified or not)
   carries `stripe_key_mode` ∈ {`live`, `test`, `restricted-live`,
   `restricted-test`, `unknown`} for sortable triage.
+- **OpenAI key blast-radius enrichment** (driftwood port). The OpenAI
+  detector now classifies every finding by prefix
+  (`openai_key_kind` ∈ {`legacy-user`, `project`, `service-account`,
+  `admin`, `unknown`}) and on a verified hit decodes `/v1/models` to
+  surface what the key actually unlocks: `openai_organization` (from
+  the `openai-organization` response header), `openai_models_count`,
+  and `openai_notable_models` — a comma-joined slice of the
+  high-impact families visible to the key (`gpt-4`, `gpt-4o`,
+  `gpt-4-turbo`, `o1`, `o3`, `dall-e-3`, `whisper`,
+  `text-embedding-3-large`, `tts-1`). Legacy-user and admin keys
+  additionally get `openai_privileged="true"` (legacy-user keys
+  inherit full org access from the user; admin keys are
+  organization-management-scoped). Project and service-account keys
+  are scoped and stay out of the privileged bucket. Same Critical
+  bucket but triage-sortable by impact.
 
 ## [0.42.0] — 2026-05-12
 
