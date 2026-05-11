@@ -46,6 +46,22 @@ Anything merged to `main` since v0.42.0.
     same Critical bucket but triage-sortable by impact.
   - Same driftwood-style "what does this credential actually unlock"
     pattern previously shipped for `PrivateKeyPEM`.
+- **AWS access-key blast-radius enrichment.** The `AWS` detector
+  graduates Verify from a bare 200/error STS check to a metadata-bearing
+  call that surfaces the identity returned by sts:GetCallerIdentity:
+  - `aws_account_id` — 12-digit AWS account number
+  - `aws_arn` — full caller ARN
+  - `aws_user_id` — AWS principal id (AIDA…/AROA…)
+  - `aws_principal_kind` — root | user | assumed-role |
+    federated-user | role | other
+  - `aws_partition` — aws | aws-cn | aws-us-gov, parsed from the ARN
+  - `aws_privileged="true"` when the caller is the account root,
+    or the role/user name contains any of `admin`, `administrator`,
+    `poweruser`, `breakglass`, `organizationaccountaccessrole`,
+    `awsreservedsso_admin`, `superuser`, `root`. Same Critical
+    bucket but triage-sortable by impact.
+  - Same driftwood-style "what does this credential actually unlock"
+    pattern previously shipped for `PrivateKeyPEM` and `GitHub`.
 
 ## [0.42.0] — 2026-05-12
 
