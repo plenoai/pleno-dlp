@@ -188,19 +188,37 @@ pleno-dlp scan filesystem ./src --pii-engine=anonymize
 
 The supervisor spawns the engine on a loopback port at scan start
 and shuts it down at scan end. The default spawn recipe self-invokes
-this binary's bundled `pii-server` subcommand:
+this binary's bundled `pii-server` subcommand, which uses a
+cached-clone + workspace-aware strategy mirroring the upstream
+[Dockerfile](https://github.com/plenoai/pleno-anonymize/blob/main/Dockerfile):
 
 ```
 pleno-dlp scan --pii-engine=anonymize ./src
-  └─ pleno-dlp pii-server --port <ephemeral>     (this binary, subcommand)
-      └─ uvx --from "git+https://github.com/plenoai/pleno-anonymize.git#subdirectory=server" \
-              uvicorn app:app --host 127.0.0.1 --port <ephemeral>
+  └─ pleno-dlp pii-server --port <ephemeral>
+      ├─ git clone --depth 1 https://github.com/plenoai/pleno-anonymize.git <cache>
+      │  (or git fetch + checkout on subsequent runs)
+      ├─ uv sync --frozen --no-dev --package pleno-anonymize-server
+      ├─ uv pip install <NER wheels>      # cold-cache only; sync prunes them
+      └─ uv run --no-sync --package pleno-anonymize-server \
+             uvicorn server.src.app:app --host 127.0.0.1 --port <ephemeral>
 ```
 
-Prerequisites: [`uvx`](https://docs.astral.sh/uv/) (uv) on `PATH` and
-Python 3.12+. **No Docker required.** First run pays a one-time
-~10–60s cost while uv resolves and builds the wheel; subsequent runs
-hit the uv cache.
+We use the cached-clone strategy (not `uvx --from "git+...#subdirectory=server"`)
+because pleno-anonymize's server package depends on the workspace SDK
+(`[tool.uv.sources] pleno-anonymize = { workspace = true }`), and uvx
+in the `--from` form cannot see the parent workspace.
+
+Prerequisites: [`uv`](https://docs.astral.sh/uv/) and Python 3.12+ on
+`PATH`; `git` on `PATH` when `--source` is a `git+` URL (the default).
+**No Docker required.** The cache lives at
+`<os.UserCacheDir>/pleno-dlp/pleno-anonymize` (override via
+`--pii-engine-cmd "pleno-dlp pii-server --port {PORT} --cache-dir /custom"`
+or the `PLENO_DLP_ANONYMIZE_CACHE` environment variable). First run
+pays a one-time ~30–120s cost while uv resolves the workspace and
+downloads NER model wheels (~600MB); subsequent runs hit the cache and
+the supervisor's `--pii-engine-ready-timeout` (default `60s`) is the
+relevant budget. Bump that flag if your first run won't finish in
+60s.
 
 Useful flags (all on the `scan` command, persistent across source kinds):
 
