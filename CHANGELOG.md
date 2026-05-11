@@ -216,6 +216,19 @@ Anything merged to `main` since v0.42.0.
   translates directly to crypto-mining / DDoS-source / billing-fraud
   capability. Locked or unverified accounts stay out of the
   high-risk bucket.
+- **Engine: cross-cutting `blast_radius=true` rollup.** The engine
+  now post-processes every finding's `ExtraData` and stamps a stable
+  `blast_radius="true"` whenever any per-provider key ending in
+  `_privileged`, `_high_value`, or `_high_risk` carries the value
+  `"true"`. Driftwood-pattern detectors (PrivateKeyPEM, JWT, GitHub,
+  AWS, Slack, Stripe, OpenAI, Twilio, SendGrid, Cloudflare, npm,
+  PagerDuty, Heroku, Datadog, DigitalOcean — fifteen providers) all
+  set those flags themselves; the engine just unifies them so
+  downstream triage can filter without knowing the per-provider
+  vocabulary. `jq '.findings[] | select(.extra_data.blast_radius)'`
+  is now a one-line P0 filter.
+  Suffix-matching (rather than an exact key list) means adding a
+  new driftwood-style provider doesn't require an engine edit.
 
 ## [0.42.0] — 2026-05-12
 

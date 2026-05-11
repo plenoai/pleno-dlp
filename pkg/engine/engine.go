@@ -242,6 +242,13 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 					}
 					r.ExtraData["archive_path"] = archivePath
 				}
+				// Cross-cutting blast-radius rollup: any per-provider
+				// signal (*_high_risk, *_high_value, *_privileged) gets
+				// promoted to a stable `blast_radius=true` so downstream
+				// triage can filter without knowing the per-provider
+				// vocabulary. Driftwood-pattern detectors set those
+				// flags themselves; the engine just unifies them.
+				tagBlastRadius(&r)
 				e.stats.findings.Add(1)
 				e.sink.Emit(Finding{
 					Result:         r,
@@ -249,6 +256,37 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 					Detector:       d.Type(),
 					VerifierBacked: isVerifier,
 				})
+			}
+		}
+	}
+}
+
+// blastRadiusSuffixes are the per-provider ExtraData keys that signal an
+// elevated triage priority. A finding gets `blast_radius=true` when any
+// key in its ExtraData ends with one of these AND the value is "true".
+//
+// We match by suffix instead of an exact key list so adding a new
+// driftwood-style provider doesn't require an engine edit. Per-provider
+// fields like `aws_privileged`, `slack_privileged`, `stripe_high_value`,
+// `npm_high_risk` all roll up automatically.
+var blastRadiusSuffixes = []string{
+	"_privileged",
+	"_high_value",
+	"_high_risk",
+}
+
+func tagBlastRadius(r *detectors.Result) {
+	if r.ExtraData == nil {
+		return
+	}
+	for k, v := range r.ExtraData {
+		if v != "true" {
+			continue
+		}
+		for _, suf := range blastRadiusSuffixes {
+			if strings.HasSuffix(k, suf) {
+				r.ExtraData["blast_radius"] = "true"
+				return
 			}
 		}
 	}
