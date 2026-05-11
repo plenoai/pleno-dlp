@@ -11,6 +11,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.42.0.
 
+### Added
+
+- **JWT claim-aware severity & enrichment.** The `JWT` detector now
+  decodes header + payload and pins severity from claim contents:
+  - `alg=none` → Critical with `jwt_alg_none=true`. The header opts
+    the token out of signing entirely; anyone can forge a payload.
+    This is a vulnerability finding, not "an unverified credential."
+  - `exp` in the past → Low with `jwt_status=expired`. Still a leak
+    (audit trail, refresh-token semantics) but not a live credential.
+  - `exp` in the future → High with `jwt_status=active`.
+  - No `exp` → Medium (default).
+  - alg=none beats every expiry path.
+  - New ExtraData fields: `kid`, `iat`, `nbf`, `azp`, `client_id`,
+    `scope` (normalised to comma-joined whether the source was the
+    OAuth2 space-delimited string or a `scopes` array), `aud`
+    (comma-joined for arrays), `exp_iso` (RFC3339 of `exp`).
+  - `issuer_class` tag for well-known IdPs: `github-actions-oidc`,
+    `google`, `auth0`, `okta`, `firebase`, `aws-cognito`, `azure-ad`,
+    `atlassian`, `slack`. Tenant subdomains match by suffix
+    (`<tenant>.auth0.com`, `<tenant>.okta.com`).
+
 ## [0.42.0] — 2026-05-12
 
 ### Changed
