@@ -134,6 +134,18 @@ Anything merged to `main` since v0.42.0.
   `user.webhooks.{event,parse}.settings`. A leaked SendGrid key with
   `mail.send` is direct email-fraud capability — same Critical
   bucket but triage-sortable by impact.
+- **Cloudflare API-token blast-radius enrichment** (driftwood port).
+  The Cloudflare detector now decodes `/client/v4/user/tokens/verify`
+  on a verified hit (`cf_token_id`, `cf_token_status`,
+  `cf_token_expires_on`, `cf_token_not_before`) and additionally
+  issues a best-effort call to `/client/v4/accounts` to enumerate
+  reachable accounts (`cf_accounts_count`, `cf_account_names` —
+  bounded to 5 names plus a `…` truncation marker so the field
+  never blows up on org-scoped tokens). When the verify endpoint
+  reports a non-active status the finding gets
+  `cf_token_inactive="true"`. The accounts call failure (403,
+  network) is tolerated silently — verification has already
+  succeeded; triage just gets less context.
 
 ## [0.42.0] — 2026-05-12
 
