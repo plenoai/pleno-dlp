@@ -1,12 +1,18 @@
 // Package heroku detects Heroku API tokens (UUIDs) and verifies them against
-// /account. UUID alone is far too generic to surface, so we require a
-// "heroku" / "HEROKU_API_KEY" keyword within 256 bytes of the candidate.
+// /account. On a verified hit the detector decodes the account to surface
+// what the token controls — driftwood pattern: a Heroku token whose owner
+// has no 2FA configured is account takeover; a federated/SSO account
+// requires the IdP for re-login. UUID alone is far too generic to surface,
+// so we require a "heroku" / "HEROKU_API_KEY" keyword within 256 bytes of
+// the candidate.
 package heroku
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,15 +54,20 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			continue
 		}
 		seen[token] = struct{}{}
+		extra := map[string]string{}
 		res := detectors.Result{
 			DetectorType: detectors.Heroku,
 			Raw:          []byte(token),
 			Redacted:     redact(token),
+			ExtraData:    extra,
 		}
 		if verify {
-			v, err := s.Verify(ctx, token)
+			v, meta, err := s.verifyWithMetadata(ctx, token)
 			res.Verified = v
 			res.VerificationErr = err
+			for k, val := range meta {
+				extra[k] = val
+			}
 		}
 		out = append(out, res)
 	}
@@ -82,13 +93,18 @@ func nearKeyword(lower string, start, end int) bool {
 	return false
 }
 
-func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+func (s Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	v, _, err := s.verifyWithMetadata(ctx, secret)
+	return v, err
+}
+
+func (Scanner) verifyWithMetadata(ctx context.Context, secret string) (bool, map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/account", nil)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+secret)
 	// Heroku rejects requests without the versioned Accept header. Even on
@@ -98,17 +114,61 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	defer resp.Body.Close()
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return true, nil
+		// fall through to decode
 	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
-		return false, nil
+		return false, nil, nil
 	default:
-		return false, nil
+		return false, nil, nil
 	}
+
+	var body struct {
+		ID                      string  `json:"id"`
+		Email                   string  `json:"email"`
+		Name                    string  `json:"name"`
+		TwoFactorAuthentication bool    `json:"two_factor_authentication"`
+		SSOTargetURL            *string `json:"sso_target_url"`
+		Federated               bool    `json:"federated"`
+		Verified                bool    `json:"verified"`
+		SuspendedAt             *string `json:"suspended_at"`
+	}
+	meta := map[string]string{}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err == nil {
+		if body.ID != "" {
+			meta["heroku_user_id"] = body.ID
+		}
+		if body.Email != "" {
+			meta["heroku_email"] = body.Email
+		}
+		if body.Name != "" {
+			meta["heroku_user_name"] = body.Name
+		}
+		meta["heroku_two_factor"] = strconv.FormatBool(body.TwoFactorAuthentication)
+		// Heroku marks an account "federated" when the email domain is
+		// managed via SSO; sso_target_url being non-null means the user is
+		// forced through an IdP for login.
+		if body.Federated || (body.SSOTargetURL != nil && *body.SSOTargetURL != "") {
+			meta["heroku_sso"] = "true"
+		}
+		if body.SuspendedAt != nil && *body.SuspendedAt != "" {
+			meta["heroku_account_suspended"] = "true"
+		}
+		// High risk: token alone is full account access (no 2FA, no SSO
+		// gate) and the account is alive (not suspended). This is the
+		// dominant blast-radius signal — it's the difference between
+		// "rotate the token" and "incident response".
+		if !body.TwoFactorAuthentication &&
+			!body.Federated &&
+			(body.SSOTargetURL == nil || *body.SSOTargetURL == "") &&
+			(body.SuspendedAt == nil || *body.SuspendedAt == "") {
+			meta["heroku_high_risk"] = "true"
+		}
+	}
+	return true, meta, nil
 }
 
 func redact(t string) string {
