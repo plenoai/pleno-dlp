@@ -59,6 +59,7 @@ type scanFlags struct {
 	quiet             bool
 	revokeOnVerified  bool
 	revokeDryRun      bool
+	blastRadiusOnly   bool
 	// piiEngine selects the PII engine integration. "off" (default)
 	// preserves the historical single-binary UX: the anonymize
 	// detector is registered but the supervisor handle stays nil,
@@ -170,6 +171,10 @@ func init() {
 			"Requires --verify. Refuses to run unless "+EnvAllowRevoke+"=1 is set in the environment so a misconfigured CI cannot accidentally revoke live credentials. Detectors without a Revoker implementation are skipped.")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.revokeDryRun, "revoke-dry-run", false,
 		"when used with --revoke-on-verified, log what would be revoked without contacting the provider")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.blastRadiusOnly, "blast-radius-only", false,
+		"emit and count only findings the engine has tagged blast_radius=true "+
+			"(driftwood-pattern flags: any *_privileged, *_high_value, or *_high_risk). "+
+			"Combine with --fail-on to gate CI on high-impact leaks only.")
 
 	// PII engine flags. Default is "off" so the binary keeps its
 	// single-process UX for users without uvx / Python on PATH.
@@ -380,6 +385,15 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	if scanOpts.revokeOnVerified {
 		revoker = newRevokingSink(counter, dets, scanOpts.revokeDryRun, cmd.ErrOrStderr())
 		topSink = revoker
+	}
+	// --blast-radius-only sits OUTSIDE counter+revoker so the filter
+	// happens first: non-blast-radius findings never reach the counter
+	// (so they don't trigger exit 1) and never reach the user-facing
+	// sink (so they don't print). With --fail-on critical, this means
+	// CI gates on "is there a verified credential with elevated impact"
+	// instead of "any finding at all".
+	if scanOpts.blastRadiusOnly {
+		topSink = &blastRadiusFilterSink{inner: topSink}
 	}
 	allowed := engine.NewAllowlist(allowlist, topSink)
 	placeheld := engine.NewPlaceholderFilter(allowed)
@@ -604,6 +618,27 @@ func (c *countingSink) Emit(f engine.Finding) {
 }
 
 func (c *countingSink) Close() error { return c.inner.Close() }
+
+// blastRadiusFilterSink drops every finding that doesn't carry
+// ExtraData["blast_radius"]=="true". Findings reach this sink only when
+// --blast-radius-only is set. The engine's cross-cutting rollup (see
+// pkg/engine.tagBlastRadius) is what populates that field from the
+// per-provider *_privileged / *_high_value / *_high_risk flags, so this
+// filter doesn't have to know the per-provider vocabulary.
+type blastRadiusFilterSink struct {
+	inner    engine.Sink
+	dropped  atomic.Int64
+}
+
+func (b *blastRadiusFilterSink) Emit(f engine.Finding) {
+	if f.Result.ExtraData["blast_radius"] != "true" {
+		b.dropped.Add(1)
+		return
+	}
+	b.inner.Emit(f)
+}
+
+func (b *blastRadiusFilterSink) Close() error { return b.inner.Close() }
 
 // Execute is a thin wrapper main.go invokes. Returning instead of calling
 // os.Exit here keeps the cmd package testable.

@@ -229,6 +229,17 @@ Anything merged to `main` since v0.42.0.
   is now a one-line P0 filter.
   Suffix-matching (rather than an exact key list) means adding a
   new driftwood-style provider doesn't require an engine edit.
+- **`pleno-dlp scan --blast-radius-only`.** New CLI flag that
+  emits and counts only findings the engine has tagged
+  `blast_radius=true` (driftwood-pattern flags: any `*_privileged`,
+  `*_high_value`, or `*_high_risk` rolled up by the engine). The
+  filter sits OUTSIDE the counter and revoker sinks, so non-blast-
+  radius findings never trigger exit 1, never reach the user-facing
+  output, and never get revoked. Combine with `--fail-on critical`
+  to gate CI on high-impact leaks only — e.g. an AWS root key, a
+  Stripe live-mode key, or an npm token whose owner has 2FA off
+  fails the build, while a verified read-only DataDog key surfaces
+  in the JSON but doesn't block the pipeline.
 
 ## [0.42.0] — 2026-05-12
 

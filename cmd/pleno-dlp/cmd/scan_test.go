@@ -153,6 +153,33 @@ func resetScanOpts() {
 	scanOpts.quiet = false
 	scanOpts.revokeOnVerified = false
 	scanOpts.revokeDryRun = false
+	scanOpts.blastRadiusOnly = false
+}
+
+// TestBlastRadiusFilterSink_DropsAndForwards drives the sink directly to
+// assert the wrap-then-emit contract: a finding tagged blast_radius=true
+// reaches the inner sink, and one without it is dropped (and counted).
+func TestBlastRadiusFilterSink_DropsAndForwards(t *testing.T) {
+	captured := &captureSink{}
+	bf := &blastRadiusFilterSink{inner: captured}
+
+	// One finding with the rollup tag → forwarded.
+	br := engineFinding(detectors.AWS, true, "AKIA…")
+	if br.Result.ExtraData == nil {
+		br.Result.ExtraData = map[string]string{}
+	}
+	br.Result.ExtraData["blast_radius"] = "true"
+	bf.Emit(br)
+
+	// One finding without the tag → dropped.
+	bf.Emit(engineFinding(detectors.AWS, true, "AKIA…2"))
+
+	if got := len(captured.findings); got != 1 {
+		t.Errorf("expected 1 finding forwarded, got %d", got)
+	}
+	if dr := bf.dropped.Load(); dr != 1 {
+		t.Errorf("expected dropped=1, got %d", dr)
+	}
 }
 
 // TestScan_RevokeOnVerified_RefusesWithoutEnv asserts that scan refuses
