@@ -106,6 +106,18 @@ Anything merged to `main` since v0.42.0.
   organization-management-scoped). Project and service-account keys
   are scoped and stay out of the privileged bucket. Same Critical
   bucket but triage-sortable by impact.
+- **Twilio Account-SID / Auth-Token blast-radius enrichment**
+  (driftwood port). The Twilio detector now decodes the
+  `/2010-04-01/Accounts/<sid>.json` response on a verified pair and
+  stamps `ExtraData` with the account identity:
+  `twilio_friendly_name`, `twilio_account_status`,
+  `twilio_account_type`, `twilio_date_created`. Subaccount
+  credentials get `twilio_subaccount="true"` and `twilio_owner_sid`
+  pointing at the parent. Full + active accounts get
+  `twilio_high_value="true"` — only those have real billing
+  relationships and therefore SMS/voice fraud capability; Trial and
+  suspended accounts are containable. Same Critical bucket but
+  triage-sortable by impact.
 
 ## [0.42.0] — 2026-05-12
 

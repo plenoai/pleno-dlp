@@ -1,11 +1,18 @@
 // Package twilio detects Twilio Account SID + Auth Token pairs and verifies
-// them against /2010-04-01/Accounts/<sid>.json.
+// them against /2010-04-01/Accounts/<sid>.json. On a verified pair the
+// detector enriches ExtraData with the account identity (friendly name,
+// status, type, owner SID) — driftwood pattern: a verified Twilio key on
+// a Full+active account means SMS/voice fraud capability; on a Trial it's
+// containable. Triagers shouldn't have to hit the API a second time to
+// learn that.
 package twilio
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -47,18 +54,22 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		}
 		seen[sid] = struct{}{}
 		token, ok := nearestToken(m[2], data, tokens)
+		extra := map[string]string{"account_sid": sid}
 		res := detectors.Result{
 			DetectorType: detectors.Twilio,
 			Raw:          []byte(sid),
 			Redacted:     redact(sid),
-			ExtraData:    map[string]string{"account_sid": sid},
+			ExtraData:    extra,
 		}
 		if ok {
 			res.RawV2 = []byte(token)
 			if verify {
-				v, err := verifyPair(ctx, sid, token)
+				v, meta, err := verifyPairWithMetadata(ctx, sid, token)
 				res.Verified = v
 				res.VerificationErr = err
+				for k, val := range meta {
+					extra[k] = val
+				}
 			}
 		}
 		out = append(out, res)
@@ -120,7 +131,8 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	if !ok {
 		return false, nil
 	}
-	return verifyPair(ctx, sid, token)
+	v, _, err := verifyPairWithMetadata(ctx, sid, token)
+	return v, err
 }
 
 func splitPair(s string) (string, string, bool) {
@@ -132,29 +144,70 @@ func splitPair(s string) (string, string, bool) {
 	return "", "", false
 }
 
-func verifyPair(ctx context.Context, sid, token string) (bool, error) {
+func verifyPairWithMetadata(ctx context.Context, sid, token string) (bool, map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/2010-04-01/Accounts/"+sid+".json", nil)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	req.SetBasicAuth(sid, token)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	defer resp.Body.Close()
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return true, nil
+		// fall through to decode
 	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
-		return false, nil
+		return false, nil, nil
 	default:
-		return false, nil
+		return false, nil, nil
 	}
+
+	var body struct {
+		FriendlyName    string `json:"friendly_name"`
+		Status          string `json:"status"`
+		Type            string `json:"type"`
+		OwnerAccountSid string `json:"owner_account_sid"`
+		DateCreated     string `json:"date_created"`
+	}
+	meta := map[string]string{}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err == nil {
+		if body.FriendlyName != "" {
+			meta["twilio_friendly_name"] = body.FriendlyName
+		}
+		if body.Status != "" {
+			meta["twilio_account_status"] = body.Status
+		}
+		if body.Type != "" {
+			meta["twilio_account_type"] = body.Type
+		}
+		// owner_account_sid is the parent SID for subaccounts; for the master
+		// it equals the queried SID. Only surface it when it differs (i.e.
+		// this credential is for a subaccount).
+		if body.OwnerAccountSid != "" && !strings.EqualFold(body.OwnerAccountSid, sid) {
+			meta["twilio_owner_sid"] = body.OwnerAccountSid
+			meta["twilio_subaccount"] = "true"
+		}
+		if body.DateCreated != "" {
+			meta["twilio_date_created"] = body.DateCreated
+		}
+		if isHighRisk(body.Type, body.Status) {
+			// Full + active = real billing relationship; SMS/voice fraud
+			// capability. Trial accounts are heavily rate-limited and tied
+			// to a single verified phone number, so they're contained.
+			meta["twilio_high_value"] = "true"
+		}
+	}
+	return true, meta, nil
+}
+
+func isHighRisk(accType, status string) bool {
+	return strings.EqualFold(accType, "Full") && strings.EqualFold(status, "active")
 }
 
 func redact(sid string) string {
