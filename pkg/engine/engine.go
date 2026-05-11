@@ -9,6 +9,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,10 +21,18 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
+// Finding is the engine's per-emit payload. VerifierBacked is stamped by
+// scanChunkLeaf via a runtime interface assertion against the emitting
+// detector and is the input to dedup's cross-detector collision rule
+// (Verifier > non-Verifier when two detectors fire on identical raw
+// bytes at the same location). Keeping it on the Finding rather than
+// re-running the assertion in dedup means the dedup sink stays free of
+// detector-package coupling.
 type Finding struct {
-	Result   detectors.Result
-	Chunk    *sources.Chunk
-	Detector detectors.DetectorType
+	Result         detectors.Result
+	Chunk          *sources.Chunk
+	Detector       detectors.DetectorType
+	VerifierBacked bool
 }
 
 type Sink interface {
@@ -86,11 +95,28 @@ func New(opts Options, sink Sink) *Engine {
 // uses this to compose registered built-ins with custom rules loaded from
 // disk; tests use it to inject pinpoint detectors. Concurrency is clamped
 // here so callers don't need to remember the floor.
+//
+// Detector ordering matters for the dedup cross-detector collision rule:
+// when a provider-specific Verifier-backed detector and the generic
+// high-entropy detector both fire on the same raw bytes at the same
+// location, dedup keeps the first emitted finding for that key.
+// Putting Verifier-backed detectors first means the provider hit lands
+// before generic — the user sees the higher-confidence finding and the
+// generic noise is suppressed downstream. The sort is stable so the
+// relative order of Verifier-backed detectors (and the relative order
+// of non-Verifier detectors) is preserved.
 func NewWithDetectors(dets []detectors.Detector, opts Options, sink Sink) *Engine {
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = 8
 	}
-	return &Engine{opts: opts, dets: dets, sink: sink}
+	ordered := append([]detectors.Detector(nil), dets...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		_, vi := ordered[i].(detectors.Verifier)
+		_, vj := ordered[j].(detectors.Verifier)
+		// true (Verifier-backed) sorts before false.
+		return vi && !vj
+	})
+	return &Engine{opts: opts, dets: ordered, sink: sink}
 }
 
 // Run streams chunks from src and dispatches them across worker goroutines.
@@ -185,6 +211,7 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 
 	for _, d := range e.dets {
 		kws := d.Keywords()
+		_, isVerifier := d.(detectors.Verifier)
 		for _, v := range variants {
 			if !keywordMatch(v.Data, kws) {
 				continue
@@ -216,7 +243,12 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 					r.ExtraData["archive_path"] = archivePath
 				}
 				e.stats.findings.Add(1)
-				e.sink.Emit(Finding{Result: r, Chunk: c, Detector: d.Type()})
+				e.sink.Emit(Finding{
+					Result:         r,
+					Chunk:          c,
+					Detector:       d.Type(),
+					VerifierBacked: isVerifier,
+				})
 			}
 		}
 	}
