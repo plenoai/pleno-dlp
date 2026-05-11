@@ -68,6 +68,33 @@ Anything merged to `main` since v0.42.0.
   `x-token`. The wider net is offset by the new dedup priority and
   placeholder sink.
 
+### Added
+
+- **PrivateKeyPEM blast-radius (driftwood port).** The `PrivateKeyPEM`
+  detector graduates from class-b (unverified-by-design) to class-a
+  (Verifier). New behaviour:
+  - Local public-key derivation for RSA / EC / Ed25519 / OpenSSH /
+    PKCS#8 keys, surfacing `pubkey_algorithm`,
+    `pubkey_fingerprint_sha256` (SPKI SHA-256 hex, suitable for
+    crt.sh `?spkisha256=`), and `ssh_fingerprint`
+    (`SHA256:<base64-no-pad>`, matches `ssh-keygen -lf`).
+  - Embedded passphrase wordlist tried against encrypted PEMs (legacy
+    `Proc-Type: 4,ENCRYPTED`, modern PKCS#8 PBES2, OpenSSH bcrypt-KDF).
+    A successful unlock sets `pem_unlocked_with` and bumps unverified
+    severity from Medium to High — an "encrypted" key with a guessable
+    passphrase has no real protection.
+  - When `--verify` is set, the SPKI fingerprint is queried against
+    Certificate Transparency via crt.sh. Matches populate
+    `blast_radius_domains` (deduplicated CN + SAN list) and
+    `blast_radius_cert_count`, mark `Verified=true`, and escalate
+    severity to Critical. The private-key body never leaves the host;
+    only the public-key SHA-256 (itself a public artefact) is
+    transmitted, and only to crt.sh.
+  - Inspired by [trufflesecurity/driftwood](https://github.com/trufflesecurity/driftwood)
+    and [betterleaks/betterleaks](https://github.com/betterleaks/betterleaks).
+  - New package: `pkg/detectors/privatekey/blastradius`.
+  - verify-coverage counts: a=514 (+1), b=43 (-1), total unchanged.
+
 ## [0.41.0] — 2026-05-10
 
 ### Changed

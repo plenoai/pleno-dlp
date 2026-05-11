@@ -36,7 +36,7 @@ because the leak surface is destructive even before verification. Those
 are not enumerated here — `DefaultSeverity` is the floor; per-detector
 overrides only raise it.
 
-## (a) Verify implemented — 513 detectors
+## (a) Verify implemented — 514 detectors
 
 Detector type satisfies `detectors.Verifier`. The detector calls the
 upstream provider and returns `(true, nil)` on success, `(false, nil)`
@@ -51,14 +51,14 @@ function exists and is reachable from the engine — and are counted in
 class (a). Where the host shape is structurally absent from the chunk
 and no apiBase fallback is wired, the detector lives in (b) instead.
 
-The full enumeration is in the machine block. There are 513 entries;
+The full enumeration is in the machine block. There are 514 entries;
 listing every name in prose would not add information beyond the
 machine block. Spot-check examples: `AWS`, `GitHub`, `GitHubFineGrained`,
 `SlackBotToken`, `OpenAI`, `Anthropic`, `Stripe`, `Datadog`, `OpenAI`,
 `Coinbase` (unsigned-bearer fallback — verifies via HTTP 401 → false),
 plus most batch 1–40 detectors that hit a public API host.
 
-## (b) Unverified-by-design — 44 detectors
+## (b) Unverified-by-design — 43 detectors
 
 These detectors deliberately do not implement `Verify`. The rationale
 is one of:
@@ -78,13 +78,26 @@ is one of:
   (key id, issuer id, project id) that is not co-located with the
   matched secret in the chunk.
 - **Generic shape detector.** No fixed upstream provider (`JWT`,
-  `PrivateKeyPEM`, `GenericHighEntropy`).
+  `GenericHighEntropy`). `PrivateKeyPEM` was previously in this list
+  but is now class (a) — see the Verifier note below.
 - **PII finding class.** No "is this real?" call exists — PII is
   identity, not credential, and the appropriate response is access
   control / redaction, not verification.
 
 Severity-on-finding is High by default, Medium for `JWT`,
 `PrivateKeyPEM`, `GenericHighEntropy`, and `PIIAnonymize`.
+
+> **PrivateKeyPEM Verifier (class a).** PEM private keys do not have a
+> single upstream provider, but the public-key half can be correlated
+> against Certificate Transparency logs. The detector derives the SPKI
+> SHA-256 locally (the private key never leaves the host) and queries
+> crt.sh `?spkisha256=<hex>` when `--verify` is set. A non-empty CT
+> match marks the finding `Verified=true` and surfaces the discovered
+> domains via `ExtraData["blast_radius_domains"]` — the leak's literal
+> blast radius. Encrypted PEMs are also tried against an embedded
+> ~250-entry passphrase wordlist; a successful unlock escalates the
+> unverified severity from Medium to High. Inspired by
+> trufflesecurity/driftwood.
 
 | DetectorType            | Class    | Rationale                                                                 |
 |-------------------------|----------|---------------------------------------------------------------------------|
@@ -117,7 +130,6 @@ Severity-on-finding is High by default, Medium for `JWT`,
 | PIIAnonymize            | pii      | PII finding class — NER + regex via pleno-anonymize, no provider API to verify |
 | PingIdentity            | secret   | per-region host (`api.pingone.{com,eu,asia,ca}`) not in chunk             |
 | Postgres                | secret   | connection string, host not in chunk                                      |
-| PrivateKeyPEM           | secret   | generic shape, no fixed upstream provider                                 |
 | RabbitMQ                | secret   | connection string, host not in chunk                                      |
 | Redis                   | secret   | connection string, host not in chunk                                      |
 | RequestBin              | secret   | per-bin endpoint not in chunk                                             |
@@ -207,8 +219,8 @@ the live `detectors.All()` registry.
 
 ```coverage-machine
 total=599
-a=513
-b=44
+a=514
+b=43
 c=42
 type=APNs class=b
 type=AWSS3PresignedURL class=b
@@ -239,7 +251,6 @@ type=OVHCloud class=b
 type=PIIAnonymize class=b
 type=PingIdentity class=b
 type=Postgres class=b
-type=PrivateKeyPEM class=b
 type=RabbitMQ class=b
 type=Redis class=b
 type=RequestBin class=b
