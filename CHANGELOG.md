@@ -9,7 +9,64 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.41.0.
+Anything merged to `main` since v0.42.0.
+
+## [0.42.0] — 2026-05-12
+
+### Changed
+
+- **False-positive reduction sweep** across detectors, engine, and
+  the filesystem source. User report flagged Expo and similar
+  detectors as a major FP source; this release fixes eight
+  structural causes at once.
+- Tightened seven detectors: **Expo**, **drift**, **lever**,
+  **pumble**, **totango**, **sift**, and **branchio**. Each
+  replaces a `strings.Contains(window, kw)` keyword gate with a
+  precompiled regex requiring explicit separators (`<provider>_token`
+  / `<provider>.com` / `<provider>.dev`), so common English words
+  no longer satisfy the keyword check (`export` / `exposure` /
+  `exponent` no longer trigger Expo; `drifted` / `adrift` no longer
+  trigger Drift; `leveraged` / `however` no longer trigger Lever;
+  `sifted` / `sifting` no longer trigger Sift). Token regexes
+  narrow to fixed lengths or provider-specific shapes so 40-char
+  git SHAs, JWT mid-segments, npm sha512 fragments, and
+  dashless-UUIDs stop matching. `branchio` drops its bare `branch`
+  keyword (which collided with git terminology).
+- Engine dedup now prefers **Verifier-backed detectors over the
+  generic high-entropy detector** when both fire on identical raw
+  bytes. Stops a single AWS access key (or similar) from emitting
+  twice — once as `AWS`, once as `GenericHighEntropy`.
+
+### Added
+
+- Default filesystem excludes now cover **lockfiles and
+  minified/sourcemap bundles**: `package-lock.json`, `yarn.lock`,
+  `pnpm-lock.yaml`, `Cargo.lock`, `go.sum`, `Pipfile.lock`,
+  `poetry.lock`, `composer.lock`, `Gemfile.lock`, `mix.lock`,
+  `Podfile.lock`, and globs `*.min.js`, `*.min.css`, `*.map`,
+  `*.bundle.js`. These files dump high-entropy sha256/sha512
+  integrity hashes that previously slipped past the generic
+  detector. `DisableDefaultExcludes` continues to opt back in.
+- New `pkg/engine/placeholder.go` engine sink rejects well-known
+  throwaway tokens **before they reach the allowlist**:
+  `AKIAIOSFODNN7EXAMPLE` and any other `*EXAMPLE*` /
+  `YOUR_TOKEN` / `YOUR_KEY` / `YOUR_SECRET` / `PLACEHOLDER` /
+  `REDACTED` / `<TOKEN>` / `<SECRET>` / `<KEY>` substrings, runs
+  of `X{8,}` or `0{10,}`, and exact matches for `dummy` / `test` /
+  `foo` / `bar` / `password` / `changeme`. Scan output now reports
+  `placeholder: suppressed N finding(s)` on stderr (parallel to
+  the existing `allowlist: suppressed …` line).
+- Shared Shannon entropy helper at `pkg/detectors/entropy.go`
+  (`ShannonEntropy(s)`, `HasMinEntropy(s, threshold)`). Applied as
+  a per-finding gate inside `drift`, `lever`, `pumble`, `totango`,
+  and `sift` so `0000…0` / `aaaa…a` / repeating-pattern tokens are
+  rejected at the detector layer.
+- Generic high-entropy detector keyword list expanded by 14
+  entries: `signing_secret` / `signing-secret`, `webhook_secret`
+  variants, `private_token` variants, `auth=` / `auth:`,
+  `bearer:` (the colon form), `authorization:`, `x-secret`,
+  `x-token`. The wider net is offset by the new dedup priority and
+  placeholder sink.
 
 ## [0.41.0] — 2026-05-10
 
