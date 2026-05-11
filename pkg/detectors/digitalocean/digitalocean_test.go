@@ -80,3 +80,84 @@ func TestVerify_Unauthorized(t *testing.T) {
 		t.Fatal("expected verified=false")
 	}
 }
+
+func TestFromData_VerifyEnrichesActiveVerified(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/account" {
+			t.Errorf("expected /v2/account, got %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"account":{
+		  "email":"alice@example.com","uuid":"u-123",
+		  "email_verified":true,"status":"active",
+		  "droplet_limit":50,"floating_ip_limit":5,
+		  "team":{"uuid":"t-1","name":"Acme Engineering"}
+		}}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummy))
+	if !res[0].Verified {
+		t.Fatalf("expected Verified=true")
+	}
+	want := map[string]string{
+		"do_email":             "alice@example.com",
+		"do_user_uuid":         "u-123",
+		"do_status":            "active",
+		"do_email_verified":    "true",
+		"do_droplet_limit":     "50",
+		"do_floating_ip_limit": "5",
+		"do_team_name":         "Acme Engineering",
+		"do_team_uuid":         "t-1",
+		"do_high_risk":         "true",
+	}
+	for k, v := range want {
+		if res[0].ExtraData[k] != v {
+			t.Errorf("ExtraData[%q] = %q, want %q", k, res[0].ExtraData[k], v)
+		}
+	}
+}
+
+func TestFromData_VerifyLockedNotHighRisk(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"account":{
+		  "email":"x","status":"locked","email_verified":true,
+		  "droplet_limit":25
+		}}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummy))
+	if res[0].ExtraData["do_account_locked"] != "true" {
+		t.Errorf("expected do_account_locked=true")
+	}
+	if _, ok := res[0].ExtraData["do_high_risk"]; ok {
+		t.Errorf("locked account must not be marked high_risk")
+	}
+}
+
+func TestFromData_VerifyUnverifiedEmailNotHighRisk(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"account":{
+		  "email":"x","status":"active","email_verified":false,
+		  "droplet_limit":25
+		}}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummy))
+	if res[0].ExtraData["do_email_verified"] != "false" {
+		t.Errorf("do_email_verified = %q, want false", res[0].ExtraData["do_email_verified"])
+	}
+	if _, ok := res[0].ExtraData["do_high_risk"]; ok {
+		t.Errorf("unverified-email account must not be marked high_risk")
+	}
+}
