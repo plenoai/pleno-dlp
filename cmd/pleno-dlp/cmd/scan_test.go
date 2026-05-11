@@ -344,9 +344,13 @@ func TestScanStdin_FindsSecretFromPipe(t *testing.T) {
 	var out bytes.Buffer
 	Root.SetOut(&out)
 	Root.SetErr(&out)
-	// AKIAIOSFODNN7EXAMPLE is the canonical AWS dummy access key — the
-	// AWS detector's keyword + regex should match it without verification.
-	Root.SetIn(strings.NewReader("aws_access_key=AKIAIOSFODNN7EXAMPLE\n"))
+	// AKIA + 16 alnum matches the AWS detector regex. AKIAIOSFODNN7EXAMPLE
+	// would have been the natural pick, but the engine-level placeholder
+	// filter now drops anything containing "EXAMPLE" (a substring marker
+	// in IsPlaceholder) — the whole point of that filter is to stop AWS
+	// docs literals from spamming output. Use a synthetic that satisfies
+	// the regex without tripping any placeholder marker.
+	Root.SetIn(strings.NewReader("aws_access_key=AKIA1234567890ABCDEF\n"))
 	Root.SetArgs([]string{"scan", "--format", "json", "stdin", "--label", "test-pipe"})
 
 	err := Root.Execute()
@@ -358,16 +362,20 @@ func TestScanStdin_FindsSecretFromPipe(t *testing.T) {
 	}
 }
 
-// TestScanFilesystemWithAllowlist proves a leaked AKIAIOSFODNN7EXAMPLE
-// fixture is muted by an allowlist file pointed at via --allowlist.
-// Without the allowlist this would trip errFindingsFound.
+// TestScanFilesystemWithAllowlist proves a leaked AWS-shaped fixture
+// is muted by an allowlist file pointed at via --allowlist. Without
+// the allowlist this would trip errFindingsFound. The fixture avoids
+// placeholder markers (no EXAMPLE substring, no long X/0 runs) so
+// the engine-level placeholder filter doesn't pre-empt the allowlist
+// path under test — we want this assertion to fail when allowlist
+// regresses, not when an unrelated filter changes.
 func TestScanFilesystemWithAllowlist(t *testing.T) {
 	resetScanOpts()
 	t.Cleanup(resetScanOpts)
 
 	dir := t.TempDir()
 	target := dir + "/leak.txt"
-	if err := writeFile(target, "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\nAWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n"); err != nil {
+	if err := writeFile(target, "AWS_ACCESS_KEY_ID=AKIA1234567890ABCDEF\nAWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYqWERTY1KEY\n"); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	allow := dir + "/.pleno-allow.json"

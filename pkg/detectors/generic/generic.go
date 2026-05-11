@@ -86,6 +86,7 @@ var keywords = []string{
 	"auth-token",
 	"authtoken",
 	"bearer ",
+	"bearer:",
 	"x-api-key",
 	"x-auth-token",
 	"password",
@@ -96,6 +97,30 @@ var keywords = []string{
 	"token ",
 	"secret=",
 	"secret:",
+	// Webhook signing secrets — Slack, Stripe, GitHub, Twilio all ship
+	// distinct shapes under similar variable names. Covered by generic
+	// rather than per-provider so internal/custom webhook integrations
+	// don't fall through the cracks.
+	"signing_secret",
+	"signing-secret",
+	"webhook_secret",
+	"webhook-secret",
+	"webhooksecret",
+	// PAT-style "private token" variants — GitLab, Sentry, ad-hoc
+	// internal tooling. The provider detectors that exist already
+	// cover the well-known shapes; generic catches the rest.
+	"private_token",
+	"private-token",
+	"privatetoken",
+	// HTTP header / config-line forms. `authorization:` is the bare
+	// HTTP header; `auth=` and `auth:` show up in URL query strings
+	// and YAML respectively. `x-secret` and `x-token` are common
+	// custom-header conventions.
+	"auth=",
+	"auth:",
+	"authorization:",
+	"x-secret",
+	"x-token",
 }
 
 type Scanner struct{}

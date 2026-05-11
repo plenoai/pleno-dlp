@@ -9,7 +9,10 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-const dummyToken = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN0123"
+// Drift API tokens are JWT-shaped (header.payload.signature). The
+// fixture below is a syntactically-valid JWT-shaped string but is not
+// a real token.
+const dummyToken = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJpYXQiOjE2MDB9.s1gnaTuREdummyValueForTestingOnly"
 
 func TestType(t *testing.T) {
 	if (Scanner{}).Type() != detectors.Drift {
@@ -31,6 +34,14 @@ func TestFromData_Found(t *testing.T) {
 	}
 }
 
+func TestFromData_FoundDriftAPI(t *testing.T) {
+	body := []byte("DRIFT_API=" + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) == 0 {
+		t.Fatalf("expected >=1 for DRIFT_API")
+	}
+}
+
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
@@ -40,10 +51,60 @@ func TestFromData_NoKeyword(t *testing.T) {
 }
 
 func TestFromData_Dedup(t *testing.T) {
-	body := []byte("drift=" + dummyToken + "\ndrift_token=" + dummyToken)
+	body := []byte("drift_api=" + dummyToken + "\ndrift_token=" + dummyToken)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
+	}
+}
+
+// --- FP regressions ----------------------------------------------
+
+// "drifted" / "drifting" / "adrift" must not satisfy the keyword
+// gate.
+func TestFromData_FP_DriftedProse(t *testing.T) {
+	body := []byte("// the value drifted slowly; token=" + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("drifted prose FP: expected 0, got %d", len(res))
+	}
+}
+
+func TestFromData_FP_AdriftProse(t *testing.T) {
+	body := []byte("// the ship is adrift " + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("adrift FP: expected 0, got %d", len(res))
+	}
+}
+
+// 32-80 char alphanumeric blob next to the word "drift" must no
+// longer trigger now that the token regex requires JWT shape.
+func TestFromData_FP_GenericBlob(t *testing.T) {
+	body := []byte("drift_api_token=abcdef0123456789abcdef0123456789abcdef01")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("generic-blob FP: expected 0, got %d", len(res))
+	}
+}
+
+// Low-entropy JWT-shaped tokens (all zeros / repeated patterns) must
+// be rejected by the entropy gate even though they pass the regex.
+func TestFromData_FP_LowEntropyZeros(t *testing.T) {
+	zero := "eyJ00000000000000000000000.0000000000000000000000.000000000000000000000"
+	body := []byte("drift_api_token=" + zero)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("low-entropy zeros FP: expected 0, got %d", len(res))
+	}
+}
+
+func TestFromData_FP_LowEntropyRepeated(t *testing.T) {
+	rep := "eyJababababababababababababababab.abababababababababababab.abababababababababab"
+	body := []byte("drift_token=" + rep)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("low-entropy repeated FP: expected 0, got %d", len(res))
 	}
 }
 

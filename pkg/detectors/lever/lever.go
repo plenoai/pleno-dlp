@@ -1,6 +1,15 @@
 // Package lever detects Lever recruiting API keys — 40-character hex strings
 // near the `lever` keyword. Verified via /v1/users on api.lever.co with HTTP
 // Basic auth (key as username, blank password).
+//
+// "lever" is a substring of common English words (leveraged, however,
+// leveling, cleverest, lever-arm, reliever) and the documented token
+// shape `[a-f0-9]{40}` is identical to a git SHA-1, which appears
+// thousands of times in any non-trivial repository. The previous
+// detector did `strings.Contains(window, "lever")` over a 256-byte
+// window, so any commit log near the word "leverage" produced FPs on
+// every commit hash. The new detector requires explicit anchors:
+// `lever_api`, `lever_token`, `api.lever.co`, `LEVER=`, etc.
 package lever
 
 import (
@@ -17,9 +26,25 @@ var apiBase = "https://api.lever.co"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
+// Lever API keys are documented as 40-char lower-hex strings. This
+// shape is identical to a git SHA-1, so the surrounding keyword
+// regex is the real gate.
 var tokenRe = regexp.MustCompile(`\b([a-f0-9]{40})\b`)
 
-var contextKeywords = []string{"lever"}
+// keywordRe requires an explicit Lever anchor — `lever_api`,
+// `lever_token`, `lever.co`, `api.lever.co`, or `LEVER` followed by
+// an assignment operator. The bare substring "lever" no longer
+// qualifies, so "leveraged" / "however" / "cleverest" prose is
+// rejected.
+var keywordRe = regexp.MustCompile(`(?i)` +
+	`(?:` +
+	`lever[_\-]api(?:[_\-]key|[_\-]token)?` +
+	`|lever[_\-]token` +
+	`|lever[_\-]key` +
+	`|\bapi\.lever\.co\b` +
+	`|\blever\.co\b` +
+	`|\blever[ \t]*[:=][ \t]*` +
+	`)`)
 
 type Scanner struct{}
 
@@ -32,7 +57,10 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
+	kwSpans := keywordRe.FindAllIndex(data, -1)
+	if len(kwSpans) == 0 {
+		return nil, nil
+	}
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
 	for _, h := range hits {
@@ -40,7 +68,13 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		if !nearKeyword(kwSpans, h[2], h[3]) {
+			continue
+		}
+		// Hex alphabet has 16 symbols → entropy ceiling ~4.0; a
+		// real Lever key clears 3.0 easily, while `0000…0000`,
+		// `dead…beef`, or repeated nibbles do not.
+		if !detectors.HasMinEntropy(token, 3.0) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -62,19 +96,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+func nearKeyword(kwSpans [][]int, start, end int) bool {
+	const radius = 96
 	from := start - radius
-	if from < 0 {
-		from = 0
-	}
 	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+	for _, sp := range kwSpans {
+		if sp[1] >= from && sp[0] <= to {
 			return true
 		}
 	}
