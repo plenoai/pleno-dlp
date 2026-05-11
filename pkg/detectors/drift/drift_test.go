@@ -88,6 +88,26 @@ func TestFromData_FP_GenericBlob(t *testing.T) {
 	}
 }
 
+// Low-entropy JWT-shaped tokens (all zeros / repeated patterns) must
+// be rejected by the entropy gate even though they pass the regex.
+func TestFromData_FP_LowEntropyZeros(t *testing.T) {
+	zero := "eyJ00000000000000000000000.0000000000000000000000.000000000000000000000"
+	body := []byte("drift_api_token=" + zero)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("low-entropy zeros FP: expected 0, got %d", len(res))
+	}
+}
+
+func TestFromData_FP_LowEntropyRepeated(t *testing.T) {
+	rep := "eyJababababababababababababababab.abababababababababababab.abababababababababab"
+	body := []byte("drift_token=" + rep)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("low-entropy repeated FP: expected 0, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummyToken {

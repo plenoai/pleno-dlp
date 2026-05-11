@@ -68,6 +68,26 @@ func TestFromData_FP_GitSHAOnly(t *testing.T) {
 	}
 }
 
+// All-zero / repeated-pattern strings satisfy [A-Za-z0-9]{32,64}
+// but carry no key material — entropy gate rejects.
+func TestFromData_FP_LowEntropyZeros(t *testing.T) {
+	zero := "000000000000000000000000000000000000000000000000"
+	body := []byte("TOTANGO_TOKEN=" + zero)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("low-entropy zeros FP: expected 0, got %d", len(res))
+	}
+}
+
+func TestFromData_FP_LowEntropyRepeated(t *testing.T) {
+	rep := "abababababababababababababababababababababababab"
+	body := []byte("totango_api_key=" + rep)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("low-entropy repeated FP: expected 0, got %d", len(res))
+	}
+}
+
 func TestVerify_NoBase(t *testing.T) {
 	v, err := Scanner{}.Verify(context.Background(), dummy)
 	if err != nil || v {

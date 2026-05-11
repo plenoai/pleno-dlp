@@ -69,6 +69,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
+		// Reject all-zero / repeated-pattern blobs that satisfy the
+		// JWT-shape regex but carry no information. Threshold 3.5
+		// fits base64url tokens (alphabet ~64 → ceiling ~6).
+		if !detectors.HasMinEntropy(token, 3.5) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.Drift,

@@ -77,6 +77,26 @@ func TestFromData_FP_TwoUnrelatedBlobs(t *testing.T) {
 	}
 }
 
+// Low-entropy ident/key pairs satisfy [A-Za-z0-9]{20,80} but
+// carry no key material — entropy gate rejects.
+func TestFromData_FP_LowEntropyZeros(t *testing.T) {
+	zero := "00000000000000000000000000000000"
+	body := []byte("SIFT_ACCOUNT_ID=" + zero + "\nSIFT_API_KEY=" + zero + "x")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("low-entropy zeros FP: expected 0, got %d", len(res))
+	}
+}
+
+func TestFromData_FP_LowEntropyRepeated(t *testing.T) {
+	rep := "ababababababababababababababab"
+	body := []byte("siftscience account=" + rep + "\nkey=" + rep + "xy")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("low-entropy repeated FP: expected 0, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "" {

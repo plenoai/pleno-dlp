@@ -85,6 +85,27 @@ Author: alice
 	}
 }
 
+// Low-entropy 40-hex strings (all zeros, repeated nibbles) satisfy
+// the [a-f0-9]{40} regex but carry no key material — entropy gate
+// rejects them.
+func TestFromData_FP_LowEntropyZeros(t *testing.T) {
+	zero := "0000000000000000000000000000000000000000"
+	body := []byte("LEVER_API=" + zero)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("low-entropy zeros FP: expected 0, got %d", len(res))
+	}
+}
+
+func TestFromData_FP_LowEntropyRepeated(t *testing.T) {
+	rep := "abababababababababababababababababababab"
+	body := []byte("lever_api=" + rep)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("low-entropy repeated FP: expected 0, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, _, ok := r.BasicAuth()

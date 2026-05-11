@@ -77,6 +77,26 @@ integrity sha512-` + dummyToken)
 	}
 }
 
+// All-zero / repeated-pattern strings satisfy [A-Za-z0-9]{40,80}
+// but carry no information — entropy gate rejects them.
+func TestFromData_FP_LowEntropyZeros(t *testing.T) {
+	zero := "00000000000000000000000000000000000000000000"
+	body := []byte("pumble_api_key=" + zero)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("low-entropy zeros FP: expected 0, got %d", len(res))
+	}
+}
+
+func TestFromData_FP_LowEntropyRepeated(t *testing.T) {
+	rep := "abababababababababababababababababababababab"
+	body := []byte("pumble_token=" + rep)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("low-entropy repeated FP: expected 0, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Api-Key") != dummyToken {

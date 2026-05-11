@@ -69,6 +69,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
+		// Sift accountId/apiKey are 20-80 char alnum; reject
+		// all-zero / repeated-pattern noise so a doc fixture with
+		// `SIFT_ACCOUNT_ID=000…` doesn't leak.
+		if !detectors.HasMinEntropy(v, 3.5) {
+			continue
+		}
 		if ident == "" {
 			ident = v
 			continue

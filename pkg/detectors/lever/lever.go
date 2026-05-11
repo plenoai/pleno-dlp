@@ -71,6 +71,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
+		// Hex alphabet has 16 symbols → entropy ceiling ~4.0; a
+		// real Lever key clears 3.0 easily, while `0000…0000`,
+		// `dead…beef`, or repeated nibbles do not.
+		if !detectors.HasMinEntropy(token, 3.0) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.Lever,

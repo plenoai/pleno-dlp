@@ -72,6 +72,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
+		// Pumble tokens are 40-80 char alnum; reject all-zero /
+		// repeated-pattern noise.
+		if !detectors.HasMinEntropy(token, 3.5) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.Pumble,
