@@ -1,6 +1,25 @@
 // Package slack detects Slack bot tokens (xoxb-…) and verifies them against
 // auth.test.
 //
+// Verify also enriches the finding with blast-radius metadata when the
+// upstream call succeeds (driftwood-style "what does this credential
+// actually unlock"):
+//
+//   - slack_team_id        T-prefixed workspace id
+//   - slack_team_name      workspace display name
+//   - slack_team_url       https://<workspace>.slack.com/
+//   - slack_user_id        U-prefixed user / B-prefixed bot id
+//   - slack_user_name      authenticated user/bot name
+//   - slack_bot_id         B-prefixed bot id (bot tokens only)
+//   - slack_enterprise_id  E-prefixed enterprise id (Grid installs)
+//   - slack_scopes         comma-joined `X-OAuth-Scopes` header
+//   - slack_privileged     "true" when scopes include any of
+//                          `admin`, `admin.users:write`,
+//                          `admin.conversations:write`,
+//                          `chat:write.public`, `users:read.email`,
+//                          `files:write`. Same Critical bucket but
+//                          triage-sortable.
+//
 // Revoke (issue #73) calls POST /api/auth.revoke on slack.com. Slack's
 // API contract is unusual — every response is HTTP 200 and the
 // success/failure signal is in the JSON body's `ok` field. Revoke
@@ -51,52 +70,171 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	out := make([]detectors.Result, 0, len(matches))
 	for _, m := range matches {
 		token := string(m)
+		extra := map[string]string{}
 		res := detectors.Result{
 			DetectorType: detectors.SlackBotToken,
 			Raw:          []byte(token),
 			Redacted:     redact(token),
+			ExtraData:    extra,
 		}
 		if verify {
-			v, err := s.Verify(ctx, token)
-			res.Verified = v
+			verified, meta, err := verifyWithMetadata(ctx, token)
+			res.Verified = verified
 			res.VerificationErr = err
+			for k, v := range meta {
+				extra[k] = v
+			}
 		}
 		out = append(out, res)
 	}
 	return out, nil
 }
 
+// Verify implements the detectors.Verifier interface contract. The
+// metadata-bearing path lives in verifyWithMetadata; this wrapper
+// strips the metadata so the engine and verifycoverage classifier see
+// the same (bool, error) shape every other Verifier exposes.
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	v, _, err := verifyWithMetadata(ctx, secret)
+	return v, err
+}
+
+// privilegedScopes is the curated set of Slack OAuth scopes whose
+// grant materially extends a bot token's blast radius. `admin` covers
+// the full Grid admin surface; the others are the minimum set that
+// can read user emails, post as anyone, or rewrite files in any
+// channel — each enough on its own to escalate triage.
+var privilegedScopes = map[string]bool{
+	"admin":                     true,
+	"admin.users:write":         true,
+	"admin.conversations:write": true,
+	"admin.teams:write":         true,
+	"chat:write.public":         true,
+	"users:read.email":          true,
+	"files:write":               true,
+}
+
+// verifyWithMetadata posts to /api/auth.test and decodes the identity
+// response into ExtraData. Slack's contract: HTTP 200 always, with
+// outcome in the body's `ok` field. We treat HTTP 429 / non-200 as
+// unverified (no scan error) consistent with every other Verifier.
+func verifyWithMetadata(ctx context.Context, secret string) (bool, map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBase+"/api/auth.test", nil)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+secret)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return false, nil
+		return false, nil, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return false, nil
+		return false, nil, nil
 	}
 
-	var body struct {
-		OK bool `json:"ok"`
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	var auth struct {
+		OK            bool   `json:"ok"`
+		URL           string `json:"url"`
+		Team          string `json:"team"`
+		User          string `json:"user"`
+		TeamID        string `json:"team_id"`
+		UserID        string `json:"user_id"`
+		BotID         string `json:"bot_id"`
+		EnterpriseID  string `json:"enterprise_id"`
+		IsEnterprise  bool   `json:"is_enterprise_install"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return false, nil
+	if err := json.Unmarshal(body, &auth); err != nil {
+		return false, nil, nil
 	}
-	return body.OK, nil
+	if !auth.OK {
+		return false, nil, nil
+	}
+	meta := buildAuthMetadata(resp.Header, &auth)
+	return true, meta, nil
+}
+
+// buildAuthMetadata assembles the ExtraData map from a successful
+// auth.test response. Empty fields are omitted so the map stays compact.
+func buildAuthMetadata(h http.Header, auth *struct {
+	OK            bool   `json:"ok"`
+	URL           string `json:"url"`
+	Team          string `json:"team"`
+	User          string `json:"user"`
+	TeamID        string `json:"team_id"`
+	UserID        string `json:"user_id"`
+	BotID         string `json:"bot_id"`
+	EnterpriseID  string `json:"enterprise_id"`
+	IsEnterprise  bool   `json:"is_enterprise_install"`
+}) map[string]string {
+	meta := map[string]string{}
+	if auth.TeamID != "" {
+		meta["slack_team_id"] = auth.TeamID
+	}
+	if auth.Team != "" {
+		meta["slack_team_name"] = auth.Team
+	}
+	if auth.URL != "" {
+		meta["slack_team_url"] = auth.URL
+	}
+	if auth.UserID != "" {
+		meta["slack_user_id"] = auth.UserID
+	}
+	if auth.User != "" {
+		meta["slack_user_name"] = auth.User
+	}
+	if auth.BotID != "" {
+		meta["slack_bot_id"] = auth.BotID
+	}
+	if auth.EnterpriseID != "" {
+		meta["slack_enterprise_id"] = auth.EnterpriseID
+	}
+	if auth.IsEnterprise {
+		meta["slack_enterprise_install"] = "true"
+	}
+	if scopes := strings.TrimSpace(h.Get("X-OAuth-Scopes")); scopes != "" {
+		clean := strings.Join(splitAndTrim(scopes, ","), ",")
+		meta["slack_scopes"] = clean
+		if hasPrivilegedScope(clean) {
+			meta["slack_privileged"] = "true"
+		}
+	}
+	return meta
+}
+
+// hasPrivilegedScope returns true if any token in the comma-delimited
+// scopes list is in privilegedScopes.
+func hasPrivilegedScope(scopes string) bool {
+	for _, s := range splitAndTrim(scopes, ",") {
+		if privilegedScopes[s] {
+			return true
+		}
+	}
+	return false
+}
+
+// splitAndTrim splits s on sep and trims whitespace from each element,
+// dropping empties. Slack returns scopes as "a,b" or "a, b" depending
+// on the endpoint and version.
+func splitAndTrim(s, sep string) []string {
+	parts := strings.Split(s, sep)
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // Revoke implements detectors.Revoker for Slack-issued bearer tokens.

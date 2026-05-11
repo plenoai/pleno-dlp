@@ -62,6 +62,20 @@ Anything merged to `main` since v0.42.0.
     bucket but triage-sortable by impact.
   - Same driftwood-style "what does this credential actually unlock"
     pattern previously shipped for `PrivateKeyPEM` and `GitHub`.
+- **Slack bot-token blast-radius enrichment.** The `SlackBotToken`
+  detector graduates Verify from a bare `ok` boolean to a metadata-
+  bearing call that surfaces the workspace identity returned by
+  `auth.test`:
+  - `slack_team_id`, `slack_team_name`, `slack_team_url`
+  - `slack_user_id`, `slack_user_name`, `slack_bot_id`
+  - `slack_enterprise_id`, `slack_enterprise_install="true"` (Grid)
+  - `slack_scopes` — comma-joined `X-OAuth-Scopes` response header
+  - `slack_privileged="true"` when scopes include any of `admin`,
+    `admin.users:write`, `admin.conversations:write`,
+    `admin.teams:write`, `chat:write.public`, `users:read.email`,
+    `files:write`. Same Critical bucket but triage-sortable.
+  - Same driftwood-style "what does this credential actually unlock"
+    pattern previously shipped for `PrivateKeyPEM`, `GitHub`, `AWS`.
 
 ## [0.42.0] — 2026-05-12
 
