@@ -90,3 +90,113 @@ func TestVerify_Unauthorized(t *testing.T) {
 		t.Fatal("expected verified=false")
 	}
 }
+
+func TestFromData_VerifyHighRiskNo2FA(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/account" {
+			t.Errorf("expected /account, got %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{
+		  "id":"acc-uuid","email":"alice@example.com","name":"Alice",
+		  "two_factor_authentication":false,
+		  "sso_target_url":null,"federated":false,
+		  "suspended_at":null,"verified":true
+		}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	res, _ := Scanner{}.FromData(context.Background(), true, []byte("HEROKU_API_KEY="+dummy))
+	if !res[0].Verified {
+		t.Fatalf("expected Verified=true")
+	}
+	want := map[string]string{
+		"heroku_user_id":    "acc-uuid",
+		"heroku_email":      "alice@example.com",
+		"heroku_user_name":  "Alice",
+		"heroku_two_factor": "false",
+		"heroku_high_risk":  "true",
+	}
+	for k, v := range want {
+		if res[0].ExtraData[k] != v {
+			t.Errorf("ExtraData[%q] = %q, want %q", k, res[0].ExtraData[k], v)
+		}
+	}
+	for _, off := range []string{"heroku_sso", "heroku_account_suspended"} {
+		if _, ok := res[0].ExtraData[off]; ok {
+			t.Errorf("%s must be absent", off)
+		}
+	}
+}
+
+func TestFromData_Verify2FANotHighRisk(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+		  "id":"x","email":"e","name":"n",
+		  "two_factor_authentication":true,
+		  "sso_target_url":null,"federated":false,
+		  "suspended_at":null
+		}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	res, _ := Scanner{}.FromData(context.Background(), true, []byte("heroku="+dummy))
+	if res[0].ExtraData["heroku_two_factor"] != "true" {
+		t.Errorf("heroku_two_factor = %q, want true", res[0].ExtraData["heroku_two_factor"])
+	}
+	if _, ok := res[0].ExtraData["heroku_high_risk"]; ok {
+		t.Errorf("2FA-on account must not be high_risk")
+	}
+}
+
+func TestFromData_VerifySSOFederated(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+		  "id":"x","email":"e","name":"n",
+		  "two_factor_authentication":false,
+		  "sso_target_url":"https://idp.example.com/saml",
+		  "federated":true,
+		  "suspended_at":null
+		}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	res, _ := Scanner{}.FromData(context.Background(), true, []byte("heroku="+dummy))
+	if res[0].ExtraData["heroku_sso"] != "true" {
+		t.Errorf("expected heroku_sso=true")
+	}
+	if _, ok := res[0].ExtraData["heroku_high_risk"]; ok {
+		t.Errorf("SSO-gated account must not be marked high_risk even without 2FA")
+	}
+}
+
+func TestFromData_VerifySuspended(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+		  "id":"x","email":"e","name":"n",
+		  "two_factor_authentication":false,
+		  "sso_target_url":null,"federated":false,
+		  "suspended_at":"2024-01-01T00:00:00Z"
+		}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	res, _ := Scanner{}.FromData(context.Background(), true, []byte("heroku="+dummy))
+	if res[0].ExtraData["heroku_account_suspended"] != "true" {
+		t.Errorf("expected heroku_account_suspended=true")
+	}
+	if _, ok := res[0].ExtraData["heroku_high_risk"]; ok {
+		t.Errorf("suspended account must not be marked high_risk")
+	}
+}

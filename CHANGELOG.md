@@ -178,6 +178,20 @@ Anything merged to `main` since v0.42.0.
     surface.
   401/403 short-circuits without falling back, so a clearly-bad
   token doesn't waste a second request.
+- **Heroku API token blast-radius enrichment** (driftwood port).
+  The Heroku detector now decodes the `/account` response on a
+  verified hit and stamps `ExtraData` with the account identity and
+  the auth-posture signals that determine whether the token alone
+  grants account takeover:
+  - `heroku_user_id`, `heroku_email`, `heroku_user_name`
+  - `heroku_two_factor` ∈ {`true`, `false`}
+  - `heroku_sso="true"` when `federated` is true OR `sso_target_url`
+    is non-empty (login goes through the IdP)
+  - `heroku_account_suspended="true"` when the account is suspended
+  - `heroku_high_risk="true"` when 2FA is OFF, no SSO/federation,
+    and the account is not suspended — the leaked token alone is
+    full account access. This is the difference between "rotate the
+    token" and "incident response".
 
 ## [0.42.0] — 2026-05-12
 
