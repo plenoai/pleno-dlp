@@ -25,13 +25,24 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var keyRe = regexp.MustCompile(`\b(key_(?:live|test)_[A-Za-z0-9]{32,})\b`)
 var secretRe = regexp.MustCompile(`\b(secret_(?:live|test)_[A-Za-z0-9]{32,})\b`)
 
-var contextKeywords = []string{"branch", "branch_io", "branch.io", "branch_key", "branchsdk"}
+// contextKeywords intentionally drops the bare "branch" keyword: it
+// matches git terminology (`branched`, `branching`, `branchless`) and
+// the rest of the JavaScript ecosystem. The token regex
+// (`key_live_*` / `secret_live_*`) is well-prefixed so a tight
+// keyword set adds robustness without losing coverage.
+var contextKeywords = []string{"branch_io", "branch.io", "branch_key", "branchsdk", "branchapi", "branchmetrics"}
 
 type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.BranchIO }
 
-func (Scanner) Keywords() []string { return []string{"branch", "key_live_", "key_test_"} }
+// Keywords are scanned by the engine prefilter; we drop the bare
+// "branch" (collides with git terminology) and rely on the
+// well-prefixed `key_live_` / `key_test_` tokens themselves plus
+// `branch.io` to identify Branch.io chunks.
+func (Scanner) Keywords() []string {
+	return []string{"key_live_", "key_test_", "branch.io", "branch_io", "branchsdk", "branchmetrics"}
+}
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	keyHits := keyRe.FindAllSubmatchIndex(data, -1)

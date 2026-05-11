@@ -58,10 +58,23 @@ func TestFromData_NoSecret(t *testing.T) {
 }
 
 func TestFromData_Dedup(t *testing.T) {
-	body := []byte("branch=" + dummyKey + " " + dummySecret + "\nbranch=" + dummyKey + " " + dummySecret)
+	body := []byte("branch_io=" + dummyKey + " " + dummySecret + "\nbranch_io=" + dummyKey + " " + dummySecret)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
+	}
+}
+
+// FP regression: bare "branch" / git-branch prose with a well-formed
+// key_live_* token must not satisfy the keyword gate. (The detector
+// is still permissive enough to fire on real Branch.io config; this
+// test just guards against the previous `Keywords() = ["branch", ...]`
+// + `contextKeywords = ["branch", ...]` behaviour.)
+func TestFromData_FP_GitBranchProse(t *testing.T) {
+	body := []byte("// branched off main; key=" + dummyKey + " secret=" + dummySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("git-branch prose FP: expected 0, got %d", len(res))
 	}
 }
 
