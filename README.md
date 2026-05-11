@@ -54,6 +54,48 @@ actually verify against upstream.
 Add org-specific patterns without forking the binary — see
 [Custom rules](#custom-rules) below.
 
+## Private-key blast radius
+
+The `PrivateKeyPEM` detector does more than match a `-----BEGIN … PRIVATE
+KEY-----` block. For every match it derives the public-key half locally
+(RSA / EC / Ed25519 / OpenSSH / PKCS#8) and surfaces:
+
+- `pubkey_algorithm` — RSA, EC, ED25519, OPENSSH, …
+- `pubkey_fingerprint_sha256` — hex SPKI digest, the same value crt.sh
+  exposes at `?spkisha256=`
+- `ssh_fingerprint` — `SHA256:<base64-no-pad>`, matches `ssh-keygen -lf`
+
+Encrypted PEMs (legacy `Proc-Type: 4,ENCRYPTED`, modern PKCS#8 PBES2,
+OpenSSH bcrypt-KDF) are tried against an embedded passphrase wordlist.
+A successful unlock writes `pem_unlocked_with` and bumps the finding
+from Medium to High — an "encrypted" key behind `password` has no real
+protection.
+
+When `--verify` is set, the SPKI fingerprint is queried against
+Certificate Transparency via crt.sh. Any match marks the finding
+`Verified=true` (severity → Critical) and writes the discovered
+domains:
+
+```json
+{
+  "DetectorType": "PrivateKeyPEM",
+  "Verified": true,
+  "Severity": "critical",
+  "ExtraData": {
+    "pubkey_algorithm": "RSA",
+    "pubkey_fingerprint_sha256": "ab12…",
+    "ct_status": "match",
+    "blast_radius_cert_count": "7",
+    "blast_radius_domains": "*.example.com,api.example.com,example.com"
+  }
+}
+```
+
+The private key body never leaves the host. Only the public-key
+SHA-256 (a public artefact — it appears in every certificate the key
+has signed) is transmitted, and only to crt.sh. Inspired by
+[trufflesecurity/driftwood](https://github.com/trufflesecurity/driftwood).
+
 ## Severity and CI gating
 
 Every finding carries a Severity:

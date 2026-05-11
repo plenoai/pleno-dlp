@@ -77,7 +77,7 @@ func Lookup(detectorType string) (Class, bool) {
 //
 // Keep this table sorted alphabetically by key so diffs are stable.
 var Classes = map[string]Class{
-	// (b) Unverified-by-design — 44 detectors
+	// (b) Unverified-by-design — 43 detectors
 	"APNs":               ClassUnverifiedByDesign,
 	"AWSS3PresignedURL":  ClassUnverifiedByDesign,
 	"AWX":                ClassUnverifiedByDesign,
@@ -110,10 +110,14 @@ var Classes = map[string]Class{
 	// DetectorType constants stay pinned at their ordinals (76..79)
 	// per ADR-0002 but no live registration exists, so the doc /
 	// Classes drift tests no longer require entries here.
-	"PingIdentity":       ClassUnverifiedByDesign,
-	"Postgres":           ClassUnverifiedByDesign,
-	"PrivateKeyPEM":      ClassUnverifiedByDesign,
-	"RabbitMQ":           ClassUnverifiedByDesign,
+	"PingIdentity": ClassUnverifiedByDesign,
+	"Postgres":     ClassUnverifiedByDesign,
+	// PrivateKeyPEM intentionally absent — the detector now satisfies
+	// detectors.Verifier via blast-radius lookup against Certificate
+	// Transparency (crt.sh `?spkisha256=`). It falls into the open-set
+	// complement (class a). See docs/verify-coverage.md and the
+	// pkg/detectors/privatekey/blastradius package.
+	"RabbitMQ": ClassUnverifiedByDesign,
 	"Redis":              ClassUnverifiedByDesign,
 	"RequestBin":         ClassUnverifiedByDesign,
 	"SMTP":               ClassUnverifiedByDesign,
