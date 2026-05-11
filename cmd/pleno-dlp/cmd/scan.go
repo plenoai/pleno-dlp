@@ -358,11 +358,18 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		return err
 	}
 
-	// Wrap with the counting+dedup+allowlist chain. Order matters:
+	// Wrap with the counting+dedup+placeholder+allowlist chain. Order
+	// matters:
 	//   - dedup is outermost so the counter only sees unique findings,
 	//     which makes the exit code reflect what the user actually saw.
-	//   - allowlist sits inside dedup so suppressed entries don't poison
-	//     the dedup map (a different finding nearby should still emit).
+	//   - placeholder filter sits between dedup and allowlist so the
+	//     well-known doc literals (AKIAIOSFODNN7EXAMPLE, YOUR_TOKEN,
+	//     XXXXXXXX, …) are gone before any user-curated allowlist
+	//     entries are consulted. Users shouldn't have to enumerate
+	//     vendor-docs placeholders in their own config.
+	//   - allowlist sits inside placeholder so suppressed entries
+	//     don't poison the dedup map (a different finding nearby
+	//     should still emit).
 	counter := &countingSink{inner: sink, threshold: threshold}
 	// revokingSink wraps the counter when --revoke-on-verified is set.
 	// It sits BETWEEN allowlist and counter so allowlisted (false-positive)
@@ -375,11 +382,15 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		topSink = revoker
 	}
 	allowed := engine.NewAllowlist(allowlist, topSink)
-	deduped := engine.NewDedup(allowed)
+	placeheld := engine.NewPlaceholderFilter(allowed)
+	deduped := engine.NewDedup(placeheld)
 	defer func() { _ = sink.Close() }()
 	defer func() {
 		if n := engine.SuppressedCounter(allowed); n > 0 {
 			fmt.Fprintf(cmd.ErrOrStderr(), "allowlist: suppressed %d finding(s)\n", n)
+		}
+		if n := engine.PlaceholderSuppressedCounter(placeheld); n > 0 {
+			fmt.Fprintf(cmd.ErrOrStderr(), "placeholder: suppressed %d finding(s)\n", n)
 		}
 	}()
 
