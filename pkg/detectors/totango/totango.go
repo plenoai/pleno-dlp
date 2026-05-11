@@ -3,6 +3,12 @@
 // hosts (`<tenant>.totango.com`) plus a custom `app-token` header, so
 // verify only fires when an apiBase override is supplied. Canonical
 // probe is /api/v3/accounts/search.
+//
+// "totango" is not an English word, so the keyword name itself is
+// safe; the FP source was the token regex `[A-Za-z0-9]{32,64}`, which
+// matches every 32+ char alphanumeric blob in the same chunk. We now
+// require an explicit Totango anchor (`totango_api`, `totango_token`,
+// `totango.com`, `TOTANGO=`) and keep the regex shape.
 package totango
 
 import (
@@ -19,11 +25,25 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Totango service tokens are 32-64 alnum chars; anchored on the
-// `totango` keyword.
+// Totango service tokens are 32-64 alnum chars; anchored on an
+// explicit Totango keyword.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-var contextKeywords = []string{"totango", "totango.com"}
+// keywordRe requires an explicit Totango anchor. The bare substring
+// "totango" appearing inside an unrelated identifier no longer
+// qualifies on its own — though since the word isn't a real English
+// word, the most important effect is requiring a token-like
+// neighbouring context.
+var keywordRe = regexp.MustCompile(`(?i)` +
+	`(?:` +
+	`totango[_\-]api(?:[_\-]key|[_\-]token)?` +
+	`|totango[_\-]token` +
+	`|totango[_\-]key` +
+	`|totango[_\-]app[_\-]token` +
+	`|\btotango\.com\b` +
+	`|\btotango[ \t]*[:=][ \t]*` +
+	`|\bapp[_\-]token\b` +
+	`)`)
 
 type Scanner struct{}
 
@@ -36,7 +56,15 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
+	kwSpans := keywordRe.FindAllIndex(data, -1)
+	if len(kwSpans) == 0 {
+		return nil, nil
+	}
+	// `app-token` alone is too generic; require a totango-anchored
+	// keyword somewhere in the chunk as well.
+	if !hasTotangoAnchor(data) {
+		return nil, nil
+	}
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
 	for _, h := range hits {
@@ -44,7 +72,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -66,19 +94,22 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+// totangoAnchorRe matches "totango" with a non-letter boundary
+// (start-of-string, whitespace, `_`, `-`, `.`, `=`, `:`, end-of-word).
+// `\btotango\b` is wrong because `\b` treats `_` as a word char, so
+// `TOTANGO_TOKEN` would fail the boundary check.
+var totangoAnchorRe = regexp.MustCompile(`(?i)(?:^|[^A-Za-z])totango(?:[^A-Za-z]|$)`)
+
+func hasTotangoAnchor(data []byte) bool {
+	return totangoAnchorRe.Match(data)
+}
+
+func nearKeyword(kwSpans [][]int, start, end int) bool {
+	const radius = 128
 	from := start - radius
-	if from < 0 {
-		from = 0
-	}
 	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+	for _, sp := range kwSpans {
+		if sp[1] >= from && sp[0] <= to {
 			return true
 		}
 	}

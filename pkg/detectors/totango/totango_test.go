@@ -31,11 +31,40 @@ func TestFromData_Found(t *testing.T) {
 	}
 }
 
+func TestFromData_FoundTotangoAPI(t *testing.T) {
+	body := []byte("totango_api_key=" + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) == 0 {
+		t.Fatal("expected >=1 for totango_api_key")
+	}
+}
+
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED_VALUE=" + dummy)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
+	}
+}
+
+// --- FP regressions -----------------------------------------------
+
+// Prose mentioning "totango" without an anchor and a long blob next
+// to it must not trigger.
+func TestFromData_FP_TotangoProseUnrelatedBlob(t *testing.T) {
+	body := []byte("// see totango docs for more; hash=" + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("totango-prose FP: expected 0, got %d", len(res))
+	}
+}
+
+// A 32-64 char alphanumeric blob far from any totango anchor.
+func TestFromData_FP_GitSHAOnly(t *testing.T) {
+	body := []byte("commit abcdef0123456789abcdef0123456789abcdef0123456789abcdef01")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("git-SHA-only FP: expected 0, got %d", len(res))
 	}
 }
 
