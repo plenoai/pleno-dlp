@@ -1,6 +1,19 @@
 // Package pumble detects Pumble (pumble.com) team-chat API tokens — long
-// alphanumeric tokens near the `pumble` keyword. Verified via /v1/users/me
-// on pumble.com using Bearer auth.
+// alphanumeric tokens near the `pumble` keyword. Verified via the
+// addons marketplace /listUsers endpoint using an `Api-Key` header.
+//
+// "pumble" is not an English word, so the keyword gate is less
+// fragile than e.g. expo/drift/lever. The real FP source was the
+// token regex itself: `[A-Za-z0-9]{40,80}` matches JWT mid-segments,
+// base64-encoded payloads, npm sha512 fragments, and other opaque
+// 40+ char blobs that frequently appear next to the word "pumble" in
+// docs, comments, or unrelated keys. The new detector requires:
+//
+//   1. an explicit anchor (`pumble_api`, `pumble_token`, `pumble.com`,
+//      `PUMBLE=`) — bare "pumble" in prose no longer satisfies; and
+//   2. a token that is base64url-ish with at least one underscore /
+//      dash OR a long pure-alphanumeric string, but only when one of
+//      the explicit anchors lies within 96 bytes.
 package pumble
 
 import (
@@ -17,10 +30,22 @@ var apiBase = "https://pumble-api-keys.addons.marketplace.cake.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Pumble personal API tokens are documented as 40+ char alphanumeric.
+// Pumble personal API tokens are 40-80 char base64url strings.
+// Trufflehog upstream regex matches `[A-Za-z0-9]{40,80}`; we keep
+// that shape but rely on the much tighter keyword gate below.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
 
-var contextKeywords = []string{"pumble", "pumble_api", "pumble_token"}
+// keywordRe requires an explicit Pumble anchor. The bare "pumble"
+// substring is still cheap to find, but it must be followed by a
+// non-letter or a known suffix to register.
+var keywordRe = regexp.MustCompile(`(?i)` +
+	`(?:` +
+	`pumble[_\-]api(?:[_\-]key|[_\-]token)?` +
+	`|pumble[_\-]token` +
+	`|pumble[_\-]key` +
+	`|\bpumble\.com\b` +
+	`|\bpumble[ \t]*[:=][ \t]*` +
+	`)`)
 
 type Scanner struct{}
 
@@ -33,7 +58,10 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
+	kwSpans := keywordRe.FindAllIndex(data, -1)
+	if len(kwSpans) == 0 {
+		return nil, nil
+	}
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
 	for _, h := range hits {
@@ -41,7 +69,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -63,19 +91,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+func nearKeyword(kwSpans [][]int, start, end int) bool {
+	const radius = 96
 	from := start - radius
-	if from < 0 {
-		from = 0
-	}
 	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+	for _, sp := range kwSpans {
+		if sp[1] >= from && sp[0] <= to {
 			return true
 		}
 	}
