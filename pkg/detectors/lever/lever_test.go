@@ -31,11 +31,57 @@ func TestFromData_Found(t *testing.T) {
 	}
 }
 
+func TestFromData_FoundLeverToken(t *testing.T) {
+	body := []byte("lever_token=" + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) == 0 {
+		t.Fatalf("expected >=1 for lever_token")
+	}
+}
+
+func TestFromData_FoundAPILeverCo(t *testing.T) {
+	body := []byte("curl https://api.lever.co/v1/users -u " + dummyToken + ":")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) == 0 {
+		t.Fatalf("expected >=1 for api.lever.co context")
+	}
+}
+
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without lever keyword, got %d", len(res))
+	}
+}
+
+// --- FP regressions -----------------------------------------------
+
+// "leveraged" / "however" / "cleverest" prose near a 40-char git
+// SHA must not trigger.
+func TestFromData_FP_LeveragedProse(t *testing.T) {
+	body := []byte("# We leveraged the new API in commit " + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("leveraged FP: expected 0, got %d", len(res))
+	}
+}
+
+func TestFromData_FP_HoweverProse(t *testing.T) {
+	body := []byte("// however the build at " + dummyToken + " was reverted")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("however FP: expected 0, got %d", len(res))
+	}
+}
+
+func TestFromData_FP_GitCommitLog(t *testing.T) {
+	body := []byte(`commit ` + dummyToken + `
+Author: alice
+    refactor: cleverest layout`)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("git commit log FP: expected 0, got %d", len(res))
 	}
 }
 
