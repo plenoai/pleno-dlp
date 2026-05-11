@@ -32,11 +32,48 @@ func TestFromData_Found(t *testing.T) {
 	}
 }
 
+func TestFromData_FoundSiftscience(t *testing.T) {
+	body := []byte("# siftscience credentials\naccount=" + dummyID + "\nkey=" + dummyKey + "\n# end siftscience block")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) == 0 {
+		t.Fatal("expected >=1 for siftscience anchor")
+	}
+}
+
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED=" + dummyID + "\nOTHER=" + dummyKey)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
+	}
+}
+
+// --- FP regressions -----------------------------------------------
+
+// "sifted" / "sifting" / "shift" prose with two 20+ char alphanumeric
+// blobs must not trigger.
+func TestFromData_FP_SiftedProse(t *testing.T) {
+	body := []byte("// we sifted through " + dummyID + " and found " + dummyKey)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("sifted FP: expected 0, got %d", len(res))
+	}
+}
+
+func TestFromData_FP_ShiftProse(t *testing.T) {
+	body := []byte("// shift commit " + dummyID + " to branch " + dummyKey)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("shift FP: expected 0, got %d", len(res))
+	}
+}
+
+// Two unrelated 20+ char blobs without any sift anchor.
+func TestFromData_FP_TwoUnrelatedBlobs(t *testing.T) {
+	body := []byte("key1=" + dummyID + "\nkey2=" + dummyKey)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("two-unrelated-blobs FP: expected 0, got %d", len(res))
 	}
 }
 
