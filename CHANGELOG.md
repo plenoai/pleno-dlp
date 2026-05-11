@@ -163,6 +163,21 @@ Anything merged to `main` since v0.42.0.
   Profile-fetch failure (403, network) is tolerated silently — the
   whoami call has already verified the token; triage just gets less
   context.
+- **PagerDuty token blast-radius enrichment** (driftwood port). The
+  PagerDuty detector now hits `/users/me` first (which works only
+  for User API keys, created by a real user) and falls back to
+  `/users` for General Access (account-scoped) tokens. ExtraData
+  on a verified hit:
+  - `pd_token_kind` ∈ {`user`, `general-access`}
+  - User-scoped: `pd_user_id`, `pd_user_name`, `pd_user_email`,
+    `pd_user_role`. `pd_privileged="true"` when role is `admin`,
+    `account_owner`, `owner`, `global_admin`, or `team_responder`
+    (each can mutate account-wide configuration).
+  - General-access: always marked `pd_privileged="true"` because
+    these tokens are account-scoped — no user attached, full API
+    surface.
+  401/403 short-circuits without falling back, so a clearly-bad
+  token doesn't waste a second request.
 
 ## [0.42.0] — 2026-05-12
 
