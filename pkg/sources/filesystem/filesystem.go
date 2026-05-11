@@ -58,7 +58,19 @@ type Source struct {
 // commonExcludes are skipped by default. Users can opt back in with
 // DisableDefaultExcludes. Each entry matches a directory or file name
 // (NOT a path) so a glob deep in the tree still applies.
+//
+// Two flavours live here side-by-side:
+//   - directory basenames (.git, node_modules, vendor, …) — pruned via
+//     fs.SkipDir before walking children, so they cost zero on cold paths.
+//   - file basenames and globs (package-lock.json, *.min.js, *.map) —
+//     these are dense streams of sha256/integrity hashes and minifier
+//     output that sail past the generic high-entropy detector (entropy
+//     ≥ 4.0) and were the dominant source of FP noise observed in real
+//     scans. Excluded by default because nobody ships secrets in a
+//     lockfile or a minified bundle; users who want them can opt back in
+//     with DisableDefaultExcludes.
 var commonExcludes = []string{
+	// VCS / build / language sandboxes — directory basenames.
 	".git",
 	".hg",
 	".svn",
@@ -70,6 +82,25 @@ var commonExcludes = []string{
 	"__pycache__",
 	".venv",
 	".tox",
+	// Lockfiles. Hash-heavy, ship no real secrets, and dominate FPs.
+	"package-lock.json",
+	"yarn.lock",
+	"pnpm-lock.yaml",
+	"Cargo.lock",
+	"go.sum",
+	"Pipfile.lock",
+	"poetry.lock",
+	"composer.lock",
+	"Gemfile.lock",
+	"mix.lock",
+	"Podfile.lock",
+	// Minified bundles and sourcemaps — entropy-dense by construction.
+	// Globs are evaluated via filepath.Match against the basename in
+	// excluded(); the same code path that already supports `*.env`.
+	"*.min.js",
+	"*.min.css",
+	"*.map",
+	"*.bundle.js",
 }
 
 func (s *Source) Type() sources.SourceType { return sources.SourceFilesystem }
