@@ -86,3 +86,97 @@ func TestVerify_Unauthorized(t *testing.T) {
 		t.Fatal("expected verified=false")
 	}
 }
+
+func TestFromData_VerifyEnrichesNameAndOrg(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/validate":
+			w.WriteHeader(http.StatusOK)
+		case "/api/v1/api_key/" + dummyAPI:
+			_, _ = w.Write([]byte(`{"api_key":{
+			  "name":"production-monitor",
+			  "created_by":"sre@example.com"
+			}}`))
+		case "/api/v1/org":
+			_, _ = w.Write([]byte(`{"orgs":[
+			  {"name":"Acme Corp Production","public_id":"abc12345"}
+			]}`))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	body := []byte("DD_API_KEY=" + dummyAPI + "\nDD_APP_KEY=" + dummyAPP)
+	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	if !res[0].Verified {
+		t.Fatalf("expected Verified=true")
+	}
+	want := map[string]string{
+		"dd_api_key_name":       "production-monitor",
+		"dd_api_key_created_by": "sre@example.com",
+		"dd_org_names":          "Acme Corp Production",
+		"dd_org_public_id":      "abc12345",
+	}
+	for k, v := range want {
+		if res[0].ExtraData[k] != v {
+			t.Errorf("ExtraData[%q] = %q, want %q", k, res[0].ExtraData[k], v)
+		}
+	}
+}
+
+func TestFromData_VerifyTolerantOfEnrichmentFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/validate":
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	body := []byte("DD_API_KEY=" + dummyAPI + "\nDD_APP_KEY=" + dummyAPP)
+	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	if !res[0].Verified {
+		t.Fatalf("expected Verified=true even when enrichment endpoints 403")
+	}
+	if _, ok := res[0].ExtraData["dd_api_key_name"]; ok {
+		t.Errorf("dd_api_key_name must be absent on enrichment 403")
+	}
+	if _, ok := res[0].ExtraData["dd_org_names"]; ok {
+		t.Errorf("dd_org_names must be absent on enrichment 403")
+	}
+}
+
+func TestFromData_VerifyMultipleOrgsJoined(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/validate":
+			w.WriteHeader(http.StatusOK)
+		case "/api/v1/api_key/" + dummyAPI:
+			w.WriteHeader(http.StatusForbidden)
+		case "/api/v1/org":
+			_, _ = w.Write([]byte(`{"orgs":[
+			  {"name":"Zeta Sub","public_id":"z1"},
+			  {"name":"Acme Parent","public_id":"a1"}
+			]}`))
+		}
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	body := []byte("DD_API_KEY=" + dummyAPI + "\nDD_APP_KEY=" + dummyAPP)
+	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	if res[0].ExtraData["dd_org_names"] != "Acme Parent,Zeta Sub" {
+		t.Errorf("dd_org_names = %q, want sorted csv", res[0].ExtraData["dd_org_names"])
+	}
+}

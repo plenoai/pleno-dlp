@@ -192,6 +192,18 @@ Anything merged to `main` since v0.42.0.
     and the account is not suspended — the leaked token alone is
     full account access. This is the difference between "rotate the
     token" and "incident response".
+- **Datadog API/App key blast-radius enrichment** (driftwood port).
+  After `/api/v1/validate` succeeds the detector best-effort fetches
+  `/api/v1/api_key/<api>` (returns the friendly `name` and
+  `created_by` of the leaked key) and `/api/v1/org` (returns the org
+  name and public_id) and stamps `ExtraData` with
+  `dd_api_key_name`, `dd_api_key_created_by`, `dd_org_names`
+  (sorted csv on multi-org accounts), and `dd_org_public_id`. A
+  leaked Datadog key labelled "production-monitor" in org "Acme
+  Corp Production" is a different incident than one labelled
+  "dev-test" in "Acme Sandbox" — triagers no longer have to issue a
+  second API call to learn that. Enrichment failure (403, network)
+  is tolerated silently — verification has already succeeded.
 
 ## [0.42.0] — 2026-05-12
 
