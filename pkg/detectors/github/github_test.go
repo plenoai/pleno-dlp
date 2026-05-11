@@ -241,3 +241,134 @@ func TestRevoke_InterfaceSatisfied(t *testing.T) {
 	// removing the var block).
 	var _ detectors.Revoker = Scanner{}
 }
+
+func TestFromData_TokenTypeStamped(t *testing.T) {
+	body := dummyClassic + "\n" + dummyFine
+	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	if len(res) != 2 {
+		t.Fatalf("want 2, got %d", len(res))
+	}
+	got := map[string]string{}
+	for _, r := range res {
+		got[string(r.Raw)] = r.ExtraData["github_token_type"]
+	}
+	if got[dummyClassic] != "classic" {
+		t.Errorf("classic token_type = %q", got[dummyClassic])
+	}
+	if got[dummyFine] != "fine-grained" {
+		t.Errorf("fine-grained token_type = %q", got[dummyFine])
+	}
+}
+
+func TestFromData_VerifyEnrichesBlastRadius(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-OAuth-Scopes", "repo, read:org, workflow")
+		w.Header().Set("Github-Authentication-Token-Expiration", "2026-12-31 23:59:59 UTC")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"login":"alice","id":12345,"type":"User"}`)
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	res, err := Scanner{}.FromData(context.Background(), true, []byte(dummyClassic))
+	if err != nil {
+		t.Fatalf("FromData err: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("want 1, got %d", len(res))
+	}
+	r := res[0]
+	if !r.Verified {
+		t.Errorf("expected Verified=true")
+	}
+	if r.ExtraData["github_login"] != "alice" {
+		t.Errorf("login = %q", r.ExtraData["github_login"])
+	}
+	if r.ExtraData["github_user_id"] != "12345" {
+		t.Errorf("user_id = %q", r.ExtraData["github_user_id"])
+	}
+	if r.ExtraData["github_account_type"] != "User" {
+		t.Errorf("account_type = %q", r.ExtraData["github_account_type"])
+	}
+	if r.ExtraData["github_scopes"] != "repo,read:org,workflow" {
+		t.Errorf("scopes normalisation broken: %q", r.ExtraData["github_scopes"])
+	}
+	if r.ExtraData["github_privileged"] != "true" {
+		t.Errorf("privileged flag missing despite repo+workflow scopes")
+	}
+	if r.ExtraData["github_token_expiration"] == "" {
+		t.Errorf("token_expiration absent despite header set")
+	}
+}
+
+func TestFromData_VerifyNonPrivilegedScopes_NoFlag(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-OAuth-Scopes", "read:user, read:org")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"login":"bob","id":1}`)
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyClassic))
+	if _, ok := res[0].ExtraData["github_privileged"]; ok {
+		t.Errorf("privileged flag must not be set for read-only scopes: %v", res[0].ExtraData)
+	}
+}
+
+func TestVerifyWithMetadata_UnauthorizedNoMeta(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	verified, meta, err := verifyWithMetadata(context.Background(), dummyClassic)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if verified {
+		t.Errorf("verified must be false on 401")
+	}
+	if len(meta) != 0 {
+		t.Errorf("meta must be empty on 401, got %v", meta)
+	}
+}
+
+func TestTokenType(t *testing.T) {
+	cases := map[string]string{
+		"ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":            "classic",
+		"github_pat_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "fine-grained",
+		"gho_aaaaa": "oauth",
+		"ghu_aaaaa": "user-to-server",
+		"ghs_aaaaa": "server-to-server",
+		"ghr_aaaaa": "refresh",
+		"random":    "unknown",
+	}
+	for in, want := range cases {
+		if got := tokenType(in); got != want {
+			t.Errorf("tokenType(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestHasPrivilegedScope(t *testing.T) {
+	if !hasPrivilegedScope("repo,read:user") {
+		t.Errorf("repo should be privileged")
+	}
+	if hasPrivilegedScope("read:user,read:org") {
+		t.Errorf("read-only must not be privileged")
+	}
+	if hasPrivilegedScope("") {
+		t.Errorf("empty must not be privileged")
+	}
+	if !hasPrivilegedScope("admin:org") {
+		t.Errorf("admin:org should be privileged")
+	}
+}

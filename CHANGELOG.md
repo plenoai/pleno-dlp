@@ -31,6 +31,21 @@ Anything merged to `main` since v0.42.0.
     `google`, `auth0`, `okta`, `firebase`, `aws-cognito`, `azure-ad`,
     `atlassian`, `slack`. Tenant subdomains match by suffix
     (`<tenant>.auth0.com`, `<tenant>.okta.com`).
+- **GitHub PAT blast-radius enrichment.** The `GitHub` detector
+  graduates Verify from a bare 200/401 check to a metadata-bearing
+  call. New ExtraData when verified:
+  - `github_token_type` — classic | fine-grained | oauth |
+    user-to-server | server-to-server | refresh, derived from prefix
+  - `github_login`, `github_user_id`, `github_account_type`
+  - `github_scopes` — normalised, comma-joined `X-OAuth-Scopes` header
+  - `github_token_expiration` — `Github-Authentication-Token-Expiration`
+    header (fine-grained PATs and SAML-enforced classic PATs)
+  - `github_privileged="true"` when scopes include any of `repo`,
+    `delete_repo`, `admin:org`, `admin:enterprise`, `admin:repo_hook`,
+    `admin:org_hook`, `write:packages`, `workflow`, `site_admin` —
+    same Critical bucket but triage-sortable by impact.
+  - Same driftwood-style "what does this credential actually unlock"
+    pattern previously shipped for `PrivateKeyPEM`.
 
 ## [0.42.0] — 2026-05-12
 
