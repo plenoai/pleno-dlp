@@ -30,8 +30,10 @@ Anything merged to `main` since v0.41.0.
   `US_SSN`, …); `ExtraData["finding_class"]="pii"` is unchanged so
   downstream routing on finding class continues to work. The engine
   is spawned via the new `pleno-dlp pii-server` subcommand, which
-  shells out to `uvx`; the prerequisite is `uvx` on `PATH` and
-  Python 3.12+. Docker is no longer used (ADR-0003 supersedes
+  shells out to `uv` (`uv sync` + `uv run`) against a cached clone
+  of the upstream repo; the prerequisite is `uv` and Python 3.12+
+  on `PATH`, plus `git` when `--source` is a `git+` URL (the
+  default). Docker is no longer used (ADR-0003 supersedes
   ADR-0002's earlier Docker recommendation).
 
 ### Added
@@ -45,17 +47,29 @@ Anything merged to `main` since v0.41.0.
   preserve the original intent — see
   `docs/recipes/allowlist-patterns.md` for the migration shape.
 - `pleno-dlp pii-server` subcommand. Foreground-runs the
-  pleno-anonymize HTTP server via `uvx --from
-  git+https://github.com/plenoai/pleno-anonymize.git#subdirectory=server
-  uvicorn app:app --host 127.0.0.1 --port <port>`. Used
-  internally as the default spawn target for `--pii-engine=anonymize`;
-  also runnable directly for ad-hoc local use. Flags: `--port`
-  (`0` = ephemeral; resolved port is printed to stdout in the
-  `pii-server: listening on HOST:PORT` form), `--host` (loopback /
-  RFC1918 / link-local only — refuses `0.0.0.0`), `--git-ref` (pin
-  to a tag/branch/sha), `--source` (override the uvx `--from` spec
-  for a local checkout). Pre-flight LookPath verifies `uvx` is
-  installed and emits a targeted "install uv" hint when it's not.
+  pleno-anonymize HTTP server by cloning the upstream repo into a
+  cache dir, running `uv sync --frozen --no-dev --package
+  pleno-anonymize-server` (workspace-aware so the server's
+  `[tool.uv.sources] pleno-anonymize = { workspace = true }`
+  declaration resolves against the sibling SDK), installing the
+  three NER model wheels that `uv.lock` cannot pin (spaCy +
+  ja-ner-ja + en-ner-en, hosted off PyPI), and finally `uv run
+  --no-sync --package pleno-anonymize-server uvicorn
+  server.src.app:app`. Used internally as the default spawn target
+  for `--pii-engine=anonymize`; also runnable directly for ad-hoc
+  local use. Flags: `--port` (`0` = ephemeral; resolved port is
+  printed to stdout in the `pii-server: listening on HOST:PORT`
+  form), `--host` (loopback / RFC1918 / link-local only — refuses
+  `0.0.0.0`), `--git-ref` (clone / checkout target ref), `--source`
+  (`git+` URL or a local workspace-root path), `--cache-dir`
+  (defaults to `<os.UserCacheDir>/pleno-dlp/pleno-anonymize`;
+  override via `PLENO_DLP_ANONYMIZE_CACHE` env), `--no-fetch`
+  (use the existing checkout as-is — offline / reproducible runs).
+  Pre-flight LookPath verifies `uv` is installed and emits a
+  targeted "install uv" hint when it's not. The supervisor's
+  ready-poll fast-fails on child exit via the new `ErrEngineExited`
+  sentinel, so misconfigured spawns surface in milliseconds instead
+  of burning the full `--pii-engine-ready-timeout` budget.
 
 ## [0.40.0] — 2026-05-10
 
