@@ -11,6 +11,19 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.43.0.
 
+### Changed
+
+- **SARIF: per-result `security-severity=9.5` for blast_radius
+  findings.** GitHub Code Scanning sorts and prioritises findings
+  by `properties.security-severity` (a CVSS-shaped 0-10 score).
+  Previously every secret rule used the rule-level `9.0`. Now
+  results carrying the engine's `blast_radius=true` rollup
+  (driftwood-pattern `*_privileged` / `*_high_value` /
+  `*_high_risk`) get a per-result override of `9.5`, so a leaked
+  admin-scoped token sorts above a leaked read-only one when both
+  are critical-by-class. Findings without `blast_radius` keep the
+  rule's `9.0` default.
+
 ## [0.43.0] — 2026-05-12
 
 ### Added
