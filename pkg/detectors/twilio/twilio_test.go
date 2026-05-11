@@ -91,3 +91,135 @@ func TestVerify_Unauthorized(t *testing.T) {
 		t.Fatal("expected verified=false")
 	}
 }
+
+func TestFromData_VerifyEnrichesFullActive(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+		  "friendly_name": "Acme Production",
+		  "status": "active",
+		  "type": "Full",
+		  "owner_account_sid": "` + dummySID + `",
+		  "date_created": "Mon, 01 Jan 2024 00:00:00 +0000"
+		}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	body := []byte("TWILIO_SID=" + dummySID + "\nTWILIO_TOKEN=" + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	if !res[0].Verified {
+		t.Fatalf("expected Verified=true")
+	}
+	want := map[string]string{
+		"twilio_friendly_name":  "Acme Production",
+		"twilio_account_status": "active",
+		"twilio_account_type":   "Full",
+		"twilio_high_value":     "true",
+	}
+	for k, v := range want {
+		if res[0].ExtraData[k] != v {
+			t.Errorf("ExtraData[%q] = %q, want %q", k, res[0].ExtraData[k], v)
+		}
+	}
+	if _, ok := res[0].ExtraData["twilio_subaccount"]; ok {
+		t.Errorf("twilio_subaccount must be absent when owner == sid")
+	}
+	if _, ok := res[0].ExtraData["twilio_owner_sid"]; ok {
+		t.Errorf("twilio_owner_sid must be absent when owner == sid")
+	}
+}
+
+func TestFromData_VerifyTrialNotHighValue(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+		  "friendly_name": "demo",
+		  "status": "active",
+		  "type": "Trial",
+		  "owner_account_sid": "` + dummySID + `"
+		}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	body := []byte(dummySID + " " + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	if !res[0].Verified {
+		t.Fatalf("expected Verified=true")
+	}
+	if _, ok := res[0].ExtraData["twilio_high_value"]; ok {
+		t.Errorf("Trial account must never be high_value")
+	}
+	if res[0].ExtraData["twilio_account_type"] != "Trial" {
+		t.Errorf("twilio_account_type = %q, want Trial", res[0].ExtraData["twilio_account_type"])
+	}
+}
+
+func TestFromData_VerifyInactiveNotHighValue(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+		  "status": "suspended",
+		  "type": "Full"
+		}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	body := []byte(dummySID + " " + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	if _, ok := res[0].ExtraData["twilio_high_value"]; ok {
+		t.Errorf("suspended Full account must not be high_value")
+	}
+	if res[0].ExtraData["twilio_account_status"] != "suspended" {
+		t.Errorf("twilio_account_status = %q, want suspended", res[0].ExtraData["twilio_account_status"])
+	}
+}
+
+func TestFromData_VerifySubaccountFlagged(t *testing.T) {
+	const parentSID = "ACfedcba9876543210fedcba9876543210"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+		  "friendly_name": "sub",
+		  "status": "active",
+		  "type": "Full",
+		  "owner_account_sid": "` + parentSID + `"
+		}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	body := []byte(dummySID + " " + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	if res[0].ExtraData["twilio_subaccount"] != "true" {
+		t.Errorf("expected twilio_subaccount=true")
+	}
+	if res[0].ExtraData["twilio_owner_sid"] != parentSID {
+		t.Errorf("twilio_owner_sid = %q, want %q", res[0].ExtraData["twilio_owner_sid"], parentSID)
+	}
+}
+
+func TestIsHighRisk(t *testing.T) {
+	cases := []struct {
+		accType, status string
+		want            bool
+	}{
+		{"Full", "active", true},
+		{"full", "ACTIVE", true},
+		{"Full", "suspended", false},
+		{"Trial", "active", false},
+		{"Full", "closed", false},
+		{"", "", false},
+	}
+	for _, c := range cases {
+		if got := isHighRisk(c.accType, c.status); got != c.want {
+			t.Errorf("isHighRisk(%q,%q) = %v, want %v", c.accType, c.status, got, c.want)
+		}
+	}
+}
