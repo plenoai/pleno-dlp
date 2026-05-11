@@ -85,3 +85,104 @@ func TestVerify_Unauthorized(t *testing.T) {
 		t.Fatal("expected verified=false")
 	}
 }
+
+func TestFromData_VerifyUserScopedAdmin(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/users/me" {
+			t.Errorf("expected /users/me, got %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"user":{
+		  "id":"P12345","name":"Alice Operator",
+		  "email":"alice@example.com","role":"admin"
+		}}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	res, _ := Scanner{}.FromData(context.Background(), true, []byte("PD_API_KEY="+dummy))
+	if !res[0].Verified {
+		t.Fatalf("expected Verified=true")
+	}
+	want := map[string]string{
+		"pd_token_kind": "user",
+		"pd_user_id":    "P12345",
+		"pd_user_name":  "Alice Operator",
+		"pd_user_email": "alice@example.com",
+		"pd_user_role":  "admin",
+		"pd_privileged": "true",
+	}
+	for k, v := range want {
+		if res[0].ExtraData[k] != v {
+			t.Errorf("ExtraData[%q] = %q, want %q", k, res[0].ExtraData[k], v)
+		}
+	}
+}
+
+func TestFromData_VerifyUserScopedReadOnlyNotPrivileged(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"user":{"id":"P9","name":"Bob","email":"b@x","role":"observer"}}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	res, _ := Scanner{}.FromData(context.Background(), true, []byte("PD_API_KEY="+dummy))
+	if res[0].ExtraData["pd_user_role"] != "observer" {
+		t.Errorf("pd_user_role = %q, want observer", res[0].ExtraData["pd_user_role"])
+	}
+	if _, ok := res[0].ExtraData["pd_privileged"]; ok {
+		t.Errorf("observer must not be marked privileged")
+	}
+}
+
+func TestFromData_VerifyGeneralAccessFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/users/me":
+			// General Access tokens 404 here (no associated user).
+			w.WriteHeader(http.StatusNotFound)
+		case "/users":
+			_, _ = w.Write([]byte(`{"users":[]}`))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	res, _ := Scanner{}.FromData(context.Background(), true, []byte("PD_API_KEY="+dummy))
+	if !res[0].Verified {
+		t.Fatalf("expected Verified=true via /users fallback")
+	}
+	if res[0].ExtraData["pd_token_kind"] != "general-access" {
+		t.Errorf("pd_token_kind = %q, want general-access", res[0].ExtraData["pd_token_kind"])
+	}
+	if res[0].ExtraData["pd_privileged"] != "true" {
+		t.Errorf("general-access tokens must be marked privileged")
+	}
+}
+
+func TestFromData_VerifyForbiddenStopsImmediately(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	res, _ := Scanner{}.FromData(context.Background(), true, []byte("PD_API_KEY="+dummy))
+	if res[0].Verified {
+		t.Errorf("expected verified=false on 403")
+	}
+	if calls != 1 {
+		t.Errorf("403 must short-circuit, but server saw %d calls (expected 1)", calls)
+	}
+}
