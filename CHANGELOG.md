@@ -204,6 +204,18 @@ Anything merged to `main` since v0.42.0.
   "dev-test" in "Acme Sandbox" — triagers no longer have to issue a
   second API call to learn that. Enrichment failure (403, network)
   is tolerated silently — verification has already succeeded.
+- **DigitalOcean PAT blast-radius enrichment** (driftwood port).
+  The DigitalOcean detector now decodes `/v2/account` on a verified
+  hit and stamps `ExtraData` with the account identity and the
+  signals that determine billing-fraud surface:
+  `do_email`, `do_user_uuid`, `do_status`, `do_email_verified`,
+  `do_droplet_limit`, `do_floating_ip_limit`, `do_team_name`,
+  `do_team_uuid`. `do_account_locked="true"` when status is
+  `locked`. `do_high_risk="true"` when status is `active` AND email
+  is verified — only such accounts can spin up droplets, which
+  translates directly to crypto-mining / DDoS-source / billing-fraud
+  capability. Locked or unverified accounts stay out of the
+  high-risk bucket.
 
 ## [0.42.0] — 2026-05-12
 
