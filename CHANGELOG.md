@@ -118,6 +118,22 @@ Anything merged to `main` since v0.42.0.
   relationships and therefore SMS/voice fraud capability; Trial and
   suspended accounts are containable. Same Critical bucket but
   triage-sortable by impact.
+- **SendGrid API-key blast-radius enrichment** (driftwood port). The
+  SendGrid detector now decodes the `/v3/scopes` response on a
+  verified hit and stamps `ExtraData` with what the key actually
+  unlocks: `sendgrid_scopes` (sorted comma-joined),
+  `sendgrid_key_kind` ∈ {`full-access`, `restricted`,
+  `billing-or-empty`} (Full Access is detected by the unforgeable
+  combo `api_keys.create` + `billing.read` + `user.email.update`),
+  and `sendgrid_privileged="true"` + `sendgrid_privileged_scopes`
+  (csv) when scopes include any of `mail.send`, `mail.batch.create`,
+  `mail.batch.update`, `marketing.send`, `marketing.automation.send`,
+  `api_keys.{create,update,delete}`, `subusers.{create,delete}`,
+  `billing.update`, `sso.settings.update`,
+  `user.{account,email}.update`, `partner_settings.update`, or
+  `user.webhooks.{event,parse}.settings`. A leaked SendGrid key with
+  `mail.send` is direct email-fraud capability — same Critical
+  bucket but triage-sortable by impact.
 
 ## [0.42.0] — 2026-05-12
 
