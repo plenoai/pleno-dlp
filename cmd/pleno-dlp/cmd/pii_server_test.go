@@ -43,46 +43,53 @@ func TestValidatePIIServerHost(t *testing.T) {
 	}
 }
 
-func TestApplyGitRef(t *testing.T) {
+func TestStripGitURLPrefix(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		source string
-		ref    string
-		want   string
+		in      string
+		want    string
+		wantErr bool
 	}{
-		// no ref → unchanged
-		{"git+https://host/p.git", "", "git+https://host/p.git"},
-		// bare git URL
-		{"git+https://host/p.git", "v1.0", "git+https://host/p.git@v1.0"},
-		// fragment preserved
-		{"git+https://host/p.git#subdirectory=server", "v1.0", "git+https://host/p.git@v1.0#subdirectory=server"},
-		// local path: ref dropped silently
-		{"/abs/path", "v1.0", "/abs/path"},
-		{"./rel", "v1.0", "./rel"},
-		// already pinned: replace
-		{"git+https://host/p.git@oldref#subdirectory=server", "newref", "git+https://host/p.git@newref#subdirectory=server"},
-		// scheme @ vs path-segment @ — only the post-:// @ is treated as a ref
-		{"git+https://user@host/p.git", "v1.0", "git+https://user@host/p.git@v1.0"},
+		{"git+https://github.com/plenoai/pleno-anonymize.git", "https://github.com/plenoai/pleno-anonymize.git", false},
+		// #subdirectory fragment dropped (legacy uvx form)
+		{"git+https://host/p.git#subdirectory=server", "https://host/p.git", false},
+		// @ref dropped (--git-ref is the sole ref control surface now)
+		{"git+https://host/p.git@v1.0", "https://host/p.git", false},
+		{"git+https://host/p.git@v1.0#subdirectory=server", "https://host/p.git", false},
+		// userinfo @ preserved (sits before the last /)
+		{"git+https://user@host/p.git", "https://user@host/p.git", false},
+		// non-git+ refused
+		{"https://host/p.git", "", true},
+		{"/local/path", "", true},
 	}
 	for _, c := range cases {
-		got := applyGitRef(c.source, c.ref)
+		got, err := stripGitURLPrefix(c.in)
+		if c.wantErr {
+			if err == nil {
+				t.Errorf("stripGitURLPrefix(%q) succeeded; want error", c.in)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("stripGitURLPrefix(%q) err=%v; want nil", c.in, err)
+			continue
+		}
 		if got != c.want {
-			t.Errorf("applyGitRef(%q,%q) = %q; want %q", c.source, c.ref, got, c.want)
+			t.Errorf("stripGitURLPrefix(%q) = %q; want %q", c.in, got, c.want)
 		}
 	}
 }
 
 func TestBuildPIIServerArgv(t *testing.T) {
 	t.Parallel()
-	got := buildPIIServerArgv("uvx", "git+https://host/p.git#subdirectory=server", "127.0.0.1", 41234)
+	got := buildPIIServerArgv("uv", "127.0.0.1", 41234)
 	want := []string{
-		"uvx",
-		"--from", "git+https://host/p.git#subdirectory=server",
+		"uv",
+		"run",
+		"--no-sync",
+		"--package", "pleno-anonymize-server",
 		"uvicorn",
-		// `app:app`, not `server.src.app:app` — the uvx-resolved venv
-		// publishes the FastAPI app at top-level module `app`. See
-		// buildPIIServerArgv's doc comment for the regression context.
-		"app:app",
+		"server.src.app:app",
 		"--host", "127.0.0.1",
 		"--port", "41234",
 	}
@@ -107,42 +114,199 @@ func TestPickEphemeralPort(t *testing.T) {
 	}
 }
 
-// TestRunPIIServer_FakeUvx exercises the full subcommand RunE with a
-// fake uvx binary that prints its argv and exits. This lets us verify
-// the pre-flight + argv assembly + signal wiring without depending
-// on the real uv toolchain.
-//
-// Skipped on platforms where building a shebang script at test time
-// is awkward (notably Windows). The team's CI is Linux/macOS, so the
-// skip is not a coverage gap.
-func TestRunPIIServer_FakeUvx(t *testing.T) {
+func TestResolveCacheDir(t *testing.T) {
+	// Flag wins over env wins over UserCacheDir. The fallback path
+	// always lands inside whatever os.UserCacheDir returns; we
+	// don't second-guess it because that would mean reimplementing
+	// stdlib platform logic.
+	t.Setenv("PLENO_DLP_ANONYMIZE_CACHE", "/tmp/env-cache")
+
+	got, err := resolveCacheDir("/explicit/flag")
+	if err != nil {
+		t.Fatalf("resolveCacheDir flag: %v", err)
+	}
+	if got != "/explicit/flag" {
+		t.Errorf("flag override: got %q", got)
+	}
+
+	got, err = resolveCacheDir("")
+	if err != nil {
+		t.Fatalf("resolveCacheDir env: %v", err)
+	}
+	if got != "/tmp/env-cache" {
+		t.Errorf("env override: got %q", got)
+	}
+
+	t.Setenv("PLENO_DLP_ANONYMIZE_CACHE", "")
+	got, err = resolveCacheDir("")
+	if err != nil {
+		t.Fatalf("resolveCacheDir default: %v", err)
+	}
+	if !strings.HasSuffix(filepath.ToSlash(got), "/pleno-dlp/pleno-anonymize") {
+		t.Errorf("default suffix: got %q", got)
+	}
+}
+
+func TestPrepareWorkdir_LocalPath(t *testing.T) {
+	dir := t.TempDir()
+	workdir, fresh, err := prepareWorkdir(context.Background(), prepareInput{
+		source: dir,
+	})
+	if err != nil {
+		t.Fatalf("prepareWorkdir: %v", err)
+	}
+	abs, _ := filepath.Abs(dir)
+	if workdir != abs {
+		t.Errorf("workdir=%q want %q", workdir, abs)
+	}
+	if fresh {
+		t.Errorf("fresh should be false for local path")
+	}
+}
+
+func TestPrepareWorkdir_LocalPathMustExist(t *testing.T) {
+	_, _, err := prepareWorkdir(context.Background(), prepareInput{
+		source: "/definitely/not/a/real/path/xyzzy",
+	})
+	if err == nil {
+		t.Fatal("expected error for nonexistent local source")
+	}
+}
+
+// TestPrepareWorkdir_GitClone_FakeGit drives the clone path with a
+// fake `git` binary. The fake records its argv to a file inside the
+// target cache dir AND creates the `.git` subdir so the warm-cache
+// branch fires correctly on a second invocation.
+func TestPrepareWorkdir_GitClone_FakeGit(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake-script test relies on POSIX exec semantics")
 	}
 	dir := t.TempDir()
-	fakeUvx := filepath.Join(dir, "uvx")
-	// The fake prints its argv to stdout (so the test can assert
-	// the supervisor's argv shape) and exits 0 immediately. A
-	// successful uvx normally blocks on uvicorn; we don't need
-	// that here because we're testing the wiring up to exec, not
-	// the long-running server.
-	body := "#!/bin/sh\necho \"FAKE_UVX_ARGS:$*\"\nexit 0\n"
-	if err := os.WriteFile(fakeUvx, []byte(body), 0o755); err != nil {
-		t.Fatalf("write fake uvx: %v", err)
+	cache := filepath.Join(dir, "cache")
+
+	fakeGit := filepath.Join(dir, "git")
+	// `git clone --depth 1 [--branch ref] url dst` → mkdir dst/.git, drop a marker.
+	// `git fetch ...`  → record argv.
+	// `git checkout ...` → record argv.
+	body := `#!/bin/sh
+set -e
+sub="$1"
+case "$sub" in
+clone)
+  # last arg is destination
+  for a in "$@"; do dst="$a"; done
+  mkdir -p "$dst/.git"
+  echo "FAKE_GIT_CLONE: $*" > "$dst/.git/last-clone"
+  ;;
+fetch|checkout)
+  echo "FAKE_GIT_$sub: $*" >> .git/last-args 2>/dev/null || true
+  ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(fakeGit, []byte(body), 0o755); err != nil {
+		t.Fatalf("write fake git: %v", err)
+	}
+	prevGit := gitBin
+	gitBin = fakeGit
+	t.Cleanup(func() { gitBin = prevGit })
+
+	// First call: cold cache → clone → freshCheckout=true.
+	work, fresh, err := prepareWorkdir(context.Background(), prepareInput{
+		source:   "git+https://example.com/p.git",
+		gitRef:   "v1.2.3",
+		cacheDir: cache,
+		stderr:   &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatalf("prepareWorkdir cold: %v", err)
+	}
+	if work != cache {
+		// resolveCacheDir abs-converts; on macOS /tmp resolves through /private/tmp.
+		absCache, _ := filepath.Abs(cache)
+		if work != absCache {
+			t.Errorf("workdir=%q want %q (or %q)", work, cache, absCache)
+		}
+	}
+	if !fresh {
+		t.Errorf("expected fresh=true on cold clone")
+	}
+	marker, err := os.ReadFile(filepath.Join(cache, ".git", "last-clone"))
+	if err != nil {
+		t.Fatalf("clone marker: %v", err)
+	}
+	if !strings.Contains(string(marker), "--branch v1.2.3") {
+		t.Errorf("expected --branch in fake git invocation, got %q", marker)
 	}
 
-	prevBin := uvxBin
-	uvxBin = fakeUvx
-	defer func() { uvxBin = prevBin }()
+	// Second call without --no-fetch: warm cache → fetch+checkout.
+	_, fresh2, err := prepareWorkdir(context.Background(), prepareInput{
+		source:   "git+https://example.com/p.git",
+		gitRef:   "main",
+		cacheDir: cache,
+		stderr:   &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatalf("prepareWorkdir warm: %v", err)
+	}
+	if !fresh2 {
+		// Per the contract, every successful fetch counts as fresh
+		// because we can't cheaply detect whether HEAD actually moved.
+		t.Errorf("expected fresh=true after fetch")
+	}
 
-	// Reset flag state between tests in this package.
+	// Third call with --no-fetch: warm cache → no-op.
+	_, fresh3, err := prepareWorkdir(context.Background(), prepareInput{
+		source:   "git+https://example.com/p.git",
+		cacheDir: cache,
+		noFetch:  true,
+		stderr:   &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatalf("prepareWorkdir no-fetch: %v", err)
+	}
+	if fresh3 {
+		t.Errorf("expected fresh=false with --no-fetch")
+	}
+}
+
+// TestRunPIIServer_FakeUv exercises the full subcommand RunE with
+// fake `uv` and `git` binaries. This lets us verify the pre-flight +
+// argv assembly + workdir + signal wiring without depending on the
+// real uv toolchain.
+func TestRunPIIServer_FakeUv(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake-script test relies on POSIX exec semantics")
+	}
+	dir := t.TempDir()
+	fakeUv := filepath.Join(dir, "uv")
+	fakeGit := filepath.Join(dir, "git")
+
+	// Fake `uv` records every argv to stdout and exits 0. uvicorn
+	// would normally block on serving, but we don't need it to —
+	// we're testing wiring up to exec, not the long-running server.
+	uvBody := "#!/bin/sh\necho \"FAKE_UV_ARGS:$*\"\nexit 0\n"
+	if err := os.WriteFile(fakeUv, []byte(uvBody), 0o755); err != nil {
+		t.Fatalf("write fake uv: %v", err)
+	}
+	gitBody := "#!/bin/sh\nfor a in \"$@\"; do dst=\"$a\"; done\n[ \"$1\" = clone ] && mkdir -p \"$dst/.git\"\nexit 0\n"
+	if err := os.WriteFile(fakeGit, []byte(gitBody), 0o755); err != nil {
+		t.Fatalf("write fake git: %v", err)
+	}
+
+	prevUv, prevGit := uvBin, gitBin
+	uvBin, gitBin = fakeUv, fakeGit
+	t.Cleanup(func() { uvBin, gitBin = prevUv, prevGit })
+
+	cache := filepath.Join(dir, "cache")
 	prevOpts := piiServerOpts
 	piiServerOpts = piiServerFlags{
-		port:   41234,
-		host:   "127.0.0.1",
-		source: "git+https://host/p.git#subdirectory=server",
+		port:     41234,
+		host:     "127.0.0.1",
+		source:   "git+https://example.com/p.git",
+		cacheDir: cache,
 	}
-	defer func() { piiServerOpts = prevOpts }()
+	t.Cleanup(func() { piiServerOpts = prevOpts })
 
 	cmd := piiServerCmd
 	var stdout, stderr bytes.Buffer
@@ -158,8 +322,11 @@ func TestRunPIIServer_FakeUvx(t *testing.T) {
 	if !strings.Contains(out, "pii-server: listening on 127.0.0.1:41234") {
 		t.Errorf("stdout missing listening line: %q", out)
 	}
-	if !strings.Contains(out, "FAKE_UVX_ARGS:--from git+https://host/p.git#subdirectory=server uvicorn app:app --host 127.0.0.1 --port 41234") {
-		t.Errorf("stdout missing fake-uvx argv echo: %q", out)
+	// The final exec'd command should be the `uv run` invocation —
+	// fake-uv echoes the argv to stdout, so we can grep for the
+	// uvicorn target shape.
+	if !strings.Contains(out, "FAKE_UV_ARGS:run --no-sync --package pleno-anonymize-server uvicorn server.src.app:app --host 127.0.0.1 --port 41234") {
+		t.Errorf("stdout missing fake-uv argv echo: %q", out)
 	}
 }
 
@@ -169,7 +336,7 @@ func TestRunPIIServer_FakeUvx(t *testing.T) {
 func TestRunPIIServer_RejectsPublicHost(t *testing.T) {
 	prevOpts := piiServerOpts
 	piiServerOpts = piiServerFlags{port: 12345, host: "0.0.0.0"}
-	defer func() { piiServerOpts = prevOpts }()
+	t.Cleanup(func() { piiServerOpts = prevOpts })
 
 	cmd := piiServerCmd
 	cmd.SetOut(&bytes.Buffer{})
@@ -181,39 +348,39 @@ func TestRunPIIServer_RejectsPublicHost(t *testing.T) {
 	}
 }
 
-// TestRunPIIServer_MissingUvx verifies the pre-flight emits a
+// TestRunPIIServer_MissingUv verifies the pre-flight emits a
 // targeted install-uv message when the binary is not on PATH.
-func TestRunPIIServer_MissingUvx(t *testing.T) {
-	prevBin := uvxBin
-	uvxBin = "definitely-not-on-path-xyzzy-uvx"
-	defer func() { uvxBin = prevBin }()
+func TestRunPIIServer_MissingUv(t *testing.T) {
+	prevBin := uvBin
+	uvBin = "definitely-not-on-path-xyzzy-uv"
+	t.Cleanup(func() { uvBin = prevBin })
 	prevOpts := piiServerOpts
 	piiServerOpts = piiServerFlags{port: 12345, host: "127.0.0.1"}
-	defer func() { piiServerOpts = prevOpts }()
+	t.Cleanup(func() { piiServerOpts = prevOpts })
 
 	cmd := piiServerCmd
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetContext(context.Background())
 	err := runPIIServer(cmd, nil)
-	if err == nil || !strings.Contains(err.Error(), "uvx") {
-		t.Errorf("expected uvx-missing error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "uv") {
+		t.Errorf("expected uv-missing error, got %v", err)
 	}
 }
 
-// TestRealUvxAvailable is a smoke test that runs only when uvx is
+// TestRealUvAvailable is a smoke test that runs only when uv is
 // genuinely on PATH. It verifies the version flag works — enough to
 // catch a regression in our argv construction without paying the
-// cost of a full `uvx --from <git>` cold start in unit tests.
-func TestRealUvxAvailable(t *testing.T) {
-	if _, err := exec.LookPath("uvx"); err != nil {
-		t.Skip("uvx not on PATH; skipping real-uvx smoke test")
+// cost of a full `uv sync` cold start in unit tests.
+func TestRealUvAvailable(t *testing.T) {
+	if _, err := exec.LookPath("uv"); err != nil {
+		t.Skip("uv not on PATH; skipping real-uv smoke test")
 	}
-	out, err := exec.Command("uvx", "--version").CombinedOutput()
+	out, err := exec.Command("uv", "--version").CombinedOutput()
 	if err != nil {
-		t.Fatalf("uvx --version: %v (%s)", err, out)
+		t.Fatalf("uv --version: %v (%s)", err, out)
 	}
 	if !strings.Contains(strings.ToLower(string(out)), "uv") {
-		t.Errorf("uvx --version output unexpected: %s", out)
+		t.Errorf("uv --version output unexpected: %s", out)
 	}
 }
