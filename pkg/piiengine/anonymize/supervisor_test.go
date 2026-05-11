@@ -284,7 +284,7 @@ func TestPollReady_Timeout(t *testing.T) {
 	fe.readyAfter = time.Now().Add(time.Hour)
 
 	hc := &http.Client{Timeout: 500 * time.Millisecond}
-	err := pollReady(context.Background(), hc, fe.server.URL, 200*time.Millisecond)
+	err := pollReady(context.Background(), hc, fe.server.URL, 200*time.Millisecond, nil)
 	if !errors.Is(err, ErrReadyTimeout) {
 		t.Fatalf("expected ErrReadyTimeout, got %v", err)
 	}
@@ -295,7 +295,7 @@ func TestPollReady_BecomesReady(t *testing.T) {
 	fe.readyAfter = time.Now().Add(50 * time.Millisecond)
 
 	hc := &http.Client{Timeout: 500 * time.Millisecond}
-	if err := pollReady(context.Background(), hc, fe.server.URL, 2*time.Second); err != nil {
+	if err := pollReady(context.Background(), hc, fe.server.URL, 2*time.Second, nil); err != nil {
 		t.Fatalf("pollReady: %v", err)
 	}
 }
@@ -310,9 +310,43 @@ func TestPollReady_RespectsCallerContext(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 		cancel()
 	}()
-	err := pollReady(ctx, hc, fe.server.URL, 5*time.Second)
+	err := pollReady(ctx, hc, fe.server.URL, 5*time.Second, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+// TestPollReady_FastFailsOnChildExit asserts that closing the
+// childExited channel surfaces as ErrEngineExited within a tick,
+// not after the full ReadyTimeout. Without this, a misconfigured
+// engine (wrong import path, port-bind error, OOM mid-spaCy-load)
+// would burn the entire timeout budget before the supervisor's
+// engine wiring downgraded to skip-and-warn.
+func TestPollReady_FastFailsOnChildExit(t *testing.T) {
+	fe := newFakeEngine(t)
+	fe.readyAfter = time.Now().Add(time.Hour) // never ready
+
+	exited := make(chan struct{})
+	hc := &http.Client{Timeout: 500 * time.Millisecond}
+
+	// Close exited shortly after pollReady starts to model a child
+	// that crashed during cold start.
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		close(exited)
+	}()
+
+	start := time.Now()
+	err := pollReady(context.Background(), hc, fe.server.URL, 5*time.Second, exited)
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, ErrEngineExited) {
+		t.Fatalf("expected ErrEngineExited, got %v", err)
+	}
+	// Must return well before the 5s timeout — within a generous
+	// budget that absorbs CI scheduling jitter.
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("pollReady waited %v after child exit; expected fast-fail", elapsed)
 	}
 }
 

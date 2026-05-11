@@ -115,6 +115,11 @@ var (
 	// ErrReadyTimeout means /ready did not return 200 within
 	// Config.ReadyTimeout. The child is killed before this returns.
 	ErrReadyTimeout = errors.New("anonymize: engine /ready timeout")
+	// ErrEngineExited means the child process exited before /ready
+	// ever returned 200. Surfaced as a separate sentinel so callers
+	// can distinguish a slow start from a crashed start — otherwise
+	// every misconfigured spawn would burn the full ReadyTimeout.
+	ErrEngineExited = errors.New("anonymize: engine exited before /ready")
 	// ErrEngineFailed wraps a non-2xx response from /api/analyze.
 	// The HTTP body (truncated) is included in the wrapped message
 	// for log triage.

@@ -139,10 +139,11 @@ func (s *Supervisor) Start(ctx context.Context) error {
 		close(s.done)
 	}()
 
-	// Block until /ready returns 200. If the child crashes during
-	// startup, the next readyOnce attempt fails with connection
-	// refused; pollReady's deadline still bounds the wait.
-	if err := pollReady(ctx, s.hc, s.baseURL, s.cfg.ReadyTimeout); err != nil {
+	// Block until /ready returns 200. The done channel lets pollReady
+	// fast-fail if the child crashes during startup (ModuleNotFoundError,
+	// port-bind error, OOM, …) instead of waiting the full ReadyTimeout
+	// for connection-refused to keep timing out.
+	if err := pollReady(ctx, s.hc, s.baseURL, s.cfg.ReadyTimeout, s.done); err != nil {
 		// Best-effort tear-down. We ignore Stop's error because we
 		// already have a more meaningful one to return.
 		_ = s.Stop()

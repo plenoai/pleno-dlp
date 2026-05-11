@@ -8,7 +8,8 @@ import (
 )
 
 // pollReady polls baseURL+/ready until it returns 200, ctx cancels,
-// or deadline elapses. Returns nil on first success.
+// the child process exits, or deadline elapses. Returns nil on first
+// success.
 //
 // We poll /ready (not /health) because pleno-anonymize lazy-loads
 // spaCy + ja_ner_ja the first time the readiness probe is hit.
@@ -16,11 +17,18 @@ import (
 // returning from Start with /health green would race the first
 // Analyze call against model load and fail in confusing ways.
 //
+// childExited (when non-nil) lets the poll loop fail fast on a
+// crashing child rather than waiting the full ReadyTimeout. The
+// supervisor closes this channel in its cmd.Wait reaper goroutine,
+// so a mis-spawned engine (wrong argv, missing module, NER wheel
+// install crash) surfaces in milliseconds instead of after a 4-minute
+// timeout. Pass nil only in tests that don't model child lifecycle.
+//
 // Backoff is a fixed 100ms tick, not exponential. The whole loop
 // is bounded by ReadyTimeout (default 60s) so worst-case overhead
 // is ~600 polls, each a single TCP connect to localhost — the cost
 // is negligible compared to spaCy load itself.
-func pollReady(ctx context.Context, hc *http.Client, baseURL string, timeout time.Duration) error {
+func pollReady(ctx context.Context, hc *http.Client, baseURL string, timeout time.Duration, childExited <-chan struct{}) error {
 	if timeout <= 0 {
 		timeout = 60 * time.Second
 	}
@@ -55,12 +63,26 @@ func pollReady(ctx context.Context, hc *http.Client, baseURL string, timeout tim
 				return ctx.Err()
 			}
 			return ErrReadyTimeout
+		case <-childExitedChan(childExited):
+			// Child process Wait returned before /ready ever did —
+			// fail fast so callers see the real failure mode
+			// (ModuleNotFoundError, port-bind error, OOM, …) inside
+			// of a tick instead of after the full ReadyTimeout.
+			return ErrEngineExited
 		case <-tick.C:
 			if err := readyOnce(pollCtx, hc, baseURL); err == nil {
 				return nil
 			}
 		}
 	}
+}
+
+// childExitedChan normalises the optional childExited parameter so
+// pollReady's select doesn't need a runtime nil-check. A nil channel
+// blocks forever in a select, which is exactly the no-op behavior
+// we want for callers (mostly tests) that don't model child lifecycle.
+func childExitedChan(c <-chan struct{}) <-chan struct{} {
+	return c
 }
 
 // readyOnce performs one /ready GET. Errors are intentionally swallowed
