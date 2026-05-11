@@ -104,3 +104,69 @@ func TestStatsSnapshot_BeforeRunIsZero(t *testing.T) {
 		t.Errorf("zero engine should report zero stats; got %+v", s)
 	}
 }
+
+func TestTagBlastRadius_PromotesAnyMatchingSuffix(t *testing.T) {
+	cases := []struct {
+		name string
+		in   map[string]string
+		want bool
+	}{
+		{"no extra", nil, false},
+		{"empty extra", map[string]string{}, false},
+		{"unrelated", map[string]string{"decoded_from": "base64"}, false},
+		{"privileged", map[string]string{"aws_privileged": "true"}, true},
+		{"high_value", map[string]string{"stripe_high_value": "true"}, true},
+		{"high_risk", map[string]string{"npm_high_risk": "true"}, true},
+		{"value not true", map[string]string{"aws_privileged": "false"}, false},
+		{"suffix-but-other-value", map[string]string{"foo_high_risk": "yes"}, false},
+		{"multiple flags", map[string]string{
+			"slack_privileged":   "true",
+			"stripe_high_value":  "true",
+			"twilio_subaccount":  "true",
+		}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := &detectors.Result{ExtraData: c.in}
+			tagBlastRadius(r)
+			got := r.ExtraData["blast_radius"] == "true"
+			if got != c.want {
+				t.Errorf("blast_radius = %v, want %v (extra=%v)", got, c.want, r.ExtraData)
+			}
+		})
+	}
+}
+
+// stubBlastRadiusDet emits a finding with a per-provider blast-radius flag
+// in ExtraData. Verifies that the engine post-processes the result and
+// rolls the flag up into a stable `blast_radius=true`.
+type stubBlastRadiusDet struct{}
+
+func (stubBlastRadiusDet) Type() detectors.DetectorType { return detectors.AWS }
+func (stubBlastRadiusDet) Keywords() []string           { return []string{"trigger"} }
+func (stubBlastRadiusDet) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	return []detectors.Result{{
+		DetectorType: detectors.AWS,
+		Raw:          data,
+		Verified:     true,
+		ExtraData:    map[string]string{"aws_privileged": "true"},
+	}}, nil
+}
+
+func TestEngine_StampsBlastRadiusOnEmit(t *testing.T) {
+	src := &stubSource{chunks: []*sources.Chunk{
+		{Data: []byte("trigger me"), SourceType: sources.SourceFilesystem},
+	}}
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{stubBlastRadiusDet{}}, Options{}, sink)
+	if _, err := eng.RunWithStats(context.Background(), src); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	got := sink.Findings()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(got))
+	}
+	if got[0].Result.ExtraData["blast_radius"] != "true" {
+		t.Errorf("expected blast_radius=true rolled up from aws_privileged, got %v", got[0].Result.ExtraData)
+	}
+}
