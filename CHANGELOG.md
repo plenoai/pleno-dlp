@@ -146,6 +146,23 @@ Anything merged to `main` since v0.42.0.
   `cf_token_inactive="true"`. The accounts call failure (403,
   network) is tolerated silently — verification has already
   succeeded; triage just gets less context.
+- **npm token blast-radius enrichment** (driftwood port). The npm
+  detector now decodes `/-/whoami` (always: `npm_username`) and
+  best-effort calls `/-/npm/v1/user` for the publisher profile
+  (`npm_email`, `npm_full_name`) plus the publish-time TFA mode
+  (`npm_tfa_mode`). The TFA mode is the headline blast-radius
+  signal:
+  - `auth-and-writes` → publish requires a fresh OTP. The token
+    alone cannot mutate the registry. Detector also stamps
+    `npm_publish_requires_tfa="true"`.
+  - `auth-only` → 2FA gates login but **not** publish. Token alone
+    can publish. Detector stamps `npm_high_risk="true"`.
+  - `disabled` (npm returns `tfa: false`) → no 2FA at all. Worst
+    case for a leaked publish-capable token. Stamped
+    `npm_high_risk="true"`.
+  Profile-fetch failure (403, network) is tolerated silently — the
+  whoami call has already verified the token; triage just gets less
+  context.
 
 ## [0.42.0] — 2026-05-12
 
