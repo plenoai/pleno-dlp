@@ -30,8 +30,9 @@ root — pleno-dlp auto-discovers it.
     {"path": "**/*.example",
      "reason": "documented .example files are not real configs"},
     {"path": "docs/**",
-     "detector": "PIIEmail",
-     "reason": "documented contact emails"},
+     "detector": "PIIAnonymize",
+     "raw_regex": "@example\\.com$",
+     "reason": "documented contact emails — PIIAnonymize emits one detector type for all PII; filter on the matched value (or extra_data.pii_kind in JSON output) to scope by entity type"},
 
     {"detector": "JWT", "path": "internal/testdata/**",
      "reason": "JWT samples for unit tests"}

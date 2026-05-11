@@ -12,8 +12,13 @@ registry, asserts every registered `DetectorType` appears here exactly
 once, and fails CI on drift (count change, classification change, or
 a registered detector missing from the doc).
 
-Counts are pinned at the top of the machine block. Total = 602
-(598 secret + 4 PII).
+Counts are pinned at the top of the machine block. Total = 599
+(598 secret + 1 NER-backed PIIAnonymize detector). The four legacy
+regex PII detectors (piiemail / piicc / piiiban / piissn) were
+retired in favour of PIIAnonymize; their DetectorType constants
+(PIIEmail / PIIUSSSN / PIICreditCard / PIIIBAN, ordinals 76..79)
+stay pinned for wire compatibility per ADR-0002 but no live scan
+emits them, so the registry / doc drift test does not list them.
 
 ## Severity model recap
 
@@ -23,7 +28,7 @@ Counts are pinned at the top of the machine block. Total = 602
 |---------------------------------------------------------|-----------|------------|
 | Default (every named provider unless overridden)        | Critical  | High       |
 | `JWT`, `PrivateKeyPEM`, `GenericHighEntropy`            | Critical  | Medium     |
-| `PIIEmail`, `PIIUSSSN`, `PIICreditCard`, `PIIIBAN`      | (n/a)     | Medium     |
+| `PIIAnonymize`                                          | (n/a)     | Medium     |
 
 A handful of providers (`Stripe`, `MercuryBank`, `Bitwarden`, `Helcim`,
 …) override their unverified severity to Critical at the detector level
@@ -53,7 +58,7 @@ machine block. Spot-check examples: `AWS`, `GitHub`, `GitHubFineGrained`,
 `Coinbase` (unsigned-bearer fallback — verifies via HTTP 401 → false),
 plus most batch 1–40 detectors that hit a public API host.
 
-## (b) Unverified-by-design — 47 detectors
+## (b) Unverified-by-design — 44 detectors
 
 These detectors deliberately do not implement `Verify`. The rationale
 is one of:
@@ -79,7 +84,7 @@ is one of:
   control / redaction, not verification.
 
 Severity-on-finding is High by default, Medium for `JWT`,
-`PrivateKeyPEM`, `GenericHighEntropy`, and the four PII detectors.
+`PrivateKeyPEM`, `GenericHighEntropy`, and `PIIAnonymize`.
 
 | DetectorType            | Class    | Rationale                                                                 |
 |-------------------------|----------|---------------------------------------------------------------------------|
@@ -109,10 +114,7 @@ Severity-on-finding is High by default, Medium for `JWT`,
 | MongoDB                 | secret   | connection string, host not in chunk                                      |
 | MySQL                   | secret   | connection string, host not in chunk                                      |
 | OVHCloud                | secret   | HMAC signing required                                                     |
-| PIICreditCard           | pii      | PII finding class — no provider API to verify                             |
-| PIIEmail                | pii      | PII finding class — no provider API to verify                             |
-| PIIIBAN                 | pii      | PII finding class — no provider API to verify                             |
-| PIIUSSSN                | pii      | PII finding class — no provider API to verify                             |
+| PIIAnonymize            | pii      | PII finding class — NER + regex via pleno-anonymize, no provider API to verify |
 | PingIdentity            | secret   | per-region host (`api.pingone.{com,eu,asia,ca}`) not in chunk             |
 | Postgres                | secret   | connection string, host not in chunk                                      |
 | PrivateKeyPEM           | secret   | generic shape, no fixed upstream provider                                 |
@@ -204,9 +206,9 @@ the live `detectors.All()` registry.
 - `class=c` → Verifiable but not implemented (gap item)
 
 ```coverage-machine
-total=602
+total=599
 a=513
-b=47
+b=44
 c=42
 type=APNs class=b
 type=AWSS3PresignedURL class=b
@@ -234,10 +236,7 @@ type=Kubeconfig class=b
 type=MongoDB class=b
 type=MySQL class=b
 type=OVHCloud class=b
-type=PIICreditCard class=b
-type=PIIEmail class=b
-type=PIIIBAN class=b
-type=PIIUSSSN class=b
+type=PIIAnonymize class=b
 type=PingIdentity class=b
 type=Postgres class=b
 type=PrivateKeyPEM class=b

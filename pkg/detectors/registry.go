@@ -1239,6 +1239,8 @@ func (t DetectorType) String() string {
 		return "ArduinoCloud"
 	case ParticleIO:
 		return "ParticleIO"
+	case PIIAnonymize:
+		return "PIIAnonymize"
 	default:
 		return "Unknown"
 	}

@@ -77,7 +77,7 @@ func Lookup(detectorType string) (Class, bool) {
 //
 // Keep this table sorted alphabetically by key so diffs are stable.
 var Classes = map[string]Class{
-	// (b) Unverified-by-design — 47 detectors
+	// (b) Unverified-by-design — 44 detectors
 	"APNs":               ClassUnverifiedByDesign,
 	"AWSS3PresignedURL":  ClassUnverifiedByDesign,
 	"AWX":                ClassUnverifiedByDesign,
@@ -104,10 +104,12 @@ var Classes = map[string]Class{
 	"MongoDB":            ClassUnverifiedByDesign,
 	"MySQL":              ClassUnverifiedByDesign,
 	"OVHCloud":           ClassUnverifiedByDesign,
-	"PIICreditCard":      ClassUnverifiedByDesign,
-	"PIIEmail":           ClassUnverifiedByDesign,
-	"PIIIBAN":            ClassUnverifiedByDesign,
-	"PIIUSSSN":           ClassUnverifiedByDesign,
+	"PIIAnonymize":       ClassUnverifiedByDesign,
+	// PIICreditCard / PIIEmail / PIIIBAN / PIIUSSSN entries removed —
+	// the detectors were retired in favour of PIIAnonymize. The
+	// DetectorType constants stay pinned at their ordinals (76..79)
+	// per ADR-0002 but no live registration exists, so the doc /
+	// Classes drift tests no longer require entries here.
 	"PingIdentity":       ClassUnverifiedByDesign,
 	"Postgres":           ClassUnverifiedByDesign,
 	"PrivateKeyPEM":      ClassUnverifiedByDesign,

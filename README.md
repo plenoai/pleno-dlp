@@ -15,8 +15,9 @@ pleno-dlp detectors list                        # audit registered coverage
 
 Single Go binary. Trufflehog-compatible detector interface,
 archive-aware (zip / tar / tar.gz / gzip), base64 / percent / hex
-decoder pipeline, per-host verify rate limiter. **602 detectors**
-built-in (598 secrets + 4 PII). Tag pattern `vX.Y.Z`.
+decoder pipeline, per-host verify rate limiter. **599 detectors**
+built-in (598 secrets + 1 NER-backed PII detector). Tag pattern
+`vX.Y.Z`.
 
 SaaS sources (GitHub / GitLab / Bitbucket / Slack / Notion / Confluence /
 Jira) are tracked in issues #74–#80 for native Go ports — the previous
@@ -24,7 +25,7 @@ Python package was retired in v1.0.0.
 
 ## Detector coverage
 
-602 built-in detectors. Every secret detector that can confirm against
+599 built-in detectors. Every secret detector that can confirm against
 an upstream provider implements `Verify` (run with `--verify`); the rest
 emit `Verified=false` with rotation guidance in the output.
 
@@ -41,7 +42,7 @@ emit `Verified=false` with rotation guidance in the output.
 | **Connection strings** | Redis, Postgres, MySQL, MongoDB URI, RabbitMQ, Kafka SASL, basic-auth URL, SMTP |
 | **Format-shaped** | JWT, PEM private keys, **Generic high-entropy** (catch-all near credential keywords) |
 | **Secrets management / IAM** | Doppler, DopplerCLI, Vault, HashiCorpCloud, Algolia, Airtable, Grafana, LaunchDarkly, LaunchDarkly Relay, Auth0, Snyk, Tailscale, Figma, Ngrok |
-| **PII (`finding_class=pii`)** | Email, US SSN, Credit card (Luhn-validated), IBAN (mod-97 validated) |
+| **PII (`finding_class=pii`)** | `PIIAnonymize` — single detector backed by the [pleno-anonymize](https://github.com/plenoai/pleno-anonymize) NER+regex engine (PERSON, EMAIL_ADDRESS, ADDRESS, PHONE_NUMBER, JP_MY_NUMBER, CREDIT_CARD, IBAN, US_SSN, …). Opt-in via `--pii-engine=anonymize`. The supervisor spawns the engine on a loopback port at scan start; by default it self-invokes the bundled `pleno-dlp pii-server` subcommand, which in turn shells out to `uvx` to fetch and run the Python server. Prerequisite: `uvx` (uv) on `PATH` and Python 3.12+ — no Docker required. Override the spawn recipe via `--pii-engine-cmd`. The per-finding entity type lives in `properties.pii_kind`. |
 
 Run `pleno-dlp detectors list` for the live registry, or
 `pleno-dlp detectors list --format json` for machine-readable output.
@@ -102,8 +103,8 @@ raw secret regex, and path glob (AND across non-empty fields):
      "reason": "local test fixtures"},
     {"raw_regex": "^sk-test_",
      "reason": "Stripe test-mode keys"},
-    {"detector": "PIIEmail", "path": "docs/**",
-     "reason": "documented contact emails"}
+    {"detector": "PIIAnonymize", "raw_regex": "@example\\.com$",
+     "reason": "documented contact emails (matches PIIAnonymize EMAIL_ADDRESS findings)"}
   ]
 }
 ```
@@ -173,6 +174,80 @@ kubectl get secret app-config -o yaml | pleno-dlp scan stdin
 Default filesystem excludes (`.git`, `.hg`, `.svn`, `node_modules`,
 `vendor`, `target`, `dist`, `build`, `__pycache__`, `.venv`, `.tox`)
 keep most scans tractable; pass `--no-default-excludes` to opt out.
+
+## PII detection (opt-in)
+
+PII coverage is delivered by the `PIIAnonymize` detector backed by the
+external [pleno-anonymize](https://github.com/plenoai/pleno-anonymize)
+NER+regex engine (spaCy + Presidio + ja_ner_ja). It is opt-in to keep
+the default single-binary UX intact.
+
+```sh
+pleno-dlp scan filesystem ./src --pii-engine=anonymize
+```
+
+The supervisor spawns the engine on a loopback port at scan start
+and shuts it down at scan end. The default spawn recipe self-invokes
+this binary's bundled `pii-server` subcommand, which uses a
+cached-clone + workspace-aware strategy mirroring the upstream
+[Dockerfile](https://github.com/plenoai/pleno-anonymize/blob/main/Dockerfile):
+
+```
+pleno-dlp scan --pii-engine=anonymize ./src
+  └─ pleno-dlp pii-server --port <ephemeral>
+      ├─ git clone --depth 1 https://github.com/plenoai/pleno-anonymize.git <cache>
+      │  (or git fetch + checkout on subsequent runs)
+      ├─ uv sync --frozen --no-dev --package pleno-anonymize-server
+      ├─ uv pip install <NER wheels>      # cold-cache only; sync prunes them
+      └─ uv run --no-sync --package pleno-anonymize-server \
+             uvicorn server.src.app:app --host 127.0.0.1 --port <ephemeral>
+```
+
+We use the cached-clone strategy (not `uvx --from "git+...#subdirectory=server"`)
+because pleno-anonymize's server package depends on the workspace SDK
+(`[tool.uv.sources] pleno-anonymize = { workspace = true }`), and uvx
+in the `--from` form cannot see the parent workspace.
+
+Prerequisites: [`uv`](https://docs.astral.sh/uv/) and Python 3.12+ on
+`PATH`; `git` on `PATH` when `--source` is a `git+` URL (the default).
+**No Docker required.** The cache lives at
+`<os.UserCacheDir>/pleno-dlp/pleno-anonymize` (override via
+`--pii-engine-cmd "pleno-dlp pii-server --port {PORT} --cache-dir /custom"`
+or the `PLENO_DLP_ANONYMIZE_CACHE` environment variable). First run
+pays a one-time ~30–120s cost while uv resolves the workspace and
+downloads NER model wheels (~600MB); subsequent runs hit the cache and
+the supervisor's `--pii-engine-ready-timeout` (default `60s`) is the
+relevant budget. Bump that flag if your first run won't finish in
+60s.
+
+Useful flags (all on the `scan` command, persistent across source kinds):
+
+| flag | default | meaning |
+|---|---|---|
+| `--pii-engine` | `off` | `off` or `anonymize` |
+| `--pii-engine-cmd` | `pleno-dlp pii-server --port {PORT}` | argv to spawn; `{PORT}` is substituted with the chosen ephemeral port |
+| `--pii-engine-port` | `0` | `0` = auto-allocate a loopback port |
+| `--pii-engine-language` | `auto` | `ja`, `en`, or `auto` |
+| `--pii-engine-ready-timeout` | `60s` | how long to wait for the engine's `/ready` endpoint before giving up and continuing without PII |
+| `--pii-engine-request-timeout` | `10s` | per-chunk HTTP timeout |
+
+Direct invocation of the subcommand is supported for ad-hoc local use:
+
+```sh
+pleno-dlp pii-server --port 8080                  # bind a fixed port
+pleno-dlp pii-server                              # ephemeral; resolved port printed to stdout
+pleno-dlp pii-server --git-ref v0.5.0             # pin pleno-anonymize to a tag
+pleno-dlp pii-server --source /path/to/checkout   # local source instead of git+
+```
+
+`--host` is hard-restricted to loopback / RFC1918 / link-local
+addresses; binding `0.0.0.0` (or any public IP) is refused so a DLP
+tool cannot accidentally relay scanned text to a non-trusted listener.
+
+If the engine fails to start (no `uvx` on PATH, network blocked,
+ready-timeout exceeded), the scan logs a single warning to stderr
+and continues without PII detection — `--pii-engine=anonymize` never
+turns a working secret scan into a failure.
 
 ## Output formats
 

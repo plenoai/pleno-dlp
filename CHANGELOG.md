@@ -9,7 +9,67 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.40.0.
+Anything merged to `main` since v0.41.0.
+
+## [0.41.0] — 2026-05-10
+
+### Changed
+
+- **BREAKING (output schema):** the four legacy regex PII detectors
+  (`piiemail`, `piicc`, `piiiban`, `piissn`) are removed and
+  replaced by a single `PIIAnonymize` detector backed by the
+  [pleno-anonymize](https://github.com/plenoai/pleno-anonymize)
+  loopback NER+regex engine (ADR-0001 / ADR-0003). New scans no
+  longer emit `PIIEmail` / `PIIUSSSN` / `PIICreditCard` / `PIIIBAN`
+  finding types; SARIF rule descriptions for those four are
+  removed. The corresponding `DetectorType` ordinals (76..79) stay
+  pinned with `Deprecated:` comments so historical JSON outputs
+  decode without error. Per-finding entity type now lives in
+  `ExtraData["pii_kind"]` (`PERSON`, `EMAIL_ADDRESS`,
+  `JP_MY_NUMBER`, `ADDRESS`, `PHONE_NUMBER`, `CREDIT_CARD`, `IBAN`,
+  `US_SSN`, …); `ExtraData["finding_class"]="pii"` is unchanged so
+  downstream routing on finding class continues to work. The engine
+  is spawned via the new `pleno-dlp pii-server` subcommand, which
+  shells out to `uv` (`uv sync` + `uv run`) against a cached clone
+  of the upstream repo; the prerequisite is `uv` and Python 3.12+
+  on `PATH`, plus `git` when `--source` is a `git+` URL (the
+  default). Docker is no longer used (ADR-0003 supersedes
+  ADR-0002's earlier Docker recommendation).
+
+### Added
+
+- `PIIAnonymize` detector (`pkg/detectors/anonymize/`). Calls
+  `pkg/piiengine/anonymize.Default()` to retrieve the supervisor
+  singleton; silent-skips when the engine is off (the default).
+  Severity stays Medium (PII has no verified pathway). Allowlist
+  callers should migrate `detector: PIIEmail` (etc.) entries to
+  `detector: PIIAnonymize` and add a `raw_regex` or path scope to
+  preserve the original intent — see
+  `docs/recipes/allowlist-patterns.md` for the migration shape.
+- `pleno-dlp pii-server` subcommand. Foreground-runs the
+  pleno-anonymize HTTP server by cloning the upstream repo into a
+  cache dir, running `uv sync --frozen --no-dev --package
+  pleno-anonymize-server` (workspace-aware so the server's
+  `[tool.uv.sources] pleno-anonymize = { workspace = true }`
+  declaration resolves against the sibling SDK), installing the
+  three NER model wheels that `uv.lock` cannot pin (spaCy +
+  ja-ner-ja + en-ner-en, hosted off PyPI), and finally `uv run
+  --no-sync --package pleno-anonymize-server uvicorn
+  server.src.app:app`. Used internally as the default spawn target
+  for `--pii-engine=anonymize`; also runnable directly for ad-hoc
+  local use. Flags: `--port` (`0` = ephemeral; resolved port is
+  printed to stdout in the `pii-server: listening on HOST:PORT`
+  form), `--host` (loopback / RFC1918 / link-local only — refuses
+  `0.0.0.0`), `--git-ref` (clone / checkout target ref), `--source`
+  (`git+` URL or a local workspace-root path), `--cache-dir`
+  (defaults to `<os.UserCacheDir>/pleno-dlp/pleno-anonymize`;
+  override via `PLENO_DLP_ANONYMIZE_CACHE` env), `--no-fetch`
+  (use the existing checkout as-is — offline / reproducible runs).
+  Pre-flight LookPath verifies `uv` is installed and emits a
+  targeted "install uv" hint when it's not. The supervisor's
+  ready-poll fast-fails on child exit via the new `ErrEngineExited`
+  sentinel, so misconfigured spawns surface in milliseconds instead
+  of burning the full `--pii-engine-ready-timeout` budget.
 
 ## [0.40.0] — 2026-05-10
 

@@ -6,6 +6,7 @@ package all
 import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/airtable"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/algolia"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/anonymize"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/anthropic"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/asana"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/atlassian"
@@ -53,10 +54,10 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/openrouter"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pagerduty"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/paypal"
-	_ "github.com/plenoai/pleno-dlp/pkg/detectors/piicc"
-	_ "github.com/plenoai/pleno-dlp/pkg/detectors/piiemail"
-	_ "github.com/plenoai/pleno-dlp/pkg/detectors/piiiban"
-	_ "github.com/plenoai/pleno-dlp/pkg/detectors/piissn"
+	// piicc, piiemail, piiiban, piissn — removed; superseded by
+	// pkg/detectors/anonymize. The DetectorType constants
+	// PIIEmail/PIIUSSSN/PIICreditCard/PIIIBAN remain pinned at their
+	// ordinals (76..79) for wire compatibility per ADR-0002.
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/plaid"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/postman"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/postmark"

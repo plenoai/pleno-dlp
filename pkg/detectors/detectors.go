@@ -96,9 +96,23 @@ const (
 	// detectors set ExtraData["finding_class"]="pii" so downstream
 	// callers can route by class (rotate-the-token logic for secrets vs
 	// access-control logic for PII).
+	//
+	// Ordinals 76..79 (PIIEmail / PIIUSSSN / PIICreditCard / PIIIBAN)
+	// are RETAINED for wire compatibility per ADR-0002. The four
+	// regex-based detectors that emitted these types are removed and
+	// replaced by PIIAnonymize (NER-backed). Historical JSON outputs
+	// referencing these values continue to decode; new scans no longer
+	// emit them.
+	//
+	// Deprecated: superseded by PIIAnonymize. The detector for this
+	// type has been removed; the constant remains pinned at its
+	// ordinal for wire-format stability and must not be reused.
 	PIIEmail
+	// Deprecated: superseded by PIIAnonymize. See PIIEmail above.
 	PIIUSSSN
+	// Deprecated: superseded by PIIAnonymize. See PIIEmail above.
 	PIICreditCard
+	// Deprecated: superseded by PIIAnonymize. See PIIEmail above.
 	PIIIBAN
 	// batch 6 — appended in wire-stable order; never reorder. Secret
 	// detectors land after the PII block because the wire format is
@@ -974,6 +988,17 @@ const (
 	Kagi
 	ArduinoCloud
 	ParticleIO
+	// batch 41 — appended in wire-stable order, never reorder. PII
+	// finding class via the pleno-anonymize loopback NER engine
+	// (ADR-0001 / ADR-0002). Replaces the four legacy regex PII
+	// detectors at ordinals 76..79 (PIIEmail / PIIUSSSN /
+	// PIICreditCard / PIIIBAN), which remain pinned with `Deprecated:`
+	// comments for wire-format stability. The detector at
+	// pkg/detectors/anonymize emits findings whose entity type
+	// (PERSON, EMAIL_ADDRESS, JP_MY_NUMBER, ADDRESS, PHONE_NUMBER, …)
+	// surfaces in ExtraData["pii_kind"]; ExtraData["finding_class"]
+	// stays "pii" so downstream routing is unchanged.
+	PIIAnonymize
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
@@ -1041,12 +1066,18 @@ func DefaultSeverity(t DetectorType, verified bool) Severity {
 		return SeverityMedium
 	case JWT, PrivateKeyPEM:
 		return SeverityMedium
-	case PIIEmail, PIIUSSSN, PIICreditCard, PIIIBAN:
-		// PII has no "verified" pathway — these are pattern matches with
-		// no upstream API to confirm. Medium reflects information-leak
-		// severity vs the High default for unverified credentials. PII
-		// rotation isn't a thing; the appropriate response is access
-		// control, redaction, or removal.
+	case PIIEmail, PIIUSSSN, PIICreditCard, PIIIBAN, PIIAnonymize:
+		// PII has no "verified" pathway — there's no upstream API to
+		// confirm an identity is "real" the way a credential can be
+		// confirmed live. Medium reflects information-leak severity vs
+		// the High default for unverified credentials. PII rotation
+		// isn't a thing; the appropriate response is access control,
+		// redaction, or removal.
+		//
+		// The four legacy PII ordinals (PIIEmail / PIIUSSSN /
+		// PIICreditCard / PIIIBAN) remain in this arm for wire-format
+		// stability — historical results still classify correctly even
+		// though new scans now emit PIIAnonymize.
 		return SeverityMedium
 	default:
 		return SeverityHigh
