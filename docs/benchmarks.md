@@ -114,21 +114,6 @@ go test -tags=realcorpus -run=^$ \
   `walkHexRuns` instead of RE2 so the no-decode path stays
   allocation-free.
 
-## Next optimisation surface
-
-- **Per-detector literal prefilter metadata.** Some detector regexes
-  carry a hard literal (`hvs.` for Vault, `eyJ` for JWT) that's
-  stronger than the registered keyword. Letting detectors declare it
-  via an optional interface, and gating FromData on
-  `bytes.Contains(slice, literal)`, would skip the regex on every
-  vicinity that has the weaker keyword but no strong literal.
-- **Per-detector regex tier-2 cache.** Several detectors compile
-  near-identical regex prefixes; a shared anchored DFA could cut
-  early-rejection cost. Defer until literal prefilter lands.
-- **Teddy-style SIMD AC.** Only worth it once AC + lowercase drops
-  below ~5 % of the engine's hot path. Today it's well above and the
-  scalar AC is the right tool.
-
 ## Reproducing
 
 ```sh
