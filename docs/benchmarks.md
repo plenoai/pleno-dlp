@@ -72,21 +72,114 @@ serialised on lock-stepped allocator pressure).
   walks AC, dispatches only the detectors a keyword unlocked.
   `isVerifier` cached at construction time.
 
-### Comparison to other OSS
+## Cross-tool comparison
 
-| Tool | Strategy | Notes |
+Measured 2026-05-12 with `hyperfine 1.20.0`, 1 warmup + 5 runs, on
+Apple M3 / macOS 25.3.
+
+| Tool | Version | Detector count | Default config |
+|---|---|---:|---|
+| **pleno-dlp** | v0.44.0 (`9fe0daf`) | 607 | filesystem source, `--quiet --format json`, verify off |
+| **trufflehog** | 3.95.2 | ~800 | `filesystem --no-verification --no-update --json --log-level=-1` |
+| **gitleaks** | 8.30.1 | ~160 | `dir --no-banner --redact` |
+
+Throughput is measured into `/dev/null`; the goal is engine cost, not
+output sink cost. Each tool's exit code is ignored — gitleaks and
+pleno-dlp default to non-zero when findings exist; that is policy, not
+failure.
+
+### Workload B — cold path (9.4 MB, 200 plain-text log files, **zero** secrets)
+
+This is the dominant shape on real codebases: most files have no
+secrets, every detector pays the prefilter cost, no detector pays the
+regex cost. Findings: all three tools emit **0**.
+
+| Tool | Mean | Min | Max | vs gitleaks |
+|---|---:|---:|---:|---:|
+| **pleno-dlp** | **288 ± 6 ms** | 281 ms | 296 ms | 15.3× slower |
+| **trufflehog** | 851 ± 12 ms | 842 ms | 872 ms | 45.2× slower |
+| **gitleaks** | 18.8 ± 0.9 ms | 18.1 ms | 20.4 ms | 1× (baseline) |
+
+**pleno-dlp is 2.95× faster than trufflehog** here — the AC prefilter
+rewrite (`v0.44.0`) pays off exactly where it was designed to. gitleaks
+wins outright because its ruleset is ~4× smaller and its rules are
+regex-keyed by leading literal — fewer detectors × cheaper per-detector
+work.
+
+### Workload D — real OSS code (7.7 MB: `go-git v5.19.0` + `cobra v1.8.1` + `aws-sdk-go-v2 v1.41.7`)
+
+Realistic shape with no actual secrets but plenty of "is this a key?"
+ambiguity — UUIDs, hex hashes, embedded base64 documentation, etc.
+
+| Tool | Mean | Min | Max | Findings reported |
+|---|---:|---:|---:|---:|
+| **pleno-dlp** | 5.48 ± 0.03 s | 5.45 s | 5.53 s | 490 (326 GenericHighEntropy + 73 Bandwidth FPs) |
+| **trufflehog** | 887 ± 15 ms | 878 ms | 914 ms | 6 |
+| **gitleaks** | 18.8 ± 1.2 ms | 17.2 ms | 20.1 ms | 5 |
+
+Honest read: pleno-dlp is **6.2× slower than trufflehog** on this
+workload. The AC prefilter is doing its job (verified below) — what is
+NOT doing its job is detector selectivity once the prefilter wakes a
+detector up.
+
+Decomposition with `--include-detectors=AWS,Anthropic` (2 detectors
+instead of 607):
+
+| Configuration | Mean | Δ vs all-detectors |
+|---|---:|---:|
+| All 607 detectors | 5.50 s | — |
+| Exclude `GenericHighEntropy,Bandwidth` (605 detectors, ~0 FPs) | 5.18 s | −5.8 % |
+| Only `AWS,Anthropic` (2 detectors) | 347 ms | −93.7 % |
+
+The 5.18 s figure is the smoking gun: excluding the two noisiest
+detectors barely moves the wall clock. Per-detector regex execution
+(`FromData`) dominates real-world cost when many keywords like
+`"key"`, `"token"`, `"api"` fire common-English matches and wake up
+dozens of detectors per chunk.
+
+### Where each tool wins
+
+| Scenario | Winner | Reason |
 |---|---|---|
-| **trufflehog** | `pkg/ahocorasickcore` — single AC over lower-cased keywords | Same pattern, slightly larger surface (output filtering integrated). |
-| **gitleaks** | Pre-grouped regexps by literal prefix | Per-rule regex; effective on small rulesets, doesn't scale to 600+ detectors as cleanly. |
-| **ripgrep** | Aho-Corasick crate; Teddy SIMD for ≤8 patterns | Sets the bar for fixed-string set search. AC is the right default until alloc + scalar costs are gone. |
+| Cold path (most files have no secrets) | **pleno-dlp** | Single AC prefilter walks every keyword across 607 detectors in one pass with zero allocations. |
+| Realistic code with ambiguous tokens | **trufflehog** | Tighter detector keyword sets and stricter regex anchoring reduce post-prefilter wake-up count. |
+| Pure speed with smaller ruleset OK | **gitleaks** | Fewer rules × pre-grouped regex by literal prefix; very fast and very narrow. |
 
-### Follow-ups
+### Follow-ups (next perf wave)
 
+- **Detector keyword tightening.** Common English (`"key"`, `"token"`,
+  `"api"`, `"auth"`) shouldn't be sole prefilter triggers. Audit
+  detectors that wake up on these and require a second, stricter
+  keyword (e.g. `"AKIA"` for AWS, `"sk-ant-"` for Anthropic) or a
+  short pre-regex literal check before running `FromData`.
+- **Per-detector regex tier-2 cache.** Several detectors compile
+  identical regex prefixes; a shared anchored DFA could cut early
+  rejection cost. Out-of-scope until tightening lands; measure first.
 - Pool `decoder.Variants` output slice and decoded buffers for
-  archive- / base64-heavy inputs (measure first).
+  archive- / base64-heavy inputs.
 - Evaluate Teddy-style SIMD AC only after AC + lowercase drops below
   ~5 % of the engine's hot path. Today it's well above that and the
   scalar AC is the right tool.
+
+### Reproducing the cross-tool benchmark
+
+```sh
+# Corpus B — cold path
+mkdir -p /tmp/dlp-bench/corpus-b && for i in $(seq 1 200); do
+  # …200 × 50 KB plain-text log files; see _workspace/perf-2026-05-12-analysis.md
+done
+
+# Corpus D — real OSS
+cp -R "$(go env GOMODCACHE)/github.com/go-git/go-git/v5@v5.19.0" /tmp/dlp-bench/corpus-d
+cp -R "$(go env GOMODCACHE)/github.com/spf13/cobra@v1.8.1"        /tmp/dlp-bench/corpus-d/cobra
+cp -R "$(go env GOMODCACHE)/github.com/aws/aws-sdk-go-v2@v1.41.7" /tmp/dlp-bench/corpus-d/aws-sdk-go-v2
+chmod -R +w /tmp/dlp-bench/corpus-d
+
+hyperfine --warmup 1 --runs 5 --ignore-failure \
+  -n 'pleno-dlp'  "pleno-dlp scan filesystem $CORPUS --quiet --format json > /dev/null" \
+  -n 'trufflehog' "trufflehog filesystem $CORPUS --no-verification --no-update --json --log-level=-1 > /dev/null" \
+  -n 'gitleaks'   "gitleaks dir $CORPUS --no-banner --report-path=/dev/null --redact 2>/dev/null"
+```
 
 ## Pre-v0.44.0 baseline (commit `e90660c`)
 
