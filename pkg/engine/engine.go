@@ -7,7 +7,6 @@
 package engine
 
 import (
-	"bytes"
 	"context"
 	"sort"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/plenoai/pleno-dlp/pkg/ahocorasick"
 	"github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/decoder"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -46,10 +46,28 @@ type Options struct {
 }
 
 type Engine struct {
-	opts  Options
-	dets  []detectors.Detector
-	sink  Sink
-	stats statsCounters
+	opts Options
+	dets []detectors.Detector
+	// isVerifier[i] is true when dets[i] satisfies detectors.Verifier.
+	// Cached at construction time so the hot path doesn't re-run the
+	// interface assertion per chunk.
+	isVerifier []bool
+	// prefilter is the Aho-Corasick keyword matcher across the union of
+	// every detector's lower-cased keywords. detectorIdxByPattern[p]
+	// lists the detector indices unlocked when pattern p matches. Both
+	// are nil when the engine has no detectors (test seam).
+	prefilter            *ahocorasick.Matcher
+	detectorIdxByPattern [][]int
+	// lowerBufPool holds reusable lower-case scratch buffers (one per
+	// scan invocation; sized to the chunk being scanned). Avoids the
+	// per-detector bytes.ToLower copy that dominated the cold path.
+	lowerBufPool sync.Pool
+	// seenBufPool holds reusable bool[] of length len(dets), used by
+	// scanChunkLeaf to collect "which detectors got a keyword hit"
+	// without allocating per chunk.
+	seenBufPool sync.Pool
+	sink        Sink
+	stats       statsCounters
 }
 
 // Stats summarises a completed scan. It is the user-facing snapshot derived
@@ -116,7 +134,66 @@ func NewWithDetectors(dets []detectors.Detector, opts Options, sink Sink) *Engin
 		// true (Verifier-backed) sorts before false.
 		return vi && !vj
 	})
-	return &Engine{opts: opts, dets: ordered, sink: sink}
+	isVerifier := make([]bool, len(ordered))
+	for i, d := range ordered {
+		_, isVerifier[i] = d.(detectors.Verifier)
+	}
+	e := &Engine{
+		opts:       opts,
+		dets:       ordered,
+		isVerifier: isVerifier,
+		sink:       sink,
+	}
+	e.buildPrefilter()
+	return e
+}
+
+// buildPrefilter constructs the Aho-Corasick automaton over the union of
+// lower-cased detector keywords. Multiple detectors may share a keyword
+// ("key", "token", "api"); each keyword becomes one pattern, and the
+// pattern's detectorIdxByPattern entry lists every detector that asked for
+// it. The single pass at scan time then unions those lists.
+//
+// Keywords are stored lower-cased; the scan path lower-cases the input
+// once into a pooled buffer to match. Empty keyword lists make the
+// detector unreachable through the prefilter — same semantics as the old
+// keywordMatch, which returned false for an empty list.
+func (e *Engine) buildPrefilter() {
+	if len(e.dets) == 0 {
+		return
+	}
+	patternIDByKeyword := make(map[string]int)
+	var patterns [][]byte
+	var detectorIdxByPattern [][]int
+	for di, d := range e.dets {
+		for _, kw := range d.Keywords() {
+			if kw == "" {
+				continue
+			}
+			lk := strings.ToLower(kw)
+			id, ok := patternIDByKeyword[lk]
+			if !ok {
+				id = len(patterns)
+				patternIDByKeyword[lk] = id
+				patterns = append(patterns, []byte(lk))
+				detectorIdxByPattern = append(detectorIdxByPattern, nil)
+			}
+			detectorIdxByPattern[id] = append(detectorIdxByPattern[id], di)
+		}
+	}
+	if len(patterns) == 0 {
+		return
+	}
+	e.prefilter = ahocorasick.New(patterns)
+	e.detectorIdxByPattern = detectorIdxByPattern
+	e.seenBufPool.New = func() any {
+		b := make([]bool, len(e.dets))
+		return &b
+	}
+	e.lowerBufPool.New = func() any {
+		b := make([]byte, 0, 4096)
+		return &b
+	}
 }
 
 // Run streams chunks from src and dispatches them across worker goroutines.
@@ -209,55 +286,101 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 	// runs — and amortises against the keyword-matching that follows.
 	variants := decoder.Variants(c.Data)
 
-	for _, d := range e.dets {
-		kws := d.Keywords()
-		_, isVerifier := d.(detectors.Verifier)
-		for _, v := range variants {
-			if !keywordMatch(v.Data, kws) {
-				continue
-			}
-			results, err := d.FromData(ctx, e.opts.Verify, v.Data)
-			if err != nil {
-				continue
-			}
-			for _, r := range results {
-				if v.Source != "" {
-					// Mark which decode produced the hit so output
-					// can disambiguate "found in base64-encoded
-					// payload" from "found in plain text".
-					if r.ExtraData == nil {
-						r.ExtraData = map[string]string{}
-					}
-					r.ExtraData["decoded_from"] = v.Source
-				}
-				// Detectors may set Severity directly; when zero
-				// (the default), derive one so every finding is
-				// triageable downstream.
-				if r.Severity == detectors.SeverityUnknown {
-					r.Severity = detectors.DefaultSeverity(d.Type(), r.Verified)
-				}
-				if archivePath != "" {
-					if r.ExtraData == nil {
-						r.ExtraData = map[string]string{}
-					}
-					r.ExtraData["archive_path"] = archivePath
-				}
-				// Cross-cutting blast-radius rollup: any per-provider
-				// signal (*_high_risk, *_high_value, *_privileged) gets
-				// promoted to a stable `blast_radius=true` so downstream
-				// triage can filter without knowing the per-provider
-				// vocabulary. Driftwood-pattern detectors set those
-				// flags themselves; the engine just unifies them.
-				tagBlastRadius(&r)
-				e.stats.findings.Add(1)
-				e.sink.Emit(Finding{
-					Result:         r,
-					Chunk:          c,
-					Detector:       d.Type(),
-					VerifierBacked: isVerifier,
-				})
-			}
+	// No prefilter (e.g. detector list is empty in a test seam): nothing
+	// to scan. Production callers always go through buildPrefilter.
+	if e.prefilter == nil {
+		return
+	}
+
+	// Pull a reusable lowercase buffer and a reusable per-detector "saw a
+	// keyword hit?" bitmap from the pool. Both grow with chunk / detector
+	// count; sync.Pool keeps the steady-state allocations near zero.
+	lowerPtr := e.lowerBufPool.Get().(*[]byte)
+	defer e.lowerBufPool.Put(lowerPtr)
+	seenPtr := e.seenBufPool.Get().(*[]bool)
+	defer e.seenBufPool.Put(seenPtr)
+
+	for _, v := range variants {
+		matched := e.dispatch(ctx, c, v, archivePath, lowerPtr, seenPtr)
+		if matched == 0 && v.Source == "" {
+			// Most chunks have zero hits; the empty path is the
+			// common one. Nothing to do here — kept as a single
+			// branch so the hot path stays compact.
+			_ = matched
 		}
+	}
+}
+
+// dispatch lower-cases v.Data once into the pooled buffer, walks the AC
+// prefilter to find which detectors have a keyword hit, then runs only
+// those detectors. Returns the number of dispatched detectors so callers
+// can keep accounting if they ever need it; current callers ignore it.
+func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, lowerPtr *[]byte, seenPtr *[]bool) int {
+	lower := lowerCaseInto((*lowerPtr)[:0], v.Data)
+	*lowerPtr = lower
+	seen := *seenPtr
+	if cap(seen) < len(e.dets) {
+		seen = make([]bool, len(e.dets))
+		*seenPtr = seen
+	} else {
+		seen = seen[:len(e.dets)]
+		for i := range seen {
+			seen[i] = false
+		}
+	}
+	patternIDs := e.prefilter.Match(lower)
+	if len(patternIDs) == 0 {
+		return 0
+	}
+	dispatched := 0
+	for _, pid := range patternIDs {
+		for _, di := range e.detectorIdxByPattern[pid] {
+			if seen[di] {
+				continue
+			}
+			seen[di] = true
+			dispatched++
+			e.runDetector(ctx, c, v, archivePath, di)
+		}
+	}
+	return dispatched
+}
+
+// runDetector executes a single detector's FromData against a variant and
+// forwards every result through the engine's finalisation pipeline
+// (severity defaulting, decoded_from / archive_path stamping, blast-radius
+// rollup, stats accounting, sink emission). Pulled out of scanChunkLeaf so
+// the inner dispatch loop stays a flat read.
+func (e *Engine) runDetector(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int) {
+	d := e.dets[di]
+	results, err := d.FromData(ctx, e.opts.Verify, v.Data)
+	if err != nil {
+		return
+	}
+	for _, r := range results {
+		if v.Source != "" {
+			if r.ExtraData == nil {
+				r.ExtraData = map[string]string{}
+			}
+			r.ExtraData["decoded_from"] = v.Source
+		}
+		if r.Severity == detectors.SeverityUnknown {
+			r.Severity = detectors.DefaultSeverity(d.Type(), r.Verified)
+		}
+		if archivePath != "" {
+			if r.ExtraData == nil {
+				r.ExtraData = map[string]string{}
+			}
+			r.ExtraData["archive_path"] = archivePath
+		}
+		tagBlastRadius(&r)
+		e.stats.findings.Add(1)
+		e.sink.Emit(Finding{
+			Result:         r,
+			Chunk:          c,
+			Detector:       d.Type(),
+			VerifierBacked: e.isVerifier[di],
+		})
 	}
 }
 
@@ -292,18 +415,23 @@ func tagBlastRadius(r *detectors.Result) {
 	}
 }
 
-// keywordMatch returns true when data contains any keyword (case-insensitive).
-// Empty keyword list always returns false — a detector with no keywords is a
-// configuration mistake, not an opt-in to scan everything.
-func keywordMatch(data []byte, kws []string) bool {
-	if len(kws) == 0 {
-		return false
+// lowerCaseInto appends the ASCII-lower-case of src to dst and returns the
+// resulting slice. ASCII-only because every detector keyword in pleno-dlp
+// is ASCII; we leave non-ASCII bytes untouched rather than paying for
+// unicode.ToLower on each byte. This is a hot path — one call per chunk
+// variant — and matches the (also-ASCII) lowercasing done at engine
+// construction over keyword sets.
+func lowerCaseInto(dst, src []byte) []byte {
+	if cap(dst) < len(src) {
+		dst = make([]byte, len(src))
+	} else {
+		dst = dst[:len(src)]
 	}
-	lower := bytes.ToLower(data)
-	for _, kw := range kws {
-		if bytes.Contains(lower, []byte(strings.ToLower(kw))) {
-			return true
+	for i, b := range src {
+		if b >= 'A' && b <= 'Z' {
+			b += 'a' - 'A'
 		}
+		dst[i] = b
 	}
-	return false
+	return dst
 }
