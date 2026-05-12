@@ -345,8 +345,8 @@ go test ./... -race    # full test suite, race-clean
 go build ./...
 ```
 
-Engine throughput numbers, the cold-path `BenchmarkScan_ColdPath`
-methodology, and the v0.44.0 Aho-Corasick prefilter speed-up are
+Engine throughput numbers — microbenchmarks plus a wall-clock
+comparison against trufflehog and gitleaks on the same corpora — are
 recorded in [`docs/benchmarks.md`](docs/benchmarks.md).
 
 Releases trigger exclusively on tag push:
