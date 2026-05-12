@@ -272,19 +272,29 @@ func archiveRootName(c *sources.Chunk) string {
 	return c.SourceName
 }
 
+// maxWindowSize and windowOverlap bound how much data any single
+// dispatch sees. Detector regexes run in O(window_size); collapsing a
+// 100 KiB file into one dispatch made every dispatched detector pay
+// O(100 KiB) of regex stepping. Sliding a 32 KiB window keeps that cost
+// flat regardless of file size. The overlap guarantees no secret of
+// length <= overlap can fall on a window boundary and go unseen.
+const (
+	maxWindowSize  = 32 * 1024
+	windowOverlap  = 1024
+	windowStepSize = maxWindowSize - windowOverlap
+)
+
 // scanChunkLeaf runs every detector against a single chunk after archive
 // expansion. archivePath is non-empty for inner entries; empty for plain
 // chunks. The path is stamped into Result.ExtraData so output can render
 // "leak.txt!secret.env" trails.
+//
+// Chunks larger than maxWindowSize are walked in overlapping windows so
+// each detector regex sweep stays bounded — see the comment on the
+// constants above for the rationale.
 func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePath string) {
 	e.stats.chunks.Add(1)
 	e.stats.bytes.Add(int64(len(c.Data)))
-	// Variants[0] is always c.Data unchanged (Source=""). Subsequent
-	// entries are base64/percent/hex decode results, included only when
-	// the chunk contained candidate runs. The cost is one regex sweep
-	// per chunk on the cold path — paid once whether or not any detector
-	// runs — and amortises against the keyword-matching that follows.
-	variants := decoder.Variants(c.Data)
 
 	// No prefilter (e.g. detector list is empty in a test seam): nothing
 	// to scan. Production callers always go through buildPrefilter.
@@ -300,10 +310,35 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 	seenPtr := e.seenBufPool.Get().(*[]bool)
 	defer e.seenBufPool.Put(seenPtr)
 
+	data := c.Data
+	if len(data) <= maxWindowSize {
+		e.scanWindow(ctx, c, data, archivePath, lowerPtr, seenPtr)
+		return
+	}
+	for start := 0; start < len(data); start += windowStepSize {
+		end := start + maxWindowSize
+		if end > len(data) {
+			end = len(data)
+		}
+		e.scanWindow(ctx, c, data[start:end], archivePath, lowerPtr, seenPtr)
+		if end == len(data) {
+			break
+		}
+	}
+}
+
+// scanWindow runs the variant fan-out + dispatch for a single window of
+// chunk bytes. Split out of scanChunkLeaf so the windowing loop stays a
+// flat read.
+func (e *Engine) scanWindow(ctx context.Context, c *sources.Chunk, window []byte, archivePath string, lowerPtr *[]byte, seenPtr *[]bool) {
+	// Variants[0] is always window unchanged (Source=""). Subsequent
+	// entries are base64/percent/hex decode results, included only when
+	// the window contained candidate runs.
+	variants := decoder.Variants(window)
 	for _, v := range variants {
 		matched := e.dispatch(ctx, c, v, archivePath, lowerPtr, seenPtr)
 		if matched == 0 && v.Source == "" {
-			// Most chunks have zero hits; the empty path is the
+			// Most windows have zero hits; the empty path is the
 			// common one. Nothing to do here — kept as a single
 			// branch so the hot path stays compact.
 			_ = matched
@@ -311,10 +346,28 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 	}
 }
 
-// dispatch lower-cases v.Data once into the pooled buffer, walks the AC
-// prefilter to find which detectors have a keyword hit, then runs only
-// those detectors. Returns the number of dispatched detectors so callers
-// can keep accounting if they ever need it; current callers ignore it.
+// vicinityRadius is how many bytes around each keyword hit a detector
+// gets to see. Sized to cover the widest credential-shape regex
+// captures in the codebase (private keys, JWTs) plus the
+// keyword<->secret gap a generic credential line can introduce
+// ("API_KEY = \"…long-multiline-comment…\"…token"). Beyond this radius
+// the regex would have failed anyway, so trimming the window is sound
+// for every detector whose match span fits inside.
+const vicinityRadius = 2048
+
+// dispatch lower-cases v.Data once into the pooled buffer, collects per-
+// keyword AC hits, then runs each dispatched detector against the
+// minimal vicinity slice that covers every one of its keyword hits.
+//
+// Without vicinity slicing a detector's regex would scan the full
+// window even when the keyword fires in one corner — that turned every
+// dispatched detector into an O(window_size) regex sweep. Sliced
+// dispatch caps per-detector work at O(hits * 2*vicinityRadius), which
+// is the dominant win on real-OSS workloads where most detectors fire
+// on a single keyword instance.
+//
+// Returns the number of dispatched detectors so callers can keep
+// accounting if they ever need it; current callers ignore it.
 func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, lowerPtr *[]byte, seenPtr *[]bool) int {
 	lower := lowerCaseInto((*lowerPtr)[:0], v.Data)
 	*lowerPtr = lower
@@ -328,32 +381,85 @@ func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Varia
 			seen[i] = false
 		}
 	}
-	patternIDs := e.prefilter.Match(lower)
-	if len(patternIDs) == 0 {
+	hits := e.prefilter.MatchHitsInto(lower, nil)
+	if len(hits) == 0 {
 		return 0
 	}
-	dispatched := 0
-	for _, pid := range patternIDs {
-		for _, di := range e.detectorIdxByPattern[pid] {
-			if seen[di] {
-				continue
+	// Group hits by detector: each detector sees the union of its
+	// keyword-hit vicinities. We accumulate (start, end) byte ranges
+	// per detector, merge overlapping ranges, then run FromData once
+	// per merged range. The per-detector ranges array is small (most
+	// detectors fire once per window); allocating it inline keeps the
+	// code simple without showing up in the profile.
+	dets := make(map[int][]vicinitySpan)
+	for _, h := range hits {
+		for _, di := range e.detectorIdxByPattern[h.PatternID] {
+			start := h.End - vicinityRadius
+			if start < 0 {
+				start = 0
 			}
-			seen[di] = true
-			dispatched++
-			e.runDetector(ctx, c, v, archivePath, di)
+			end := h.End + 1 + vicinityRadius
+			if end > len(v.Data) {
+				end = len(v.Data)
+			}
+			dets[di] = append(dets[di], vicinitySpan{start, end})
+		}
+	}
+	dispatched := 0
+	for di, spans := range dets {
+		seen[di] = true
+		dispatched++
+		merged := mergeSpans(spans)
+		for _, sp := range merged {
+			e.runDetectorOn(ctx, c, v, archivePath, di, v.Data[sp.start:sp.end])
 		}
 	}
 	return dispatched
 }
 
-// runDetector executes a single detector's FromData against a variant and
-// forwards every result through the engine's finalisation pipeline
-// (severity defaulting, decoded_from / archive_path stamping, blast-radius
-// rollup, stats accounting, sink emission). Pulled out of scanChunkLeaf so
-// the inner dispatch loop stays a flat read.
-func (e *Engine) runDetector(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int) {
+type vicinitySpan struct{ start, end int }
+
+// mergeSpans collapses overlapping/adjacent (sorted-on-the-fly) spans
+// so each detector regex runs once per disjoint vicinity region. Sort
+// by start, sweep, extend the active region until a gap appears.
+func mergeSpans(spans []vicinitySpan) []vicinitySpan {
+	if len(spans) <= 1 {
+		return spans
+	}
+	// Insertion sort: per-detector hit counts are typically small (1-5),
+	// where sort.Slice's setup cost dominates.
+	for i := 1; i < len(spans); i++ {
+		for j := i; j > 0 && spans[j-1].start > spans[j].start; j-- {
+			spans[j-1], spans[j] = spans[j], spans[j-1]
+		}
+	}
+	out := spans[:1]
+	for _, s := range spans[1:] {
+		last := &out[len(out)-1]
+		if s.start <= last.end {
+			if s.end > last.end {
+				last.end = s.end
+			}
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// runDetectorOn executes a single detector's FromData against a slice
+// of variant bytes and forwards every result through the engine's
+// finalisation pipeline (severity defaulting, decoded_from /
+// archive_path stamping, blast-radius rollup, stats accounting, sink
+// emission). The slice is a vicinity window the dispatcher computed
+// from AC hits; detectors that needed the full variant before still
+// see a slice that covers every keyword hit + vicinityRadius bytes on
+// each side, which is the radius the credential regexes are written
+// against. Pulled out of scanChunkLeaf so the inner dispatch loop
+// stays a flat read.
+func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte) {
 	d := e.dets[di]
-	results, err := d.FromData(ctx, e.opts.Verify, v.Data)
+	results, err := d.FromData(ctx, e.opts.Verify, data)
 	if err != nil {
 		return
 	}

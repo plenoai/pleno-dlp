@@ -134,6 +134,16 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GenericHighEntro
 func (Scanner) Keywords() []string { return keywords }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	// Cheap byte-scan gate: if the chunk has no run of >=20 base64-shape
+	// characters, the regex cannot find a candidate. Skips the RE2
+	// machine setup for every chunk that contains a keyword (e.g.
+	// "credentials" in plain prose) but no token-shaped substring —
+	// the dominant cold-path case on real codebases. Profiling showed
+	// this single FromData accounting for ~37% of CPU on the cold-path
+	// benchmark when the gate was absent.
+	if !hasSecretShapeRun(data) {
+		return nil, nil
+	}
 	// The engine's keyword filter already proved at least one keyword is
 	// present somewhere in the chunk. We still need to compute keyword
 	// positions to check the radius gate per-candidate.
@@ -208,6 +218,28 @@ func nearKeyword(secretStart, secretEnd int, keywordStarts []int) bool {
 			return true
 		case k > secretStart && k < secretEnd:
 			return true // overlap (rare; treat as match).
+		}
+	}
+	return false
+}
+
+// hasSecretShapeRun reports whether data contains a run of >=20
+// characters from the secretShape alphabet ([A-Za-z0-9+/_-]). Matches
+// the regex's minimum length so a negative answer is sound: there can
+// be no regex match without such a run. Cheap byte loop; bails the
+// moment the threshold is reached.
+func hasSecretShapeRun(data []byte) bool {
+	const minLen = 20
+	run := 0
+	for _, c := range data {
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+			c == '+' || c == '/' || c == '_' || c == '-' {
+			run++
+			if run >= minLen {
+				return true
+			}
+		} else {
+			run = 0
 		}
 	}
 	return false

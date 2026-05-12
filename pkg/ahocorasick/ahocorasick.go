@@ -177,6 +177,49 @@ func (m *Matcher) walk(data []byte, seen []bool, out *[]int32) {
 	}
 }
 
+// Hit pairs a matched pattern with the offset of the byte that
+// completed it (i.e. the last byte of the keyword in `data`). Callers
+// can subtract the keyword length to recover the start, or treat the
+// hit as a midpoint when sizing a vicinity window.
+type Hit struct {
+	PatternID int32
+	End       int
+}
+
+// MatchHitsInto walks data and appends one Hit per pattern occurrence —
+// duplicates included. Unlike Match it does not de-dup; that lets the
+// engine cluster keywords by detector and slice tight vicinity windows
+// per cluster instead of running every dispatched detector against the
+// whole chunk.
+//
+// out is appended to; the (possibly grown) slice is returned. Pass nil
+// to let MatchHitsInto allocate.
+func (m *Matcher) MatchHitsInto(data []byte, out []Hit) []Hit {
+	state := int32(0)
+	for i, b := range data {
+		for {
+			if next, ok := m.transitions[state][b]; ok {
+				state = next
+				break
+			}
+			if state == 0 {
+				break
+			}
+			state = m.failure[state]
+		}
+		for s := state; s > 0; {
+			for _, id := range m.patternsAt[s] {
+				out = append(out, Hit{PatternID: id, End: i})
+			}
+			s = m.dictLink[s]
+			if s < 0 {
+				break
+			}
+		}
+	}
+	return out
+}
+
 // NumPatterns reports the upper bound on pattern IDs the matcher will emit.
 // Callers sizing reusable `seen` buffers should use this rather than the
 // original `len(patterns)` (the two differ if any empty patterns were
