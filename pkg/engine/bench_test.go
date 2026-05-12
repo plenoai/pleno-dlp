@@ -105,21 +105,30 @@ func BenchmarkScan_ColdPath(b *testing.B) {
 // inner loop in the engine. A regression here lights up first
 // because every chunk pays this cost, regardless of detector hit
 // rate.
+//
+// Before the Aho-Corasick rewrite this benchmark called keywordMatch
+// directly in a per-detector loop. The new shape mirrors the real
+// engine path: one lowercase pass per chunk, one AC walk against the
+// union of keywords. Reported MB/s should therefore be ~2 orders of
+// magnitude higher than the pre-rewrite baseline.
 func BenchmarkKeywordMatch(b *testing.B) {
 	chunk := []byte(strings.Repeat("This is a noise line that mentions nothing private and no keywords at all.\n", 256))
-	all := detectors.All()
-	// Snapshot keyword sets; benchmark harness re-runs the inner
-	// loop without the registry-scan cost.
-	keywordSets := make([][]string, 0, len(all))
-	for _, d := range all {
-		keywordSets = append(keywordSets, d.Keywords())
+	eng := NewWithDetectors(detectors.All(), Options{Concurrency: 1}, &nullSink{})
+	if eng.prefilter == nil {
+		b.Fatalf("expected prefilter to be built")
 	}
+	lower := make([]byte, 0, len(chunk))
+	seen := make([]bool, len(eng.dets))
+	out := make([]int32, 0, 16)
 
 	b.SetBytes(int64(len(chunk)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		for _, kws := range keywordSets {
-			keywordMatch(chunk, kws)
+		lower = lowerCaseInto(lower[:0], chunk)
+		for j := range seen {
+			seen[j] = false
 		}
+		out = eng.prefilter.MatchInto(lower, seen, out[:0])
 	}
+	_ = out
 }

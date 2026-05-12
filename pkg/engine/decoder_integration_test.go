@@ -77,11 +77,11 @@ func TestDecoderIntegration_FindsBase64HiddenSecret(t *testing.T) {
 	raw := []byte("export AUTH=" + hidden)
 
 	sink := &recordingSink{}
-	eng := &Engine{
-		opts: Options{Concurrency: 1},
-		dets: []detectors.Detector{fakeDetector{needle: akia}},
-		sink: sink,
-	}
+	eng := NewWithDetectors(
+		[]detectors.Detector{fakeDetector{needle: akia}},
+		Options{Concurrency: 1},
+		sink,
+	)
 
 	if err := eng.Run(context.Background(), fakeSource{data: raw}); err != nil {
 		t.Fatalf("engine.Run: %v", err)
@@ -109,11 +109,11 @@ func TestDecoderIntegration_PlainTextPathUntagged(t *testing.T) {
 	raw := []byte("aws_access_key_id=" + akia)
 
 	sink := &recordingSink{}
-	eng := &Engine{
-		opts: Options{Concurrency: 1},
-		dets: []detectors.Detector{fakeDetector{needle: akia}},
-		sink: sink,
-	}
+	eng := NewWithDetectors(
+		[]detectors.Detector{fakeDetector{needle: akia}},
+		Options{Concurrency: 1},
+		sink,
+	)
 
 	if err := eng.Run(context.Background(), fakeSource{data: raw}); err != nil {
 		t.Fatalf("engine.Run: %v", err)

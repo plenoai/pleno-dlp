@@ -32,11 +32,11 @@ func TestArchiveIntegration_FindsSecretInsideZip(t *testing.T) {
 	}
 
 	sink := &recordingSink{}
-	eng := &Engine{
-		opts: Options{Concurrency: 1},
-		dets: []detectors.Detector{fakeDetector{needle: akia}},
-		sink: sink,
-	}
+	eng := NewWithDetectors(
+		[]detectors.Detector{fakeDetector{needle: akia}},
+		Options{Concurrency: 1},
+		sink,
+	)
 
 	if err := eng.Run(context.Background(), fakeSource{data: buf.Bytes()}); err != nil {
 		t.Fatalf("engine.Run: %v", err)
