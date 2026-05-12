@@ -28,11 +28,11 @@ cost.
 
 | Tool        | Mean         | Min      | Max      |
 |-------------|-------------:|---------:|---------:|
-| pleno-dlp   | **102 ± 6 ms** | 96 ms  | 112 ms   |
-| trufflehog  | 859 ± 10 ms  | 848 ms   | 873 ms   |
+| pleno-dlp   | **184 ± 10 ms** | 176 ms  | 201 ms   |
+| trufflehog  | 872 ± 21 ms  | 858 ms   | 910 ms   |
 | gitleaks    | 19.2 ± 0.6 ms | 18.4 ms | 19.7 ms |
 
-All three emit 0 findings. **pleno-dlp is 8.4× faster than
+All three emit 0 findings. **pleno-dlp is 4.73× faster than
 trufflehog** on the workload that dominates real-world scans.
 gitleaks still wins outright because its ruleset is ~4× smaller and
 its rules are regex-keyed by leading literal; pleno-dlp closes most
@@ -46,13 +46,15 @@ UUIDs, hex hashes, embedded base64 documentation.
 
 | Tool        | Mean          | Min     | Max     | Findings |
 |-------------|--------------:|--------:|--------:|---------:|
-| pleno-dlp   | **625 ± 12 ms** | 606 ms | 639 ms | 484 (320 GenericHighEntropy + 67 Bandwidth FPs) |
-| trufflehog  | 946 ± 11 ms   | 935 ms  | 961 ms  | 6        |
+| pleno-dlp   | **770 ± 115 ms** | 694 ms | 973 ms | 490 (326 GenericHighEntropy + 73 Bandwidth FPs) |
+| trufflehog  | 1020 ± 105 ms | 944 ms  | 1198 ms | 6        |
 | gitleaks    | 16.8 ± 0.8 ms | 16.1 ms | 17.8 ms | 5        |
 
-**pleno-dlp is 1.51× faster than trufflehog** here too — a reversal
+**pleno-dlp is 1.32× faster than trufflehog** here too — a reversal
 from the previous snapshot, where pleno-dlp was 6.2× slower on the
-same corpus. The flip came from three coordinated engine changes:
+same corpus. Finding counts are identical to the pre-optimisation
+baseline; detection parity was an explicit constraint on the rework.
+The flip came from three coordinated engine changes:
 
 1. **decoder.Variants byte-scan gating + RE2 removal.** The
    base64 / hex / percent run detectors used to walk every chunk
@@ -80,12 +82,23 @@ same corpus. The flip came from three coordinated engine changes:
    credential keywords, that's a flat ~3× reduction in detector
    regex time.
 
-Vicinity dispatch also drops six Bandwidth false-positives that
-required two `[A-Za-z0-9]{10,32}` runs both within 256 bytes of the
-`bandwidth` keyword — when those runs span > 4 KiB the vicinity
-window legitimately doesn't contain the pair, and the detector
-correctly stays silent. Verified findings (the column that matters
-for ops) are unchanged.
+Detection-parity rescue: the first iteration of vicinity dispatch
+silently regressed five detector classes whose regexes legitimately
+span > 2 KiB or pair literals across the same chunk — PrivateKeyPEM
+(BEGIN/END across a multi-KiB body), APNs and AppStoreConnect (PEM
+.p8 keys with a wider context keyword), GCP (extractObject walks
+left/right for the enclosing JSON object), and Bandwidth (paired
+secrets near the same keyword). They opt out of vicinity dispatch
+via the new `detectors.FullChunkDetector` interface and receive the
+whole chunk once before the windowing loop runs. Regression tests
+in `pkg/engine/regression_test.go` lock the contract — running
+them on the no-FullChunkDetector revision reproduces the misses.
+
+The cost is per-chunk: five extra full-chunk regex sweeps regardless
+of file content. That's what dragged Workload B from 102 ms (no
+detection parity) to 184 ms (full detection parity). Detection
+correctness was the right side of the trade — there is no point in
+a faster DLP scanner that fails to find leaked private keys.
 
 ## Where each tool wins
 
