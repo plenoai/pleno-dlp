@@ -92,28 +92,6 @@ go test -tags=realcorpus -run=^$ \
     -cpuprofile=/tmp/dlp.prof ./pkg/engine
 ```
 
-## Engine shape today
-
-- **`pkg/ahocorasick`** — in-repo case-sensitive AC matcher (~250
-  LOC, zero new module deps). Built once at engine construction over
-  the lower-cased union of every detector's `Keywords()`. Exposes
-  `MatchHitsInto` for position-aware dispatch.
-- **`pkg/engine`** — `scanChunkLeaf` slides a 32 KiB window (with
-  1 KiB overlap) across each chunk. Per-window, `dispatch`
-  lower-cases once into a pooled buffer, walks AC to collect
-  `(detector_index, keyword_position)` hits, then runs each
-  dispatched detector against the *minimal vicinity slice* covering
-  every hit + `vicinityRadius` (2 KiB) bytes on each side. Detectors
-  whose match span exceeds vicinityRadius opt out via
-  `detectors.FullChunkDetector` and receive the whole chunk once
-  before the windowing loop runs. The `Verifier` interface assertion
-  is resolved at construction time and cached on the engine.
-- **`pkg/decoder`** — `Variants` gates base64 / hex / percent decode
-  on cheap byte scans (`hasBase64Run` / `hasHexRun` /
-  `hasPercentRun`); run detection itself uses `walkBase64Runs` /
-  `walkHexRuns` instead of RE2 so the no-decode path stays
-  allocation-free.
-
 ## Reproducing
 
 ```sh
