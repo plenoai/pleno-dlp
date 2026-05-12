@@ -77,6 +77,15 @@ func (Scanner) Type() detectors.DetectorType { return detectors.PrivateKeyPEM }
 // contains it on both BEGIN and END lines.
 func (Scanner) Keywords() []string { return []string{"PRIVATE KEY"} }
 
+// WantsFullChunk opts this detector out of the engine's vicinity-slice
+// dispatch path. blockRe matches BEGIN...END pairs that can span many
+// kilobytes (RSA-8192 PEM ≈ 6.4 KB, PGP keyrings larger still), and
+// the 2-KiB vicinity radius routinely splits the two anchors into
+// separate slices on real-world key files. Paying the full-window
+// regex cost on this detector is the right trade — its keyword is
+// specific enough that prefilter dispatch is rare.
+func (Scanner) WantsFullChunk() bool { return true }
+
 // FromData locates every PEM private-key block, derives the public-key
 // fingerprint locally, and attempts to unlock encrypted blocks with the
 // embedded passphrase wordlist. When verify=true and a fingerprint was

@@ -52,6 +52,10 @@ type Engine struct {
 	// Cached at construction time so the hot path doesn't re-run the
 	// interface assertion per chunk.
 	isVerifier []bool
+	// wantsFull[i] is true when dets[i] opted in via FullChunkDetector.
+	// Dispatch then passes the entire variant data (not a vicinity
+	// slice) so BEGIN/END-style anchored regexes don't get split.
+	wantsFull []bool
 	// prefilter is the Aho-Corasick keyword matcher across the union of
 	// every detector's lower-cased keywords. detectorIdxByPattern[p]
 	// lists the detector indices unlocked when pattern p matches. Both
@@ -135,13 +139,18 @@ func NewWithDetectors(dets []detectors.Detector, opts Options, sink Sink) *Engin
 		return vi && !vj
 	})
 	isVerifier := make([]bool, len(ordered))
+	wantsFull := make([]bool, len(ordered))
 	for i, d := range ordered {
 		_, isVerifier[i] = d.(detectors.Verifier)
+		if fc, ok := d.(detectors.FullChunkDetector); ok {
+			wantsFull[i] = fc.WantsFullChunk()
+		}
 	}
 	e := &Engine{
 		opts:       opts,
 		dets:       ordered,
 		isVerifier: isVerifier,
+		wantsFull:  wantsFull,
 		sink:       sink,
 	}
 	e.buildPrefilter()
@@ -310,6 +319,13 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 	seenPtr := e.seenBufPool.Get().(*[]bool)
 	defer e.seenBufPool.Put(seenPtr)
 
+	// FullChunkDetector opt-ins (e.g. PrivateKeyPEM) see the entire
+	// chunk independent of the windowing loop below. BEGIN/END
+	// anchored regexes don't survive being split across a 32 KiB
+	// window boundary even with overlap, so we pay the per-chunk
+	// regex cost once on the whole chunk for that small set.
+	e.runFullChunkDetectors(ctx, c, archivePath)
+
 	data := c.Data
 	if len(data) <= maxWindowSize {
 		e.scanWindow(ctx, c, data, archivePath, lowerPtr, seenPtr)
@@ -323,6 +339,27 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 		e.scanWindow(ctx, c, data[start:end], archivePath, lowerPtr, seenPtr)
 		if end == len(data) {
 			break
+		}
+	}
+}
+
+// runFullChunkDetectors dispatches every detector that opted in via
+// FullChunkDetector against the whole chunk in one pass — bypassing
+// both the windowing loop and the vicinity-slice dispatch. The
+// scanWindow path then SKIPs these detectors (see dispatch), so each
+// FullChunk detector emits exactly once per chunk regardless of how
+// many windows the chunk is split into.
+func (e *Engine) runFullChunkDetectors(ctx context.Context, c *sources.Chunk, archivePath string) {
+	// Decode variants from the whole chunk so an encoded PEM inside a
+	// base64 blob still reaches the detector. Cheap when the chunk
+	// has no candidate runs (byte-scan gates short-circuit).
+	variants := decoder.Variants(c.Data)
+	for _, v := range variants {
+		for di := range e.dets {
+			if !e.wantsFull[di] {
+				continue
+			}
+			e.runDetectorOn(ctx, c, v, archivePath, di, v.Data)
 		}
 	}
 }
@@ -394,6 +431,13 @@ func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Varia
 	dets := make(map[int][]vicinitySpan)
 	for _, h := range hits {
 		for _, di := range e.detectorIdxByPattern[h.PatternID] {
+			// FullChunkDetector opt-ins are handled once per chunk
+			// by runFullChunkDetectors. Skip them here so they don't
+			// also fire per window — the regex would emit duplicate
+			// findings into dedup.
+			if e.wantsFull[di] {
+				continue
+			}
 			start := h.End - vicinityRadius
 			if start < 0 {
 				start = 0

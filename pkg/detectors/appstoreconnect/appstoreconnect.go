@@ -40,6 +40,11 @@ func (Scanner) Keywords() []string {
 	return []string{"app_store_connect", "appstoreconnect", ".p8"}
 }
 
+// WantsFullChunk: same rationale as APNs — pemRe spans BEGIN/END
+// markers that can sit kilobytes apart inside a .p8 PEM block, well
+// beyond the engine's vicinity radius.
+func (Scanner) WantsFullChunk() bool { return true }
+
 func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	hits := pemRe.FindAllIndex(data, -1)
 	if len(hits) == 0 {

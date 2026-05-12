@@ -1100,6 +1100,27 @@ type Verifier interface {
 	Verify(ctx context.Context, secret string) (bool, error)
 }
 
+// FullChunkDetector is optionally implemented by detectors whose match
+// regex genuinely needs to see the whole chunk — typically because the
+// regex anchors a pair of literals (BEGIN/END markers, paired tokens)
+// that can sit far enough apart in the source that the engine's
+// vicinity dispatch would split them across separate slices. The
+// engine calls FromData with the entire chunk (post-window split)
+// instead of vicinity-sliced bytes when this returns true.
+//
+// Detectors should opt in sparingly. The vicinity dispatch path is
+// where pleno-dlp's per-detector regex cost is bounded; a
+// FullChunkDetector pays O(window_size) per dispatch instead of
+// O(num_keyword_hits · vicinityRadius). For most credential shapes
+// (≤200 bytes, near a keyword) the default vicinity slice is the
+// right scope.
+type FullChunkDetector interface {
+	// WantsFullChunk reports whether FromData must see the whole
+	// window. Returning false is equivalent to not implementing the
+	// interface.
+	WantsFullChunk() bool
+}
+
 // Revoker is optionally implemented by detectors (and SaaS connectors via
 // pkg/connectors) whose upstream provider exposes a revocation API for
 // the credential class they detect. Revoke MUST be idempotent: a second
