@@ -999,6 +999,18 @@ const (
 	// surfaces in ExtraData["pii_kind"]; ExtraData["finding_class"]
 	// stays "pii" so downstream routing is unchanged.
 	PIIAnonymize
+	// batch 42 — appended in wire-stable order, never reorder. PII
+	// finding class via the openai/privacy-filter (opf) loopback engine
+	// (ADR-0004). Sibling of PIIAnonymize, not a replacement: opf is a
+	// 1.5B-param transformer classifier (English-strong, GPU-friendly,
+	// 8 categories) while anonymize is the ja-first regex+spaCy pipeline.
+	// Mutually exclusive at the CLI in v1 (--pii-engine={anonymize|openai-pf}).
+	// The detector at pkg/detectors/openaipf maps opf's 8 categories to
+	// ExtraData["pii_kind"] (ACCOUNT_NUMBER / ADDRESS / EMAIL_ADDRESS /
+	// PERSON / PHONE_NUMBER / URL / DATE / OPF_SECRET) per ADR-0004 §6;
+	// ExtraData["engine"]="openai-pf" disambiguates from anonymize when
+	// downstream consumers route by engine.
+	PIIOpenAIPF
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
@@ -1066,7 +1078,7 @@ func DefaultSeverity(t DetectorType, verified bool) Severity {
 		return SeverityMedium
 	case JWT, PrivateKeyPEM:
 		return SeverityMedium
-	case PIIEmail, PIIUSSSN, PIICreditCard, PIIIBAN, PIIAnonymize:
+	case PIIEmail, PIIUSSSN, PIICreditCard, PIIIBAN, PIIAnonymize, PIIOpenAIPF:
 		// PII has no "verified" pathway — there's no upstream API to
 		// confirm an identity is "real" the way a credential can be
 		// confirmed live. Medium reflects information-leak severity vs

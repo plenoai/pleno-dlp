@@ -101,6 +101,71 @@ func TestKeywords_NotEmpty(t *testing.T) {
 	}
 }
 
+func TestFromData_RejectsCamelCaseIdentifier(t *testing.T) {
+	// A Go CamelCase identifier within 256 bytes of a credential keyword
+	// must NOT fire — entropy ≥ 4.0 but it's source code, not a secret.
+	// Real example from aws-sdk-go-v2/aws/credentials.go.
+	chunk := []byte(`// CredentialsCache provides caching for credentials.
+type CredentialsCache struct {
+	provider CredentialsProvider
+}`)
+	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	for _, r := range res {
+		if strings.Contains(string(r.Raw), "Credentials") {
+			t.Errorf("CamelCase identifier must NOT match; got %q", r.Raw)
+		}
+	}
+}
+
+func TestFromData_RejectsImportPath(t *testing.T) {
+	// Go import path embedded near `credential` keyword.
+	chunk := []byte(`// credential helpers from "github.com/aws/aws-sdk-go-v2/aws/credentials"`)
+	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	for _, r := range res {
+		if strings.Contains(string(r.Raw), "com/aws") {
+			t.Errorf("import path must NOT match; got %q", r.Raw)
+		}
+	}
+}
+
+func TestLooksLikeIdentifier(t *testing.T) {
+	cases := []struct {
+		s    string
+		want bool
+	}{
+		{"CredentialProviderOptions", true},      // CamelCase Go ident
+		{"UserAgentFeatureResourceModel", true},  // CamelCase Go ident
+		{"TestSign_buildCanonicalHeaders", true}, // Go test ident with underscore
+		{"AKIAIOSFODNN7EXAMPLE", false},          // AWS-style access key (has digit)
+		{"Hf83KdjL9qZ8xVnB2Wm7TpRc", false},      // mixed case + digits → real-shaped
+		{"ghp_aBcDeF123XYZ", false},              // has digits → real-shaped
+		{"abc/def/ghi/jkl/mno", false},           // has `/`, disqualifies identifier
+	}
+	for _, c := range cases {
+		if got := looksLikeIdentifier(c.s); got != c.want {
+			t.Errorf("looksLikeIdentifier(%q) = %v, want %v", c.s, got, c.want)
+		}
+	}
+}
+
+func TestLooksLikePath(t *testing.T) {
+	cases := []struct {
+		s    string
+		want bool
+	}{
+		{"com/aws/aws-sdk-go-v2", true},
+		{"a/b/c", true},
+		{"a/b", false},                            // single slash — could be base64
+		{"Hf83KdjL9qZ8xVnB2Wm7TpRc", false},
+		{"path/with/slashes/here", true},
+	}
+	for _, c := range cases {
+		if got := looksLikePath(c.s); got != c.want {
+			t.Errorf("looksLikePath(%q) = %v, want %v", c.s, got, c.want)
+		}
+	}
+}
+
 func TestShannonEntropy_CalibratesAtFour(t *testing.T) {
 	// Sanity-check the threshold: random-looking strings score above 4.0,
 	// repetitive strings score well below.

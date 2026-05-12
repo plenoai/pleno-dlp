@@ -20,7 +20,19 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{10,32})\b`)
 
-var contextKeywords = []string{"bandwidth"}
+// keywordRe is the anchored Bandwidth.com marker. The bare substring
+// `bandwidth` is far too common in English prose (network bandwidth,
+// `BandwidthLimitExceeded` in AWS retry docs, etc.) and pairs every
+// nearby CamelCase ≥ 10-alnum word into a fake username/password. The
+// regex demands a separator or a domain suffix so the keyword is
+// unmistakably referring to Bandwidth.com credentials.
+var keywordRe = regexp.MustCompile(`(?i)` +
+	`(?:` +
+	`\bbandwidth[_\-](?:api|user|username|pass(?:word)?|token|secret|key|account|id)\b` +
+	`|\bbandwidth\.com\b` +
+	`|\bdashboard\.bandwidth\.com\b` +
+	`|\bbandwidth[ \t]*[:=]` +
+	`)`)
 
 type Scanner struct{}
 
@@ -33,7 +45,10 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if len(hits) < 2 {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
+	kwSpans := keywordRe.FindAllIndex(data, -1)
+	if len(kwSpans) == 0 {
+		return nil, nil
+	}
 	out := make([]detectors.Result, 0)
 	seen := map[string]struct{}{}
 	for i, h := range hits {
@@ -41,7 +56,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[user]; dup {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
 		var pass string
@@ -50,7 +65,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 				continue
 			}
 			cand := string(data[h2[2]:h2[3]])
-			if cand != user && nearKeyword(lower, h2[2], h2[3]) {
+			if cand != user && nearKeyword(kwSpans, h2[2], h2[3]) {
 				pass = cand
 				break
 			}
@@ -79,19 +94,16 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+// nearKeyword reports whether [start,end) is within the keyword radius
+// of any anchored Bandwidth.com marker. Radius shrinks from the legacy
+// 256 to 96 because credential lines (`BANDWIDTH_USER=…`) sit a handful
+// of bytes from the marker, not on a different paragraph.
+func nearKeyword(kwSpans [][]int, start, end int) bool {
+	const radius = 96
 	from := start - radius
-	if from < 0 {
-		from = 0
-	}
 	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+	for _, sp := range kwSpans {
+		if sp[1] >= from && sp[0] <= to {
 			return true
 		}
 	}

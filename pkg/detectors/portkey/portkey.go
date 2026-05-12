@@ -20,7 +20,18 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Portkey API keys are 32-64 base64url chars, anchored on `portkey`.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9+/_=-]{32,64})\b`)
 
-var contextKeywords = []string{"portkey"}
+// keywordRe is the anchored Portkey.ai marker. The bare `portkey`
+// substring matches inside other words (`ExportKey`, `importKey`),
+// so word-bounded `\bportkey\b` plus credential anchors are required.
+var keywordRe = regexp.MustCompile(`(?i)` +
+	`(?:` +
+	`\bportkey[_\-](?:api|token|key|secret)` +
+	`|\bportkey\.ai\b` +
+	`|\bapi\.portkey\.ai\b` +
+	`|\bx-portkey-api-key\b` +
+	`|\bportkey[ \t]*[:=]` +
+	`|\bportkey\b` +
+	`)`)
 
 type Scanner struct{}
 
@@ -33,7 +44,10 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
+	kwSpans := keywordRe.FindAllIndex(data, -1)
+	if len(kwSpans) == 0 {
+		return nil, nil
+	}
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
 	for _, h := range hits {
@@ -41,7 +55,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -63,19 +77,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+func nearKeyword(kwSpans [][]int, start, end int) bool {
+	const radius = 96
 	from := start - radius
-	if from < 0 {
-		from = 0
-	}
 	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+	for _, sp := range kwSpans {
+		if sp[1] >= from && sp[0] <= to {
 			return true
 		}
 	}

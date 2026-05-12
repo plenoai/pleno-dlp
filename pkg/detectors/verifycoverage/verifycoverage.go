@@ -77,7 +77,7 @@ func Lookup(detectorType string) (Class, bool) {
 //
 // Keep this table sorted alphabetically by key so diffs are stable.
 var Classes = map[string]Class{
-	// (b) Unverified-by-design — 43 detectors
+	// (b) Unverified-by-design — 44 detectors
 	"APNs":               ClassUnverifiedByDesign,
 	"AWSS3PresignedURL":  ClassUnverifiedByDesign,
 	"AWX":                ClassUnverifiedByDesign,
@@ -105,6 +105,7 @@ var Classes = map[string]Class{
 	"MySQL":              ClassUnverifiedByDesign,
 	"OVHCloud":           ClassUnverifiedByDesign,
 	"PIIAnonymize":       ClassUnverifiedByDesign,
+	"PIIOpenAIPF":        ClassUnverifiedByDesign,
 	// PIICreditCard / PIIEmail / PIIIBAN / PIIUSSSN entries removed —
 	// the detectors were retired in favour of PIIAnonymize. The
 	// DetectorType constants stay pinned at their ordinals (76..79)

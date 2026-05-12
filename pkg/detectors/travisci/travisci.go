@@ -21,7 +21,16 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Travis tokens are 22 chars of base64-url-ish alnum.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_\-]{22})\b`)
 
-var contextKeywords = []string{"travis", "travis-ci", "travisci"}
+// keywordRe is the anchored Travis CI marker. A .travis.yml is filled
+// with the word `travis` (file name, sample comments, env-var prefix
+// like `TRAVIS_BUILD_ID`), so the bare keyword pairs every 22-char
+// env-var name into a fake token. Require a Travis-API anchor.
+var keywordRe = regexp.MustCompile(`(?i)` +
+	`(?:` +
+	`\btravis[_\-](?:api|token|access[_\-]?token|key|secret)` +
+	`|\bapi\.travis-ci\.(?:com|org)\b` +
+	`|\btravis-ci\.(?:com|org)\b` +
+	`)`)
 
 type Scanner struct{}
 
@@ -34,7 +43,10 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
+	kwSpans := keywordRe.FindAllIndex(data, -1)
+	if len(kwSpans) == 0 {
+		return nil, nil
+	}
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
 	for _, h := range hits {
@@ -42,7 +54,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -64,19 +76,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+func nearKeyword(kwSpans [][]int, start, end int) bool {
+	const radius = 96
 	from := start - radius
-	if from < 0 {
-		from = 0
-	}
 	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+	for _, sp := range kwSpans {
+		if sp[1] >= from && sp[0] <= to {
 			return true
 		}
 	}

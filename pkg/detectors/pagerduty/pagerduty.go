@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -28,7 +27,19 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{20})\b`)
 
-var contextKeywords = []string{"pagerduty", "pd_api_key", "pd_token"}
+// keywordRe is the anchored PagerDuty marker. The bare keyword
+// `pagerduty` is unique enough on its own but the prefilter may admit
+// chunks where `pagerduty` occurs only as a substring of an unrelated
+// English word; require word-bounded `\bpagerduty\b` plus credential
+// anchors to be sure.
+var keywordRe = regexp.MustCompile(`(?i)` +
+	`(?:` +
+	`\bpagerduty\b` +
+	`|\bpd_api_key\b` +
+	`|\bpd_token\b` +
+	`|\bapi\.pagerduty\.com\b` +
+	`|\bpagerduty[_\-](?:api|token|key|secret)` +
+	`)`)
 
 // PagerDuty roles that can mutate account-wide configuration: rotations,
 // services, integrations, billing. A leaked token at any of these is
@@ -53,7 +64,10 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		return nil, nil
 	}
 
-	lower := strings.ToLower(string(data))
+	kwSpans := keywordRe.FindAllIndex(data, -1)
+	if len(kwSpans) == 0 {
+		return nil, nil
+	}
 
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
@@ -64,7 +78,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		}
 		// Mandatory co-occurrence — without a keyword in the window, every
 		// 20-char base64-ish chunk would surface.
-		if !nearKeyword(lower, h[2], h[3]) {
+		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -88,19 +102,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+func nearKeyword(kwSpans [][]int, start, end int) bool {
+	const radius = 96
 	from := start - radius
-	if from < 0 {
-		from = 0
-	}
 	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+	for _, sp := range kwSpans {
+		if sp[1] >= from && sp[0] <= to {
 			return true
 		}
 	}

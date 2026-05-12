@@ -7,14 +7,25 @@ package spinnaker
 import (
 	"context"
 	"regexp"
-	"strings"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_.-]{20,}|[A-Za-z0-9]{40,80})\b`)
 
-var contextKeywords = []string{"spinnaker", "spinnaker_token", "spinnaker_api"}
+// keywordRe is the anchored Spinnaker marker. The bare substring
+// `spinnaker` appears in any reference to the upstream project URL
+// (`github.com/spinnaker/spinnaker.git`), which sits adjacent to
+// commit SHA-1 hashes in test fixtures — a hard 40-hex FP. Require
+// a Spinnaker credential anchor (`spinnaker_api`, `gate.spinnaker`,
+// `spinnaker.io`, `SPINNAKER=`) instead.
+var keywordRe = regexp.MustCompile(`(?i)` +
+	`(?:` +
+	`\bspinnaker[_\-](?:api|token|key|secret|gate|auth)\b` +
+	`|\bgate\.spinnaker\b` +
+	`|\bspinnaker\.io\b` +
+	`|\bspinnaker[ \t]*[:=]` +
+	`)`)
 
 type Scanner struct{}
 
@@ -27,7 +38,10 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
+	kwSpans := keywordRe.FindAllIndex(data, -1)
+	if len(kwSpans) == 0 {
+		return nil, nil
+	}
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
 	for _, h := range hits {
@@ -35,7 +49,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -51,19 +65,12 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+func nearKeyword(kwSpans [][]int, start, end int) bool {
+	const radius = 96
 	from := start - radius
-	if from < 0 {
-		from = 0
-	}
 	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+	for _, sp := range kwSpans {
+		if sp[1] >= from && sp[0] <= to {
 			return true
 		}
 	}

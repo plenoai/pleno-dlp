@@ -6,14 +6,25 @@ package gocd
 import (
 	"context"
 	"regexp"
-	"strings"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,64})\b`)
 
-var contextKeywords = []string{"gocd", "go.cd", "gocd_token", "gocd_api"}
+// keywordRe is the anchored GoCD marker. The 4-letter `gocd` substring
+// can appear randomly inside long base64 blobs (PGP blocks in
+// `tag_test.go` carry runs like `mQGNBGB5V8gBDACfWWMs+...GOcDR...`),
+// so a `strings.Contains` window match fires next to unrelated alnum
+// runs. Require either a GoCD anchor (`gocd_api`, `gocd_token`) or
+// a word-bounded `\bgocd\b` / `\bgo\.cd\b`.
+var keywordRe = regexp.MustCompile(`(?i)` +
+	`(?:` +
+	`\bgocd[_\-](?:api|token|key|secret|server)` +
+	`|\bgocd\b` +
+	`|\bgo\.cd\b` +
+	`|\bgocd[ \t]*[:=]` +
+	`)`)
 
 type Scanner struct{}
 
@@ -26,7 +37,10 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
+	kwSpans := keywordRe.FindAllIndex(data, -1)
+	if len(kwSpans) == 0 {
+		return nil, nil
+	}
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
 	for _, h := range hits {
@@ -34,7 +48,7 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -50,19 +64,12 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+func nearKeyword(kwSpans [][]int, start, end int) bool {
+	const radius = 96
 	from := start - radius
-	if from < 0 {
-		from = 0
-	}
 	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+	for _, sp := range kwSpans {
+		if sp[1] >= from && sp[0] <= to {
 			return true
 		}
 	}

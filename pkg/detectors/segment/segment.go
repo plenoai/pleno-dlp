@@ -9,7 +9,6 @@ package segment
 import (
 	"context"
 	"regexp"
-	"strings"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -18,7 +17,19 @@ import (
 // keyword gate is essential.
 var tokenRe = regexp.MustCompile(`\b([a-zA-Z0-9_-]{32})\b`)
 
-var contextKeywords = []string{"segment", "segment_write_key"}
+// keywordRe is the anchored Segment.com marker. The bare `segment`
+// substring is everywhere in software docs ("HLS segment", "segment
+// URI") and the token regex is `[a-zA-Z0-9_-]{32}` — UUIDs-without-
+// dashes, MD5 hashes, opaque ids — match too. Require a Segment
+// credential anchor.
+var keywordRe = regexp.MustCompile(`(?i)` +
+	`(?:` +
+	`\bsegment[_\-](?:write|api|token|key|secret)` +
+	`|\bsegment[_\-]?io\b` +
+	`|\bsegment\.com\b` +
+	`|\bsegmentio\b` +
+	`|\bsegment_write_key\b` +
+	`)`)
 
 type Scanner struct{}
 
@@ -31,7 +42,10 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
+	kwSpans := keywordRe.FindAllIndex(data, -1)
+	if len(kwSpans) == 0 {
+		return nil, nil
+	}
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
 	for _, h := range hits {
@@ -39,7 +53,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -53,19 +67,12 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+func nearKeyword(kwSpans [][]int, start, end int) bool {
+	const radius = 96
 	from := start - radius
-	if from < 0 {
-		from = 0
-	}
 	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+	for _, sp := range kwSpans {
+		if sp[1] >= from && sp[0] <= to {
 			return true
 		}
 	}

@@ -12,13 +12,15 @@ registry, asserts every registered `DetectorType` appears here exactly
 once, and fails CI on drift (count change, classification change, or
 a registered detector missing from the doc).
 
-Counts are pinned at the top of the machine block. Total = 599
-(598 secret + 1 NER-backed PIIAnonymize detector). The four legacy
-regex PII detectors (piiemail / piicc / piiiban / piissn) were
-retired in favour of PIIAnonymize; their DetectorType constants
-(PIIEmail / PIIUSSSN / PIICreditCard / PIIIBAN, ordinals 76..79)
-stay pinned for wire compatibility per ADR-0002 but no live scan
-emits them, so the registry / doc drift test does not list them.
+Counts are pinned at the top of the machine block. Total = 600
+(598 secret + 1 NER-backed PIIAnonymize detector + 1 transformer-backed
+PIIOpenAIPF detector). The four legacy regex PII detectors (piiemail /
+piicc / piiiban / piissn) were retired in favour of PIIAnonymize; their
+DetectorType constants (PIIEmail / PIIUSSSN / PIICreditCard / PIIIBAN,
+ordinals 76..79) stay pinned for wire compatibility per ADR-0002 but no
+live scan emits them, so the registry / doc drift test does not list
+them. PIIOpenAIPF (ADR-0004) is a sibling PII engine — opt-in via
+`--pii-engine=openai-pf`, mutually exclusive with `anonymize` in v1.
 
 ## Severity model recap
 
@@ -28,7 +30,7 @@ emits them, so the registry / doc drift test does not list them.
 |---------------------------------------------------------|-----------|------------|
 | Default (every named provider unless overridden)        | Critical  | High       |
 | `JWT`, `PrivateKeyPEM`, `GenericHighEntropy`            | Critical  | Medium     |
-| `PIIAnonymize`                                          | (n/a)     | Medium     |
+| `PIIAnonymize`, `PIIOpenAIPF`                           | (n/a)     | Medium     |
 
 A handful of providers (`Stripe`, `MercuryBank`, `Bitwarden`, `Helcim`,
 …) override their unverified severity to Critical at the detector level
@@ -58,7 +60,7 @@ machine block. Spot-check examples: `AWS`, `GitHub`, `GitHubFineGrained`,
 `Coinbase` (unsigned-bearer fallback — verifies via HTTP 401 → false),
 plus most batch 1–40 detectors that hit a public API host.
 
-## (b) Unverified-by-design — 43 detectors
+## (b) Unverified-by-design — 44 detectors
 
 These detectors deliberately do not implement `Verify`. The rationale
 is one of:
@@ -85,7 +87,7 @@ is one of:
   control / redaction, not verification.
 
 Severity-on-finding is High by default, Medium for `JWT`,
-`PrivateKeyPEM`, `GenericHighEntropy`, and `PIIAnonymize`.
+`PrivateKeyPEM`, `GenericHighEntropy`, `PIIAnonymize`, and `PIIOpenAIPF`.
 
 > **PrivateKeyPEM Verifier (class a).** PEM private keys do not have a
 > single upstream provider, but the public-key half can be correlated
@@ -128,6 +130,7 @@ Severity-on-finding is High by default, Medium for `JWT`,
 | MySQL                   | secret   | connection string, host not in chunk                                      |
 | OVHCloud                | secret   | HMAC signing required                                                     |
 | PIIAnonymize            | pii      | PII finding class — NER + regex via pleno-anonymize, no provider API to verify |
+| PIIOpenAIPF             | pii      | PII finding class — MoE classifier (openai/privacy-filter), no provider-side verify path |
 | PingIdentity            | secret   | per-region host (`api.pingone.{com,eu,asia,ca}`) not in chunk             |
 | Postgres                | secret   | connection string, host not in chunk                                      |
 | RabbitMQ                | secret   | connection string, host not in chunk                                      |
@@ -218,9 +221,9 @@ the live `detectors.All()` registry.
 - `class=c` → Verifiable but not implemented (gap item)
 
 ```coverage-machine
-total=599
+total=600
 a=514
-b=43
+b=44
 c=42
 type=APNs class=b
 type=AWSS3PresignedURL class=b
@@ -249,6 +252,7 @@ type=MongoDB class=b
 type=MySQL class=b
 type=OVHCloud class=b
 type=PIIAnonymize class=b
+type=PIIOpenAIPF class=b
 type=PingIdentity class=b
 type=Postgres class=b
 type=RabbitMQ class=b

@@ -10,7 +10,6 @@ import (
 	"context"
 	"net/http"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,7 +21,19 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([a-f0-9]{40})\b`)
 
-var contextKeywords = []string{"gitter", "gitter_token", "gitter_api"}
+// keywordRe is the anchored Gitter marker. The 6-letter `gitter`
+// substring sits inside identifiers like `TestTagItter` (case-
+// insensitive substring match), which is a real symbol in go-git's
+// `tag_test.go` and pairs with adjacent git SHA-1 hashes. Require a
+// word-bounded `\bgitter\b` or a Gitter credential anchor.
+var keywordRe = regexp.MustCompile(`(?i)` +
+	`(?:` +
+	`\bgitter[_\-](?:api|token|key|secret|access)` +
+	`|\bgitter\.im\b` +
+	`|\bapi\.gitter\.im\b` +
+	`|\bgitter[ \t]*[:=]` +
+	`|\bgitter\b` +
+	`)`)
 
 type Scanner struct{}
 
@@ -35,7 +46,10 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if len(matches) == 0 {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
+	kwSpans := keywordRe.FindAllIndex(data, -1)
+	if len(kwSpans) == 0 {
+		return nil, nil
+	}
 	out := make([]detectors.Result, 0, len(matches))
 	seen := map[string]struct{}{}
 	for _, m := range matches {
@@ -43,7 +57,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(lower, m[2], m[3]) {
+		if !nearKeyword(kwSpans, m[2], m[3]) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -91,19 +105,12 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	}
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+func nearKeyword(kwSpans [][]int, start, end int) bool {
+	const radius = 96
 	from := start - radius
-	if from < 0 {
-		from = 0
-	}
 	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+	for _, sp := range kwSpans {
+		if sp[1] >= from && sp[0] <= to {
 			return true
 		}
 	}
