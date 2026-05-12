@@ -28,15 +28,6 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Bandwidth }
 
 func (Scanner) Keywords() []string { return []string{"bandwidth"} }
 
-// WantsFullChunk: FromData pairs two [A-Za-z0-9]{10,32} hits that each
-// have to sit within nearKeyword's 256-byte radius of *some* "bandwidth"
-// occurrence. When a chunk has two "bandwidth" keywords whose
-// vicinities don't overlap, the engine's per-keyword vicinity dispatch
-// hands the detector one slice with only one of the hits — the pair
-// search then fails on a credential the detector would otherwise have
-// emitted. Pay the per-chunk regex cost to keep paired-secret recall.
-func (Scanner) WantsFullChunk() bool { return true }
-
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	hits := tokenRe.FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {

@@ -37,11 +37,6 @@ func (Scanner) Keywords() []string {
 	return []string{"apns", "apple_push"}
 }
 
-// WantsFullChunk: pemRe pairs BEGIN/END markers that can sit several
-// kilobytes apart inside a PEM block. The engine's vicinity dispatch
-// would split the pair into separate slices on a real .p8 file.
-func (Scanner) WantsFullChunk() bool { return true }
-
 func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	hits := pemRe.FindAllIndex(data, -1)
 	if len(hits) == 0 {

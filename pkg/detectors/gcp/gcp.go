@@ -40,13 +40,6 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GCPServiceAccoun
 
 func (Scanner) Keywords() []string { return []string{"service_account"} }
 
-// WantsFullChunk: extractObject walks left from the `"type"` hit to
-// find the enclosing `{` and right for the matching `}`. Service-
-// account JSON files are 2-3 KB, with the private_key field typically
-// >1 KB on its own — the engine's vicinity slice would routinely cut
-// the object in half and leave extractObject without an anchor.
-func (Scanner) WantsFullChunk() bool { return true }
-
 // serviceAccount is the subset of fields we need to verify the credential.
 type serviceAccount struct {
 	Type        string `json:"type"`

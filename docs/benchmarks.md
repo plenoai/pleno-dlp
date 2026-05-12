@@ -26,17 +26,13 @@ dominant shape on real codebases: most files contain no secrets, so
 every detector pays the prefilter cost and nothing pays the regex
 cost.
 
-| Tool        | Mean         | Min      | Max      |
-|-------------|-------------:|---------:|---------:|
-| pleno-dlp   | **184 ± 10 ms** | 176 ms  | 201 ms   |
-| trufflehog  | 872 ± 21 ms  | 858 ms   | 910 ms   |
+| Tool        | Mean          | Min      | Max      |
+|-------------|--------------:|---------:|---------:|
+| pleno-dlp   | **114 ± 8 ms** | 105 ms  | 123 ms   |
+| trufflehog  | 872 ± 15 ms   | 857 ms   | 910 ms   |
 | gitleaks    | 19.2 ± 0.6 ms | 18.4 ms | 19.7 ms |
 
-All three emit 0 findings. **pleno-dlp is 4.73× faster than
-trufflehog** on the workload that dominates real-world scans.
-gitleaks still wins outright because its ruleset is ~4× smaller and
-its rules are regex-keyed by leading literal; pleno-dlp closes most
-of the gap to gitleaks while keeping ~4× the detector coverage.
+All three emit 0 findings.
 
 ## Workload D — real OSS code
 
@@ -44,61 +40,11 @@ of the gap to gitleaks while keeping ~4× the detector coverage.
 total**. No real secrets but plenty of "is this a key?" ambiguity —
 UUIDs, hex hashes, embedded base64 documentation.
 
-| Tool        | Mean          | Min     | Max     | Findings |
-|-------------|--------------:|--------:|--------:|---------:|
-| pleno-dlp   | **770 ± 115 ms** | 694 ms | 973 ms | 490 (326 GenericHighEntropy + 73 Bandwidth FPs) |
-| trufflehog  | 1020 ± 105 ms | 944 ms  | 1198 ms | 6        |
-| gitleaks    | 16.8 ± 0.8 ms | 16.1 ms | 17.8 ms | 5        |
-
-**pleno-dlp is 1.32× faster than trufflehog** here too — a reversal
-from the previous snapshot, where pleno-dlp was 6.2× slower on the
-same corpus. Finding counts are identical to the pre-optimisation
-baseline; detection parity was an explicit constraint on the rework.
-The flip came from three coordinated engine changes:
-
-1. **decoder.Variants byte-scan gating + RE2 removal.** The
-   base64 / hex / percent run detectors used to walk every chunk
-   through RE2 even when no candidate run existed. Profiling showed
-   the cold-path engine spending ~26% of CPU inside
-   `regexp.(*machine).match` rooted in `decoder.Variants`. A linear
-   scan rejects "no candidate" in one pass; the regex was also
-   replaced by a `walkBase64Runs` / `walkHexRuns` byte walker so the
-   match path itself never enters RE2.
-2. **Generic-detector pre-check.** `GenericHighEntropy`'s
-   `secretShape` regex (`[A-Za-z0-9+/_\-]{20,128}`) was running once
-   per chunk that mentioned any of its credential keywords, even on
-   plain English prose with no token-shaped substring at all. A
-   cheap byte-scan gate skips the regex entirely when the chunk has
-   no run of >=20 base64-alphabet bytes.
-3. **Vicinity dispatch.** The biggest single win on real source code.
-   The dispatcher now collects every AC keyword hit's exact position
-   and hands each detector only the union of `keyword_position ±
-   2 KiB` byte ranges — instead of the full 32 KiB window. Detector
-   regexes scale linearly in input size, so capping per-dispatch
-   work at the radius the credential regexes are written against
-   (~256-byte keyword-secret gap, plenty of headroom) cuts the
-   per-detector cost from O(window_size) to O(num_hits ·
-   2·vicinityRadius). On a Go codebase with locally-clustered
-   credential keywords, that's a flat ~3× reduction in detector
-   regex time.
-
-Detection-parity rescue: the first iteration of vicinity dispatch
-silently regressed five detector classes whose regexes legitimately
-span > 2 KiB or pair literals across the same chunk — PrivateKeyPEM
-(BEGIN/END across a multi-KiB body), APNs and AppStoreConnect (PEM
-.p8 keys with a wider context keyword), GCP (extractObject walks
-left/right for the enclosing JSON object), and Bandwidth (paired
-secrets near the same keyword). They opt out of vicinity dispatch
-via the new `detectors.FullChunkDetector` interface and receive the
-whole chunk once before the windowing loop runs. Regression tests
-in `pkg/engine/regression_test.go` lock the contract — running
-them on the no-FullChunkDetector revision reproduces the misses.
-
-The cost is per-chunk: five extra full-chunk regex sweeps regardless
-of file content. That's what dragged Workload B from 102 ms (no
-detection parity) to 184 ms (full detection parity). Detection
-correctness was the right side of the trade — there is no point in
-a faster DLP scanner that fails to find leaked private keys.
+| Tool        | Mean           | Min     | Max     | Findings |
+|-------------|---------------:|--------:|--------:|---------:|
+| pleno-dlp   | **600 ± 23 ms** | 578 ms | 637 ms  | 484 (320 GenericHighEntropy + 67 Bandwidth FPs) |
+| trufflehog  | 904 ± 15 ms    | 892 ms  | 930 ms  | 6        |
+| gitleaks    | 16.8 ± 0.8 ms  | 16.1 ms | 17.8 ms | 5        |
 
 ## Where each tool wins
 
@@ -125,8 +71,7 @@ BenchmarkKeywordMatch-8              7196       423709 ns/op   45.31 MB/s     0 
 
 - `BenchmarkScan_ColdPath` — 1024 × 4 KiB chunks of noise routed
   through the full engine across worker counts. Throughput peaks at
-  `conc=8` on this 8-core M3 — **205 MB/s, a 6.2× lift from the
-  pre-optimisation 32.93 MB/s baseline** at the same concurrency.
+  `conc=8` on this 8-core M3.
 - `BenchmarkKeywordMatch` — the prefilter in isolation. Zero
   allocations per call once warm: the lowercase buffer and the
   "seen" bitmap both come out of `sync.Pool`s.
@@ -158,9 +103,11 @@ go test -tags=realcorpus -run=^$ \
   lower-cases once into a pooled buffer, walks AC to collect
   `(detector_index, keyword_position)` hits, then runs each
   dispatched detector against the *minimal vicinity slice* covering
-  every hit + `vicinityRadius` bytes on each side. The `Verifier`
-  interface assertion is resolved at construction time and cached on
-  the engine.
+  every hit + `vicinityRadius` (2 KiB) bytes on each side. Detectors
+  whose match span exceeds vicinityRadius opt out via
+  `detectors.FullChunkDetector` and receive the whole chunk once
+  before the windowing loop runs. The `Verifier` interface assertion
+  is resolved at construction time and cached on the engine.
 - **`pkg/decoder`** — `Variants` gates base64 / hex / percent decode
   on cheap byte scans (`hasBase64Run` / `hasHexRun` /
   `hasPercentRun`); run detection itself uses `walkBase64Runs` /

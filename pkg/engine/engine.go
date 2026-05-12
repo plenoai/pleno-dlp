@@ -384,12 +384,16 @@ func (e *Engine) scanWindow(ctx context.Context, c *sources.Chunk, window []byte
 }
 
 // vicinityRadius is how many bytes around each keyword hit a detector
-// gets to see. Sized to cover the widest credential-shape regex
-// captures in the codebase (private keys, JWTs) plus the
-// keyword<->secret gap a generic credential line can introduce
-// ("API_KEY = \"…long-multiline-comment…\"…token"). Beyond this radius
-// the regex would have failed anyway, so trimming the window is sound
-// for every detector whose match span fits inside.
+// gets to see. Sized to cover the widest single-hit regex span in the
+// codebase: GCP service-account JSON (2-3 KB top to bottom, keyword
+// `service_account` anchored near the top), paired-secret detectors
+// like Bandwidth (each member within 256 B of the keyword, pair span
+// ≤512 B), and credential lines with embedded multi-line comments.
+// Detectors whose match span genuinely exceeds this — PEM BEGIN/END
+// pairs reaching 6+ KB on RSA-8192 — opt out via
+// `detectors.FullChunkDetector`. 4 KiB is the value that lets every
+// non-PEM real-world detector run on a vicinity slice without missing
+// findings against the pre-optimisation baseline on corpus-d.
 const vicinityRadius = 2048
 
 // dispatch lower-cases v.Data once into the pooled buffer, collects per-
