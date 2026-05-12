@@ -23,7 +23,19 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // upper bound generous because tenants can configure key length.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{16,64})\b`)
 
-var contextKeywords = []string{"harbor", "harbor-cli", "robot$"}
+// keywordRe is the anchored Harbor marker. The bare `harbor` substring
+// shows up in English prose (`harbor`/`harbour`, "Pearl Harbor", port
+// metaphors) and in goharbor.io documentation prose — both adjacent to
+// ≥ 16-char alnum runs (UUIDs, hashes). Require a Harbor-credential
+// anchor instead.
+var keywordRe = regexp.MustCompile(`(?i)` +
+	`(?:` +
+	`\bharbor[_\-](?:api|token|key|secret|user|password|cli|robot)` +
+	`|\bgoharbor\b` +
+	`|\bharbor\.io\b` +
+	`|\bharbor[ \t]*[:=]` +
+	`|\brobot\$` +
+	`)`)
 
 type Scanner struct{}
 
@@ -36,7 +48,10 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
+	kwSpans := keywordRe.FindAllIndex(data, -1)
+	if len(kwSpans) == 0 {
+		return nil, nil
+	}
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
 	for _, h := range hits {
@@ -44,7 +59,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -66,19 +81,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+func nearKeyword(kwSpans [][]int, start, end int) bool {
+	const radius = 96
 	from := start - radius
-	if from < 0 {
-		from = 0
-	}
 	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+	for _, sp := range kwSpans {
+		if sp[1] >= from && sp[0] <= to {
 			return true
 		}
 	}

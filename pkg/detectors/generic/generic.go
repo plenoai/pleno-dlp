@@ -168,6 +168,15 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		if shannonEntropy(secret) < minEntropy {
 			continue
 		}
+		// Entropy alone cannot distinguish a long Go CamelCase identifier
+		// (mixed case → ≥ 4.5 bits/byte) from a random alphanumeric token.
+		// On real Go codebases (aws-sdk-go-v2, etc.) the regex captures
+		// identifiers like `CredentialProviderOptions` and import-path
+		// segments like `com/aws/aws-sdk-go-v2/aws`. Reject those before
+		// the keyword gate so they don't even reach the dedup map.
+		if looksLikeIdentifier(secret) || looksLikePath(secret) {
+			continue
+		}
 		if !nearKeyword(m[0], m[1], keywordSpans) {
 			continue
 		}
@@ -240,6 +249,53 @@ func hasSecretShapeRun(data []byte) bool {
 			}
 		} else {
 			run = 0
+		}
+	}
+	return false
+}
+
+// looksLikeIdentifier reports whether s looks like a source-code
+// identifier (CamelCase, snake_case, or mixed like Go's
+// `TestSign_buildCanonicalHeaders`) rather than a random token.
+//
+// Real secrets virtually always contain digits or base64-marker chars
+// (`+` / `/` / `=`) or random URL-safe punctuation (`-`); Go and most
+// other languages' identifiers are confined to `[A-Za-z_]`. So the
+// rule is: a run of length 20+ that uses ONLY letters and underscores
+// is overwhelmingly an identifier, regardless of camel boundaries.
+//
+// `CredentialProviderOptions` → letters only → identifier.
+// `TestSign_buildCanonicalHeadersContentLengthPresent` → letters+`_` → identifier.
+// `Hf83KdjL9qZ8xVnB2Wm7TpRc` → has digits → not flagged here.
+// `AKIAIOSFODNN7EXAMPLE` → has digit `7` → not flagged here.
+// `ghp_aBcDeF123XYZ` → has digits → not flagged here.
+func looksLikeIdentifier(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'A' && c <= 'Z':
+		case c >= 'a' && c <= 'z':
+		case c == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// looksLikePath reports whether s contains ≥ 2 forward-slash
+// separators, which on real codebases mark an embedded URL or
+// import path (e.g. `com/aws/aws-sdk-go-v2/aws`) rather than a
+// base64-encoded secret. A base64 token may carry at most one `/`
+// in practice; two or more is overwhelmingly path-shaped.
+func looksLikePath(s string) bool {
+	slashes := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '/' {
+			slashes++
+			if slashes >= 2 {
+				return true
+			}
 		}
 	}
 	return false

@@ -1241,6 +1241,8 @@ func (t DetectorType) String() string {
 		return "ParticleIO"
 	case PIIAnonymize:
 		return "PIIAnonymize"
+	case PIIOpenAIPF:
+		return "PIIOpenAIPF"
 	default:
 		return "Unknown"
 	}

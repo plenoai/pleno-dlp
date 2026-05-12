@@ -51,6 +51,7 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/npm"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/okta"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/openai"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/openaipf"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/openrouter"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pagerduty"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/paypal"

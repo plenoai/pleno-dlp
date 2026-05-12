@@ -5,7 +5,8 @@ Unified DLP scanner — secrets and PII. Single Go binary
 ## Harness: pleno-dlp
 
 **Goal:** maintain and evolve the unified DLP scanner — single Go binary
-covering 600+ secret detectors + PII detectors(using pleno-anonymize) over filesystem, git,
+covering 600+ secret detectors + PII detectors (using pleno-anonymize or
+openai/privacy-filter, selected via `--pii-engine`) over filesystem, git,
 stdin, and SaaS sources.
 
 **Trigger:** invoke the `secret-scanner-orchestrator` skill when a

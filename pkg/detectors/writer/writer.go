@@ -19,7 +19,18 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,128})\b`)
 
-var contextKeywords = []string{"writer"}
+// keywordRe is the anchored Writer.com marker. The bare `writer`
+// substring is everywhere in source code (`io.Writer`, `bufio.Writer`,
+// `WriteCloser`, `receive_pack writer` etc.) and pairs with any
+// adjacent 40-char alnum run — git SHAs, base64 chunks. Require a
+// Writer.com credential anchor.
+var keywordRe = regexp.MustCompile(`(?i)` +
+	`(?:` +
+	`\bwriter[_\-](?:api|token|key|secret)` +
+	`|\bwriter\.com\b` +
+	`|\bapi\.writer\.com\b` +
+	`|\bwriter[ \t]*[:=]` +
+	`)`)
 
 type Scanner struct{}
 
@@ -32,7 +43,10 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
+	kwSpans := keywordRe.FindAllIndex(data, -1)
+	if len(kwSpans) == 0 {
+		return nil, nil
+	}
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
 	for _, h := range hits {
@@ -40,7 +54,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -62,19 +76,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+func nearKeyword(kwSpans [][]int, start, end int) bool {
+	const radius = 96
 	from := start - radius
-	if from < 0 {
-		from = 0
-	}
 	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+	for _, sp := range kwSpans {
+		if sp[1] >= from && sp[0] <= to {
 			return true
 		}
 	}

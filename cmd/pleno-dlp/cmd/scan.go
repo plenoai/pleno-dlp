@@ -72,6 +72,11 @@ type scanFlags struct {
 	piiEngineLanguage  string
 	piiEngineReady     time.Duration
 	piiEngineRequest   time.Duration
+	// piiEngineDevice is the inference device hint forwarded to the
+	// openai-pf engine. Ignored when --pii-engine != openai-pf. Kept
+	// on the shared flag set rather than under a per-engine namespace
+	// so future engines can reuse the same operator-facing knob.
+	piiEngineDevice string
 }
 
 var scanOpts scanFlags
@@ -181,18 +186,26 @@ func init() {
 	// When --pii-engine=anonymize, runScanCommon spawns the supervisor
 	// before the scan and tears it down after.
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngine, "pii-engine", "off",
-		"PII detection engine: 'off' disables PII detection; 'anonymize' spawns the pleno-anonymize HTTP server on a loopback port and routes PII detection through it (requires uvx + Python 3.12+ on PATH; override the spawn argv via --pii-engine-cmd)")
+		"PII detection engine: 'off' disables PII detection; 'anonymize' spawns the pleno-anonymize HTTP server (ja-first NER, fast cold start); 'openai-pf' spawns the openai/privacy-filter wrapper (1.5B-param MoE classifier, GPU-recommended). Both require uv + Python 3.12+ on PATH. Mutually exclusive — choose one.")
+	// pii-engine-cmd default is the anonymize argv. When --pii-engine=openai-pf
+	// is selected and the operator did NOT override this flag, startPIIEngine
+	// substitutes the openai-pf default (`pleno-dlp openai-pf-server --port
+	// {PORT}`). Surfacing one cobra default that's wrong for the other
+	// engine is acceptable because explicit operator overrides are the
+	// common case for non-default engines; the help text says so.
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngineCmd, "pii-engine-cmd",
 		"pleno-dlp pii-server --port {PORT}",
-		"argv to spawn the PII engine; the literal '{PORT}' is substituted with the chosen ephemeral loopback port. Only used when --pii-engine=anonymize. The default invokes this binary's own 'pii-server' subcommand (which uses uvx); 'pleno-dlp' as argv[0] is auto-resolved via os.Executable() so the spawn finds the running binary regardless of how it was installed.")
+		"argv to spawn the PII engine; the literal '{PORT}' is substituted with the chosen ephemeral loopback port. When unset, defaults match the selected engine: 'pleno-dlp pii-server --port {PORT}' for anonymize, 'pleno-dlp openai-pf-server --port {PORT}' for openai-pf. 'pleno-dlp' as argv[0] is auto-resolved via os.Executable() so the spawn finds the running binary regardless of how it was installed.")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.piiEnginePort, "pii-engine-port", 0,
-		"loopback port for the PII engine (0 = auto-allocate). Only used when --pii-engine=anonymize.")
+		"loopback port for the PII engine (0 = auto-allocate). Used by anonymize and openai-pf.")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngineLanguage, "pii-engine-language", "auto",
-		"language hint passed to the PII engine: 'ja', 'en', or 'auto' (let the engine pick). Only used when --pii-engine=anonymize.")
-	scanCmd.PersistentFlags().DurationVar(&scanOpts.piiEngineReady, "pii-engine-ready-timeout", 60*time.Second,
-		"how long to wait for the PII engine's /ready endpoint before giving up and continuing the scan without PII detection. Only used when --pii-engine=anonymize.")
+		"language hint passed to the PII engine: 'ja', 'en', or 'auto' (let the engine pick). Only used when --pii-engine=anonymize (openai-pf does its own language inference).")
+	scanCmd.PersistentFlags().DurationVar(&scanOpts.piiEngineReady, "pii-engine-ready-timeout", 0,
+		"how long to wait for the PII engine's /ready endpoint before giving up and continuing the scan without PII detection. 0 = engine default (60s for anonymize, 300s for openai-pf — opf's cold-path includes a multi-GB HuggingFace download).")
 	scanCmd.PersistentFlags().DurationVar(&scanOpts.piiEngineRequest, "pii-engine-request-timeout", 10*time.Second,
-		"per-request timeout for /api/analyze calls to the PII engine. Only used when --pii-engine=anonymize.")
+		"per-request timeout for /api/analyze calls to the PII engine. Used by anonymize and openai-pf.")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngineDevice, "pii-engine-device", "auto",
+		"inference device hint for --pii-engine=openai-pf: 'auto' | 'cpu' | 'cuda' | 'mps'. Ignored by anonymize.")
 
 	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.include, "include", nil, "glob(s) to include (matched against root-relative paths and basenames)")
 	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.exclude, "exclude", nil, "glob(s) to exclude (in addition to default excludes)")
@@ -320,7 +333,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// chunks against it. Spawn failure is downgraded to a single
 	// stderr warning + skip; we never abort the secret scan because
 	// the PII side-channel is unavailable.
-	if stopPII, err := startPIIEngine(ctx, cmd.ErrOrStderr()); err != nil {
+	if stopPII, err := startPIIEngine(ctx, cmd, cmd.ErrOrStderr()); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "pii-engine: %v — continuing without PII detection\n", err)
 	} else if stopPII != nil {
 		defer stopPII()

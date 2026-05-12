@@ -11,8 +11,40 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Anything merged to `main` since v0.43.0.
 
+### Added
+
+- **`--pii-engine=openai-pf` selects the openai/privacy-filter (opf)
+  engine as a sibling of `anonymize`** (ADR-0004). opf is a 1.5B-param
+  MoE classifier covering 8 PII categories (`account_numbers`,
+  `private_addresses`, `private_emails`, `private_persons`,
+  `private_phone_numbers`, `private_urls`, `private_dates`, `secrets`)
+  with strong English coverage and GPU-friendly throughput. anonymize
+  stays the recommended default; opf is opt-in. The two engines are
+  mutually exclusive in v1.
+- **`pleno-dlp openai-pf-server` subcommand** spawns the FastAPI
+  wrapper at `python/openaipf-server/` via `uvx`. New flags:
+  `--device {auto,cpu,cuda,mps}`, `--git-ref`, `--source`,
+  `--log-level`. `--host` is loopback / RFC1918 / link-local only;
+  binding a public interface is refused.
+- **`--pii-engine-device` flag on `scan`** forwards the device hint
+  through to opf. Ignored when `--pii-engine != openai-pf`.
+- **`python/openaipf-server/`** in-repo FastAPI wrapper: `/health`,
+  `/ready` (gates on opf model load + warmup forward pass),
+  `POST /api/analyze`. Distribution is via
+  `uvx --from "git+https://github.com/plenoai/pleno-dlp.git#subdirectory=python/openaipf-server"`
+  — no PyPI release.
+
 ### Changed
 
+- **`--pii-engine-ready-timeout` default is now `0` (engine-defined).**
+  Each engine applies its own cold-path budget: 60s for anonymize,
+  300s for openai-pf (multi-GB HuggingFace download on first run).
+  Explicit values continue to override.
+- **`--pii-engine-cmd` default tracks the selected engine.** When the
+  flag is not set, the effective default is
+  `pleno-dlp pii-server --port {PORT}` for anonymize and
+  `pleno-dlp openai-pf-server --port {PORT}` for openai-pf. Explicit
+  values continue to override.
 - **SARIF: per-result `security-severity=9.5` for blast_radius
   findings.** GitHub Code Scanning sorts and prioritises findings
   by `properties.security-severity` (a CVSS-shaped 0-10 score).
