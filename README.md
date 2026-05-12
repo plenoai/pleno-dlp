@@ -345,6 +345,10 @@ go test ./... -race    # full test suite, race-clean
 go build ./...
 ```
 
+Engine throughput numbers, the cold-path `BenchmarkScan_ColdPath`
+methodology, and the v0.44.0 Aho-Corasick prefilter speed-up are
+recorded in [`docs/benchmarks.md`](docs/benchmarks.md).
+
 Releases trigger exclusively on tag push:
 - `vX.Y.Z` → Go binary release via GoReleaser trusted publishing.
 
