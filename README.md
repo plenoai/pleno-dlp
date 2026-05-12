@@ -16,7 +16,7 @@ pleno-dlp detectors list                        # audit registered coverage
 Single Go binary. Trufflehog-compatible detector interface,
 archive-aware (zip / tar / tar.gz / gzip), base64 / percent / hex
 decoder pipeline, per-host verify rate limiter. **599 detectors**
-built-in (598 secrets + 1 NER-backed PII detector). Tag pattern
+built-in (598 secrets + 2 opt-in PII engines). Tag pattern
 `vX.Y.Z`.
 
 SaaS sources (GitHub / GitLab / Bitbucket / Slack / Notion / Confluence /
@@ -219,77 +219,87 @@ keep most scans tractable; pass `--no-default-excludes` to opt out.
 
 ## PII detection (opt-in)
 
-PII coverage is delivered by the `PIIAnonymize` detector backed by the
-external [pleno-anonymize](https://github.com/plenoai/pleno-anonymize)
-NER+regex engine (spaCy + Presidio + ja_ner_ja). It is opt-in to keep
-the default single-binary UX intact.
+PII coverage is opt-in and ships two mutually-exclusive engines.
+Default is `off` to preserve the single-binary UX.
+
+| engine | flag | detector | source | strengths |
+|---|---|---|---|---|
+| pleno-anonymize | `--pii-engine=anonymize` | `PIIAnonymize` | [pleno-anonymize](https://github.com/plenoai/pleno-anonymize) (spaCy + Presidio + `ja_ner_ja`) | ja-first NER + regex + checksums (PERSON, EMAIL_ADDRESS, ADDRESS, PHONE_NUMBER, JP_MY_NUMBER, CREDIT_CARD, IBAN, US_SSN, …); fast cold start |
+| openai/privacy-filter | `--pii-engine=openai-pf` | `PIIOpenAIPF` | [openai/privacy-filter](https://github.com/openai/privacy-filter) (1.5B-param MoE token classifier) | English-strong; 8 categories (`account_numbers`, `private_addresses`, `private_emails`, `private_persons`, `private_phone_numbers`, `private_urls`, `private_dates`, `secrets`); GPU-recommended |
 
 ```sh
 pleno-dlp scan filesystem ./src --pii-engine=anonymize
+pleno-dlp scan filesystem ./src --pii-engine=openai-pf
 ```
 
-The supervisor spawns the engine on a loopback port at scan start
-and shuts it down at scan end. The default spawn recipe self-invokes
-this binary's bundled `pii-server` subcommand, which uses a
-cached-clone + workspace-aware strategy mirroring the upstream
-[Dockerfile](https://github.com/plenoai/pleno-anonymize/blob/main/Dockerfile):
+Both engines run via a loopback HTTP supervisor: the scan command
+spawns the engine on an ephemeral 127.0.0.1 port at scan start,
+calls `POST /api/analyze` per chunk, and shuts down at scan end.
+The default spawn recipe self-invokes this binary's matching
+subcommand, which in turn drives `uv`.
 
 ```
 pleno-dlp scan --pii-engine=anonymize ./src
   └─ pleno-dlp pii-server --port <ephemeral>
       ├─ git clone --depth 1 https://github.com/plenoai/pleno-anonymize.git <cache>
-      │  (or git fetch + checkout on subsequent runs)
       ├─ uv sync --frozen --no-dev --package pleno-anonymize-server
-      ├─ uv pip install <NER wheels>      # cold-cache only; sync prunes them
-      └─ uv run --no-sync --package pleno-anonymize-server \
-             uvicorn server.src.app:app --host 127.0.0.1 --port <ephemeral>
+      └─ uv run uvicorn server.src.app:app --host 127.0.0.1 --port <ephemeral>
+
+pleno-dlp scan --pii-engine=openai-pf ./src
+  └─ pleno-dlp openai-pf-server --port <ephemeral> --device auto
+      └─ uv tool run --from git+https://github.com/plenoai/pleno-dlp.git#subdirectory=python/openaipf-server \
+             python -m openaipf_server --host 127.0.0.1 --port <ephemeral> --device auto
 ```
 
-We use the cached-clone strategy (not `uvx --from "git+...#subdirectory=server"`)
-because pleno-anonymize's server package depends on the workspace SDK
-(`[tool.uv.sources] pleno-anonymize = { workspace = true }`), and uvx
-in the `--from` form cannot see the parent workspace.
+The anonymize path uses a cached-clone (not `uvx --from "git+...#subdirectory=server"`)
+because pleno-anonymize's server depends on the workspace SDK.
+The openai-pf path uses `uv tool run --from` directly against this
+repo's `python/openaipf-server/` subdirectory; first run pulls a
+~3GB HuggingFace checkpoint, so `--pii-engine-ready-timeout`
+defaults to `300s` when `--pii-engine=openai-pf`.
 
-Prerequisites: [`uv`](https://docs.astral.sh/uv/) and Python 3.12+ on
-`PATH`; `git` on `PATH` when `--source` is a `git+` URL (the default).
-**No Docker required.** The cache lives at
-`<os.UserCacheDir>/pleno-dlp/pleno-anonymize` (override via
-`--pii-engine-cmd "pleno-dlp pii-server --port {PORT} --cache-dir /custom"`
-or the `PLENO_DLP_ANONYMIZE_CACHE` environment variable). First run
-pays a one-time ~30–120s cost while uv resolves the workspace and
-downloads NER model wheels (~600MB); subsequent runs hit the cache and
-the supervisor's `--pii-engine-ready-timeout` (default `60s`) is the
-relevant budget. Bump that flag if your first run won't finish in
-60s.
+Prerequisites: [`uv`](https://docs.astral.sh/uv/) and Python 3.12+
+on `PATH`; `git` for the default `git+` sources. **No Docker
+required.** Caches live under `<os.UserCacheDir>/pleno-dlp/` and
+`~/.cache/huggingface/` respectively.
 
 Useful flags (all on the `scan` command, persistent across source kinds):
 
 | flag | default | meaning |
 |---|---|---|
-| `--pii-engine` | `off` | `off` or `anonymize` |
-| `--pii-engine-cmd` | `pleno-dlp pii-server --port {PORT}` | argv to spawn; `{PORT}` is substituted with the chosen ephemeral port |
+| `--pii-engine` | `off` | `off`, `anonymize`, or `openai-pf` (mutually exclusive) |
+| `--pii-engine-cmd` | engine-specific | argv to spawn; `{PORT}` is substituted with the chosen ephemeral port. Default is `pleno-dlp pii-server --port {PORT}` for anonymize and `pleno-dlp openai-pf-server --port {PORT}` for openai-pf |
 | `--pii-engine-port` | `0` | `0` = auto-allocate a loopback port |
-| `--pii-engine-language` | `auto` | `ja`, `en`, or `auto` |
-| `--pii-engine-ready-timeout` | `60s` | how long to wait for the engine's `/ready` endpoint before giving up and continuing without PII |
+| `--pii-engine-language` | `auto` | `ja`, `en`, or `auto` (anonymize only) |
+| `--pii-engine-device` | `auto` | `auto`, `cpu`, `cuda`, `mps` (openai-pf only) |
+| `--pii-engine-ready-timeout` | `60s` (anonymize) / `300s` (openai-pf) | how long to wait for the engine's `/ready` endpoint before giving up and continuing without PII |
 | `--pii-engine-request-timeout` | `10s` | per-chunk HTTP timeout |
 
-Direct invocation of the subcommand is supported for ad-hoc local use:
+Direct invocation of either subcommand is supported for ad-hoc local use:
 
 ```sh
-pleno-dlp pii-server --port 8080                  # bind a fixed port
-pleno-dlp pii-server                              # ephemeral; resolved port printed to stdout
+pleno-dlp pii-server --port 8080                  # anonymize, fixed port
 pleno-dlp pii-server --git-ref v0.5.0             # pin pleno-anonymize to a tag
-pleno-dlp pii-server --source /path/to/checkout   # local source instead of git+
+pleno-dlp openai-pf-server --port 8081            # openai-pf, fixed port
+pleno-dlp openai-pf-server --device cuda          # force a GPU device
+pleno-dlp openai-pf-server --source /path/to/wrapper  # local Python wrapper checkout
 ```
 
-`--host` is hard-restricted to loopback / RFC1918 / link-local
-addresses; binding `0.0.0.0` (or any public IP) is refused so a DLP
-tool cannot accidentally relay scanned text to a non-trusted listener.
+`--host` on both subcommands is hard-restricted to loopback /
+RFC1918 / link-local addresses; binding `0.0.0.0` (or any public
+IP) is refused so a DLP tool cannot accidentally relay scanned
+text to a non-trusted listener. Both engines also enforce this at
+the Python layer in their `__main__`.
 
-If the engine fails to start (no `uvx` on PATH, network blocked,
-ready-timeout exceeded), the scan logs a single warning to stderr
-and continues without PII detection — `--pii-engine=anonymize` never
-turns a working secret scan into a failure.
+If an engine fails to start (no `uv` on PATH, network blocked,
+checkpoint download timeout, ready-timeout exceeded), the scan
+logs a single warning to stderr and continues without PII
+detection — `--pii-engine` never turns a working secret scan into
+a failure.
+
+Per-finding output: the engine identifier is in `properties.engine`
+(`anonymize` or `openai-pf`); the entity type is in
+`properties.pii_kind` (e.g. `PERSON`, `EMAIL_ADDRESS`, `OPF_SECRET`).
 
 ## Output formats
 
