@@ -80,3 +80,29 @@ func TestVerify_Unauthorized(t *testing.T) {
 		t.Fatal("expected verified=false")
 	}
 }
+
+// --- False-positive regressions ---
+
+// FP-1: 32-char lowercase-hex git SHA prefix near getdrip must not fire.
+func TestFromData_FP_GitSHAPrefix(t *testing.T) {
+	body := []byte("getdrip # commit a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")
+	res, err := Scanner{}.FromData(context.Background(), false, body)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 0 {
+		t.Fatalf("git-SHA-prefix FP: expected 0, got %d (%+v)", len(res), res)
+	}
+}
+
+// FP-2: npm lockfile integrity hash (lowercase hex) near drip keyword.
+func TestFromData_FP_LockfileHash(t *testing.T) {
+	body := []byte("# getdrip token\nintegrity sha256-00112233445566778899aabbccddeeff")
+	res, err := Scanner{}.FromData(context.Background(), false, body)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 0 {
+		t.Fatalf("lockfile-hash FP: expected 0, got %d", len(res))
+	}
+}

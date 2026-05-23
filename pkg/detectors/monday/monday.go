@@ -26,7 +26,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // JWT shape — eyJ + base64url... .eyJ + base64url... .signature.
 var jwtRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
 
-var contextKeywords = []string{"monday.com", "monday_api", "monday_token", "mondaycom", "monday "}
+var contextKeywords = []string{"monday.com", "monday_api", "monday_token", "mondaycom"}
 
 var probeBody = []byte(`{"query":"{ me { id } }"}`)
 
