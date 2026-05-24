@@ -21,6 +21,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
 
+// gitSHALikeRe matches 32-char lowercase-hex strings (truncated git SHAs / lockfile hashes).
+var gitSHALikeRe = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
 var contextKeywords = []string{"getdrip", "drip_api", "drip_token", "drip_account_id"}
 
 type Scanner struct{}
@@ -43,6 +46,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
+			continue
+		}
+		if gitSHALikeRe.MatchString(token) {
 			continue
 		}
 		seen[token] = struct{}{}

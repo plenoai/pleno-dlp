@@ -93,3 +93,32 @@ func TestVerify_TransportError(t *testing.T) {
 		t.Fatal("expected verified=false on transport error")
 	}
 }
+
+// --- False-positive regressions ---
+
+// FP-1: JWT near the word "monday" as a weekday reference must not fire.
+// Previously the "monday " (trailing space) keyword matched casual English.
+func TestFromData_FP_WeekdayMention(t *testing.T) {
+	body := []byte("# meeting on monday \nticket=" + dummy)
+	res, err := Scanner{}.FromData(context.Background(), false, body)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 0 {
+		t.Fatalf("weekday FP: expected 0, got %d", len(res))
+	}
+}
+
+// FP-2: generic JWT near "monday" in prose must not fire without a
+// Monday.com-specific keyword.
+func TestFromData_FP_GenericJWTNearMonday(t *testing.T) {
+	// A JWT from an unrelated service in a comment mentioning the weekday.
+	body := []byte("# deployed last monday\ntoken=" + dummy)
+	res, err := Scanner{}.FromData(context.Background(), false, body)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 0 {
+		t.Fatalf("generic-JWT-near-monday FP: expected 0, got %d", len(res))
+	}
+}

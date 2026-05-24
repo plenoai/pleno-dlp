@@ -83,3 +83,17 @@ func TestVerify_ServerError(t *testing.T) {
 		t.Fatal("expected verified=false")
 	}
 }
+
+// --- False-positive regressions ---
+
+// FP-1: UUID without any Make.com keyword must not fire (keyword anchoring).
+func TestFromData_FP_UUIDWithoutKeyword(t *testing.T) {
+	body := []byte("request_id=" + dummy)
+	res, err := Scanner{}.FromData(context.Background(), false, body)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 0 {
+		t.Fatalf("UUID-no-keyword FP: expected 0, got %d", len(res))
+	}
+}
