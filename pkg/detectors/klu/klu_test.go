@@ -78,8 +78,28 @@ func TestVerify_ServerError(t *testing.T) {
 	old := apiBase
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
-	v, _ := Scanner{}.Verify(context.Background(), dummy)
+	v, err := Scanner{}.Verify(context.Background(), dummy)
 	if v {
 		t.Fatal("expected verified=false")
+	}
+	if err == nil {
+		t.Fatal("expected err != nil for transient 5xx — provider outage must not be mistaken for invalid credential")
+	}
+}
+
+func TestVerify_RateLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if v {
+		t.Fatal("expected verified=false")
+	}
+	if err == nil {
+		t.Fatal("expected err != nil for 429 — rate-limit must not be mistaken for invalid credential")
 	}
 }
