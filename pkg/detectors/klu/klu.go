@@ -62,14 +62,10 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+secret)
 	resp, err := httpClient.Do(req)
-	if err != nil {
-		return false, err
+	if resp != nil {
+		defer resp.Body.Close()
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusOK {
-		return true, nil
-	}
-	return false, nil
+	return detectors.ClassifyVerifyHTTP(resp, err, []int{http.StatusOK}, []int{http.StatusUnauthorized, http.StatusForbidden})
 }
 
 func redact(t string) string {
