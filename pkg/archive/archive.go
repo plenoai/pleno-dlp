@@ -187,7 +187,9 @@ func (s *walkState) walkTar(name string, data []byte, depth int) error {
 		if err != nil {
 			return fmt.Errorf("tar(%s): %w", name, err)
 		}
-		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+		// tar.Reader normalizes the legacy TypeRegA ('\x00') to TypeReg on
+		// read, so checking TypeReg alone covers old GNU/V7 archives too.
+		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
 		if hdr.Size > s.limits.MaxEntryBytes {

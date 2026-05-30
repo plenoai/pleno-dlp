@@ -13,6 +13,7 @@
 package verify
 
 import (
+	"context"
 	"net/http"
 	"sync"
 	"time"
@@ -46,9 +47,25 @@ func NewHostLimiter(rps int) *HostLimiter {
 // the time at which the request is allowed to proceed; callers can
 // observe this for jitter/diagnostic purposes. Cheap (no allocs) on
 // the hot path once the bucket is initialised.
+//
+// Wait uses context.Background(), so its sleep cannot be cancelled.
+// Production code paths that have a context (e.g. RoundTrip) MUST use
+// WaitCtx so a detector's verify deadline aborts the rate-limit wait
+// instead of overrunning it.
 func (h *HostLimiter) Wait(host string) time.Time {
+	t, _ := h.WaitCtx(context.Background(), host)
+	return t
+}
+
+// WaitCtx is the context-aware form of Wait. It blocks until the
+// limiter authorises a request to host OR ctx is cancelled, whichever
+// comes first. On cancellation it returns the zero time and ctx.Err(),
+// so the wait can never outlive a detector's verify deadline (a plain
+// time.Sleep would proceed regardless, issuing the verification request
+// after the intended timeout window had already closed).
+func (h *HostLimiter) WaitCtx(ctx context.Context, host string) (time.Time, error) {
 	if h == nil || h.rps <= 0 {
-		return time.Now()
+		return time.Now(), nil
 	}
 	h.mu.Lock()
 	b, ok := h.buckets[host]
@@ -64,16 +81,23 @@ func (h *HostLimiter) Wait(host string) time.Time {
 		// correctly behind us.
 		interval := time.Second / time.Duration(h.rps)
 		b.next = b.next.Add(interval)
+		started := b.next.Add(-interval) // approximate "started at"
 		h.mu.Unlock()
-		time.Sleep(sleep)
-		return b.next.Add(-interval) // approximate "started at"
+		timer := time.NewTimer(sleep)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			return started, nil
+		case <-ctx.Done():
+			return time.Time{}, ctx.Err()
+		}
 	}
 	// Bucket is fresh / aged out: slot starts now, next slot one
 	// interval ahead.
 	interval := time.Second / time.Duration(h.rps)
 	b.next = now.Add(interval)
 	h.mu.Unlock()
-	return now
+	return now, nil
 }
 
 // RateLimitedTransport wraps an inner RoundTripper with a HostLimiter.
@@ -88,7 +112,9 @@ type RateLimitedTransport struct {
 
 func (rt *RateLimitedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if rt.Limiter != nil && req.URL != nil {
-		rt.Limiter.Wait(req.URL.Host)
+		if _, err := rt.Limiter.WaitCtx(req.Context(), req.URL.Host); err != nil {
+			return nil, err
+		}
 	}
 	inner := rt.Inner
 	if inner == nil {

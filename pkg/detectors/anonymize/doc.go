@@ -13,9 +13,9 @@
 //   - DetectorType    = detectors.PIIAnonymize
 //   - Raw             = the matched substring (bytes)
 //   - Redacted        = kind-aware safe rendering (email keeps domain;
-//                       generic kinds keep first/last char only)
+//     generic kinds keep first/last char only)
 //   - ExtraData       = {finding_class:"pii", pii_kind:<entity_type>,
-//                       score:"0.NN"}
+//     score:"0.NN"}
 //
 // When the engine is off (--pii-engine=off, the default), no Analyzer
 // is registered and FromData returns (nil, nil) — silent skip. This is
@@ -41,8 +41,8 @@
 //   - "住所" — addresses in Japanese-language documents
 //   - "氏名" — person names in Japanese-language documents
 //   - "-"   — generic separator that appears in IBAN, US SSN,
-//             phone numbers, and many credit-card formats; cheap
-//             to match, keeps Western-shaped PII routed to the engine
+//     phone numbers, and many credit-card formats; cheap
+//     to match, keeps Western-shaped PII routed to the engine
 //
 // We accept that "-" matches a large fraction of source code; the
 // engine itself absorbs the cost of running NER on those chunks and

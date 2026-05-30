@@ -9,11 +9,11 @@
 // 40+ char blobs that frequently appear next to the word "pumble" in
 // docs, comments, or unrelated keys. The new detector requires:
 //
-//   1. an explicit anchor (`pumble_api`, `pumble_token`, `pumble.com`,
-//      `PUMBLE=`) — bare "pumble" in prose no longer satisfies; and
-//   2. a token that is base64url-ish with at least one underscore /
-//      dash OR a long pure-alphanumeric string, but only when one of
-//      the explicit anchors lies within 96 bytes.
+//  1. an explicit anchor (`pumble_api`, `pumble_token`, `pumble.com`,
+//     `PUMBLE=`) — bare "pumble" in prose no longer satisfies; and
+//  2. a token that is base64url-ish with at least one underscore /
+//     dash OR a long pure-alphanumeric string, but only when one of
+//     the explicit anchors lies within 96 bytes.
 package pumble
 
 import (

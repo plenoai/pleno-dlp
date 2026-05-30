@@ -11,15 +11,15 @@
 //   - stripe_country          ISO-3166-1 alpha-2 (US, JP, …)
 //   - stripe_default_currency lowercase ISO-4217 (usd, jpy, …)
 //   - stripe_livemode         "true" when /v1/account.livemode=true.
-//                             Distinguishes a sk_live_ key minted in the
-//                             live dashboard from a sk_live_-shaped fake.
+//     Distinguishes a sk_live_ key minted in the
+//     live dashboard from a sk_live_-shaped fake.
 //   - stripe_charges_enabled  "true" when the account can accept
-//                             charges. live + charges_enabled is the
-//                             "real money flowing" signal.
+//     charges. live + charges_enabled is the
+//     "real money flowing" signal.
 //   - stripe_payouts_enabled  "true" when the account can issue payouts
 //   - stripe_high_value       "true" when live + charges_enabled +
-//                             payouts_enabled. Triage flag for "this
-//                             leak can move money out of the account."
+//     payouts_enabled. Triage flag for "this
+//     leak can move money out of the account."
 //
 // Revoke (issue #73) only supports Stripe restricted keys (rk_test_ /
 // rk_live_) via POST /v1/api_keys/{key}/revoke with the key acting as

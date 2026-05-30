@@ -84,11 +84,11 @@ func TestVerify_Unauthorized(t *testing.T) {
 
 func TestKeyKind(t *testing.T) {
 	cases := map[string]string{
-		"sk-abcdef":                          "legacy-user",
-		"sk-proj-abcdef":                     "project",
-		"sk-svcacct-abcdef":                  "service-account",
-		"sk-admin-abcdef":                    "admin",
-		"random":                             "unknown",
+		"sk-abcdef":         "legacy-user",
+		"sk-proj-abcdef":    "project",
+		"sk-svcacct-abcdef": "service-account",
+		"sk-admin-abcdef":   "admin",
+		"random":            "unknown",
 	}
 	for in, want := range cases {
 		if got := keyKind(in); got != want {

@@ -30,11 +30,11 @@ var keyRe = regexp.MustCompile(`\b(SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43})\b`)
 // matching against the dotted-namespace scopes returned by the API.
 var privilegedScopes = map[string]struct{}{
 	// Email send / batch / marketing — direct outbound abuse.
-	"mail.send":                 {},
-	"mail.batch.create":         {},
-	"mail.batch.update":         {},
-	"marketing.send":            {},
-	"marketing.automation.send": {},
+	"mail.send":                    {},
+	"mail.batch.create":            {},
+	"mail.batch.update":            {},
+	"marketing.send":               {},
+	"marketing.automation.send":    {},
 	"sender_verification_eligible": {},
 	// API-key management — privilege escalation.
 	"api_keys.create": {},

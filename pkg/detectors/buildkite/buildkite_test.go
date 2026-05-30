@@ -9,6 +9,7 @@ import (
 )
 
 const dummyAgent = "bkua_0123456789abcdef0123456789abcdef01234567"
+
 // bka_ + 40 alphanumeric.
 const dummyAPI = "bka_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd"
 

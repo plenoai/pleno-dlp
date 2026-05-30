@@ -193,11 +193,11 @@ func (s *Source) collectCommits(repo *git.Repository, start plumbing.Hash) ([]*o
 		}
 		commits = append(commits, c)
 		if s.maxDepth > 0 && len(commits) >= s.maxDepth {
-			return storerStop
+			return errStorerStop
 		}
 		return nil
 	})
-	if err != nil && !errors.Is(err, storerStop) {
+	if err != nil && !errors.Is(err, errStorerStop) {
 		return nil, fmt.Errorf("git: iterate commits: %w", err)
 	}
 
@@ -209,9 +209,9 @@ func (s *Source) collectCommits(repo *git.Repository, start plumbing.Hash) ([]*o
 	return commits, nil
 }
 
-// storerStop is a sentinel used to bail out of go-git's ForEach early.
+// errStorerStop is a sentinel used to bail out of go-git's ForEach early.
 // go-git treats any non-nil error from the callback as a terminator.
-var storerStop = errors.New("git: stop iteration")
+var errStorerStop = errors.New("git: stop iteration")
 
 // emitCommit diffs the commit against its first parent and emits one Chunk
 // per added/modified file. Root commits (no parents) are diffed against the

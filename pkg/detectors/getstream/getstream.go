@@ -33,7 +33,9 @@ type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.GetStream }
 
-func (Scanner) Keywords() []string { return []string{"getstream", "stream_io", "stream.io", "streamio"} }
+func (Scanner) Keywords() []string {
+	return []string{"getstream", "stream_io", "stream.io", "streamio"}
+}
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	hits := tokenRe.FindAllSubmatchIndex(data, -1)

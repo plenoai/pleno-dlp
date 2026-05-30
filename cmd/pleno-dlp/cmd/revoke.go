@@ -35,8 +35,8 @@ import (
 )
 
 // revokeFlags collects everything `pleno-dlp revoke` needs. Held in a
-// dedicated struct so resetRevokeOpts (test helper) can restore defaults
-// between subtests without touching every cobra flag binding.
+// dedicated struct so the package-level revoke flag state lives in one
+// place rather than scattered across individual cobra flag bindings.
 type revokeFlags struct {
 	detector     string
 	secret       string
@@ -335,10 +335,4 @@ func emitRevoke(cmd *cobra.Command, format string, rec revokeRecord) {
 			fmt.Fprintf(cmd.ErrOrStderr(), "FAIL: %s secret %s — provider declined revocation\n", rec.Detector, rec.RedactedSecret)
 		}
 	}
-}
-
-// resetRevokeOpts restores defaults — used by tests because cobra retains
-// last-seen flag values across calls within a process.
-func resetRevokeOpts() {
-	revokeOpts = revokeFlags{format: "table"}
 }

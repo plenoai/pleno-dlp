@@ -122,13 +122,13 @@ func TestFromData_AlgNoneBeatsActiveExp(t *testing.T) {
 
 func TestFromData_IssuerClassification(t *testing.T) {
 	cases := map[string]string{
-		"https://token.actions.githubusercontent.com": "github-actions-oidc",
-		"https://accounts.google.com":                 "google",
-		"https://acme.auth0.com/":                     "auth0",
-		"https://acme.okta.com":                       "okta",
-		"https://securetoken.google.com/p-123":        "firebase",
+		"https://token.actions.githubusercontent.com":                     "github-actions-oidc",
+		"https://accounts.google.com":                                     "google",
+		"https://acme.auth0.com/":                                         "auth0",
+		"https://acme.okta.com":                                           "okta",
+		"https://securetoken.google.com/p-123":                            "firebase",
 		"https://cognito-idp.us-east-1.amazonaws.com/us-east-1_AbCdEf123": "aws-cognito",
-		"https://login.microsoftonline.com/tid/v2.0":  "azure-ad",
+		"https://login.microsoftonline.com/tid/v2.0":                      "azure-ad",
 	}
 	for iss, want := range cases {
 		tok := makeJWT(t,

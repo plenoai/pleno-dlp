@@ -29,13 +29,11 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 	}
 	lower := strings.ToLower(string(data))
 	tokens := make([]string, 0, len(hits))
-	positions := make([][2]int, 0, len(hits))
 	for _, h := range hits {
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
 		tokens = append(tokens, string(data[h[2]:h[3]]))
-		positions = append(positions, [2]int{h[2], h[3]})
 	}
 	if len(tokens) < 2 {
 		return nil, nil

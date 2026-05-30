@@ -40,7 +40,9 @@ type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.CloudflareR2 }
 
-func (Scanner) Keywords() []string { return []string{"r2_access_key", "cloudflare_r2", "cloudflarestorage"} }
+func (Scanner) Keywords() []string {
+	return []string{"r2_access_key", "cloudflare_r2", "cloudflarestorage"}
+}
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	ids := idRe.FindAllSubmatchIndex(data, -1)

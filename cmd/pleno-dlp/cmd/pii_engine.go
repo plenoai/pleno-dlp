@@ -35,9 +35,9 @@ const (
 //   - stop=nil, err=nil  → engine is off (the default), nothing to clean up
 //   - stop!=nil, err=nil → engine is up, caller must defer stop()
 //   - stop=nil, err!=nil → engine was requested but failed to start; the
-//                          caller logs the error and proceeds without PII
-//                          detection (the supervisor handle stays nil so
-//                          the detector silently no-ops per its contract)
+//     caller logs the error and proceeds without PII
+//     detection (the supervisor handle stays nil so
+//     the detector silently no-ops per its contract)
 //
 // We never propagate spawn failure into the scan exit code: a failed
 // PII engine on a noisy laptop should not block a secret scan in CI.

@@ -169,8 +169,8 @@ func verifyPair(ctx context.Context, id, sec string) (bool, error) {
 	defer cancel()
 
 	body := strings.NewReader(url.Values{
-		"grant_type":   {"client_credentials"},
-		"account_id":   {""}, // server-to-server flow needs account_id, but pure client_credentials still 401s on a bad pair before the account check
+		"grant_type": {"client_credentials"},
+		"account_id": {""}, // server-to-server flow needs account_id, but pure client_credentials still 401s on a bad pair before the account check
 	}.Encode())
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBase+"/oauth/token", body)
 	if err != nil {

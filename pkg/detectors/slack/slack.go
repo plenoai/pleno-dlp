@@ -14,11 +14,11 @@
 //   - slack_enterprise_id  E-prefixed enterprise id (Grid installs)
 //   - slack_scopes         comma-joined `X-OAuth-Scopes` header
 //   - slack_privileged     "true" when scopes include any of
-//                          `admin`, `admin.users:write`,
-//                          `admin.conversations:write`,
-//                          `chat:write.public`, `users:read.email`,
-//                          `files:write`. Same Critical bucket but
-//                          triage-sortable.
+//     `admin`, `admin.users:write`,
+//     `admin.conversations:write`,
+//     `chat:write.public`, `users:read.email`,
+//     `files:write`. Same Critical bucket but
+//     triage-sortable.
 //
 // Revoke (issue #73) calls POST /api/auth.revoke on slack.com. Slack's
 // API contract is unusual — every response is HTTP 200 and the
@@ -144,15 +144,15 @@ func verifyWithMetadata(ctx context.Context, secret string) (bool, map[string]st
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	var auth struct {
-		OK            bool   `json:"ok"`
-		URL           string `json:"url"`
-		Team          string `json:"team"`
-		User          string `json:"user"`
-		TeamID        string `json:"team_id"`
-		UserID        string `json:"user_id"`
-		BotID         string `json:"bot_id"`
-		EnterpriseID  string `json:"enterprise_id"`
-		IsEnterprise  bool   `json:"is_enterprise_install"`
+		OK           bool   `json:"ok"`
+		URL          string `json:"url"`
+		Team         string `json:"team"`
+		User         string `json:"user"`
+		TeamID       string `json:"team_id"`
+		UserID       string `json:"user_id"`
+		BotID        string `json:"bot_id"`
+		EnterpriseID string `json:"enterprise_id"`
+		IsEnterprise bool   `json:"is_enterprise_install"`
 	}
 	if err := json.Unmarshal(body, &auth); err != nil {
 		return false, nil, nil
@@ -167,15 +167,15 @@ func verifyWithMetadata(ctx context.Context, secret string) (bool, map[string]st
 // buildAuthMetadata assembles the ExtraData map from a successful
 // auth.test response. Empty fields are omitted so the map stays compact.
 func buildAuthMetadata(h http.Header, auth *struct {
-	OK            bool   `json:"ok"`
-	URL           string `json:"url"`
-	Team          string `json:"team"`
-	User          string `json:"user"`
-	TeamID        string `json:"team_id"`
-	UserID        string `json:"user_id"`
-	BotID         string `json:"bot_id"`
-	EnterpriseID  string `json:"enterprise_id"`
-	IsEnterprise  bool   `json:"is_enterprise_install"`
+	OK           bool   `json:"ok"`
+	URL          string `json:"url"`
+	Team         string `json:"team"`
+	User         string `json:"user"`
+	TeamID       string `json:"team_id"`
+	UserID       string `json:"user_id"`
+	BotID        string `json:"bot_id"`
+	EnterpriseID string `json:"enterprise_id"`
+	IsEnterprise bool   `json:"is_enterprise_install"`
 }) map[string]string {
 	meta := map[string]string{}
 	if auth.TeamID != "" {

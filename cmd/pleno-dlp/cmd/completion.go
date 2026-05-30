@@ -16,8 +16,8 @@ import (
 // stays in sync with whatever flags scan.go declares without us
 // maintaining a parallel list.
 var completionCmd = &cobra.Command{
-	Use:                   "completion <bash|zsh|fish|powershell>",
-	Short:                 "Generate shell completion script",
+	Use:   "completion <bash|zsh|fish|powershell>",
+	Short: "Generate shell completion script",
 	Long: `Generate a shell completion script for pleno-dlp.
 
 Bash:

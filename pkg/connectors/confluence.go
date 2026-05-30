@@ -146,9 +146,9 @@ type confluenceCommentsResp struct {
 }
 
 type confluenceComment struct {
-	ID    string `json:"id"`
-	Type  string `json:"type"`
-	Body  struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+	Body struct {
 		Storage struct {
 			Value string `json:"value"`
 		} `json:"storage"`

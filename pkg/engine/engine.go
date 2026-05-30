@@ -8,6 +8,7 @@ package engine
 
 import (
 	"context"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -239,6 +240,14 @@ func (e *Engine) RunWithStats(ctx context.Context, src sources.Source) (Stats, e
 	return s, srcErr
 }
 
+// scanChunk expands archive chunks and dispatches every (inner) leaf
+// chunk to scanChunkLeaf. archive.Walk has partial-failure semantics: a
+// failure part-way through a multi-entry or nested archive (e.g. a
+// corrupt gzip member inside a tar) stops iteration, so entries after
+// the failure are not returned and therefore not scanned. We log the
+// error rather than discarding it so silently incomplete scans are
+// observable; the entries collected before the failure are still
+// scanned.
 func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
 	// Archive expansion runs first: if the chunk is a zip / tar / gzip,
 	// every inner entry becomes a synthetic chunk and is scanned in
@@ -246,7 +255,13 @@ func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
 	// pipeline below unchanged. archive.Walk returns nil quickly for
 	// non-archive bytes, so the cold path is one byte-prefix compare.
 	if archive.LooksLikeArchive(c.Data) {
-		entries, _ := archive.Walk(archiveRootName(c), c.Data, archive.Limits{})
+		entries, err := archive.Walk(archiveRootName(c), c.Data, archive.Limits{})
+		if err != nil {
+			// Partial-failure: entries after the failure point were
+			// never extracted and will not be scanned. Surface it so
+			// the data-loss risk is visible instead of silent.
+			log.Printf("engine: archive expansion error for %s: %v", c.SourceName, err)
+		}
 		for _, entry := range entries {
 			inner := *c // shallow copy preserves source metadata
 			inner.Data = entry.Data

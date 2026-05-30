@@ -17,7 +17,9 @@ type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.RequestBin }
 
-func (Scanner) Keywords() []string { return []string{"pipedream.net", "requestbin.com", "requestbin.net"} }
+func (Scanner) Keywords() []string {
+	return []string{"pipedream.net", "requestbin.com", "requestbin.net"}
+}
 
 func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	hits := tokenRe.FindAll(data, -1)
