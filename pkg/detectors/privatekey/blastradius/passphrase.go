@@ -96,7 +96,13 @@ func tryLegacyPEM(block *pem.Block, passphrase string) ([]byte, bool) {
 	if proc, ok := block.Headers["Proc-Type"]; !ok || !strings.Contains(proc, "ENCRYPTED") {
 		return nil, false
 	}
-	plain, err := x509.DecryptPEMBlock(block, []byte(passphrase)) //nolint:staticcheck
+	// x509.DecryptPEMBlock is deprecated (SA1019) but intentional here:
+	// blast-radius analysis must crack legacy RFC 1423 encrypted keys to
+	// assess exposure. //lint:ignore is the directive standalone
+	// staticcheck (CI) honours; //nolint:staticcheck keeps golangci-lint
+	// quiet for the same line.
+	//lint:ignore SA1019 legacy RFC 1423 PEM decryption is intentional for blast-radius analysis
+	plain, err := x509.DecryptPEMBlock(block, []byte(passphrase)) //nolint:staticcheck // SA1019: see //lint:ignore directive above
 	if err != nil {
 		return nil, false
 	}

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -21,11 +22,13 @@ func TestParagraph(t *testing.T) {
 
 func TestHeadings(t *testing.T) {
 	for i := 1; i <= 6; i++ {
-		input := strings.ReplaceAll("<h1>Title</h1>", "1", strings.Repeat("#", i)[0:1])
-		input = strings.Replace(input, "1", "", 1)
-		// Build proper heading tag.
-		tag := "h" + strings.Repeat("", 0)
-		_ = tag
+		level := strconv.Itoa(i)
+		input := strings.Replace("<h1>Title</h1>", "1", level, 2)
+		got := ToText(input)
+		wantPfx := strings.Repeat("#", i) + " "
+		if !strings.Contains(got, wantPfx) {
+			t.Errorf("ToText(%q) = %q, want to contain heading prefix %q", input, got, wantPfx)
+		}
 	}
 	// Direct test.
 	tests := []struct {

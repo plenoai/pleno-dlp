@@ -136,7 +136,7 @@ func (d *Detector) verify(ctx context.Context, secret string) (bool, error) {
 		return false, err
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:

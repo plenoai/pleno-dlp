@@ -77,8 +77,12 @@ func TestWalk_TarGzExpandsThroughGzipThenTar(t *testing.T) {
 	tarBuf := buildTar(t, map[string]string{"leak.txt": akia})
 	var gzBuf bytes.Buffer
 	gw := gzip.NewWriter(&gzBuf)
-	gw.Write(tarBuf)
-	gw.Close()
+	if _, err := gw.Write(tarBuf); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
 
 	entries, err := Walk("payload.tar.gz", gzBuf.Bytes(), Limits{})
 	if err != nil {
