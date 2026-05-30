@@ -15,7 +15,7 @@ pleno-dlp detectors list                        # audit registered coverage
 
 Single Go binary. Trufflehog-compatible detector interface,
 archive-aware (zip / tar / tar.gz / gzip), base64 / percent / hex
-decoder pipeline, per-host verify rate limiter. **599 detectors**
+decoder pipeline, per-host verify rate limiter. **600 detectors**
 built-in (598 secrets + 2 opt-in PII engines). Tag pattern
 `vX.Y.Z`.
 
@@ -25,7 +25,7 @@ Python package was retired in v1.0.0.
 
 ## Detector coverage
 
-599 built-in detectors. Every secret detector that can confirm against
+600 built-in detectors. Every secret detector that can confirm against
 an upstream provider implements `Verify` (run with `--verify`); the rest
 emit `Verified=false` with rotation guidance in the output.
 
