@@ -10,7 +10,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-const dummyID = "AbCdEf0123456789ABCDEF"                  // 22 chars
+const dummyID = "AbCdEf0123456789ABCDEF"               // 22 chars
 const dummySecret = "qwertyuiopasdfghjklzxcvbnm123456" // 32 chars
 
 func TestFromData_Pair(t *testing.T) {

@@ -157,10 +157,10 @@ func TestFromData_VerifyFailureNoMeta(t *testing.T) {
 
 func TestParseARN(t *testing.T) {
 	cases := []struct {
-		arn         string
-		wantPart    string
-		wantKind    string
-		wantOK      bool
+		arn      string
+		wantPart string
+		wantKind string
+		wantOK   bool
 	}{
 		{"arn:aws:iam::123456789012:user/Alice", "aws", "user", true},
 		{"arn:aws:iam::123456789012:root", "aws", "root", true},

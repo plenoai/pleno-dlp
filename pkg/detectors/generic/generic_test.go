@@ -155,7 +155,7 @@ func TestLooksLikePath(t *testing.T) {
 	}{
 		{"com/aws/aws-sdk-go-v2", true},
 		{"a/b/c", true},
-		{"a/b", false},                            // single slash — could be base64
+		{"a/b", false}, // single slash — could be base64
 		{"Hf83KdjL9qZ8xVnB2Wm7TpRc", false},
 		{"path/with/slashes/here", true},
 	}

@@ -45,11 +45,11 @@ var keywordRe = regexp.MustCompile(`(?i)` +
 // services, integrations, billing. A leaked token at any of these is
 // effectively account takeover.
 var privilegedRoles = map[string]struct{}{
-	"admin":           {},
-	"account_owner":   {},
-	"owner":           {},
-	"global_admin":    {},
-	"team_responder":  {}, // can ack incidents account-wide
+	"admin":          {},
+	"account_owner":  {},
+	"owner":          {},
+	"global_admin":   {},
+	"team_responder": {}, // can ack incidents account-wide
 }
 
 type Scanner struct{}

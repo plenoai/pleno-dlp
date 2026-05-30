@@ -95,8 +95,8 @@ type S3Meta struct {
 }
 
 type GCSMeta struct {
-	Bucket    string
-	Object    string
+	Bucket     string
+	Object     string
 	Generation int64
 }
 

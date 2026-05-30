@@ -120,9 +120,9 @@ func TestTagBlastRadius_PromotesAnyMatchingSuffix(t *testing.T) {
 		{"value not true", map[string]string{"aws_privileged": "false"}, false},
 		{"suffix-but-other-value", map[string]string{"foo_high_risk": "yes"}, false},
 		{"multiple flags", map[string]string{
-			"slack_privileged":   "true",
-			"stripe_high_value":  "true",
-			"twilio_subaccount":  "true",
+			"slack_privileged":  "true",
+			"stripe_high_value": "true",
+			"twilio_subaccount": "true",
 		}, true},
 	}
 	for _, c := range cases {

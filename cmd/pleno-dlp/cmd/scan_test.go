@@ -535,8 +535,8 @@ func TestScanFilesystemFiltersDetectors(t *testing.T) {
 // scanning behaviour — only Type() is exercised by filterDetectors.
 type stubDet struct{ t detectors.DetectorType }
 
-func (s stubDet) Type() detectors.DetectorType    { return s.t }
-func (s stubDet) Keywords() []string              { return nil }
+func (s stubDet) Type() detectors.DetectorType { return s.t }
+func (s stubDet) Keywords() []string           { return nil }
 func (s stubDet) FromData(_ context.Context, _ bool, _ []byte) ([]detectors.Result, error) {
 	return nil, nil
 }

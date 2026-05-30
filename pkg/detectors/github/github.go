@@ -8,18 +8,18 @@
 //   - github_user_id       the numeric user id
 //   - github_token_type    classic | fine-grained | oauth | user-to-server | server-to-server | refresh
 //   - github_scopes        the X-OAuth-Scopes header (classic only;
-//                          fine-grained tokens do not expose granular
-//                          scope strings via this header — they encode
-//                          permissions per-resource on the token itself)
+//     fine-grained tokens do not expose granular
+//     scope strings via this header — they encode
+//     permissions per-resource on the token itself)
 //   - github_token_expiration  the GitHub-Authentication-Token-Expiration
-//                          header value when present (fine-grained PATs
-//                          and SAML-enforced classic PATs)
+//     header value when present (fine-grained PATs
+//     and SAML-enforced classic PATs)
 //   - github_privileged    "true" when github_scopes contains any of the
-//                          high-blast-radius scopes (`repo`, `admin:org`,
-//                          `delete_repo`, `admin:enterprise`,
-//                          `write:packages`, `workflow`). Severity stays
-//                          Critical via the verified path; the flag
-//                          surfaces the WHY for triage.
+//     high-blast-radius scopes (`repo`, `admin:org`,
+//     `delete_repo`, `admin:enterprise`,
+//     `write:packages`, `workflow`). Severity stays
+//     Critical via the verified path; the flag
+//     surfaces the WHY for triage.
 //
 // Inspired by trufflesecurity/driftwood's "what does this credential
 // actually unlock" pattern, ported from PrivateKeyPEM CT-log lookup
@@ -177,7 +177,7 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 //   - HTTP 200       → verified=true, metadata populated
 //   - HTTP 401/403   → verified=false, no metadata, no error
 //   - HTTP 429       → verified=false, no error (rate-limited; same
-//                      policy as the original Verify)
+//     policy as the original Verify)
 //   - transport err  → verified=false, error surfaced
 //
 // metadata is best-effort: a missing X-OAuth-Scopes header (fine-

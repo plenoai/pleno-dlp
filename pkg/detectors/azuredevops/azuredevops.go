@@ -27,7 +27,9 @@ type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.AzureDevOps }
 
-func (Scanner) Keywords() []string { return []string{"azure_devops", "azuredevops", "dev.azure.com", "vsts"} }
+func (Scanner) Keywords() []string {
+	return []string{"azure_devops", "azuredevops", "dev.azure.com", "vsts"}
+}
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	hits := tokenRe.FindAllSubmatchIndex(data, -1)

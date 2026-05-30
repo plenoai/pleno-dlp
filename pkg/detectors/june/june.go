@@ -25,7 +25,9 @@ type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.June }
 
-func (Scanner) Keywords() []string { return []string{"june.so", "june_write_key", "june-write-key", "junewritekey"} }
+func (Scanner) Keywords() []string {
+	return []string{"june.so", "june_write_key", "june-write-key", "junewritekey"}
+}
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	hits := tokenRe.FindAllSubmatchIndex(data, -1)

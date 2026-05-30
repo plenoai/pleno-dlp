@@ -26,7 +26,9 @@ type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.Wandb }
 
-func (Scanner) Keywords() []string { return []string{"wandb", "weights-and-biases", "weights_and_biases", "weightsandbiases"} }
+func (Scanner) Keywords() []string {
+	return []string{"wandb", "weights-and-biases", "weights_and_biases", "weightsandbiases"}
+}
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	hits := tokenRe.FindAllSubmatchIndex(data, -1)

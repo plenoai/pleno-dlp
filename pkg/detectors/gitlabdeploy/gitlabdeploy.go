@@ -36,7 +36,9 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GitLabDeploy }
 
 // All prefixes start with `gl` and are unmistakable; we list the most common
 // few so the engine's keyword index can short-circuit cheaply.
-func (Scanner) Keywords() []string { return []string{"gldt-", "glptt-", "glagent-", "glsoat-", "glcbt-", "glrt-"} }
+func (Scanner) Keywords() []string {
+	return []string{"gldt-", "glptt-", "glagent-", "glsoat-", "glcbt-", "glrt-"}
+}
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	hits := tokenRe.FindAll(data, -1)

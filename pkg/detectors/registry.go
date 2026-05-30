@@ -3,8 +3,8 @@ package detectors
 import "sync"
 
 var (
-	mu        sync.RWMutex
-	registry  = map[DetectorType]Detector{}
+	mu       sync.RWMutex
+	registry = map[DetectorType]Detector{}
 )
 
 // Register adds a detector to the global registry. Concrete detector packages

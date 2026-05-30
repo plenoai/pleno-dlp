@@ -15,8 +15,8 @@ import (
 // real-world traffic.
 type fakeDetector struct{ needle string }
 
-func (f fakeDetector) Keywords() []string             { return []string{"AKIA"} }
-func (fakeDetector) Type() detectors.DetectorType     { return detectors.AWS }
+func (f fakeDetector) Keywords() []string         { return []string{"AKIA"} }
+func (fakeDetector) Type() detectors.DetectorType { return detectors.AWS }
 func (f fakeDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	if !contains(data, []byte(f.needle)) {
 		return nil, nil
@@ -50,7 +50,7 @@ func contains(haystack, needle []byte) bool {
 type fakeSource struct{ data []byte }
 
 func (fakeSource) Init(context.Context, string, int64, int64, bool, []byte, int) error { return nil }
-func (fakeSource) Type() sources.SourceType                                              { return sources.SourceFilesystem }
+func (fakeSource) Type() sources.SourceType                                            { return sources.SourceFilesystem }
 func (s fakeSource) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	c := &sources.Chunk{
 		SourceType: sources.SourceFilesystem,

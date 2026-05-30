@@ -804,8 +804,8 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pdfshift"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/prefectcloud"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/semgrep"
-	_ "github.com/plenoai/pleno-dlp/pkg/detectors/signifyd"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sift"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/signifyd"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/temporalcloud"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vercelblob"
 	// batch 40 — wire-stable order, never reorder. This batch lands the

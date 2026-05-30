@@ -47,31 +47,31 @@ func SetVersion(version, commit string) {
 // flags (paths, repo, since, ...) live on the corresponding subcommand to
 // keep cobra's --help output narrow and to give each kind its own validation.
 type scanFlags struct {
-	format            string
-	verify            bool
-	verifyRPS         int
-	concurrency       int
-	rulesPath         string
-	failOn            string
-	allowlistPath     string
-	includeDetectors  []string
-	excludeDetectors  []string
-	quiet             bool
-	revokeOnVerified  bool
-	revokeDryRun      bool
-	blastRadiusOnly   bool
+	format           string
+	verify           bool
+	verifyRPS        int
+	concurrency      int
+	rulesPath        string
+	failOn           string
+	allowlistPath    string
+	includeDetectors []string
+	excludeDetectors []string
+	quiet            bool
+	revokeOnVerified bool
+	revokeDryRun     bool
+	blastRadiusOnly  bool
 	// piiEngine selects the PII engine integration. "off" (default)
 	// preserves the historical single-binary UX: the anonymize
 	// detector is registered but the supervisor handle stays nil,
 	// so it returns no findings and incurs no spawn cost. "anonymize"
 	// spawns the pleno-anonymize HTTP server for the duration of the
 	// scan and routes PII detection through it.
-	piiEngine          string
-	piiEngineCmd       string
-	piiEnginePort      int
-	piiEngineLanguage  string
-	piiEngineReady     time.Duration
-	piiEngineRequest   time.Duration
+	piiEngine         string
+	piiEngineCmd      string
+	piiEnginePort     int
+	piiEngineLanguage string
+	piiEngineReady    time.Duration
+	piiEngineRequest  time.Duration
 	// piiEngineDevice is the inference device hint forwarded to the
 	// openai-pf engine. Ignored when --pii-engine != openai-pf. Kept
 	// on the shared flag set rather than under a per-engine namespace
@@ -639,8 +639,8 @@ func (c *countingSink) Close() error { return c.inner.Close() }
 // per-provider *_privileged / *_high_value / *_high_risk flags, so this
 // filter doesn't have to know the per-provider vocabulary.
 type blastRadiusFilterSink struct {
-	inner    engine.Sink
-	dropped  atomic.Int64
+	inner   engine.Sink
+	dropped atomic.Int64
 }
 
 func (b *blastRadiusFilterSink) Emit(f engine.Finding) {

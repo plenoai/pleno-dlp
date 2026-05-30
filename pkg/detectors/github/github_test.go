@@ -13,7 +13,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-const dummyClassic = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"                                                    // 36 chars body
+const dummyClassic = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"                                                        // 36 chars body
 const dummyFine = "github_pat_" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_abcdefghijklmnopqrs" // 82 chars body
 
 func TestFromData_Positive(t *testing.T) {

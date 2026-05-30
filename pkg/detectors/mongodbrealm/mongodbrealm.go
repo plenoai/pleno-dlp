@@ -27,7 +27,9 @@ type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.MongoDBRealm }
 
-func (Scanner) Keywords() []string { return []string{"realm", "app_services", "app-services", "appservices"} }
+func (Scanner) Keywords() []string {
+	return []string{"realm", "app_services", "app-services", "appservices"}
+}
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	hits := tokenRe.FindAllSubmatchIndex(data, -1)

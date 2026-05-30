@@ -18,11 +18,11 @@
 //   - DetectorType    = detectors.PIIOpenAIPF
 //   - Raw             = the matched substring (bytes)
 //   - Redacted        = kind-aware safe rendering (email keeps domain;
-//                       generic kinds keep first/last char only)
+//     generic kinds keep first/last char only)
 //   - ExtraData       = {finding_class:"pii", engine:"openai-pf",
-//                       pii_kind:<mapped>, score:"0.NN",
-//                       start:"<n>", end:"<n>",
-//                       bioes_tag:"<raw>" (optional)}
+//     pii_kind:<mapped>, score:"0.NN",
+//     start:"<n>", end:"<n>",
+//     bioes_tag:"<raw>" (optional)}
 //
 // pii_kind is the wire-stable string from ADR-0004 §6:
 //

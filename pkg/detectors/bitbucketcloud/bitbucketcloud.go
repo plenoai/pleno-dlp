@@ -25,11 +25,11 @@ var apiBase = "https://api.bitbucket.org"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Two recognised shapes:
-//   1. ATCTT3xFfGF0… — Bitbucket repo/workspace/project access token. Atlassian
-//      issues these with a fixed "ATCTT3xFfGF0" prefix and ~152 chars of
-//      base64url payload.
-//   2. 32-char base62 — legacy app password / API token. Generic shape, so we
-//      gate on the "bitbucket" keyword window.
+//  1. ATCTT3xFfGF0… — Bitbucket repo/workspace/project access token. Atlassian
+//     issues these with a fixed "ATCTT3xFfGF0" prefix and ~152 chars of
+//     base64url payload.
+//  2. 32-char base62 — legacy app password / API token. Generic shape, so we
+//     gate on the "bitbucket" keyword window.
 var (
 	tokenRe  = regexp.MustCompile(`\b(ATCTT3xFfGF0[A-Za-z0-9_=+/-]{60,200})\b`)
 	legacyRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)

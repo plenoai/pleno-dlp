@@ -146,12 +146,12 @@ func TestRevoke_NonAccessKeyInput(t *testing.T) {
 	t.Cleanup(func() { SetRevokeCredentials("", "", "", "", "") })
 
 	for _, in := range []string{
-		"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",     // secret access key (40 chars, not AKIA)
-		"ASIAIOSFODNN7EXAMPLE",                         // session/temp key
-		"AKIAEXAMPLE",                                  // too short
-		"akiaiosfodnn7example",                         // wrong case
-		"AKIAIOSFODNN7EXAMPL!",                         // bad final char
-		"AKIA" + strings.Repeat("0", 17),               // too long
+		"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", // secret access key (40 chars, not AKIA)
+		"ASIAIOSFODNN7EXAMPLE",                     // session/temp key
+		"AKIAEXAMPLE",                              // too short
+		"akiaiosfodnn7example",                     // wrong case
+		"AKIAIOSFODNN7EXAMPL!",                     // bad final char
+		"AKIA" + strings.Repeat("0", 17),           // too long
 	} {
 		_, err := Scanner{}.Revoke(context.Background(), in)
 		if err == nil {

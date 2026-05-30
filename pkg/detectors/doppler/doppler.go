@@ -24,7 +24,9 @@ type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.Doppler }
 
-func (Scanner) Keywords() []string { return []string{"dp.st.", "dp.pt.", "dp.ct.", "dp.sa.", "dp.scim."} }
+func (Scanner) Keywords() []string {
+	return []string{"dp.st.", "dp.pt.", "dp.ct.", "dp.sa.", "dp.scim."}
+}
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	matches := tokenRe.FindAll(data, -1)

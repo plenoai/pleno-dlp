@@ -23,8 +23,8 @@ type sinkMutex struct{}
 func (sinkMutex) Lock()   {}
 func (sinkMutex) Unlock() {}
 
-func (s *collectSink) Emit(f Finding)  { s.findings = append(s.findings, f) }
-func (s *collectSink) Close() error    { return nil }
+func (s *collectSink) Emit(f Finding) { s.findings = append(s.findings, f) }
+func (s *collectSink) Close() error   { return nil }
 
 // constSource emits one chunk and closes.
 type constSource struct{ data []byte }

@@ -21,17 +21,17 @@ func TestValidatePIIServerHost(t *testing.T) {
 		{"::1", true},
 		{"localhost", true},
 		{"LOCALHOST", true},
-		{"10.0.0.5", true},     // RFC1918
-		{"172.16.5.1", true},   // RFC1918
-		{"192.168.1.1", true},  // RFC1918
-		{"fe80::1", true},      // link-local
-		{"fd00::1", true},      // ULA — IsPrivate true
-		{"0.0.0.0", false},     // unspecified — explicit reject
-		{"::", false},          // unspecified IPv6
-		{"8.8.8.8", false},     // public
-		{"1.1.1.1", false},     // public
-		{"2606:4700::1", false},// public IPv6
-		{"example.com", false}, // hostname (we don't resolve)
+		{"10.0.0.5", true},      // RFC1918
+		{"172.16.5.1", true},    // RFC1918
+		{"192.168.1.1", true},   // RFC1918
+		{"fe80::1", true},       // link-local
+		{"fd00::1", true},       // ULA — IsPrivate true
+		{"0.0.0.0", false},      // unspecified — explicit reject
+		{"::", false},           // unspecified IPv6
+		{"8.8.8.8", false},      // public
+		{"1.1.1.1", false},      // public
+		{"2606:4700::1", false}, // public IPv6
+		{"example.com", false},  // hostname (we don't resolve)
 		{"", false},
 	}
 	for _, c := range cases {

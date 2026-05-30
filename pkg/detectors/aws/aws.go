@@ -11,11 +11,11 @@
 //   - aws_principal_kind  user | root | assumed-role | federated-user | other
 //   - aws_partition    aws | aws-cn | aws-us-gov, parsed from the ARN
 //   - aws_privileged   "true" when the caller is the account root, or
-//                      when the assumed-role / user name suggests an
-//                      admin path (`Admin`, `Administrator`,
-//                      `OrganizationAccountAccessRole`,
-//                      `AWSReservedSSO_Admin*`). Same Critical bucket
-//                      but triage-sortable by impact.
+//     when the assumed-role / user name suggests an
+//     admin path (`Admin`, `Administrator`,
+//     `OrganizationAccountAccessRole`,
+//     `AWSReservedSSO_Admin*`). Same Critical bucket
+//     but triage-sortable by impact.
 package aws
 
 import (
