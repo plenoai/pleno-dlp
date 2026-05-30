@@ -290,8 +290,11 @@ func (c *gitlabClient) do(ctx context.Context, method, path string, body io.Read
 		}
 		resp, err := c.http.Do(req)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, err
+			}
 			lastErr = err
-			return nil, err
+			continue
 		}
 		c.observeRateLimit(resp)
 		if resp.StatusCode == http.StatusTooManyRequests {

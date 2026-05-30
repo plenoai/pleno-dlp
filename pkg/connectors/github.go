@@ -314,8 +314,16 @@ func (c *githubClient) do(ctx context.Context, method, path string, body io.Read
 		}
 		resp, err := c.http.Do(req)
 		if err != nil {
+			// Transport-level failures (connection reset, timeout, DNS) are
+			// transient: record into lastErr and retry within maxAttempts,
+			// surfacing the final error via the lastErr return below on
+			// exhaustion. Context cancellation/deadline is terminal — return
+			// immediately so it is never masked by a later retry sentinel.
+			if ctx.Err() != nil {
+				return nil, err
+			}
 			lastErr = err
-			return nil, err
+			continue
 		}
 		c.observeRateLimit(resp)
 		if githubRateLimited(resp) {

@@ -317,7 +317,6 @@ func (c *bitbucketClient) do(ctx context.Context, method, path string, body io.R
 		c.setAuth(req)
 		resp, err := c.http.Do(req)
 		if err != nil {
-			lastErr = err
 			return nil, err
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {

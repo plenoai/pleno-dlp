@@ -156,6 +156,9 @@ func jiraResolveProjects(ctx context.Context, cli *jiraClient, project, jql stri
 	var projects []jiraProjectEntry
 	startAt := 0
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var resp jiraProjectSearchResp
 		path := fmt.Sprintf("/rest/api/3/project/search?maxResults=%d&startAt=%d", jiraPageSize, startAt)
 		if err := cli.getJSON(ctx, path, &resp); err != nil {
