@@ -22,6 +22,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/output"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/sources/stdin"
 	"github.com/plenoai/pleno-dlp/pkg/verify"
 )
 
@@ -428,7 +429,18 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 
 	stats, err := eng.RunWithStats(ctx, src)
 	if err != nil {
-		return fmt.Errorf("scan: %w", err)
+		// Stdin truncation is not a fatal scan error: the chunk that was
+		// read (up to --max-bytes) has already been scanned and any
+		// findings already counted. Treating it as fatal would discard
+		// the summary and clobber the findings exit code. Warn on stderr
+		// and fall through so the summary prints and errFindingsFound is
+		// driven from the finding counter. Any other error is fatal.
+		if stdin.IsTruncationError(err) {
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"stdin: input exceeded max_bytes; trailing data was not scanned (raise --max-bytes to scan it all)\n")
+		} else {
+			return fmt.Errorf("scan: %w", err)
+		}
 	}
 
 	// End-of-scan summary on stderr so it doesn't pollute --format json /

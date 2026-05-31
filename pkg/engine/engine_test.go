@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"sync"
 	"sync/atomic"
@@ -94,6 +95,71 @@ func TestRunWithStats_CountsChunksBytesFindings(t *testing.T) {
 	}
 	if got := sink.Findings(); len(got) != 2 {
 		t.Errorf("sink got %d findings, want 2", len(got))
+	}
+}
+
+// cancelOnFirstCallDet cancels the scan context the first time it runs,
+// then records how many further times FromData is invoked. A correct
+// engine checks ctx.Err() at the top of each dispatch loop, so once the
+// first call cancels, no further dispatch happens within the same chunk.
+type cancelOnFirstCallDet struct {
+	cancel     context.CancelFunc
+	calls      atomic.Int64
+	afterFirst atomic.Int64
+}
+
+func (d *cancelOnFirstCallDet) Type() detectors.DetectorType { return detectors.AWS }
+func (d *cancelOnFirstCallDet) Keywords() []string           { return []string{"secret"} }
+func (d *cancelOnFirstCallDet) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	n := d.calls.Add(1)
+	if n == 1 {
+		d.cancel()
+		return []detectors.Result{{DetectorType: detectors.AWS, Raw: data}}, nil
+	}
+	d.afterFirst.Add(1)
+	return []detectors.Result{{DetectorType: detectors.AWS, Raw: data}}, nil
+}
+
+// TestScan_StopsDispatchingAfterCancel drives a multi-window chunk
+// (> maxWindowSize, with a keyword hit in every window) through the
+// windowed scan loop. The detector cancels the context on its first
+// invocation. Without the ctx.Err() guards in the window/dispatch
+// loops the remaining windows keep dispatching the detector; with the
+// guards dispatch stops promptly. We assert the post-cancel call count
+// is far below the unguarded worst case.
+func TestScan_StopsDispatchingAfterCancel(t *testing.T) {
+	// Build data spanning many windows, with "secret" near the start of
+	// each windowStep so every window produces a keyword hit.
+	const windows = 16
+	buf := make([]byte, 0, windowStepSize*windows)
+	for i := 0; i < windows; i++ {
+		seg := bytes.Repeat([]byte("x"), windowStepSize)
+		copy(seg, []byte("secret"))
+		buf = append(buf, seg...)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	det := &cancelOnFirstCallDet{cancel: cancel}
+	sink := &engineRecordingSink{}
+	// Concurrency 1 so the single chunk is scanned by one worker and the
+	// window loop is deterministic.
+	eng := NewWithDetectors([]detectors.Detector{det}, Options{Concurrency: 1}, sink)
+
+	src := &stubSource{chunks: []*sources.Chunk{
+		{Data: buf, SourceType: sources.SourceFilesystem},
+	}}
+	if _, err := eng.RunWithStats(ctx, src); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	after := det.afterFirst.Load()
+	// The chunk has >= windows windows. An unguarded loop would call the
+	// detector on every one (afterFirst ~ windows-1). With the guard,
+	// dispatch stops within the same window's merged spans — at most a
+	// couple more calls. Allow a small slack but well below the window
+	// count.
+	if after > 2 {
+		t.Errorf("detector kept dispatching after cancel: afterFirst=%d (want <=2); ctx.Err() guards likely missing", after)
 	}
 }
 

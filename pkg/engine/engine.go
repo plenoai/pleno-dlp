@@ -8,6 +8,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"log"
 	"sort"
 	"strings"
@@ -347,6 +348,12 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 		return
 	}
 	for start := 0; start < len(data); start += windowStepSize {
+		// A cancelled scan stops sliding the window; remaining windows
+		// of this chunk go unscanned by design (forfeit completeness on
+		// cancel rather than keep dispatching detectors).
+		if ctx.Err() != nil {
+			return
+		}
 		end := start + maxWindowSize
 		if end > len(data) {
 			end = len(data)
@@ -370,6 +377,12 @@ func (e *Engine) runFullChunkDetectors(ctx context.Context, c *sources.Chunk, ar
 	// has no candidate runs (byte-scan gates short-circuit).
 	variants := decoder.Variants(c.Data)
 	for _, v := range variants {
+		// Stop dispatching full-chunk detectors once the scan is
+		// cancelled — same forfeit-completeness contract as the
+		// windowed dispatch path.
+		if ctx.Err() != nil {
+			return
+		}
 		for di := range e.dets {
 			if !e.wantsFull[di] {
 				continue
@@ -470,6 +483,11 @@ func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Varia
 	}
 	dispatched := 0
 	for di, spans := range dets {
+		// Bail out of the per-detector dispatch on cancellation so a
+		// cancelled scan stops running detectors mid-window.
+		if ctx.Err() != nil {
+			return dispatched
+		}
 		seen[di] = true
 		dispatched++
 		merged := mergeSpans(spans)
@@ -524,6 +542,14 @@ func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.
 	d := e.dets[di]
 	results, err := d.FromData(ctx, e.opts.Verify, data)
 	if err != nil {
+		// Cancellation is the expected shutdown path, not a fault:
+		// stay silent so a Ctrl-C / deadline doesn't spam stderr.
+		// Every other error means this detector failed to run on
+		// real data — surface it (mirrors the archive-expansion log)
+		// so silently-skipped detections are observable.
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			log.Printf("engine: detector %s error on %s: %v", d.Type(), c.SourceName, err)
+		}
 		return
 	}
 	for _, r := range results {

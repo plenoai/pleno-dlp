@@ -426,6 +426,44 @@ func TestScanFilesystemWithAllowlist(t *testing.T) {
 	}
 }
 
+// TestScanStdin_TruncatedButFoundStillReportsFindings is the regression
+// guard for the stdin-truncation correctness bug: a stdin scan that hit
+// the --max-bytes cap (truncated) but still detected a secret in the
+// scanned prefix must NOT return the fatal truncation error. It must warn
+// on stderr, print the end-of-scan summary, and return errFindingsFound so
+// the exit code reflects the finding the user can see. Before the fix,
+// scan.go treated the truncation sentinel as a fatal `scan: %w` error,
+// suppressing the summary and clobbering the findings exit code.
+func TestScanStdin_TruncatedButFoundStillReportsFindings(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+	t.Cleanup(func() {
+		stdinOpts.label = ""
+		stdinOpts.maxBytes = 0
+	})
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	// The AWS-shaped key sits in the first 35 bytes; the trailing padding
+	// pushes total input past --max-bytes so the source truncates. The
+	// scanned prefix still contains the full key, so a finding is emitted.
+	secretLine := "aws_access_key=AKIA1234567890ABCDEF\n"
+	Root.SetIn(strings.NewReader(secretLine + strings.Repeat("x", 4096)))
+	Root.SetArgs([]string{"scan", "--format", "json", "stdin", "--max-bytes", "40"})
+
+	err := Root.Execute()
+	if !IsFindingsError(err) {
+		t.Fatalf("truncated stdin with a finding must return errFindingsFound, not the truncation error; got %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "max_bytes") {
+		t.Errorf("expected truncation warning on stderr; got:\n%s", errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "finding(s)") {
+		t.Errorf("expected end-of-scan summary on stderr; got:\n%s", errBuf.String())
+	}
+}
+
 func TestScanStdin_NoFindingsExitsZero(t *testing.T) {
 	resetScanOpts()
 	t.Cleanup(resetScanOpts)

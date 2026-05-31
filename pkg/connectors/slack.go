@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,6 +43,14 @@ func init() {
 		Scan:       scanSlack,
 		Verify:     verifySlack,
 	})
+}
+
+// slackWarn surfaces a non-fatal diagnostic. The package has no logger, so
+// warnings go to stderr by default; tests swap this var to capture them.
+// It exists so a single bad thread (auth/rate/decode error) is visible
+// instead of being silently reported as zero findings.
+var slackWarn = func(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "slack: warning: "+format+"\n", args...)
 }
 
 // scanSlack is the Lambda handler. cfg keys:
@@ -223,7 +232,7 @@ func scanSlackChannel(ctx context.Context, cli *slackClient, chInfo slackChannel
 				select {
 				case sem <- struct{}{}:
 				case <-gctx.Done():
-					return g.Wait()
+					return gctx.Err()
 				}
 				parent := msg
 				g.Go(func() error {
@@ -255,9 +264,15 @@ func scanSlackThread(ctx context.Context, cli *slackClient, chInfo slackChannelI
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
+			// Log-and-continue: do not propagate. scanSlackThread runs in an
+			// errgroup whose g.Wait() would cancel the whole channel scan on
+			// one bad thread. Surfacing the error prevents a thread with an
+			// auth/rate/decode failure from masquerading as zero findings.
+			slackWarn("channel=%s thread=%s replies fetch failed: %v", chInfo.ID, parent.ThreadTS, err)
 			return nil
 		}
 		if !resp.OK {
+			slackWarn("channel=%s thread=%s conversations.replies not ok: %s", chInfo.ID, parent.ThreadTS, resp.Error)
 			return nil
 		}
 		for _, msg := range resp.Messages {
