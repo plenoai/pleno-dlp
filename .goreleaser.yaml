@@ -3,7 +3,12 @@ project_name: pleno-dlp
 
 before:
   hooks:
-    - go mod tidy
+    # `verify` not `tidy`: the release gate already ran `go build ./...`
+    # (which fails on an inconsistent graph) and govulncheck against the
+    # committed go.mod/go.sum. `tidy` could mutate the graph *after* that
+    # gate, shipping a module set neither check validated; `verify` only
+    # confirms the existing modules match their hashes.
+    - go mod verify
 
 builds:
   - id: pleno-dlp
@@ -45,13 +50,15 @@ release:
   draft: false
   footer: |
     ---
-    Verify the download against the signed checksums:
+    `checksums.txt` is an **unsigned** SHA-256 integrity manifest — it
+    detects accidental corruption, not tampering. Verify a download with:
     ```
     sha256sum -c checksums.txt
     ```
-    Build-provenance attestations (`gh attestation verify`) are published
-    once this repository is public / GHAS-enabled; until then the release
-    job skips attestation, so use the checksums above.
+    Cryptographic provenance is not yet shipped: build-provenance
+    attestations (`gh attestation verify`) require the repository to be
+    public / GHAS-enabled, and the release job skips them while it is
+    private. Signed checksums (cosign) are tracked as a follow-up.
 
 changelog:
   use: github
