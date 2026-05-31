@@ -24,9 +24,31 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // `<api_client>@<account>` — both parts are alnum / underscore / hyphen.
 var clientRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{3,32}@[A-Za-z0-9_-]{3,64})\b`)
-var secretRe = regexp.MustCompile(`\b([A-Za-z0-9]{20,64})\b`)
 
-var contextKeywords = []string{"appdynamics", "appd"}
+// secretRe pins the documented API Client Secret shape. AppDynamics
+// "Generate Secret" produces a UUID (e.g. face10d5-573e-4a75-8396-afa006fd8f19);
+// it is canonical lowercase 8-4-4-4-12 hex. Source: Splunk AppDynamics "API
+// Clients" docs — "This will generate a UUID as the secret of the API Client."
+// The prior bare [A-Za-z0-9]{20,64} matched any 20-64 char alnum run, a heavy
+// false-positive source; pinning the UUID layout fixes the length implicitly.
+var secretRe = regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b`)
+
+// armRe is the assignment-style AppDynamics reference that must appear within
+// the proximity window. A bare "appdynamics"/"appd" substring (doc links, the
+// per-controller `<acct>.saas.appdynamics.com` host, log lines) is too weak a
+// gate; `appd(ynamics)?[_-]?(api[_-]?)?(client|secret|token|key)` is the shape
+// a real credential assignment or config key takes.
+var armRe = regexp.MustCompile(`(?i)appd(ynamics)?[_\-]?(api[_\-]?)?(client|secret|token|key)`)
+
+// minEntropy rejects low-information UUID-shaped runs (e.g. all-zero or
+// repeated-nibble placeholders) that clear the hex layout but are not random
+// secrets. UUID hex caps near 3.6 bits/char, so 3.0 is the conservative floor
+// (3.5 would over-cull genuine UUIDs).
+const minEntropy = 3.0
+
+// armRe consumes the "appdynamics"/"appd" substrings the engine prefilters on,
+// so contextKeywords is no longer needed. The bare keyword stays in Keywords()
+// below as the chunk prefilter.
 
 type Scanner struct{}
 
@@ -66,6 +88,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if v == client {
 			continue
 		}
+		// Entropy gate: UUID-shaped runs that are structured placeholders
+		// (all zeros, repeated nibbles) clear secretRe but are not real
+		// secrets — reject them even when armed.
+		if !detectors.HasMinEntropy(v, minEntropy) {
+			continue
+		}
 		secret = v
 		break
 	}
@@ -86,8 +114,13 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return []detectors.Result{res}, nil
 }
 
+// nearKeyword reports whether an
+// `appd(ynamics)?[_-]?(api[_-]?)?(client|secret|token|key)` reference appears
+// within a tight window on either side of the candidate. The window spans both
+// directions so a credential defined alongside a nearby APPDYNAMICS_SECRET
+// reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -96,13 +129,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

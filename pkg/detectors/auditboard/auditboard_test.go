@@ -39,6 +39,31 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordNoArm asserts the FP shape now rejected by the
+// assignment-anchor gate: a generic high-entropy 32-64 char run sitting within
+// the proximity window of a *bare* "auditboard" mention (a doc URL, a vendor
+// name) but with no `auditboard[_-]?(api[_-]?)?(token|key|secret)` reference.
+// Before hardening this matched on radius-128 strings.Contains(window,
+// "auditboard"); it must not match now.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("see https://app.auditboard.com/dashboard ref " + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword, no assignment anchor), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected asserts the conservative entropy floor culls
+// a structured 40-char run (single repeated character) that clears the alnum
+// regex and is armed by the keyword but is not a random token.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	body := []byte("auditboard_token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low entropy), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummy {

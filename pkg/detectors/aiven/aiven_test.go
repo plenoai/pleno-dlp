@@ -41,6 +41,33 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// FP regression: a generic high-entropy token sitting near a bare prose
+// mention of "aiven" but with no assignment-style arm (`aiven_token=` etc.)
+// and well beyond the tightened radius-64 window must no longer match. The
+// pre-hardening radius-256 bare-Contains gate would have reported this.
+func TestFromData_ProseMentionFarFromToken(t *testing.T) {
+	// ~140 bytes of padding pushes the token past the radius-64 window, and
+	// "Aiven is a data platform" provides no assignment arm near the token.
+	padding := "Aiven is a data platform. Some prose here that is filler text used to push the high entropy blob comfortably beyond sixty-four bytes. "
+	body := []byte(padding + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for prose mention far from token, got %d", len(res))
+	}
+}
+
+// FP regression: a low-entropy run (repeated char) within an assignment near
+// the keyword clears the regex and the arm gate but must be culled by the
+// entropy floor.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 36 chars, entropy 0
+	body := []byte("AIVEN_TOKEN=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy run, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "aivenv1 "+dummy {

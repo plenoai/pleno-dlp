@@ -39,6 +39,31 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareArizeNoArm guards the radius/arm-regex tightening: a
+// generic high-entropy 40-80 alnum run sitting near a bare "arize" mention
+// (prose, a doc link, the app.arize.com host) but with no assignment-anchor
+// reference must no longer match. Previously a radius-256 strings.Contains
+// over "arize" armed this shape.
+func TestFromData_BareArizeNoArm(t *testing.T) {
+	body := []byte("See https://app.arize.com for docs. token=" + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare arize, no assignment anchor), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected guards the entropy floor: a 40-80 char
+// alnum run with key-shaped framing but low information content (a repeated
+// placeholder) must be rejected even when the arm regex is satisfied.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	placeholder := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 42 'a'
+	body := []byte("ARIZE_API_KEY=" + placeholder)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low-entropy placeholder), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummy {

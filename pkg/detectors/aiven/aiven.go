@@ -18,12 +18,33 @@ var apiBase = "https://api.aiven.io"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Aiven tokens are documented as base62 with no fixed prefix. Length floor 32
-// excludes uuid-shaped strings; ceiling 80 accommodates rotated tokens that
-// carry a longer signature suffix.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,80})\b`)
+// Aiven tokens carry no public prefix and are base64 (alnum plus `/`, `+`,
+// `=`). The upstream trufflehog detector pins the length at exactly 372
+// (`[a-zA-Z0-9/+=]{372}`,
+// github.com/trufflesecurity/trufflehog pkg/detectors/aiven/aiven.go), and
+// GitGuardian's detector page records "Prefixed: False". Aiven's own docs
+// confirm the `aivenv1 <TOKEN>` auth header but only ever show ellipsis-
+// truncated examples, so 372 is the only cited length.
+//
+// We do not pin 372 outright: the pre-existing fixtures encode a shorter
+// alnum shape, and an over-tight length pin silently destroys recall on any
+// token whose emitted form differs. Instead the floor (32) excludes uuid /
+// short-id shapes, the ceiling (400) comfortably covers the documented 372,
+// and the base64 charset matches the real token alphabet (a superset of the
+// historical `[A-Za-z0-9]`, so prior matches are preserved).
+var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9/+=]{32,400})\b`)
 
-var contextKeywords = []string{"aiven", "aiven_token", "aiven_api"}
+// contextRe is the windowed keyword gate. The bare `aiven` substring is kept
+// only as the cheap Keywords() prefilter; this assignment-style arm regex
+// (word-boundaried keyword or `aiven_(api_)?(token|key|secret)`) is what
+// actually arms a hit, so prose mentioning "aiven" near an unrelated
+// high-entropy blob no longer matches.
+var contextRe = regexp.MustCompile(`(?i)\baiven\b|aiven[_-]?(api[_-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-information 372-or-shorter runs (long base64 of a
+// repeated/structured payload) that clear the regex but lack key-grade
+// randomness. Aiven tokens are high-variety base64, so 3.5 is safe.
+const minEntropy = 3.5
 
 type Scanner struct{}
 
@@ -42,6 +63,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -93,7 +117,7 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -102,13 +126,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return contextRe.MatchString(lower[from:to])
 }
 
 func redact(t string) string {

@@ -39,6 +39,28 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// FP regression: a generic high-entropy token sitting near a bare "ai21"
+// mention (not an assignment-style credential reference) must no longer
+// match now that the gate uses the arm regex within radius 64 instead of a
+// bare strings.Contains over radius 256.
+func TestFromData_BareKeywordNoArm_Rejected(t *testing.T) {
+	body := []byte("// the ai21 model is great; session=" + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword, no arm anchor), got %d", len(res))
+	}
+}
+
+// FP regression: a low-entropy run that clears the {32,64} regex and sits in
+// an assignment must be rejected by the entropy floor.
+func TestFromData_LowEntropy_Rejected(t *testing.T) {
+	body := []byte("AI21_API_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low entropy), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummy {

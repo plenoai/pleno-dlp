@@ -10,7 +10,10 @@ import (
 )
 
 const dummyClient = "myclient@acme-prod"
-const dummySecret = "abcdefABCDEF0123456789abcdefABCDEF0123456789"
+
+// dummySecret matches the documented AppDynamics API Client Secret format: a
+// UUID emitted by "Generate Secret" (Splunk AppDynamics "API Clients" docs).
+const dummySecret = "face10d5-573e-4a75-8396-afa006fd8f19"
 
 func TestType(t *testing.T) {
 	if (Scanner{}).Type() != detectors.AppDynamics {
@@ -40,6 +43,31 @@ func TestFromData_NoKeyword(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
+	}
+}
+
+// TestFromData_RejectsGenericHighEntropy guards the FP shape the bare
+// [A-Za-z0-9]{20,64} regex used to match: a generic high-entropy alnum run
+// sitting right next to the APPDYNAMICS_SECRET assignment. It does not fit the
+// documented UUID layout, so it must no longer be reported even though the
+// client pair and keyword are present.
+func TestFromData_RejectsGenericHighEntropy(t *testing.T) {
+	body := []byte("APPDYNAMICS_CLIENT=" + dummyClient +
+		"\nAPPDYNAMICS_SECRET=Zk7Qx3Lm9Rt2Vb8Nw5Hy1Pd4Fc6Sg0Aj")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (non-UUID secret must not match), got %d", len(res))
+	}
+}
+
+// TestFromData_RejectsLowEntropyUUID guards the entropy floor: a UUID-shaped
+// placeholder (all zeros) clears secretRe but is not a real secret.
+func TestFromData_RejectsLowEntropyUUID(t *testing.T) {
+	body := []byte("APPDYNAMICS_CLIENT=" + dummyClient +
+		"\nAPPDYNAMICS_SECRET=00000000-0000-0000-0000-000000000000")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low-entropy UUID placeholder must not match), got %d", len(res))
 	}
 }
 

@@ -19,9 +19,28 @@ var apiBase = "https://app.aikido.dev"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
+// tokenRe matches a base62 run. Aikido's authoritative API docs
+// (https://apidocs.aikido.dev/reference/getaccesstoken) document a two-part
+// client_id/client_secret credential used via HTTP Basic auth, but do NOT
+// publish a prefix, length, or charset for either half. With no authoritative
+// format to pin, we keep the broad length window and lean on the armed keyword
+// gate plus a conservative entropy floor to suppress false positives — pinning
+// a guessed length here would silently destroy recall.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
 
-var contextKeywords = []string{"aikido", "aikido_token", "aikido_api"}
+// armRe is the assignment-style Aikido reference that must appear within the
+// proximity window. A bare "aikido" substring (dependency names, doc prose,
+// the company name in comments) is too weak; an
+// `aikido[_-]?(api[_-]?)?(token|key|secret)` shape is what a real credential
+// assignment or config key looks like.
+var armRe = regexp.MustCompile(`(?i)aikido[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-information 40-80 char runs that clear the base62
+// regex but are not random credentials (padded identifiers, repeated fillers).
+// 3.0 is the conservative floor for the inconclusive-format case: high enough
+// to drop structured strings, low enough to avoid culling real credentials of
+// unknown charset distribution.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -43,6 +62,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
+			continue
+		}
+		// Entropy gate: low-information 40-80 char runs (padded names,
+		// repeated fillers) are rejected even when the keyword arms.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -90,8 +114,12 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	}
 }
 
+// nearKeyword reports whether an armed Aikido credential reference appears
+// within a tight window on either side of the token. The radius is 64 (was
+// 256): a real assignment keeps the key name adjacent to the value, and the
+// wider window let unrelated base62 runs borrow a distant "aikido" mention.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -100,13 +128,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func redact(t string) string {

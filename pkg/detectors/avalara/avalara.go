@@ -1,6 +1,8 @@
 // Package avalara detects Avalara AvaTax credentials — a numeric account_id
 // (7-12 digits) plus a license_key (typically 24-32 alphanumerics) appearing
-// near the `avalara` or `avatax` keyword. Verified via /api/v2/utilities/ping
+// near an `avalara`/`avatax` assignment-anchor reference (radius 64, with a
+// conservative 3.0 entropy floor on the license). Verified via
+// /api/v2/utilities/ping
 // on rest.avatax.com using HTTP Basic auth (account_id as username, license
 // as password). Raw carries the account_id, RawV2 carries the license.
 package avalara
@@ -22,7 +24,18 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var accountRe = regexp.MustCompile(`\b([0-9]{7,12})\b`)
 var licenseRe = regexp.MustCompile(`\b([A-Za-z0-9]{24,32})\b`)
 
-var contextKeywords = []string{"avalara", "avatax"}
+// armRe is the assignment-anchor gate: a `avalara`/`avatax` reference
+// adjoining an account-id / license / key / secret token. It replaces a bare
+// strings.Contains(window,"avalara") which armed on any prose mention of the
+// vendor. The bare keywords stay in Keywords() as the engine prefilter.
+var armRe = regexp.MustCompile(`(?i)ava(lara|tax)[_\-]?(account([_\-]?id)?|license([_\-]?key)?|api[_\-]?(token|key)|token|key|secret)`)
+
+// minLicenseEntropy is a conservative Shannon floor. Avalara's auth docs show
+// a license-key example (123456789ABCDEF123456789ABCDEF) but do not formally
+// pin its length or charset, so the documented length window (24-32) is kept
+// and only a low 3.0 floor is applied — a hex-only key caps near 3.6 bits/char,
+// so 3.5 would over-cull; 3.0 still rejects repetitive low-entropy filler.
+const minLicenseEntropy = 3.0
 
 type Scanner struct{}
 
@@ -57,6 +70,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if v == account {
 			continue
 		}
+		if !detectors.HasMinEntropy(v, minLicenseEntropy) {
+			continue
+		}
 		license = v
 		break
 	}
@@ -78,8 +94,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether an avalara/avatax assignment-anchor reference
+// (see armRe) appears within a tight window on either side of the candidate.
+// Radius tightened 256 -> 64 to cut cross-context false positives.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -88,13 +107,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

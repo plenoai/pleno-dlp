@@ -38,6 +38,31 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordRejected is the FP shape the radius-256 bare-Contains
+// gate used to accept: a generic high-entropy base62 run sitting near a bare
+// "aikido" mention (prose / dependency name) with NO `aikido_<token|key|secret>`
+// assignment. The armed regex gate must now reject it.
+func TestFromData_BareKeywordRejected(t *testing.T) {
+	body := []byte("// installed via aikido cli\nSESSION_NONCE=" + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare-keyword FP shape, got %d", len(res))
+	}
+}
+
+// TestFromData_AssignmentVariants keeps recall on the credential assignment
+// shapes the armed regex is meant to cover (token/key/secret, with the optional
+// api infix and separator variants).
+func TestFromData_AssignmentVariants(t *testing.T) {
+	for _, kw := range []string{"AIKIDO_TOKEN", "aikido-api-key", "aikido_secret", "AIKIDO_API_TOKEN"} {
+		body := []byte(kw + "=" + dummy)
+		res, _ := Scanner{}.FromData(context.Background(), false, body)
+		if len(res) == 0 {
+			t.Fatalf("expected >=1 for %q assignment, got 0", kw)
+		}
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummy {
