@@ -1,8 +1,22 @@
 // Package magento detects Magento (Adobe Commerce) admin access
-// tokens (32-char alnum). Surface only when a `magento` keyword is in
-// the same chunk so the broad alnum shape doesn't trigger universally.
-// Unverified by default — verification requires the per-store base URL
-// which is not deducible from the token shape.
+// tokens (32-char alnum). Surface only when a `magento` keyword AND a
+// credential-context term are in close proximity so the broad alnum
+// shape doesn't trigger universally.
+//
+// Unverified by design (class b). Live verification is infeasible: the
+// raw secret is a bare 32-char [a-z0-9] string carrying zero host
+// information, and Magento exposes at least three shape-indistinguishable
+// 32-char token kinds (admin integration token, admin user bearer token,
+// customer token), so no single endpoint can confirm validity without
+// risking a false Verified=true. See docs/verify-coverage.md.
+//
+// The naive `\b[a-z0-9]{32}\b` shape collides with MD5/SHA hex digests,
+// which Magento itself emits everywhere (cache keys, form keys, media
+// and config hashes) right next to the literal word "magento". To keep
+// the false-positive rate controlled we additionally:
+//   - reject pure-hex lookalikes (require >=1 letter outside [a-f]),
+//   - apply a Shannon-entropy floor, and
+//   - require a credential-context term within a tight window.
 package magento
 
 import (
@@ -15,7 +29,27 @@ import (
 
 var tokenRe = regexp.MustCompile(`\b([a-z0-9]{32})\b`)
 
-var contextKeywords = []string{"magento"}
+// hasNonHexLetter reports whether the token contains at least one letter
+// in [g-z]. MD5/SHA hex digests live entirely in [a-f0-9]; a real
+// admin/integration token uses the full [a-z0-9] alphabet and in
+// practice contains such a letter. This rejects hash lookalikes.
+var hasNonHexLetter = regexp.MustCompile(`[g-z]`)
+
+// credentialContext matches a term that signals an actual credential
+// assignment near the token, on top of the mandatory `magento` keyword.
+var credentialContext = regexp.MustCompile(`(?i)token|access|api[_-]?key|bearer|integration|secret`)
+
+// minEntropy is the bits/char floor for a 32-char alnum token. Pure
+// structured/low-entropy strings (e.g. repeated runs) fall below this.
+const minEntropy = 3.0
+
+// magentoRadius is the window (bytes) the literal `magento` keyword must
+// appear within; credentialRadius is the tighter window the credential
+// context term must appear within.
+const (
+	magentoRadius    = 128
+	credentialRadius = 64
+)
 
 type Scanner struct{}
 
@@ -36,7 +70,20 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		// Negative-lookalike exclusion: drop MD5/SHA hex digests.
+		if !hasNonHexLetter.MatchString(token) {
+			continue
+		}
+		// Entropy floor: drop low-information structured strings.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
+		// Require the `magento` keyword AND a credential-context term in
+		// proximity; `magento` alone fires on hex digests in Magento logs.
+		if !nearKeyword(lower, h[2], h[3], "magento", magentoRadius) {
+			continue
+		}
+		if !nearContext(lower, h[2], h[3], credentialRadius) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -49,23 +96,26 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 128
+func windowBounds(textLen, start, end, radius int) (int, int) {
 	from := start - radius
 	if from < 0 {
 		from = 0
 	}
 	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
+	if to > textLen {
+		to = textLen
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return from, to
+}
+
+func nearKeyword(lower string, start, end int, kw string, radius int) bool {
+	from, to := windowBounds(len(lower), start, end, radius)
+	return strings.Contains(lower[from:to], kw)
+}
+
+func nearContext(lower string, start, end, radius int) bool {
+	from, to := windowBounds(len(lower), start, end, radius)
+	return credentialContext.MatchString(lower[from:to])
 }
 
 func redact(t string) string {

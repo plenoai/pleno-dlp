@@ -1,21 +1,29 @@
 // Package clickhousecloud detects ClickHouse Cloud API key + secret pairs.
-// ClickHouse Cloud mints two strings together: an access key (`<32-hex>` /
-// `KEY-…`) and a paired secret (40+ char base64url). Both shapes collide
-// with hashes / generic base64, so co-occurrence with `clickhouse_cloud` /
-// `clickhouse_api` / `chc_` keywords in a 256-byte window is mandatory.
+// ClickHouse Cloud mints two strings together: an access key id (`<32 chars>`)
+// and a paired secret (40-80 char base64url). Both shapes collide with hashes /
+// generic base64, so co-occurrence with `clickhouse_cloud` / `clickhouse_api` /
+// `chc_` keywords in a 256-byte window is mandatory.
 //
-// Verification is unverified-by-design: ClickHouse Cloud's REST API requires
-// the per-organization host (https://api.clickhouse.cloud/v1/organizations/
-// <org-id>/...) which is not present in the chunk.
+// Verification is live: ClickHouse Cloud's REST API uses HTTP Basic auth with
+// the Key ID as username and the Key Secret as password against the globally
+// fixed host https://api.clickhouse.cloud/v1. GET /v1/organizations lists the
+// caller's organizations with no org id in the path, so the pair alone is a
+// sufficient credential to probe — no per-org host is required.
 package clickhousecloud
 
 import (
 	"context"
+	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
+
+var apiBase = "https://api.clickhouse.cloud"
+
+var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
 	idRe     = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
@@ -37,7 +45,7 @@ func (Scanner) Keywords() []string {
 	return []string{"clickhouse_cloud", "clickhouse.cloud"}
 }
 
-func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	ids := idRe.FindAllSubmatchIndex(data, -1)
 	if len(ids) == 0 {
 		return nil, nil
@@ -63,18 +71,65 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			continue
 		}
 		seen[id] = struct{}{}
-		out = append(out, detectors.Result{
+		res := detectors.Result{
 			DetectorType: detectors.ClickHouseCloud,
 			Raw:          []byte(id),
 			RawV2:        []byte(secret),
 			Redacted:     redact(id),
 			ExtraData:    map[string]string{"key_id": id},
-		})
+		}
+		if verify {
+			v, err := verifyPair(ctx, id, secret)
+			res.Verified = v
+			res.VerificationErr = err
+		}
+		out = append(out, res)
 	}
 	if len(out) == 0 {
 		return nil, nil
 	}
 	return out, nil
+}
+
+// Verify accepts the credential packed as "<keyID>:<keySecret>", matching the
+// engine-level pair convention (see datadog / aws).
+func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	id, sec, ok := splitPair(secret)
+	if !ok {
+		return false, nil
+	}
+	return verifyPair(ctx, id, sec)
+}
+
+// splitPair splits on the FIRST ':' only — the Key Secret is base64url and
+// never contains ':' but the Key ID is also ':'-free, so first-colon is safe.
+func splitPair(s string) (string, string, bool) {
+	i := strings.IndexByte(s, ':')
+	if i < 0 {
+		return "", "", false
+	}
+	return s[:i], s[i+1:], true
+}
+
+// verifyPair probes GET /v1/organizations with HTTP Basic auth (Key ID as
+// username, Key Secret as password). 200 = valid; 401/403 = rejected; 429 and
+// 5xx are surfaced as transient errors via ClassifyVerifyHTTP.
+func verifyPair(ctx context.Context, id, secret string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(apiBase, "/")+"/v1/organizations", nil)
+	if err != nil {
+		return false, err
+	}
+	req.SetBasicAuth(id, secret)
+	req.Header.Set("Accept", "application/json")
+
+	resp, doErr := httpClient.Do(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	return detectors.ClassifyVerifyHTTP(resp, doErr, []int{http.StatusOK}, []int{http.StatusUnauthorized, http.StatusForbidden})
 }
 
 func nearestSecret(idStart int, data []byte, hits [][]int, idValue string) (string, bool) {

@@ -1,20 +1,39 @@
 // Package zendesk detects Zendesk API tokens (40 alphanumerics near
-// `zendesk` keyword) optionally paired with the operator email Zendesk
-// requires for Basic auth.
+// `zendesk` keyword) paired with the operator email Zendesk requires for
+// Basic auth.
 //
-// Verify is intentionally not performed. Zendesk's API endpoint host is
-// tenant-scoped (`<subdomain>.zendesk.com`) and the subdomain is rarely
-// embedded next to the token in source. Probing a guessed host risks
-// wrong-tenant audit-log entries. So zendesk surfaces unverified-by-design
-// and the engine renders it under --unverified-results.
+// Verify uses Zendesk's documented Basic-auth scheme
+// base64(`<email>/token:<api_token>`) against
+// GET https://<subdomain>.zendesk.com/api/v2/users/me.json. The tenant host
+// is never guessed: it is derived from an in-chunk `<subdomain>.zendesk.com`
+// match (or the apiBase test override). When neither the host nor the email
+// is known, Verify no-ops (false, nil) rather than probing a guessed host —
+// this avoids wrong-tenant audit-log entries while still letting tokens that
+// ship with their tenant host be authoritatively verified. me.json is
+// read-only/idempotent.
 package zendesk
 
 import (
 	"context"
+	"encoding/base64"
+	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+)
+
+// apiBase, when set, overrides the tenant host derived from the chunk. Tests
+// point it at an httptest.Server. In production it is empty, so the host comes
+// from the in-chunk `<subdomain>.zendesk.com` match.
+var apiBase = ""
+
+var httpClient = &http.Client{Timeout: 10 * time.Second}
+
+var (
+	verifyAcceptCodes = []int{http.StatusOK}
+	verifyRejectCodes = []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound}
 )
 
 // Zendesk API tokens are documented as 40 base62 chars.
@@ -35,7 +54,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Zendesk }
 
 func (Scanner) Keywords() []string { return []string{"zendesk"} }
 
-func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	hits := tokenRe.FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
@@ -66,9 +85,20 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			Redacted:     redact(token),
 			ExtraData:    extra,
 		}
-		if email, ok := nearestRun(h[2], data, emails, 256); ok {
+		var email string
+		if e, ok := nearestRun(h[2], data, emails, 256); ok {
+			email = e
 			res.RawV2 = []byte(email)
 			res.ExtraData["email"] = email
+		}
+		// Verify only when we have the complete credential: email + token +
+		// a tenant host (derived from the chunk, or apiBase in tests). Without
+		// any one of these the credential is incomplete and we never probe a
+		// guessed host.
+		if verify {
+			v, err := verifyCredential(ctx, host, email, token)
+			res.Verified = v
+			res.VerificationErr = err
 		}
 		out = append(out, res)
 	}
@@ -76,6 +106,61 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		return nil, nil
 	}
 	return out, nil
+}
+
+// Verify implements detectors.Verifier for the engine-level verify path. The
+// secret is packed as "<host>|<email>|<token>" — the host and email are not
+// derivable from the token alone, so the caller must supply them (FromData
+// packs Raw with just the token; the engine that wants standalone Verify must
+// pass the full triple). An incomplete triple no-ops rather than guessing.
+func (s Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	host, email, token, ok := splitTriple(secret)
+	if !ok {
+		return false, nil
+	}
+	return verifyCredential(ctx, host, email, token)
+}
+
+func splitTriple(s string) (host, email, token string, ok bool) {
+	parts := strings.SplitN(s, "|", 3)
+	if len(parts) != 3 {
+		return "", "", "", false
+	}
+	return parts[0], parts[1], parts[2], true
+}
+
+// verifyCredential performs the documented Zendesk Basic-auth probe against
+// GET https://<host>/api/v2/users/me.json. Returns (false, nil) without any
+// network call when the credential is incomplete (no host or no email), so a
+// guessed host is never contacted.
+func verifyCredential(ctx context.Context, host, email, token string) (bool, error) {
+	base := apiBase
+	if base == "" {
+		if host == "" {
+			return false, nil
+		}
+		base = "https://" + strings.ToLower(host)
+	}
+	if email == "" || token == "" {
+		return false, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/v2/users/me.json", nil)
+	if err != nil {
+		return false, err
+	}
+	// Zendesk Basic auth: username is "<email>/token", password is the token.
+	cred := base64.StdEncoding.EncodeToString([]byte(email + "/token:" + token))
+	req.Header.Set("Authorization", "Basic "+cred)
+
+	resp, doErr := httpClient.Do(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	return detectors.ClassifyVerifyHTTP(resp, doErr, verifyAcceptCodes, verifyRejectCodes)
 }
 
 func nearestRun(idStart int, data []byte, runs [][]int, maxDistance int) (string, bool) {

@@ -1,6 +1,15 @@
-// Package gocd detects GoCD server access tokens (>=40 alnum) gated on the
-// `gocd` keyword window. GoCD is self-hosted, so we surface unverified-by-
-// design — the server URL isn't in the chunk.
+// Package gocd detects GoCD server access tokens (40-64 mixed-case
+// base62) gated on the `gocd` keyword. GoCD is self-hosted, so we
+// surface unverified-by-design — the server URL isn't in the chunk and
+// is not derivable from the opaque bearer token, so there is no fixed
+// endpoint to verify against (cf. sibling self-hosted CI detectors
+// Jenkins / Bamboo / ConcourseCI).
+//
+// Because the token shape (40-64 alnum) collides with git SHA-1
+// digests, SHA-256 content digests, and base64 blobs, matching is
+// hardened with: a Shannon entropy floor, a hex-digest exclusion, and
+// a two-tier proximity gate (explicit credential anchors get a moderate
+// window; bare prose `gocd` mentions must be immediately adjacent).
 package gocd
 
 import (
@@ -12,19 +21,45 @@ import (
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,64})\b`)
 
-// keywordRe is the anchored GoCD marker. The 4-letter `gocd` substring
-// can appear randomly inside long base64 blobs (PGP blocks in
-// `tag_test.go` carry runs like `mQGNBGB5V8gBDACfWWMs+...GOcDR...`),
-// so a `strings.Contains` window match fires next to unrelated alnum
-// runs. Require either a GoCD anchor (`gocd_api`, `gocd_token`) or
-// a word-bounded `\bgocd\b` / `\bgo\.cd\b`.
-var keywordRe = regexp.MustCompile(`(?i)` +
+// hexDigestRe matches a pure-hex run of exactly 40 (git SHA-1) or 64
+// (SHA-256/blake2b) chars. GoCD tokens are mixed-case base62, so any
+// token that is also a valid hex digest of these lengths is far more
+// likely a commit hash or content digest than a credential. We reject
+// those regardless of proximity to the `gocd` keyword, killing the
+// dominant FP class (changelog/lockfile/SBOM lines that pin a build
+// image by digest next to a `gocd` mention).
+var hexDigestRe = regexp.MustCompile(`^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
+
+// strongKeywordRe is an explicit GoCD credential anchor
+// (`gocd_token`, `gocd_api`, `gocd_key`, `gocd_secret`, `gocd_server`,
+// or `gocd:` / `gocd=`). These are intentional config/secret markers,
+// so we allow a moderate proximity window around them.
+var strongKeywordRe = regexp.MustCompile(`(?i)` +
 	`(?:` +
 	`\bgocd[_\-](?:api|token|key|secret|server)` +
-	`|\bgocd\b` +
-	`|\bgo\.cd\b` +
 	`|\bgocd[ \t]*[:=]` +
 	`)`)
+
+// weakKeywordRe is a bare prose mention of GoCD (`gocd` / `go.cd` as a
+// word). Prose mentions appear in docs, changelogs and SBOMs right next
+// to unrelated long alnum runs (commit hashes, base64 blobs, PGP
+// fragments — `tag_test.go` carries runs like
+// `mQGNBGB5V8gBDACfWWMs+...GOcDR...`). We only let a weak mention gate a
+// token when it is *immediately* adjacent, not anywhere in a wide
+// window.
+var weakKeywordRe = regexp.MustCompile(`(?i)(?:\bgocd\b|\bgo\.cd\b)`)
+
+const (
+	// strongRadius bounds an explicit credential anchor to its token.
+	strongRadius = 48
+	// weakRadius bounds a bare prose `gocd` mention very tightly, so a
+	// changelog sentence that merely names GoCD near a hash/blob does
+	// not gate.
+	weakRadius = 12
+	// minEntropy rejects low-entropy / repetitive 40+ char runs (e.g.
+	// padded placeholders) that are not credential-shaped.
+	minEntropy = 3.0
+)
 
 type Scanner struct{}
 
@@ -37,8 +72,9 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	kwSpans := keywordRe.FindAllIndex(data, -1)
-	if len(kwSpans) == 0 {
+	strongSpans := strongKeywordRe.FindAllIndex(data, -1)
+	weakSpans := weakKeywordRe.FindAllIndex(data, -1)
+	if len(strongSpans) == 0 && len(weakSpans) == 0 {
 		return nil, nil
 	}
 	out := make([]detectors.Result, 0, len(hits))
@@ -48,7 +84,19 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(kwSpans, h[2], h[3]) {
+		// Reject git/content hex digests — these are not GoCD tokens.
+		if hexDigestRe.MatchString(token) {
+			continue
+		}
+		// Reject low-entropy / repetitive runs that pad to 40+ chars.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
+		// Gate on proximity: an explicit credential anchor gates within
+		// strongRadius; a bare prose `gocd` mention only gates when it
+		// is immediately adjacent (weakRadius).
+		if !nearKeyword(strongSpans, h[2], h[3], strongRadius) &&
+			!nearKeyword(weakSpans, h[2], h[3], weakRadius) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -64,8 +112,7 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 	return out, nil
 }
 
-func nearKeyword(kwSpans [][]int, start, end int) bool {
-	const radius = 96
+func nearKeyword(kwSpans [][]int, start, end, radius int) bool {
 	from := start - radius
 	to := end + radius
 	for _, sp := range kwSpans {

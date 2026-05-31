@@ -1,18 +1,55 @@
 // Package wasabi detects Wasabi access key + secret pairs (S3-compatible
 // shape: 20-char access key, 40-char secret) gated on the `wasabi`
-// keyword window. Wasabi is multi-region (us-east-1.wasabisys.com,
-// us-west-1, eu-central-1, ap-northeast-1, etc) so verifying requires
-// signing a SigV4 request to a region we have to guess — surfaced
-// unverified-by-design.
+// keyword window, and verifies them via the S3 GET Service (ListBuckets)
+// operation.
+//
+// Wasabi buckets are regional, but GET Service is account-global: it
+// enumerates every bucket the credential can see regardless of which
+// region they live in, so the call does not need region-correct routing
+// the way object GET/PUT does. We therefore sign SigV4 (service=s3,
+// region=us-east-1) against the FIXED default endpoint
+// https://s3.wasabisys.com — the same precedent the AWS detector relies
+// on, where the region-agnostic sts:GetCallerIdentity is verified against
+// a hardcoded us-east-1 endpoint.
+//
+// Because the host is fixed (not a guessed tenant host) there is no path
+// to a false Verified=true from a wrong endpoint: an invalid signature
+// yields 403 SignatureDoesNotMatch and an unknown key yields 403
+// InvalidAccessKeyId, neither of which is the 200 we accept.
 package wasabi
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"net/http"
 	"regexp"
 	"strings"
+	"time"
+
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
+
+// apiBase is the fixed Wasabi S3 service endpoint. A package-level var so
+// tests can point it at an httptest.Server.
+var apiBase = "https://s3.wasabisys.com"
+
+var httpClient = &http.Client{Timeout: 10 * time.Second}
+
+// signRegion is the region used for SigV4. us-east-1 is the canonical
+// default for the account-global GET Service call; Wasabi (like S3)
+// accepts it regardless of where the buckets actually live.
+const signRegion = "us-east-1"
+
+// emptyPayloadHash is the SHA256 of the empty body sent by the GET Service
+// request, precomputed once.
+var emptyPayloadHash = func() string {
+	sum := sha256.Sum256(nil)
+	return hex.EncodeToString(sum[:])
+}()
 
 var (
 	accessKeyRe = regexp.MustCompile(`\b([A-Z0-9]{20})\b`)
@@ -27,7 +64,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Wasabi }
 
 func (Scanner) Keywords() []string { return []string{"wasabi"} }
 
-func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	keys := accessKeyRe.FindAllSubmatchIndex(data, -1)
 	if len(keys) == 0 {
 		return nil, nil
@@ -57,13 +94,19 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 			continue
 		}
 		seen[key] = struct{}{}
-		out = append(out, detectors.Result{
+		res := detectors.Result{
 			DetectorType: detectors.Wasabi,
 			Raw:          []byte(key),
 			RawV2:        []byte(secret),
 			Redacted:     redact(key),
 			ExtraData:    map[string]string{"access_key_id": key},
-		})
+		}
+		if verify {
+			v, err := verifyPair(ctx, key, secret)
+			res.Verified = v
+			res.VerificationErr = err
+		}
+		out = append(out, res)
 	}
 	if len(out) == 0 {
 		return nil, nil
@@ -119,6 +162,54 @@ func redact(t string) string {
 		return t
 	}
 	return t[:8] + "..."
+}
+
+// Verify expects "<access_key_id>:<secret_access_key>" because the
+// detectors.Verifier interface only takes a single string. FromData
+// performs the call inline; this method satisfies the Verifier contract
+// and stays forward-compatible, mirroring the AWS detector.
+func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	id, sk, ok := splitPair(secret)
+	if !ok {
+		return false, nil
+	}
+	return verifyPair(ctx, id, sk)
+}
+
+func splitPair(s string) (string, string, bool) {
+	for i := 0; i < len(s); i++ {
+		if s[i] == ':' {
+			return s[:i], s[i+1:], true
+		}
+	}
+	return "", "", false
+}
+
+// verifyPair signs a SigV4 GET Service (ListBuckets) request against the
+// fixed Wasabi endpoint and classifies the response. A 200 means the
+// credential pair is valid and account-scoped; a 403 (SignatureDoesNotMatch
+// / InvalidAccessKeyId) is an authoritative rejection; 429 and 5xx are
+// transient and surfaced as VerificationErr, never as Verified=true.
+func verifyPair(ctx context.Context, id, secret string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/", nil)
+	if err != nil {
+		return false, err
+	}
+
+	creds := awssdk.Credentials{AccessKeyID: id, SecretAccessKey: secret}
+	signer := v4.NewSigner()
+	if err := signer.SignHTTP(ctx, creds, req, emptyPayloadHash, "s3", signRegion, time.Now().UTC()); err != nil {
+		return false, err
+	}
+
+	resp, err := httpClient.Do(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	return detectors.ClassifyVerifyHTTP(resp, err, []int{http.StatusOK}, []int{http.StatusForbidden})
 }
 
 func init() {

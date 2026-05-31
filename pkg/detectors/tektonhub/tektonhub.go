@@ -1,22 +1,45 @@
-// Package tektonhub detects Tekton Hub API tokens (40-char base62 near
-// `tekton`). Tekton Hub is the catalog service for Tekton tasks/pipelines —
-// tokens grant the issuing user's catalog-edit scope. The detector is
-// unverified-by-design: Tekton Hub is community-hosted (api.hub.tekton.dev)
-// or self-hosted; we don't probe it because the public hub treats GET
-// /v1/user as authenticated even with invalid tokens behaving inconsistently.
+// Package tektonhub detects Tekton Hub API tokens captured from an explicit
+// token assignment (e.g. `tekton_hub_token = <value>`).
+//
+// Unverified-by-design rationale: Tekton Hub auth tokens are JWTs
+// (header.payload.signature) sent verbatim in the Authorization header, and
+// the hub is community-hosted (api.hub.tekton.dev) or arbitrarily self-hosted
+// with no host derivable from the token or chunk. The shape this detector can
+// realistically extract from config is a plain base62 blob (the `[A-Za-z0-9]`
+// class plus a word/quote boundary cannot span the mandatory JWT dots), which
+// is NOT the credential any Tekton Hub endpoint accepts. A live probe against
+// GET /v1/auth/me would therefore reject every real match (and could falsely
+// verify against an unrelated host that 200s a bearer), so verification is
+// infeasible — this detector stays unverified-by-design.
+//
+// To control the otherwise severe false-positive rate inside Tekton YAML
+// (image digests, git SHAs, resource UIDs, base64 chunks all sit near the word
+// `tekton`), the match is anchored to a token-specific assignment keyword
+// within ~40 bytes, gated on Shannon entropy, and excludes hex-only /
+// 64-char-hex (container image digest) lookalikes.
 package tektonhub
 
 import (
 	"context"
 	"regexp"
-	"strings"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
+// tokenRe anchors the capture to a token-specific assignment keyword in a
+// quoted/assignment context, so generic Tekton manifest blobs near the word
+// `tekton` no longer qualify. The keyword and the value must sit within the
+// same assignment expression (the `\s{0,4}` between separator characters keeps
+// them within ~40 bytes of each other).
+var tokenRe = regexp.MustCompile(
+	`(?i)(?:tekton_hub_token|tekton_hub_api_token|tekton_token|hub_token|authorization)["']?\s{0,4}[:=]\s{0,4}["']?(?:bearer\s{0,4})?([A-Za-z0-9]{40,80})\b`,
+)
 
-var contextKeywords = []string{"tekton", "tekton_hub", "tekton_token"}
+// hexOnlyRe rejects pure-hex strings (image-digest / SHA shaped) which are the
+// dominant false positive in Tekton YAML.
+var hexOnlyRe = regexp.MustCompile(`^[0-9a-fA-F]+$`)
+
+const minEntropy = 3.5
 
 type Scanner struct{}
 
@@ -25,19 +48,18 @@ func (Scanner) Type() detectors.DetectorType { return detectors.TektonHub }
 func (Scanner) Keywords() []string { return []string{"tekton"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe.FindAllSubmatch(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
 	for _, h := range hits {
-		token := string(data[h[2]:h[3]])
+		token := string(h[1])
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		if !plausibleToken(token) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -53,23 +75,18 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
-	from := start - radius
-	if from < 0 {
-		from = 0
+// plausibleToken applies the negative-lookalike and entropy gates.
+func plausibleToken(token string) bool {
+	// Reject pure-hex (image digests, SHAs, hex digests) — and 64-char hex in
+	// particular, the container image digest shape that dominates Tekton YAML.
+	if hexOnlyRe.MatchString(token) {
+		return false
 	}
-	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
+	// Reject low-entropy lookalikes (repeated/structured names).
+	if !detectors.HasMinEntropy(token, minEntropy) {
+		return false
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return true
 }
 
 func redact(t string) string {

@@ -38,7 +38,7 @@ because the leak surface is destructive even before verification. Those
 are not enumerated here — `DefaultSeverity` is the floor; per-detector
 overrides only raise it.
 
-## (a) Verify implemented — 514 detectors
+## (a) Verify implemented — 540 detectors
 
 Detector type satisfies `detectors.Verifier`. The detector calls the
 upstream provider and returns `(true, nil)` on success, `(false, nil)`
@@ -53,14 +53,14 @@ function exists and is reachable from the engine — and are counted in
 class (a). Where the host shape is structurally absent from the chunk
 and no apiBase fallback is wired, the detector lives in (b) instead.
 
-The full enumeration is in the machine block. There are 514 entries;
+The full enumeration is in the machine block. There are 540 entries;
 listing every name in prose would not add information beyond the
 machine block. Spot-check examples: `AWS`, `GitHub`, `GitHubFineGrained`,
 `SlackBotToken`, `OpenAI`, `Anthropic`, `Stripe`, `Datadog`, `OpenAI`,
 `Coinbase` (unsigned-bearer fallback — verifies via HTTP 401 → false),
 plus most batch 1–40 detectors that hit a public API host.
 
-## (b) Unverified-by-design — 44 detectors
+## (b) Unverified-by-design — 56 detectors
 
 These detectors deliberately do not implement `Verify`. The rationale
 is one of:
@@ -72,7 +72,7 @@ is one of:
 - **Presigned URL / signed bearer.** Verification depends on
   unguessable signed-time-bound headers we cannot recreate.
 - **Self-hosted, host not in chunk.** Provider runs on
-  customer-controlled infrastructure (Jenkins, GoCD, Vault, etc.) so
+  customer-controlled infrastructure (Jenkins, GoCD, ConcourseCI, etc.) so
   there is no fixed verify endpoint.
 - **HMAC signing required.** Provider rejects bearer probes; verify
   needs request signing (Akamai EdgeGrid, OVH, Exoscale, …).
@@ -101,54 +101,66 @@ Severity-on-finding is High by default, Medium for `JWT`,
 > unverified severity from Medium to High. Inspired by
 > trufflesecurity/driftwood.
 
-| DetectorType            | Class    | Rationale                                                                 |
+| DetectorType            | Class    | Rationale (verify infeasible; hardening applied where noted)                  |
 |-------------------------|----------|---------------------------------------------------------------------------|
-| ActiveCampaign          | secret   | per-account host (`<account>.api-us1.com`) not in chunk                   |
-| Adyen                   | secret   | environment-bound endpoints (live vs test) not in chunk                   |
-| AgoraIO                 | secret   | per-app HMAC token signing required                                       |
-| Akamai                  | secret   | EdgeGrid HMAC signing required, no bearer endpoint                        |
-| APNs                    | secret   | only the .p8 PEM is in chunk; JWT issuance requires issuer + key_id       |
-| AppStoreConnect         | secret   | only the .p8 PEM is in chunk; JWT requires issuer_id + key_id             |
-| AWSS3PresignedURL       | secret   | presigned URL, signed-time-bound, no verify endpoint                      |
-| AWX                     | secret   | self-hosted CI, host not in chunk                                         |
-| AzureSQLConnString      | secret   | connection string, host not derivable from chunk                          |
-| BackblazeB2             | secret   | explicit region+endpoint pairing required                                 |
-| Bamboo                  | secret   | self-hosted CI, host not in chunk                                         |
-| BasicAuth               | secret   | HTTP basic credential, host not in chunk                                  |
-| ConcourseCI             | secret   | self-hosted CI, host not in chunk                                         |
-| CrispChat               | secret   | paired credential — Identifier half not co-located                        |
-| ElasticCloud            | secret   | per-customer host not in chunk                                            |
-| Exoscale                | secret   | HMAC signing required                                                     |
-| GCSSignedURL            | secret   | signed URL, signed-time-bound, no verify endpoint                         |
-| GenericHighEntropy      | secret   | entropy-only shape, no fixed upstream provider                            |
-| Jenkins                 | secret   | self-hosted CI, host not in chunk                                         |
-| JWT                     | secret   | generic shape, issuer-dependent verification not centralizable            |
-| Kafka                   | secret   | connection string, broker host not in chunk                               |
-| Kubeconfig              | secret   | static config, no remote endpoint to call                                 |
-| GoCD                    | secret   | self-hosted CI, host not in chunk                                         |
-| MongoDB                 | secret   | connection string, host not in chunk                                      |
-| MySQL                   | secret   | connection string, host not in chunk                                      |
-| OVHCloud                | secret   | HMAC signing required                                                     |
+| AgoraIO                 | secret   | per-app HMAC token signing required |
+| Akamai                  | secret   | EdgeGrid HMAC signing required, no bearer endpoint |
+| APNs                    | secret   | only the .p8 PEM is in chunk; JWT issuance requires issuer + key_id |
+| AppStoreConnect         | secret   | only the .p8 PEM is in chunk; JWT requires issuer_id + key_id |
+| Atlassian               | secret   | token is half of a Basic-auth credential, `<workspace>.atlassian.net` not in chunk; hardened: ATATT3 prefix anchor + entropy gate |
+| Auth0                   | secret   | matched token not self-authenticating, tenant host not derivable; hardened: auth0.com context regex + signature entropy, RFC-7519/alg:none exclusion |
+| AWSS3PresignedURL       | secret   | presigned URL, signed-time-bound, no verify endpoint |
+| AzureAD                 | secret   | tenant not derivable, secret not self-authenticating; hardened: tilde anchor + entropy/char-class shape gate |
+| AzureApp                | secret   | needs subscription scope + tenant, secret alone can't auth; hardened: secret-intent window + entropy + dense-run check |
+| AzureContainerRegistry  | secret   | refresh-token host claim spoofable; hardened: require *.azurecr.io in JWT payload + entropy gate |
+| AzureSQLConnString      | secret   | connection string, host not derivable from chunk |
+| BasicAuth               | secret   | HTTP basic credential, host not in chunk |
+| Bugsnag                 | secret   | matched value is project ingest key, not a /user-authorizing token; hardened: assignment anchor + hash exclusion + entropy |
+| CloudflareR2            | secret   | SigV4 signing unfakeable, no signing host in chunk; hardened: entropy floor + digest-lookalike exclusion |
+| ConcourseCI             | secret   | self-hosted CI, host not in chunk |
+| Confluence              | secret   | token is half of Basic-auth, workspace host not in chunk; hardened: ATATT3 prefix anchor + entropy |
+| CrispChat               | secret   | paired credential — Identifier half not co-located |
+| DatadogAppKey           | secret   | a lone App key cannot be authenticated (needs API-key pair); hardened: assignment/header anchor + SHA exclusion + entropy |
+| DroneCI                 | secret   | self-hosted, host not in chunk; hardened: drone-prefixed assignment anchor + entropy + SHA exclusion |
+| Exoscale                | secret   | HMAC signing required |
+| GCSSignedURL            | secret   | signed URL, signed-time-bound, no verify endpoint |
+| GenericHighEntropy      | secret   | entropy-only shape, no fixed upstream provider |
+| GetStream               | secret   | HMAC/JWT signing, no mirrorable reference impl; hardened: credential-context anchor + entropy + char-class gate |
+| GitLabPipeline          | secret   | trigger-token verify is destructive, no read-only endpoint; hardened: assignment anchor + entropy + commit-SHA exclusion |
+| GoCD                    | secret   | self-hosted CI, host not in chunk |
+| Jenkins                 | secret   | self-hosted CI, host not in chunk |
+| Jira                    | secret   | token-only probe always 401 (needs email pair), host not in chunk; hardened: entropy + assignment vicinity + hex exclusion |
+| JWT                     | secret   | generic shape, issuer-dependent verification not centralizable |
+| Kafka                   | secret   | connection string, broker host not in chunk |
+| Kubeconfig              | secret   | static config, no remote endpoint to call |
+| LaunchNotes             | secret   | ln_ shape isn't an authentic credential; hardened: delimiter+public_ regex + context + entropy |
+| Looker                  | secret   | no per-instance host channel; hardened: client_id/secret/api3 anchor + entropy + lookalike exclusion |
+| Magento                 | secret   | per-store host not in chunk; hardened: hex-digest exclusion + entropy + two-tier proximity |
+| Modal                   | secret   | no documented REST endpoint for the (id,secret) pair; hardened: entropy/char-class looksRandom gate on the pair |
+| MongoDB                 | secret   | connection string, host not in chunk |
+| MySQL                   | secret   | connection string, host not in chunk |
+| OVHCloud                | secret   | HMAC signing required |
 | PIIAnonymize            | pii      | PII finding class — NER + regex via pleno-anonymize, no provider API to verify |
 | PIIOpenAIPF             | pii      | PII finding class — MoE classifier (openai/privacy-filter), no provider-side verify path |
-| PingIdentity            | secret   | per-region host (`api.pingone.{com,eu,asia,ca}`) not in chunk             |
-| Postgres                | secret   | connection string, host not in chunk                                      |
-| RabbitMQ                | secret   | connection string, host not in chunk                                      |
-| Redis                   | secret   | connection string, host not in chunk                                      |
-| RequestBin              | secret   | per-bin endpoint not in chunk                                             |
-| Sinch                   | secret   | project_id half of (project_id, key) not in chunk                         |
-| Smee                    | secret   | per-channel proxy URL not in chunk                                        |
-| SMTP                    | secret   | connection string, SMTP host not in chunk                                 |
-| SonatypeNexus           | secret   | self-hosted artifact repo, host not in chunk                              |
-| SplunkHEC               | secret   | per-customer host not in chunk                                            |
-| Stytch                  | secret   | environment-bound endpoints (test vs live) not in chunk                   |
-| TeamCity                | secret   | self-hosted CI, host not in chunk                                         |
-| UpstashRedis            | secret   | connection string with URL-embedded credential                            |
-| Wasabi                  | secret   | explicit region+endpoint pairing required                                 |
-| Wiz                     | secret   | tenant-specific host (`api.<tenant>.app.wiz.io`) not in chunk             |
-| Zoho                    | secret   | region-specific accounts host (`accounts.zoho.<tld>`) not in chunk        |
+| PingIdentity            | secret   | per-region host (`api.pingone.{com,eu,asia,ca}`) not in chunk |
+| Postgres                | secret   | connection string, host not in chunk |
+| PusherBeams             | secret   | instance_id host/path uncapturable; hardened: narrowed vicinity + digest exclusion + entropy |
+| RabbitMQ                | secret   | connection string, host not in chunk |
+| Redis                   | secret   | connection string, host not in chunk |
+| RequestBin              | secret   | per-bin endpoint not in chunk |
+| Segment                 | secret   | ingest returns 200 for invalid keys and a probe mints billed events; hardened: entropy floor + pure-hex exclusion |
+| Sinch                   | secret   | project_id half of (project_id, key) not in chunk |
+| Smee                    | secret   | per-channel proxy URL not in chunk |
+| SMTP                    | secret   | connection string, SMTP host not in chunk |
+| SonatypeNexus           | secret   | self-hosted artifact repo, host not in chunk |
+| Spinnaker               | secret   | per-deploy Gate host, /auth/user returns anonymous 200; hardened: JWT structure validation + entropy + assignment anchor |
+| Stytch                  | secret   | environment-bound endpoints (test vs live) not in chunk |
+| TektonHub               | secret   | matched value is unverifiable base62, not a Tekton Hub JWT; hardened: token-specific assignment anchor + entropy + hex exclusion |
+| UpstashRedis            | secret   | connection string with URL-embedded credential |
+| Wiz                     | secret   | tenant-specific host (`api.<tenant>.app.wiz.io`) not in chunk |
+| Zoho                    | secret   | region-specific accounts host (`accounts.zoho.<tld>`) not in chunk |
 
-## (c) Verifiable but not implemented — 42 detectors
+## (c) Verifiable but not implemented — 4 detectors
 
 These detectors regex-match but do not call upstream. The provider
 *does* expose a verify-able endpoint; we have just not wired it. Each
@@ -157,58 +169,21 @@ row is a candidate for a follow-up PR that adds `Verify(ctx, secret)`.
 Severity-on-finding is High (default unverified). Once `Verify` lands,
 verified hits surface at Critical.
 
-| DetectorType            | Class    | Verify path on the upstream                                               |
+| DetectorType            | Class    | Verify path on the upstream / why still a gap                               |
 |-------------------------|----------|---------------------------------------------------------------------------|
-| AlibabaCloud            | secret   | `GET /` STS / RAM with HMAC-SHA1 signing (sig logic; gap: signing impl)   |
-| ArgoCD                  | secret   | `GET /api/v1/account` against per-deploy host (gap: apiBase override)     |
-| Atlassian               | secret   | `GET /rest/api/3/myself` against `<workspace>.atlassian.net`              |
-| Auth0                   | secret   | `GET /api/v2/users` against `https://<tenant>.auth0.com`                  |
-| AWSSession              | secret   | `GetCallerIdentity` STS call (paired access key + secret + token)         |
-| AzureAD                 | secret   | `POST /oauth2/v2.0/token` against `login.microsoftonline.com`             |
-| AzureApp                | secret   | management.azure.com bearer probe; needs subscription scope               |
-| AzureContainerRegistry  | secret   | `GET /v2/` registry probe — host parsed from refresh token claim          |
-| BitbucketServer         | secret   | `GET /rest/api/1.0/users` against per-deploy host (gap: apiBase override) |
-| Bitwarden               | secret   | `POST /identity/connect/token` for machine accounts                       |
-| Bugsnag                 | secret   | `GET /user` on api.bugsnag.com                                            |
-| ClickHouseCloud         | secret   | `GET /v1/services` on api.clickhouse.cloud                                |
-| CloudflareR2            | secret   | `GET /` S3-compatible probe with signed-V4 against accountid.r2.cloudflarestorage.com |
-| Confluence              | secret   | `GET /wiki/rest/api/user/current` against `<workspace>.atlassian.net`     |
-| Databricks              | secret   | `GET /api/2.0/clusters/list` against `<workspace>.cloud.databricks.com`   |
-| DatadogAppKey           | secret   | `GET /api/v1/validate` against `api.<region>.datadoghq.com`               |
-| DockerHub               | secret   | `GET /v2/users/<username>/` on hub.docker.com                             |
-| DroneCI                 | secret   | `GET /api/user` against per-deploy drone host                             |
-| Freshdesk               | secret   | `GET /api/v2/agents/me` against `<domain>.freshdesk.com`                  |
-| GCPIDToken              | secret   | `GET /tokeninfo?id_token=...` on oauth2.googleapis.com                    |
-| GetStream               | secret   | `GET /api/v2/app` against api.stream-io-api.com                           |
-| GitLabPipeline          | secret   | trigger token validation via `POST /trigger/pipeline` (low-impact probe)  |
-| Grafana                 | secret   | `GET /api/user` against per-instance host (gap: apiBase override)         |
-| Jira                    | secret   | `GET /rest/api/3/myself` against `<workspace>.atlassian.net`              |
-| LaunchNotes             | secret   | `POST /public/graphql` introspection on api.launchnotes.io                |
-| Looker                  | secret   | `POST /api/4.0/login` against per-instance host                           |
-| Magento                 | secret   | `GET /rest/V1/customers/me` against per-store host                        |
-| Modal                   | secret   | `GET /v0.1/apps` on api.modal.com (paired token id + secret)              |
-| Okta                    | secret   | `GET /api/v1/users/me` against `<tenant>.okta.com`                        |
-| PusherBeams             | secret   | `GET /publish_api/v1/instances/<id>/users` (paired instance + secret)     |
-| SalesforceRefresh       | secret   | `POST /services/oauth2/token` with refresh_token grant                    |
-| Segment                 | secret   | per-source HTTP basic against api.segment.io/v1/identify                  |
-| Sentry                  | secret   | `GET /api/0/organizations/<slug>/` on sentry.io                           |
-| Snowflake               | secret   | JWT keypair auth — signed assertion to `<account>.snowflakecomputing.com` |
-| Spinnaker               | secret   | `GET /auth/user` against per-deploy host                                  |
-| Supabase                | secret   | `GET /rest/v1/` with service-role key against `<project>.supabase.co`     |
-| Tailscale               | secret   | `GET /api/v2/tailnet/<tailnet>/devices` (gap: tailnet name)               |
-| TektonHub               | secret   | `GET /v1/auth/me` against per-deploy host                                 |
-| TencentCloud            | secret   | TC3-HMAC-SHA256 signed call to cvm.tencentcloudapi.com (gap: signing impl) |
-| Vault                   | secret   | `GET /v1/auth/token/lookup-self` against per-deploy Vault host            |
-| Vonage                  | secret   | `GET /account/get-balance` (paired key+secret)                            |
-| Zendesk                 | secret   | `GET /api/v2/users/me.json` against `<subdomain>.zendesk.com`             |
+| GCPIDToken              | secret   | `GET /tokeninfo?id_token=...` on oauth2.googleapis.com (gap: token is an ID token, not a bearer credential — validates identity, not live access) |
+| SalesforceRefresh       | secret   | `POST /services/oauth2/token` with refresh_token grant (gap: client_id + client_secret + instance host not co-located) |
+| Sentry                  | secret   | matched secret is a DSN ingest *write* key, not an auth token for `GET /api/0/...`; a probe would mint a fake event (gap: no non-destructive validate endpoint) |
+| Snowflake               | secret   | JWT keypair auth — signed assertion to `<account>.snowflakecomputing.com` (gap: account locator + key-pair signing not in chunk) |
 
-Several (c) entries are blocked on auth-side work that is not strictly
-verification: SDK-grade HMAC signing for AlibabaCloud / TencentCloud,
-mandatory `apiBase` plumbing for self-hosted-shaped providers
-(BitbucketServer, ArgoCD, DroneCI, Grafana, Looker, Magento, Spinnaker,
-TektonHub, Vault), and paired-credential reassembly for Vonage /
-PusherBeams. Those are scoped under task #2 follow-ups, not within this
-audit.
+The 26 former (c) gaps that gained live verification this round (AWS
+session, AlibabaCloud + TencentCloud HMAC-signed, the apiBase-overridable
+self-hosted ArgoCD / BitbucketServer / Grafana / Vault / DroneCI-class
+providers, and fixed-host DockerHub / Okta / Zendesk / Supabase / …) moved
+to class (a). The four that remain are blocked by the secret not being a
+directly authenticatable bearer credential (Sentry DSN ingest key,
+GCP ID token), or by a required pair / signing input that is not
+co-located in the chunk (SalesforceRefresh, Snowflake key-pair).
 
 ## Machine-readable block
 
@@ -222,94 +197,68 @@ the live `detectors.All()` registry.
 
 ```coverage-machine
 total=600
-a=514
-b=44
-c=42
+a=540
+b=56
+c=4
 type=APNs class=b
 type=AWSS3PresignedURL class=b
-type=AWSSession class=c
-type=AWX class=b
-type=ActiveCampaign class=b
-type=Adyen class=b
 type=AgoraIO class=b
 type=Akamai class=b
-type=AlibabaCloud class=c
 type=AppStoreConnect class=b
-type=ArgoCD class=c
-type=Atlassian class=c
-type=Auth0 class=c
-type=AzureAD class=c
-type=AzureApp class=c
-type=AzureContainerRegistry class=c
+type=Atlassian class=b
+type=Auth0 class=b
+type=AzureAD class=b
+type=AzureApp class=b
+type=AzureContainerRegistry class=b
 type=AzureSQLConnString class=b
-type=BackblazeB2 class=b
-type=Bamboo class=b
 type=BasicAuth class=b
-type=BitbucketServer class=c
-type=Bitwarden class=c
-type=Bugsnag class=c
-type=ClickHouseCloud class=c
-type=CloudflareR2 class=c
+type=Bugsnag class=b
+type=CloudflareR2 class=b
 type=ConcourseCI class=b
-type=Confluence class=c
+type=Confluence class=b
 type=CrispChat class=b
-type=Databricks class=c
-type=DatadogAppKey class=c
-type=DockerHub class=c
-type=DroneCI class=c
-type=ElasticCloud class=b
+type=DatadogAppKey class=b
+type=DroneCI class=b
 type=Exoscale class=b
-type=Freshdesk class=c
 type=GCPIDToken class=c
 type=GCSSignedURL class=b
 type=GenericHighEntropy class=b
-type=GetStream class=c
-type=GitLabPipeline class=c
+type=GetStream class=b
+type=GitLabPipeline class=b
 type=GoCD class=b
-type=Grafana class=c
 type=JWT class=b
 type=Jenkins class=b
-type=Jira class=c
+type=Jira class=b
 type=Kafka class=b
 type=Kubeconfig class=b
-type=LaunchNotes class=c
-type=Looker class=c
-type=Magento class=c
-type=Modal class=c
+type=LaunchNotes class=b
+type=Looker class=b
+type=Magento class=b
+type=Modal class=b
 type=MongoDB class=b
 type=MySQL class=b
 type=OVHCloud class=b
-type=Okta class=c
 type=PIIAnonymize class=b
 type=PIIOpenAIPF class=b
 type=PingIdentity class=b
 type=Postgres class=b
-type=PusherBeams class=c
+type=PusherBeams class=b
 type=RabbitMQ class=b
 type=Redis class=b
 type=RequestBin class=b
 type=SMTP class=b
 type=SalesforceRefresh class=c
-type=Segment class=c
+type=Segment class=b
 type=Sentry class=c
 type=Sinch class=b
 type=Smee class=b
 type=Snowflake class=c
 type=SonatypeNexus class=b
-type=Spinnaker class=c
-type=SplunkHEC class=b
+type=Spinnaker class=b
 type=Stytch class=b
-type=Supabase class=c
-type=Tailscale class=c
-type=TeamCity class=b
-type=TektonHub class=c
-type=TencentCloud class=c
+type=TektonHub class=b
 type=UpstashRedis class=b
-type=Vault class=c
-type=Vonage class=c
-type=Wasabi class=b
 type=Wiz class=b
-type=Zendesk class=c
 type=Zoho class=b
 ```
 

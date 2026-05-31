@@ -50,6 +50,60 @@ func TestFromData_Negative_NoTilde(t *testing.T) {
 	}
 }
 
+// TestFromData_HardeningTable asserts the semantic_harden FP controls: the
+// tilde+vicinity gate alone used to pass low-entropy fillers and hyphenated
+// human-readable slugs that sit near the word "azure". Each suppressed case
+// below carries a tilde and an azure keyword in the window, so only the
+// entropy / mono-class / separator gates can reject them.
+func TestFromData_HardeningTable(t *testing.T) {
+	cases := []struct {
+		name   string
+		body   string
+		detect bool
+	}{
+		{
+			// FP: tilde-prefixed username/dir token, 30+ alnum, next to "azure",
+			// no entropy or mono-class guard previously. Suppressed by the
+			// separator-density cap (4 dashes in the trailing run).
+			name:   "fp_tilde_username_dir_slug",
+			body:   "AZURE_NOTE=workdir is ~azureuser-build-artifacts-staging-001122",
+			detect: false,
+		},
+		{
+			// FP: low-entropy filler/template value with a tilde. Passes the
+			// tilde+vicinity gate but is mono-class (no digit) and low entropy.
+			name:   "fp_low_entropy_placeholder",
+			body:   "azure_placeholder=PLACEHOLDER~AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			detect: false,
+		},
+		{
+			// FP: hyphenated human-readable slug containing a tilde near an
+			// azure keyword. Suppressed by the separator-density cap (5 dashes).
+			name:   "fp_hyphenated_slug",
+			body:   "# azure migration ticket ABC~feature-flag-rollout-phase-two-canary-2026",
+			detect: false,
+		},
+		{
+			// TP: a real-shaped Azure client secret still detected.
+			name:   "tp_real_shaped_secret",
+			body:   "AZURE_CLIENT_SECRET=" + dummySecret,
+			detect: true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res, err := Scanner{}.FromData(context.Background(), false, []byte(c.body))
+			if err != nil {
+				t.Fatalf("err: %v", err)
+			}
+			got := len(res) > 0
+			if got != c.detect {
+				t.Fatalf("detect=%v want %v (results=%d) for body %q", got, c.detect, len(res), c.body)
+			}
+		})
+	}
+}
+
 func TestRedact(t *testing.T) {
 	r := redact(dummySecret)
 	if r == dummySecret {

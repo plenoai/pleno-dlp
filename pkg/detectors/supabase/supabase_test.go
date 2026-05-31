@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -77,6 +79,128 @@ func TestFromData_NoKeyword(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+tok))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
+	}
+}
+
+// withAPIBase overrides the package host for the duration of a test.
+func withAPIBase(t *testing.T, url string) {
+	t.Helper()
+	prev := apiBase
+	apiBase = url
+	t.Cleanup(func() { apiBase = prev })
+}
+
+func serviceRoleChunk(t *testing.T) []byte {
+	tok := mintJWT(t, map[string]string{
+		"role": "service_role",
+		"ref":  "abcdefghijklmnopqrst",
+		"iss":  "supabase",
+	})
+	return []byte("# supabase\nSUPABASE_SERVICE_ROLE_KEY=" + tok)
+}
+
+func TestVerify_Accept200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/v1/" {
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		if r.Header.Get("apikey") == "" {
+			t.Error("missing apikey header")
+		}
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+			t.Errorf("missing Bearer auth: %q", r.Header.Get("Authorization"))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	withAPIBase(t, srv.URL)
+
+	res, err := Scanner{}.FromData(context.Background(), true, serviceRoleChunk(t))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected 1, got %d", len(res))
+	}
+	if !res[0].Verified || res[0].VerificationErr != nil {
+		t.Fatalf("expected verified=true err=nil, got verified=%v err=%v", res[0].Verified, res[0].VerificationErr)
+	}
+}
+
+func TestVerify_Reject401(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	withAPIBase(t, srv.URL)
+
+	res, err := Scanner{}.FromData(context.Background(), true, serviceRoleChunk(t))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if res[0].Verified {
+		t.Fatal("expected verified=false on 401")
+	}
+	if res[0].VerificationErr != nil {
+		t.Fatalf("401 is an authoritative rejection, not an error: %v", res[0].VerificationErr)
+	}
+}
+
+func TestVerify_Reject403(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	withAPIBase(t, srv.URL)
+
+	res, _ := Scanner{}.FromData(context.Background(), true, serviceRoleChunk(t))
+	if res[0].Verified {
+		t.Fatal("expected verified=false on 403")
+	}
+	if res[0].VerificationErr != nil {
+		t.Fatalf("403 must not surface as transient error: %v", res[0].VerificationErr)
+	}
+}
+
+func TestVerify_Transient500(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	withAPIBase(t, srv.URL)
+
+	res, _ := Scanner{}.FromData(context.Background(), true, serviceRoleChunk(t))
+	if res[0].Verified {
+		t.Fatal("expected verified=false on 500")
+	}
+	if res[0].VerificationErr == nil {
+		t.Fatal("expected transient VerificationErr on 500")
+	}
+}
+
+func TestVerify_Transient429(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	withAPIBase(t, srv.URL)
+
+	res, _ := Scanner{}.FromData(context.Background(), true, serviceRoleChunk(t))
+	if res[0].Verified {
+		t.Fatal("expected verified=false on 429")
+	}
+	if res[0].VerificationErr == nil {
+		t.Fatal("expected transient VerificationErr on 429")
+	}
+}
+
+func TestVerify_NoRefNoOp(t *testing.T) {
+	// No apiBase override and no ref claim/URL → Verify must no-op rather
+	// than probe a wrong tenant.
+	tok := mintJWT(t, map[string]string{"role": "service_role"})
+	v, err := Scanner{}.Verify(context.Background(), tok)
+	if v || err != nil {
+		t.Fatalf("expected (false,nil) no-op, got (%v,%v)", v, err)
 	}
 }
 

@@ -34,12 +34,50 @@ var propPasswordRe = regexp.MustCompile(`(?i)sasl\.password\s*=\s*["']?([^\s"'<>
 var propUsernameRe = regexp.MustCompile(`(?i)sasl\.username\s*=\s*["']?([^\s"'<>;]+)`)
 var bootstrapRe = regexp.MustCompile(`(?i)bootstrap\.servers\s*=\s*["']?([^\s"'<>;]+)`)
 
-// JAAS-style: `password="…"` and `username="…"` co-occurring with the
-// PlainLoginModule directive. We require the directive nearby to keep
-// this from firing on every JDBC connection string.
+// JAAS-style: `password="…"` and `username="…"` that live *inside* a
+// LoginModule directive's clause. JAAS config is a single logical line
+// terminated by ';', so we locate each (Plain|Scram)LoginModule directive
+// and only accept password/username fields that fall within the clause
+// (between the directive and the next ';', capped at jaasClauseWindow
+// bytes). This excludes co-located but unrelated password="…" fields
+// (JDBC, Spring datasource, other beans) sharing the same chunk.
 var jaasPasswordRe = regexp.MustCompile(`(?i)password\s*=\s*"([^"]+)"`)
 var jaasUsernameRe = regexp.MustCompile(`(?i)username\s*=\s*"([^"]+)"`)
-var jaasModuleRe = regexp.MustCompile(`(?i)PlainLoginModule|ScramLoginModule`)
+var jaasModuleRe = regexp.MustCompile(`(?i)(?:Plain|Scram)LoginModule`)
+
+// jaasClauseWindow bounds how far after a LoginModule directive we will
+// still treat a password/username field as belonging to its clause when
+// no ';' terminator is found in the chunk (truncated config dumps).
+const jaasClauseWindow = 200
+
+// jaasMinEntropy is the Shannon-entropy floor (bits/char) a JAAS password
+// must clear to be emitted. Well-known defaults ("changeit") and templating
+// tokens ("${KAFKA_PASSWORD}") are caught by the placeholder filter; this
+// floor exists to drop trivially low-variety strings (e.g. "aaaa", "0000")
+// while still admitting realistic short SASL passwords such as "s3cr3t".
+const jaasMinEntropy = 2.0
+
+// placeholderValues are well-known non-secret defaults we never emit.
+var placeholderValues = map[string]struct{}{
+	"changeme": {}, "changeit": {}, "password": {}, "passwd": {},
+	"secret": {}, "redacted": {}, "example": {}, "yourpassword": {},
+	"your_password": {}, "todo": {}, "xxx": {}, "xxxx": {},
+}
+
+// interpolationRe matches values that are purely a templating token, e.g.
+// ${KAFKA_PASSWORD} or {{ kafka.password }}, so they are never emitted as
+// live secrets.
+var interpolationRe = regexp.MustCompile(`^\s*(?:\$\{[^}]*\}|\{\{[^}]*\}\})\s*$`)
+
+// isPlaceholder reports whether v is a templating token or a well-known
+// non-secret default.
+func isPlaceholder(v string) bool {
+	if interpolationRe.MatchString(v) {
+		return true
+	}
+	_, ok := placeholderValues[strings.ToLower(strings.TrimSpace(v))]
+	return ok
+}
 
 type Scanner struct{}
 
@@ -86,16 +124,36 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		out = append(out, res)
 	}
 
-	// JAAS-style — only when the LoginModule directive is present.
-	if jaasModuleRe.FindStringIndex(str) != nil {
-		for _, m := range jaasPasswordRe.FindAllStringSubmatch(str, -1) {
+	// JAAS-style — scoped to each LoginModule directive's clause. For every
+	// (Plain|Scram)LoginModule occurrence we carve out the clause [directive,
+	// next ';') (bounded by jaasClauseWindow) and only accept password/
+	// username fields whose match start lies inside that clause. This keeps
+	// unrelated password="…" fields elsewhere in the chunk out of Kafka.
+	for _, mod := range jaasModuleRe.FindAllStringIndex(str, -1) {
+		clauseStart := mod[0]
+		clauseEnd := len(str)
+		if semi := strings.IndexByte(str[clauseStart:], ';'); semi >= 0 {
+			clauseEnd = clauseStart + semi
+		}
+		if clauseEnd-clauseStart > jaasClauseWindow {
+			clauseEnd = clauseStart + jaasClauseWindow
+		}
+		clause := str[clauseStart:clauseEnd]
+
+		var username string
+		if um := jaasUsernameRe.FindStringSubmatch(clause); len(um) == 2 {
+			username = um[1]
+		}
+
+		for _, m := range jaasPasswordRe.FindAllStringSubmatch(clause, -1) {
 			password := m[1]
 			if password == "" {
 				continue
 			}
-			// Skip values that look like the property-style shape we already
-			// emitted to avoid duplicates from mixed config dumps.
-			if !strings.Contains(str, `password="`+password+`"`) {
+			if isPlaceholder(password) {
+				continue
+			}
+			if !detectors.HasMinEntropy(password, jaasMinEntropy) {
 				continue
 			}
 			if _, dup := seen[password]; dup {
@@ -103,9 +161,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			}
 			seen[password] = struct{}{}
 			extra := map[string]string{"style": "jaas"}
-			var username string
-			if um := jaasUsernameRe.FindStringSubmatch(str); len(um) == 2 {
-				username = um[1]
+			if username != "" {
 				extra["username"] = username
 			}
 			if bs := bootstrapRe.FindStringSubmatch(str); len(bs) == 2 {

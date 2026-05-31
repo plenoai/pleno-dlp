@@ -2,6 +2,8 @@ package activecampaign
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -56,5 +58,88 @@ func TestFromData_TooShort(t *testing.T) {
 func TestRedact(t *testing.T) {
 	if got := redact(dummy); !strings.HasSuffix(got, "...") {
 		t.Fatalf("redact suffix mismatch: %s", got)
+	}
+}
+
+// withServer spins up an httptest.Server that asserts the Api-Token header and
+// path, returns the given status, and overrides apiBase for the call.
+func withServer(t *testing.T, status int) func() {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/3/users/me" {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		if r.Header.Get("Api-Token") != dummy {
+			t.Errorf("missing/incorrect Api-Token header: %q", r.Header.Get("Api-Token"))
+		}
+		w.WriteHeader(status)
+	}))
+	prev := apiBase
+	apiBase = srv.URL
+	return func() {
+		apiBase = prev
+		srv.Close()
+	}
+}
+
+func TestVerify_NoOpWithoutAPIBase(t *testing.T) {
+	prev := apiBase
+	apiBase = ""
+	defer func() { apiBase = prev }()
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if v || err != nil {
+		t.Fatalf("expected no-op (false,nil), got (%v,%v)", v, err)
+	}
+}
+
+func TestVerify_Accept200(t *testing.T) {
+	defer withServer(t, http.StatusOK)()
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if !v || err != nil {
+		t.Fatalf("expected verified=true,nil on 200, got (%v,%v)", v, err)
+	}
+}
+
+func TestVerify_Reject401(t *testing.T) {
+	defer withServer(t, http.StatusUnauthorized)()
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if v || err != nil {
+		t.Fatalf("expected verified=false,nil on 401, got (%v,%v)", v, err)
+	}
+}
+
+func TestVerify_Reject403(t *testing.T) {
+	defer withServer(t, http.StatusForbidden)()
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if v || err != nil {
+		t.Fatalf("expected verified=false,nil on 403, got (%v,%v)", v, err)
+	}
+}
+
+func TestVerify_Transient500(t *testing.T) {
+	defer withServer(t, http.StatusInternalServerError)()
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if v || err == nil {
+		t.Fatalf("expected verified=false,err on 500, got (%v,%v)", v, err)
+	}
+}
+
+func TestVerify_Transient429(t *testing.T) {
+	defer withServer(t, http.StatusTooManyRequests)()
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if v || err == nil {
+		t.Fatalf("expected verified=false,err on 429, got (%v,%v)", v, err)
+	}
+}
+
+func TestFromData_VerifyWired(t *testing.T) {
+	defer withServer(t, http.StatusOK)()
+	body := []byte("# activecampaign\nAC_API_KEY=" + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	if len(res) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(res))
+	}
+	if !res[0].Verified || res[0].VerificationErr != nil {
+		t.Fatalf("expected verified result, got verified=%v err=%v", res[0].Verified, res[0].VerificationErr)
 	}
 }

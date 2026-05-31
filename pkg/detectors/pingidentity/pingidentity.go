@@ -1,8 +1,17 @@
-// Package pingidentity detects Ping Identity (PingOne) worker app secrets
-// (UUID v4 shape). Ping uses per-region hosts (api.pingone.com,
-// api.pingone.eu, api.pingone.asia, api.pingone.ca) so verification is
-// unverified-by-design — keyword + shape gating bound the false-positive
-// rate. The keyword window is mandatory because UUIDs collide broadly.
+// Package pingidentity detects Ping Identity (PingOne) worker/client app
+// secrets (UUID v4 shape). Ping uses per-region hosts (api.pingone.com,
+// api.pingone.eu, api.pingone.asia, api.pingone.ca) and OAuth2
+// client_credentials grants that require a client_id + client_secret PAIR;
+// a lone UUID cannot authenticate, so verification is
+// unverified-by-design.
+//
+// PingOne's own non-secret resource identifiers (environment IDs, app IDs,
+// population IDs, correlation/trace/request IDs) share the exact UUID v4
+// shape, so a bare keyword-vicinity gate produces unacceptable noise. The
+// gate is therefore hardened: a secret-intent assignment keyword must sit
+// immediately (~64 bytes) before the UUID, resource-ID lookalikes within
+// the left context are excluded, the regex requires RFC4122 v4 nibbles,
+// and a Shannon-entropy floor rejects sequential placeholder UUIDs.
 package pingidentity
 
 import (
@@ -13,9 +22,50 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+// tokenRe matches an RFC4122 v4 UUID: version nibble fixed to 4 and the
+// variant nibble constrained to [89ab]. This rejects arbitrary 32-hex
+// blobs that are not real PingOne secrets.
+var tokenRe = regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\b`)
 
-var contextKeywords = []string{"ping_identity", "pingidentity", "pingone", "ping_one", "ping_secret"}
+// secretKeywords are REQUIRED secret-intent assignment keywords; a bare
+// "pingone"/"pingidentity" mention is intentionally NOT a gate because it
+// co-occurs with non-secret PingOne resource identifiers.
+var secretKeywords = []string{
+	"client_secret",
+	"worker_secret",
+	"ping_secret",
+	"pingone_secret",
+	"app_secret",
+}
+
+// idLookalikes mark the UUID as a non-secret PingOne resource identifier
+// when present in the immediate left context. Keys ending in "_id" are
+// also rejected via a dedicated regex below.
+var idLookalikes = []string{
+	"environment_id",
+	"env_id",
+	"app_id",
+	"population_id",
+	"correlation",
+	"trace",
+	"request_id",
+	"uid",
+}
+
+// leftIDKeyRe matches an assignment whose key ends in "_id" immediately to
+// the left of the UUID (e.g. `environment_id: <uuid>`, `app_id=<uuid>`).
+var leftIDKeyRe = regexp.MustCompile(`[a-z0-9]_id\s*[:=]\s*"?$`)
+
+const (
+	// secretRadius bounds how far before the UUID a secret-intent keyword
+	// may sit. Adjacent assignment only, not anywhere in the chunk.
+	secretRadius = 64
+	// idRadius bounds the negative-lookalike left-context window.
+	idRadius = 32
+	// minEntropy drops low-entropy/sequential placeholder UUIDs such as
+	// 00000000-0000-4000-8000-000000000000.
+	minEntropy = 3.0
+)
 
 type Scanner struct{}
 
@@ -36,7 +86,17 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		// Require an adjacent secret-intent assignment keyword.
+		if !nearSecretKeyword(lower, h[2]) {
+			continue
+		}
+		// Reject PingOne resource-ID lookalikes.
+		if looksLikeResourceID(lower, h[2]) {
+			continue
+		}
+		// Reject sequential/placeholder UUIDs by entropy floor over the
+		// hex characters (dashes stripped).
+		if !detectors.HasMinEntropy(strings.ReplaceAll(token, "-", ""), minEntropy) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -52,23 +112,36 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
-	from := start - radius
+// nearSecretKeyword reports whether a required secret-intent keyword sits
+// within secretRadius bytes preceding the UUID.
+func nearSecretKeyword(lower string, start int) bool {
+	from := start - secretRadius
 	if from < 0 {
 		from = 0
 	}
-	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
+	window := lower[from:start]
+	for _, kw := range secretKeywords {
 		if strings.Contains(window, kw) {
 			return true
 		}
 	}
 	return false
+}
+
+// looksLikeResourceID reports whether the immediate left context marks the
+// UUID as a non-secret PingOne resource identifier.
+func looksLikeResourceID(lower string, start int) bool {
+	from := start - idRadius
+	if from < 0 {
+		from = 0
+	}
+	window := lower[from:start]
+	for _, kw := range idLookalikes {
+		if strings.Contains(window, kw) {
+			return true
+		}
+	}
+	return leftIDKeyRe.MatchString(window)
 }
 
 func redact(t string) string {

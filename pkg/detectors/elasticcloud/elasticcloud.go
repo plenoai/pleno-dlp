@@ -6,18 +6,32 @@
 // `elasticsearch` / `_security/_authenticate` in a 256-byte window because
 // the `<base64>:<base64>` colon pair collides with arbitrary tokens.
 //
-// Verification is left unimplemented — Elastic Cloud deployments live on
-// per-customer https://<deployment>.<region>.aws.found.io endpoints not
-// present in the chunk. Surfaces under --unverified-results by design.
+// The matched `<id>:<key>` pair IS the Elasticsearch REST credential used in
+// the `Authorization: ApiKey base64(id:key)` header, so it is verifiable
+// against `GET /_security/_authenticate`. Elastic Cloud deployments live on
+// per-customer https://<deployment>.<region>.cloud.es.io endpoints that are
+// not present in the chunk, so Verify no-ops unless an apiBase override is
+// supplied (class a per repo policy). Without apiBase it surfaces under
+// --unverified-results.
 package elasticcloud
 
 import (
 	"context"
+	"encoding/base64"
+	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
+
+// apiBase is empty by default: Elasticsearch clusters are per-customer hosts
+// not derivable from the token, so live verification only fires when an
+// operator supplies the deployment endpoint via apiBase override.
+var apiBase = ""
+
+var httpClient = &http.Client{Timeout: 5 * time.Second}
 
 // id:secret pair, both URL-safe base64. Lengths chosen to match observed
 // Elastic Cloud API keys (id ~20 chars, secret 22-43 chars).
@@ -38,7 +52,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.ElasticCloud }
 
 func (Scanner) Keywords() []string { return []string{"elastic", "elasticsearch"} }
 
-func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	hits := pairRe.FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
@@ -57,18 +71,61 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			continue
 		}
 		seen[key] = struct{}{}
-		out = append(out, detectors.Result{
+		res := detectors.Result{
 			DetectorType: detectors.ElasticCloud,
 			Raw:          []byte(id),
 			RawV2:        []byte(secret),
 			Redacted:     redact(id),
 			ExtraData:    map[string]string{"api_key_id": id},
-		})
+		}
+		if verify {
+			v, err := s.Verify(ctx, key)
+			res.Verified = v
+			res.VerificationErr = err
+		}
+		out = append(out, res)
 	}
 	if len(out) == 0 {
 		return nil, nil
 	}
 	return out, nil
+}
+
+// verify-coverage classification (verifyPlan):
+//   - endpoint: GET /_security/_authenticate
+//   - auth: Authorization: ApiKey base64(id:secret)
+//   - 200 => valid; 401/403 => invalid; 429/5xx => transient (surfaced as err)
+var (
+	acceptCodes = []int{http.StatusOK}
+	rejectCodes = []int{http.StatusUnauthorized, http.StatusForbidden}
+)
+
+// Verify checks the Elasticsearch API key against GET /_security/_authenticate
+// using the `Authorization: ApiKey base64(id:key)` scheme. The cluster host is
+// per-customer and not in the chunk, so verification only fires when apiBase
+// is overridden with the deployment endpoint. 200 => valid; 401/403 => invalid;
+// 429 (rate limit) and 5xx (provider-side) are surfaced as transient errors via
+// detectors.ClassifyVerifyHTTP so the engine never asserts validity ambiguously.
+func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	if apiBase == "" {
+		return false, nil
+	}
+	if strings.Count(secret, ":") < 1 {
+		return false, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(apiBase, "/")+"/_security/_authenticate", nil)
+	if err != nil {
+		return false, err
+	}
+	// Elasticsearch ApiKey auth: base64 of the decoded `id:key` pair.
+	req.Header.Set("Authorization", "ApiKey "+base64.StdEncoding.EncodeToString([]byte(secret)))
+	resp, doErr := httpClient.Do(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	return detectors.ClassifyVerifyHTTP(resp, doErr, acceptCodes, rejectCodes)
 }
 
 func nearKeyword(lower string, start, end int) bool {

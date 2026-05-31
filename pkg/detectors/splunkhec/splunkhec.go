@@ -3,17 +3,41 @@
 // arbitrary correlation ids, so co-occurrence with a Splunk-context keyword
 // in a 256-byte window is mandatory.
 //
-// Verification is left unimplemented because HEC endpoints live on per-customer
-// hostnames (https://<host>:8088/services/collector/event) that aren't in
-// the chunk. Surfaces under --unverified-results by design.
+// Verification: HEC endpoints live on per-customer hostnames
+// (https://<host>:8088/services/collector/event) that aren't in the chunk, so
+// the host is operator-supplied via the apiBase override. When apiBase is
+// empty the Verify path no-ops (Verified=false, no error) and the finding
+// surfaces under --unverified-results — the mandatory context-keyword gate
+// bounds false positives on that path. When apiBase is set we POST to
+// {apiBase}/services/collector/event with `Authorization: Splunk <token>`
+// (NOT Bearer) and classify: 200 => valid, 401/403/400 => invalid,
+// 429/5xx => transient.
 package splunkhec
 
 import (
 	"context"
+	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+)
+
+// apiBase is the operator-supplied Splunk HEC host (e.g.
+// https://http-inputs-acme.splunkcloud.com:8088). Empty by default so the
+// detector never invents a host; tests override it with an httptest server.
+var apiBase = ""
+
+var httpClient = &http.Client{Timeout: 10 * time.Second}
+
+var (
+	verifyAcceptCodes = []int{http.StatusOK}
+	verifyRejectCodes = []int{
+		http.StatusUnauthorized, // 401
+		http.StatusForbidden,    // 403
+		http.StatusBadRequest,   // 400 — HEC "Invalid token" (code 4)
+	}
 )
 
 var tokenRe = regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b`)
@@ -33,7 +57,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.SplunkHEC }
 
 func (Scanner) Keywords() []string { return []string{"splunk", "services/collector"} }
 
-func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	hits := tokenRe.FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
@@ -50,16 +74,56 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			continue
 		}
 		seen[token] = struct{}{}
-		out = append(out, detectors.Result{
+		res := detectors.Result{
 			DetectorType: detectors.SplunkHEC,
 			Raw:          []byte(token),
 			Redacted:     redact(token),
-		})
+		}
+		if verify {
+			v, err := verifyToken(ctx, token)
+			res.Verified = v
+			res.VerificationErr = err
+		}
+		out = append(out, res)
 	}
 	if len(out) == 0 {
 		return nil, nil
 	}
 	return out, nil
+}
+
+// Verify checks a HEC token against the operator-supplied apiBase host. When
+// apiBase is empty there is no host to talk to, so it no-ops as unverified
+// (no error) per the apiBase-override convention shared with OneTrust /
+// SemaphoreCI / JenkinsX.
+func (s Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	return verifyToken(ctx, secret)
+}
+
+func verifyToken(ctx context.Context, token string) (bool, error) {
+	if apiBase == "" {
+		return false, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// Minimal valid HEC event payload — enough for the endpoint to accept it
+	// when the token is valid, while a bad token deterministically returns
+	// 401/403 (or 400 "Invalid token") before payload semantics matter.
+	body := strings.NewReader(`{"event":"ping"}`)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBase+"/services/collector/event", body)
+	if err != nil {
+		return false, err
+	}
+	// Splunk HEC uses the "Splunk" auth scheme, NOT Bearer.
+	req.Header.Set("Authorization", "Splunk "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, doErr := httpClient.Do(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	return detectors.ClassifyVerifyHTTP(resp, doErr, verifyAcceptCodes, verifyRejectCodes)
 }
 
 func nearKeyword(lower string, start, end int) bool {

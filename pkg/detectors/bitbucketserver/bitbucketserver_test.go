@@ -2,6 +2,8 @@ package bitbucketserver
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -52,5 +54,124 @@ func TestRedact(t *testing.T) {
 	}
 	if !strings.HasPrefix(r, "BBDC-OTQ") {
 		t.Fatalf("missing prefix: %q", r)
+	}
+}
+
+func withAPIBase(t *testing.T, url string) {
+	t.Helper()
+	old := apiBase
+	apiBase = url
+	t.Cleanup(func() { apiBase = old })
+}
+
+// No apiBase override => Verify must no-op (host unknown, no covert scan).
+func TestVerify_NoAPIBaseNoOps(t *testing.T) {
+	withAPIBase(t, "")
+	v, err := Scanner{}.Verify(context.Background(), dummyHTTPAccess)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if v {
+		t.Fatal("expected no-op verified=false without apiBase")
+	}
+}
+
+// 200 => authenticated admin token => verified=true, and the request must carry
+// the bearer token against the documented endpoint.
+func TestVerify_OK(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer "+dummyHTTPAccess {
+			t.Errorf("Authorization = %q, want bearer token", got)
+		}
+		if r.URL.Path != "/rest/api/1.0/users" {
+			t.Errorf("path = %q, want /rest/api/1.0/users", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	withAPIBase(t, srv.URL)
+
+	v, err := Scanner{}.Verify(context.Background(), dummyHTTPAccess)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !v {
+		t.Fatal("expected verified=true on 200")
+	}
+}
+
+// 403 => valid token, insufficient (non-admin) scope => still verified=true.
+func TestVerify_ForbiddenIsValid(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	withAPIBase(t, srv.URL)
+
+	v, err := Scanner{}.Verify(context.Background(), dummyHTTPAccess)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !v {
+		t.Fatal("403 is a live non-admin token; expected verified=true")
+	}
+}
+
+// 401 => no/invalid credentials => verified=false, no error.
+func TestVerify_Unauthorized(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	withAPIBase(t, srv.URL)
+
+	v, err := Scanner{}.Verify(context.Background(), dummyHTTPAccess)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if v {
+		t.Fatal("expected verified=false on 401")
+	}
+}
+
+// 500 and 429 => transient => verified=false WITH error (not an authoritative
+// invalid verdict).
+func TestVerify_TransientErrors(t *testing.T) {
+	for _, code := range []int{http.StatusInternalServerError, http.StatusTooManyRequests} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(code)
+		}))
+		withAPIBase(t, srv.URL)
+		v, err := Scanner{}.Verify(context.Background(), dummyHTTPAccess)
+		srv.Close()
+		if v {
+			t.Fatalf("code %d: expected verified=false", code)
+		}
+		if err == nil {
+			t.Fatalf("code %d: expected transient error", code)
+		}
+	}
+}
+
+// FromData wires Verify when verify==true.
+func TestFromData_VerifyWired(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	withAPIBase(t, srv.URL)
+
+	res, err := Scanner{}.FromData(context.Background(), true, []byte("STASH_TOKEN="+dummyHTTPAccess))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected 1, got %d", len(res))
+	}
+	if !res[0].Verified {
+		t.Fatal("expected Verified=true via FromData verify path")
+	}
+	if res[0].VerificationErr != nil {
+		t.Fatalf("unexpected VerificationErr: %v", res[0].VerificationErr)
 	}
 }

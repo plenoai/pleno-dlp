@@ -15,3 +15,21 @@ paths = [
   '''pkg/output/.*_test\.go''',
   '''python/tests/.*\.py''',
 ]
+
+# A handful of detector *source* files embed illustrative dummy tokens —
+# either in doc-comments that show the shape the regex matches, or as a
+# functional exclusion constant (the canonical public RFC-7519 / jwt.io
+# example JWT, which the Auth0 detector deliberately drops). These are not
+# real secrets; allowlist the exact literals so the scanner does not flag
+# its own documentation while still scanning the rest of the source.
+[[allowlists]]
+description = "Illustrative / public-vector dummy tokens in detector source"
+regexes = [
+  # auth0: canonical RFC-7519 / jwt.io example token (exclusion constant)
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ\.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c''',
+  # droneci: assignment-anchor doc-comment example
+  '''AbCdEf0123456789AbCdEf01''',
+  # looker: client_id / client_secret doc-comment examples
+  '''fedcba9876543210fedc''',
+  '''abcdef0123456789abcd''',
+]

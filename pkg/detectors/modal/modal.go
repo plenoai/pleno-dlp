@@ -10,6 +10,13 @@
 //
 // Token id is captured as Raw, secret as RawV2 — matches the rest of the
 // codebase's RawV2-aware pair convention.
+//
+// Because `ak-`/`as-` are generic two-letter prefixes and `{20,}` alone is
+// loose, both token bodies pass a semantic gate (looksRandom): a Shannon
+// entropy floor plus a mixed-case-with-digit charset requirement. This
+// suppresses dictionary-word/label concatenations (`ak-administratorsgroup`)
+// and placeholder docs samples (`ak-1234567890abcdefghij`) that the regex
+// would otherwise pair within the 1024-byte co-occurrence window.
 package modal
 
 import (
@@ -23,6 +30,40 @@ var (
 	idRe     = regexp.MustCompile(`\b(ak-[A-Za-z0-9]{20,})\b`)
 	secretRe = regexp.MustCompile(`\b(as-[A-Za-z0-9]{20,})\b`)
 )
+
+// minBodyEntropy is the Shannon-entropy floor (bits/char) applied to the
+// random body of each token (the part after the `ak-` / `as-` prefix).
+// Real Modal tokens are random base62-ish strings; `ak-`/`as-` are common
+// two-letter prefixes that collide with identifier/label concatenations
+// (e.g. `ak-administratorsgroup`, `as-development-cluster`). 3.0 bits/char
+// is the standard floor used by sibling loose-regex detectors.
+const minBodyEntropy = 3.0
+
+// looksRandom rejects token bodies that read like dictionary-word or
+// placeholder concatenations rather than a random credential. We require:
+//   - Shannon entropy >= minBodyEntropy (kills runs of zeros / `aaaa…`),
+//   - at least one digit AND mixed case (kills all-lowercase word concats
+//     like `administratorsgroup` and all-digit placeholders like
+//     `1234567890abcdefghij`).
+//
+// body is the substring AFTER the `ak-` / `as-` prefix.
+func looksRandom(body string) bool {
+	if !detectors.HasMinEntropy(body, minBodyEntropy) {
+		return false
+	}
+	var hasDigit, hasUpper, hasLower bool
+	for i := 0; i < len(body); i++ {
+		switch c := body[i]; {
+		case c >= '0' && c <= '9':
+			hasDigit = true
+		case c >= 'A' && c <= 'Z':
+			hasUpper = true
+		case c >= 'a' && c <= 'z':
+			hasLower = true
+		}
+	}
+	return hasDigit && hasUpper && hasLower
+}
 
 type Scanner struct{}
 
@@ -49,8 +90,18 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		if _, dup := seen[id]; dup {
 			continue
 		}
+		// Entropy/charset gate on the id body (after the `ak-` prefix).
+		if !looksRandom(id[len("ak-"):]) {
+			continue
+		}
 		secret, ok := nearestSecret(m[2], data, secrets)
 		if !ok {
+			continue
+		}
+		// Same gate on the paired secret body (after the `as-` prefix).
+		// A dictionary-word `as-…` lookalike paired with a real-looking
+		// `ak-…` is almost certainly a coincidental co-occurrence.
+		if !looksRandom(secret[len("as-"):]) {
 			continue
 		}
 		seen[id] = struct{}{}

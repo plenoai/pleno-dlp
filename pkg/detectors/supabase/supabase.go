@@ -1,23 +1,41 @@
-// Package supabase detects Supabase service-role keys (JWT with
-// `role:"service_role"` near a `supabase` keyword).
+// Package supabase detects Supabase service-role / anon keys (JWT with a
+// Supabase-shaped `role` claim near a `supabase` keyword) and verifies them
+// against the project's PostgREST endpoint.
 //
-// Verify is intentionally not performed. The service-role key is bound
-// to a per-project URL (`https://<ref>.supabase.co`) — that ref isn't
-// always co-located in source, and probing the wrong project would
-// either 401 (false negative) or hit an unrelated tenant. We surface
-// unverified-by-design at SeverityCritical when the role claim says
-// service_role and parse the project ref into ExtraData["project_ref"]
-// when it appears in the same chunk.
+// Verify is correct and confident for the common hosted case: a hosted
+// Supabase JWT embeds `"ref":"<project-ref>"` in its payload, and
+// `https://<ref>.supabase.co/rest/v1/` is the exact REST host that accepts
+// this same JWT via the `apikey` / `Authorization: Bearer` header. Because
+// the host is derived from the token itself we always probe the key's own
+// tenant — there is no wrong-tenant false positive. We prefer the JWT `ref`
+// claim and fall back to a `ref` captured from a `https://<ref>.supabase.co`
+// URL in the same chunk. When neither is present (custom domains /
+// self-hosted tokens without a ref claim) Verify no-ops and the finding is
+// surfaced unverified.
 package supabase
 
 import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+)
+
+// apiBase, when set, overrides the per-project host derived from the token
+// (tests point it at an httptest.Server). Empty in production: the host is
+// computed as https://<ref>.supabase.co.
+var apiBase = ""
+
+var httpClient = &http.Client{Timeout: 10 * time.Second}
+
+var (
+	verifyAcceptCodes = []int{http.StatusOK}
+	verifyRejectCodes = []int{http.StatusUnauthorized, http.StatusForbidden}
 )
 
 // JWT shape — same prefix gate as the generic JWT detector. The
@@ -35,7 +53,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Supabase }
 
 func (Scanner) Keywords() []string { return []string{"supabase", "service_role"} }
 
-func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	matches := jwtRe.FindAllSubmatchIndex(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
@@ -80,18 +98,76 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		if role == "service_role" {
 			sev = detectors.SeverityCritical
 		}
-		out = append(out, detectors.Result{
+		res := detectors.Result{
 			DetectorType: detectors.Supabase,
 			Raw:          []byte(token),
 			Redacted:     redact(token),
 			Severity:     sev,
 			ExtraData:    extra,
-		})
+		}
+		// Prefer the ref embedded in the JWT (always the key's own tenant);
+		// fall back to a ref captured from a supabase.co URL in the chunk.
+		host := projectHost(ref)
+		if host == "" {
+			host = projectHost(projectRef)
+		}
+		if verify && host != "" {
+			v, err := verifyToken(ctx, host, token)
+			res.Verified = v
+			res.VerificationErr = err
+		}
+		out = append(out, res)
 	}
 	if len(out) == 0 {
 		return nil, nil
 	}
 	return out, nil
+}
+
+// Verify implements detectors.Verifier. The host is derived solely from the
+// token's own `ref` claim, so we always probe the key's own project — never a
+// foreign tenant. Tokens without a ref claim (custom/self-hosted) can't be
+// verified here and no-op to (false, nil).
+func (s Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	_, ref := parseClaims(secret)
+	host := projectHost(ref)
+	if host == "" {
+		return false, nil
+	}
+	return verifyToken(ctx, host, secret)
+}
+
+// projectHost computes the PostgREST base for a hosted project ref, or honours
+// the apiBase test override. Returns "" when no host can be derived.
+func projectHost(ref string) string {
+	if apiBase != "" {
+		return apiBase
+	}
+	if ref == "" {
+		return ""
+	}
+	return "https://" + ref + ".supabase.co"
+}
+
+// verifyToken probes <host>/rest/v1/ with the JWT in both the apikey header
+// (PostgREST's primary auth) and Authorization: Bearer. 200 → valid;
+// 401/403 → rejected; 429/5xx → transient (surfaced as VerificationErr).
+func verifyToken(ctx context.Context, host, token string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, host+"/rest/v1/", nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("apikey", token)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := httpClient.Do(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	return detectors.ClassifyVerifyHTTP(resp, err, verifyAcceptCodes, verifyRejectCodes)
 }
 
 // parseClaims extracts (role, ref) from the JWT payload. ref is the

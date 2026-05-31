@@ -21,6 +21,51 @@ import (
 // `mongodb+srv://` requires escaping the `+` in regex.
 var uriRe = regexp.MustCompile(`\b(mongodb(?:\+srv)?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
 
+// placeholderPasswords are documentation/template/quickstart values that
+// produce syntactically-perfect MongoDB URIs but are never real secrets.
+// Compared case-insensitively against the captured password span. The
+// provider keyword gate is tight, but docker-compose and README snippets
+// routinely embed these, so we drop them rather than emit SeverityHigh
+// noise. (Verify is infeasible here — see package doc — so this denylist
+// is the only available FP control.)
+var placeholderPasswords = map[string]struct{}{
+	"password":      {},
+	"passwd":        {},
+	"pass":          {},
+	"changeme":      {},
+	"example":       {},
+	"secret":        {},
+	"your_password": {},
+	"your-password": {},
+	"yourpassword":  {},
+	"mypassword":    {},
+	"test":          {},
+	"admin":         {},
+	"root":          {},
+	"placeholder":   {},
+	"xxx":           {},
+	"redacted":      {},
+}
+
+// exampleHosts are well-known local/example deployment targets. A
+// placeholder password pointed at one of these is conclusively a
+// quickstart/compose snippet, not a real leaked credential.
+var exampleHosts = map[string]struct{}{
+	"localhost":        {},
+	"127.0.0.1":        {},
+	"mongo":            {},
+	"db":               {},
+	"::1":              {},
+	"host.example.com": {},
+}
+
+// minPasswordEntropy is a deliberately LOW Shannon-entropy floor
+// (bits/char). It exists only to drop extreme-repetition placeholders such
+// as "aaaa" (entropy 0) while retaining legitimate short real passwords —
+// the existing "p4ss" fixture sits at ~1.50, so the floor is set well
+// below it to avoid false negatives on valid short secrets.
+const minPasswordEntropy = 1.2
+
 type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.MongoDB }
@@ -63,6 +108,22 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 					extra["user"] = name
 				}
 			}
+		}
+		// FP control (hardening only — never widens the regex):
+		//   1. drop documentation/template placeholder passwords outright;
+		//   2. drop a low-entropy extreme-repetition password ("aaaa");
+		//   3. belt-and-suspenders: a placeholder pointed at a well-known
+		//      example/local host is conclusively a quickstart snippet.
+		// (3) is subsumed by (1) today but is kept explicit so that
+		// loosening the denylist later still suppresses compose snippets.
+		if isPlaceholderPassword(password) {
+			continue
+		}
+		if !detectors.HasMinEntropy(password, minPasswordEntropy) {
+			continue
+		}
+		if host := stripPort(extra["host"]); isExampleHost(host) && isPlaceholderPassword(password) {
+			continue
 		}
 		if strings.HasPrefix(uri, "mongodb+srv://") {
 			extra["srv"] = "true"
@@ -108,6 +169,25 @@ func manualHostUser(uri string) (string, string) {
 		user = userinfo[:colon]
 	}
 	return host, user
+}
+
+func isPlaceholderPassword(pw string) bool {
+	_, ok := placeholderPasswords[strings.ToLower(pw)]
+	return ok
+}
+
+func isExampleHost(host string) bool {
+	_, ok := exampleHosts[strings.ToLower(host)]
+	return ok
+}
+
+// stripPort removes a trailing `:port` so host comparisons match
+// regardless of whether the URI pinned a port (e.g. `localhost:27017`).
+func stripPort(host string) string {
+	if colon := strings.LastIndex(host, ":"); colon >= 0 {
+		return host[:colon]
+	}
+	return host
 }
 
 func redact(t string) string {

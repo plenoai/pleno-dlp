@@ -1,12 +1,20 @@
-// Package confluence detects Atlassian Confluence API tokens (24-char base62)
-// near a "confluence" keyword.
+// Package confluence detects Atlassian Confluence Cloud API tokens near a
+// "confluence" keyword.
 //
-// Verify is unverified-by-design: like Jira, the Confluence Cloud API
-// requires HTTP Basic with the account email and we don't parse the email
-// out of the surrounding chunk. Surfacing unverified findings still helps
-// operators rotate. Shape is identical to the legacy `atlassian` detector —
-// we discriminate by the "confluence" keyword window so the operator sees
-// which product the token belongs to.
+// Verify is unverified-by-design: the Confluence Cloud API
+// (GET /wiki/rest/api/user/current) requires HTTP Basic auth as
+// `email:api_token` against the tenant's own `<workspace>.atlassian.net`
+// host. Neither the account email nor the workspace subdomain appears in the
+// token or anywhere we can reliably derive from the chunk, so a live probe
+// could only false-negative or fire against unrelated infrastructure.
+// Surfacing unverified findings still helps operators rotate.
+//
+// Token shape: Atlassian Cloud API tokens carry the fixed `ATATT3xFfGF0`
+// prefix followed by ~150 chars of base64url payload — mirroring the sibling
+// `ATCTT3xFfGF0` shape the bitbucketcloud detector anchors. We discriminate
+// Confluence from the Jira/Atlassian tokens that share the `ATATT` prefix via
+// the "confluence" keyword window, and skip `ATCTT` tokens that belong to
+// bitbucketcloud to avoid cross-detector double-fire.
 package confluence
 
 import (
@@ -17,7 +25,14 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24})\b`)
+// Atlassian Cloud API tokens: fixed `ATATT3xFfGF0` prefix + base64url body.
+// The bitbucketcloud detector anchors the sibling `ATCTT3xFfGF0` shape the
+// same way (60-200 trailing chars).
+var tokenRe = regexp.MustCompile(`\b(ATATT3xFfGF0[A-Za-z0-9_=+/-]{60,200})\b`)
+
+// minTokenEntropy drops low-entropy lookalikes (repeated/padded runs) that
+// survive the prefix regex.
+const minTokenEntropy = 3.5
 
 var contextKeywords = []string{"confluence", "confluence_api", "confluence_token"}
 
@@ -25,7 +40,9 @@ type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.Confluence }
 
-func (Scanner) Keywords() []string { return []string{"confluence"} }
+// ATATT3xFfGF0 in Keywords gives the engine a precise prefilter so the regex
+// only runs on chunks that actually carry the Atlassian token prefix.
+func (Scanner) Keywords() []string { return []string{"confluence", "ATATT3xFfGF0"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	hits := tokenRe.FindAllSubmatchIndex(data, -1)
@@ -40,6 +57,14 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		if _, dup := seen[token]; dup {
 			continue
 		}
+		// Bitbucket Cloud owns ATCTT3xFfGF0… tokens — defensive skip in case
+		// the prefix regex ever loosens.
+		if strings.HasPrefix(token, "ATCTT") {
+			continue
+		}
+		if !detectors.HasMinEntropy(token, minTokenEntropy) {
+			continue
+		}
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
@@ -49,6 +74,9 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			Raw:          []byte(token),
 			Redacted:     redact(token),
 		})
+	}
+	if len(out) == 0 {
+		return nil, nil
 	}
 	return out, nil
 }
