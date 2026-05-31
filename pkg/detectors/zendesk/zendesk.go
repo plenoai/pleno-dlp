@@ -36,8 +36,33 @@ var (
 	verifyRejectCodes = []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound}
 )
 
-// Zendesk API tokens are documented as 40 base62 chars.
+// Zendesk API tokens are documented as 40 base62 chars. The official
+// Zendesk developer docs (security-and-auth) show the token portion of the
+// Basic-auth credential `<email>/token:<api_token>` as a 40-char [A-Za-z0-9]
+// run (example token: 40 base62 chars). The length is anchored to that.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`)
+
+// minEntropy rejects low-information 40-char base62 runs that satisfy the
+// length+charset regex but are not random tokens (commit SHAs are hex/40 and
+// cap near 3.6, padded placeholders and repeated-char runs sit well below).
+// A real Zendesk token is high-variety; 3.5 culls the structured impostors
+// without reaching into the random-token band.
+const minEntropy = 3.5
+
+// armRe is the Zendesk reference that must appear within the proximity window.
+// A bare "zendesk" substring (a `<sub>.zendesk.com` host in a doc link or
+// script-src URL) is too weak a gate against a generic 40-char base62 run.
+// Two shapes arm:
+//   - the assignment/config-key form `zendesk[_-]?(api[_-]?)?(token|key|secret)`
+//     (e.g. ZENDESK_API_TOKEN=, zendesk_token=); and
+//   - Zendesk's documented Basic-auth credential `<email>/token:<api_token>`,
+//     whose literal `/token:` scheme separator (note the leading slash,
+//     distinct from a bare `token:`) sits immediately before the token. This is
+//     the canonical real-world shape from the Zendesk dev docs, so it must arm.
+//
+// The whole detector only runs after the "zendesk" Keywords() prefilter matches
+// the chunk, so the `/token:` arm is already scoped to a Zendesk context.
+var armRe = regexp.MustCompile(`(?i)(zendesk[_\-]?(api[_\-]?)?(token|key|secret)|/token:)`)
 
 // RFC5322-ish email shape — kept conservative so we don't chase malformed
 // addresses. We pair the operator email with the token via Basic auth.
@@ -45,8 +70,6 @@ var emailRe = regexp.MustCompile(`\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{
 
 // Optional subdomain capture for ExtraData.
 var hostRe = regexp.MustCompile(`\b([a-z0-9-]+\.zendesk\.com)\b`)
-
-var contextKeywords = []string{"zendesk"}
 
 type Scanner struct{}
 
@@ -70,8 +93,15 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		// 40 alnum is far too generic — co-occurrence is mandatory.
+		// 40 alnum is far too generic — an armed zendesk credential reference
+		// must co-occur within a tight window.
 		if !nearKeyword(lower, h[2], h[3]) {
+			continue
+		}
+		// Entropy gate: structured/low-information 40-char runs (commit SHAs,
+		// padded placeholders, repeated-char runs) clear the length+charset
+		// regex but are not random tokens — reject them even when armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -180,8 +210,12 @@ func nearestRun(idStart int, data []byte, runs [][]int, maxDistance int) (string
 	return best, true
 }
 
+// nearKeyword reports whether a `zendesk[_-]?(api[_-]?)?(token|key|secret)`
+// reference appears within a tight window on either side of the candidate.
+// The window spans both directions (not strict immediate precedence) so a
+// credential defined alongside a nearby ZENDESK_API_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -190,13 +224,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func abs(x int) int {

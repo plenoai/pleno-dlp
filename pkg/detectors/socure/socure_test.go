@@ -9,7 +9,15 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-const dummy = "abcdef0123456789ABCDEFabcdef0123456789AB"
+// dummy is a documented-shape Socure API key: a UUID v4 (8-4-4-4-12 hex,
+// version nibble 4, variant nibble in [89ab]). Source: help.socure.com RiskOS
+// authentication docs. Not a real credential.
+const dummy = "a182150a-363a-4f4a-9b2c-1d2e3f4a5b6c"
+
+// fpHighEntropy is a generic 40-char high-entropy alphanumeric run that the
+// previous `[A-Za-z0-9]{40,80}` regex matched but is NOT a Socure UUID key.
+// It must no longer be detected even when sitting next to the keyword.
+const fpHighEntropy = "abcdef0123456789ABCDEFabcdef0123456789AB"
 
 func TestType(t *testing.T) {
 	if (Scanner{}).Type() != detectors.Socure {
@@ -36,6 +44,28 @@ func TestFromData_NoKeyword(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
+	}
+}
+
+// TestFromData_BareKeywordNoArm guards the gate tightening: a bare "socure"
+// mention near a real UUID key (no assignment-style reference) must no longer
+// arm, since armRe requires socure[_-]?(api[_-]?)?(token|key|secret).
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("see https://developer.socure.com for docs; value " + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword should not arm), got %d", len(res))
+	}
+}
+
+// TestFromData_RejectsHighEntropyNonUUID is the FP regression: a generic
+// 40-char high-entropy run next to the keyword (matched by the old regex)
+// must no longer be detected — it is not the documented UUID v4 format.
+func TestFromData_RejectsHighEntropyNonUUID(t *testing.T) {
+	body := []byte("SOCURE_API_KEY=" + fpHighEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (non-UUID high-entropy string), got %d", len(res))
 	}
 }
 

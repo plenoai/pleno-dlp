@@ -81,6 +81,14 @@ These were hardened before the campaign and are the worked examples:
 `pending` → not yet researched · `researched` → format captured, not yet
 hardened · `hardened (#PR)` → shipped.
 
+> **Campaign complete (2026-06-01): all 121 template detectors hardened.**
+> Shipped across PRs #130–#136 (batches 1–7) on top of the 8 pre-campaign
+> worked examples (#121/#127). Every row below carries a cited key format and
+> the hardening applied; the radius-256 + bare-`strings.Contains` + no-entropy
+> template is fully retired. This table is now a **reference** for future
+> detector authors — reuse the cited format instead of re-deriving it, and obey
+> the cardinal rule when adding new detectors.
+
 ## Detectors
 
 | Detector | Status | Current token regex | radius | Key format (cited) | Source | Hardening applied | Shipped |
@@ -187,22 +195,22 @@ hardened · `hardened (#PR)` → shipped.
 | signifyd | hardened | `[A-Za-z0-9]{20,80}` | 256 | unknown — auth doc + apiary show only placeholder keys, no shape; teamId numeric | conservative fallback ([developer.signifyd.com authenticating](https://developer.signifyd.com/main/docs/authenticating); no trufflehog detector) | radius→64, arm regex, entropy 3.0 on both halves, length kept | #135 |
 | smartsheet | hardened | `[A-Za-z0-9]{24,64}` | 256 | unknown — auth guide example (~38 alnum) illustrative only, no documented length | conservative fallback ([developers.smartsheet.com authentication](https://developers.smartsheet.com/api/smartsheet/guides/basics/authentication); no trufflehog detector) | radius→64, arm regex, entropy 3.0, length kept | #135 |
 | snipcart | hardened | `[A-Za-z0-9]{50,75}` | 256 | **75**-char `[0-9A-Za-z_]`, no prefix (Basic-auth username) | authoritative: [trufflehog snipcart](https://github.com/trufflesecurity/trufflehog/blob/main/pkg/detectors/snipcart/snipcart.go) (`[0-9A-Za-z_]{75}`) | length→`{75}`, charset→`[0-9A-Za-z_]`, radius→64, arm regex, entropy 3.5 | #135 |
-| socure | pending | `[A-Za-z0-9]{40,80}` | 256 | — | — | — | — |
-| sumologic | pending | `[A-Za-z0-9]{12}` | 256 | — | — | — | — |
-| sumsub | pending | `[A-Za-z0-9]{20,40}` | ? | — | — | — | — |
-| supertokens | pending | `[A-Za-z0-9]{32,}` | 256 | — | — | — | — |
-| swimlane | pending | `[A-Za-z0-9]{40,80}` | 256 | — | — | — | — |
-| taxjar | pending | `[A-Za-z0-9]{40,64}` | 256 | — | — | — | — |
-| trulioo | pending | `[A-Za-z0-9]{32,64}` | 256 | — | — | — | — |
-| trustpilot | pending | `[A-Za-z0-9]{32,128}` | 256 | — | — | — | — |
-| twitch | pending | `[A-Za-z0-9]{30}` | 256 | — | — | — | — |
-| typesense | pending | `[A-Za-z0-9]{32,}` | 256 | — | — | — | — |
-| vimeo | pending | `[A-Za-z0-9]{32,128}` | 256 | — | — | — | — |
-| vitally | pending | `[A-Za-z0-9]{32,64}` | 256 | — | — | — | — |
-| vonage | pending | `[A-Za-z0-9]{8}` | 256 | — | — | — | — |
-| webex | pending | `[A-Za-z0-9]{60,160}` | 256 | — | — | — | — |
-| woodpecker | pending | `[A-Za-z0-9]{32,64}` | 256 | — | — | — | — |
-| workato | pending | `[A-Za-z0-9]{40,80}` | 256 | — | — | — | — |
-| writer | pending | `[A-Za-z0-9]{40,128}` | 96 | — | — | — | — |
-| zendesk | pending | `[A-Za-z0-9]{40}` | 256 | — | — | — | — |
-| zerotier | pending | `[A-Za-z0-9]{32}` | 128 | — | — | — | — |
+| socure | hardened | `[A-Za-z0-9]{40,80}` | 256 | **UUID v4** (hex, version 4), no prefix (Bearer) | authoritative: [Socure RiskOS auth docs](https://help.socure.com/riskos/docs/integration-guide-authentication) (UUID Bearer example) | regex→UUID-v4 structural anchor (fixes wrong alnum shape), radius→64, arm regex, no entropy (structural) | #136 |
+| sumologic | hardened | `[A-Za-z0-9]{12}` | 256 | access ID `su`+12 base62; access key **64**-char `[A-Za-z0-9]` | authoritative: [trufflehog sumologickey](https://github.com/trufflesecurity/trufflehog/blob/main/pkg/detectors/sumologickey/sumologickey.go) (`su…{12}` / `{64}`) | ID prefix-anchored (`su`), key length 64 kept + entropy 3.5, radius→64, arm regex | #136 |
+| sumsub | hardened | `[A-Za-z0-9]{20,40}` | ? | app token `<env>:<alnum>.<alnum>` (env prd/tst/sbx, **dot** sep); secret 32-char | authoritative: [SumSubstance AppTokenUsageExamples](https://github.com/SumSubstance/AppTokenUsageExamples) (Sumsub-owned) | keyRe→`<env>:…\.…` (fixed wrong colon-only sep), secret floor `{40,64}`→`{32,64}` + entropy 3.5, radius→64, arm regex | #136 |
+| supertokens | hardened | `[A-Za-z0-9]{32,}` | 256 | no prefix, operator-chosen, **≥20** chars, charset `[A-Za-z0-9=-]` | authoritative: [supertokens-core config.yaml](https://github.com/supertokens/supertokens-core/blob/master/config.yaml) (≥20, `=-`+alnum) | charset→`[A-Za-z0-9=-]`, min 20 (no max — operator-chosen), radius→64, arm regex, entropy 3.0 | #136 |
+| swimlane | hardened | `[A-Za-z0-9]{40,80}` | 256 | unknown — PAT opaque (Private-Token header), no format; session token is a JWT | conservative fallback ([Swimlane Python driver](https://swimlane-python-driver.readthedocs.io/en/stable/); no trufflehog detector) | radius→64, arm regex, entropy 3.0, length kept | #136 |
+| taxjar | hardened | `[A-Za-z0-9]{40,64}` | 256 | **32**-char lowercase alnum `[a-z0-9]`, no prefix | authoritative: [trufflehog taxjar](https://github.com/trufflesecurity/trufflehog/blob/main/pkg/detectors/taxjar/taxjar.go) (`[a-z0-9]{32}`) | length→`{32}`, charset→`[a-z0-9]`, radius→64, arm regex, entropy 3.0 | #136 |
+| trulioo | hardened | `[A-Za-z0-9]{32,64}` | 256 | unknown — OAuth2 client_id/secret provisioned by CSM, no documented shape | conservative fallback ([developer.trulioo.com auth](https://developer.trulioo.com/docs/keys-and-authentication); no trufflehog detector) | radius→64, arm regex (`trulioo\|globaldatacompany`), entropy 3.0, length kept | #136 |
+| trustpilot | hardened | `[A-Za-z0-9]{32,128}` | 256 | unknown — docs/SDK show only `YOUR-API-KEY-HERE` placeholders | conservative fallback ([developers.trustpilot.com auth](https://developers.trustpilot.com/authentication); no trufflehog detector) | radius→64, arm regex, entropy 3.0, length kept | #136 |
+| twitch | hardened | `[A-Za-z0-9]{30}` | 256 | **30**-char lowercase base36 `[0-9a-z]`, no prefix | authoritative: [trufflehog twitch](https://github.com/trufflesecurity/trufflehog/blob/main/pkg/detectors/twitch/twitch.go) (`[0-9a-z]{30}`) | charset→`[0-9a-z]` base36, length 30 (now cited), radius→64, arm regex, entropy 3.5 | #136 |
+| typesense | hardened | `[A-Za-z0-9]{32,}` | 256 | **32**-char `[A-Za-z0-9]`, no prefix | authoritative: [Typesense Cloud Management API docs](https://typesense.org/docs/cloud-management-api/v1/cluster-management.html) (32-char key examples) | length→`{32}`, radius→64, arm regex, entropy 3.5 | #136 |
+| vimeo | hardened | `[A-Za-z0-9]{32,128}` | 256 | unknown — docs call token only "a unique code", no format | conservative fallback ([developer.vimeo.com authentication](https://developer.vimeo.com/api/authentication); no trufflehog detector) | radius→64, arm regex, entropy 3.0, length kept | #136 |
+| vitally | hardened | `[A-Za-z0-9]{32,64}` | 256 | unknown — "secret token" (Basic-auth username), no prefix/length/charset | conservative fallback ([docs.vitally.io rest-api](https://docs.vitally.io/en/articles/9880649-rest-api-overview); no trufflehog detector) | radius→64, arm regex, entropy 3.0, length kept | #136 |
+| vonage | hardened | `[A-Za-z0-9]{8}` | 256 | secret **8–25** chars, must contain lower+upper+digit (documented); API key undocumented | authoritative: [Vonage secret docs](https://api.support.vonage.com/hc/en-us/articles/360016547932) (8–25, composition rule) | secret→`{8,25}` + composition rule + entropy 3.5 (fixed over-narrow `{16}`); key unchanged, radius→64, arm regex (`vonage\|nexmo`) | #136 |
+| webex | hardened | `[A-Za-z0-9]{60,160}` | 256 | **64**-char lowercase hex `[a-f0-9]`, no prefix | authoritative: [trufflehog webex](https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/pkg/detectors/webex/webex.go) (`[a-f0-9]{64}`) | charset+length→`[a-f0-9]{64}` (fixes over-broad shape), radius→64, arm regex (`webex\|ciscospark`), entropy 3.0 | #136 |
+| woodpecker | hardened | `[A-Za-z0-9]{32,64}` | 256 | **HS256 JWT** (`eyJ…`.`eyJ…`.`sig`, base64url), no fixed-length alnum | authoritative: [woodpecker-ci token.go](https://github.com/woodpecker-ci/woodpecker/blob/main/shared/token/token.go) (HS256 JWT) | regex→JWT-anchored (`eyJ…` 3-segment), radius→64, arm regex, no entropy (structural) | #136 |
+| workato | hardened | `[A-Za-z0-9]{40,80}` | 256 | **64**-char lowercase hex `[a-f0-9]`, no prefix (`api-token:` header) | authoritative: [docs.workato.com auth-token](https://docs.workato.com/api-mgmt/auth-token.html) (64-hex example) | charset+length→`[a-f0-9]{64}`, radius→64, arm regex, entropy 3.0 | #136 |
+| writer | hardened | `[A-Za-z0-9]{40,128}` | 96 | unknown — docs/SDKs show only `<your-api-key>`/`Bearer` placeholders | conservative fallback ([dev.writer.com api-keys](https://dev.writer.com/api-reference/api-keys); no trufflehog detector) | radius 96→64, entropy 3.0, keyword gate was already an arm regex (kept), length kept | #136 |
+| zendesk | hardened | `[A-Za-z0-9]{40}` | 256 | **40**-char base62, no prefix; credential is `<email>/token:<api_token>` | authoritative: [Zendesk security-and-auth docs](https://developer.zendesk.com/api-reference/introduction/security-and-auth/) (40-char example token) | length 40 + entropy 3.5, radius→64, arm regex (incl. the documented `/token:` scheme so `<email>/token:` arms) | #136 |
+| zerotier | hardened | `[A-Za-z0-9]{32}` | 128 | **32**-char hex-encoded token, no prefix | authoritative: [zerotier-central-api random_token](https://docs.rs/zerotier-central-api/1.0.0/src/zerotier_central_api/models/random_token.rs.html) + trufflehog (`{32}`) | length 32 kept, radius 128→64, arm regex, entropy 3.0 (charset kept broad-alnum for recall) | #136 |

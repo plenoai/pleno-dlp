@@ -1,8 +1,16 @@
-// Package vimeo detects Vimeo OAuth2 access tokens. Vimeo personal access
-// tokens are 32-char base64-style alnum strings issued from the developer
-// dashboard. Gated on the `vimeo` keyword window. Verified via /me on
-// api.vimeo.com with Bearer auth — read-only and confirms the user the
-// token is bound to.
+// Package vimeo detects Vimeo OAuth2 access tokens issued from the developer
+// dashboard. Verified via /me on api.vimeo.com with Bearer auth — read-only
+// and confirms the user the token is bound to.
+//
+// Token format: Vimeo does NOT publish an authoritative spec for the access
+// token's prefix, length, or charset. Its developer docs describe the value
+// only as "a unique code" (https://developer.vimeo.com/api/authentication),
+// and there is no upstream trufflehog vimeo detector to mirror. Because the
+// format is undocumented, the token regex is left as a generic 32-128 alnum
+// run and recall is preserved by NOT pinning a length. False positives are
+// instead suppressed by (1) a conservative Shannon-entropy floor and (2) an
+// assignment-anchored keyword arm regex within a tight radius. If Vimeo ever
+// documents a prefix/length, anchor on it and drop the entropy floor.
 package vimeo
 
 import (
@@ -19,9 +27,23 @@ var apiBase = "https://api.vimeo.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
+// tokenRe is intentionally generic: Vimeo's token length/charset is
+// undocumented (see package doc), so pinning a length would silently destroy
+// recall. Disambiguation is done by the entropy floor and the arm regex.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`)
 
-var contextKeywords = []string{"vimeo", "vimeo_token", "vimeo_access_token", "vimeo_client"}
+// minEntropy rejects low-information 32-128 char alnum runs (padded
+// placeholders, repeated/structured strings) that clear the regex but are not
+// random tokens. 3.0 is conservative — kept low because the documented token
+// charset is unknown and an aggressive floor would over-cull real tokens.
+const minEntropy = 3.0
+
+// armRe replaces a bare strings.Contains("vimeo") window: a lone "vimeo"
+// substring matched URLs, video embeds, and prose. The assignment shape
+// vimeo[_-]?(api[_-]?)?(token|key|secret|client) is what a real credential
+// declaration or config key looks like. The bare "vimeo" keyword stays in
+// Keywords() as the cheap engine prefilter.
+var armRe = regexp.MustCompile(`(?i)vimeo[_\-]?(api[_\-]?)?(token|key|secret|client)`)
 
 type Scanner struct{}
 
@@ -40,6 +62,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -91,7 +116,7 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -100,13 +125,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func redact(t string) string {

@@ -41,6 +41,18 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordNoArm guards the FP shape the radius-256
+// strings.Contains gate used to admit: a generic high-entropy 32-64 alnum run
+// sitting near the bare word "vitally" in prose, with no assignment anchor
+// (vitally_api_key / vitally-token / etc.). The arm regex must reject it.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("We migrated our analytics to vitally last quarter. Build hash: " + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword, no assignment anchor), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	want := "Basic " + base64.StdEncoding.EncodeToString([]byte(dummy+":"))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

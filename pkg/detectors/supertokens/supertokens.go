@@ -1,7 +1,20 @@
-// Package supertokens detects SuperTokens core API keys — long alnum
-// strings near the `supertokens` keyword. Unverified-by-default; the
-// per-deployment self-hosted core URL isn't in the chunk. Verify only
-// fires when an apiBase override is supplied.
+// Package supertokens detects SuperTokens core API keys near the
+// `supertokens` keyword. Unverified-by-default; the per-deployment
+// self-hosted core URL isn't in the chunk. Verify only fires when an
+// apiBase override is supplied.
+//
+// Key format (authoritative): SuperTokens core api_keys are
+// operator-chosen, not provider-issued — there is no distinguishing
+// prefix and no fixed length. The canonical config documents the only
+// constraints: "Keys can only contain '=', '-' and alpha-numeric
+// (including capital) chars. Each key must have a minimum length of 20
+// chars." (supertokens-core config.yaml). Because the upper bound is
+// open and there is no prefix to anchor on, the candidate regex pins
+// only the documented 20-char minimum + documented charset, and the
+// false-positive load is carried by (1) a tight assignment-style arm
+// regex within a 64-byte window and (2) a conservative Shannon-entropy
+// floor. We deliberately do NOT pin a maximum length — that would
+// silently destroy recall for longer operator-chosen keys.
 package supertokens
 
 import (
@@ -18,9 +31,29 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,})\b`)
+// tokenRe matches the documented SuperTokens api_key charset (alphanumeric
+// incl. capitals, '=', '-') at the documented 20-char minimum. No maximum is
+// pinned — keys are operator-chosen with no documented upper bound — so the
+// quantifier is open-ended ({20,}). '=' / '-' are not \b word chars, so the
+// match is bounded by surrounding boundaries via the charset itself rather
+// than \b on the symbol ends.
+var tokenRe = regexp.MustCompile(`([A-Za-z0-9=\-]{20,})`)
 
-var contextKeywords = []string{"supertokens", "super_tokens"}
+// armRe is the assignment-style SuperTokens reference that must appear within
+// the proximity window. A bare "supertokens" substring (npm dependency names,
+// import paths, doc prose, script-src URLs) is too weak a gate for a
+// prefix-less operator-chosen key; "supertokens_api_key" / "super-tokens-key"
+// / "supertokenstoken" is the shape a real key assignment or config entry
+// takes. The bare keyword stays in Keywords() as the engine prefilter.
+var armRe = regexp.MustCompile(`(?i)super[_\-]?tokens?[_\-]?(api[_\-]?)?(key|token|secret)`)
+
+// minEntropy rejects low-information runs that clear the charset regex but are
+// not random keys (padded identifiers, repeated chars). 3.0 is conservative:
+// keys may be as short as 20 chars (less entropy headroom) and the documented
+// example key clears 3.0 with margin, so a higher floor would risk culling
+// real keys. The charset is high-variety but the recall-safe choice for an
+// operator-chosen, open-length format is the lower floor.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -41,7 +74,14 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
+		// An assignment-style supertokens reference within a tight window is
+		// mandatory — the candidate is prefix-less and operator-chosen.
 		if !nearKeyword(lower, h[2], h[3]) {
+			continue
+		}
+		// Entropy gate: low-information runs that clear the charset regex
+		// (padded identifiers, repeated chars) are rejected even if armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -63,8 +103,14 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether an assignment-style supertokens reference (see
+// armRe) appears within a tight window on either side of the candidate. The
+// window spans both directions (not strict immediate precedence) so a key
+// defined alongside a nearby SUPERTOKENS_API_KEY reference still arms. Radius
+// was tightened 256->64 to cut the false-positive surface of a prefix-less
+// candidate.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -73,13 +119,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

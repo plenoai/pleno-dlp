@@ -39,6 +39,18 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_LowEntropyRejected pins the FP-hardening regression: a
+// structured low-information 40-char run sitting right next to the
+// WRITER_API_KEY anchor clears the bare alnum regex but must be rejected by
+// the entropy floor, so no result is emitted.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	body := []byte("WRITER_API_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low-entropy run must be culled), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummy {

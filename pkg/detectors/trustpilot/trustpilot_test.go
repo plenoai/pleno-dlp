@@ -39,6 +39,37 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// A bare "trustpilot" mention near a high-entropy 32-128 alnum run (e.g. a
+// widget script URL or doc link sitting beside an unrelated token) must no
+// longer arm the detector: the assignment-style arm regex is absent.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("https://widget.trustpilot.com/bootstrap.js sessionId=" + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword, no assignment arm), got %d", len(res))
+	}
+}
+
+// A low-entropy 32-128 alnum run that clears the regex but is structurally a
+// placeholder must be rejected by the entropy floor even when armed.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	body := []byte("TRUSTPILOT_API_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low-entropy placeholder), got %d", len(res))
+	}
+}
+
+// Recall guard: the documented assignment shape with a real high-entropy token
+// must still detect at the tightened radius.
+func TestFromData_ArmedStillDetects(t *testing.T) {
+	body := []byte("trustpilot_api_secret: " + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) == 0 {
+		t.Fatal("expected >=1 (armed, high-entropy)")
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("apikey") != dummy {

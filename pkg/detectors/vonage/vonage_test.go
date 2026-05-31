@@ -38,6 +38,45 @@ func TestFromData_Positive(t *testing.T) {
 	}
 }
 
+// TestFromData_RejectsHexDigestSecret is the FP-hardening regression: a generic
+// high-entropy 16-char run that lacks the documented upper+lower+digit
+// composition (here a lowercase hex digest) must no longer be admitted as a
+// secret even though it sits next to a vonage_api_secret reference and clears
+// the bare alnum regex.
+func TestFromData_RejectsHexDigestSecret(t *testing.T) {
+	body := []byte("# vonage\nVONAGE_API_KEY=" + dummyKey + "\nVONAGE_API_SECRET=a1b2c3d4e5f6a7b8")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (hex digest fails composition), got %d", len(res))
+	}
+}
+
+// TestFromData_RejectsLowEntropySecret: a run that satisfies the upper+lower+digit
+// composition but is low-entropy (repeated triplet) must be culled by the
+// entropy floor.
+func TestFromData_RejectsLowEntropySecret(t *testing.T) {
+	body := []byte("# vonage\nVONAGE_API_KEY=" + dummyKey + "\nVONAGE_API_SECRET=Aa1Aa1Aa1Aa1")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low entropy), got %d", len(res))
+	}
+}
+
+// TestFromData_RadiusTightened: a bare "vonage" mention more than 64 bytes from
+// the credential no longer arms the detector (radius shrunk 256 -> 64, and the
+// gate now requires an assignment-style reference, not a bare substring).
+func TestFromData_RadiusTightened(t *testing.T) {
+	filler := make([]byte, 120)
+	for i := range filler {
+		filler[i] = '.'
+	}
+	body := []byte("vonage stuff" + string(filler) + "KEY=" + dummyKey + "\nSECRET=" + dummySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (keyword beyond radius 64 / not an arm reference), got %d", len(res))
+	}
+}
+
 func TestImplementsVerifier(t *testing.T) {
 	if _, ok := interface{}(Scanner{}).(detectors.Verifier); !ok {
 		t.Fatal("Scanner must satisfy detectors.Verifier (class a)")

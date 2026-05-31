@@ -28,6 +28,22 @@ func TestFromData_Pair(t *testing.T) {
 	}
 }
 
+// TestFromData_DocumentedTokenScheme locks in recall for Zendesk's canonical
+// documented credential `<email>/token:<api_token>`. The literal `/token:`
+// scheme separator is the arm anchor here — there is no `zendesk_token=` style
+// reference, so this exercises the second arm branch. Missing this shape (the
+// exact form from the Zendesk dev docs) would be a major recall gap.
+func TestFromData_DocumentedTokenScheme(t *testing.T) {
+	body := dummyEmail + "/token:" + dummyTok
+	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	if len(res) != 1 {
+		t.Fatalf("expected 1 for documented <email>/token:<token> form, got %d", len(res))
+	}
+	if string(res[0].Raw) != dummyTok {
+		t.Fatalf("raw mismatch: %q", res[0].Raw)
+	}
+}
+
 func TestFromData_HostCapture(t *testing.T) {
 	body := "host=acme.zendesk.com\nzendesk_token=" + dummyTok
 	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
@@ -43,6 +59,33 @@ func TestFromData_NoKeyword(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, []byte("token="+dummyTok))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
+	}
+}
+
+// A bare `zendesk` substring (here a `<sub>.zendesk.com` host in a doc link)
+// near a generic high-entropy 40-char base62 run is NOT an armed credential
+// reference. The radius-64 arm regex `zendesk[_-]?(api[_-]?)?(token|key|secret)`
+// must reject it — this is the FP shape the old radius-256 strings.Contains
+// gate matched. dummyTok has entropy ~4.8, so this isolates the arm gate, not
+// the entropy gate.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := "see https://acme.zendesk.com/docs build=" + dummyTok
+	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare-keyword non-armed match, got %d", len(res))
+	}
+}
+
+// A low-entropy 40-char base62 run (repeated character) next to an armed
+// `zendesk_token=` reference clears the length+charset regex and the arm gate
+// but must be culled by HasMinEntropy(token, 3.5) — it is a placeholder, not a
+// real token.
+func TestFromData_ArmedLowEntropyRejected(t *testing.T) {
+	lowEntropyTok := strings.Repeat("a", 40)
+	body := "zendesk_token=" + lowEntropyTok
+	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy armed token, got %d", len(res))
 	}
 }
 
@@ -132,7 +175,7 @@ func TestFromData_VerifySetsResult(t *testing.T) {
 	defer srv.Close()
 	setAPIBase(t, srv.URL)
 
-	body := "zendesk host=acme.zendesk.com email=" + dummyEmail + " token=" + dummyTok
+	body := "host=acme.zendesk.com zendesk_email=" + dummyEmail + " zendesk_token=" + dummyTok
 	res, err := Scanner{}.FromData(context.Background(), true, []byte(body))
 	if err != nil {
 		t.Fatalf("err: %v", err)

@@ -18,10 +18,29 @@ var apiBase = "https://api.globaldatacompany.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Trulioo API keys are 32-64 alnum chars; anchored on `trulioo`.
+// Trulioo issues OAuth2 client credentials (client_id/client_secret, NAPI v3)
+// or legacy Basic-Auth username:password — neither carries a documented prefix,
+// fixed length, or charset (credentials are provisioned by a Customer Success
+// Manager, not self-serve, and the format is not authoritatively published).
+// trufflehog ships no upstream trulioo detector to mirror. The 32-64 alnum
+// shape is therefore a loose, non-authoritative bound retained for recall; the
+// disambiguation comes from the arm-regex keyword gate plus a conservative
+// entropy floor, NOT from a pinned length we cannot cite.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-var contextKeywords = []string{"trulioo", "globaldatacompany"}
+// minEntropy is the conservative floor for the recall-safe fallback: it culls
+// repetitive / structured 32-64 char runs (e.g. `AAAA...`, padded constants)
+// without over-culling real credentials. 3.0 — not 3.5 — because no source
+// documents the charset, so we must not assume base62-grade variety.
+const minEntropy = 3.0
+
+// armRe is the assignment-anchor keyword gate. It replaces a bare
+// strings.Contains(window, "trulioo") so that prose mentions of "trulioo" /
+// "globaldatacompany" no longer arm an arbitrary high-entropy neighbour; the
+// match must look like a credential assignment (trulioo_api_key, trulioo-token,
+// globaldatacompany_secret, etc.). The bare keyword stays in Keywords() as the
+// engine prefilter.
+var armRe = regexp.MustCompile(`(?i)(trulioo|globaldatacompany)[_\-]?(api[_\-]?)?(token|key|secret)`)
 
 type Scanner struct{}
 
@@ -40,6 +59,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Conservative entropy floor (fallback path): no authoritative charset,
+		// so 3.0 only rejects clearly structured/repetitive runs.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -65,7 +89,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -74,13 +98,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
