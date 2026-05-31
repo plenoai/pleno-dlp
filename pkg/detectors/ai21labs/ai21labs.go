@@ -19,7 +19,18 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-var contextKeywords = []string{"ai21"}
+// minEntropy is a conservative floor. AI21 does not publish a key format
+// (no prefix, length, or charset is documented anywhere authoritative — not
+// in the auth docs, the dashboard, the Python SDK, nor any upstream
+// trufflehog detector), so per the inconclusive-research fallback we do NOT
+// pin a length and use the recall-safe 3.0 threshold rather than 3.5.
+const minEntropy = 3.0
+
+// armRe replaces the former bare strings.Contains(window,"ai21") gate. The
+// bare substring matched any incidental "ai21" mention (and is kept in
+// Keywords() as the prefilter); this assignment-style anchor requires the
+// match to look like an AI21 credential reference within the window.
+var armRe = regexp.MustCompile(`(?i)ai21[_\-]?(labs[_\-]?)?(api[_\-]?)?(token|key|secret)`)
 
 type Scanner struct{}
 
@@ -38,6 +49,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Entropy gate rejects low-information runs (repeated chars, padded
+		// constants) that clear the regex but cannot be real key material.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -63,7 +79,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -72,13 +88,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

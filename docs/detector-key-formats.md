@@ -85,18 +85,18 @@ hardened · `hardened (#PR)` → shipped.
 
 | Detector | Status | Current token regex | radius | Key format (cited) | Source | Hardening applied | Shipped |
 |----------|--------|---------------------|--------|--------------------|--------|-------------------|---------|
-| abnormalsec | pending | `[A-Za-z0-9]{32,64}` | 256 | — | — | — | — |
-| activecampaign | pending | `[A-Za-z0-9]{60,80}` | 256 | — | — | — | — |
-| ai21labs | pending | `[A-Za-z0-9]{32,64}` | 256 | — | — | — | — |
-| aikidosecurity | pending | `[A-Za-z0-9]{40,80}` | 256 | — | — | — | — |
-| airbrake | pending | `[A-Za-z0-9]{40,80}` | 256 | — | — | — | — |
-| aiven | pending | `[A-Za-z0-9]{32,80}` | 256 | — | — | — | — |
-| appdynamics | pending | `[A-Za-z0-9]{20,64}` | 256 | — | — | — | — |
-| arduinocloud | pending | `[A-Za-z0-9]{32,80}` | 256 | — | — | — | — |
-| arizeai | pending | `[A-Za-z0-9]{40,80}` | 256 | — | — | — | — |
-| auditboard | pending | `[A-Za-z0-9]{32,64}` | 128 | — | — | — | — |
-| authentik | pending | `[A-Za-z0-9]{60,}` | 256 | — | — | — | — |
-| avalara | pending | `[A-Za-z0-9]{24,32}` | 256 | — | — | — | — |
+| abnormalsec | hardened | `[A-Za-z0-9]{32,64}` | 256 | unknown — not documented (vendor + integration guides say only "API access token") | conservative fallback (trufflehog has no detector; KB/Swagger no format) | radius→64, arm regex, entropy 3.0, length kept | #130 |
+| activecampaign | hardened | `[A-Za-z0-9]{60,80}` | 256 | unknown — docs show Api-Token header only, example is a hyphenated placeholder | conservative fallback ([developers.activecampaign.com/reference/authentication](https://developers.activecampaign.com/reference/authentication); no trufflehog detector) | radius→64, arm regex, entropy 3.0, length kept | #130 |
+| ai21labs | hardened | `[A-Za-z0-9]{32,64}` | 256 | unknown — Bearer auth only, no format published | conservative fallback ([docs.ai21.com/reference/authentication](https://docs.ai21.com/reference/authentication); no trufflehog detector) | radius→64, arm regex, entropy 3.0, length kept | #130 |
+| aikidosecurity | hardened | `[A-Za-z0-9]{40,80}` | 256 | 2-part client_id/secret (OAuth client-credentials → JWT); credential length/charset undocumented | [apidocs.aikido.dev/reference/getaccesstoken](https://apidocs.aikido.dev/reference/getaccesstoken) (auth flow; no format) | radius→64, arm regex, entropy 3.0, length kept | #130 |
+| airbrake | hardened | `[A-Za-z0-9]{40,80}` | 256 | **40** alphanumeric, no prefix | authoritative: [trufflehog airbrakeuserkey](https://github.com/trufflesecurity/trufflehog/blob/main/pkg/detectors/airbrakeuserkey/airbrakeuserkey.go) (`{40}`, verify `/api/v4/projects?key=`) | length pinned `{40,80}`→`{40}`, radius→64, arm regex, entropy 3.5 | #130 |
+| aiven | hardened | `[A-Za-z0-9]{32,80}` | 256 | base64 `[A-Za-z0-9/+=]`, length **372**, no prefix, header `aivenv1 <TOKEN>` | authoritative: [trufflehog aiven](https://github.com/trufflesecurity/trufflehog/blob/main/pkg/detectors/aiven/aiven.go) (`{372}`) + GitGuardian | charset→base64, len→`{32,400}`, radius→64, arm regex, entropy 3.5 | #130 |
+| appdynamics | hardened | `[A-Za-z0-9]{20,64}` | 256 | API Client **secret = UUID** (8-4-4-4-12 hex); client id = `<api_client>@<account>` | authoritative: [Splunk AppDynamics API-clients](https://help.splunk.com/en/appdynamics-on-premises/extend-appdynamics/25.10.0/extend-splunk-appdynamics/splunk-appdynamics-apis/api-clients) ("generate a UUID as the secret") | secret regex→UUID layout, radius→64, arm regex, entropy 3.0 | #130 |
+| arduinocloud | hardened | `[A-Za-z0-9]{32,80}` | 256 | client_id = 32-hex (public id); client_secret undocumented | conservative fallback ([docs.arduino.cc/cloud-api](https://docs.arduino.cc/cloud-api); no trufflehog detector) | radius→64, arm regex, entropy 3.0, length kept | #130 |
+| arizeai | hardened | `[A-Za-z0-9]{40,80}` | 256 | unknown — docs publish no prefix/length/charset (key shown once) | conservative fallback ([arize.com/docs/ax/security-and-settings/api-keys](https://arize.com/docs/ax/security-and-settings/api-keys); no trufflehog detector) | radius→64, arm regex, entropy 3.0, length kept | #130 |
+| auditboard | hardened | `[A-Za-z0-9]{32,64}` | 128 | unknown — Bearer token; developer docs behind auth wall | conservative fallback (no trufflehog detector; docs auth-walled) | radius 128→64, arm regex, entropy 3.0, length kept | #130 |
+| authentik | hardened | `[A-Za-z0-9]{60,}` | 256 | `[A-Za-z0-9]`, default length **60** (tenant-configurable, no upper bound), no prefix | authoritative: authentik source [generators.py](https://github.com/goauthentik/authentik/blob/main/authentik/lib/generators.py) + [tenants/models.py](https://github.com/goauthentik/authentik/blob/main/authentik/tenants/models.py) (`DEFAULT_TOKEN_LENGTH=60`) | radius→64, arm regex, entropy 3.5, length kept `{60,}` | #130 |
+| avalara | hardened | `[A-Za-z0-9]{24,32}` | 256 | 2-part account (numeric) + license key (~30 hex-ish); not formally pinned | [developer.avalara.com/avatax/authentication-in-rest](https://developer.avalara.com/avatax/authentication-in-rest/) (examples only, no spec); no trufflehog detector | radius→64, arm regex, entropy 3.0, length kept | #130 |
 | awx | pending | `[A-Za-z0-9]{40}` | 256 | — | — | — | — |
 | bamboohr | pending | `[A-Za-z0-9]{40,64}` | 256 | — | — | — | — |
 | bandwidth | pending | `[A-Za-z0-9]{10,32}` | 96 | — | — | — | — |

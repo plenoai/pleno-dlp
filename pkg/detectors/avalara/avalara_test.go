@@ -43,6 +43,45 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// Regression: a high-entropy 24-char string sitting next to a bare prose
+// mention of "avalara" (no assignment anchor) used to arm under the old
+// strings.Contains(window,"avalara") radius-256 gate. The arm regex must now
+// reject it.
+func TestFromData_BareKeywordNoAnchor(t *testing.T) {
+	body := []byte("We migrated our tax stack to avalara last quarter.\n" +
+		"id=" + dummyAccount + "\nsecret=" + dummyLicense)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (no assignment anchor), got %d", len(res))
+	}
+}
+
+// Regression: a credential pair more than 64 chars from any avalara reference
+// must not arm under the tightened radius.
+func TestFromData_OutOfRadius(t *testing.T) {
+	pad := make([]byte, 200)
+	for i := range pad {
+		pad[i] = ' '
+	}
+	body := []byte("AVALARA_ACCOUNT_ID=" + dummyAccount + string(pad) +
+		dummyLicense)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (license out of radius), got %d", len(res))
+	}
+}
+
+// Regression: a low-entropy license-shaped token near the anchor is rejected
+// by the entropy floor even though it matches the length/charset regex.
+func TestFromData_LowEntropyLicenseRejected(t *testing.T) {
+	body := []byte("AVALARA_ACCOUNT_ID=" + dummyAccount +
+		"\nAVALARA_LICENSE=aaaaaaaaaaaaaaaaaaaaaaaa")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low-entropy license), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, p, _ := r.BasicAuth()

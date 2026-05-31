@@ -24,7 +24,23 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{60,80})\b`)
 
-var contextKeywords = []string{"activecampaign", "active_campaign", "ac_api_key", "api-us1", "api-token"}
+// armRe is the assignment-style ActiveCampaign reference that must appear
+// within the proximity window. No authoritative source pins the API key
+// length/charset (the only documented example, `123abc-def-ghi`, is an
+// illustrative placeholder), so the token regex is left untouched and the
+// false-positive risk is carried entirely by this gate. A bare "activecampaign"
+// / "api-us1" substring (doc links, the per-account `<account>.api-us1.com`
+// host) is too weak against a generic 60-80 alphanumeric run; the
+// `activecampaign…(api…)?(token|key|secret)` shape is what a real credential
+// assignment or config key takes. The bare keyword stays in Keywords() as the
+// engine prefilter.
+var armRe = regexp.MustCompile(`(?i)(activecampaign|active_campaign|ac)[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-information 60-80 char runs (padded placeholders,
+// repeated characters, structured non-secrets) that clear the alnum regex but
+// lack key-grade randomness. Conservative 3.0 floor — no length/charset source
+// exists, so a higher floor would silently destroy recall on real keys.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -43,6 +59,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Entropy gate: structured/low-information 60-80 char runs clear the
+		// alnum regex but are not random tokens — reject them even when armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -69,8 +90,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether an assignment-style ActiveCampaign reference
+// (armRe) appears within a tight window on either side of the candidate. The
+// window spans both directions so a credential defined alongside a nearby
+// AC_API_KEY reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -79,13 +104,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 // Verify checks the API key against GET <apiBase>/api/3/users/me with the

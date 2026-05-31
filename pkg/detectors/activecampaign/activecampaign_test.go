@@ -40,10 +40,37 @@ func TestFromData_NoKeyword(t *testing.T) {
 }
 
 func TestFromData_Dedup(t *testing.T) {
-	body := []byte("activecampaign " + dummy + "\nactivecampaign " + dummy)
+	body := []byte("activecampaign_api_key=" + dummy + "\nactivecampaign_api_key=" + dummy)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
+	}
+}
+
+// TestFromData_BareKeywordNoArm asserts the FP shape now rejected: a generic
+// high-entropy 60-80 char run sitting near a bare "activecampaign" mention
+// (e.g. a doc link or the per-account api-us1 host) but with no assignment-style
+// `activecampaign…(token|key|secret)` anchor must not match. Before the arm
+// regex, the radius-256 bare-keyword Contains gate matched this.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	// High-entropy token (not the hex dummy) near only a bare keyword.
+	highEntropy := "Zk9pQ3rT7wXa2bN8mLcV5dF1gH4jKsR6uYeW0iO3pAqZxCvBnMdFgHjKlPoIuYt"
+	body := []byte("see https://acme.api-us1.com docs about activecampaign integrations: " + highEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare-keyword-no-arm FP shape, got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected asserts a 60-80 char run that clears the
+// alnum regex and is armed by an assignment anchor but lacks key-grade
+// randomness (repeated characters) is dropped by the entropy floor.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := strings.Repeat("ab", 34) // 68 chars, entropy ~1.0 bits/char
+	body := []byte("ac_api_key=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy run, got %d", len(res))
 	}
 }
 

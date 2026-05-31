@@ -39,6 +39,29 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_KeywordWithoutAnchor pins the FP shape the old radius-256
+// strings.Contains(window,"authentik") gate accepted: a high-entropy 60+
+// alnum string sitting near the bare word "authentik" with no assignment
+// anchor (no token/key/secret reference). The arm regex must reject it.
+func TestFromData_KeywordWithoutAnchor(t *testing.T) {
+	body := []byte("authentik is our SSO provider, see the dashboard at " + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (no assignment anchor), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected pins that a 60+ alnum run with a valid
+// assignment anchor but trivially low entropy is culled by the 3.5 floor.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEnt := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab"
+	body := []byte("AUTHENTIK_TOKEN=" + lowEnt)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (entropy below 3.5), got %d", len(res))
+	}
+}
+
 func TestVerify_Disabled_Default(t *testing.T) {
 	v, _ := Scanner{}.Verify(context.Background(), dummy)
 	if v {

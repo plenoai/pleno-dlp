@@ -39,6 +39,19 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordRejected guards the FP shape the hardening removed:
+// a high-entropy 64-char run whose only nearby "abnormal" is the bare English
+// word (prose), not an assignment-style ABNORMAL_*_TOKEN reference. Under the
+// old radius-256 strings.Contains("abnormal") gate this matched; the arm regex
+// + radius-64 window must now reject it.
+func TestFromData_BareKeywordRejected(t *testing.T) {
+	body := []byte("the abnormal traffic spike correlated with " + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare-keyword prose must not arm), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummy {

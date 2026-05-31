@@ -9,7 +9,15 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-const dummyToken = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN0123"
+// dummyToken is a 40-char alphanumeric (the documented Airbrake user-key
+// shape, per upstream trufflehog airbrakeuserkey) with high Shannon entropy
+// so it clears the 3.5 floor. Not a real credential.
+const dummyToken = "aB3xZ9qLpR7mK2vN8sT4wY6hJ1cF5gD0eU2iO3aP"
+
+// lowEntropyToken is a 40-char run that matches the alnum length regex and
+// sits next to the airbrake keyword, but is structurally low-information
+// (entropy < 3.5) — the FP shape the hardening now rejects.
+const lowEntropyToken = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func TestType(t *testing.T) {
 	if (Scanner{}).Type() != detectors.Airbrake {
@@ -44,6 +52,24 @@ func TestFromData_Dedup(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
+	}
+}
+
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	body := []byte("airbrake_token=" + lowEntropyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy 40-char run near keyword, got %d", len(res))
+	}
+}
+
+func TestFromData_WrongLengthRejected(t *testing.T) {
+	// 44-char alphanumeric: clears the old {40,80} regex but not the
+	// documented exact-40 shape.
+	body := []byte("airbrake_token=" + dummyToken + "abcd")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for 44-char token, got %d", len(res))
 	}
 }
 

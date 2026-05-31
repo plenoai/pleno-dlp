@@ -17,11 +17,26 @@ var apiBase = "https://api.abnormalplatform.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Abnormal Security tokens are 32-64 alnum chars; anchored on the
-// `abnormal` keyword.
+// Abnormal Security tokens are alphanumeric. No authoritative source
+// documents a prefix or an exact length (the provider's docs and every
+// third-party integration guide call it only "a unique API access token"),
+// so we keep the original 32-64 alnum range rather than pin a length we
+// cannot cite — over-pinning would silently destroy recall.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-var contextKeywords = []string{"abnormal", "abnormalsecurity", "abnormalplatform"}
+// minEntropy is a conservative floor. A bare `[A-Za-z0-9]{32,64}` run with no
+// documented prefix collides with commit SHAs, base32/hex blobs, and padded
+// identifiers; 3.0 culls the most obviously structured runs without trimming
+// genuine high-variety tokens (a 3.5 floor risks over-culling, and no source
+// pins the charset tightly enough to justify it).
+const minEntropy = 3.0
+
+// armRe is the assignment-style Abnormal reference that must appear within a
+// tight proximity window. A bare "abnormal" substring (prose, the word
+// "abnormal", unrelated domains) is too weak a gate; the assignment shapes
+// abnormal[_-]?(api[_-]?)?(token|key|secret) and the product host words are
+// what a real credential reference looks like.
+var armRe = regexp.MustCompile(`(?i)abnormal(security|platform)?[_\-]?(api[_\-]?)?(token|key|secret)`)
 
 type Scanner struct{}
 
@@ -40,6 +55,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Conservative entropy gate: rejects low-information 32-64 char runs
+		// (structured identifiers, padded names) that clear the regex but are
+		// not random tokens.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -64,8 +85,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether an assignment-style Abnormal reference appears
+// within a tight window on either side of the candidate. The window is
+// searched in both directions (not strict immediate precedence) so a token
+// declared alongside a nearby ABNORMAL_API_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -74,13 +99,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

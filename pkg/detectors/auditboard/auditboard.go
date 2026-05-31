@@ -20,7 +20,22 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-var contextKeywords = []string{"auditboard"}
+// armRe is the assignment-style AuditBoard reference that must appear within
+// the proximity window. A bare "auditboard" substring (the app.auditboard.com
+// host, doc links, vendor names) is too weak a gate against a generic 32-64
+// alphanumeric run; `auditboard[_-]?(api[_-]?)?(token|key|secret)` is the shape
+// a real credential assignment or config key takes. No authoritative source
+// pins the AuditBoard token prefix/length/charset (trufflehog has no such
+// detector; the developer portal is behind an auth wall; the public Analytics
+// API docs document only that it is a "Bearer" token), so the length stays
+// unpinned and the gate-tightening is recall-safe.
+var armRe = regexp.MustCompile(`(?i)auditboard[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-entropy 32-64 char runs that clear the alnum regex but
+// are not random tokens (padded placeholders, repeated characters). Held at a
+// conservative 3.0 because the documented charset is unknown — a higher floor
+// risks culling real lower-variety tokens and silently destroying recall.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -44,6 +59,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.AuditBoard,
@@ -60,8 +78,13 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether an
+// `auditboard[_-]?(api[_-]?)?(token|key|secret)` reference appears within a
+// tight window on either side of the candidate. The window spans both
+// directions (not strict immediate precedence) so a credential defined
+// alongside a nearby AUDITBOARD_API_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 128
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -70,13 +93,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
