@@ -97,24 +97,24 @@ hardened · `hardened (#PR)` → shipped.
 | auditboard | hardened | `[A-Za-z0-9]{32,64}` | 128 | unknown — Bearer token; developer docs behind auth wall | conservative fallback (no trufflehog detector; docs auth-walled) | radius 128→64, arm regex, entropy 3.0, length kept | #130 |
 | authentik | hardened | `[A-Za-z0-9]{60,}` | 256 | `[A-Za-z0-9]`, default length **60** (tenant-configurable, no upper bound), no prefix | authoritative: authentik source [generators.py](https://github.com/goauthentik/authentik/blob/main/authentik/lib/generators.py) + [tenants/models.py](https://github.com/goauthentik/authentik/blob/main/authentik/tenants/models.py) (`DEFAULT_TOKEN_LENGTH=60`) | radius→64, arm regex, entropy 3.5, length kept `{60,}` | #130 |
 | avalara | hardened | `[A-Za-z0-9]{24,32}` | 256 | 2-part account (numeric) + license key (~30 hex-ish); not formally pinned | [developer.avalara.com/avatax/authentication-in-rest](https://developer.avalara.com/avatax/authentication-in-rest/) (examples only, no spec); no trufflehog detector | radius→64, arm regex, entropy 3.0, length kept | #130 |
-| awx | pending | `[A-Za-z0-9]{40}` | 256 | — | — | — | — |
-| bamboohr | pending | `[A-Za-z0-9]{40,64}` | 256 | — | — | — | — |
-| bandwidth | pending | `[A-Za-z0-9]{10,32}` | 96 | — | — | — | — |
-| beeceptor | pending | `[A-Za-z0-9]{32,}` | 256 | — | — | — | — |
-| betterstack | pending | `[A-Za-z0-9]{24,40}` | 256 | — | — | — | — |
-| beyondtrust | pending | `[A-Za-z0-9]{64,128}` | 256 | — | — | — | — |
-| bitbucketcloud | pending | `[A-Za-z0-9]{32}` | 256 | — | — | — | — |
-| bitbucketserver | pending | `[A-Za-z0-9]{40}` | 256 | — | — | — | — |
-| box | pending | `[A-Za-z0-9]{32,64}` | 256 | — | — | — | — |
-| buddyci | pending | `[A-Za-z0-9]{40,80}` | 256 | — | — | — | — |
-| buffer | pending | `[A-Za-z0-9]{40,50}` | 96 | — | — | — | — |
-| civo | pending | `[A-Za-z0-9]{50}` | 256 | — | — | — | — |
-| clickhousecloud | pending | `[A-Za-z0-9]{32}` | 256 | — | — | — | — |
-| coinbase | pending | `[A-Za-z0-9]{32}` | 256 | — | — | — | — |
-| cometml | pending | `[A-Za-z0-9]{32,100}` | 256 | — | — | — | — |
-| copper | pending | `[A-Za-z0-9]{32,128}` | 256 | — | — | — | — |
-| customerio | pending | `[A-Za-z0-9]{20}` | 256 | — | — | — | — |
-| customerly | pending | `[A-Za-z0-9]{40,80}` | 256 | — | — | — | — |
+| awx | hardened | `[A-Za-z0-9]{40}` | 256 | **30**-char base62, no prefix (Django OAuth Toolkit / oauthlib `generate_token(length=30)`) | authoritative: [oauthlib common.py](https://github.com/oauthlib/oauthlib/blob/master/oauthlib/common.py) + AWX docs example tokens (30) | **recall bug fixed** `{40}`→`{30}` (40 never matched), radius→64, arm regex, entropy 3.5 | #131 |
+| bamboohr | hardened | `[A-Za-z0-9]{40,64}` | 256 | **40 hex** `[a-fA-F0-9]`, no prefix (160-bit secret in hex) | authoritative: [BambooHR getting-started](https://documentation.bamboohr.com/docs/getting-started) ("160-bit number in hexadecimal form") | charset→hex, length→`{40}`, radius→64, arm regex, entropy 3.0 | #131 |
+| bandwidth | hardened | `[A-Za-z0-9]{10,32}` | 96 | unknown — Basic auth id:secret, no length/charset documented | conservative fallback ([dev.bandwidth.com credentials](https://dev.bandwidth.com/docs/account/credentials/management/); no trufflehog detector) | radius 96→64, entropy 3.0 on both halves, length kept | #131 |
+| beeceptor | hardened | `[A-Za-z0-9]{32,}` | 256 | hex `[a-fA-F0-9]`, no prefix, example length 40 | authoritative: [beeceptor.com/docs/api-overview](https://beeceptor.com/docs/api-overview/) | charset→hex, radius→64, arm regex, entropy 3.0, length kept | #131 |
+| betterstack | hardened | `[A-Za-z0-9]{24,40}` | 256 | 24-char base62, no prefix, Bearer (upstream pins `{24}`) | authoritative: [trufflehog betterstack](https://github.com/trufflesecurity/trufflehog) + [Better Stack API docs](https://betterstack.com/docs/uptime/api/getting-started-with-uptime-api/) | radius→64, arm regex, entropy 3.5, length kept (lower bound 24 sourced) | #131 |
+| beyondtrust | hardened | `[A-Za-z0-9]{64,128}` | 256 | **128**-char key (length documented; charset undocumented, example hex) | authoritative: [BeyondInsight/Password Safe API usage](https://docs.beyondtrust.com/bips/reference/beyondinsight-and-password-safe-api-usage) | length→`{128}`, radius→64, arm regex, entropy 3.0 (hex-conservative) | #131 |
+| bitbucketcloud | hardened | `[A-Za-z0-9]{32}` | 256 | **prefix-anchored**: Atlassian API token `ATCTT3xFfG…=`+8-char checksum | authoritative: [trufflehog atlassian v2](https://github.com/trufflesecurity/trufflehog/blob/main/pkg/detectors/atlassian/v2/atlassian.go) | regex→upstream prefix-anchored (`ATCTT3xFfG`); prefix carries precision, no entropy | #131 |
+| bitbucketserver | hardened | `[A-Za-z0-9]{40}` | 256 | **prefix-anchored**: HTTP token `BBDC-`+`[A-Za-z0-9+/@_-]{40,50}`; + prefix-less 40-char PAT | authoritative: [trufflehog bitbucketdatacenter](https://github.com/trufflesecurity/trufflehog) | `BBDC-` shape prefix-anchored; prefix-less PAT radius→64 + arm regex + entropy 3.5 | #131 |
+| box | hardened | `[A-Za-z0-9]{32,64}` | 256 | 32-char alnum, no prefix | authoritative: [trufflehog box](https://github.com/trufflesecurity/trufflehog/blob/main/pkg/detectors/box/box.go) (`{32}`) | length→`{32}`, radius→64, arm regex, entropy 3.5 | #131 |
+| buddyci | hardened | `[A-Za-z0-9]{40,80}` | 256 | **UUID v4** (8-4-4-4-12 hex), no prefix, Bearer | authoritative: [buddy.works API docs](https://buddy.works/docs/api/getting-started/hello-world) (literal example token) | regex→UUID layout, radius→64, arm regex, entropy 3.0 | #131 |
+| buffer | hardened | `[A-Za-z0-9]{40,50}` | 96 | unknown — OAuth2 "long-lived access token", no literal format published | conservative fallback ([legacy Buffer OAuth doc](https://web.archive.org/web/20130514055415/https://bufferapp.com/developers/api/oauth)) | radius 96→64, entropy 3.0, length kept | #131 |
+| civo | hardened | `[A-Za-z0-9]{50}` | 256 | no prefix; conflicting non-authoritative samples (50-char base62 vs 70-char) | conservative fallback (civo/cli README + civogo tests; not authoritative) | radius→64, arm regex, entropy 3.0, length kept | #131 |
+| clickhousecloud | hardened | `[A-Za-z0-9]{32}` | 256 | unknown — Key ID + Key Secret pair (Basic auth); format undocumented | conservative fallback (no trufflehog detector; docs pin no format) | radius→64, arm regex (`clickhouse.(cloud\|api)` / `chc_`), entropy 3.0, length kept | #131 |
+| coinbase | hardened | `[A-Za-z0-9]{32}` | 256 | CDP credential = key name `organizations/{uuid}/apiKeys/{uuid}` + EC PEM secret | authoritative: [Coinbase CDP auth docs](https://docs.cdp.coinbase.com/coinbase-app/authentication-authorization/api-key-authentication) + trufflehog | radius→64, arm regex, entropy 3.5 | #131 |
+| cometml | hardened | `[A-Za-z0-9]{32,100}` | 256 | unknown — docs describe key only as a header string, no format | conservative fallback ([Comet REST API docs](https://www.comet.com/docs/v2/api-and-sdk/rest-api/overview/)) | radius→64, arm regex, entropy 3.0, length kept | #131 |
+| copper | hardened | `[A-Za-z0-9]{32,128}` | 256 | 32-char lowercase hex `[a-z0-9]`, no prefix | authoritative: [trufflehog copper](https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/pkg/detectors/copper/copper.go) (`{32}`) | charset→`[a-z0-9]`, length→`{32}`, radius→64, arm regex, entropy 3.0 | #131 |
+| customerio | hardened | `[A-Za-z0-9]{20}` | 256 | Track API `site_id:api_key`, each 20-char base62, no prefix | authoritative: [trufflehog customerio](https://github.com/trufflesecurity/trufflehog/blob/main/pkg/detectors/customerio/customerio.go) (`{20}`) | radius→64, arm regex, entropy 3.5 on both halves, length kept | #131 |
+| customerly | hardened | `[A-Za-z0-9]{40,80}` | 256 | unknown — help-centre describes only how to obtain the token, no format | conservative fallback ([Customerly help](https://docs.customerly.io/en/articles/15223-how-to-obtain-your-api-access-token-in-customerly)) | radius→64, arm regex, entropy 3.0, length kept | #131 |
 | deel | pending | `[A-Za-z0-9]{40,}` | 256 | — | — | — | — |
 | dialpad | pending | `[A-Za-z0-9]{40,128}` | 256 | — | — | — | — |
 | drip | pending | `[A-Za-z0-9]{32}` | 256 | — | — | — | — |

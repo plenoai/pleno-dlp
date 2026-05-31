@@ -39,6 +39,19 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_FP_GenericHighEntropyNearVendor guards the hardening: a generic
+// high-entropy 24-40 alnum string that merely sits within 64 chars of the bare
+// "betterstack" word — but without an assignment-style token/key/secret arm —
+// must no longer match now that the radius-256 bare Contains gate was replaced
+// by the radius-64 arm regex.
+func TestFromData_FP_GenericHighEntropyNearVendor(t *testing.T) {
+	body := []byte("betterstack dashboard build id " + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for generic high-entropy string near bare vendor word, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummyToken {

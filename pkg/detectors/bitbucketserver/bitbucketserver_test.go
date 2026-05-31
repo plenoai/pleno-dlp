@@ -47,6 +47,30 @@ func TestFromData_PATNoKeyword(t *testing.T) {
 	}
 }
 
+// FP regression: a bare "bitbucket" substring (prose/URL) within the old
+// radius-256 window no longer arms a generic high-entropy 40-char run. The
+// keyword is present but not in an assignment-anchor (`bitbucket_token`-style)
+// shape, so the tightened arm-regex gate must reject it.
+func TestFromData_PATBareKeywordRejected(t *testing.T) {
+	// High-entropy 40-char base62 run (clears the entropy floor) sitting
+	// near a bare "bitbucket" mention that is NOT a credential assignment.
+	const fp = "See the bitbucket mirror at our repo host x9K2mQ7pL4vR8sN1tB6wY3cF5hD0jG2aZ7eU4iO"
+	res, _ := Scanner{}.FromData(context.Background(), false, []byte(fp))
+	if len(res) != 0 {
+		t.Fatalf("bare-keyword high-entropy FP must be rejected, got %d", len(res))
+	}
+}
+
+// FP regression: a low-entropy 40-char run inside a real assignment anchor is
+// rejected by the entropy floor even though the arm regex matches.
+func TestFromData_PATLowEntropyRejected(t *testing.T) {
+	const lowEnt = "bitbucket_token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	res, _ := Scanner{}.FromData(context.Background(), false, []byte(lowEnt))
+	if len(res) != 0 {
+		t.Fatalf("low-entropy padded run must be rejected, got %d", len(res))
+	}
+}
+
 func TestRedact(t *testing.T) {
 	r := redact(dummyHTTPAccess)
 	if r == dummyHTTPAccess {

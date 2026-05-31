@@ -17,10 +17,25 @@ var apiBase = "https://uptime.betterstack.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Better Stack tokens are 24+ alphanumeric (no separators).
+// Better Stack tokens are 24-char alphanumeric with no public prefix (upstream
+// trufflehog pins {24}; the Telemetry/Warehouse API docs show 24-char alnum
+// examples e.g. "FczKcxEhjEDE58dBX7XaeX1q"). The exact upper bound is not
+// authoritatively closed, so the lower bound 24 is sourced and the upper bound
+// stays at 40 to preserve recall on longer dashboard tokens.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24,40})\b`)
 
-var contextKeywords = []string{"betterstack", "better_stack", "better-stack", "logtail", "betteruptime"}
+// minEntropy rejects git-SHA-shaped and other low-information alnum runs that
+// clear the regex but lack key-grade randomness. 24-40 base62 has ample
+// entropy headroom, so 3.5 over a full-variety charset does not cull real keys.
+const minEntropy = 3.5
+
+// contextRe is the windowed keyword gate. The bare strings.Contains over
+// radius 256 matched English words ("logtail" rarely, but "betterstack"
+// substrings in unrelated identifiers) and any token within a 256-char window
+// of the vendor name. The arm regex requires an assignment-style
+// token/key/secret near the vendor word; bare vendor keywords remain in
+// Keywords() as the engine prefilter.
+var contextRe = regexp.MustCompile(`(?i)(?:better[_-]?stack|better[_-]?uptime|logtail)[_-]?(?:api[_-]?)?(?:token|key|secret)`)
 
 type Scanner struct{}
 
@@ -39,6 +54,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -64,7 +82,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -74,12 +92,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return contextRe.MatchString(window)
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

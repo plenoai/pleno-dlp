@@ -11,7 +11,10 @@ import (
 
 const (
 	dummyEmail = "ops@example.com"
-	dummyToken = "abcdef0123456789ABCDEFabcdef0123"
+	// 32-char lowercase-hex, matching the documented Copper key shape
+	// (upstream trufflehog: \b([a-z0-9]{32})\b). Entropy ~3.9, clears
+	// the 3.0 hex floor.
+	dummyToken = "9f3a1c7b2e8d4a6f0b5c9e1d7a3f8b2c"
 )
 
 func TestType(t *testing.T) {
@@ -39,6 +42,31 @@ func TestFromData_NoKeyword(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
+	}
+}
+
+// TestFromData_BareKeywordNoArm exercises the radius/arm tightening: a
+// high-entropy 32-char hex blob (a git blob hash, an md5 digest) sitting
+// near a bare "copper" mention — but with no copper_(api_)?token/key/secret
+// assignment anchor — must NOT arm the detector. Under the old radius-256
+// bare-Contains gate this was a false positive.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("# copper plumbing notes\nuser=" + dummyEmail +
+		"\nblob_sha=" + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (no arm anchor), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyToken confirms the entropy floor rejects a
+// structured 32-char hex run even when the arm anchor is present.
+func TestFromData_LowEntropyToken(t *testing.T) {
+	body := []byte("COPPER_USER_EMAIL=" + dummyEmail +
+		" COPPER_API_KEY=00000000000000000000000000000000")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low entropy), got %d", len(res))
 	}
 }
 

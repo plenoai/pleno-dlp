@@ -46,16 +46,36 @@ var (
 )
 
 var (
-	// Bitbucket Server prefixes its data-center HTTP access tokens with
-	// `BBDC-` followed by a long base64url body (no padding). Length floor
-	// at 40 absorbs the encoded-bytes minimum.
-	httpAccessRe = regexp.MustCompile(`\b(BBDC-[A-Za-z0-9_-]{40,})\b`)
-	// Personal access tokens are a 40-char base62 run; we keyword-gate
-	// because that shape is generic.
+	// Bitbucket Data Center HTTP access tokens / PATs carry a `BBDC-` prefix
+	// followed by a base64-style body. Charset and `{40,50}` length window
+	// mirror the authoritative upstream trufflehog detector
+	// (pkg/detectors/atlassiandatacenter/bitbucketdatacenter):
+	// `\b(BBDC-[A-Za-z0-9+/@_-]{40,50})`. The `BBDC-` prefix is the
+	// distinguishing anchor, so no entropy floor is needed on this shape.
+	httpAccessRe = regexp.MustCompile(`\b(BBDC-[A-Za-z0-9+/@_-]{40,50})`)
+	// Some self-hosted deployments expose a prefix-less 40-char base62 PAT.
+	// No authoritative source pins this length/charset (Atlassian docs do
+	// not document a prefix-less format; upstream trufflehog only matches
+	// the BBDC- form), so this branch is conservatively gate-tightened: an
+	// assignment-anchor arm regex within a tight window plus an entropy
+	// floor. The bare 40-char shape is otherwise indistinguishable from
+	// commit SHAs, nonces, and object names.
 	patRe = regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`)
 )
 
-var contextKeywords = []string{"bitbucket", "stash", "bbserver", "bb_pat"}
+// armRe is the assignment-style Bitbucket reference that must appear within the
+// proximity window of a prefix-less PAT candidate. A bare "bitbucket"/"stash"
+// substring (doc prose, dependency names, URLs) is too weak to gate a generic
+// 40-char run; `bitbucket_token` / `stash-api-key` / `bb_pat secret` is the
+// shape a real credential assignment or config key takes. The bare keywords
+// remain in Keywords() as the engine prefilter.
+var armRe = regexp.MustCompile(`(?i)(?:bitbucket|stash|bbserver|bb)[\s_-]?(?:api[\s_-]?)?(?:token|key|secret|pat)`)
+
+// minEntropy rejects low-entropy 40-char runs that clear the base62 regex but
+// are not random credentials (e.g. structured identifiers, padded names). A
+// 40-char base62 PAT is a high-variety charset, so the 3.5 floor applies per
+// the format-hardening rubric.
+const minEntropy = 3.5
 
 type Scanner struct{}
 
@@ -104,6 +124,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
+		// Entropy gate: structured/low-information 40-char runs (padded
+		// identifiers, repeated chars) are rejected even when armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
 		// Bitbucket Cloud detector owns ATCTT3xFfGF0… tokens — skip those.
 		if strings.HasPrefix(token, "ATCTT") {
 			continue
@@ -143,8 +168,14 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	return detectors.ClassifyVerifyHTTP(resp, doErr, acceptCodes, rejectCodes)
 }
 
+// nearKeyword reports whether an assignment-style Bitbucket credential
+// reference (armRe) appears within a tight window on either side of a
+// prefix-less PAT candidate. The window spans both directions (not strict
+// immediate precedence) so a token defined alongside a nearby reference still
+// arms. Radius is 64 (was 256): a bare keyword 256 bytes away is too weak a
+// signal for a generic 40-char run.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -153,13 +184,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func redact(t string) string {

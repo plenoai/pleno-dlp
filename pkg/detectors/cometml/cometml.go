@@ -1,6 +1,12 @@
 // Package cometml detects Comet ML (comet.com) API keys (32-100 alnum)
-// near the comet / cometml keyword. Verified via /api/rest/v2/account-details
-// on www.comet.com with Authorization header.
+// near a comet api/key/token/secret cue. Verified via
+// /api/rest/v2/account-details on www.comet.com with Authorization header.
+//
+// No authoritative source documents the API key length or charset (the
+// "32-50 alphanumeric" spec circulating online describes Comet's
+// experiment_key, not the API key), so the alnum-range regex is left intact
+// and recall is protected with gate-tightening only: a radius-64
+// assignment-anchored keyword arm plus a conservative entropy floor.
 package cometml
 
 import (
@@ -19,7 +25,19 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,100})\b`)
 
-var contextKeywords = []string{"comet_api_key", "comet-api-key", "cometml", "comet_ml", "comet.ml", "comet.com"}
+// minEntropy is a conservative floor. No authoritative source documents the
+// Comet API key charset, so we cannot assume a high-variety distribution;
+// 3.0 only rejects degenerate runs (repeated chars, low-cardinality fillers)
+// that clear the bare alnum regex without over-culling real keys.
+const minEntropy = 3.0
+
+// armRe is the windowed keyword gate. It replaces a bare radius-256
+// strings.Contains over the prefilter keywords with an assignment-anchored
+// arm: the keyword must appear adjacent to an api/token/key/secret cue, which
+// kills incidental "comet.com" URLs and prose mentions sitting near any
+// high-entropy alnum blob. The bare keywords stay in Keywords() as the
+// engine prefilter.
+var armRe = regexp.MustCompile(`(?i)comet[._-]?(ml)?[._-]?(api[._-]?)?(key|token|secret)`)
 
 type Scanner struct{}
 
@@ -40,6 +58,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Entropy gate: reject degenerate low-cardinality runs that clear the
+		// alnum regex but lack key-grade randomness.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -65,7 +88,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -74,13 +97,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

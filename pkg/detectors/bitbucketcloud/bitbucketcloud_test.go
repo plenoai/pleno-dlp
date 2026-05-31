@@ -8,8 +8,18 @@ import (
 	"testing"
 )
 
-const dummyToken = "ATCTT3xFfGF0" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789AB"
-const dummyLegacy = "abcdefghABCDEFGH01234567OPQRSTUV"
+// Modern Atlassian API token: `ATCTT3xFfG` prefix, base64url body, terminating
+// `=` + 8-char alphanumeric checksum. Shaped after the upstream trufflehog
+// atlassian/v2 example (dummy bytes, not a real credential).
+const dummyToken = "ATCTT3xFfG" + "N0GsZNgOGrQSHSnxiJVi00oHlRicyM0yMNuKCBfw6qOHVcCy4Hm89Gncl" + "=366BFE3A"
+
+// Bitbucket Cloud app password / API token: authoritative `ATBB` prefix.
+const dummyAppPassword = "ATBBabcdefghijklmnopqrstuvwxyz0123456789"
+
+// FP regression: a bare high-entropy 32-char base62 string. Previously matched
+// the unfounded `[A-Za-z0-9]{32}` legacy pattern; must no longer match even
+// adjacent to the bitbucket keyword.
+const fpHighEntropy = "aZ3kP9xQ7mW2rT5yB8nC1vD4fG6hJ0lK"
 
 func TestFromData_AccessToken(t *testing.T) {
 	body := []byte("BITBUCKET_TOKEN=" + dummyToken)
@@ -25,17 +35,27 @@ func TestFromData_AccessToken(t *testing.T) {
 	}
 }
 
-func TestFromData_Legacy_KeywordRequired(t *testing.T) {
-	bare := []byte("X-Token: " + dummyLegacy)
-	res, _ := Scanner{}.FromData(context.Background(), false, bare)
-	if len(res) != 0 {
-		t.Fatalf("legacy without keyword should not match, got %d", len(res))
+func TestFromData_AppPassword(t *testing.T) {
+	body := []byte("BITBUCKET_APP_PASSWORD=" + dummyAppPassword)
+	res, err := Scanner{}.FromData(context.Background(), false, body)
+	if err != nil {
+		t.Fatalf("err: %v", err)
 	}
-
-	withKW := []byte("BITBUCKET_APP_PASSWORD=" + dummyLegacy)
-	res, _ = Scanner{}.FromData(context.Background(), false, withKW)
 	if len(res) != 1 {
-		t.Fatalf("expected 1 with keyword, got %d", len(res))
+		t.Fatalf("expected 1, got %d", len(res))
+	}
+	if string(res[0].Raw) != dummyAppPassword {
+		t.Fatalf("raw mismatch: %q", res[0].Raw)
+	}
+}
+
+// Regression: the bare 32-char base62 shape is no longer a recognised
+// credential, even with the bitbucket keyword in the same line.
+func TestFromData_BareHighEntropy_Rejected(t *testing.T) {
+	withKW := []byte("BITBUCKET_APP_PASSWORD=" + fpHighEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, withKW)
+	if len(res) != 0 {
+		t.Fatalf("bare high-entropy string near keyword must not match, got %d", len(res))
 	}
 }
 

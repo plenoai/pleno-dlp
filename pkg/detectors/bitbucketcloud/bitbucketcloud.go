@@ -1,20 +1,32 @@
-// Package bitbucketcloud detects Bitbucket Cloud repository / workspace /
-// project access tokens (`ATCTT3xFfGF0…` and the legacy 32-char base62 app
-// passwords) and verifies them as Bearer credentials against /2.0/user.
+// Package bitbucketcloud detects Bitbucket Cloud (Atlassian) access tokens and
+// app passwords, verifying them as Bearer credentials against /2.0/user.
 //
-// Verification path is Bearer-only — the legacy "app password" model needs
-// Basic auth with the username, which we don't reliably extract from the
-// chunk. New repo/workspace access tokens authenticate as Bearer cleanly,
-// so they're the verifiable path. App-password candidates (32-char base62
-// near a "bitbucket" keyword) still surface as unverified findings so
-// operators can rotate.
+// Two authoritative shapes, both carrying a distinguishing Atlassian prefix:
+//
+//  1. ATCTT3xFfG… — repo/workspace/project access token (Atlassian "API token"
+//     family). Upstream trufflehog anchors on the literal `ATCTT3xFfG` prefix
+//     followed by a base64url-ish body that ends with `=` plus an 8-char
+//     alphanumeric checksum.
+//     Ref: trufflesecurity/trufflehog pkg/detectors/atlassian/v2/atlassian.go
+//     `\b(ATCTT3xFfG[A-Za-z0-9+/=_-]+=[A-Za-z0-9]{8})\b`.
+//
+//  2. ATBB… — Bitbucket Cloud app password / API token. Upstream anchors on the
+//     literal `ATBB` prefix; charset `[A-Za-z0-9_=.-]`, no documented fixed
+//     length.
+//     Ref: trufflesecurity/trufflehog pkg/detectors/bitbucketapppassword/
+//     bitbucketapppassword.go (password group `ATBB[A-Za-z0-9_=.-]+`).
+//
+// Both prefixes are distinctive enough to identify the credential without a
+// keyword window or entropy floor, so neither is applied here. The previous
+// bare `[A-Za-z0-9]{32}` "legacy" pattern had no authoritative basis (no source
+// documents a 32-char prefixless Bitbucket credential) and was a false-positive
+// generator; it is removed in favour of the documented `ATBB` shape.
 package bitbucketcloud
 
 import (
 	"context"
 	"net/http"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -24,59 +36,28 @@ var apiBase = "https://api.bitbucket.org"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Two recognised shapes:
-//  1. ATCTT3xFfGF0… — Bitbucket repo/workspace/project access token. Atlassian
-//     issues these with a fixed "ATCTT3xFfGF0" prefix and ~152 chars of
-//     base64url payload.
-//  2. 32-char base62 — legacy app password / API token. Generic shape, so we
-//     gate on the "bitbucket" keyword window.
 var (
-	tokenRe  = regexp.MustCompile(`\b(ATCTT3xFfGF0[A-Za-z0-9_=+/-]{60,200})\b`)
-	legacyRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
+	// Modern Atlassian API token. Mirror of trufflehog atlassian/v2.
+	tokenRe = regexp.MustCompile(`\b(ATCTT3xFfG[A-Za-z0-9+/=_-]+=[A-Za-z0-9]{8})\b`)
+	// Bitbucket Cloud app password / API token. Mirror of trufflehog
+	// bitbucketapppassword (password capture group).
+	appPasswordRe = regexp.MustCompile(`\b(ATBB[A-Za-z0-9_=.-]+)\b`)
 )
-
-var contextKeywords = []string{"bitbucket", "bitbucket_token", "bitbucket_app_password"}
 
 type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.BitbucketCloud }
 
-func (Scanner) Keywords() []string { return []string{"bitbucket", "ATCTT3xFfGF0"} }
+func (Scanner) Keywords() []string { return []string{"bitbucket", "ATCTT3xFfG", "ATBB"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	out := []detectors.Result{}
 	seen := map[string]struct{}{}
 
-	// Modern access tokens: prefix is distinctive enough to skip the keyword gate.
-	for _, m := range tokenRe.FindAll(data, -1) {
-		token := string(m)
-		if _, dup := seen[token]; dup {
-			continue
-		}
-		seen[token] = struct{}{}
-		res := detectors.Result{
-			DetectorType: detectors.BitbucketCloud,
-			Raw:          []byte(token),
-			Redacted:     redact(token),
-		}
-		if verify {
-			v, err := s.Verify(ctx, token)
-			res.Verified = v
-			res.VerificationErr = err
-		}
-		out = append(out, res)
-	}
-
-	// Legacy 32-char tokens require keyword co-occurrence.
-	legacyHits := legacyRe.FindAllSubmatchIndex(data, -1)
-	if len(legacyHits) > 0 {
-		lower := strings.ToLower(string(data))
-		for _, h := range legacyHits {
-			token := string(data[h[2]:h[3]])
+	for _, re := range []*regexp.Regexp{tokenRe, appPasswordRe} {
+		for _, m := range re.FindAllSubmatch(data, -1) {
+			token := string(m[1])
 			if _, dup := seen[token]; dup {
-				continue
-			}
-			if !nearKeyword(lower, h[2], h[3]) {
 				continue
 			}
 			seen[token] = struct{}{}
@@ -98,25 +79,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		return nil, nil
 	}
 	return out, nil
-}
-
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
-	from := start - radius
-	if from < 0 {
-		from = 0
-	}
-	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

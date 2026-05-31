@@ -38,6 +38,19 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_HighEntropyNearProseKeyword is the FP-hardening regression:
+// a generic 32-char high-entropy string that sits near a bare prose mention
+// of box.com (which the old radius-256 strings.Contains gate accepted) must
+// no longer match, because the assignment-anchor arm regex requires a
+// box token/key/secret identifier — not just the word "box".
+func TestFromData_HighEntropyNearProseKeyword(t *testing.T) {
+	body := []byte("Download the asset from box.com then run sha: " + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for high-entropy string near prose 'box.com', got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummy {

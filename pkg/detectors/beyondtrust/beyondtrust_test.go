@@ -10,7 +10,14 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-const dummy = "abcdef0123456789ABCDEF0123456789abcdef0123456789ABCDEF0123456789abcdef0123456789ABCDEF0123456789"
+// dummy is a 128-char alnum string (the documented BeyondTrust API-key
+// length) shaped to look like a real high-entropy key. Not a real secret.
+const dummy = "BpLnfgDsc2WD8F2qNfHK5a84jjJkwzDkh9h2fhfUVuS9jZ8uVbhV3vC5AWX39IVUWSP2NcHciWvqZTa2N95RxRTZHWUsaD6HEdz0ThbXfQ6pYSQ3n267l1VQKGNbSuJE"
+
+// fpToken is a 128-char string whose 64-char window contains the bare
+// "beyondtrust" keyword WITHOUT an assignment arm (no key/token/secret). The
+// hardened arm regex must reject this generic high-entropy run.
+const fpToken = "KSiOW4eQ7sklpgstrQZtAcrsGvPnYSXMOpFIpPzS7iI4N1gN6lD0rYjTJXJXORIpfMGxOaIIFFFtsYlnymgdluV7UoqjQ2RAM3SZ2sOC7fysesy5tXyVyY9gZA4iSIR2"
 
 func TestType(t *testing.T) {
 	if (Scanner{}).Type() != detectors.BeyondTrust {
@@ -37,6 +44,18 @@ func TestFromData_NoKeyword(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
+	}
+}
+
+// TestFromData_BareKeywordNoArm is the FP regression: a high-entropy 128-char
+// token sitting near the bare "beyondtrust" keyword but with no assignment arm
+// (key/token/secret). Pre-hardening the radius-256 Contains gate matched this;
+// the arm regex must now reject it.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("see the beyondtrust dashboard for details: " + fpToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword, no arm), got %d", len(res))
 	}
 }
 
