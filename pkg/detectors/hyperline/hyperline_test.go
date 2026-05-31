@@ -9,7 +9,9 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-const dummyToken = "abcdefghijklmnopqrstuvwxyzABCDEF1234"
+// dummyToken carries the documented `prod_`/`test_` prefix. The random tail
+// keeps the original fixture body so the existing positive cases still detect.
+const dummyToken = "prod_abcdefghijklmnopqrstuvwxyzABCDEF1234"
 
 func TestType(t *testing.T) {
 	if (Scanner{}).Type() != detectors.Hyperline {
@@ -36,6 +38,18 @@ func TestFromData_NoKeyword(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without hyperline keyword, got %d", len(res))
+	}
+}
+
+// TestFromData_GenericHighEntropyNoPrefix is the FP-hardening regression: a
+// high-entropy bare-alnum run sitting right next to the hyperline keyword used
+// to match the old `[A-Za-z0-9]{32,80}` regex. With prefix anchoring it must no
+// longer surface — only `prod_`/`test_`-prefixed keys are real Hyperline keys.
+func TestFromData_GenericHighEntropyNoPrefix(t *testing.T) {
+	body := []byte("hyperline_api_key=Zk9Qx2Lm7Rp4Tn8Wv3Yb6Cd1Hf5Js0Ag2Ue4")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for unprefixed high-entropy string, got %d", len(res))
 	}
 }
 

@@ -1,7 +1,12 @@
-// Package keycdn detects KeyCDN API keys — long alphanumeric strings near
-// the `keycdn` keyword. KeyCDN authenticates with HTTP Basic auth where the
-// API key is the username and the password is empty. Verified via
-// /zones.json on api.keycdn.com.
+// Package keycdn detects KeyCDN API keys. KeyCDN authenticates with HTTP
+// Basic auth where the API key is the username and the password is empty
+// (verified via /zones.json on api.keycdn.com).
+//
+// KeyCDN's official API documentation shows the secret CDN API key with a
+// distinguishing `sk_prod_` prefix, e.g. the curl example authenticates as
+// `sk_prod_<TOKEN>:` (https://www.keycdn.com/api). The prefix is the
+// discriminator: it is anchored in the regex so the detector no longer
+// depends on a bare alphanumeric run plus a wide keyword window.
 package keycdn
 
 import (
@@ -18,31 +23,36 @@ var apiBase = "https://api.keycdn.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// KeyCDN API keys are documented as 20+ char alphanumeric (typically 30).
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{20,64})\b`)
-
-var contextKeywords = []string{"keycdn", "key_cdn", "keycdn_api", "keycdn_token"}
+// tokenRe anchors on KeyCDN's documented `sk_prod_` secret-key prefix
+// (https://www.keycdn.com/api). The single published example
+// (`sk_prod_` + a 24-char mixed-case alphanumeric suffix) shows the shape,
+// but KeyCDN does not document a fixed suffix length,
+// so the suffix is matched as a generous {16,64} alphanumeric run rather
+// than pinned to 24 (pinning a single-example length would silently
+// destroy recall on any non-24-char key). The prefix is the false-positive
+// gate; an entropy floor is unnecessary because `sk_prod_` does not occur
+// in arbitrary text.
+var tokenRe = regexp.MustCompile(`\b(sk_prod_[A-Za-z0-9]{16,64})\b`)
 
 type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.KeyCDN }
 
+// Keywords keeps "keycdn" as the engine prefilter so the full regex only
+// runs on chunks mentioning the provider; the `sk_prod_` prefix anchor in
+// tokenRe does the actual matching.
 func (Scanner) Keywords() []string { return []string{"keycdn"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe.FindAllSubmatch(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
 	for _, h := range hits {
-		token := string(data[h[2]:h[3]])
+		token := string(h[1])
 		if _, dup := seen[token]; dup {
-			continue
-		}
-		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -62,25 +72,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		return nil, nil
 	}
 	return out, nil
-}
-
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
-	from := start - radius
-	if from < 0 {
-		from = 0
-	}
-	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

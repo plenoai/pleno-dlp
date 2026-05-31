@@ -17,9 +17,22 @@ var apiBase = "https://api.inflection.ai"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
+// tokenRe stays a generic alnum run: no authoritative source documents the
+// Inflection key prefix/length/charset (developers.inflection.ai only shows a
+// YOUR_API_KEY placeholder, and there is no upstream trufflehog detector to
+// mirror). Pinning a length here would risk silently destroying recall, so the
+// shape stays open and the keyword gate + entropy floor do the disambiguation.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`)
 
-var contextKeywords = []string{"inflection"}
+// minEntropy is a conservative floor (not the 3.5 high-variety value) because
+// the documented charset is unknown; 3.0 rejects obvious low-information runs
+// (repeated chars, structured IDs) without culling plausible key shapes.
+const minEntropy = 3.0
+
+// contextRe is the windowed assignment-anchor gate. It replaces a bare
+// strings.Contains(window, "inflection") that matched any prose mentioning the
+// word. The bare keyword stays in Keywords() as the engine prefilter.
+var contextRe = regexp.MustCompile(`(?i)inflection[_-]?(api[_-]?)?(token|key|secret)`)
 
 type Scanner struct{}
 
@@ -38,6 +51,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -63,7 +79,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -72,13 +88,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return contextRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

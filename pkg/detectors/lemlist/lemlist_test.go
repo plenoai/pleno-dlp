@@ -11,7 +11,12 @@ import (
 
 const (
 	dummyEmail = "user@example.com"
-	dummyToken = "abcdef0123456789ABCDEFabcdef0123"
+	// 32-char lowercase hex, matching the lemlist API key shape
+	// (`[a-f0-9]{32}`). High-variety nibbles so it clears the 3.0 entropy floor.
+	dummyToken = "3f9a1c7b2e8d4056af13b9c0d72e6481"
+	// lowEntropyHex is a 32-char hex run that clears the regex but is a
+	// repeated-nibble placeholder, not a real token — must be rejected.
+	lowEntropyHex = "00000000000000000000000000000000"
 )
 
 func TestType(t *testing.T) {
@@ -39,6 +44,26 @@ func TestFromData_NoKeyword(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
+	}
+}
+
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	// A 32-char hex run near the keyword that is a repeated-nibble placeholder
+	// must no longer match now that an entropy floor is in place.
+	body := []byte("LEMLIST_USER=" + dummyEmail + " LEMLIST_API_KEY=" + lowEntropyHex)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy placeholder, got %d", len(res))
+	}
+}
+
+func TestFromData_WeakKeywordRejected(t *testing.T) {
+	// A real-shaped token sitting next to a bare "lemlist" mention (e.g. a doc
+	// URL) with no assignment arm must not match under the arm-regex gate.
+	body := []byte("see https://api.lemlist.com/docs and value " + dummyToken + " for " + dummyEmail)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare-keyword context, got %d", len(res))
 	}
 }
 

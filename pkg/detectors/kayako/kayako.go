@@ -19,7 +19,22 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
 
-var contextKeywords = []string{"kayako"}
+// armRe is the assignment-style Kayako reference that must appear within the
+// proximity window. Kayako does not publish a fixed length or charset for its
+// API token (the email+token auth path verified here): the official auth docs
+// only show variable-length alphanumeric examples (60-80 chars) and a separate
+// UUID-shaped OAuth token, so the token regex cannot be tightened by format
+// without destroying recall. A bare "kayako" substring (doc links, the
+// kayako.com host, blog URLs) is too weak a gate against a generic 40-80 alnum
+// run; `kayako[_-]?(api[_-]?)?(token|key|secret)` is the shape a real
+// credential assignment or config key takes.
+var armRe = regexp.MustCompile(`(?i)kayako[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-entropy 40-80 char runs that clear the alnum regex but
+// are not random tokens (padded placeholders, repeated characters). Kept
+// conservative (3.0, not 3.5) because no authoritative source pins the charset,
+// so a token drawn from a narrow alphabet must not be over-culled.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -43,6 +58,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
+		// Entropy gate: structured/low-information 40-80 char runs (a padded
+		// placeholder or a long run of repeated characters) clear the alnum
+		// regex but are not random tokens — reject them even when armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.Kayako,
@@ -59,8 +80,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a `kayako[_-]?(api[_-]?)?(token|key|secret)`
+// reference appears within a tight window on either side of the candidate. The
+// window spans both directions (not strict immediate precedence) so a token
+// defined alongside a nearby KAYAKO_API_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -69,13 +94,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

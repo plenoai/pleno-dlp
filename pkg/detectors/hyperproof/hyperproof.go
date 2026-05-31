@@ -1,6 +1,16 @@
 // Package hyperproof detects Hyperproof (hyperproof.io) compliance
-// API tokens (32-64 alnum) near the hyperproof keyword. Verified via
-// /v1/users/me on api.hyperproof.app with Authorization Bearer header.
+// API credentials (32-64 alnum) near the hyperproof keyword. Verified via
+// /v1/users/me on api.hyperproof.app with an Authorization Bearer header
+// carrying a <TOKEN> obtained from the OAuth client-credentials flow.
+//
+// Hyperproof's published docs do not pin the literal length/charset of the
+// client_id/client_secret pair (the token endpoint is documented, the
+// credential shape is not), so this detector keeps the conservative
+// 32-64 alnum window and leans on a tight keyword arm + a low entropy floor
+// rather than a fabricated length. The bare "hyperproof" Contains() gate over
+// radius 256 was too weak against generic alnum runs — it is replaced by an
+// assignment-style arm regex within radius 64, with "hyperproof" retained as
+// the engine prefilter keyword.
 package hyperproof
 
 import (
@@ -19,7 +29,18 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-var contextKeywords = []string{"hyperproof"}
+// armRe is the assignment-style Hyperproof reference that must appear within
+// the proximity window. A bare "hyperproof" substring (doc links, the
+// api.hyperproof.app host, prose) is too weak a gate against a generic 32-64
+// alnum run; this is the shape a real credential assignment or config key
+// takes (hyperproof_api_token, HYPERPROOF_CLIENT_SECRET, etc.).
+var armRe = regexp.MustCompile(`(?i)hyperproof[_\-]?(api[_\-]?)?(client[_\-]?)?(token|key|secret|id)`)
+
+// minEntropy rejects low-information 32-64 char runs that clear the alnum
+// regex but are not credential-grade randomness (padded placeholders, repeated
+// characters, dictionary-ish slugs). Conservative 3.0: the credential charset
+// is undocumented and could be hex-leaning, where a 3.5 floor would over-cull.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -38,6 +59,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Entropy gate: structured/low-information 32-64 char runs that clear
+		// the alnum regex but lack credential-grade randomness are rejected.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -62,8 +88,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a hyperproof credential-assignment reference
+// (armRe) appears within a tight window on either side of the candidate. The
+// window spans both directions (not strict immediate precedence) so a
+// credential defined alongside a nearby HYPERPROOF_API_TOKEN reference arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -72,13 +102,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

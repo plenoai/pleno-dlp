@@ -39,6 +39,48 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordNoArm guards the FP shape the radius-256
+// strings.Contains gate used to admit: a high-entropy 32-64 alnum run sitting
+// near a bare "hyperproof" prose/host mention but with no credential-assignment
+// arm (hyperproof_(api_)?(token|key|secret|id)). The tightened arm regex +
+// radius-64 window must reject it.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("See the hyperproof onboarding guide. session_digest=" + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword, no assignment arm), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected guards the entropy floor: a 40-char run that
+// clears the alnum regex and sits in a real assignment context but is a long
+// repeated-character placeholder must be rejected by HasMinEntropy(3.0).
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 40x 'a'
+	body := []byte("HYPERPROOF_API_TOKEN=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low-entropy placeholder), got %d", len(res))
+	}
+}
+
+// TestFromData_ArmVariants keeps recall on the assignment shapes the arm regex
+// is meant to admit.
+func TestFromData_ArmVariants(t *testing.T) {
+	for _, prefix := range []string{
+		"hyperproof_api_token=",
+		"HYPERPROOF_CLIENT_SECRET=",
+		"hyperproof-api-key: ",
+		"hyperproof_client_id=",
+	} {
+		body := []byte(prefix + dummy)
+		res, _ := Scanner{}.FromData(context.Background(), false, body)
+		if len(res) == 0 {
+			t.Fatalf("expected >=1 for arm %q", prefix)
+		}
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummy {
