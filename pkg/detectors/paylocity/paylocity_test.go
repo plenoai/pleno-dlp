@@ -43,6 +43,31 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordNoAnchor is the FP-hardening regression: two generic
+// high-entropy 32-char tokens sit near the bare word "paylocity" but with NO
+// assignment-style reference (paylocity_client_id / _secret / _key / _token).
+// The old radius-256 strings.Contains(window,"paylocity") gate matched these;
+// the arm regex + radius-64 gate must now reject them.
+func TestFromData_BareKeywordNoAnchor(t *testing.T) {
+	body := []byte("// integrates with the paylocity platform\nFOO=" + dummyID + "\nBAR=" + dummySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (no assignment anchor), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected ensures a structured/padded 32-char run that
+// clears the alnum regex AND sits next to a real anchor is still dropped by the
+// entropy floor.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	const lowEnt = "aaaaaaaaaaaaaaaabbbbbbbbbbbbbbbb" // 32 chars, entropy ~1.0
+	body := []byte("PAYLOCITY_CLIENT_ID=" + lowEnt + "\nPAYLOCITY_CLIENT_SECRET=" + lowEnt)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (entropy floor), got %d", len(res))
+	}
+}
+
 func TestVerify_Disabled_Default(t *testing.T) {
 	v, _ := Scanner{}.Verify(context.Background(), dummyID+":"+dummySecret)
 	if v {

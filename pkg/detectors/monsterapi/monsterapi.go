@@ -19,7 +19,13 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
 
-var contextKeywords = []string{"monsterapi", "monster_api"}
+// armRe is the assignment-style MonsterAPI reference that must appear within a
+// tight window of the candidate. No authoritative source pins the token
+// prefix/length/charset (the official docs only show a `YOUR_BEARER_TOKEN`
+// placeholder), so the regex length stays as-is and recall is preserved by
+// gate-tightening rather than format-narrowing. The bare keywords below remain
+// the engine prefilter via Keywords().
+var armRe = regexp.MustCompile(`(?i)monster[_\-]?api[_\-]?(token|key|secret)?`)
 
 type Scanner struct{}
 
@@ -38,6 +44,14 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Conservative entropy floor: with no documented format we cannot pin a
+		// length, so a low-variety run that happens to satisfy the alnum regex
+		// (e.g. a hex digest or a repeated-char string) is rejected. 3.0 is the
+		// recall-safe floor from docs/detector-key-formats.md — high enough to
+		// drop obvious non-secrets, low enough not to cull real random tokens.
+		if !detectors.HasMinEntropy(token, 3.0) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -62,8 +76,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a `monster[_-]?api[_-]?(token|key|secret)?`
+// reference appears within a tight window on either side of the candidate. The
+// window spans both directions (not strict immediate precedence) so a
+// credential defined alongside a nearby MONSTERAPI_KEY reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -72,13 +90,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

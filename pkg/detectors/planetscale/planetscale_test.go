@@ -40,6 +40,35 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// lowEntropySecret is a 40-char alnum run that clears the bare secret regex
+// but is a structured/repetitive value, not a random token. With the entropy
+// floor it must NOT be paired, so the id surfaces without a RawV2 secret.
+const lowEntropySecret = "ABABABABABABABABABABABABABABABABABABABAB"
+
+func TestFromData_LowEntropySecretRejected(t *testing.T) {
+	body := []byte("# planetscale\nPSCALE_TOKEN_ID=" + dummyID + "\nPSCALE_TOKEN=" + lowEntropySecret)
+	res, err := Scanner{}.FromData(context.Background(), false, body)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected 1 (id only), got %d", len(res))
+	}
+	if len(res[0].RawV2) != 0 {
+		t.Fatalf("low-entropy secret should not pair, got RawV2=%q", res[0].RawV2)
+	}
+}
+
+// TestFromData_BareKeywordRejected verifies the tightened arm gate: a bare
+// `planetscale` mention (no `_token`-style reference) no longer arms the id.
+func TestFromData_BareKeywordRejected(t *testing.T) {
+	body := []byte("// see planetscale.com for docs\nID=" + dummyID)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 with bare keyword only, got %d", len(res))
+	}
+}
+
 func TestRedact(t *testing.T) {
 	r := redact(dummyID)
 	if r == dummyID {

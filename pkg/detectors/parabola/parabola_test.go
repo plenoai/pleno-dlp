@@ -39,6 +39,29 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// A high-entropy alnum run sitting near a *bare* "parabola" mention (prose,
+// a URL, a dependency name) — no `parabola[_-]?(api[_-]?)?(token|key|secret)`
+// assignment anchor — must no longer arm after the radius-256 bare-Contains
+// gate was replaced with the radius-64 arm regex.
+func TestFromData_BareKeywordNoAnchor(t *testing.T) {
+	body := []byte("see https://parabola.io/docs for the run id " + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword, no assignment anchor), got %d", len(res))
+	}
+}
+
+// A structured, low-entropy 40-char run next to a valid assignment anchor must
+// be dropped by the entropy floor even though the keyword gate arms.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 40 'a'
+	body := []byte("PARABOLA_TOKEN=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (entropy floor), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummy {

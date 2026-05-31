@@ -2,6 +2,12 @@
 // pairs near the `mode` keyword. Paired credential per the trufflehog
 // convention — Raw=token, RawV2=token+":"+secret. Verified via HTTP
 // Basic auth on app.mode.com /api/account.
+//
+// Mode's documented credentials are lowercase hex (Discovery API
+// signature-token access_key/access_secret are 24 hex chars), so the
+// candidate regex is hex-restricted with a conservative entropy floor and a
+// tight assignment-anchored keyword gate rather than the broad alnum match
+// it carried before. See https://mode.com/developer/discovery-api/signature-tokens/
 package modeanalytics
 
 import (
@@ -19,9 +25,31 @@ var apiBase = "https://app.mode.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{16,80})\b`)
+// tokenRe matches Mode's hex credential halves. Mode's documented credentials
+// (Discovery API signature-token `access_key`/`access_secret`) are lowercase
+// hex — e.g. access_key "8b6fdc0a36bf340604a3cedc" / access_secret
+// "829146cb6c752f51bbbb8c85", both 24 hex chars
+// (https://mode.com/developer/discovery-api/signature-tokens/). Only the
+// signature-token length (24) is documented; Workspace/Member/personal token
+// lengths are not, so we keep a hex-restricted {16,64} range rather than
+// pinning a single length — restricting the charset from the old broad
+// [A-Za-z0-9] alnum to hex alone already removes the bulk of the base62 noise.
+var tokenRe = regexp.MustCompile(`\b([a-fA-F0-9]{16,64})\b`)
 
-var contextKeywords = []string{"mode_analytics", "modeanalytics", "mode.com", "mode_token", "mode-api"}
+// minEntropy rejects structured/low-information hex runs (zero-padded ids,
+// repeated-nibble placeholders) that clear the hex regex but are not real
+// credentials. Hex caps near 3.6 bits/char and the documented 24-hex examples
+// sit around 3.3, so 3.5 would over-cull real keys; 3.0 is the hex-safe floor.
+const minEntropy = 3.0
+
+// armRe is the assignment-style Mode reference that must appear within the
+// proximity window. A bare strings.Contains for "mode.com"/"modeanalytics"
+// over a 256-char radius armed on script-src URLs and doc links; the
+// `mode[_-]?(analytics|api|access)?[_-]?(api[_-]?)?(token|key|secret)` shape is
+// what a real credential assignment or config key takes — including Mode's own
+// `access_key`/`access_secret` naming from the Discovery API docs. The bare
+// keywords stay in Keywords() as the cheap engine prefilter.
+var armRe = regexp.MustCompile(`(?i)mode[_\-]?(analytics|api|access)?[_\-]?(api[_\-]?)?(token|key|secret)`)
 
 type Scanner struct{}
 
@@ -39,6 +67,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		v := string(data[h[2]:h[3]])
 		if !nearKeyword(lower, h[2], h[3]) {
+			continue
+		}
+		// Reject low-information hex runs (zero-padded ids, repeated nibbles)
+		// that clear the hex regex but are not credential-grade.
+		if !detectors.HasMinEntropy(v, minEntropy) {
 			continue
 		}
 		if ident == "" {
@@ -68,8 +101,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return []detectors.Result{res}, nil
 }
 
+// nearKeyword reports whether an armRe Mode-credential reference appears within
+// a tight window on either side of the candidate. Radius tightened 256->64 to
+// keep the credential assignment and its key on the same logical line.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -78,13 +114,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

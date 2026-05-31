@@ -1,5 +1,6 @@
-// Package opslevel detects OpsLevel (opslevel.com) API tokens (40-64
-// alnum) near the `opslevel` keyword. Verified via the GraphQL endpoint
+// Package opslevel detects OpsLevel (opslevel.com) API tokens (mixed-case
+// alnum) armed by an OpsLevel token/key/secret reference. Verified via the
+// GraphQL endpoint
 // /graphql on api.opslevel.com with Authorization Bearer header (probes
 // `query{account{id}}`, surfacing 200 on a valid token).
 package opslevel
@@ -18,10 +19,29 @@ var apiBase = "https://api.opslevel.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// OpsLevel API tokens are 40-64 alnum chars, anchored on `opslevel`.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,64})\b`)
+// OpsLevel API tokens are mixed-case alphanumeric strings used as a Bearer
+// credential. OpsLevel's docs do NOT publish a length or charset spec; the
+// only authoritative sample (docs.opslevel.com/docs/package-versions,
+// "Bearer <TOKEN>") is 36 chars of [A-Za-z0-9]. A single example is not an
+// authoritative length pin, so we do not pin a tight length: the range keeps
+// the documented 36-char shape in scope and bounds the upper end to avoid
+// matching arbitrarily long alnum runs. Recall is protected by the arm regex
+// + entropy floor below rather than by a fragile length pin.
+var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{36,64})\b`)
 
-var contextKeywords = []string{"opslevel", "ops-level"}
+// armRe is the assignment-style OpsLevel reference that must appear within a
+// tight proximity window. A bare "opslevel" substring (doc URLs, dependency
+// names, comments) is too weak to arm a high-entropy alnum match; an
+// `opslevel[_-]?(api[_-]?)?(token|key|secret)` shape is what a real token
+// assignment or config key looks like.
+var armRe = regexp.MustCompile(`(?i)ops[_\-]?level[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-information alnum runs that clear the length regex
+// but are not random credentials (padded identifiers, repeated patterns).
+// OpsLevel charset is high-variety mixed-case alnum; the documented sample
+// scores ~4.56. A conservative 3.0 floor culls structured junk without
+// risking recall on a real token whose length/charset are undocumented.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -45,6 +65,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
+		// Entropy gate: a 36-64 char alnum run that is armed but
+		// low-information (padded names, repeated patterns) is not a token.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.OpsLevel,
@@ -64,8 +89,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether an `opslevel[_-]?(api[_-]?)?(token|key|secret)`
+// reference appears within a tight window on either side of the token. The
+// window spans both directions (not strict immediate precedence) so a token
+// defined alongside a nearby OPSLEVEL_API_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -74,13 +103,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
