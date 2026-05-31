@@ -20,8 +20,9 @@ built-in (598 secrets + 2 opt-in PII engines). Tag pattern
 `vX.Y.Z`.
 
 SaaS sources (GitHub / GitLab / Bitbucket / Slack / Notion / Confluence /
-Jira) are tracked in issues #74–#80 for native Go ports — the previous
-Python package was retired in v1.0.0.
+Jira) ship as native Go connectors — `pleno-dlp scan <provider>` — with a
+companion `pleno-dlp verify <provider>` token check. The previous Python
+package was retired in v1.0.0.
 
 ## Detector coverage
 
@@ -95,6 +96,70 @@ The private key body never leaves the host. Only the public-key
 SHA-256 (a public artefact — it appears in every certificate the key
 has signed) is transmitted, and only to crt.sh. Inspired by
 [trufflesecurity/driftwood](https://github.com/trufflesecurity/driftwood).
+
+## Revoking leaked credentials
+
+Once a leak is confirmed, `pleno-dlp revoke` invalidates the credential
+against the issuing provider's revocation API. Supported detectors:
+`github`, `gitlab`, `slack`, `aws`, `stripe` (Stripe accepts restricted
+`rk_` keys only).
+
+```sh
+# Pipe the secret in (keeps it out of shell history); --confirm is required
+echo "$LEAKED_TOKEN" | pleno-dlp revoke --detector github --secret - --confirm
+
+# Preview without contacting the provider
+pleno-dlp revoke --detector slack --secret xoxb-... --dry-run
+```
+
+Revocation is **irreversible** — there is no rollback. `pleno-dlp revoke`
+therefore requires one of `--confirm` or `--dry-run`; without either it
+refuses (exit 2). In a non-interactive context (CI, pipes), `--confirm`
+must be paired with `PLENO_DLP_ALLOW_REVOKE=1`; TTY-attached operators do
+not need the env var. Pass `--secret <value>` or `--secret -` to read from
+stdin. `--format json` emits one structured record per invocation;
+`--rate-limit-rps` installs a per-host cap for batch revokes.
+
+Per-provider auth:
+
+- **GitHub** — calls `DELETE /applications/{client_id}/token`, so it needs
+  the OAuth app's `--client-id` / `--client-secret` (or the
+  `PLENO_DLP_REVOKE_GITHUB_CLIENT_ID` / `PLENO_DLP_REVOKE_GITHUB_CLIENT_SECRET`
+  env vars). Only tokens issued by that app are revocable.
+- **GitLab / Slack / Stripe** — self-revoke via the leaked token's own
+  auth; no extra flags beyond `--secret`.
+- **AWS** — `iam:DeleteAccessKey` is keyed on `(UserName, AccessKeyId)`, so
+  revoke needs admin IAM credentials plus the owning user:
+  `--aws-admin-access-key-id`, `--aws-admin-secret-access-key`,
+  `--aws-admin-session-token` (optional), `--aws-region`
+  (default `us-east-1`), and `--aws-user-name`. Each also has a
+  `PLENO_DLP_REVOKE_AWS_*` env fallback.
+
+### Revoke during a scan
+
+`scan --revoke-on-verified` revokes each finding the moment it verifies.
+Because this is irreversible, the flag is gated:
+
+- it requires `--verify` (revoking unverified candidates would risk
+  invalidating credentials that are not yours), and
+- it refuses to run unless `PLENO_DLP_ALLOW_REVOKE=1` is set.
+
+`--revoke-dry-run` previews what would be revoked without contacting any
+provider, and bypasses only the env-var gate (so you can preview in CI
+without marking it ready-to-revoke). Detectors without a Revoker
+implementation — and AWS findings without the principal context above —
+are skipped and reported in the end-of-scan summary.
+
+```sh
+pleno-dlp scan filesystem . --verify --revoke-on-verified --revoke-dry-run
+```
+
+Related scan flags: `--blast-radius-only` (emit and count only findings
+the engine tagged `blast_radius=true` — driftwood-pattern privileged /
+high-value / high-risk flags) and `--verify-rps` (per-host verify
+requests-per-second cap, default `10`; `0` disables). Full provider
+endpoint shapes and the idempotency contract live in
+[`docs/revoke-support.md`](docs/revoke-support.md).
 
 ## Severity and CI gating
 
@@ -216,6 +281,65 @@ kubectl get secret app-config -o yaml | pleno-dlp scan stdin
 Default filesystem excludes (`.git`, `.hg`, `.svn`, `node_modules`,
 `vendor`, `target`, `dist`, `build`, `__pycache__`, `.venv`, `.tox`)
 keep most scans tractable; pass `--no-default-excludes` to opt out.
+
+### SaaS sources
+
+Seven native Go connectors scan hosted sources directly. All inherit the
+persistent `scan` flags (`--format`, `--verify`, `--include-detectors`, …):
+
+```sh
+# GitHub — whole org or a single owner/name repo (default-branch blobs)
+pleno-dlp scan github --org acme
+pleno-dlp scan github --repo acme/widget --api-base https://ghe.acme.com/api/v3
+
+# GitLab — group or namespace/name project
+pleno-dlp scan gitlab --group acme
+pleno-dlp scan gitlab --project acme/widget --api-base https://gitlab.acme.com/api/v4
+
+# Bitbucket — workspace or workspace/slug repo
+pleno-dlp scan bitbucket --workspace acme
+pleno-dlp scan bitbucket --repo acme/widget --username alice --app-password "$PW"
+
+# Slack — whole workspace, or one channel by ID
+pleno-dlp scan slack --channel C0123456789
+
+# Notion — workspace search (optional --query filter)
+pleno-dlp scan notion --query "infra"
+
+# Confluence — Cloud (--site + --email) or Data Center (--api-base)
+pleno-dlp scan confluence --site acme --email alice@acme.com --space OPS
+
+# Jira — Cloud (--site + --email) or Data Center (--api-base)
+pleno-dlp scan jira --site acme --email alice@acme.com --project PROJ
+pleno-dlp scan jira --site acme --email alice@acme.com --jql "updated >= -30d"
+```
+
+Auth / token model per connector:
+
+| Connector | Token flag | Env fallback | Scope flags | Notes |
+|---|---|---|---|---|
+| `github` | `--token` | `GITHUB_TOKEN` | `--org` \| `--repo` (one required, mutually exclusive) | `--api-base` for GitHub Enterprise |
+| `gitlab` | `--token` (PAT or OAuth) | `GITLAB_TOKEN` | `--group` \| `--project` (one required, mutually exclusive) | `--api-base` for self-hosted |
+| `bitbucket` | `--token` (Bearer) **or** `--app-password` + `--username` | `BITBUCKET_APP_PASSWORD` | `--workspace` \| `--repo` (one required, mutually exclusive) | `--token` and `--app-password` are mutually exclusive; `--api-base` for self-hosted |
+| `slack` | `--token` (bot/user) | `SLACK_TOKEN` | `--channel` (optional; omit = all accessible) | `--api-base` override |
+| `notion` | `--token` (integration token) | `NOTION_TOKEN` | `--query` (optional search filter) | `--api-base` override |
+| `confluence` | `--token` (API token or PAT) | `CONFLUENCE_TOKEN` | `--space` (optional); Cloud needs `--site` + `--email` (`CONFLUENCE_EMAIL`) | Data Center: `--api-base`, omit `--email` |
+| `jira` | `--token` (API token or PAT) | `JIRA_TOKEN` | `--project` or `--jql` (optional; `--jql` overrides `--project`); Cloud needs `--site` + `--email` (`JIRA_EMAIL`) | Data Center: `--api-base`, omit `--email` |
+
+### Verifying a connector token
+
+`pleno-dlp verify <connector>` checks a token against its provider without
+scanning — exit 0 when the provider confirms it, exit 1 otherwise. It
+accepts the same `--token` (and `--api-base` / `--site` / `--email` where
+relevant) flags as the matching `scan` subcommand.
+
+```sh
+pleno-dlp verify github --token "$GITHUB_TOKEN"      # GET /user
+pleno-dlp verify gitlab --token "$GITLAB_TOKEN"      # GET /user
+pleno-dlp verify slack  --token "$SLACK_TOKEN"       # auth.test
+pleno-dlp verify notion --token "$NOTION_TOKEN"      # GET /users/me
+pleno-dlp verify jira   --site acme --email alice@acme.com --token "$JIRA_TOKEN"
+```
 
 ## PII detection (opt-in)
 
