@@ -145,9 +145,18 @@ var Classes = map[string]Class{
 	"Wiz":           ClassUnverifiedByDesign,
 	"Zoho":          ClassUnverifiedByDesign,
 
-	// (c) Verifiable but not implemented — 4 detectors
-	"GCPIDToken":        ClassVerifyGap,
+	// (b) reclassified from (c): fundamentally unverifiable from the
+	// matched secret, not merely not-yet-wired —
+	//   GCPIDToken: an audience-bound OIDC *identity* token; tokeninfo
+	//     validates identity (and is audit-logged), not live access.
+	//   Sentry: the matched value is a DSN ingest *write* key; the only
+	//     "verify" is submitting an event (destructive / billed).
+	//   Snowflake: keypair JWT auth needs the *private key* to sign the
+	//     assertion, which is never present in the matched chunk.
+	"GCPIDToken": ClassUnverifiedByDesign,
+	"Sentry":     ClassUnverifiedByDesign,
+	"Snowflake":  ClassUnverifiedByDesign,
+
+	// (c) Verifiable but not implemented — 1 detector
 	"SalesforceRefresh": ClassVerifyGap,
-	"Sentry":            ClassVerifyGap,
-	"Snowflake":         ClassVerifyGap,
 }
