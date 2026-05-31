@@ -1,6 +1,15 @@
-// Package june detects June.so analytics write keys — 32 alnum near
-// the `june` keyword. Verified via /sdk/track on api.june.so using
-// HTTP Basic auth (key as username, empty password).
+// Package june detects June.so analytics write keys near the `june`
+// keyword. Verified via /sdk/track on api.june.so using HTTP Basic
+// auth (key as username, empty password).
+//
+// Key format is NOT authoritatively documented: June.so is a Segment
+// Analytics.js fork (@june-so/analytics-node) and every official SDK
+// page shows only the placeholder <YOUR_WRITE_KEY> — no literal sample,
+// no published length or charset. There is no upstream trufflehog june
+// detector to mirror. Per the inconclusive-research fallback we do NOT
+// pin a june-specific length: the regex floor of 16 below is a generic
+// noise floor (not a format claim), and disambiguation is carried by the
+// assignment-anchor arm regex plus a conservative entropy gate.
 package june
 
 import (
@@ -17,9 +26,26 @@ var apiBase = "https://api.june.so"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
+// Unpinned alnum run. {16,} is a generic short-noise floor, not a
+// documented june key length — the format is unknown (see package doc).
+var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{16,})\b`)
 
-var contextKeywords = []string{"june.so", "june_write_key", "june-write-key", "junewritekey", "junesoapikey"}
+// armRe is the assignment-style June reference that must appear within the
+// proximity window. A bare "june.so" substring (script-src CDN URLs, doc
+// links) is too weak a gate against a generic alphanumeric run;
+// june[_-]?(write[_-]?)?(api[_-]?)?(token|key|secret) is the shape a real
+// write-key assignment or config key takes.
+var armRe = regexp.MustCompile(`(?i)june[_\-]?(write[_\-]?)?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-information runs (repeated chars, padded
+// placeholders) that clear the alnum regex but are not real keys. 3.0 is
+// the conservative floor mandated when the charset is unknown — a higher
+// floor risks culling real keys whose charset we cannot confirm.
+const minEntropy = 3.0
+
+// contextKeywords removed: the bare strings.Contains over radius 256 was
+// replaced by armRe over radius 64. The prefilter keywords live in
+// Keywords() below.
 
 type Scanner struct{}
 
@@ -40,6 +66,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -65,7 +94,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -74,13 +103,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

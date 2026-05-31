@@ -47,6 +47,30 @@ func TestFromData_Dedup(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordNoArm guards the FP shape the hardening now rejects:
+// a generic high-entropy 40-80 char run sitting near a *bare* "jenkinsx"
+// mention (a comment, a package name, a CI log line) with no
+// `jenkinsx_token`-style assignment anchor. Before hardening the radius-256
+// strings.Contains gate matched this; the armRe assignment anchor must not.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("# built on the jenkinsx platform\nbuildHash = " + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for high-entropy run near bare keyword (no arm), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected guards the entropy floor: a 40+ char run that
+// clears the alnum regex AND is armed by a real `jenkinsx_token` reference but
+// is structurally low-entropy (repeated substring) must not surface.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	body := []byte("jenkinsx_token=abcabcabcabcabcabcabcabcabcabcabcabcabcabc")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy armed run, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

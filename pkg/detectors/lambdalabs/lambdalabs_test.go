@@ -39,6 +39,32 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordNotArmed locks in the radius-256 -> arm-regex
+// tightening: a high-entropy 40+ char run sitting near only a bare
+// "lambdalabs" mention (a doc URL, dependency name) — with no
+// `lambdalabs_(api_)?key`-style assignment anchor — must no longer match.
+// Pre-hardening this was a false positive under strings.Contains(window,
+// "lambdalabs").
+func TestFromData_BareKeywordNotArmed(t *testing.T) {
+	body := []byte("// see https://cloud.lambdalabs.com for docs\ncache_digest = " + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare-keyword-without-assignment-anchor, got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected locks in the entropy floor: a 40+ char run
+// armed by a real assignment anchor but with key-unlike low entropy (a long
+// repetitive identifier) must be rejected.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 42 'a's
+	body := []byte("LAMBDALABS_API_KEY=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy armed run, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, _, ok := r.BasicAuth()

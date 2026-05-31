@@ -2,6 +2,17 @@
 // Surface only when an `idnow` keyword is in the same chunk to keep the
 // generic alphanumeric shape from triggering universally. Verified via
 // /api/v1/identifications on gateway.idnow.de with the X-API-KEY header.
+//
+// Credential format: IDnow does not publish the prefix/length/charset of
+// the apiKey value (sent as {"apiKey": "<TOKEN>"} to /api/v1/{customer}/login).
+// Every reachable reference is a placeholder ("1234api_key", "API-KEY-TOKEN");
+// the only documented length/charset constraints in the IDnow docs apply to
+// transaction identifiers (UUIDv4, [a-zA-Z0-9_-], max 255), not the apiKey.
+// Trufflehog ships no idnow detector to mirror. With no authoritative format,
+// the bare [A-Za-z0-9]{32,64} shape is left UNCHANGED (narrowing it would
+// guess at a length and silently destroy recall); FP risk is reduced only by
+// recall-safe gate-tightening: an assignment-anchor arm regex, a tightened
+// radius, and a conservative entropy floor.
 package idnow
 
 import (
@@ -18,9 +29,21 @@ var apiBase = "https://gateway.idnow.de"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
+// Generic alphanumeric shape — no documented prefix/length, so the gate
+// (arm regex + entropy + radius) does the disambiguation, not the regex.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-var contextKeywords = []string{"idnow"}
+// armRe replaces the bare strings.Contains(window,"idnow"): it requires an
+// assignment-style context (idnow_api_key / idnow-token / idnow secret) so a
+// stray "idnow" mention in prose no longer arms the detector. The bare
+// keyword stays in Keywords() as the engine prefilter.
+var armRe = regexp.MustCompile(`(?i)idnow[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-information 32-64 char runs (repeated/structured
+// strings) that clear the regex but lack credential-grade randomness. Held
+// conservative at 3.0 because no source documents the charset; a higher floor
+// would risk culling real keys.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -39,6 +62,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -61,7 +87,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 128
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -71,12 +97,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(window)
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

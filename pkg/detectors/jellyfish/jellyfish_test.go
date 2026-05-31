@@ -39,6 +39,42 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// genericHigh is a 40-char base62 run with high Shannon entropy (~5.1).
+const genericHigh = "Xq7Lm2Zp9Rt4Wv6Yb3Nc8Df1Gh5Jk0Sl2Aq4Bz1V"
+
+// TestFromData_BareKeywordNoAnchor is the FP-hardening regression: a generic
+// high-entropy 40-char string that merely sits near a bare "jellyfish" prose
+// mention (no assignment anchor). Under the old radius-256 bare strings.Contains
+// gate this matched; the armRe assignment anchor must now reject it.
+func TestFromData_BareKeywordNoAnchor(t *testing.T) {
+	body := []byte("We use jellyfish for analytics. build hash " + genericHigh + " shipped.")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword, no assignment anchor), got %d", len(res))
+	}
+}
+
+// TestFromData_AnchoredHighEntropy confirms recall: the same high-entropy run
+// IS reported when a real assignment-style Jellyfish reference is present.
+func TestFromData_AnchoredHighEntropy(t *testing.T) {
+	body := []byte("jellyfish_api_token = " + genericHigh)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) == 0 {
+		t.Fatal("expected >=1 (assignment-anchored high-entropy token)")
+	}
+}
+
+// TestFromData_LowEntropyRejected confirms the conservative entropy floor
+// rejects a structured low-information run even with the assignment anchor.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := "aaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbb" // ent ~1.0
+	body := []byte("jellyfish_api_token = " + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (entropy floor), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-API-Key") != dummy {

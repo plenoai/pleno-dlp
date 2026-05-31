@@ -22,9 +22,25 @@ var apiBase = "https://open.larksuite.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var appIDRe = regexp.MustCompile(`\b(cli_[a-f0-9]{16})\b`)
+
+// app_secret is a 32-char alphanumeric string with no prefix. Length and
+// charset are authoritative from the upstream trufflehog larksuiteapikey
+// detector (`[a-z0-9A-Z]{32}`):
+// https://github.com/trufflesecurity/trufflehog/blob/main/pkg/detectors/larksuiteapikey/larksuiteapikey.go
 var secretRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
 
-var contextKeywords = []string{"lark", "feishu"}
+// minSecretEntropy rejects 32-char runs that clear the regex but lack
+// key-grade randomness (e.g. an MD5 hex digest or a repetitive build id near
+// the keyword). 3.5 is safe for a 32-char high-variety base62 secret: real
+// secrets clear ~4.5 (the dummy fixture measures 4.75) while degenerate runs
+// fall well below.
+const minSecretEntropy = 3.5
+
+// contextRe is the windowed assignment-style arm regex. It replaces the prior
+// bare strings.Contains(window,"lark"|"feishu"|"cli_") which matched any
+// document merely mentioning Lark within 256 bytes. The bare keyword stays in
+// Keywords() as the cheap prefilter.
+var contextRe = regexp.MustCompile(`(?i)(lark|feishu)[_-]?(app[_-]?)?(id|secret|token|key)|cli_[a-f0-9]{16}`)
 
 type Scanner struct{}
 
@@ -58,6 +74,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			if strings.HasPrefix(cand, "cli_") {
 				continue
 			}
+			// Entropy gate: a 32-char hex digest or repetitive run clears the
+			// regex but is not a real app_secret. Real secrets are high-variety
+			// base62 (~4.5 bits/char).
+			if !detectors.HasMinEntropy(cand, minSecretEntropy) {
+				continue
+			}
 			secret = cand
 			break
 		}
@@ -85,7 +107,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -94,15 +116,9 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	// Lark/Feishu credentials always carry the cli_ prefix in app_id, so the
-	// keyword check is informational; accept either keyword or any cli_ prefix.
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return strings.Contains(window, "cli_")
+	// Require an assignment-style Lark/Feishu credential marker (or the cli_
+	// app_id shape) within the window, not a bare provider mention.
+	return contextRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
