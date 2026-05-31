@@ -28,9 +28,6 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// 40-char hex (legacy) OR uuid (newer trigger tokens).
-var tokenRe = regexp.MustCompile(`\b([a-f0-9]{40}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
-
 // 40-char lowercase hex branch (vs. UUID). Used to decide whether the Git-SHA
 // negative exclusion applies.
 var hex40Re = regexp.MustCompile(`^[a-f0-9]{40}$`)
