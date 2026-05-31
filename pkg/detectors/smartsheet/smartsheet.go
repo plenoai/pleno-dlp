@@ -1,7 +1,20 @@
-// Package smartsheet detects Smartsheet API access tokens (>=24 alnum)
-// gated on the `smartsheet` keyword window. Verified via /2.0/users/me on
-// api.smartsheet.com with Bearer auth — read-only and surfaces the
+// Package smartsheet detects Smartsheet API access tokens (alnum, no public
+// prefix) gated on the `smartsheet` keyword window. Verified via /2.0/users/me
+// on api.smartsheet.com with Bearer auth — read-only and surfaces the
 // authenticated user.
+//
+// Format research (2026-06): Smartsheet does NOT publish an authoritative
+// fixed length or charset for raw API access tokens. The auth guide shows only
+// an illustrative example (<TOKEN> ~38 alnum chars, no prefix); the length is
+// not specified as a contract, and observed tokens vary. trufflehog has no
+// smartsheet detector to mirror. Per the inconclusive-research fallback we do
+// NOT pin a length and keep the wide {24,64} alnum range; instead we apply
+// recall-safe gate-tightening only:
+//   - radius shrunk 256 -> 64,
+//   - the bare strings.Contains keyword gate replaced by an assignment-anchor
+//     arm regex (the bare keyword stays in Keywords() as the prefilter),
+//   - a conservative HasMinEntropy(token, 3.0) floor to drop low-information
+//     runs (all-zeros, repeated patterns) that clear the loose alnum regex.
 package smartsheet
 
 import (
@@ -18,9 +31,22 @@ var apiBase = "https://api.smartsheet.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
+// No documented prefix or fixed length; keep the wide alnum range and rely on
+// the keyword gate + entropy floor to disambiguate.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24,64})\b`)
 
-var contextKeywords = []string{"smartsheet", "smartsheet_token", "smartsheet_api"}
+// minEntropy rejects low-information runs (all-zeros, repeated patterns, short
+// dictionary fragments) that clear the loose alnum regex but are not tokens.
+// 3.0 is the conservative hex-grade floor — high enough to drop garbage, low
+// enough not to cull real alnum tokens (which sit well above 4.0 bits/char).
+const minEntropy = 3.0
+
+// contextRe is the windowed keyword gate. It replaces a bare
+// strings.Contains(window, "smartsheet") scan: the assignment-anchor arm
+// (smartsheet[_-]?(api[_-]?)?(token|key|secret)) keeps the env/config-style
+// fixtures armed, while the bare \bsmartsheet\b match preserves recall for
+// tokens introduced by a nearby plain "smartsheet" mention.
+var contextRe = regexp.MustCompile(`(?i)smartsheet[_-]?(api[_-]?)?(token|key|secret)|\bsmartsheet\b`)
 
 type Scanner struct{}
 
@@ -39,6 +65,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -89,7 +118,7 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -99,12 +128,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return contextRe.MatchString(window)
 }
 
 func redact(t string) string {

@@ -30,6 +30,51 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// Regression: a high-entropy 32-char alnum string near a *bare* "shodan"
+// substring (a CLI mention, doc URL, dependency name) must no longer match.
+// Before hardening the radius-256 bare-keyword Contains armed on any "shodan";
+// now an assignment-shaped `shodan...key` reference within radius 64 is
+// required, so this generic shape is rejected.
+func TestFromData_BareKeywordRejected(t *testing.T) {
+	// dummy has entropy 5.0 — it clears the entropy floor, so only the arm
+	// regex change is responsible for rejecting this case.
+	in := "see https://github.com/achillean/shodan-python for docs; ref " + dummy
+	res, _ := Scanner{}.FromData(context.Background(), false, []byte(in))
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare-keyword high-entropy FP shape, got %d", len(res))
+	}
+}
+
+// Regression: a low-information 32-char run armed by a real `SHODAN_API_KEY`
+// reference must be rejected by the entropy floor (it clears the alnum regex
+// and the arm regex but is not a random key).
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	const padded = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 chars, entropy 0
+	res, _ := Scanner{}.FromData(context.Background(), false, []byte("SHODAN_API_KEY="+padded))
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy run, got %d", len(res))
+	}
+}
+
+// The arm regex must accept the common assignment shapes, not just the exact
+// SHODAN_API_KEY casing.
+func TestFromData_ArmVariants(t *testing.T) {
+	for _, in := range []string{
+		"shodan_api_key = " + dummy,
+		"shodan-token: " + dummy,
+		"shodanApiKey=" + dummy,
+		"my_shodan_secret " + dummy,
+	} {
+		res, err := Scanner{}.FromData(context.Background(), false, []byte(in))
+		if err != nil {
+			t.Fatalf("err for %q: %v", in, err)
+		}
+		if len(res) != 1 {
+			t.Fatalf("expected 1 for %q, got %d", in, len(res))
+		}
+	}
+}
+
 func TestRedact(t *testing.T) {
 	r := redact(dummy)
 	if r == dummy {

@@ -24,10 +24,27 @@ func TestKeywords(t *testing.T) {
 }
 
 func TestFromData_Found(t *testing.T) {
-	body := []byte("RIPPLING_API=" + dummyToken)
+	// Assignment-anchored Rippling token reference: the hardened arm regex
+	// requires a `rippling[_-]?(api[_-]?)?(token|key|secret)` shape near the
+	// candidate, which this realistic env-var key satisfies.
+	body := []byte("RIPPLING_API_TOKEN=" + dummyToken)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
+	}
+}
+
+// TestFromData_BareEnvVarForms locks in recall for the suffix-less env-var
+// shapes (RIPPLING_API / RIPPLING_AUTH / RIPPLING_CREDENTIAL). These were the
+// pre-hardening positive shapes; the arm regex must keep matching them so
+// credentials assigned to those keys are not silently dropped.
+func TestFromData_BareEnvVarForms(t *testing.T) {
+	for _, key := range []string{"RIPPLING_API", "RIPPLING_AUTH", "RIPPLING_CREDENTIAL"} {
+		body := []byte(key + "=" + dummyToken)
+		res, _ := Scanner{}.FromData(context.Background(), false, body)
+		if len(res) == 0 {
+			t.Fatalf("%s=: expected >=1, got 0 (arm-regex recall regression)", key)
+		}
 	}
 }
 
@@ -36,6 +53,30 @@ func TestFromData_NoKeyword(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without rippling keyword, got %d", len(res))
+	}
+}
+
+// TestFromData_BareKeywordRejected guards the radius/arm tightening: a bare
+// "rippling" substring (a doc link, package name) near a high-entropy token is
+// no longer enough — without an assignment-style token/key/secret reference
+// the candidate must be rejected.
+func TestFromData_BareKeywordRejected(t *testing.T) {
+	body := []byte("// see https://developer.rippling.com docs\nsha=" + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare rippling keyword (no assignment anchor), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected guards the entropy floor: a 40+ char run that
+// is armed by a real-looking key reference but has no randomness (a padded or
+// repeated identifier) must not surface.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" // 44x 'A'
+	body := []byte("RIPPLING_API_KEY=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy run, got %d", len(res))
 	}
 }
 

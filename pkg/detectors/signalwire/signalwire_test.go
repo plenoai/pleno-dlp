@@ -43,6 +43,37 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_LowEntropyRejected guards the entropy floor: two padded,
+// low-information runs sit right next to documented assignment keywords and
+// clear the bare [A-Za-z0-9]{24,128} regex, but neither reaches 3.5 bits/char
+// so the pair must not be emitted. Before the FP-hardening this matched.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	const lowID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const lowTok = "0000000000000000000000000000000000000000000000000000"
+	body := []byte("SIGNALWIRE_PROJECT=" + lowID + "\nSIGNALWIRE_TOKEN=" + lowTok)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low-entropy rejected), got %d", len(res))
+	}
+}
+
+// TestFromData_BareKeywordFarAway guards the radius shrink (256->64) plus the
+// assignment-anchor arm regex: a high-entropy pair appears in the same chunk
+// as a prose mention of signalwire, but the keyword is neither adjacent nor in
+// an assignment form, so the pair must not be emitted.
+func TestFromData_BareKeywordFarAway(t *testing.T) {
+	gap := make([]byte, 200)
+	for i := range gap {
+		gap[i] = ' '
+	}
+	body := []byte("we evaluated signalwire last quarter." + string(gap) +
+		"PROJECT=" + dummyID + "\nTOKEN=" + dummyTok)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (keyword out of radius / not an assignment), got %d", len(res))
+	}
+}
+
 func TestVerify_Disabled_Default(t *testing.T) {
 	v, _ := Scanner{}.Verify(context.Background(), dummyID+":"+dummyTok)
 	if v {

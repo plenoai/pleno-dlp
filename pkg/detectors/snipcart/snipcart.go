@@ -1,6 +1,11 @@
-// Package snipcart detects Snipcart secret API keys (50+ alphanumeric near
-// the `snipcart` keyword). Verified via /api/orders on app.snipcart.com using
-// HTTP Basic auth (key as username, empty password).
+// Package snipcart detects Snipcart secret API keys. Per the upstream
+// trufflehog detector (pkg/detectors/snipcart), a Snipcart secret key is
+// exactly 75 chars of [0-9A-Za-z_] with no distinguishing prefix — a generic
+// high-variety shape — so a bare "snipcart" substring within a wide window is
+// too loose a gate. We require a `snipcart[_-]?(api[_-]?)?(token|key|secret)`
+// reference within a tight 64-byte window AND a Shannon-entropy floor before
+// surfacing. Verified via /api/orders on app.snipcart.com using HTTP Basic
+// auth (key as username, empty password — the trailing `:` is significant).
 package snipcart
 
 import (
@@ -17,9 +22,20 @@ var apiBase = "https://app.snipcart.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{50,75})\b`)
+// Exactly 75 chars of [0-9A-Za-z_], per the upstream trufflehog detector
+// (`\b([0-9A-Za-z_]{75})\b`). No prefix to anchor on, so the keyword arm
+// regex + entropy floor carry the false-positive load.
+var tokenRe = regexp.MustCompile(`\b([0-9A-Za-z_]{75})\b`)
 
-var contextKeywords = []string{"snipcart"}
+// armRe is the assignment-style Snipcart reference that must appear within the
+// proximity window. A bare "snipcart" substring (script-src URLs, package
+// names, comments) is too weak; the shape a real secret-key assignment or
+// config key takes is `snipcart_api_key` / `snipcart-secret` / "snipcart token".
+var armRe = regexp.MustCompile(`(?i)snipcart[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-entropy 75-char runs that clear the charset regex but
+// are not random keys (e.g. structured identifiers, repeated padding).
+const minEntropy = 3.5
 
 type Scanner struct{}
 
@@ -43,6 +59,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
+		// Entropy gate: structured/low-information 75-char runs (padded names,
+		// repeated identifiers) are rejected even if armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.Snipcart,
@@ -62,8 +83,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a `snipcart[_-]?(api[_-]?)?(token|key|secret)`
+// reference appears within a tight window on either side of the token. The
+// window spans both directions (not strict immediate precedence) so a key
+// defined alongside a nearby SNIPCART_API_KEY reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -72,13 +97,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

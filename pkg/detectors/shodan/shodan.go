@@ -1,5 +1,17 @@
-// Package shodan detects Shodan API keys (32-char alphanumeric) gated on a
-// "shodan" keyword window, and verifies them via /api-info.
+// Package shodan detects Shodan API keys and verifies them via /api-info.
+//
+// Format (authoritative): the Shodan API key is a fixed 32-character key over
+// the 62-char alphanumeric charset [a-zA-Z0-9] with no distinguishing prefix.
+// This matches the upstream trufflehog detector
+// (github.com/trufflesecurity/trufflehog, pkg/detectors/shodankey/shodankey.go),
+// whose pattern is PrefixRegex(["shodan"]) + `\b([a-zA-Z0-9]{32})\b`.
+//
+// A bare 32-char alphanumeric run is extremely common (git SHAs are 40 hex,
+// but MD5 hex, base62 ids, nonces, k8s object names routinely produce 32-char
+// alnum runs), so the regex alone is pure noise. With no prefix to anchor on,
+// precision comes from (1) an assignment-style `shodan...key`-shaped reference
+// within a tight 64-byte window and (2) a Shannon-entropy floor that rejects
+// structured low-information 32-char runs. Verify hits /api-info.
 package shodan
 
 import (
@@ -16,11 +28,23 @@ var apiBase = "https://api.shodan.io"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// 32-char alphanumeric. The shape is too generic on its own to surface, so
-// the keyword gate carries the precision.
+// 32-char alphanumeric, per the documented Shodan key format (see package doc).
+// The length is pinned from an authoritative source; the shape is too generic
+// on its own to surface, so the arm regex + entropy floor carry the precision.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
 
-var contextKeywords = []string{"shodan", "shodan_api_key"}
+// armRe is the assignment-style Shodan reference that must appear within the
+// proximity window. A bare "shodan" substring (the CLI name, dependency names,
+// doc URLs, comments) is too weak; `shodan_api_key` / `shodan-token` /
+// `shodanapikey` / `shodan secret` is the shape a real key assignment or
+// config key takes.
+var armRe = regexp.MustCompile(`(?i)shodan[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-information 32-char runs that clear the alnum regex
+// but are not random keys (padded identifiers, repeated-char strings). 3.5 is
+// the standard floor for a high-variety (62-char) fixed-length token; a real
+// 32-char Shodan key sits near 4.7-5.0 bits/char.
+const minEntropy = 3.5
 
 type Scanner struct{}
 
@@ -41,7 +65,14 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
+		// A `shodan...key`-shaped reference within a tight window is mandatory —
+		// 32-char alphanumerics are common (hex digests, base62 ids, nonces).
 		if !nearKeyword(lower, h[2], h[3]) {
+			continue
+		}
+		// Entropy gate: structured/low-information 32-char runs (e.g. a padded
+		// identifier or repeated-char string) are rejected even if armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -60,8 +91,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a `shodan...key`-shaped reference appears within
+// a tight window on either side of the token. The window spans both directions
+// (not strict immediate precedence) so a key defined alongside a nearby
+// SHODAN_API_KEY reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -70,13 +105,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

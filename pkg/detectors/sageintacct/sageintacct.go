@@ -21,11 +21,31 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Intacct sender_password / user_password are 12-32 alnum chars; we pick the
-// conservative range to keep noise bounded behind the `intacct` keyword.
+// tokenRe matches a generic 12-32 alnum run. Sage Intacct does NOT publish an
+// authoritative credential format: the developer docs state Web Services
+// sender_id / sender_password are "provisioned by Sage Intacct" with no
+// documented length, charset, or prefix, and the published examples are
+// free-form user-style passwords (e.g. `pass123!`). We therefore keep the
+// generic shape and must NOT pin a length — pinning a guessed length would
+// silently destroy recall. Disambiguation is delegated to the entropy floor +
+// assignment-anchor keyword gate below.
+//
+//	https://developer.intacct.com/web-services/ (no format published, 2026-06)
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{12,32})\b`)
 
-var contextKeywords = []string{"intacct", "sage-intacct", "sageintacct", "sender_password", "sender_id"}
+// armRe is the assignment-style Intacct reference that must appear within the
+// proximity window. A bare "intacct" substring (doc links, package names, log
+// lines) is too weak a gate against a generic 12-32 alnum run; the
+// `intacct[_-]?(sender|user|api)?[_-]?(id|password|token|key|secret)` shape is
+// what a real credential assignment or config key takes. The bare keyword
+// stays in Keywords() as the cheap engine prefilter.
+var armRe = regexp.MustCompile(`(?i)(intacct|sender|user)[_\-]?(api[_\-]?)?(id|password|token|key|secret)`)
+
+// minEntropy is a CONSERVATIVE 3.0 floor (not 3.5). Because no authoritative
+// format pins the charset, the run may be a short low-variety password; a 3.5
+// floor would over-cull legitimate provisioned credentials. 3.0 rejects only
+// padded placeholders and repeated-character runs that clear the alnum regex.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -44,6 +64,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Entropy gate: padded placeholders and repeated-character runs clear
+		// the alnum regex but are not provisioned credentials. Conservative
+		// 3.0 floor — see minEntropy rationale (no documented charset to pin).
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -68,8 +94,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether an assignment-style Intacct credential reference
+// (armRe) appears within a tight window on either side of the candidate. The
+// window spans both directions (not strict immediate precedence) so a value
+// defined alongside a nearby INTACCT_SENDER_PASSWORD reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -78,13 +108,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

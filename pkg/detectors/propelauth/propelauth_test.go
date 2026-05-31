@@ -39,6 +39,32 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordNoArm verifies the FP shape now rejected by the
+// arm-regex gate: a high-entropy 40+ char run within radius of a bare
+// "propelauth" mention (e.g. a docs URL or import path) but with no
+// assignment-style reference (no propelauth_token / propelauth_api_key) must
+// no longer match. Under the old radius-256 bare-Contains gate this matched.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	// "propelauth" present, but only as a bare word — no token/key/secret arm.
+	body := []byte("// see propelauth docs at https://docs.propelauth.com\nconst x = \"" + dummyToken + "\"")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare keyword without assignment arm, got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected verifies the entropy floor culls a 40+ char
+// run that clears the alnum regex and is armed by a real reference but is a
+// structured/low-information value (single repeated character).
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 42 'a'
+	body := []byte("PROPELAUTH_API_KEY=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy run, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummyToken {

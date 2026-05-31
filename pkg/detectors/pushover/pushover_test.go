@@ -39,6 +39,29 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordProse is the FP regression: a high-entropy 30-char
+// alphanumeric run sitting near the word "pushover" in prose, with no
+// assignment-style arm (`pushover[...]:=`). Before hardening, the radius-256
+// bare-substring gate armed on the word alone and this matched. The arm regex
+// + radius 64 must now reject it.
+func TestFromData_BareKeywordProse(t *testing.T) {
+	body := []byte("We migrated our pushover notifications last week. Build hash X7kQ2mLp9rTvWbN4cZ8sHdF1gJ6yAq was green.")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for high-entropy run near bare prose keyword, got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected confirms a 30-char run that clears the regex
+// and an assignment arm but is low-information is dropped by the entropy floor.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	body := []byte("pushover_token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy token, got %d", len(res))
+	}
+}
+
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("pushover=" + dummyToken + "\npushover_app=" + dummyToken)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)

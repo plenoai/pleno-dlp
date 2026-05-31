@@ -39,6 +39,33 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordNoArm guards the FP shape now rejected by the arm
+// regex: a generic high-entropy 80-256 char run with only a bare "sentinelone"
+// substring nearby (e.g. a doc link or the per-console host) and no
+// assignment-style `sentinelone..token|key|secret` anchor must not match.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("see https://acme.sentinelone.net/docs and value " + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword, no assignment anchor), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected guards the entropy floor: a padded
+// repeated-character run that clears the alnum regex and sits next to a real
+// assignment anchor must still be rejected as low-information.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := ""
+	for i := 0; i < 90; i++ {
+		lowEntropy += "a"
+	}
+	body := []byte("SENTINELONE_API_TOKEN=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low entropy), got %d", len(res))
+	}
+}
+
 func TestVerify_Disabled_Default(t *testing.T) {
 	v, _ := Scanner{}.Verify(context.Background(), dummy)
 	if v {

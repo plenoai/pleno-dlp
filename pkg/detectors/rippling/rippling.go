@@ -1,6 +1,18 @@
 // Package rippling detects Rippling API tokens — 40+ char alphanumeric strings
 // near the `rippling` keyword. Verified via /platform/api/me on
 // api.rippling.com with Bearer auth.
+//
+// Format research (2026-06-01): Rippling's API key / access token is an opaque
+// OAuth bearer credential. Neither the official API docs
+// (developer.rippling.com — documents only `Authorization: Bearer <TOKEN>`) nor
+// Rippling's own example repos (rippling-developer-portal-example, rippling-cli,
+// which treat `access_token` as an opaque string) publish a prefix, fixed
+// length, or charset. There is also no upstream trufflehog rippling detector to
+// mirror. With no authoritative format to anchor on, we apply only recall-safe
+// gate-tightening: a `rippling[_-]?(api[_-]?)?(token|key|secret)` assignment
+// anchor within a tight 64-byte window plus a conservative Shannon entropy
+// floor. We deliberately do NOT pin a length or charset — doing so without a
+// documented spec would silently destroy recall.
 package rippling
 
 import (
@@ -17,9 +29,25 @@ var apiBase = "https://api.rippling.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
+// tokenRe stays a bare 40+ alphanumeric run: the credential format is
+// undocumented, so the keyword arm regex and entropy floor — not the token
+// regex — carry the false-positive load.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`)
 
-var contextKeywords = []string{"rippling"}
+// armRe is the assignment-style Rippling reference that must appear within the
+// proximity window. A bare "rippling" substring (package names, doc links,
+// comments) is too weak; "rippling_api_token" / "rippling-key" /
+// "ripplingsecret" is the shape a real token assignment or config key takes.
+// The bare "RIPPLING_API" / "RIPPLING_AUTH" / "RIPPLING_CREDENTIAL" env-var
+// forms (no token/key/secret suffix) are themselves credible anchors, so the
+// suffix is optional after "api" and "auth"/"credential" arm on their own.
+var armRe = regexp.MustCompile(`(?i)rippling[_\-]?(api([_\-]?(token|key|secret))?|auth|credential|token|key|secret)`)
+
+// minEntropy rejects low-entropy 40+ char runs that clear the alnum regex but
+// are not random tokens (e.g. padded identifiers, repeated structure). Held at
+// a conservative 3.0 because the charset is unknown — a higher floor risks
+// over-culling a legitimately lower-variety opaque token.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -43,6 +71,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
+		// Entropy gate: structured/low-information 40+ char runs (padded
+		// identifiers, repeated patterns) are rejected even if armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.Rippling,
@@ -62,8 +95,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a `rippling[_-]?(api[_-]?)?(token|key|secret)`
+// reference appears within a tight window on either side of the token. The
+// window spans both directions (not strict immediate precedence) so a token
+// defined alongside a nearby RIPPLING_API_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -72,13 +109,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

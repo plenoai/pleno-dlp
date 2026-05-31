@@ -20,11 +20,36 @@ var apiBase = "https://scoutapm.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Agent keys are 16-char base64url, API keys are >=40 base64url.
-var agentKeyRe = regexp.MustCompile(`\b([A-Za-z0-9]{16})\b`)
+// Scout's organization/agent key ("key" in scout_apm.yml, SCOUT_KEY env) is a
+// prefixless alphanumeric string. Official agent examples are inconsistent on
+// length — the Ruby standalone example uses a 20-char placeholder
+// (`00000000000000000000`) while the Laravel README uses a 21-char one
+// (`ABC0ZABCDEFGHIJKLMNOP`) — and no Scout doc pins a canonical length or
+// charset, so we do NOT hard-pin a length: the range below stays permissive
+// enough to cover both documented shapes (and the historical fixture) and the
+// FP load is carried by the arm-regex keyword gate + entropy floor, not the
+// length. The API key (X-SCOUT-API header / `key` query arg) has no documented
+// format at all, so it keeps a wide base64url range.
+var agentKeyRe = regexp.MustCompile(`\b([A-Za-z0-9]{16,30})\b`)
 var apiKeyRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{40,128})\b`)
 
-var contextKeywords = []string{"scoutapm", "scout_apm", "scout-apm", "scout_key"}
+// minEntropy rejects degenerate runs that clear the length regex but are not
+// real keys — e.g. the all-zeros (`00000000000000000000`, entropy 0.0) and
+// repeated-character placeholders that appear constantly in config templates.
+// 3.0 is conservative: alnum keys of this length sit well above it (the 21-char
+// Laravel example is 4.1, the 16-char fixture is 4.0), so recall is preserved
+// while constant/structured fillers are culled. No prefix exists to anchor on,
+// so the entropy floor plus the arm-regex gate together do the disambiguation.
+const minEntropy = 3.0
+
+// armRe is the assignment-style Scout reference that must appear within the
+// proximity window. A bare "scoutapm" substring (script-src URLs, dependency
+// names, doc prose) is too weak; a real key assignment or config key takes the
+// `scout[…](agent|api…)?(key|token|secret)` shape — covering `SCOUT_KEY`,
+// `scout_apm_agent_key`, `scoutapm_api_key`, `scout-apm-token`, etc. The
+// optional `apm`/`agent`/`api` segments are what distinguish an assignment from
+// the bare vendor word.
+var armRe = regexp.MustCompile(`(?i)scout[_-]?(apm)?[_-]?(agent[_-]?)?(api[_-]?)?(key|token|secret)`)
 
 type Scanner struct{}
 
@@ -46,6 +71,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[agentKey]; dup {
 			continue
 		}
+		if !detectors.HasMinEntropy(agentKey, minEntropy) {
+			continue
+		}
 		if !nearKeyword(lower, ak[2], ak[3]) {
 			continue
 		}
@@ -53,6 +81,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		for _, ah := range apiHits {
 			cand := string(data[ah[2]:ah[3]])
 			if cand == agentKey || len(cand) <= 16 {
+				continue
+			}
+			if !detectors.HasMinEntropy(cand, minEntropy) {
 				continue
 			}
 			if !nearKeyword(lower, ah[2], ah[3]) {
@@ -85,8 +116,14 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a `scout…key/token/secret` assignment-style
+// reference appears within a tight window on either side of the candidate. The
+// window spans both directions (not strict immediate precedence) so a key
+// defined alongside a nearby SCOUT_KEY / scout_apm.yml `key:` reference still
+// arms. Radius is 64 (was 256): the prefixless alnum shape is far too common
+// to justify a wide window.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -95,13 +132,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 // Verify accepts the combined `agentKey:apiKey` pair.

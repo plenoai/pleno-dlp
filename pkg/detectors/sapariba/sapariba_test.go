@@ -9,7 +9,10 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-const dummy = "abcdef0123456789ABCDEF0123456789ABcdef01"
+// dummy is a 32-char mixed-case alphanumeric value matching the documented
+// Application Key shape (SAP-samples/ariba-extensibility-samples). High
+// entropy so it clears the 3.5-bit floor.
+const dummy = "uEnCwXMo7YYmQE7el7iqqciAqT7Og0Ik"
 
 func TestType(t *testing.T) {
 	if (Scanner{}).Type() != detectors.SAPAriba {
@@ -36,6 +39,38 @@ func TestFromData_NoKeyword(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected pins the FP shape now culled: a 32-char
+// run with key-grade length and the keyword present, but low information
+// content (repetitive), must no longer match.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	body := []byte("ariba_api_key=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low entropy culled), got %d", len(res))
+	}
+}
+
+// TestFromData_WrongLengthRejected pins the documented exact-32 length: a
+// 40-char high-entropy run near the keyword must not match.
+func TestFromData_WrongLengthRejected(t *testing.T) {
+	body := []byte("ariba_api_key=uEnCwXMo7YYmQE7el7iqqciAqT7Og0IkXYZ8mnop")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (length != 32 culled), got %d", len(res))
+	}
+}
+
+// TestFromData_BareKeywordProseRejected pins the radius/arm-regex tightening:
+// a high-entropy 32-char token whose only nearby "ariba" is bare prose (no
+// assignment anchor) must no longer match.
+func TestFromData_BareKeywordProseRejected(t *testing.T) {
+	body := []byte("the ariba platform is great. unrelated=" + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare prose keyword, no arm match), got %d", len(res))
 	}
 }
 

@@ -20,9 +20,29 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
+// SignalWire credentials are a two-part pair (Project ID + API token).
+// Documented shapes (upstream trufflehog pkg/detectors/signalwire):
+//   - Project ID: a UUID — [0-9a-z]{8}-{4}-{4}-{4}-{12}
+//   - API token : exactly 50 alphanumeric chars — [0-9A-Za-z]{50}
+//
+// We keep a single token regex covering the high-variety credential shape so
+// the id and token can both be harvested from the chunk, then disambiguate
+// with the keyword arm regex + an entropy floor. The token half (the actual
+// secret, carried in RawV2) is the value the entropy gate protects.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24,128})\b`)
 
-var contextKeywords = []string{"signalwire"}
+// minEntropy rejects low-information runs (repeated chars, padded zeros,
+// dictionary-ish strings) that clear the alphanumeric regex but are not
+// real key material. The token charset is high-variety base62, so the
+// 3.5 bits/char floor from the FP-hardening rubric applies without
+// over-culling genuine 50-char base62 tokens.
+const minEntropy = 3.5
+
+// armRe is the assignment-anchored keyword gate. The bare "signalwire"
+// substring over radius 256 matched any prose mention of the provider; this
+// requires the keyword to sit next to a credential assignment within a tight
+// window. The bare keyword stays in Keywords() as the engine prefilter.
+var armRe = regexp.MustCompile(`(?i)signalwire[_-]?(project|api[_-]?)?(token|key|secret|id|project)`)
 
 type Scanner struct{}
 
@@ -44,6 +64,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		}
 		v := string(data[h[2]:h[3]])
 		if _, dup := seen[v]; dup {
+			continue
+		}
+		// Entropy floor: a high-variety base62 token (and a real UUID id)
+		// clears 3.5 bits/char; padded/dictionary/low-information runs that
+		// satisfy the bare alphanumeric regex are dropped here.
+		if !detectors.HasMinEntropy(v, minEntropy) {
 			continue
 		}
 		seen[v] = struct{}{}
@@ -68,7 +94,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -78,12 +104,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(window)
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
