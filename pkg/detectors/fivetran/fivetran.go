@@ -20,7 +20,17 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Fivetran API keys/secrets are 20 alnum each. We pair them by proximity.
 var keyRe = regexp.MustCompile(`\b([A-Za-z0-9]{20})\b`)
 
-var contextKeywords = []string{"fivetran"}
+// anchorRe is an assignment-style Fivetran reference (env/config/source shape)
+// that must sit within anchorRadius bytes of one half of a candidate pair.
+// Without it, the bare keyword "fivetran" anywhere in a 256B window paired any
+// two adjacent 20-char alnum runs — README hashes, git SHAs, build IDs, etc.
+var anchorRe = regexp.MustCompile(`(?i)fivetran[_\- ]?(?:api[_\- ]?key|key|secret|token)\s*[:=]`)
+
+// minEntropy is a SECONDARY gate. Fivetran 20-char alnum IDs measure ~3.9
+// bits/char, so the floor is deliberately 3.0 (not 3.5) to reject only runs
+// of repeated/structured characters, never a real ID. The assignment anchor
+// above is the primary precision lever.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -33,8 +43,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if len(hits) < 2 {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
-	// Pair adjacent matches that both fall inside a fivetran keyword window.
+	// Anchor positions: assignment-style fivetran references in the chunk.
+	anchors := anchorRe.FindAllIndex(data, -1)
+	if len(anchors) == 0 {
+		return nil, nil
+	}
+	// Pair adjacent matches where one half sits near an assignment anchor.
 	var paired [][2]string
 	seen := map[string]struct{}{}
 	for i := 0; i+1 < len(hits); i++ {
@@ -43,7 +57,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if a == b {
 			continue
 		}
-		if !nearKeyword(lower, hits[i][2], hits[i+1][3]) {
+		// Anchor must be near one half of the pair (radius 64, not 256).
+		if !nearAnchor(anchors, hits[i][2], hits[i][3]) && !nearAnchor(anchors, hits[i+1][2], hits[i+1][3]) {
+			continue
+		}
+		// Secondary entropy gate: reject repeated/structured 20-char runs.
+		if !detectors.HasMinEntropy(a, minEntropy) || !detectors.HasMinEntropy(b, minEntropy) {
 			continue
 		}
 		k := a + ":" + b
@@ -75,19 +94,14 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
-	from := start - radius
-	if from < 0 {
-		from = 0
-	}
-	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+// nearAnchor reports whether any assignment anchor lies within anchorRadius
+// bytes of the [start,end) token span.
+func nearAnchor(anchors [][]int, start, end int) bool {
+	const anchorRadius = 64
+	for _, a := range anchors {
+		// a = [anchorStart, anchorEnd). Treat the anchor as adjacent if its
+		// span comes within anchorRadius of the token span on either side.
+		if a[0] <= end+anchorRadius && a[1] >= start-anchorRadius {
 			return true
 		}
 	}

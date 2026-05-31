@@ -31,6 +31,52 @@ func TestFromData_NoKeyword_DoesNotMatch(t *testing.T) {
 	}
 }
 
+func TestFromData_DashKeyword_Matches(t *testing.T) {
+	// "vercel-token" (dash variant) within the window must arm the token.
+	res, err := Scanner{}.FromData(context.Background(), false, []byte("vercel-token: "+dummy))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected 1, got %d", len(res))
+	}
+}
+
+func TestFromData_DotVercelConfig_Matches(t *testing.T) {
+	// A token in a .vercel/ config blob with a nearby VERCEL_TOKEN reference
+	// (not immediately preceding) must still arm — proximity is two-sided.
+	blob := "# .vercel/project.json\n" + dummy + "\nexport VERCEL_TOKEN=...\n"
+	res, err := Scanner{}.FromData(context.Background(), false, []byte(blob))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected 1, got %d", len(res))
+	}
+}
+
+func TestFromData_BareVercel_DoesNotMatch(t *testing.T) {
+	// A bare "vercel" substring (e.g. a script-src URL or dependency name)
+	// without a "vercel_token"-shaped reference must NOT arm — this is the
+	// dominant SHA/nonce/k8s-name false-positive source.
+	res, _ := Scanner{}.FromData(context.Background(), false,
+		[]byte("https://vercel.com/deploy nonce="+dummy))
+	if len(res) != 0 {
+		t.Fatalf("expected 0, got %d", len(res))
+	}
+}
+
+func TestFromData_LowEntropy_DoesNotMatch(t *testing.T) {
+	// A 24-char run that clears the alnum regex but has low entropy (a
+	// padded identifier) must be rejected even when armed by the keyword.
+	lowEntropy := "aaaaaaaaaaaabbbbbbbbbbbb" // 24 chars, entropy 1.0 bits/char.
+	res, _ := Scanner{}.FromData(context.Background(), false,
+		[]byte("VERCEL_TOKEN="+lowEntropy))
+	if len(res) != 0 {
+		t.Fatalf("expected 0, got %d", len(res))
+	}
+}
+
 func TestFromData_Negative(t *testing.T) {
 	// Wrong length — 23 chars — must not match.
 	res, _ := Scanner{}.FromData(context.Background(), false, []byte("vercel: abcdefghijklmnopqrstuvw"))

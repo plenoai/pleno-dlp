@@ -44,6 +44,13 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if key == secret {
 			continue
 		}
+		// Cull low-information runs (e.g. `aaaa…`, zero-padded hex) that
+		// the loose [A-Za-z0-9]{43} regex would otherwise admit. 3.5
+		// matches the base64url/alnum floor in entropy.go without
+		// over-culling real bitfinex keys (~4.4 bits/char observed).
+		if !detectors.HasMinEntropy(key, 3.5) || !detectors.HasMinEntropy(secret, 3.5) {
+			continue
+		}
 		if !nearKeyword(lower, hits[i][2], hits[i+1][3]) {
 			continue
 		}

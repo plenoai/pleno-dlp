@@ -46,6 +46,44 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_KeywordButNoAnchor covers the historical false-positive
+// shape: the word "jumio" co-occurs in the chunk (e.g. a doc comment or
+// CDN URL) alongside two unrelated high-entropy blobs (asset hashes,
+// git SHAs). The old whole-file Contains gate paired them; the windowed
+// assignment anchor must reject them.
+func TestFromData_KeywordButNoAnchor(t *testing.T) {
+	body := []byte("// jumio integration notes\nasset_hash=" + dummyKey + "\nbuild_sha=" + dummySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (no assignment anchor), got %d", len(res))
+	}
+}
+
+// TestFromData_AnchorButLowEntropy ensures a properly-anchored but
+// low-entropy run (repeated chars padded to length) is rejected by the
+// entropy gate rather than paired.
+func TestFromData_AnchorButLowEntropy(t *testing.T) {
+	lowEnt := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 40 'a's, len in [32,64]
+	body := []byte("JUMIO_API_TOKEN=" + lowEnt + " JUMIO_API_SECRET=" + lowEnt)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low entropy), got %d", len(res))
+	}
+}
+
+// TestFromData_AnchorVariants confirms the anchor regex accepts the
+// dash/no-underscore and bare token/secret spellings.
+func TestFromData_AnchorVariants(t *testing.T) {
+	body := []byte("jumio-token: " + dummyKey + "\njumio_secret = " + dummySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 1 {
+		t.Fatalf("expected 1 paired result, got %d", len(res))
+	}
+	if string(res[0].RawV2) != dummyKey+":"+dummySecret {
+		t.Fatalf("RawV2 mismatch: %s", res[0].RawV2)
+	}
+}
+
 func TestVerify_NoBase(t *testing.T) {
 	v, err := Scanner{}.Verify(context.Background(), dummyKey+":"+dummySecret)
 	if err != nil || v {

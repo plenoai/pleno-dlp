@@ -24,7 +24,14 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // 40 base62 chars. Generic shape — keyword gate disambiguates.
 var keyRe = regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`)
 
-var contextKeywords = []string{"cohere", "co_api_key", "cohere_api_key"}
+// minEntropy rejects git-SHA-shaped and other low-information 40-char runs
+// that clear the regex but are not real keys.
+const minEntropy = 3.5
+
+// contextRe is the windowed keyword gate. A bare "cohere" substring matched
+// English words like "coherent"/"coherence"; the word boundary kills those
+// while the _api_key forms keep the assignment-style fixtures armed.
+var contextRe = regexp.MustCompile(`(?i)\bcohere\b|co_api_key|cohere_api_key`)
 
 type Scanner struct{}
 
@@ -43,6 +50,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Entropy gate: git-SHA-shaped 40-char hex and other structured runs
+		// that clear the regex but lack key-grade randomness are rejected.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -78,12 +90,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return contextRe.MatchString(window)
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

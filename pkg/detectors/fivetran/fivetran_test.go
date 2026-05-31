@@ -40,6 +40,32 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_TwoUnrelatedIDs: a bare "fivetran" mention co-occurring with two
+// unrelated 20-char alnum IDs (a git SHA-like build hash and an asset id) must
+// NOT pair them — there is no assignment anchor near either half.
+func TestFromData_TwoUnrelatedIDs(t *testing.T) {
+	body := []byte("# fivetran connector notes\n" +
+		"build commit a1b2c3d4e5f60718293A and asset Qz9Xy8Wv7Ut6Sr5Qp4Oz referenced in the changelog above.")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (no assignment anchor near either ID), got %d", len(res))
+	}
+}
+
+// TestFromData_AnchoredPair: an assignment anchor (FIVETRAN_KEY:) within radius
+// 64 of one half arms the pair even when only one side carries the anchor word.
+func TestFromData_AnchoredPair(t *testing.T) {
+	body := []byte("fivetran_key: " + dummyKey + "\nsecret: " + dummySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) == 0 {
+		t.Fatal("expected >=1 anchored pair")
+	}
+	want := dummyKey + ":" + dummySecret
+	if string(res[0].RawV2) != want {
+		t.Fatalf("RawV2=%q want %q", string(res[0].RawV2), want)
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()

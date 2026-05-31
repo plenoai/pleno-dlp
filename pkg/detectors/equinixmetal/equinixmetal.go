@@ -20,7 +20,18 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Equinix Metal API tokens are 32-char alnum.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
 
-var contextKeywords = []string{"equinix", "metal_api", "packet_api", "metal_token"}
+// minEntropy gates out low-information 32-char runs (repeated chars, padded
+// identifiers) that clear the length floor but are not tokens. 3.0 is chosen
+// deliberately over 3.5: real Equinix tokens are frequently hex-style, whose
+// entropy ceiling is ~4.0 and which in practice cap around ~3.6 — a 3.5 floor
+// over-culls those legitimate tokens.
+const minEntropy = 3.0
+
+// anchorRe matches the assignment-style references that must appear near a
+// token. A bare `equinix` substring (e.g. a docs URL or marketing copy) no
+// longer arms a token — only anchored credential shapes do. `equinix` is kept
+// in Keywords() as a cheap prefilter, but the proximity gate is stricter.
+var anchorRe = regexp.MustCompile(`metal_api|packet_api|metal_token|equinix[_\-]?(?:api|token|metal)`)
 
 type Scanner struct{}
 
@@ -39,6 +50,10 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Entropy gate: structured/repeated 32-char runs are rejected.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -63,8 +78,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether an anchored credential reference appears within
+// a tight window around the token. The radius is 96 bytes (down from 256) and
+// a bare `equinix` substring no longer arms — only anchorRe shapes do.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 96
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -73,13 +91,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return anchorRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

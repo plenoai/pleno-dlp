@@ -27,6 +27,30 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareCohereWord ensures the \bcohere\b alternative arms a token
+// so the bare-word keyword path still works alongside the _api_key forms.
+func TestFromData_BareCohereWord(t *testing.T) {
+	res, err := Scanner{}.FromData(context.Background(), false, []byte("cohere key: "+dummy))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected 1, got %d", len(res))
+	}
+}
+
+// TestFromData_CoherentNotArmed guards the false positive the word boundary
+// fixes: "coherent answers" must NOT arm a git-SHA-shaped 40-char token.
+func TestFromData_CoherentNotArmed(t *testing.T) {
+	// 40-char lowercase-hex git SHA shape near English "coherent".
+	const sha = "356a192b7913b04c54574d18c28d46e6395428ab"
+	data := "the model gives coherent answers; commit " + sha
+	res, _ := Scanner{}.FromData(context.Background(), false, []byte(data))
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (coherent must not arm), got %d", len(res))
+	}
+}
+
 func TestRedact(t *testing.T) {
 	if !strings.HasPrefix(redact(dummy), "abcdef") {
 		t.Fatal("redact prefix wrong")
