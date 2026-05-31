@@ -45,10 +45,13 @@ release:
   draft: false
   footer: |
     ---
-    Verify the release with:
+    Verify the download against the signed checksums:
     ```
-    gh attestation verify --owner plenoai pleno-dlp_{os}_{arch}.tar.gz
+    sha256sum -c checksums.txt
     ```
+    Build-provenance attestations (`gh attestation verify`) are published
+    once this repository is public / GHAS-enabled; until then the release
+    job skips attestation, so use the checksums above.
 
 changelog:
   use: github
