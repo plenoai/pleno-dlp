@@ -21,7 +21,23 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{80,256})\b`)
 
-var contextKeywords = []string{"sentinelone"}
+// armRe is the assignment-style SentinelOne reference that must appear within
+// the proximity window. SentinelOne does not publicly document the API token's
+// length or charset (NinjaOne, Stitchflow, Sumo Logic integration guides all
+// describe only the `Authorization: ApiToken <token>` scheme), so the token
+// length stays at the conservative {80,256} and recall rests on the gate.
+// A bare "sentinelone" substring (doc links, the per-console
+// `<console>.sentinelone.net` host) is too weak a gate against a generic
+// 80-256 alphanumeric run; `sentinelone[_-]?(api[_-]?)?(token|key|secret)` is
+// the shape a real credential assignment or config key takes. The bare
+// keyword is kept in Keywords() as the cheap engine prefilter.
+var armRe = regexp.MustCompile(`(?i)sentinelone[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-entropy 80-256 char runs that clear the alnum regex
+// but are not random tokens (padded placeholders, long repeated-character
+// runs). 3.0 is conservative — chosen to preserve recall absent a documented
+// charset, since a tighter floor would silently cull real tokens.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -40,6 +56,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Entropy gate: structured/low-information 80-256 char runs (a padded
+		// placeholder or a long run of repeated characters) clear the alnum
+		// regex but are not random tokens — reject them even when armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -64,8 +86,13 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a
+// `sentinelone[_-]?(api[_-]?)?(token|key|secret)` reference appears within a
+// tight window on either side of the candidate. The window spans both
+// directions (not strict immediate precedence) so a credential defined
+// alongside a nearby SENTINELONE_API_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -74,13 +101,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

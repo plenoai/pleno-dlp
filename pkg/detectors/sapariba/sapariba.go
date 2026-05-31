@@ -1,7 +1,14 @@
-// Package sapariba detects SAP Ariba API keys — 32+ alnum tokens
-// near the `ariba` keyword. Unverified by design — Ariba routes per
+// Package sapariba detects SAP Ariba Application Keys (the apiKey header
+// value) near the `ariba` keyword. Unverified by design — Ariba routes per
 // region (`<region>.api.ariba.com`) and per-realm; verification fires
 // only when an apiBase override is supplied.
+//
+// Format (authoritative): the Application Key is a fixed 32-char,
+// mixed-case alphanumeric string with no public prefix. Confirmed by the
+// official SAP samples, e.g. <APPLICATION-KEY> values shown as
+// "uEnCwXMo7YYmQE7el7iqqciAqT7Og0Ik" and "Qmn0qCueIwEYXAoiqgY77lqEOk77iTMc"
+// in SAP-samples/ariba-extensibility-samples
+// (topics/apis/recipes/retrieve-sourcing-requests-from-api.ipynb).
 package sapariba
 
 import (
@@ -18,11 +25,22 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Ariba API keys are 32+ alnum (no fixed prefix); rely on the keyword
-// gate to suppress false positives.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+// Application Key: exactly 32 mixed-case alphanumeric chars, no prefix
+// (per SAP-samples). The bare shape collides with many random secrets, so
+// the entropy floor and the assignment-anchored keyword gate disambiguate.
+var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
 
-var contextKeywords = []string{"ariba", "sap-ariba", "ariba_api"}
+// minEntropy rejects git-SHA-shaped / low-information 32-char runs that
+// clear the regex but lack key-grade randomness. 3.5 bits/char is the
+// high-variety (mixed-case alnum) floor; a real 32-char base62 key clears
+// it comfortably while 32-char hex (caps ~4.0 but commonly structured) and
+// repetitive runs are culled.
+const minEntropy = 3.5
+
+// contextRe is the windowed assignment-anchor gate. Replaces a bare
+// strings.Contains(window, "ariba") which matched prose; this requires an
+// assignment-style ariba api/token/key/secret form near the token.
+var contextRe = regexp.MustCompile(`(?i)ariba[_-]?(api[_-]?)?(token|key|secret)`)
 
 type Scanner struct{}
 
@@ -41,6 +59,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -66,7 +87,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -76,12 +97,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return contextRe.MatchString(window)
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

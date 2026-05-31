@@ -1,6 +1,12 @@
 // Package recurly detects Recurly subscription billing API keys (32-char
-// alphanumeric near the `recurly` keyword). Verified via /v3/sites on
-// v3.recurly.com using HTTP Basic auth with the key as username.
+// alphanumeric) near an assignment-style `recurly[_-]?(api[_-]?)?(token|key|
+// secret)` reference. Verified via /sites on v3.recurly.com using HTTP Basic
+// auth with the key as username.
+//
+// Key format is undocumented by Recurly (official docs/SDKs and the upstream
+// trufflehog/gitleaks rule sets all omit length/prefix/charset), so the regex
+// is intentionally not re-tightened on an unverified length; the precision gate
+// is the arm regex + radius-64 proximity + conservative entropy floor.
 package recurly
 
 import (
@@ -19,7 +25,26 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
 
-var contextKeywords = []string{"recurly"}
+// armRe is the assignment-style Recurly reference that must appear within the
+// proximity window. A bare "recurly" substring (script-src URLs, doc links,
+// `*.recurly.com` hosts) is too weak a gate against a generic 32-char
+// alphanumeric run; `recurly[_-]?(api[_-]?)?(token|key|secret)` is the shape a
+// real credential assignment or config key takes. The bare keyword stays in
+// Keywords() as the engine prefilter.
+//
+// NOTE: no authoritative Recurly source documents the private API key's length,
+// prefix, or charset — the official docs, the recurly-client SDKs, and the
+// upstream trufflehog/gitleaks rule sets all omit it. So the existing `{32}`
+// length is left unchanged (not re-pinned on an unverified claim) and only the
+// recall-safe gate is tightened here: arm regex + tighter radius + conservative
+// entropy floor.
+var armRe = regexp.MustCompile(`(?i)recurly[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-information 32-char alnum runs that clear the regex but
+// are not random tokens (padded placeholders, repeated characters, slugs). 3.0
+// is conservative — the key charset is undocumented, so a hex key (caps ~3.6)
+// must still pass; 3.5 would over-cull and silently destroy recall.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -43,6 +68,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.Recurly,
@@ -62,8 +90,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a `recurly[_-]?(api[_-]?)?(token|key|secret)`
+// reference appears within a tight window on either side of the candidate. The
+// window spans both directions (not strict immediate precedence) so a credential
+// defined alongside a nearby RECURLY_API_KEY reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -72,13 +104,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

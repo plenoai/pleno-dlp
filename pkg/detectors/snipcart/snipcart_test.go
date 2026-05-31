@@ -9,7 +9,14 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-const dummyToken = "abcdef0123456789ABCDEF0123456789abcdef0123456789AB"
+// 75-char high-entropy token of [0-9A-Za-z_], matching the documented upstream
+// Snipcart secret-key shape. Bare literal (not in an auth-header context) to
+// stay clear of the gitleaks pre-commit hook.
+const dummyToken = "OhbVrpoiVgRV5IfLBcbfnoGMbJmTPSIAoCLrZ3aWZkSBvrjn9Wvgfygw2wMqZcUDIh_7yfJs1ON"
+
+// lowEntropyToken is exactly 75 chars but structurally repetitive — it clears
+// the charset/length regex yet must be culled by the entropy floor.
+const lowEntropyToken = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func TestType(t *testing.T) {
 	if (Scanner{}).Type() != detectors.Snipcart {
@@ -36,6 +43,27 @@ func TestFromData_NoKeyword(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without snipcart keyword, got %d", len(res))
+	}
+}
+
+// A bare "snipcart" mention near a generic 75-char token (no assignment-style
+// reference) must no longer arm: the radius-64 arm regex replaces the old
+// radius-256 Contains gate.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("the snipcart cdn script lives at example.com see token " + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare keyword without arm reference, got %d", len(res))
+	}
+}
+
+// A structurally repetitive 75-char string near a real arm reference clears the
+// length/charset regex but must be culled by the entropy floor.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	body := []byte("SNIPCART_API_KEY=" + lowEntropyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy token, got %d", len(res))
 	}
 }
 

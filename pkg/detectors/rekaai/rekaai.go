@@ -16,11 +16,26 @@ var apiBase = "https://api.reka.ai"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Reka API keys are 32-64 alnum chars (no documented prefix); we anchor
-// on length and the `reka` keyword to bound false positives.
+// Reka exposes no authoritative API-key format: docs.reka.ai and the
+// official SDKs only ever show the placeholder "your-api-key" / the
+// REKA_API_KEY env var, never a prefix, fixed length, or charset, and
+// trufflehog ships no rekaai detector to mirror. We therefore do NOT
+// pin a length or prefix (that would silently destroy recall) and keep
+// the broad 32-64 alnum shape; false positives are bounded instead by a
+// conservative entropy floor plus an assignment-anchored keyword gate.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-var contextKeywords = []string{"reka", "rekaai", "reka.ai"}
+// minEntropy is the recall-safe conservative floor for an unsourced
+// charset: 3.0 admits hex/low-variety key material (hex caps ~3.6) while
+// culling repetitive low-information runs that clear the regex.
+const minEntropy = 3.0
+
+// armRe is the assignment-anchored keyword gate, evaluated within a tight
+// radius. It replaces a bare strings.Contains(window, "reka") over a
+// 256-char window — that matched prose like "Rekamilemu" and any unrelated
+// secret sharing a chunk with the word. The bare "reka" prefilter still
+// lives in Keywords().
+var armRe = regexp.MustCompile(`(?i)reka(\.ai|ai)?[_-]?(api[_-]?)?(token|key|secret)`)
 
 type Scanner struct{}
 
@@ -39,6 +54,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Conservative entropy floor: rejects repetitive low-information
+		// runs that clear the broad regex but cannot be key material.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -64,7 +84,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -73,13 +93,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
