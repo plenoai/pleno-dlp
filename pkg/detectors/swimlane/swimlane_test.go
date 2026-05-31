@@ -39,6 +39,48 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordNoArm guards the FP shape the hardening rejects: a
+// generic high-entropy alnum run sitting near a bare "swimlane" substring that
+// is NOT a credential assignment (a doc link / host mention). Under the old
+// radius-256 strings.Contains gate this matched; with the assignment-anchor arm
+// regex it must not.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("see https://app.swimlane.com/docs for details; build_id=" + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword, no assignment anchor), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected guards the entropy floor: a 40-char run that
+// clears the alnum regex and is armed by an assignment reference but is a padded
+// placeholder must be rejected.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	placeholder := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 40x 'a'
+	body := []byte("swimlane_api_token=" + placeholder)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low-entropy placeholder), got %d", len(res))
+	}
+}
+
+// TestFromData_ArmVariants confirms recall across the arm-regex shapes so the
+// tighter gate does not silently drop real assignment styles.
+func TestFromData_ArmVariants(t *testing.T) {
+	for _, prefix := range []string{
+		"SWIMLANE_TOKEN=",
+		"swimlane-api-key: ",
+		"swimlaneSecret=",
+		"swimlane_api_token=",
+	} {
+		body := []byte(prefix + dummy)
+		res, _ := Scanner{}.FromData(context.Background(), false, body)
+		if len(res) == 0 {
+			t.Fatalf("expected >=1 for prefix %q", prefix)
+		}
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Private-Token") != dummy {

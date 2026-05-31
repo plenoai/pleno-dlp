@@ -1,6 +1,15 @@
-// Package swimlane detects Swimlane SOAR PAT tokens — long alnum
-// strings near a `swimlane` keyword. Verified via /api/user/me on
-// app.swimlane.com with PAT-Authorization header.
+// Package swimlane detects Swimlane SOAR personal access tokens — long
+// alnum strings near a `swimlane[_-]?(api[_-]?)?(token|key|secret)`
+// assignment reference. Verified via /api/user/me on app.swimlane.com
+// with the Private-Token header.
+//
+// No authoritative source documents the PAT prefix/length/charset: the
+// Swimlane Python driver forwards the token as an opaque string and the
+// only documented session token is a dotted JWT (which the alnum regex
+// below does not match). The 40-80 length range is therefore left as-is
+// to preserve recall; FP risk is reduced by tightening the proximity
+// gate to an assignment-anchor arm regex within radius 64 and adding a
+// conservative entropy floor — not by guessing a length.
 package swimlane
 
 import (
@@ -19,7 +28,21 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
 
-var contextKeywords = []string{"swimlane"}
+// armRe is the assignment-style Swimlane reference that must appear within the
+// proximity window. No authoritative source documents the PAT length/charset
+// (the Swimlane Python driver forwards the token as an opaque string and the
+// session token is a dotted JWT, which this alnum regex does not match), so the
+// length range is left untouched to preserve recall. A bare "swimlane"
+// substring (doc links, the app.swimlane.com host, package names) is too weak a
+// gate against a generic 40-80 alphanumeric run; the shape a real credential
+// assignment or config key takes is `swimlane[_-]?(api[_-]?)?(token|key|secret)`.
+var armRe = regexp.MustCompile(`(?i)swimlane[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy is a conservative floor: no source pins the charset, so 3.0 (well
+// below the 3.5 used for documented high-variety tokens) only rejects clearly
+// structured 40-80 char runs (padded placeholders, repeated characters) that
+// clear the alnum regex but are not random tokens.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -43,6 +66,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
+		// Entropy gate: structured/low-information 40-80 char runs (padded
+		// placeholders, long runs of repeated characters) clear the alnum regex
+		// but are not random tokens — reject them even when armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.Swimlane,
@@ -59,8 +88,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a `swimlane[_-]?(api[_-]?)?(token|key|secret)`
+// reference appears within a tight window on either side of the candidate. The
+// window spans both directions (not strict immediate precedence) so a
+// credential defined alongside a nearby SWIMLANE_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -69,13 +102,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

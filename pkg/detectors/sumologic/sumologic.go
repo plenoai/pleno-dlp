@@ -21,14 +21,29 @@ var apiBase = "https://api.sumologic.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
-	// Access IDs are 14 alphanumerics; documented prefix is `su` but we
-	// don't anchor on it so cases without the prefix still match.
+	// Access IDs are 14 chars with a documented `su` prefix
+	// (upstream trufflehog: `su[A-Za-z0-9]{12}`). The prefix is the
+	// distinguishing anchor, so no entropy floor is needed on the ID.
 	idRe = regexp.MustCompile(`\b(su[A-Za-z0-9]{12})\b`)
-	// Access keys are 64 alphanumerics.
+	// Access keys are 64 base62 chars with no prefix
+	// (upstream trufflehog: `[A-Za-z0-9]{64}`). A bare fixed-length
+	// alnum run is FP-prone, so the candidate must additionally clear an
+	// entropy floor (keyMinEntropy) before it is accepted as a key.
 	keyRe = regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`)
 )
 
-var contextKeywords = []string{"sumologic", "sumo_logic", "sumo_access_id", "sumo_access_key"}
+// keyMinEntropy rejects low-information 64-char runs (padded placeholders,
+// repeated-character fillers, hex-shaped digests sized to 64) that clear the
+// alnum regex but lack key-grade randomness. 3.5 bits/char suits the
+// high-variety base62 access-key charset per docs/detector-key-formats.md.
+const keyMinEntropy = 3.5
+
+// armRe is the assignment-style Sumo Logic reference that must appear within
+// the proximity window. A bare `strings.Contains(window, "sumo")` over a wide
+// radius matched unrelated prose and script-src URLs; the arm regex requires
+// the credential-assignment shape Sumo Logic configs actually use while the
+// bare keyword stays in Keywords() as the cheap engine prefilter.
+var armRe = regexp.MustCompile(`(?i)sumo[_-]?(logic)?[_-]?(access[_-]?)?(id|key|token|secret)`)
 
 type Scanner struct{}
 
@@ -79,7 +94,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -88,13 +103,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func nearestKey(idStart int, data []byte, hits [][]int) (string, bool) {
@@ -103,10 +112,17 @@ func nearestKey(idStart int, data []byte, hits [][]int) (string, bool) {
 	best := ""
 	for _, h := range hits {
 		start, end := h[2], h[3]
+		candidate := string(data[start:end])
+		// Entropy gate: a 64-char run with sub-key randomness is a
+		// placeholder/digest, not a Sumo Logic access key — skip it so it
+		// neither pairs with the ID nor suppresses a real nearby key.
+		if !detectors.HasMinEntropy(candidate, keyMinEntropy) {
+			continue
+		}
 		dist := abs(start - idStart)
 		if dist < bestDist {
 			bestDist = dist
-			best = string(data[start:end])
+			best = candidate
 		}
 	}
 	if best == "" {

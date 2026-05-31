@@ -39,10 +39,37 @@ func TestFromData_NoKeyword(t *testing.T) {
 }
 
 func TestFromData_Dedup(t *testing.T) {
-	body := []byte("vimeo " + dummy + "\nvimeo " + dummy)
+	// Each line uses the assignment shape so the arm regex arms; dedup must
+	// still collapse the repeated token to a single result.
+	body := []byte("vimeo_token=" + dummy + "\nvimeo_token=" + dummy)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
+	}
+}
+
+// TestFromData_BareKeywordRejected pins the FP shape the hardening culls: a
+// high-entropy 32-128 alnum run sitting near a bare "vimeo" mention (a URL,
+// prose, or embed) with no assignment/credential context must NOT match now
+// that the gate requires the vimeo[_-]?(api[_-]?)?(token|key|secret|client)
+// arm regex within radius 64.
+func TestFromData_BareKeywordRejected(t *testing.T) {
+	body := []byte("watch on vimeo.com here: " + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare-keyword FP shape, got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected pins the entropy floor: a 40-char run that
+// clears the regex and sits in a real assignment context but is low-entropy
+// (a single repeated character) must be rejected by HasMinEntropy(3.0).
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 40 'a's
+	body := []byte("vimeo_token=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy run, got %d", len(res))
 	}
 }
 

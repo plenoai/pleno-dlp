@@ -21,7 +21,25 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`)
 
-var contextKeywords = []string{"trustpilot"}
+// armRe is the assignment-style Trustpilot reference that must appear within
+// the proximity window. A bare "trustpilot" substring (widget script-src URLs,
+// doc links, review-page anchors) is too weak a gate against a generic 32-128
+// alphanumeric run; `trustpilot[_-]?(api[_-]?)?(token|key|secret)` is the shape
+// a real credential assignment or config key takes. The bare "trustpilot"
+// keyword stays in Keywords() as the engine prefilter.
+//
+// The Trustpilot API key length/charset is NOT authoritatively documented
+// (developers.trustpilot.com shows only `YOUR-API-KEY-HERE` placeholders and
+// no upstream trufflehog detector exists), so the {32,128} alnum range is left
+// unchanged and the entropy floor is held conservative at 3.0 to protect
+// recall — no length is pinned and no charset is narrowed on a guess.
+var armRe = regexp.MustCompile(`(?i)trustpilot[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-entropy 32-128 char runs that clear the alnum regex
+// but are not random tokens (e.g. padded placeholders, repeated characters).
+// Held at 3.0 (conservative) because the true charset is undocumented; a
+// higher floor would risk culling legitimate keys.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -45,6 +63,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
+		// Entropy gate: structured/low-information 32-128 char runs (e.g. a
+		// padded placeholder or a long run of repeated characters) clear the
+		// alnum regex but are not random tokens — reject them even when armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.Trustpilot,
@@ -64,8 +88,13 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a
+// `trustpilot[_-]?(api[_-]?)?(token|key|secret)` reference appears within a
+// tight window on either side of the candidate. The window spans both
+// directions (not strict immediate precedence) so a credential defined
+// alongside a nearby TRUSTPILOT_API_KEY reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -74,13 +103,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

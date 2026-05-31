@@ -4,12 +4,20 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-const dummyToken = "abcdef0123456789ABCDEF0123456789abcdefAB"
+// dummyToken is a dummy-shaped HS256 JWT (eyJ header . payload . signature),
+// the authoritative Woodpecker CI token format. Not a real token.
+const dummyToken = "eyJhbGciOiJIUzI1NiJ9.eyJ0eXBlIjoidXNlciIsInRleHQiOiJhbGljZSJ9.dGhpc2lzbm90YXJlYWxzaWduYXR1cmVhdGFsbA"
+
+// fpToken is a generic high-entropy 40-char alphanumeric run with no JWT
+// structure. The old `[A-Za-z0-9]{32,64}` regex matched it; the JWT-anchored
+// regex must not, even sitting right next to the woodpecker keyword.
+const fpToken = "abcdef0123456789ABCDEF0123456789abcdefAB"
 
 func TestType(t *testing.T) {
 	if (Scanner{}).Type() != detectors.Woodpecker {
@@ -36,6 +44,27 @@ func TestFromData_NoKeyword(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without woodpecker keyword, got %d", len(res))
+	}
+}
+
+// TestFromData_RejectsGenericHighEntropy is the FP regression: a generic
+// high-entropy alphanumeric run next to the woodpecker keyword must no longer
+// match now that the regex is anchored on the JWT structure.
+func TestFromData_RejectsGenericHighEntropy(t *testing.T) {
+	body := []byte("WOODPECKER_TOKEN=" + fpToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for generic high-entropy non-JWT run, got %d", len(res))
+	}
+}
+
+// TestFromData_RejectsFarKeyword guards the radius tightening: a JWT more
+// than 64 bytes from the keyword arm must not match.
+func TestFromData_RejectsFarKeyword(t *testing.T) {
+	body := []byte("woodpecker_token mentioned here, then " + strings.Repeat("x", 80) + " " + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for JWT far from keyword, got %d", len(res))
 	}
 }
 

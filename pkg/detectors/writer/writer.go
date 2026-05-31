@@ -1,6 +1,14 @@
 // Package writer detects Writer.com (writer.com) generative-AI Writer-Key
 // API tokens — long alphanumerics near the `writer` keyword. Verified via
-// /v1/models on api.writer.com with Bearer auth.
+// /v1/models on api.writer.com with Bearer auth (Authorization: Bearer
+// <TOKEN>).
+//
+// Writer.com does not publish an authoritative API-key format: dev.writer.com
+// (api-reference/api-keys, quickstart) and the official writer-python /
+// writer-node SDKs show only `<your-api-key>` placeholders, and trufflehog
+// has no upstream Writer detector to mirror. The token shape therefore stays
+// a generic 40-128 alnum run; FP defense leans on the conservative entropy
+// floor plus the assignment-anchored keyword gate rather than a prefix.
 package writer
 
 import (
@@ -18,6 +26,14 @@ var apiBase = "https://api.writer.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,128})\b`)
+
+// minEntropy rejects low-information 40-128 char runs that clear the bare
+// alnum regex but are not key-grade randomness (repeated-character padding,
+// placeholders, structured IDs). Writer.com does not publish an authoritative
+// key prefix/length/charset, so the token shape cannot be narrowed; 3.0 is the
+// conservative recall-safe floor (a stricter 3.5 would risk culling real keys
+// whose charset is undocumented).
+const minEntropy = 3.0
 
 // keywordRe is the anchored Writer.com marker. The bare `writer`
 // substring is everywhere in source code (`io.Writer`, `bufio.Writer`,
@@ -54,6 +70,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
+		// Entropy gate: structured/low-information 40-128 char runs (repeated
+		// characters, padded placeholders) clear the alnum regex but are not
+		// random tokens — reject them even when near the keyword.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
 		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
@@ -77,7 +99,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(kwSpans [][]int, start, end int) bool {
-	const radius = 96
+	const radius = 64
 	from := start - radius
 	to := end + radius
 	for _, sp := range kwSpans {
