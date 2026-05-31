@@ -20,7 +20,22 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`)
 
-var contextKeywords = []string{"helpscout"}
+// armRe is the assignment-anchor gate. Help Scout's official auth docs do not
+// document the App ID / App Secret length or charset, and trufflehog upstream
+// only ships a single-token `[a-z0-9]{40}` helpscout key detector — neither
+// authoritatively pins the id+secret pair this detector verifies via the
+// client_credentials grant. So we do NOT pin a length; instead we replace the
+// old bare strings.Contains("helpscout") gate over radius 256 (which armed on
+// any nearby mention of the word) with the shape a real credential assignment
+// or config key takes, evaluated within a tight radius-64 window.
+var armRe = regexp.MustCompile(`(?i)helpscout[_\-]?(app[_\-]?)?(id|key|token|secret|client)`)
+
+// minEntropy rejects low-information 32-128 char runs that clear the alnum
+// regex but are not random tokens (e.g. padded placeholders, repeated
+// characters). Help Scout credentials present as hex-like / low-variety runs,
+// and the format is not authoritatively documented, so we use the conservative
+// 3.0 floor (hex caps ~3.6; 3.5 would over-cull) to protect recall.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -44,6 +59,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[v]; dup {
 			continue
 		}
+		// Entropy gate: structured/low-information runs (padded placeholders,
+		// long repeats) clear the alnum regex but are not random credentials.
+		if !detectors.HasMinEntropy(v, minEntropy) {
+			continue
+		}
 		seen[v] = struct{}{}
 		creds = append(creds, v)
 	}
@@ -65,8 +85,13 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return []detectors.Result{res}, nil
 }
 
+// nearKeyword reports whether a `helpscout[_-]?(app[_-]?)?(id|key|token|secret|
+// client)` reference appears within a tight window on either side of the
+// candidate. The window spans both directions (not strict immediate precedence)
+// so an id/secret pair defined alongside nearby HELPSCOUT_APP_ID /
+// HELPSCOUT_APP_SECRET references still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -75,13 +100,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

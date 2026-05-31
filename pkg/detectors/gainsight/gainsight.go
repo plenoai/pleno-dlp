@@ -18,11 +18,28 @@ var apiBase = "https://api.gainsightcloud.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Gainsight keys are 32-64 alnum chars (UUID-without-dashes shape +
-// extension); we accept the conservative range.
+// Gainsight's REST API access key is an opaque, tenant-scoped credential
+// passed in the `Accesskey` header. Gainsight's own auth docs decline to
+// document its length or charset (it is treated as an opaque string); the
+// one concrete value surfaced in the support docs is a UUID-v4 shape
+// (e.g. <UUID-V4-TOKEN>). Because no authoritative source pins the
+// length/charset, we do NOT narrow the regex to a fixed length — that
+// would risk silently destroying recall on non-UUID shapes. We keep the
+// loose 32-64 alnum candidate regex (which still covers a dash-stripped
+// UUID) and lean on the entropy floor + tightened arm-regex keyword gate
+// to suppress false positives.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-var contextKeywords = []string{"gainsight"}
+// minEntropy rejects low-information runs (aaaa…, zero-padding) that the
+// bare alnum regex would otherwise admit. 3.0 is the conservative hex
+// floor (a UUID-without-dashes is hex, ceiling ≈ 4.0); we do NOT use 3.5
+// because a hex-only key would be over-culled.
+const minEntropy = 3.0
+
+// armRe is the assignment-anchor keyword gate. It replaces a bare
+// strings.Contains(window, "gainsight") so that the mere word "gainsight"
+// in unrelated prose no longer arms a high-entropy candidate.
+var armRe = regexp.MustCompile(`(?i)gainsight[_\-]?(api[_\-]?)?(access[_\-]?)?(token|key|secret)`)
 
 type Scanner struct{}
 
@@ -41,6 +58,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -65,8 +85,14 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a `gainsight[_-]?(api[_-]?)?(access[_-]?)?(token|key|secret)`
+// reference appears within a tight window on either side of the candidate.
+// The window spans both directions (not strict immediate precedence) so a
+// credential defined alongside a nearby GAINSIGHT_API_KEY reference still
+// arms. Radius is 64 (tightened from 256) so a stray "gainsight" mention
+// far from the token no longer arms a high-entropy false positive.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -75,13 +101,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

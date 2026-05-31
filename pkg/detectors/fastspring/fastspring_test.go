@@ -40,6 +40,31 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordNoArm guards the radius-256 -> arm-regex tightening:
+// a bare "fastspring" mention (a doc link, the api host) near two generic
+// high-entropy alphanumeric runs must NOT arm without an assignment-style
+// `fastspring_user` / `fastspring_password` reference.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("// see https://api.fastspring.com docs\n" +
+		"id=" + dummyUser + "\nsecret=" + dummyPass)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("bare fastspring keyword should not arm without assignment anchor, got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected guards the entropy floor: a padded, low-
+// information run that clears the {16,32} alnum regex and sits next to a real
+// `fastspring_user` reference must still be rejected.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := "AAAAAAAAAAAAAAAAAAAA" // 20 identical chars: entropy ~0
+	body := []byte("FASTSPRING_USER=" + lowEntropy + "\nFASTSPRING_PASSWORD=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("low-entropy run should be rejected, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, p, _ := r.BasicAuth()

@@ -18,9 +18,28 @@ var apiBase = "https://api.forter.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
+// tokenRe stays at the original {40,80} alphanumeric shape: Forter's official
+// docs (Basic auth, "use the api key as the username, leave the password
+// empty") and the Descope/PaymentsOS integration guides all confirm the
+// credential is a Site ID + Secret Key pair, but none publish a length,
+// charset, or prefix, and trufflehog ships no forter detector. With no
+// authoritative format to anchor on, pinning a length/charset would risk
+// silently destroying recall, so the regex is left as-is and only the
+// recall-safe gates below are tightened.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
 
-var contextKeywords = []string{"forter"}
+// armRe is the assignment-style Forter reference that must appear within the
+// proximity window. A bare "forter" substring (script-src URLs to
+// *.api.forter-secure.com, doc links, the portal host) is too weak a gate
+// against a generic 40-80 alphanumeric run; `forter[_-]?(api[_-]?)?(token|
+// key|secret)` is the shape a real credential assignment or config key takes.
+var armRe = regexp.MustCompile(`(?i)forter[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-information 40-80 char runs (padded placeholders,
+// repeated characters, structured IDs) that clear the alnum regex but lack
+// key-grade randomness. 3.0 is the conservative floor used when the real
+// charset is undocumented — 3.5 would over-cull a possibly hex/low-variety key.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -39,6 +58,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Entropy gate: structured/low-information 40-80 char runs clear the
+		// alnum regex but are not random tokens — reject them even when armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -60,8 +84,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a `forter[_-]?(api[_-]?)?(token|key|secret)`
+// reference appears within a tight window on either side of the candidate.
+// The window spans both directions (not strict immediate precedence) so a
+// credential defined alongside a nearby FORTER_API_KEY reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -70,13 +98,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

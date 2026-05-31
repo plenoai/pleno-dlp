@@ -1,8 +1,18 @@
-// Package drip detects Drip (getdrip.com) personal API tokens. Drip tokens
-// are 32-char alnum strings issued from the user-settings page. Gated on the
-// `getdrip` keyword window so the broad shape doesn't collide with other
-// 32-char tokens. Verified via /v2/accounts on api.getdrip.com using HTTP
-// Basic auth (token as username, blank password) — read-only.
+// Package drip detects Drip (getdrip.com) personal API tokens, issued from the
+// user-settings page and used as the username in HTTP Basic auth (token as
+// username, blank password) against api.getdrip.com — verified read-only via
+// /v2/accounts.
+//
+// Token format is NOT authoritatively documented: Drip's official API docs
+// (developer.drip.com, DripEmail/api-docs) describe the token only as an
+// "alphanumeric" Basic-auth username and never pin a length or charset, and
+// trufflehog ships no upstream drip detector to mirror. The 32-char alnum
+// shape here is therefore a heuristic, not a documented invariant. Because the
+// length is unverified we do NOT tighten the regex further; instead the broad
+// shape is disambiguated by (1) an assignment-anchor keyword arm regex within a
+// 64-byte window, (2) a low-variety lowercase-hex guard (git SHAs / lockfile
+// hashes), and (3) a conservative Shannon-entropy floor. See the research
+// record / docs/detector-key-formats.md inconclusive-fallback path.
 package drip
 
 import (
@@ -24,7 +34,19 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
 // gitSHALikeRe matches 32-char lowercase-hex strings (truncated git SHAs / lockfile hashes).
 var gitSHALikeRe = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
-var contextKeywords = []string{"getdrip", "drip_api", "drip_token", "drip_account_id"}
+// minEntropy is a conservative floor: the token shape is base62 (high variety),
+// but because the length/charset are not authoritatively documented we use the
+// recall-safe 3.0 threshold rather than 3.5 to avoid silently culling real
+// tokens. It rejects only the lowest-information 32-char runs that clear the
+// regex.
+const minEntropy = 3.0
+
+// armRe is the assignment-anchor keyword gate, replacing the prior bare
+// strings.Contains over the broad keyword list. It matches drip-flavored
+// credential assignment shapes (drip api token / key / secret) so the gate
+// fires on real config lines, not on any chunk that merely mentions "getdrip".
+// The bare "getdrip" prefilter stays in Keywords().
+var armRe = regexp.MustCompile(`(?i)(?:getdrip|drip)[_-]?(?:api[_-]?)?(?:token|key|secret|account[_-]?id)`)
 
 type Scanner struct{}
 
@@ -49,6 +71,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			continue
 		}
 		if gitSHALikeRe.MatchString(token) {
+			continue
+		}
+		// Conservative entropy floor: reject the lowest-information 32-char
+		// runs that clear the broad regex but lack key-grade randomness.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -97,7 +124,7 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -106,13 +133,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func redact(t string) string {

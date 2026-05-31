@@ -19,11 +19,25 @@ var apiBase = "https://api.dwolla.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Dwolla credentials are 50+ chars of [A-Za-z0-9]; Dwolla docs publish 50-char
-// shapes for keys and secrets.
-var credRe = regexp.MustCompile(`\b([A-Za-z0-9]{50,})\b`)
+// Dwolla application key and secret are each exactly 50 alphanumeric chars.
+// Source: upstream trufflehog detector pins both halves to `[a-zA-Z-0-9]{50}`
+// (the hyphen there is a no-op range artifact; the charset is alnum) —
+// github.com/trufflesecurity/trufflehog pkg/detectors/dwolla/dwolla.go.
+// We mirror the exact length rather than the previous open-ended `{50,}`,
+// which would over-match any longer alnum run.
+var credRe = regexp.MustCompile(`\b([A-Za-z0-9]{50})\b`)
 
-var contextKeywords = []string{"dwolla"}
+// armRe is the assignment-style Dwolla reference that must appear within the
+// proximity window. A bare "dwolla" substring (URLs, package names, prose) is
+// too weak; "dwolla_key" / "dwolla-secret" / "dwollaapitoken" is the shape a
+// real credential assignment or config key takes. The bare "dwolla" keyword
+// remains the engine prefilter via Keywords().
+var armRe = regexp.MustCompile(`(?i)dwolla[_\-]?(api[_\-]?)?(key|secret|token)`)
+
+// minEntropy rejects low-entropy 50-char runs that clear the alnum regex but
+// are not random credentials (e.g. padded identifiers, repeated patterns).
+// 50 alnum chars from a high-variety charset comfortably clears 3.5.
+const minEntropy = 3.5
 
 type Scanner struct{}
 
@@ -47,7 +61,13 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		creds = append(creds, cand{val: string(data[h[2]:h[3]]), start: h[2]})
+		val := string(data[h[2]:h[3]])
+		// Entropy gate: a structured/low-information 50-char run (padded name,
+		// repeated block) is rejected even if it sits next to a dwolla arm.
+		if !detectors.HasMinEntropy(val, minEntropy) {
+			continue
+		}
+		creds = append(creds, cand{val: val, start: h[2]})
 	}
 	if len(creds) < 2 {
 		return nil, nil
@@ -70,7 +90,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -79,13 +99,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

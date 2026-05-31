@@ -40,7 +40,10 @@ func TestFromData_NoKeyword(t *testing.T) {
 }
 
 func TestFromData_Dedup(t *testing.T) {
-	body := []byte("getdrip " + dummy + "\ngetdrip " + dummy)
+	// Two armed assignment lines carrying the same token must collapse to one.
+	// (Fixture uses the assignment anchor because the gate now requires it; the
+	// prior bare-"getdrip" form was the false-positive shape being removed.)
+	body := []byte("drip_api_token=" + dummy + "\ndrip_api_token=" + dummy)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
@@ -104,5 +107,23 @@ func TestFromData_FP_LockfileHash(t *testing.T) {
 	}
 	if len(res) != 0 {
 		t.Fatalf("lockfile-hash FP: expected 0, got %d", len(res))
+	}
+}
+
+// FP-3: a high-entropy, key-shaped 32-char alnum run that merely sits in the
+// same chunk as a bare "getdrip" mention (no credential assignment anchor)
+// must NOT fire. This is the false-positive shape the radius-256 +
+// bare-strings.Contains gate accepted; the radius-64 assignment-anchor arm
+// regex now rejects it. dummy is genuinely high entropy, so this proves the
+// gate (not the entropy floor) is what culls it.
+func TestFromData_FP_HighEntropyBareKeyword(t *testing.T) {
+	// "getdrip" appears far from the token and with no token/key/secret anchor.
+	body := []byte("see the getdrip changelog for details\n\nUNRELATED_VALUE=" + dummy)
+	res, err := Scanner{}.FromData(context.Background(), false, body)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 0 {
+		t.Fatalf("high-entropy-bare-keyword FP: expected 0, got %d (%+v)", len(res), res)
 	}
 }

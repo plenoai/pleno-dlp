@@ -1,6 +1,13 @@
-// Package dialpad detects Dialpad API tokens — long alphanumerics near the
-// `dialpad` keyword. Verified via /api/v2/users on dialpad.com with Bearer
-// auth.
+// Package dialpad detects Dialpad API tokens — long alphanumerics armed by a
+// `dialpad[_-]?(api[_-]?)?(token|key|secret)` reference within a tight window.
+// Verified via /api/v2/users on dialpad.com with Bearer auth.
+//
+// Dialpad publishes no authoritative key format (no prefix/length/charset; the
+// docs only say to share the last 4 chars) and trufflehog has no dialpad
+// detector, so this is conservative gate-tightening only: radius 256->64, an
+// assignment-anchor arm regex in place of a bare keyword Contains, and a
+// conservative HasMinEntropy(token, 3.0). The `{40,128}` length is left
+// unpinned to preserve recall.
 package dialpad
 
 import (
@@ -17,9 +24,26 @@ var apiBase = "https://dialpad.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
+// No authoritative source pins Dialpad's API-key length or charset: Dialpad's
+// own docs deliberately omit it (they instruct users to share only the last 4
+// chars) and trufflehog has no dialpad detector. So the length stays `{40,128}`
+// — pinning a guessed length would silently destroy recall. Precision instead
+// comes from the assignment-anchor arm regex + a conservative entropy floor.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,128})\b`)
 
-var contextKeywords = []string{"dialpad"}
+// armRe is the assignment-style Dialpad reference that must appear within the
+// proximity window. A bare "dialpad" substring (doc links, the dialpad.com
+// host, marketing copy) is too weak a gate against a generic 40-128 char
+// alphanumeric run; `dialpad[_-]?(api[_-]?)?(token|key|secret)` is the shape a
+// real credential assignment or config key takes. The bare keyword stays in
+// Keywords() as the cheap Aho-Corasick prefilter.
+var armRe = regexp.MustCompile(`(?i)dialpad[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-information 40-128 char runs (padded placeholders,
+// long repeated-character runs) that clear the alnum regex but are not random
+// tokens. Conservative 3.0 floor: no authoritative charset is documented, so a
+// 3.5 floor risks over-culling a real (possibly lower-variety) key.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -38,6 +62,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Entropy gate: low-information 40-128 char runs that clear the alnum
+		// regex but lack token-grade randomness are rejected even when armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -62,8 +91,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a `dialpad[_-]?(api[_-]?)?(token|key|secret)`
+// reference appears within a tight window on either side of the candidate. The
+// window spans both directions (not strict immediate precedence) so a
+// credential defined alongside a nearby DIALPAD_API_KEY reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -72,13 +105,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
