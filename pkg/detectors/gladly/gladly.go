@@ -23,7 +23,16 @@ var emailRe = regexp.MustCompile(`\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`)
 
-var contextKeywords = []string{"gladly"}
+// armRe is the assignment-style Gladly reference that must appear within the
+// proximity window. A bare "gladly" substring (script-src URLs, doc links,
+// the per-org `<org>.gladly.com` host) is too weak a gate against a generic
+// 32-128 alphanumeric run; `gladly[_-]?(api[_-]?)?(token|key|email)` is the
+// shape a real credential assignment or config key takes.
+var armRe = regexp.MustCompile(`(?i)gladly[_\-]?(api[_\-]?)?(token|key|email)`)
+
+// minEntropy rejects low-entropy 32-128 char runs that clear the alnum regex
+// but are not random tokens (e.g. padded placeholders, repeated characters).
+const minEntropy = 3.5
 
 type Scanner struct{}
 
@@ -58,6 +67,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if v == email {
 			continue
 		}
+		// Entropy gate: structured/low-information 32-128 char runs (e.g. a
+		// padded placeholder or a long run of repeated characters) clear the
+		// alnum regex but are not random tokens — reject them even when armed.
+		if !detectors.HasMinEntropy(v, minEntropy) {
+			continue
+		}
 		token = v
 		break
 	}
@@ -78,8 +93,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return []detectors.Result{res}, nil
 }
 
+// nearKeyword reports whether a `gladly[_-]?(api[_-]?)?(token|key|email)`
+// reference appears within a tight window on either side of the candidate.
+// The window spans both directions (not strict immediate precedence) so a
+// credential defined alongside a nearby GLADLY_API_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -88,13 +107,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
