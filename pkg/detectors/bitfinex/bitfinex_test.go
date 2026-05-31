@@ -41,6 +41,38 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// 43-char low-entropy runs match the regex but are not real keys; the
+// entropy gate (3.5) must reject them even with the keyword present.
+const lowEntropyKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+const lowEntropySecret = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	body := []byte("BITFINEX_API_KEY=" + lowEntropyKey + " BITFINEX_API_SECRET=" + lowEntropySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low entropy culled), got %d", len(res))
+	}
+}
+
+// A high-entropy key paired with a low-entropy secret must still be
+// rejected: the gate requires BOTH tokens to clear the threshold.
+func TestFromData_MixedEntropyRejected(t *testing.T) {
+	body := []byte("BITFINEX_API_KEY=" + dummyKey + " BITFINEX_API_SECRET=" + lowEntropySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (mixed entropy culled), got %d", len(res))
+	}
+}
+
+// High-entropy pair with keyword present still detects (recall guard).
+func TestFromData_HighEntropyFound(t *testing.T) {
+	body := []byte("bitfinex creds " + dummyKey + " " + dummySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) == 0 {
+		t.Fatal("expected >=1 for high-entropy pair")
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("bfx-apikey") != dummyKey {

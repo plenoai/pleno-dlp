@@ -11,6 +11,15 @@ import (
 
 const dummyToken = "abcdefghijklmnopqrstuvwxyzABCDEF"
 
+// hexToken is a realistic hex-style 32-char Equinix token whose Shannon
+// entropy is ~3.16 bits/char — it passes the 3.0 gate but would be
+// over-culled by a 3.5 floor.
+const hexToken = "deadbeefdeadbeef00112233aabbccdd"
+
+// lowEntropyToken is a 32-char run with too few distinct symbols; it clears
+// the length floor but must be rejected by the entropy gate.
+const lowEntropyToken = "aaaaaaaaaaaaaaaabbbbbbbbbbbbbbbb"
+
 func TestType(t *testing.T) {
 	if (Scanner{}).Type() != detectors.EquinixMetal {
 		t.Fatalf("type mismatch")
@@ -40,10 +49,43 @@ func TestFromData_NoKeyword(t *testing.T) {
 }
 
 func TestFromData_Dedup(t *testing.T) {
-	body := []byte("equinix=" + dummyToken + "\nmetal_api_key=" + dummyToken)
+	// Both occurrences use anchored credential shapes (a bare `equinix=` no
+	// longer arms a token after hardening).
+	body := []byte("metal_token=" + dummyToken + "\nmetal_api_key=" + dummyToken)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
+	}
+}
+
+// TestFromData_BareEquinixNotArmed confirms a bare `equinix` substring no
+// longer arms a token — only anchored credential shapes do.
+func TestFromData_BareEquinixNotArmed(t *testing.T) {
+	body := []byte("equinix=" + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare equinix= proximity, got %d", len(res))
+	}
+}
+
+// TestFromData_HexTokenArmed confirms a realistic hex-style token (entropy
+// ~3.6) is still detected under an anchored reference — i.e. the 3.0 gate does
+// not over-cull it.
+func TestFromData_HexTokenArmed(t *testing.T) {
+	body := []byte("metal_api_key=" + hexToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) == 0 {
+		t.Fatalf("expected hex-style token to detect, got 0")
+	}
+}
+
+// TestFromData_LowEntropyRejected confirms a low-entropy 32-char run is
+// rejected by the entropy gate even with an anchored reference.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	body := []byte("metal_api_key=" + lowEntropyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected low-entropy token to be rejected, got %d", len(res))
 	}
 }
 

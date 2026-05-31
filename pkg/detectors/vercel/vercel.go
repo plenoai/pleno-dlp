@@ -1,7 +1,12 @@
 // Package vercel detects Vercel API access tokens. Tokens are 24-char
-// alphanumeric — a generic shape that hits constantly in real codebases —
-// so we require a "vercel" / "VERCEL_TOKEN" co-occurrence within 256 bytes
-// of the candidate before surfacing it. Verify hits /v2/user with Bearer.
+// alphanumeric — a generic shape that hits constantly in real codebases
+// (commit SHAs, nonces, k8s object names) — so a bare "vercel" substring
+// within a wide window is far too loose a gate. We instead require a
+// `vercel[_-]?token`-style reference within a tight 64-byte window of the
+// candidate AND gate on Shannon entropy before surfacing it. The window is
+// searched on both sides (not strict immediate precedence) so a token in a
+// `.vercel/` config file with a nearby VERCEL_TOKEN reference still arms.
+// Verify hits /v2/user with Bearer.
 package vercel
 
 import (
@@ -22,7 +27,15 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // false-positive load.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24})\b`)
 
-var contextKeywords = []string{"vercel", "vercel_token"}
+// armRe is the assignment-style Vercel reference that must appear within the
+// proximity window. A bare "vercel" substring (script-src URLs, dependency
+// names, comments) is too weak; "vercel_token" / "vercel-token" / "verceltoken"
+// is the shape a real token assignment or config key takes.
+var armRe = regexp.MustCompile(`(?i)vercel[_\-]?token`)
+
+// minEntropy rejects low-entropy 24-char runs that clear the alnum regex but
+// are not random tokens (e.g. structured identifiers, padded names).
+const minEntropy = 3.5
 
 type Scanner struct{}
 
@@ -45,9 +58,14 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		// Co-occurrence with a "vercel" keyword is mandatory — 24-char
-		// alphanumerics are common (commit shas, nonces, k8s names).
+		// A `vercel[_-]?token` reference within a tight window is mandatory —
+		// 24-char alphanumerics are common (commit shas, nonces, k8s names).
 		if !nearKeyword(lower, h[2], h[3]) {
+			continue
+		}
+		// Entropy gate: structured/low-information 24-char runs (e.g. a
+		// dotted identifier or padded name) are rejected even if armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -66,8 +84,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a `vercel[_-]?token` reference appears within a
+// tight window on either side of the token. The window spans both directions
+// (not strict immediate precedence) so a token defined alongside a nearby
+// VERCEL_TOKEN reference — e.g. in a `.vercel/` config file — still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -76,13 +98,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
