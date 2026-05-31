@@ -39,6 +39,24 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// lowEntropy is a 44-char alnum run that clears the `[A-Za-z0-9]{40,50}`
+// regex but is structurally degenerate (repeated 4-char block, H=2.0). Even
+// directly adjacent to the buffer assignment keyword it must NOT match after
+// the entropy floor was added. Guards against the documented FP shape: a
+// generic low-information string near the "buffer" marker.
+const lowEntropy = "abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd"
+
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	if len(lowEntropy) < 40 || len(lowEntropy) > 50 {
+		t.Fatalf("fixture must clear the regex length window, got len=%d", len(lowEntropy))
+	}
+	body := []byte("BUFFER_ACCESS_TOKEN=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low-entropy FP shape rejected), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("access_token") != dummy {

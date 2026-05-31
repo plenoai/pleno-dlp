@@ -1,4 +1,5 @@
-// Package civo detects Civo Cloud API keys (long base62 near `civo` keyword).
+// Package civo detects Civo Cloud API keys (50-char base62 near an armed
+// `civo[_-]?(api[_-]?)?(token|key|secret)` reference, entropy >= 3.0).
 // Verified via /v2/account on api.civo.com using `Authorization: Bearer <key>`.
 package civo
 
@@ -16,10 +17,26 @@ var apiBase = "https://api.civo.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Civo API keys are documented as 50-char alphanumeric.
+// Civo API keys are mixed-case base62 with no prefix. No authoritative source
+// pins an exact length/charset: the civo/cli README example is 50 chars
+// (DAb75oyqVeaE7BI6Aa74FaRSP0E2tMZXkDWLC9wNQdcpGfH51r) while civogo unit-test
+// fixtures use 32-hex values — the two disagree, so the length is NOT
+// authoritatively documented. We therefore keep the existing {50} match
+// (changing it could destroy recall in either direction) and rely on the armed
+// keyword gate plus a conservative entropy floor to suppress false positives.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{50})\b`)
 
-var contextKeywords = []string{"civo", "civo_api", "civo_token"}
+// armRe is the assignment-style Civo reference that must appear within the
+// proximity window. A bare "civo" substring (dependency names, civo CLI prose,
+// hostnames like civo.com) is too weak; "civo_api_key" / "civo-token" /
+// "civosecret" is the shape a real token assignment or config key takes.
+var armRe = regexp.MustCompile(`(?i)civo[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-information 50-char runs that clear the alnum regex
+// but are not random tokens (padded identifiers, repeated chars). Conservative
+// 3.0 floor because the charset/length is not authoritatively documented; a
+// real base62 key clears ~5.3 bits/char.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -40,7 +57,14 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
+		// An armed `civo[_-]?(api[_-]?)?(token|key|secret)` reference within a
+		// tight window is mandatory — 50-char alphanumerics are not rare.
 		if !nearKeyword(lower, h[2], h[3]) {
+			continue
+		}
+		// Entropy gate: structured/low-information 50-char runs are rejected
+		// even when armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -62,8 +86,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether an armed Civo reference appears within a tight
+// window on either side of the token. The window spans both directions so a
+// token defined alongside a nearby civo_api_key reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -72,13 +99,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

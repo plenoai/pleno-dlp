@@ -1,6 +1,24 @@
-// Package beeceptor detects Beeceptor HTTP mock API keys — long alnum
-// strings near the `beeceptor` keyword. Verified via /api/v1/projects on
-// app.beeceptor.com with Authorization Bearer header.
+// Package beeceptor detects Beeceptor HTTP mock API keys. Verified via
+// /api/v1/projects on app.beeceptor.com with an Authorization Bearer header.
+//
+// Key format (authoritative): the official Beeceptor API docs document the
+// API key as a lowercase-hex string, exemplified as
+// `14ac5499cfdd2bb2859e4476d2e5b1d2bad079bf` (40 hex chars) — see
+// https://beeceptor.com/docs/api-overview/. There is no distinguishing prefix.
+//
+// Hardening (FP campaign): the prior regex was a bare `[A-Za-z0-9]{32,}` with a
+// radius-256 bare-`strings.Contains("beeceptor")` gate and no entropy floor — it
+// armed on any long mixed-case alnum run (base64 blobs, JWT segments, nonces)
+// that merely shared a chunk with the word "beeceptor". We now (1) constrain the
+// charset to hex to match the documented format, killing the large class of
+// non-hex high-entropy false positives; (2) keep the documented-format-consistent
+// `{32,}` lower bound rather than pinning an exact length, because the hex
+// branch of docs/detector-key-formats.md warns that length-pinning hex silently
+// destroys recall; (3) add HasMinEntropy(token, 3.0) — hex entropy caps ~3.6, so
+// 3.0 (not 3.5) is the recall-safe floor for low-variety charsets; and (4)
+// replace the bare keyword Contains over radius 256 with an assignment-anchor arm
+// regex within radius 64, retaining the bare "beeceptor" keyword as the engine
+// prefilter.
 package beeceptor
 
 import (
@@ -17,9 +35,24 @@ var apiBase = "https://app.beeceptor.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,})\b`)
+// Lowercase/uppercase hex, length >= 32. The documented key is 40 hex chars
+// (https://beeceptor.com/docs/api-overview/); we keep a >=32 lower bound rather
+// than pinning 40 because the hex branch of the key-format playbook treats hex
+// length-pinning as recall-hostile.
+var tokenRe = regexp.MustCompile(`\b([a-fA-F0-9]{32,})\b`)
 
-var contextKeywords = []string{"beeceptor"}
+// armRe is the assignment-style Beeceptor reference that must appear within the
+// proximity window. A bare "beeceptor" substring (mock-server URLs, package
+// names, prose) is too weak to gate a generic hex run; the
+// `beeceptor[_-]?(api[_-]?)?(token|key|secret)` shape is what a real credential
+// assignment or config key looks like.
+var armRe = regexp.MustCompile(`(?i)beeceptor[_-]?(api[_-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-information hex runs (repeated/structured digits,
+// padded identifiers) that clear the regex but lack key-grade randomness. Hex
+// entropy caps near 3.6 bits/char, so 3.0 is the recall-safe floor; 3.5 would
+// over-cull genuine keys.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -43,6 +76,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
+		// Entropy gate: low-information hex runs (repeated digits, structured
+		// identifiers) clear the charset/length regex but are not real keys.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.Beeceptor,
@@ -62,8 +100,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether an assignment-style Beeceptor reference appears
+// within a tight window on either side of the candidate. The window spans both
+// directions (not strict immediate precedence) so a key defined alongside a
+// nearby BEECEPTOR_API_KEY reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -72,13 +114,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

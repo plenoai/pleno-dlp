@@ -42,6 +42,33 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// FP regression: two low-entropy 20-char runs sit directly inside the
+// customerio_site_id / customerio_api_key assignments, so they clear the
+// arm regex AND the radius-64 gate, yet they are obvious garbage. The
+// HasMinEntropy(token, 3.5) floor must reject them.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	const lowEntA = "aaaaaaaaaa1111111111" // entropy ~1.0
+	const lowEntB = "bbbbbbbbbb2222222222" // entropy ~1.0
+	body := []byte("customerio_site_id=" + lowEntA + "\ncustomerio_api_key=" + lowEntB)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy tokens, got %d", len(res))
+	}
+}
+
+// FP regression: high-entropy tokens that appear near a bare "customerio"
+// brand mention but NOT inside a credential-style assignment. The old
+// radius-256 strings.Contains("customerio") gate matched these; the
+// assignment-anchor arm regex over radius 64 must now reject them.
+func TestFromData_BareBrandMentionRejected(t *testing.T) {
+	body := []byte("We integrate with customerio for messaging.\n" +
+		"unrelated_token_a=" + dummySiteID + "\nunrelated_token_b=" + dummyAPIKey)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare brand mention without assignment anchor, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()

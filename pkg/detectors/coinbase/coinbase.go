@@ -22,10 +22,33 @@ var apiBase = "https://api.coinbase.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Coinbase v2 API keys are 32 alnum chars; secrets are 64 alnum.
+//
+// NOTE ON FORMAT: authoritative Coinbase docs do not document a bare
+// 32/64 alphanumeric credential. The CDP "create API key" flow issues a
+// key *name* of the shape `organizations/{uuid}/apiKeys/{uuid}` plus an
+// EC PEM private key as the secret (see docs.cdp.coinbase.com API-key
+// authentication, and upstream trufflehog pkg/detectors/coinbase which
+// matches that path + `-----BEGIN EC PRIVATE KEY-----`). The 32/64 alnum
+// shape this detector keys on is NOT authoritatively documented, so the
+// lengths below are left as-is (changing them would silently move recall)
+// and we apply only recall-safe gate tightening: a tight assignment-anchor
+// arm regex over a radius-64 window plus a conservative entropy floor.
 var keyRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
 var secretRe = regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`)
 
-var contextKeywords = []string{"coinbase"}
+// armRe is the assignment-style Coinbase reference that must appear within
+// the proximity window. A bare "coinbase" substring (doc links, support
+// URLs, blog text) is too weak a gate against generic 32/64-char alnum
+// runs; `coinbase[_-]?(api[_-]?)?(token|key|secret)` is the shape a real
+// credential assignment or config key takes. The bare keyword stays in
+// Keywords() as the cheap engine prefilter.
+var armRe = regexp.MustCompile(`(?i)coinbase[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-information 32/64-char alnum runs (padded
+// placeholders, repeated characters, structured IDs) that clear the regex
+// but are not random tokens. 3.5 fits the 62-variety alnum charset; the
+// realistic dummy fixtures sit well above it (key 4.37, secret 4.95).
+const minEntropy = 3.5
 
 type Scanner struct{}
 
@@ -47,11 +70,17 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			continue
 		}
 		key := string(data[kh[2]:kh[3]])
+		if !detectors.HasMinEntropy(key, minEntropy) {
+			continue
+		}
 		for _, sh := range secretHits {
 			if !nearKeyword(lower, sh[2], sh[3]) {
 				continue
 			}
 			secret := string(data[sh[2]:sh[3]])
+			if !detectors.HasMinEntropy(secret, minEntropy) {
+				continue
+			}
 			k := key + ":" + secret
 			if _, dup := seen[k]; dup {
 				continue
@@ -77,8 +106,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a `coinbase[_-]?(api[_-]?)?(token|key|secret)`
+// reference appears within a tight window on either side of the candidate.
+// The window spans both directions (not strict immediate precedence) so a
+// credential defined alongside a nearby COINBASE_API_KEY reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -87,13 +120,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, key string) (bool, error) {

@@ -20,6 +20,16 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{10,32})\b`)
 
+// minEntropy is a conservative floor. Bandwidth does NOT authoritatively
+// document a credential length or charset (legacy docs show a 4-char
+// username `jdoe` and a hyphenated passphrase; the OAuth2 ClientID/Secret
+// shape is unspecified), so we cannot pin a length without destroying
+// recall. We only reject low-information runs (repeated/sequential chars)
+// that clear the bare `[A-Za-z0-9]{10,32}` regex but cannot be real
+// credentials. 3.0 is the hex-safe floor — high enough to drop
+// `aaaa…`/`1111…` noise, low enough to keep base16/base62 secrets.
+const minEntropy = 3.0
+
 // keywordRe is the anchored Bandwidth.com marker. The bare substring
 // `bandwidth` is far too common in English prose (network bandwidth,
 // `BandwidthLimitExceeded` in AWS retry docs, etc.) and pairs every
@@ -56,6 +66,13 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[user]; dup {
 			continue
 		}
+		// Entropy gate (both halves): a paired credential must carry
+		// key-grade randomness. Low-information runs (`aaaa…`, `1111…`,
+		// repeated CamelCase words) clear the bare length regex but are
+		// never real Bandwidth credentials.
+		if !detectors.HasMinEntropy(user, minEntropy) {
+			continue
+		}
 		if !nearKeyword(kwSpans, h[2], h[3]) {
 			continue
 		}
@@ -65,7 +82,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 				continue
 			}
 			cand := string(data[h2[2]:h2[3]])
-			if cand != user && nearKeyword(kwSpans, h2[2], h2[3]) {
+			if cand != user && detectors.HasMinEntropy(cand, minEntropy) && nearKeyword(kwSpans, h2[2], h2[3]) {
 				pass = cand
 				break
 			}
@@ -96,10 +113,10 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 
 // nearKeyword reports whether [start,end) is within the keyword radius
 // of any anchored Bandwidth.com marker. Radius shrinks from the legacy
-// 256 to 96 because credential lines (`BANDWIDTH_USER=…`) sit a handful
+// 256 to 64 because credential lines (`BANDWIDTH_USER=…`) sit a handful
 // of bytes from the marker, not on a different paragraph.
 func nearKeyword(kwSpans [][]int, start, end int) bool {
-	const radius = 96
+	const radius = 64
 	from := start - radius
 	to := end + radius
 	for _, sp := range kwSpans {

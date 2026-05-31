@@ -21,7 +21,26 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var emailRe = regexp.MustCompile(`\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b`)
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`)
+// Copper API keys are 32-char lowercase-hex strings, per the upstream
+// trufflehog detector (PrefixRegex(["copper"]) + \b([a-z0-9]{32})\b).
+// Copper's own docs do not publish the format, so trufflehog is the
+// authoritative shape we mirror: fixed length 32, charset [a-z0-9].
+// The previous bare [A-Za-z0-9]{32,128} matched commit SHAs, base64url
+// nonces, k8s object names, and arbitrary high-entropy blobs.
+var tokenRe = regexp.MustCompile(`\b([a-z0-9]{32})\b`)
+
+// armRe is the assignment-style Copper reference that must appear within
+// the proximity window of the token. A bare "copper" substring (the CSS
+// color, the metal, dependency names, comments) is far too weak;
+// "copper_api_token" / "copper-key" / "coppersecret" is the shape a real
+// credential assignment or config key takes. The bare "copper" keyword
+// stays in Keywords() as the engine prefilter.
+var armRe = regexp.MustCompile(`(?i)copper[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy is the hex floor (alphabet 16 → ceiling ~4.0). 3.5 would
+// over-cull legitimate hex tokens; 3.0 still rejects runs of zeros,
+// repeated nibbles, and other low-information 32-char hex garbage.
+const minEntropy = 3.0
 
 var contextKeywords = []string{"copper"}
 
@@ -40,7 +59,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	lower := strings.ToLower(string(data))
 	var email string
 	for _, h := range emails {
-		if !nearKeyword(lower, h[2], h[3]) {
+		if !nearCopper(lower, h[2], h[3]) {
 			continue
 		}
 		email = string(data[h[2]:h[3]])
@@ -51,11 +70,21 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	}
 	var token string
 	for _, h := range tokens {
-		if !nearKeyword(lower, h[2], h[3]) {
+		// The token half carries the assignment anchor: a
+		// copper[_-]?(api[_-]?)?(token|key|secret) reference must sit
+		// within a tight window of the candidate. 32-char lowercase-hex
+		// runs are common (md5 digests, git blob hashes), so proximity
+		// to a bare "copper" alone is not enough.
+		if !nearArm(lower, h[2], h[3]) {
 			continue
 		}
 		v := string(data[h[2]:h[3]])
 		if v == email {
+			continue
+		}
+		// Entropy floor rejects structured/low-information 32-char hex
+		// runs (zero-padding, repeated nibbles) that clear the regex.
+		if !detectors.HasMinEntropy(v, minEntropy) {
 			continue
 		}
 		token = v
@@ -78,8 +107,14 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return []detectors.Result{res}, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+// radius bounds both proximity gates. Tightened from 256 to 64: at 256 a
+// "copper" anywhere in a ~half-kilobyte span armed the detector, which is
+// what let unrelated hex/email pairs through.
+const radius = 64
+
+// window returns the lower-cased span [start-radius, end+radius] clamped
+// to the data bounds.
+func window(lower string, start, end int) string {
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -88,13 +123,26 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
+	return lower[from:to]
+}
+
+// nearCopper gates the email half: a bare "copper" reference within the
+// tight window. The email itself is the weaker signal in the pair, so it
+// only needs proximity to the vendor keyword, not the full arm anchor.
+func nearCopper(lower string, start, end int) bool {
+	w := window(lower, start, end)
 	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+		if strings.Contains(w, kw) {
 			return true
 		}
 	}
 	return false
+}
+
+// nearArm gates the token half: a copper[_-]?(api[_-]?)?(token|key|secret)
+// assignment-style reference within the tight window.
+func nearArm(lower string, start, end int) bool {
+	return armRe.MatchString(window(lower, start, end))
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

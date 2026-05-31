@@ -1,8 +1,12 @@
 // Package clickhousecloud detects ClickHouse Cloud API key + secret pairs.
 // ClickHouse Cloud mints two strings together: an access key id (`<32 chars>`)
-// and a paired secret (40-80 char base64url). Both shapes collide with hashes /
-// generic base64, so co-occurrence with `clickhouse_cloud` / `clickhouse_api` /
-// `chc_` keywords in a 256-byte window is mandatory.
+// and a paired secret (40-80 char base64url). NOTE: ClickHouse does not
+// publicly document the exact ID/secret length or charset (placeholders only,
+// no upstream trufflehog detector), so these shapes are best-effort, not
+// authoritative. Because both collide with hashes / generic base64, an
+// assignment-anchored keyword (`clickhouse_(cloud|api)_(key|secret|...)`,
+// `chc_`, `clickhouse.cloud`) within a 64-byte window plus a conservative
+// Shannon-entropy floor (>=3.0) on both halves is mandatory to suppress FPs.
 //
 // Verification is live: ClickHouse Cloud's REST API uses HTTP Basic auth with
 // the Key ID as username and the Key Secret as password against the globally
@@ -30,12 +34,17 @@ var (
 	secretRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{40,80})\b`)
 )
 
-var contextKeywords = []string{
-	"clickhouse_cloud",
-	"clickhouse_api",
-	"chc_",
-	"clickhouse.cloud",
-}
+// minEntropy is a conservative floor (alphanumeric/base64url charset, not hex).
+// No authoritative source documents the ID/secret length or charset, so we do
+// NOT raise this to 3.5 — 3.0 culls structured/low-information runs (zero-padded
+// counters, repeated-char placeholders) without risking recall on real keys.
+const minEntropy = 3.0
+
+// armRe is the assignment-anchored keyword gate. The bare keywords remain in
+// Keywords() as the cheap prefilter; this regex demands the vendor keyword sit
+// next to a credential-assignment word inside the (now tightened) window, which
+// kills "clickhouse.cloud" appearing in unrelated prose/URLs far from a token.
+var armRe = regexp.MustCompile(`(?i)clickhouse[._-](cloud|api)([._-](key|secret|token|id))?|chc_`)
 
 type Scanner struct{}
 
@@ -63,11 +72,21 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[id]; dup {
 			continue
 		}
+		// Entropy floor on the key id: rejects generic high-/low-structure runs
+		// (zero-padded counters, repeated-char placeholders) that clear the bare
+		// [A-Za-z0-9]{32} shape but lack credential-grade randomness.
+		if !detectors.HasMinEntropy(id, minEntropy) {
+			continue
+		}
 		if !nearKeyword(lower, k[2], k[3]) {
 			continue
 		}
 		secret, ok := nearestSecret(k[2], data, secrets, id)
 		if !ok {
+			continue
+		}
+		// Same floor on the paired secret.
+		if !detectors.HasMinEntropy(secret, minEntropy) {
 			continue
 		}
 		seen[id] = struct{}{}
@@ -154,7 +173,7 @@ func nearestSecret(idStart int, data []byte, hits [][]int, idValue string) (stri
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -163,13 +182,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func abs(x int) int {

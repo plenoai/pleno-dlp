@@ -19,10 +19,24 @@ var apiBase = "https://track.customer.io"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// site_id and api_key are both 20-char alphanumeric (no separators).
+// site_id and api_key are both 20-char alphanumeric (no separators). The
+// 20-char base62 shape and the absence of any credential-borne prefix are
+// confirmed by the upstream trufflehog detector
+// (github.com/trufflesecurity/trufflehog pkg/detectors/customerio:
+// `[a-z0-9A-Z]{20}`), which is the authoritative format for this port.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{20})\b`)
 
-var contextKeywords = []string{"customerio", "customer_io", "customer.io", "cio_site", "cio_api"}
+// minEntropy rejects low-information 20-char runs (padded ids, repeated
+// chars, structured slugs) that clear the regex but lack key-grade
+// randomness. 3.5 bits/char suits the base62 charset.
+const minEntropy = 3.5
+
+// contextRe is the windowed keyword gate. A bare strings.Contains over a
+// radius-256 window matched far-away occurrences of the brand word; the
+// assignment-anchor arm regex pins the keyword to a credential-like
+// assignment so only genuine site_id/api_key declarations arm a hit. The
+// bare brand words stay in Keywords() as the engine prefilter.
+var contextRe = regexp.MustCompile(`(?i)(customer[._]?io|cio)[_-]?(site|api)[_-]?(id|key)`)
 
 type Scanner struct{}
 
@@ -43,6 +57,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[siteID]; dup {
 			continue
 		}
+		if !detectors.HasMinEntropy(siteID, minEntropy) {
+			continue
+		}
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
@@ -52,7 +69,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 				continue
 			}
 			cand := string(data[h2[2]:h2[3]])
-			if cand != siteID && nearKeyword(lower, h2[2], h2[3]) {
+			if cand != siteID && detectors.HasMinEntropy(cand, minEntropy) && nearKeyword(lower, h2[2], h2[3]) {
 				apiKey = cand
 				break
 			}
@@ -82,7 +99,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -91,13 +108,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return contextRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

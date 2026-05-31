@@ -40,6 +40,32 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordNoArm guards the FP shape the hardening rejects:
+// high-entropy 32/64-char alnum runs sitting near a bare "coinbase" mention
+// (a doc link, blog text) but with no `coinbase_(api_)?(key|secret|token)`
+// assignment anchor. Pre-hardening the radius-256 strings.Contains gate
+// matched this; post-hardening the radius-64 arm regex must not.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("see https://www.coinbase.com/price for details " +
+		dummyKey + " " + dummySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword, no assignment anchor), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected guards the entropy floor: a 32-char run
+// that clears the alnum regex and sits next to a proper assignment anchor
+// but is a structured placeholder, not a random token.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropyKey := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 'a', entropy 0
+	body := []byte("COINBASE_API_KEY=" + lowEntropyKey + " COINBASE_API_SECRET=" + dummySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low-entropy key), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("CB-ACCESS-KEY") != dummyKey {

@@ -1,5 +1,13 @@
 // Package awx detects AWX / Ansible Tower / Ansible Automation Platform
-// OAuth2 Bearer tokens (40-char base62 near `awx_token` / `tower_token`).
+// OAuth2 Bearer tokens (30-char base62 near `awx_token` / `tower_token`).
+//
+// Token format is authoritative: AWX issues OAuth2 tokens via Django OAuth
+// Toolkit, which delegates to oauthlib's
+// `generate_token(length=30, chars=UNICODE_ASCII_CHARACTER_SET)` — a 30-char
+// base62 (`[A-Za-z0-9]`) random string. See oauthlib/common.py and the AWX
+// token-auth docs whose example tokens are both exactly 30 chars
+// (`9epHOqHhnXUcgYK8QanOmUQPSgX92g`). The prior 40-char pin never matched a
+// real token; the length is now corrected to 30 and gated by entropy.
 //
 // AWX runs on customer-controlled hosts so the verify endpoint isn't a
 // fixed SaaS URL. The matched token is itself the OAuth2 Bearer credential
@@ -25,17 +33,20 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`)
+// 30 base62 chars — the oauthlib generate_token default that AWX/Tower uses.
+var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{30})\b`)
 
-var contextKeywords = []string{
-	"awx_token",
-	"awx_api",
-	"tower_token",
-	"tower_api",
-	"ansible_tower",
-	"ansible_automation",
-	"awx_oauth",
-}
+// minEntropy rejects low-information 30-char runs (padded hex, repeated
+// fragments, structured identifiers) that clear the bare regex but lack the
+// randomness of an oauthlib-generated token. base62 caps near ~5.95 bits/char;
+// 3.5 is the documented floor for no-prefix fixed-length high-variety tokens.
+const minEntropy = 3.5
+
+// contextRe is the windowed assignment-anchor gate. The prior bare
+// strings.Contains over radius 256 matched any incidental "awx_api" substring
+// far from the token; this arm regex requires an AWX/Tower token/key/secret
+// assignment shape, and the bare keywords stay in Keywords() as the prefilter.
+var contextRe = regexp.MustCompile(`(?i)(awx|tower|ansible[_-]?(tower|automation))[_-]?(api[_-]?)?(token|key|secret|oauth)`)
 
 type Scanner struct{}
 
@@ -54,6 +65,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -79,7 +93,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -89,12 +103,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return contextRe.MatchString(window)
 }
 
 // Verify checks the candidate AWX OAuth2 token against the operator's

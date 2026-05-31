@@ -40,6 +40,19 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_LowEntropyRejected guards the FP-hardening entropy floor.
+// `aaaaaaaaaaaaaaaa` / `bbbbbbbbbbbbbbbbbbbb` clear the bare
+// `[A-Za-z0-9]{10,32}` regex and sit on `BANDWIDTH_*` assignment lines,
+// so the old detector emitted them as a username/password pair. With the
+// HasMinEntropy(token, 3.0) gate they must no longer match.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	body := []byte("BANDWIDTH_USER=aaaaaaaaaaaaaaaa\nBANDWIDTH_PASS=bbbbbbbbbbbbbbbbbbbb")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy run near keyword, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, p, _ := r.BasicAuth()

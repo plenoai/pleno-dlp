@@ -18,9 +18,23 @@ var apiBase = "https://api.box.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+// Box developer/access tokens are 32-char alnum strings with no public
+// prefix — matching upstream trufflehog
+// (pkg/detectors/box: `\b([0-9a-zA-Z]{32})\b`). The length is pinned to the
+// documented 32 rather than a {32,64} range; widening it past the
+// authoritative shape only invents recall the format does not support.
+var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
 
-var contextKeywords = []string{"box_developer", "box_token", "box_access_token", "box_api_key", "box.com"}
+// minEntropy rejects 32-char low-information runs (padded hex, repeated
+// patterns) that clear the alnum regex but lack key-grade randomness. 3.5 is
+// the high-variety-charset floor from docs/detector-key-formats.md.
+const minEntropy = 3.5
+
+// contextRe is the windowed assignment-anchor gate. It replaces the previous
+// bare strings.Contains over the keyword list, which fired on any prose
+// mention of "box.com". The arm regex requires a box token/key/secret
+// assignment-style identifier near the candidate.
+var contextRe = regexp.MustCompile(`(?i)box[_-]?(developer[_-]?)?(api[_-]?)?(access[_-]?)?(token|key|secret)`)
 
 type Scanner struct{}
 
@@ -42,6 +56,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Entropy gate: structured 32-char runs that clear the alnum regex but
+		// lack key-grade randomness are rejected.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -92,7 +111,7 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -102,12 +121,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return contextRe.MatchString(window)
 }
 
 func redact(t string) string {

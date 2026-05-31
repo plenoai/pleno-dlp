@@ -45,6 +45,33 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_KeywordFarFromToken is the FP-hardening regression: the vendor
+// keyword appears (e.g. in a doc URL/prose) but the id/secret pair sits well
+// beyond the tightened 64-byte radius. Pre-hardening this matched under the
+// 256-byte window; it must now be rejected.
+func TestFromData_KeywordFarFromToken(t *testing.T) {
+	// 100 bytes of filler pushes the token past the 64-byte arm radius.
+	filler := "see the docs at https://clickhouse.cloud/console for details about provisioning credentials and rotating "
+	body := []byte(filler + "ID=" + dummyID + " SECRET=" + dummySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 when keyword is outside the 64-byte radius, got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyIDRejected is the FP-hardening regression for the
+// generic-shape case: a structured 32-char run (repeated/low-information) that
+// clears the bare [A-Za-z0-9]{32} regex and sits next to the keyword but lacks
+// credential-grade randomness. The entropy floor (>=3.0) must reject it.
+func TestFromData_LowEntropyIDRejected(t *testing.T) {
+	lowEntID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 chars, entropy 0
+	body := []byte("clickhouse_cloud_key ID=" + lowEntID + " SECRET=" + dummySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy id near keyword, got %d", len(res))
+	}
+}
+
 func TestRedact(t *testing.T) {
 	r := redact(dummyID)
 	if r == dummyID {

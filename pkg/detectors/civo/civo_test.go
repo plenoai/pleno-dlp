@@ -31,6 +31,32 @@ func TestFromData_Found(t *testing.T) {
 	}
 }
 
+// lowEntropyToken is a 50-char [A-Za-z0-9] run that clears the {50} regex and
+// sits next to the civo keyword, but has entropy ~1.0 — far below the 3.0
+// floor. Before hardening this matched; it must now be rejected.
+const lowEntropyToken = "aaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbb"
+
+func TestFromData_RejectsLowEntropy(t *testing.T) {
+	if len(lowEntropyToken) != 50 {
+		t.Fatalf("fixture must be 50 chars to clear the regex, got %d", len(lowEntropyToken))
+	}
+	body := []byte("civo_api_key=" + lowEntropyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected low-entropy run rejected, got %d", len(res))
+	}
+}
+
+// TestFromData_BareKeywordNoArm proves a bare "civo" substring (no
+// token/key/secret suffix) no longer arms the detector on its own.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("see civo.com docs " + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected bare civo substring not to arm, got %d", len(res))
+	}
+}
+
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)

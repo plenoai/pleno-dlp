@@ -20,11 +20,28 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// BeyondTrust API keys are 64-128 alnum chars (long entropy on the
-// PS-Auth scheme). We accept the conservative range.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{64,128})\b`)
+// BeyondTrust documents its API key as "a cryptographically strong random
+// sequence of numbers hashed into a 128-character string"
+// (https://docs.beyondtrust.com/bips/reference/beyondinsight-and-password-safe-api-usage).
+// The length (128) is authoritatively pinned; the charset is NOT documented —
+// the header example "PS-Auth key=c479a66f…c9484d" shows lowercase hex, but
+// legacy GUID-format keys exist and the hash output charset is unstated. We
+// keep the alnum class (a superset of hex) and gate on a conservative entropy
+// floor rather than guessing a narrower charset.
+var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{128})\b`)
 
-var contextKeywords = []string{"beyondtrust", "beyond-trust", "ps-auth"}
+// minEntropy uses the conservative 3.0 floor: the documented header example is
+// lowercase hex, which caps around 3.6 bits/char, so a 3.5 floor would
+// over-cull legitimate hex keys. 3.0 still rejects repetitive/structured
+// 128-char runs that clear the length+charset regex.
+const minEntropy = 3.0
+
+// armRe is the windowed assignment-anchor gate. It replaces a bare
+// strings.Contains over radius 256 (which fired on any incidental
+// "beyondtrust"/"ps-auth" substring) with a vendor + key/token/secret arm
+// regex evaluated within radius 64. The bare keywords remain in Keywords()
+// as the engine prefilter.
+var armRe = regexp.MustCompile(`(?i)(?:beyond[_-]?trust|ps[_-]?auth)[_-]?(api[_-]?)?(token|key|secret)`)
 
 type Scanner struct{}
 
@@ -43,6 +60,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Entropy gate: reject low-information 128-char runs (repeated chars,
+		// structured padding) that satisfy the length+charset regex but lack
+		// key-grade randomness.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -68,7 +91,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -77,13 +100,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
