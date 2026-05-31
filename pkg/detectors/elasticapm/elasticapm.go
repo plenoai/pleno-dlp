@@ -1,8 +1,12 @@
 // Package elasticapm detects Elastic APM secret tokens — long alphanumerics
-// near `elastic-apm` / `elasticapm` / `elastic_apm_secret_token` keywords.
-// Verified via /intake/v2/events on the per-deployment APM Server host with
-// `Bearer <token>` auth. The deployment host isn't carried in the chunk so
-// verify requires apiBase override and ships unverified-by-default.
+// gated by an `elastic[_-]?apm...(token|key|secret)` assignment reference within
+// a tight window plus a conservative Shannon-entropy floor. The Elastic APM
+// secret token has no authoritatively documented prefix, length, or charset:
+// it is operator-defined (set in Fleet, or provisioned by Elastic Cloud), so we
+// deliberately do NOT pin a length and apply only recall-safe gate-tightening.
+// Verified via the per-deployment APM Server host with `Bearer <TOKEN>` auth.
+// The deployment host isn't carried in the chunk so verify requires apiBase
+// override and ships unverified-by-default.
 package elasticapm
 
 import (
@@ -22,7 +26,19 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
 
-var contextKeywords = []string{"elastic-apm", "elasticapm", "elastic_apm"}
+// armRe is the assignment-style Elastic APM reference that must appear within
+// the proximity window. The Elastic APM secret token is operator-defined
+// freeform with no documented prefix, length, or charset (it is whatever the
+// user sets in Fleet / Cloud provisions), so the token shape itself carries no
+// distinguishing signal — a bare "elasticapm" substring (package names, doc
+// URLs, comments) is too weak to gate on. We require the token-assignment shape
+// `elastic[_-]?apm...token|secret` instead.
+var armRe = regexp.MustCompile(`(?i)elastic[_\-]?apm[_\-]?(secret[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-information 40-80 char alnum runs that clear the regex
+// but are not random tokens. Conservative 3.0 floor (not 3.5): the token charset
+// is undocumented, so an over-tight floor would silently destroy recall.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -46,6 +62,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
+		// Conservative entropy gate: a 40-80 char alnum run with low entropy
+		// (padded identifiers, repeated structure) is not a random token.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.ElasticAPM,
@@ -65,8 +86,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether an `elastic[_-]?apm...(token|key|secret)`
+// reference appears within a tight window on either side of the candidate. The
+// window spans both directions (not strict immediate precedence) so a token
+// defined alongside a nearby ELASTIC_APM_SECRET_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -75,13 +100,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

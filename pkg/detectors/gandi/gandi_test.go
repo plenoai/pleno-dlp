@@ -39,6 +39,31 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordNoArm is the false-positive regression: a bare
+// "gandi" mention (a docs sentence, package name, etc.) near a high-entropy
+// 24-char run must NOT match, because no assignment-style arm reference
+// (gandi_api_key / gandi-token / ...) is present. Before the arm-regex gate,
+// the radius-256 strings.Contains check would have flagged this.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	// "gandi" appears, but only as prose — not an assignment anchor.
+	body := []byte("see the gandi provider notes; build id Xy7Kp2Lm9Qr4Ns6Tv8Wz1Bc")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare-keyword-no-arm FP shape, got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected is the entropy-floor regression: an armed
+// reference next to a low-information 24-char run (repeated character) must NOT
+// match.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	body := []byte("gandi_api_key=aaaaaaaaaaaaaaaaaaaaaaaa")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy token, got %d", len(res))
+	}
+}
+
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("gandi=" + dummyToken + "\ngandi_token=" + dummyToken)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)

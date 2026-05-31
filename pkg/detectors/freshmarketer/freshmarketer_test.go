@@ -39,6 +39,42 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareMentionNoArm guards the radius/arm tightening: a high-entropy
+// alnum token sitting near a prose mention of "freshmarketer" (no assignment-style
+// api/key/token/secret reference) must NOT arm any more. This is the FP shape the
+// old radius-256 strings.Contains gate accepted.
+func TestFromData_BareMentionNoArm(t *testing.T) {
+	body := []byte("freshmarketer is a marketing tool. random id " + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare mention should not arm), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected guards the entropy floor: an armed but
+// low-variety alnum string must be rejected.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	body := []byte("freshmarketer_api_key=aaaaaaaaaaaaaaaaaaaaaa")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low entropy should be rejected), got %d", len(res))
+	}
+}
+
+// TestFromData_FarFromKeyword guards the radius shrink: a valid-shaped token
+// more than 64 chars away from the keyword must not arm.
+func TestFromData_FarFromKeyword(t *testing.T) {
+	gap := make([]byte, 80)
+	for i := range gap {
+		gap[i] = ' '
+	}
+	body := []byte("freshmarketer_api_key:" + string(gap) + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (token beyond radius), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Token token="+dummy {

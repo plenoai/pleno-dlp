@@ -44,6 +44,32 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_LowEntropyRejected is the FP-hardening regression: structured/
+// low-information 32-char runs sitting right next to the helpscout assignment
+// keywords used to match under the old bare-keyword radius-256 gate. The
+// HasMinEntropy(3.0) floor now rejects them.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	const lowA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 'a's, entropy 0
+	const lowB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	body := []byte("HELPSCOUT_APP_ID=" + lowA + " HELPSCOUT_APP_SECRET=" + lowB)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low-entropy runs rejected), got %d", len(res))
+	}
+}
+
+// TestFromData_KeywordWithoutArm is the radius/arm regression: a bare mention of
+// the word "helpscout" far from any credential-shaped assignment no longer arms
+// the detector. The old gate fired on any "helpscout" substring within 256
+// chars; the arm regex requires an assignment shape within 64 chars.
+func TestFromData_KeywordWithoutArm(t *testing.T) {
+	body := []byte("we migrated from helpscout last year. CONFIG_A=" + dummyID + " CONFIG_B=" + dummySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (no arm match near tokens), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)

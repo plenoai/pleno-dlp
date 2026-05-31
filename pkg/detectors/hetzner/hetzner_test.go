@@ -47,6 +47,32 @@ func TestFromData_Dedup(t *testing.T) {
 	}
 }
 
+// lowEntropyToken is a 64-char alphanumeric run that clears the length regex
+// but is structured (two repeated halves) — not key-grade randomness.
+const lowEntropyToken = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+// TestFromData_BareKeywordNoArm guards the FP shape the hardening now rejects:
+// a high-entropy 64-char string sitting within the proximity window of a bare
+// "hetzner" mention that is NOT an assignment-style credential reference (e.g.
+// prose or a doc URL). The arm regex requires a token/key/secret suffix.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("see the hetzner docs for details: " + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare-keyword (no arm) context, got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected guards the entropy floor: a structured
+// 64-char run armed by an assignment reference must still be culled.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	body := []byte("hcloud_token=" + lowEntropyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy token, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummyToken {

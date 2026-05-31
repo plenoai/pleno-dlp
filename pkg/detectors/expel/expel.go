@@ -17,11 +17,28 @@ var apiBase = "https://workbench.expel.io"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Expel API tokens are 32-64 alnum chars (UUID-without-dashes shape +
-// extension); we accept the conservative range.
+// Expel API tokens are opaque non-expiring Bearer access_tokens; Expel's
+// docs and the pyexclient client do NOT publish a prefix, length, or
+// charset (see research record). No authoritative source pins the length,
+// so the 32-64 alnum range is left unchanged — narrowing it would silently
+// destroy recall. Disambiguation is delegated to the arm-regex gate plus a
+// conservative entropy floor.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-var contextKeywords = []string{"expel", "expel.io", "workbench.expel"}
+// minEntropy rejects low-information 32-64 char runs (padded placeholders,
+// repeated characters, structured IDs) that clear the alnum regex but lack
+// token-grade randomness. 3.0 is deliberately conservative: with an
+// undocumented charset we cannot assume the high variety that would justify
+// 3.5, and an over-tight floor would cull real tokens.
+const minEntropy = 3.0
+
+// armRe is the assignment-style Expel reference that must appear within the
+// proximity window. A bare "expel" substring (prose, doc links, the
+// workbench.expel.io host in a script-src) is too weak a gate against a
+// generic 32-64 alphanumeric run; `expel[_-]?(api[_-]?)?(token|key|secret)`
+// is the shape a real credential assignment or config key takes. The bare
+// "expel" keyword stays in Keywords() as the cheap engine prefilter.
+var armRe = regexp.MustCompile(`(?i)expel[_\-]?(api[_\-]?)?(token|key|secret)`)
 
 type Scanner struct{}
 
@@ -40,6 +57,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Entropy gate: low-information 32-64 char runs (padded placeholders,
+		// repeated characters, structured IDs) clear the alnum regex but are
+		// not random tokens — reject them even when armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -64,8 +87,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether an `expel[_-]?(api[_-]?)?(token|key|secret)`
+// reference appears within a tight window on either side of the candidate.
+// The window spans both directions (not strict immediate precedence) so a
+// credential defined alongside a nearby EXPEL_API_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -74,13 +101,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

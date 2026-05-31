@@ -39,6 +39,30 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordProseRejected guards the hardening: a generic
+// high-entropy 32-64 char run sitting near a bare "expel" mention in prose
+// (no assignment-style expel_(api_)?(token|key|secret) anchor) must no longer
+// arm. Before hardening the radius-256 strings.Contains gate matched this.
+func TestFromData_BareKeywordProseRejected(t *testing.T) {
+	body := []byte("We migrated off Expel last quarter. The build hash is " + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare-keyword prose must not arm), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected guards the entropy floor: a low-information
+// 32+ char run that clears the alnum regex and is armed by the keyword must
+// still be rejected.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 40x 'a'
+	body := []byte("EXPEL_API_TOKEN=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low-entropy run must not match), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummy {

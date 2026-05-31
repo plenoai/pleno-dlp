@@ -43,6 +43,19 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeyword_NoArm is the FP-hardening regression: two
+// high-entropy 30-char alphanumeric runs sit near a bare "eloqua" word (a doc
+// link / host mention), but with no `eloqua[_-]?(client[_-]?)?(id|secret|...)`
+// assignment anchor within radius 64. Before hardening the radius-256
+// strings.Contains gate matched this; it must no longer match.
+func TestFromData_BareKeyword_NoArm(t *testing.T) {
+	body := []byte("see https://secure.p03.eloqua.com docs\nFIRST=" + dummyID + "\nSECOND=" + dummySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword, no assignment anchor), got %d", len(res))
+	}
+}
+
 func TestVerify_Disabled_Default(t *testing.T) {
 	v, _ := Scanner{}.Verify(context.Background(), dummyID+":"+dummySecret)
 	if v {

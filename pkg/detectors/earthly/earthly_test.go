@@ -47,6 +47,31 @@ func TestFromData_Dedup(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordRejected guards the radius-256 bare-Contains FP
+// shape: a high-entropy 40-120 alphanumeric run near a *bare* "earthly"
+// mention (e.g. a build-tool doc line, the `earthly/earthly` image name) that
+// is not an `earthly_(api_)?(token|key|secret)` / `earthly_cloud` assignment
+// must no longer arm under the tightened arm regex.
+func TestFromData_BareKeywordRejected(t *testing.T) {
+	body := []byte("see https://github.com/earthly/earthly for the build id " + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare-keyword (non-assignment) context, got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected guards the missing entropy floor: a
+// degenerate 40-120 char run (long repeat) that clears the alnum regex and
+// sits next to a real `earthly_token=` arm must be culled by HasMinEntropy.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 42x 'a'
+	body := []byte("earthly_token=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy run, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummyToken {

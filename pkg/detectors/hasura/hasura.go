@@ -1,8 +1,17 @@
-// Package hasura detects Hasura Cloud admin secrets — long alphanumerics
-// near the `hasura` keyword. Verified via /v1/version on the per-project
-// host (`<project>.hasura.app`) sending `x-hasura-admin-secret`. The project
-// host isn't in the chunk so verify requires apiBase override and ships
-// unverified-by-default.
+// Package hasura detects Hasura Cloud admin secrets. A Hasura Cloud admin
+// secret is a randomly generated 64-character alphanumeric string (matching
+// upstream trufflehog's `[a-zA-Z0-9]{64}` pattern, the de-facto authoritative
+// shape; Hasura does not separately publish a length/charset spec). It carries
+// no distinguishing prefix, so a bare `hasura` substring over a wide window is
+// far too loose a gate — 64-char alphanumerics also appear as hashes, build
+// IDs, and nonces. We therefore (1) pin the length to the documented 64,
+// (2) require a `hasura[_-]?(admin[_-]?)?secret`-style assignment reference
+// within a tight 64-byte window, and (3) gate on Shannon entropy before
+// surfacing the candidate.
+//
+// Verified via /v1/version on the per-project host (`<project>.hasura.app`)
+// sending `x-hasura-admin-secret`. The project host isn't in the chunk so
+// verify requires apiBase override and ships unverified-by-default.
 package hasura
 
 import (
@@ -20,9 +29,23 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
+// Hasura Cloud admin secret: exactly 64 alphanumeric characters, no prefix.
+// Pinned per upstream trufflehog (`[a-zA-Z0-9]{64}`).
+var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`)
 
-var contextKeywords = []string{"hasura"}
+// armRe is the assignment-style Hasura admin-secret reference that must appear
+// within the proximity window. A bare "hasura" substring (package names,
+// GraphQL doc URLs, comments) is too weak; the shape a real secret assignment
+// or env var takes is HASURA_GRAPHQL_ADMIN_SECRET / hasura-admin-secret /
+// x-hasura-admin-secret. The `(graphql[_-]?)?(admin[_-]?)?secret` tail keeps
+// the bare keyword in Keywords() as the prefilter while arming on the
+// assignment context only.
+var armRe = regexp.MustCompile(`(?i)hasura[_\-]?(graphql[_\-]?)?(admin[_\-]?)?secret`)
+
+// minEntropy rejects low-entropy 64-char runs that clear the alnum regex but
+// are not random secrets (e.g. repeated padding, structured identifiers). The
+// charset is high-variety (62 symbols) so 3.5 bits/char is safe headroom.
+const minEntropy = 3.5
 
 type Scanner struct{}
 
@@ -46,6 +69,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
+		// Entropy gate: a 64-char alphanumeric run with low information
+		// (padding, structured ids) is not a random admin secret.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.Hasura,
@@ -65,8 +93,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a `hasura...secret` assignment reference appears
+// within a tight window on either side of the candidate. The window spans both
+// directions (not strict immediate precedence) so a secret defined alongside a
+// nearby HASURA_GRAPHQL_ADMIN_SECRET reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -75,13 +107,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

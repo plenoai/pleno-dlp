@@ -39,6 +39,29 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordNoArm guards the radius/arm-regex tightening: a bare
+// "deel" substring (e.g. the api.letsdeel.com host) without a token-assignment
+// reference must no longer pull in a 40+ alnum run.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("see api.letsdeel.com for docs; ref=" + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare keyword without assignment arm, got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected guards the entropy floor: a low-variety 40+
+// char run sitting right next to a real "deel_api_token=" assignment clears the
+// regex and arm gate but must be rejected as a false positive.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 42 chars, entropy ~0
+	body := []byte("deel_api_token=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy run, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummyToken {

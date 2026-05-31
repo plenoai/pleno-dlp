@@ -39,6 +39,30 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeyword_NoArm guards the FP shape the hardening rejects: a
+// high-entropy 40+ char alnum run sitting near a *bare* "elasticapm" mention
+// (a doc URL, package import, comment) with no token-assignment reference. The
+// old radius-256 strings.Contains gate matched this; the armRe assignment
+// anchor must not.
+func TestFromData_BareKeyword_NoArm(t *testing.T) {
+	body := []byte("// see https://www.elastic.co/elasticapm for docs\nbuildHash = " + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword, no assignment anchor), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropy guards the entropy floor: a 40+ char run that clears
+// the alnum regex and sits in a valid assignment context but is low-entropy
+// (repeated structure) must be rejected.
+func TestFromData_LowEntropy(t *testing.T) {
+	body := []byte("ELASTIC_APM_SECRET_TOKEN=" + "ababababababababababababababababababababab")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low entropy), got %d", len(res))
+	}
+}
+
 func TestVerify_Disabled_Default(t *testing.T) {
 	v, _ := Scanner{}.Verify(context.Background(), dummy)
 	if v {

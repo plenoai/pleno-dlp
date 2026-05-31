@@ -19,10 +19,23 @@ var apiBase = "https://app.freshmarketer.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Freshmarketer keys are 20-32 alnum chars (Freshworks platform shape).
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{20,32})\b`)
+// Freshmarketer keys are alphanumeric with no distinguishing prefix
+// (Freshworks "Token token=<key>" platform shape). No authoritative source
+// pins the exact length or charset for a freshmarketer key, so the length
+// window is left wide and recall is protected by the entropy floor + arm
+// regex rather than a guessed length. See the research note in the PR.
+var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{16,40})\b`)
 
-var contextKeywords = []string{"freshmarketer", "fresh-marketer", "fresh_marketer"}
+// minEntropy rejects low-variety alnum strings (e.g. FRESHMARKETER_API_KEY
+// boilerplate, slugs, repeated chars) that satisfy tokenRe but are not random
+// secrets. 3.0 is conservative: no documented charset/length lets us claim a
+// higher floor without risking recall.
+const minEntropy = 3.0
+
+// armRe is the assignment-style freshmarketer reference that must appear within
+// the radius window for a candidate to arm. Replaces a bare
+// strings.Contains(window, "freshmarketer") that armed on any prose mention.
+var armRe = regexp.MustCompile(`(?i)fresh[_\-]?marketer[_\-]?(api[_\-]?)?(token|key|secret)`)
 
 type Scanner struct{}
 
@@ -46,6 +59,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
+		// Reject low-entropy alnum strings (boilerplate, slugs) that arm on
+		// the nearby keyword but are not random secrets.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.Freshmarketer,
@@ -65,8 +83,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a freshmarketer assignment-style reference
+// (matching armRe) appears within radius of the candidate. The bare keyword
+// "freshmarketer" stays in Keywords() as the cheap engine prefilter; this gate
+// is the precise arm.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -75,13 +97,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

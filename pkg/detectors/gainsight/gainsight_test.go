@@ -39,6 +39,30 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordNoArm guards the FP-hardening: a high-entropy
+// 32-64 alnum string sitting near the bare word "gainsight" in prose must
+// no longer match, because the radius-64 arm regex requires an assignment
+// anchor (gainsight + token/key/secret), not the mere brand mention.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("We migrated our gainsight dashboards last quarter. " + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword should not arm), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected guards the entropy floor: a repeated-char
+// run that satisfies the length regex and sits in an armed context must be
+// rejected as low-information garbage.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 40 'a'
+	body := []byte("GAINSIGHT_API_KEY=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low entropy should be rejected), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Accesskey") != dummy {
