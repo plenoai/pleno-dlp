@@ -20,12 +20,32 @@ var apiBase = "https://api.intelligence.fireeye.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Mandiant API keys and secret IDs are 32-64 alnum chars each. We match
-// each independently then pair them within the chunk if both appear
-// near the keyword.
+// Mandiant API keys and secret IDs are alnum runs. We match each
+// independently then pair them within the chunk if both appear near the
+// keyword.
+//
+// NOTE on length: Mandiant's API docs are partner/customer-only and not
+// public; neither the official google/mandiant-ti-client nor any public
+// integration documents a prefix, length, or charset for the Key ID /
+// Secret. So the {32,64} bound is NOT authoritatively pinned — it is left
+// as-is to preserve recall. Disambiguation is done by the arm regex +
+// entropy gate, not by length.
 var keyRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-var contextKeywords = []string{"mandiant", "fireeye", "intelligence.fireeye"}
+// armRe is the assignment-style Mandiant reference that must appear within
+// the proximity window. A bare "mandiant" / "fireeye" substring (doc links,
+// vendor mentions, the api.intelligence.fireeye host) is too weak a gate
+// against a generic 32-64 alphanumeric run; the
+// `(mandiant|fireeye)[_-]?(api[_-]?)?(key|token|secret|id)` shape is what a
+// real credential assignment or config key takes. The bare keywords stay in
+// Keywords() as the engine prefilter.
+var armRe = regexp.MustCompile(`(?i)(mandiant|fireeye)[_\-]?(api[_\-]?)?(key|token|secret|id)`)
+
+// minEntropy rejects low-information 32-64 char runs (padded placeholders,
+// repeated characters, structured IDs) that clear the alnum regex but are not
+// random credentials. 3.0 is conservative: the credential format is
+// undocumented, so a tighter floor would risk silently culling real keys.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -47,6 +67,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Entropy gate: structured/low-information 32-64 char runs clear the
+		// alnum regex but are not random credentials — reject them even when
+		// armed. Applied to both halves of the pair.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -76,8 +102,13 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return []detectors.Result{res}, nil
 }
 
+// nearKeyword reports whether a
+// `(mandiant|fireeye)[_-]?(api[_-]?)?(key|token|secret|id)` reference appears
+// within a tight window on either side of the candidate. The window spans both
+// directions (not strict immediate precedence) so a key defined alongside a
+// nearby MANDIANT_API_KEY / MANDIANT_SECRET reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -86,13 +117,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 // Verify expects secret formatted as "key:secret".

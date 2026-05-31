@@ -1,7 +1,13 @@
 // Package mailtrap detects Mailtrap API tokens — long alphanumeric strings
-// near the `mailtrap` keyword. Mailtrap authenticates via the
-// `Api-Token: <token>` request header. Verified via /api/accounts on
-// mailtrap.io.
+// near a `mailtrap_(api_)?token|key|secret` assignment reference. Mailtrap
+// authenticates via the `Api-Token: <TOKEN>` request header. Verified via
+// /api/accounts on mailtrap.io.
+//
+// Mailtrap publishes no authoritative token length/charset (docs use
+// placeholders; no upstream trufflehog detector), so this detector applies only
+// recall-safe gate-tightening: a tight assignment-anchor proximity window and a
+// conservative entropy floor — no length pin that could silently drop real
+// tokens.
 package mailtrap
 
 import (
@@ -18,10 +24,28 @@ var apiBase = "https://mailtrap.io"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Mailtrap API tokens are documented as 32+ char alphanumeric.
+// Mailtrap publishes no authoritative token format: the docs document only the
+// `Api-Token` / `Authorization: Bearer` headers and use placeholders
+// (`<YOUR_API_TOKEN>`), and there is no upstream trufflehog detector. The only
+// observable structural fact is that tokens are alphanumeric (the API exposes a
+// `last_4_digits` property). Without a sourced length/charset we keep the broad
+// alphanumeric shape and lean on the gate + a conservative entropy floor rather
+// than guess a length pin (an over-tight pin would silently destroy recall).
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,80})\b`)
 
-var contextKeywords = []string{"mailtrap", "mailtrap_api", "mailtrap_token"}
+// armRe is the assignment-style Mailtrap reference that must appear within the
+// proximity window. A bare "mailtrap" substring (script/doc URLs, the
+// mailtrap.io host, brand mentions) is too weak a gate against a generic
+// 32-80 char alphanumeric run; `mailtrap[_-]?(api[_-]?)?(token|key|secret)` is
+// the shape a real credential assignment or config key takes. The bare
+// "mailtrap" keyword stays in Keywords() as the cheap prefilter.
+var armRe = regexp.MustCompile(`(?i)mailtrap[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-information 32-80 char runs that clear the alnum regex
+// but are not random tokens (padded placeholders, repeated characters). 3.0 is
+// the conservative floor used when no authoritative length/charset is known, so
+// it does not over-cull a potentially hex/low-variety real token.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -40,6 +64,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		// Entropy gate: structured/low-information runs (padded placeholders,
+		// repeated characters) clear the alnum regex but are not random tokens.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -64,8 +93,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether a `mailtrap[_-]?(api[_-]?)?(token|key|secret)`
+// reference appears within a tight window on either side of the candidate. The
+// window spans both directions (not strict precedence) so a credential defined
+// alongside a nearby MAILTRAP_API_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -74,13 +107,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

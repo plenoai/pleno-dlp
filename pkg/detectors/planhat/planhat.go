@@ -19,11 +19,26 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Planhat tenant tokens are 32-64 alnum chars; we anchor on the
-// `planhat` keyword to bound false positives.
+// Planhat does not publish an authoritative token length/charset/prefix
+// (no upstream trufflehog detector exists; the developer docs describe how
+// to generate API Access Tokens but never document the credential shape).
+// We therefore keep the pre-existing alnum length window unchanged — pinning
+// a narrower length would be an unsourced guess that silently kills recall —
+// and lean on the assignment-anchor arm regex plus a conservative entropy
+// floor to bound false positives.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-var contextKeywords = []string{"planhat", "planhat.com"}
+// armRe is the assignment-style Planhat reference that must appear within the
+// proximity window. A bare "planhat" substring (marketing URLs, dependency
+// names, comments) is too weak; "planhat_token" / "planhat-api-key" /
+// "planhattoken" is the shape a real token assignment or config key takes.
+var armRe = regexp.MustCompile(`(?i)planhat[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-entropy alnum runs that clear the regex but are not
+// random tokens. Conservative 3.0 floor (not 3.5) because the credential
+// charset is undocumented — over-culling would destroy recall on a real but
+// lower-variety token.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -42,6 +57,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
+			continue
+		}
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
@@ -67,7 +85,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -76,13 +94,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

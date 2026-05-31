@@ -9,8 +9,11 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-const dummyID = "abcdef0123456789abcdef01ABCDEF"
-const dummySecret = "fedcba9876543210fedcba98ABCDEF"
+// dummyID is a UUID v4 — the authoritative Marketo client_id shape (Adobe docs
+// + provider REST-Sample-Code). dummySecret is a 32-char high-entropy
+// alphanumeric, the documented client_secret shape.
+const dummyID = "cdf01657-110d-4155-99a7-f986b2ff13a0"
+const dummySecret = "tZPVrKiEmUDezE18yZfeaPlTJ2vKn2fw"
 
 func TestType(t *testing.T) {
 	if (Scanner{}).Type() != detectors.Marketo {
@@ -40,6 +43,30 @@ func TestFromData_NoKeyword(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
+	}
+}
+
+// TestFromData_GenericHighEntropyRejected is the FP-hardening regression: a
+// generic high-entropy 30-char alnum run near the word "marketo" used to match
+// the old bare `[A-Za-z0-9]{24,64}` id regex. It is no longer UUID-shaped, so
+// the id half cannot arm and nothing is reported.
+func TestFromData_GenericHighEntropyRejected(t *testing.T) {
+	// 30-char base62 noise (not a UUID) + a 32-char secret, both near "marketo".
+	body := []byte("marketo notes: x9Qm2Lp7Zr4Vt8Nc1Bd6Ws3Kf5Hj plus token kP9mWq2Lz7Rt4Vx8Nc1Bd6Ws3Kf5Hj0a")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (no UUID-shaped client_id), got %d", len(res))
+	}
+}
+
+// TestFromData_BareKeywordNotArmed verifies the arm-regex gate: a UUID + 32-char
+// secret sitting near the bare word "marketo" (no assignment-style reference)
+// must NOT arm — the bare keyword is only a prefilter, not the gate.
+func TestFromData_BareKeywordNotArmed(t *testing.T) {
+	body := []byte("The marketo platform overview. " + dummyID + " " + dummySecret)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword, no assignment anchor), got %d", len(res))
 	}
 }
 

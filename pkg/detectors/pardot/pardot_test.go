@@ -43,6 +43,36 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_GenericHighEntropyRejected is the FP-hardening regression: two
+// generic high-entropy alphanumeric strings sitting next to the `pardot`
+// keyword no longer match. Real credentials are structurally anchored — the
+// Business Unit ID begins with `0Uv` (18 chars) and the access token begins
+// with `00D` — so a build-id / base64-blob pair that previously satisfied the
+// bare `[A-Za-z0-9]{18,256}` + radius-256 keyword gate is now rejected.
+func TestFromData_GenericHighEntropyRejected(t *testing.T) {
+	body := []byte("pardot_api_token config\nfirst=Zk9Qm2Xc7VtRbN4hYpL8dWg3\nsecond=Jq6Tn1Bs5Hx0CwM8eRf2KdVa9")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (generic high-entropy strings must not match), got %d", len(res))
+	}
+}
+
+// TestFromData_RealisticToken asserts recall on the documented live shape: a
+// Salesforce OAuth access token (`00D<orgid>!<tail>` with `.`/`_` separators)
+// paired with a `0Uv` Business Unit ID. The pre-hardening bare-alnum regex
+// could not match this real token because it excluded `!`, `.` and `_`.
+func TestFromData_RealisticToken(t *testing.T) {
+	const realTok = "00DB0000000TfcRMAQ!AQQAQFhoK8vTMg_rKA.esrJ2bCs.OOIjJgl9Cx6O7Kqj"
+	body := []byte("PARDOT_BUSINESS_UNIT_ID=" + dummyBU + "\nPARDOT_API_TOKEN=" + realTok)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) == 0 {
+		t.Fatal("expected >=1 for realistic Salesforce OAuth token")
+	}
+	if string(res[0].RawV2) != realTok {
+		t.Errorf("RawV2 mismatch: %s", res[0].RawV2)
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+dummyTok {

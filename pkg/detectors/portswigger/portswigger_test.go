@@ -40,6 +40,29 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_BareKeywordNoArm guards the radius/arm tightening: a bare
+// "portswigger" mention near a candidate (e.g. a doc URL or vendor name) no
+// longer arms — only an assignment-style reference does.
+func TestFromData_BareKeywordNoArm(t *testing.T) {
+	body := []byte("see https://portswigger.net for docs; value=" + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (bare keyword, no assignment arm), got %d", len(res))
+	}
+}
+
+// TestFromData_LowEntropyRejected guards the entropy floor: a 40-char run that
+// clears the alnum regex and sits next to a real assignment arm is still
+// rejected when it carries no information (repeated/padded filler).
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	lowEntropy := strings.Repeat("ab", 20) // 40 chars, 1 bit/char
+	body := []byte("PORTSWIGGER_API_KEY=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 (low-entropy filler), got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.Path, dummy) {

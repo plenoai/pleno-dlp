@@ -1,6 +1,12 @@
-// Package messagebird detects MessageBird API access keys (25-char alnum)
-// gated on the `messagebird` keyword window. Verified via /contacts on
-// rest.messagebird.com with `Authorization: AccessKey <token>` — that is
+// Package messagebird detects MessageBird API access keys gated on a
+// `messagebird` reference. The access-key body is a fixed 25-character
+// high-variety run (the body of an optionally `test_`-prefixed key, e.g.
+// the docs example `test_<25-CHAR-BODY>`); live keys carry no prefix, so
+// there is no distinguishing anchor and the keyword gate plus an entropy
+// floor carry the false-positive load. Length and charset are pinned to
+// trufflehog's upstream detector (`[A-Za-z0-9_-]{25}`), which agrees with
+// MessageBird's documented key example. Verified via /contacts on
+// rest.messagebird.com with `Authorization: AccessKey <TOKEN>` — that is
 // MessageBird's idiomatic auth header, distinct from Bearer.
 package messagebird
 
@@ -18,9 +24,23 @@ var apiBase = "https://rest.messagebird.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{25,32})\b`)
+// Exactly 25 chars over [A-Za-z0-9_-], pinned to trufflehog upstream
+// (pkg/detectors/messagebird) and consistent with the documented key body.
+// No prefix to anchor on, so the keyword gate and entropy floor carry the
+// false-positive load.
+var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{25})\b`)
 
-var contextKeywords = []string{"messagebird", "messagebird_access_key", "messagebird_api_key"}
+// armRe is the assignment-style MessageBird reference that must appear within
+// the proximity window. A bare "messagebird" substring (doc links, the
+// messagebird.com host, dependency names) is too weak a gate against a generic
+// 25-char run; `messagebird[_-]?(api[_-]?)?(access[_-]?)?(token|key|secret)`
+// is the shape a real credential assignment or config key takes.
+var armRe = regexp.MustCompile(`(?i)messagebird[_\-]?(api[_\-]?)?(access[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-entropy 25-char runs that clear the charset regex but
+// are not random tokens (e.g. structured identifiers, padded names). The body
+// is high-variety alphanumeric, so 3.5 is safe without over-culling.
+const minEntropy = 3.5
 
 type Scanner struct{}
 
@@ -42,6 +62,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			continue
 		}
 		if !nearKeyword(lower, h[2], h[3]) {
+			continue
+		}
+		// Entropy gate: structured/low-information 25-char runs (e.g. a
+		// dotted identifier or padded name) clear the charset regex but are
+		// not random tokens — reject them even when armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -89,8 +115,12 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	}
 }
 
+// nearKeyword reports whether a messagebird credential reference (per armRe)
+// appears within a tight window on either side of the candidate. The window
+// spans both directions (not strict immediate precedence) so a key defined
+// alongside a nearby MESSAGEBIRD_ACCESS_KEY reference still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -99,13 +129,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func redact(t string) string {

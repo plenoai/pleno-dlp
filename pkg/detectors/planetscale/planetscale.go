@@ -21,19 +21,29 @@ var apiBase = "https://api.planetscale.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Token id shapes (observed): `pscale_oauth_…`, `pscale_tkn_…` —
-// followed by 32+ base62 characters.
+// Token id is anchored on the distinguishing `pscale_(oauth|tkn)_` prefix
+// (PlanetScale's documented service-token prefix is `pscale_tkn_`; we also
+// retain the `pscale_oauth_` shape this detector has historically matched),
+// followed by 32+ base62 characters. The prefix is the false-positive gate
+// for this half — no entropy floor is needed on a prefixed token.
 var idRe = regexp.MustCompile(`\b(pscale_(?:oauth|tkn)_[A-Za-z0-9]{32,64})\b`)
 
-// Secret is 32-64 base62 chars. Same noise as Algolia/Trello secrets;
-// gated by `pscale_` co-occurrence + nearest-neighbor pairing.
+// Secret is a bare 32-64 base62 run. With no prefix to anchor on, this is the
+// real false-positive source (it matches commit SHAs, nonces, base62 ids), so
+// we gate it on Shannon entropy (high-variety alnum charset -> 3.5 per
+// docs/detector-key-formats.md) in addition to the keyword arm + pairing.
 var secretRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-// contextKeywords intentionally excludes the bare `pscale_` substring —
-// every match already starts with `pscale_oauth_` / `pscale_tkn_`, so
-// `pscale` is *always* in the surrounding window. We require a stronger
-// signal (`planetscale` literal) to gate the result.
-var contextKeywords = []string{"planetscale", "planetscale_token", "pscale_token"}
+// secretMinEntropy rejects low-information 32-64 char runs (structured ids,
+// padded names) that clear the alnum regex but are not random secrets.
+const secretMinEntropy = 3.5
+
+// armRe is the assignment-style PlanetScale reference that must appear within
+// the proximity window. A bare `planetscale` / `pscale` substring (dependency
+// names, docs, URLs) is too weak; the shape a real service-token assignment or
+// config key takes is `planetscale[_-]token` / `pscale[_-]token`, optionally
+// with an `_id` suffix.
+var armRe = regexp.MustCompile(`(?i)(?:planetscale|pscale)[_\-]?token(?:[_\-]?id)?`)
 
 type Scanner struct{}
 
@@ -144,6 +154,11 @@ func nearestSecret(idStart, idEnd int, data []byte, hits [][]int, exclude string
 		if s == exclude {
 			continue
 		}
+		// Entropy gate: a 32-64 char alnum run with no prefix is the FP source.
+		// Reject low-information runs (structured ids, padded names) here.
+		if !detectors.HasMinEntropy(s, secretMinEntropy) {
+			continue
+		}
 		dist := abs(h[2] - idStart)
 		if dist < bestDist {
 			bestDist = dist
@@ -156,8 +171,12 @@ func nearestSecret(idStart, idEnd int, data []byte, hits [][]int, exclude string
 	return best, true
 }
 
+// nearKeyword reports whether a `(planetscale|pscale)[_-]?token` assignment-style
+// reference appears within a tight 64-byte window on either side of the token id.
+// The window is searched in both directions (not strict precedence) so an id and
+// its `PLANETSCALE_SERVICE_TOKEN_ID` reference a few lines apart still arms.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -166,13 +185,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func abs(x int) int {

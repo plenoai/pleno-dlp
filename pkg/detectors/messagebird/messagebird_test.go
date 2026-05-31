@@ -38,6 +38,29 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// A bare "messagebird" mention near a real-shaped token must no longer arm:
+// after FP-hardening the gate requires an assignment-style reference
+// (messagebird[_-]?...(token|key|secret)), not a bare substring.
+func TestFromData_BareKeywordRejected(t *testing.T) {
+	body := []byte("// see messagebird docs\nsessionId = " + dummy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for bare-keyword mention, got %d", len(res))
+	}
+}
+
+// FP regression: a low-entropy 25-char run that clears the charset regex but
+// is a padded/structured identifier must be rejected by the entropy floor even
+// when armed by a MESSAGEBIRD_ACCESS_KEY reference.
+func TestFromData_LowEntropyRejected(t *testing.T) {
+	const lowEntropy = "AAAAAAAAAAAA1111111111111" // 25 chars, Shannon ~1.0
+	body := []byte("MESSAGEBIRD_ACCESS_KEY=" + lowEntropy)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for low-entropy run, got %d", len(res))
+	}
+}
+
 func TestVerify_OK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "AccessKey "+dummy {

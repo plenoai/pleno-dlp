@@ -20,11 +20,27 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// 32-64 alnum keys; we restrict to keys appearing near a NEAR-flavoured
-// keyword to keep the regex from devolving into a high-entropy match.
+// 32-64 alnum keys. No provider (FastNEAR, Pagoda) documents an
+// authoritative length/charset/prefix for its RPC API key, so the length
+// range is left untouched — pinning a guessed length would silently destroy
+// recall. The false-positive load is carried instead by an assignment-anchor
+// keyword gate (armRe within a tight window) plus a conservative entropy
+// floor. See research record: no authoritative format found.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-var contextKeywords = []string{"near-rpc", "nearrpc", "pagoda", "fastnear", "near-protocol", "nearprotocol"}
+// armRe is the assignment-style NEAR-RPC reference that must appear within the
+// proximity window. A bare "pagoda"/"fastnear"/"near-rpc" substring (docs
+// links, dependency names, prose) is too weak; the shape a real credential
+// assignment or config key takes is e.g. NEAR_RPC_API_KEY, PAGODA_API_KEY,
+// fastnear-token, nearrpc_secret.
+var armRe = regexp.MustCompile(`(?i)(near[_\-]?rpc|nearrpc|pagoda|fastnear|near[_\-]?protocol|nearprotocol)[_\-]?(api[_\-]?)?(token|key|secret)`)
+
+// minEntropy rejects low-entropy 32-64-char alnum runs that clear the regex
+// and the keyword gate but are not random tokens (padded identifiers, repeated
+// characters). Conservative 3.0 floor — the alnum charset can reach ~5.95
+// bits/char, so 3.0 culls only obviously-structured runs without risking
+// recall on a key whose true length/charset is undocumented.
+const minEntropy = 3.0
 
 type Scanner struct{}
 
@@ -48,6 +64,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
+		// Entropy gate: structured/low-information 32-64-char runs (padded
+		// identifiers, repeated characters) are rejected even if armed.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.NearRPC,
@@ -67,8 +88,13 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
+// nearKeyword reports whether an assignment-style NEAR-RPC reference (armRe)
+// appears within a tight window on either side of the candidate token. The
+// window spans both directions (not strict immediate precedence) so a token
+// defined alongside a nearby PAGODA_API_KEY / NEAR_RPC_TOKEN reference still
+// arms. Radius tightened 256->64 to cut cross-line false positives.
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -77,13 +103,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
-		}
-	}
-	return false
+	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
