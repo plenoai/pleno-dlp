@@ -9,10 +9,32 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Anything merged to `main` since v0.43.0.
+Anything merged to `main` since v0.45.0.
+
+## [0.45.0] — 2026-05-31
+
+Everything merged to `main` since v0.44.0. (The v0.44.0 tag — the
+Aho-Corasick keyword prefilter, #107 — shipped without its own
+changelog entry; this section opens the range at v0.44.0.)
 
 ### Added
 
+- **26 detectors gained live `Verify`; 40 unverifiable detectors were
+  hardened against false positives** (#119). Verify-gap providers with a
+  reachable probe now confirm against upstream — AWSSession, AlibabaCloud
+  and TencentCloud (HMAC-signed), ArgoCD, BitbucketServer, Bitwarden,
+  ClickHouseCloud, Databricks, DockerHub, Freshdesk, Grafana, Okta,
+  Supabase, Tailscale, Vault, Vonage, Zendesk, plus AWX, ActiveCampaign,
+  Adyen, BackblazeB2, Bamboo, ElasticCloud, SplunkHEC, TeamCity, Wasabi.
+  Every path normalises through `ClassifyVerifyHTTP` (#117) or the AWS STS
+  SDK and never emits a false `Verified=true` on an ambiguous response.
+  The detectors that cannot be verified correctly (the matched value is
+  not a self-authenticating bearer credential, a required pair/host is
+  absent, or a probe would be destructive) instead got semantic
+  false-positive hardening: assignment/context-keyword proximity anchors,
+  Shannon-entropy floors, and digest/SHA lookalike exclusions. Verify
+  coverage is now a=540 / b=56 / c=4 (was 514 / 44 / 42); query it with
+  `pleno-dlp detectors list --verify-status`.
 - **`--pii-engine=openai-pf` selects the openai/privacy-filter (opf)
   engine as a sibling of `anonymize`** (ADR-0004). opf is a 1.5B-param
   MoE classifier covering 8 PII categories (`account_numbers`,
