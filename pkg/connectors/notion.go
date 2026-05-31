@@ -73,19 +73,13 @@ func scanNotion(ctx context.Context, cfg Config, emit Emit) error {
 		if err != nil {
 			return fmt.Errorf("notion: marshal search body: %w", err)
 		}
-		resp, err := cli.do(ctx, http.MethodPost, "/search", strings.NewReader(string(bodyJSON)))
-		if err != nil {
+		var sr notionSearchResult
+		if err := cli.postJSON(ctx, "/search", bodyJSON, &sr); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
 			return fmt.Errorf("notion: search: %w", err)
 		}
-		var sr notionSearchResult
-		if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
-			resp.Body.Close()
-			return fmt.Errorf("notion: decode search: %w", err)
-		}
-		resp.Body.Close()
 
 		for _, item := range sr.Results {
 			if err := ctx.Err(); err != nil {
@@ -164,18 +158,12 @@ type notionDBQueryResult struct {
 }
 
 func emitNotionPage(ctx context.Context, cli *notionClient, item notionSearchItem, emit Emit) error {
-	resp, err := cli.do(ctx, http.MethodGet, "/pages/"+item.ID, nil)
-	if err != nil {
-		return fmt.Errorf("notion: get page %s: %w", item.ID, err)
-	}
 	var pageFull struct {
 		Properties map[string]json.RawMessage `json:"properties"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&pageFull); err != nil {
-		resp.Body.Close()
-		return fmt.Errorf("notion: decode page %s: %w", item.ID, err)
+	if err := cli.getJSON(ctx, "/pages/"+item.ID, &pageFull); err != nil {
+		return fmt.Errorf("notion: get page %s: %w", item.ID, err)
 	}
-	resp.Body.Close()
 
 	title := notionExtractTitle(pageFull.Properties)
 	blocks, err := notionFetchAllBlocks(ctx, cli, item.ID)
@@ -205,16 +193,10 @@ func emitNotionDatabaseRows(ctx context.Context, cli *notionClient, item notionS
 			body["start_cursor"] = nextCursor
 		}
 		bodyJSON, _ := json.Marshal(body)
-		resp, err := cli.do(ctx, http.MethodPost, path, strings.NewReader(string(bodyJSON)))
-		if err != nil {
+		var qr notionDBQueryResult
+		if err := cli.postJSON(ctx, path, bodyJSON, &qr); err != nil {
 			return fmt.Errorf("notion: query database %s: %w", item.ID, err)
 		}
-		var qr notionDBQueryResult
-		if err := json.NewDecoder(resp.Body).Decode(&qr); err != nil {
-			resp.Body.Close()
-			return fmt.Errorf("notion: decode database query: %w", err)
-		}
-		resp.Body.Close()
 
 		for _, row := range qr.Results {
 			var pageObj struct {
@@ -257,16 +239,10 @@ func notionFetchAllBlocks(ctx context.Context, cli *notionClient, parentID strin
 		if nextCursor != "" {
 			path += "&start_cursor=" + nextCursor
 		}
-		resp, err := cli.do(ctx, http.MethodGet, path, nil)
-		if err != nil {
+		var bcr notionBlockChildrenResp
+		if err := cli.getJSON(ctx, path, &bcr); err != nil {
 			return nil, fmt.Errorf("notion: get block children for %s: %w", parentID, err)
 		}
-		var bcr notionBlockChildrenResp
-		if err := json.NewDecoder(resp.Body).Decode(&bcr); err != nil {
-			resp.Body.Close()
-			return nil, fmt.Errorf("notion: decode block children: %w", err)
-		}
-		resp.Body.Close()
 
 		for _, raw := range bcr.Results {
 			var b struct {
@@ -508,6 +484,43 @@ func (c *notionClient) do(ctx context.Context, method, path string, body io.Read
 		return resp, nil
 	}
 	return nil, errors.New("notion: exhausted retries against rate limit")
+}
+
+// getJSON issues a GET and decodes a 2xx body into out. A non-2xx status
+// is rejected with an error embedding a bounded body read, so a 4xx/5xx
+// can never be silently decoded into a zero-finding (false-clean) scan.
+func (c *notionClient) getJSON(ctx context.Context, path string, out any) error {
+	resp, err := c.do(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("GET %s -> %s: %s", path, resp.Status, strings.TrimSpace(string(b)))
+	}
+	if out != nil {
+		return json.NewDecoder(resp.Body).Decode(out)
+	}
+	return nil
+}
+
+// postJSON issues a POST and decodes a 2xx body into out, applying the
+// same non-2xx rejection as getJSON.
+func (c *notionClient) postJSON(ctx context.Context, path string, body []byte, out any) error {
+	resp, err := c.do(ctx, http.MethodPost, path, strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("POST %s -> %s: %s", path, resp.Status, strings.TrimSpace(string(b)))
+	}
+	if out != nil {
+		return json.NewDecoder(resp.Body).Decode(out)
+	}
+	return nil
 }
 
 func (c *notionClient) url(p string) string {

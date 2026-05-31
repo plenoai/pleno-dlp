@@ -42,6 +42,18 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
+// TestFromData_ZeroEntropy guards FP anti-pattern #121: a chunk that mentions
+// "gladly" and an email but whose only 32+ char alnum run is a zero-entropy
+// repeated character must yield no result. The arm regex + entropy gate both
+// reject it.
+func TestFromData_ZeroEntropy(t *testing.T) {
+	body := []byte("gladly support contact support@acme.com fallback aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0, got %d", len(res))
+	}
+}
+
 func TestVerify_Disabled_Default(t *testing.T) {
 	v, _ := Scanner{}.Verify(context.Background(), dummyEmail+":"+dummyToken)
 	if v {
