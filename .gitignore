@@ -26,3 +26,9 @@ coverage.html
 .claude/scheduled_tasks.lock
 /_workspace/
 /_workspace_prev/
+
+# Codex / agent harness mirrors of .claude/ + CLAUDE.md (locally regenerated;
+# do not commit — they duplicate the tracked .claude/ tree and CLAUDE.md)
+.agents/
+.codex/
+/AGENTS.md

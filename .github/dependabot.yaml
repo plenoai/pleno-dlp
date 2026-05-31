@@ -4,3 +4,21 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+
+  # Go modules. 600+ detectors pull a wide dependency surface; batch the
+  # noisy patch streams (golang.org/x/* and the aws-sdk-go-v2 family) into
+  # single PRs, and keep a catch-all group so indirect security bumps
+  # (x/net, x/crypto) surface without flooding the queue.
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      golang-x:
+        patterns:
+          - "golang.org/x/*"
+      aws-sdk-go-v2:
+        patterns:
+          - "github.com/aws/aws-sdk-go-v2*"
+      go-dependencies:
+        dependency-type: all
