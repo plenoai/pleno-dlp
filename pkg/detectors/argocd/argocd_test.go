@@ -2,6 +2,8 @@ package argocd
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -49,5 +51,89 @@ func TestRedact(t *testing.T) {
 	r := redact(dummy)
 	if r == dummy {
 		t.Fatal("redact didn't redact")
+	}
+}
+
+// withServer points apiBase at a test server returning the given status and
+// restores apiBase afterwards.
+func withServer(t *testing.T, status int) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/account" {
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer "+dummy {
+			t.Errorf("expected bearer auth, got %q", got)
+		}
+		w.WriteHeader(status)
+	}))
+	t.Cleanup(srv.Close)
+	old := apiBase
+	apiBase = srv.URL
+	t.Cleanup(func() { apiBase = old })
+}
+
+func TestVerify_NoApiBase_NoOp(t *testing.T) {
+	old := apiBase
+	apiBase = ""
+	t.Cleanup(func() { apiBase = old })
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if v || err != nil {
+		t.Fatalf("expected no-op (false,nil), got (%v,%v)", v, err)
+	}
+}
+
+func TestVerify_Accept200(t *testing.T) {
+	withServer(t, http.StatusOK)
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if !v || err != nil {
+		t.Fatalf("expected verified true, got (%v,%v)", v, err)
+	}
+}
+
+func TestVerify_Accept403(t *testing.T) {
+	withServer(t, http.StatusForbidden)
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if !v || err != nil {
+		t.Fatalf("403 (authenticated, RBAC-denied) should still verify, got (%v,%v)", v, err)
+	}
+}
+
+func TestVerify_Reject401(t *testing.T) {
+	withServer(t, http.StatusUnauthorized)
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if v || err != nil {
+		t.Fatalf("401 should be clean rejection (false,nil), got (%v,%v)", v, err)
+	}
+}
+
+func TestVerify_Transient429(t *testing.T) {
+	withServer(t, http.StatusTooManyRequests)
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if v || err == nil {
+		t.Fatalf("429 should be transient (false,err), got (%v,%v)", v, err)
+	}
+}
+
+func TestVerify_Transient500(t *testing.T) {
+	withServer(t, http.StatusInternalServerError)
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if v || err == nil {
+		t.Fatalf("500 should be transient (false,err), got (%v,%v)", v, err)
+	}
+}
+
+func TestFromData_VerifyWired(t *testing.T) {
+	withServer(t, http.StatusOK)
+	body := []byte("ARGOCD_TOKEN=" + dummy)
+	res, err := Scanner{}.FromData(context.Background(), true, body)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(res))
+	}
+	if !res[0].Verified || res[0].VerificationErr != nil {
+		t.Fatalf("expected verified result, got verified=%v err=%v", res[0].Verified, res[0].VerificationErr)
 	}
 }

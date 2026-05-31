@@ -1,17 +1,35 @@
 // Package grafana detects Grafana service-account tokens (`glsa_<32>_<8 hex>`).
 //
-// Verify is intentionally not implemented. Grafana service-account tokens are
-// scoped to a specific Grafana host (self-hosted, Grafana Cloud, regional
-// stacks). The host isn't predictable from the token shape and rarely sits
-// next to it in source — probing the wrong host would silently fail or hit
-// the wrong tenant. Tokens surface unverified-by-design.
+// A Grafana service-account token is itself a Bearer credential the Grafana
+// HTTP API accepts directly — `GET /api/user` with `Authorization: Bearer
+// <token>` returns 200 for a valid token and 401/403 for an invalid one, so a
+// live verify cannot yield a false positive. The only obstacle is the
+// per-instance host (self-hosted, Grafana Cloud, regional stacks), which isn't
+// carried in the token shape. We solve it with the established apiBase-override
+// pattern (see dynatrace, onetrust, qdrant): Verify no-ops when apiBase is
+// empty, so the detector ships verified-capable but defaults to surfacing
+// tokens unverified until an operator supplies the host.
 package grafana
 
 import (
 	"context"
+	"net/http"
 	"regexp"
+	"strings"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+)
+
+// apiBase overrides the verify endpoint host. Default empty disables verify.
+var apiBase = ""
+
+var httpClient = &http.Client{Timeout: 10 * time.Second}
+
+// verify response classification.
+var (
+	acceptCodes = []int{http.StatusOK}
+	rejectCodes = []int{http.StatusUnauthorized, http.StatusForbidden}
 )
 
 // Documented shape: `glsa_` + 32 base62 + `_` + 8 lowercase hex.
@@ -23,7 +41,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Grafana }
 
 func (Scanner) Keywords() []string { return []string{"glsa_"} }
 
-func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	matches := tokenRe.FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
@@ -36,13 +54,38 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			continue
 		}
 		seen[token] = struct{}{}
-		out = append(out, detectors.Result{
+		res := detectors.Result{
 			DetectorType: detectors.Grafana,
 			Raw:          []byte(token),
 			Redacted:     redact(token),
-		})
+		}
+		if verify && apiBase != "" {
+			v, err := s.Verify(ctx, token)
+			res.Verified = v
+			res.VerificationErr = err
+		}
+		out = append(out, res)
 	}
 	return out, nil
+}
+
+func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	if apiBase == "" {
+		return false, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(apiBase, "/")+"/api/user", nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+secret)
+	req.Header.Set("Accept", "application/json")
+	resp, err := httpClient.Do(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	return detectors.ClassifyVerifyHTTP(resp, err, acceptCodes, rejectCodes)
 }
 
 func redact(t string) string {

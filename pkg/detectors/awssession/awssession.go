@@ -1,13 +1,22 @@
 // Package awssession detects AWS temporary session credential triples
-// (ASIA<16>) — access-key-id with paired secret access key and session token.
+// (ASIA<16>) — access-key-id with paired secret access key and session token —
+// and verifies them via sts:GetCallerIdentity.
 //
-// Verification is intentionally not performed inline. STS GetCallerIdentity is
-// the natural probe, but session tokens are region- and time-scoped: a token
-// minted for an arbitrary tenant against an arbitrary region cannot be
-// confirmed without context the scanner doesn't have. Probing also leaves an
-// audit-log trail in the credential owner's account, which we do not want to
-// emit silently. So awssession surfaces unverified-by-design and the engine
-// renders it under --unverified-results.
+// The matched secret is a complete temporary-credential triple: the ASIA
+// access-key-id, the 40-char secret access key, and the session token. That
+// triple is itself the credential STS accepts. GetCallerIdentity is a global
+// API — us-east-1 accepts any token — so no per-tenant host or region context
+// is needed: temporary creds verify by passing all three components through
+// credentials.NewStaticCredentialsProvider(id, secret, sessionToken), which
+// makes aws-sdk-go-v2 add the X-Amz-Security-Token header to the SigV4-signed
+// request. This mirrors the sibling pkg/detectors/aws STS path exactly; ASIA
+// only differs by supplying the captured session token as the third arg.
+//
+// Region/time-scoping is not an obstacle: GetCallerIdentity is global, and an
+// expired token simply yields a correct Verified=false (ExpiredToken /
+// InvalidClientTokenId / SignatureDoesNotMatch -> HTTP 403), not an error. We
+// only probe when verify==true, identical to how the class-a aws detector
+// gates its STS call.
 //
 // The token shape is the canonical signal: ASIA[0-9A-Z]{16} for the id, the
 // 40-char secret-access-key shape from the existing AWS detector, plus a
@@ -20,9 +29,39 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"time"
+
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
+
+// stsRegion is the region used for the verification call. us-east-1 is a safe
+// default — sts:GetCallerIdentity is a global API and accepts any region.
+const stsRegion = "us-east-1"
+
+// stsCaller is the narrow interface the verify path needs. The real
+// *sts.Client satisfies it; tests substitute a deterministic fake.
+type stsCaller interface {
+	GetCallerIdentity(ctx context.Context, params *sts.GetCallerIdentityInput, optFns ...func(*sts.Options)) (*sts.GetCallerIdentityOutput, error)
+}
+
+// stsClientFactory builds an STS client from the full temporary-credential
+// triple. Passing the sessionToken as the third arg makes aws-sdk-go-v2 sign
+// with SigV4 and attach the X-Amz-Security-Token header. Tests override this
+// to inject a mock. Using a factory keeps the zero-value Scanner usable from
+// detectors.Register(Scanner{}).
+var stsClientFactory = newSTSClient
+
+func newSTSClient(id, secret, sessionToken string) stsCaller {
+	cfg := awssdk.Config{
+		Region:      stsRegion,
+		Credentials: credentials.NewStaticCredentialsProvider(id, secret, sessionToken),
+	}
+	return sts.NewFromConfig(cfg)
+}
 
 var (
 	// ASIA<16> is the temporary credential prefix. AKIA is owned by the
@@ -50,7 +89,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AWSSession }
 // separate line far from the prefix.
 func (Scanner) Keywords() []string { return []string{"ASIA", "session_token"} }
 
-func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	idMatches := idRe.FindAllSubmatchIndex(data, -1)
 	if len(idMatches) == 0 {
 		return nil, nil
@@ -87,6 +126,17 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		}
 		if session != "" {
 			res.ExtraData["session_token_prefix"] = redact(session)
+		}
+		// Verification needs the full triple: ASIA id, 40-char secret, and
+		// the complete session token (not the redacted prefix). STS only
+		// confirms a credential when all three sign the request.
+		if verify && secret != "" && session != "" {
+			verified, meta, err := verifyWithMetadata(ctx, id, secret, session)
+			res.Verified = verified
+			res.VerificationErr = err
+			for k, v := range meta {
+				res.ExtraData[k] = v
+			}
 		}
 		out = append(out, res)
 	}
@@ -154,6 +204,111 @@ func redact(t string) string {
 		return t
 	}
 	return t[:8] + "..."
+}
+
+// Verify expects the packed triple "<access_key_id>:<secret_access_key>:<session_token>"
+// because detectors.Verifier takes a single string. FromData performs the
+// call inline today; this method satisfies the Verifier contract and stays
+// forward-compatible.
+func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	id, sk, session, ok := splitTriple(secret)
+	if !ok {
+		return false, nil
+	}
+	v, _, err := verifyWithMetadata(ctx, id, sk, session)
+	return v, err
+}
+
+// splitTriple parses "id:secret:session". The session token itself contains
+// no ':' for Amazon-issued tokens (base64 with +/= only), so two splits from
+// the left is unambiguous.
+func splitTriple(s string) (id, secret, session string, ok bool) {
+	first := strings.IndexByte(s, ':')
+	if first < 0 {
+		return "", "", "", false
+	}
+	rest := s[first+1:]
+	second := strings.IndexByte(rest, ':')
+	if second < 0 {
+		return "", "", "", false
+	}
+	return s[:first], rest[:second], rest[second+1:], true
+}
+
+// verifyWithMetadata performs the sts:GetCallerIdentity call using the full
+// temporary-credential triple and returns the verification outcome plus the
+// parsed identity metadata.
+//
+// STS rejects invalid/mismatched/expired creds (InvalidClientTokenId /
+// SignatureDoesNotMatch / ExpiredToken -> HTTP 403), and there is no wrong
+// endpoint that could return a spurious 200. On any error (rate limit 429,
+// signature mismatch, expired token, transport failure) the call returns
+// verified=false. Rate-limit / transport errors surface as a
+// VerificationErr; credential-rejection 403s are a clean Verified=false with
+// err=nil — matching the existing Verifier contract that "could not confirm"
+// is not a scan error.
+func verifyWithMetadata(ctx context.Context, id, secret, session string) (bool, map[string]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	client := stsClientFactory(id, secret, session)
+	out, err := client.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		if isCredentialRejection(err) {
+			// Explicit rejection by STS: not valid, not an error.
+			return false, nil, nil
+		}
+		// Rate limit (429) / transport: could-not-confirm. Surface the
+		// error so the engine can show VerificationErr; no retry on 429.
+		return false, nil, err
+	}
+	return true, buildIdentityMetadata(out), nil
+}
+
+// credentialRejectionCodes are the STS API error codes that mean the
+// credential is definitively invalid (HTTP 403). These are a clean
+// Verified=false, distinct from rate-limit / transport failures.
+var credentialRejectionCodes = []string{
+	"InvalidClientTokenId",
+	"SignatureDoesNotMatch",
+	"ExpiredToken",
+	"TokenRefreshRequired",
+	"AccessDenied",
+	"UnrecognizedClientException",
+}
+
+// isCredentialRejection reports whether the SDK error carries one of the STS
+// codes that mean "these creds are not valid" (vs. a transient failure). The
+// SDK wraps API errors so we match on the rendered message, which always
+// contains the error code.
+func isCredentialRejection(err error) bool {
+	msg := err.Error()
+	for _, code := range credentialRejectionCodes {
+		if strings.Contains(msg, code) {
+			return true
+		}
+	}
+	return false
+}
+
+// buildIdentityMetadata extracts the blast-radius surface from a successful
+// GetCallerIdentity response. Temporary credentials always resolve to an
+// assumed-role / federated principal.
+func buildIdentityMetadata(out *sts.GetCallerIdentityOutput) map[string]string {
+	meta := map[string]string{}
+	if out == nil {
+		return meta
+	}
+	if out.Account != nil && *out.Account != "" {
+		meta["aws_account_id"] = *out.Account
+	}
+	if out.Arn != nil && *out.Arn != "" {
+		meta["aws_arn"] = *out.Arn
+	}
+	if out.UserId != nil && *out.UserId != "" {
+		meta["aws_user_id"] = *out.UserId
+	}
+	return meta
 }
 
 func init() {

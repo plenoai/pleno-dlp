@@ -5,22 +5,38 @@
 // owning RAM user's full configured policy — root accounts especially are
 // SeverityCritical when paired.
 //
-// Verify is intentionally not performed. The natural probe is STS
-// GetCallerIdentity, but the API endpoint host is region-bound
-// (sts.<region>.aliyuncs.com) and the scanner has no reliable way to pick a
-// region without leaking which tenant the credential belongs to. Probing
-// also leaves an audit-log trail in the credential owner's account, which we
-// won't emit silently. So aliyun surfaces unverified-by-design and the
-// engine renders it under --unverified-results.
+// Verify performs a live, read-only probe against the global, region-agnostic
+// ECS endpoint https://ecs.aliyuncs.com using Action=DescribeRegions. That
+// endpoint needs no region selection, so the earlier "no reliable region"
+// concern does not apply, and DescribeRegions returns the public region list —
+// it leaks no tenant-specific data. The probe signs the request with the
+// classic Aliyun RPC v1.0 HMAC-SHA1 query-signing scheme: the AccessKey id is
+// the AccessKeyId param and the AccessKey secret is the HMAC key (secret+"&").
+// A wrong signature yields SignatureDoesNotMatch (HTTP 400), so a false
+// Verified=true is unreachable.
 package aliyun
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
+	"net/http"
+	"net/url"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
+
+// apiBase is the global, region-agnostic ECS endpoint. Tests override it to
+// point at an httptest.Server.
+var apiBase = "https://ecs.aliyuncs.com"
+
+var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // LTAI is the canonical AccessKey id prefix. Aliyun has issued shorter (16
 // alnum) and longer (24 alnum) variants depending on issuance year; the
@@ -42,7 +58,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AlibabaCloud }
 // reach FromData — pairing requires both.
 func (Scanner) Keywords() []string { return []string{"LTAI", "aliyun", "alibaba"} }
 
-func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	idMatches := idRe.FindAllSubmatchIndex(data, -1)
 	if len(idMatches) == 0 {
 		return nil, nil
@@ -74,7 +90,14 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			res.RawV2 = []byte(secret)
 			// Paired credentials grant full account-scope access — Critical.
 			res.Severity = detectors.SeverityCritical
+			if verify {
+				v, err := verifyPair(ctx, id, secret)
+				res.Verified = v
+				res.VerificationErr = err
+			}
 		}
+		// Id-only findings cannot be signed (no HMAC key), so they stay
+		// unverified regardless of the verify flag.
 		out = append(out, res)
 	}
 	if len(out) == 0 {
@@ -124,6 +147,99 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+// Verify accepts the paired credential packed as "<accessKeyId>:<secret>"
+// (engine convention, mirrors datadog). An id-only finding cannot be signed,
+// so verify no-ops to (false, nil) when the secret half is absent.
+func (s Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	id, sec, ok := splitPair(secret)
+	if !ok || id == "" || sec == "" {
+		return false, nil
+	}
+	return verifyPair(ctx, id, sec)
+}
+
+func splitPair(s string) (string, string, bool) {
+	i := strings.IndexByte(s, ':')
+	if i < 0 {
+		return "", "", false
+	}
+	return s[:i], s[i+1:], true
+}
+
+// verifyPair signs an ECS DescribeRegions request with the leaked credential
+// and classifies the response: 200 => valid, 400/404 (SignatureDoesNotMatch,
+// InvalidAccessKeyId, etc.) => invalid, 429/5xx => transient (error).
+func verifyPair(ctx context.Context, accessKeyID, accessKeySecret string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	endpoint, err := signedURL(accessKeyID, accessKeySecret, time.Now().UTC())
+	if err != nil {
+		return false, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return false, err
+	}
+	resp, doErr := httpClient.Do(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	return detectors.ClassifyVerifyHTTP(resp, doErr, []int{http.StatusOK}, []int{http.StatusBadRequest, http.StatusNotFound})
+}
+
+// signedURL builds the fully-signed Aliyun RPC v1.0 (HMAC-SHA1) request URL for
+// ECS DescribeRegions against apiBase.
+func signedURL(accessKeyID, accessKeySecret string, now time.Time) (string, error) {
+	params := map[string]string{
+		"Action":           "DescribeRegions",
+		"Version":          "2014-05-26",
+		"Format":           "JSON",
+		"AccessKeyId":      accessKeyID,
+		"SignatureMethod":  "HMAC-SHA1",
+		"SignatureVersion": "1.0",
+		"SignatureNonce":   strconv.FormatInt(now.UnixNano(), 10),
+		"Timestamp":        now.Format("2006-01-02T15:04:05Z"),
+	}
+
+	// Build the sorted canonical query exactly as Aliyun expects it.
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var canonical strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			canonical.WriteByte('&')
+		}
+		canonical.WriteString(percentEncode(k))
+		canonical.WriteByte('=')
+		canonical.WriteString(percentEncode(params[k]))
+	}
+
+	stringToSign := "GET&" + percentEncode("/") + "&" + percentEncode(canonical.String())
+
+	mac := hmac.New(sha1.New, []byte(accessKeySecret+"&"))
+	if _, err := mac.Write([]byte(stringToSign)); err != nil {
+		return "", err
+	}
+	signature := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	final := canonical.String() + "&Signature=" + percentEncode(signature)
+	return apiBase + "/?" + final, nil
+}
+
+// percentEncode implements Aliyun's RFC 3986 variant: url.QueryEscape then
+// + -> %20, * -> %2A, %7E -> ~.
+func percentEncode(s string) string {
+	e := url.QueryEscape(s)
+	e = strings.ReplaceAll(e, "+", "%20")
+	e = strings.ReplaceAll(e, "*", "%2A")
+	e = strings.ReplaceAll(e, "%7E", "~")
+	return e
 }
 
 func redact(t string) string {

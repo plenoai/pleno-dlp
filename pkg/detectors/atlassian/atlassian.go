@@ -1,10 +1,15 @@
-// Package atlassian detects Atlassian Cloud API tokens (24-char base62).
+// Package atlassian detects Atlassian Cloud API tokens (ATATT3-prefixed).
 //
-// Verify is intentionally not implemented. The /me endpoint requires Basic
-// auth with the user's email as the username, and we don't extract the
-// email from the surrounding chunk reliably. Surfacing unverified findings
-// is still valuable — the operator can rotate the token without us
-// confirming it's live.
+// Verify is intentionally NOT implemented and is infeasible, not merely
+// unwired. Atlassian Cloud's GET /rest/api/3/myself requires HTTP Basic
+// auth with the user's *email* as the username and the token as the
+// password — the token is only half the credential, and we do not extract
+// the email from the surrounding chunk. A token-only request returns 401
+// regardless of token validity (a false negative, never a correct
+// Verified=true). The <workspace>.atlassian.net host is also neither fixed
+// nor derivable from the opaque token (no JWT claim). Surfacing unverified
+// findings is still valuable — the operator can rotate the token without us
+// confirming it's live. This detector is class b (unverified-by-design).
 package atlassian
 
 import (
@@ -15,11 +20,18 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// 24 base62 characters (no special chars). This shape collides with many
-// commit-sha-ish strings, so the keyword gate is mandatory.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24})\b`)
+// Atlassian Cloud API tokens carry a fixed ATATT3 prefix followed by a long
+// (~190+ char) base64url-ish body. Anchoring on the prefix and widening the
+// length is the load-bearing FP defence: the previous bare `[A-Za-z0-9]{24}`
+// run matched commit SHAs, build IDs, and generic identifiers near the word
+// "atlassian". The real token shape cannot be confused with those.
+var tokenRe = regexp.MustCompile(`\b(ATATT3[A-Za-z0-9_=-]{20,})`)
 
-var contextKeywords = []string{"atlassian", "atlassian_api"}
+// minEntropy drops low-entropy bodies (e.g. a synthetic ATATT3 prefix glued
+// onto a sequential/repeated run). Real tokens are high-entropy base64url.
+const minEntropy = 3.5
+
+var contextKeywords = []string{"atlassian.net", "atlassian_api", "atlassian"}
 
 type Scanner struct{}
 
@@ -45,6 +57,11 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
+		// Entropy gate on the body after the ATATT3 prefix — a low-entropy
+		// body is not a real opaque token.
+		if !detectors.HasMinEntropy(token[len("ATATT3"):], minEntropy) {
+			continue
+		}
 		seen[token] = struct{}{}
 		// Verified=false by design — see package doc.
 		out = append(out, detectors.Result{
@@ -57,7 +74,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 }
 
 func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+	const radius = 128
 	from := start - radius
 	if from < 0 {
 		from = 0

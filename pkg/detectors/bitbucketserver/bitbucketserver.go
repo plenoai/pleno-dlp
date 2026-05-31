@@ -1,11 +1,15 @@
 // Package bitbucketserver detects Bitbucket Server (Data Center, formerly
 // Stash) HTTP access tokens and personal access tokens.
 //
-// Bitbucket Server is self-hosted; the verify endpoint
-// (`/rest/api/1.0/users/<user>` or `/rest/api/latest/projects`) lives at the
-// customer's own host, which is rarely embedded next to the token. Probing a
-// guessed host would be a covert scan against unrelated infrastructure, so we
-// surface unverified-by-design.
+// Both shapes are Bitbucket Data Center bearer tokens sent as
+// `Authorization: Bearer <token>` against the Bitbucket Server REST API, so the
+// matched secret IS the API auth credential — a probe against the REST API is a
+// correct verification. Bitbucket Server is self-hosted, so the host is neither
+// fixed nor derivable from the token body (BBDC- bodies are opaque base64url and
+// the PAT is plain hex). When no host is supplied via the package-level apiBase
+// override, Verify no-ops (Verified=false, VerificationErr=nil) so we never
+// covertly scan a guessed host; with apiBase set (operator-supplied), only
+// 200/403 from the customer's own Bitbucket assert validity.
 //
 // Two distinct token shapes:
 //   - HTTP access token: `BBDC-<base64url>` (~70 chars, project/repo scope).
@@ -15,10 +19,30 @@ package bitbucketserver
 
 import (
 	"context"
+	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+)
+
+// apiBase is the Bitbucket Server/Data Center REST root. It is empty by default:
+// the host is self-hosted and rarely present in the chunk, so without an
+// operator-supplied override Verify no-ops rather than probing a guessed host.
+// Tests override this to point at an httptest server.
+var apiBase = ""
+
+var httpClient = &http.Client{Timeout: 10 * time.Second}
+
+// GET /rest/api/1.0/users is admin-permission-gated, so a VALID non-admin token
+// returns 403 — that is a live token with insufficient scope, NOT an invalid
+// credential. Accept both 200 and 403 as valid; reject only 401 (no/invalid
+// credentials). 429 and 5xx are surfaced as transient errors by
+// ClassifyVerifyHTTP.
+var (
+	acceptCodes = []int{http.StatusOK, http.StatusForbidden}
+	rejectCodes = []int{http.StatusUnauthorized}
 )
 
 var (
@@ -39,9 +63,23 @@ func (Scanner) Type() detectors.DetectorType { return detectors.BitbucketServer 
 
 func (Scanner) Keywords() []string { return []string{"BBDC-", "bitbucket"} }
 
-func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	out := []detectors.Result{}
 	seen := map[string]struct{}{}
+
+	add := func(token string) {
+		res := detectors.Result{
+			DetectorType: detectors.BitbucketServer,
+			Raw:          []byte(token),
+			Redacted:     redact(token),
+		}
+		if verify {
+			v, err := s.Verify(ctx, token)
+			res.Verified = v
+			res.VerificationErr = err
+		}
+		out = append(out, res)
+	}
 
 	for _, m := range httpAccessRe.FindAll(data, -1) {
 		token := string(m)
@@ -49,11 +87,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			continue
 		}
 		seen[token] = struct{}{}
-		out = append(out, detectors.Result{
-			DetectorType: detectors.BitbucketServer,
-			Raw:          []byte(token),
-			Redacted:     redact(token),
-		})
+		add(token)
 	}
 
 	lower := strings.ToLower(string(data))
@@ -75,17 +109,38 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			continue
 		}
 		seen[token] = struct{}{}
-		out = append(out, detectors.Result{
-			DetectorType: detectors.BitbucketServer,
-			Raw:          []byte(token),
-			Redacted:     redact(token),
-		})
+		add(token)
 	}
 
 	if len(out) == 0 {
 		return nil, nil
 	}
 	return out, nil
+}
+
+// Verify probes the Bitbucket Server REST API with the token as a bearer
+// credential. The host comes solely from the operator-supplied apiBase override;
+// when apiBase is empty the verification no-ops (Verified=false, err=nil) so we
+// never scan a guessed self-hosted host.
+func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	if apiBase == "" {
+		return false, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/rest/api/1.0/users?limit=1", nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+secret)
+
+	resp, doErr := httpClient.Do(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	return detectors.ClassifyVerifyHTTP(resp, doErr, acceptCodes, rejectCodes)
 }
 
 func nearKeyword(lower string, start, end int) bool {

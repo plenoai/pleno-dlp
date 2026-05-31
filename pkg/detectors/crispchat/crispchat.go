@@ -1,10 +1,20 @@
 // Package crispchat detects Crisp Chat (crisp.chat) plugin tokens — long
-// base64url tokens near `crisp` keyword. Crisp uses an Identifier+Key pair
-// for plugin authentication; we surface the secret-key as Raw because the
-// Identifier is a UUID and not by itself sensitive. Verified via /v1/user/account
-// on api.crisp.chat using HTTP Basic with `Identifier:Key` — but since the
-// detector ships only the Key, this detector is unverified-by-design (an
-// Identifier-aware variant would have to read both halves from the chunk).
+// lowercase-hex plugin keys near a `crisp` keyword. Crisp uses an
+// Identifier+Key pair for plugin authentication; we surface the secret-key as
+// Raw because the Identifier is a UUID and not by itself sensitive. The Crisp
+// API authenticates exclusively via HTTP Basic with `Identifier:Key`
+// (username:password) against api.crisp.chat with the `X-Crisp-Tier: plugin`
+// header — the Key alone is not a credential any endpoint accepts, so this
+// detector is unverified-by-design (an Identifier-aware variant would have to
+// read both halves from the chunk via RawV2).
+//
+// Hardening: the embed `<script src="https://client.crisp.chat/l.js">` tag is
+// typically surrounded by long tokens that are NOT secrets — SRI integrity
+// hashes (sha256/384/512 base64), webpack/asset content hashes, and CDN URLs.
+// To keep those out we (1) constrain the charset to lowercase-hex of the
+// documented length, (2) require an assignment-style keyword within a tight
+// window before the token rather than mere co-occurrence of "crisp" anywhere
+// on the page, (3) gate on Shannon entropy, and (4) exclude SRI/CDN contexts.
 package crispchat
 
 import (
@@ -15,10 +25,45 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// Crisp plugin keys are documented as 40+ char base64url tokens.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{40,80})\b`)
+// Crisp plugin keys are documented as fixed-length lowercase-hex tokens
+// (64 chars in practice). Narrowing to lowercase-hex of >=40 excludes the
+// mixed-case base64 used by SRI integrity attributes and webpack chunk names.
+var tokenRe = regexp.MustCompile(`\b([a-f0-9]{40,128})\b`)
 
-var contextKeywords = []string{"crisp", "crisp_api", "crisp_token", "crisp.chat"}
+// minEntropy rejects low-entropy runs (repeated chars, dictionary-ish or
+// structured-but-non-random hex) that clear the length floor but are not keys.
+const minEntropy = 3.5
+
+// proximityRadius is the number of bytes BEFORE the token in which an
+// assignment-style Crisp reference must appear. Tight enough that a
+// `crisp.chat` script-src URL elsewhere on the page no longer arms a token.
+const proximityRadius = 48
+
+// armKeywords are the assignment-style references that must precede a token
+// within proximityRadius bytes. These are the shapes a real Crisp key
+// assignment takes in config/env/source.
+var armKeywords = []string{
+	"crisp_token",
+	"crisp_api_key",
+	"crisp_key",
+	"crisp_api",
+	"crisp-key",
+	"crisp-token",
+	"crispkey",
+	"crisptoken",
+	"crisp_plugin",
+}
+
+// sriMarkers indicate the token lives inside a Subresource Integrity attribute
+// or a CDN asset URL — the dominant false-positive source near the embed.
+var sriMarkers = []string{
+	"integrity=",
+	"sha256-",
+	"sha384-",
+	"sha512-",
+	"client.crisp.chat",
+	"crisp.chat/l.js",
+}
 
 type Scanner struct{}
 
@@ -39,7 +84,18 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		// Entropy gate: structured/repeated hex (e.g. a content digest that
+		// happens to be lowercase-hex) without real randomness is rejected.
+		if !detectors.HasMinEntropy(token, minEntropy) {
+			continue
+		}
+		// Require an assignment-style Crisp reference in a tight window before
+		// the token, not a stray "crisp" substring anywhere in the chunk.
+		if !armedByKeyword(lower, h[2]) {
+			continue
+		}
+		// Exclude SRI integrity / CDN-asset contexts around the token.
+		if inSRIContext(lower, h[2], h[3]) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -55,8 +111,26 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	return out, nil
 }
 
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 256
+// armedByKeyword reports whether an assignment-style Crisp reference appears in
+// the proximityRadius bytes immediately preceding the token.
+func armedByKeyword(lower string, start int) bool {
+	from := start - proximityRadius
+	if from < 0 {
+		from = 0
+	}
+	window := lower[from:start]
+	for _, kw := range armKeywords {
+		if strings.Contains(window, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// inSRIContext reports whether SRI/CDN markers surround the token, indicating
+// the match is an integrity hash or asset URL rather than a plugin key.
+func inSRIContext(lower string, start, end int) bool {
+	const radius = 64
 	from := start - radius
 	if from < 0 {
 		from = 0
@@ -66,8 +140,8 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
+	for _, m := range sriMarkers {
+		if strings.Contains(window, m) {
 			return true
 		}
 	}

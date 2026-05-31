@@ -33,8 +33,14 @@ func TestFromData_Positive(t *testing.T) {
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
-	if string(res[0].RawV2) == "" {
-		t.Fatal("expected RawV2 paired secret")
+	if string(res[0].RawV2) != dummyKey+":"+dummySecret {
+		t.Fatalf("expected RawV2 packed key:secret, got %q", res[0].RawV2)
+	}
+}
+
+func TestImplementsVerifier(t *testing.T) {
+	if _, ok := interface{}(Scanner{}).(detectors.Verifier); !ok {
+		t.Fatal("Scanner must satisfy detectors.Verifier (class a)")
 	}
 }
 
@@ -59,7 +65,7 @@ func TestVerify_OK(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	v, err := Scanner{}.Verify(context.Background(), dummyKey, dummySecret)
+	v, err := Scanner{}.Verify(context.Background(), dummyKey+":"+dummySecret)
 	if err != nil || !v {
 		t.Fatalf("verified expected true: err=%v v=%v", err, v)
 	}
@@ -74,9 +80,60 @@ func TestVerify_Unauthorized(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	v, _ := Scanner{}.Verify(context.Background(), dummyKey, dummySecret)
+	v, _ := Scanner{}.Verify(context.Background(), dummyKey+":"+dummySecret)
 	if v {
 		t.Fatal("expected verified=false")
+	}
+}
+
+func TestVerify_Forbidden(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummyKey+":"+dummySecret)
+	if v || err != nil {
+		t.Fatalf("expected verified=false,nil err on 403: v=%v err=%v", v, err)
+	}
+}
+
+func TestVerify_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummyKey+":"+dummySecret)
+	if v {
+		t.Fatal("expected verified=false on 500")
+	}
+	if err == nil {
+		t.Fatal("expected transient error on 500")
+	}
+}
+
+func TestVerify_RateLimited(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummyKey+":"+dummySecret)
+	if v {
+		t.Fatal("expected verified=false on 429")
+	}
+	if err == nil {
+		t.Fatal("expected transient error on 429")
 	}
 }
 
@@ -85,7 +142,7 @@ func TestVerify_TransportError(t *testing.T) {
 	apiBase = "http://127.0.0.1:1"
 	defer func() { apiBase = old }()
 
-	v, err := Scanner{}.Verify(context.Background(), dummyKey, dummySecret)
+	v, err := Scanner{}.Verify(context.Background(), dummyKey+":"+dummySecret)
 	if err == nil {
 		t.Fatal("expected transport error")
 	}
