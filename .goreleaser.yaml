@@ -38,6 +38,16 @@ archives:
 checksum:
   name_template: 'checksums.txt'
 
+signs:
+  - cmd: cosign
+    args:
+      - sign-blob
+      - ${artifact}
+      - --yes
+      - --bundle=${signature}
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+
 # Software Bill of Materials per release artifact. anchore/syft is the
 # de-facto standard SBOM generator GitHub's attestation action accepts.
 sboms:
@@ -50,15 +60,20 @@ release:
   draft: false
   footer: |
     ---
-    `checksums.txt` is an **unsigned** SHA-256 integrity manifest — it
-    detects accidental corruption, not tampering. Verify a download with:
+    `checksums.txt` is signed with Sigstore keyless (cosign). Verify with:
+    ```
+    cosign verify-blob checksums.txt \
+      --bundle checksums.txt.sigstore.json \
+      --certificate-identity-regexp \
+        'https://github.com/plenoai/pleno-dlp/.github/workflows/release.yml@refs/tags/.*' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    ```
+    Or verify checksums only (no cryptographic signing):
     ```
     sha256sum -c checksums.txt
     ```
-    Cryptographic provenance is not yet shipped: build-provenance
-    attestations (`gh attestation verify`) require the repository to be
-    public / GHAS-enabled, and the release job skips them while it is
-    private. Signed checksums (cosign) are tracked as a follow-up.
+    Build-provenance attestations (`gh attestation verify`) require a
+    public repo or GHAS and are skipped while this repo is private.
 
 changelog:
   use: github
