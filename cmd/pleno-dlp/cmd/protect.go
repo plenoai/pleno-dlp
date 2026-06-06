@@ -17,15 +17,14 @@ import (
 // (format, verify, fail-on, …) are bound to scanOpts directly so
 // operators get the same knobs they already know from `scan`.
 type protectFlags struct {
-	// staged selects git diff --cached (true, default) vs git diff
-	// (false). The two-value bool maps to --staged / --no-staged cobra
-	// convention so hook authors can be explicit without memorising a
-	// separate flag.
+	// staged selects git diff --cached (true) vs git diff (false).
 	staged bool
-	// repo is the path to the git repository root. An empty string lets
-	// protect auto-detect by running git from the process's cwd; an
-	// explicit value is useful when the binary is invoked from outside
-	// the repository (e.g. a wrapper script).
+	// noStaged is the explicit --no-staged flag. cobra does not auto-generate
+	// negations for BoolVar defaults, so we register it manually and merge
+	// it into staged in runProtect.
+	noStaged bool
+	// repo overrides the git repository root; empty means use cwd.
+	// Useful when invoked from outside the repository (e.g. wrapper scripts).
 	repo string
 }
 
@@ -49,13 +48,13 @@ Pass --no-staged to scan the working-tree diff (pre-push):
 
 func init() {
 	protectCmd.Flags().BoolVar(&protectOpts.staged, "staged", true,
-		"scan staged changes (git diff --cached); pass --no-staged for working-tree diff")
+		"scan staged changes (git diff --cached)")
+	protectCmd.Flags().BoolVar(&protectOpts.noStaged, "no-staged", false,
+		"scan working-tree diff (git diff) instead of staged changes; pre-push use")
 	protectCmd.Flags().StringVar(&protectOpts.repo, "repo", "",
 		"path to the git repository root (default: cwd)")
 
-	// Mirror the scan-wide flags onto protectCmd. scanOpts is the same
-	// package-level variable scan.go uses; cobra resolves each command's
-	// flag set independently so sharing the pointer is safe.
+	// Mirror the scan-wide flags onto protectCmd (same scanOpts as scan.go).
 	protectCmd.Flags().StringVar(&scanOpts.format, "format", "table", "output format: json, sarif, table")
 	protectCmd.Flags().BoolVar(&scanOpts.verify, "verify", false, "verify candidate secrets against upstream APIs")
 	protectCmd.Flags().IntVar(&scanOpts.verifyRPS, "verify-rps", 10, "per-host requests-per-second cap during --verify (0 = disable)")
@@ -71,6 +70,11 @@ func init() {
 }
 
 func runProtect(cmd *cobra.Command, _ []string) error {
+	// --no-staged wins over the default --staged=true.
+	if protectOpts.noStaged {
+		protectOpts.staged = false
+	}
+
 	repoDir := protectOpts.repo
 	if repoDir == "" {
 		var err error
@@ -135,14 +139,10 @@ func runGitDiff(cmd *cobra.Command, repoDir string, args []string) (string, erro
 	return string(out), nil
 }
 
-// extractAddedLines filters a unified diff down to only the lines
-// introduced by the change — those starting with '+' — while discarding
-// the '+++' file-header lines and '-' / context lines.
-//
-// The leading '+' is stripped so detectors see the raw added content,
-// not diff markup. Scanning removed lines ('-') would trigger findings
-// for secrets that are being deleted, which is the opposite of the
-// guard intent.
+// extractAddedLines returns only the added lines from a unified diff,
+// stripping the leading '+' so detectors see raw content.
+// Removed ('-') and context lines are discarded to avoid false positives
+// on secrets that are being deleted.
 func extractAddedLines(diff string) string {
 	var sb strings.Builder
 	for _, line := range strings.SplitAfter(diff, "\n") {
