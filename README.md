@@ -12,18 +12,6 @@ pleno-dlp scan git --repo ./repo --max-depth 200
 pleno-dlp scan filesystem ./repo --format sarif --verify > findings.sarif
 ```
 
-
-Single Go binary. Trufflehog-compatible detector interface,
-archive-aware (zip / tar / tar.gz / gzip), base64 / percent / hex
-decoder pipeline, per-host verify rate limiter. **600 detectors**
-built-in (598 secrets + 2 opt-in PII engines). Tag pattern
-`vX.Y.Z`.
-
-SaaS sources (GitHub / GitLab / Bitbucket / Slack / Notion / Confluence /
-Jira) ship as native Go connectors — `pleno-dlp scan <provider>` — with a
-companion `pleno-dlp verify <provider>` token check. The previous Python
-package was retired in v1.0.0.
-
 ## Detector coverage
 
 600 built-in detectors. Every secret detector that can confirm against
