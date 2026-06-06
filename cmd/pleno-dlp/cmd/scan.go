@@ -5,11 +5,14 @@ package cmd
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -61,6 +64,8 @@ type scanFlags struct {
 	revokeOnVerified bool
 	revokeDryRun     bool
 	blastRadiusOnly  bool
+	incremental      bool
+	incrementalState string
 	// piiEngine selects the PII engine integration. "off" (default)
 	// preserves the historical single-binary UX: the anonymize
 	// detector is registered but the supervisor handle stays nil,
@@ -181,6 +186,10 @@ func init() {
 		"emit and count only findings the engine has tagged blast_radius=true "+
 			"(driftwood-pattern flags: any *_privileged, *_high_value, or *_high_risk). "+
 			"Combine with --fail-on to gate CI on high-impact leaks only.")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.incremental, "incremental", false,
+		"skip the scan when source resources and scan configuration match the previous successful baseline")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.incrementalState, "incremental-state", ".pleno-dlp-incremental.json",
+		"path to the incremental scan state file")
 
 	// PII engine flags. Default is "off" so the binary keeps its
 	// single-process UX for users without uvx / Python on PATH.
@@ -318,35 +327,8 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		}
 	}
 
-	// Install the per-host verify rate limiter when --verify is on.
-	// Detectors all share http.DefaultTransport, so wrapping it here
-	// — once, before any detector runs — covers the entire scan
-	// without per-detector refactoring. We restore on exit so unit
-	// tests in the same process aren't affected by leftover state.
-	if scanOpts.verify {
-		prev := verify.Install(scanOpts.verifyRPS)
-		defer verify.Restore(prev)
-	}
-
-	// PII engine lifecycle. When --pii-engine=anonymize is set, spawn
-	// the pleno-anonymize HTTP server and publish it via the
-	// package-level handle so the anonymize detector can dispatch
-	// chunks against it. Spawn failure is downgraded to a single
-	// stderr warning + skip; we never abort the secret scan because
-	// the PII side-channel is unavailable.
-	if stopPII, err := startPIIEngine(ctx, cmd, cmd.ErrOrStderr()); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "pii-engine: %v — continuing without PII detection\n", err)
-	} else if stopPII != nil {
-		defer stopPII()
-	}
-
 	if err := src.Init(ctx, "cli", 0, 0, scanOpts.verify, cfg, scanOpts.concurrency); err != nil {
 		return fmt.Errorf("init %s source: %w", kind, err)
-	}
-
-	sink, err := output.NewSink(scanOpts.format, cmd.OutOrStdout())
-	if err != nil {
-		return err
 	}
 
 	dets, err := filterDetectors(detectors.All(), scanOpts.includeDetectors, scanOpts.excludeDetectors)
@@ -373,6 +355,49 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	}
 
 	allowlist, err := loadAllowlistMaybe(scanOpts.allowlistPath)
+	if err != nil {
+		return err
+	}
+	incrementalKey, incrementalEntry, incrementalState, err := prepareIncremental(ctx, kind, cfg, src)
+	if err != nil {
+		return err
+	}
+	if incrementalEntry != nil {
+		if !scanOpts.quiet {
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"incremental: unchanged resources; skipped scan (previous chunks=%d bytes=%d findings=%d)\n",
+				incrementalEntry.Chunks, incrementalEntry.Bytes, incrementalEntry.Findings,
+			)
+		}
+		if incrementalEntry.Failing > 0 {
+			return errFindingsFound
+		}
+		return nil
+	}
+
+	// Install the per-host verify rate limiter when --verify is on.
+	// Detectors all share http.DefaultTransport, so wrapping it here
+	// — once, before any detector runs — covers the entire scan
+	// without per-detector refactoring. We restore on exit so unit
+	// tests in the same process aren't affected by leftover state.
+	if scanOpts.verify {
+		prev := verify.Install(scanOpts.verifyRPS)
+		defer verify.Restore(prev)
+	}
+
+	// PII engine lifecycle. When --pii-engine=anonymize is set, spawn
+	// the pleno-anonymize HTTP server and publish it via the
+	// package-level handle so the anonymize detector can dispatch
+	// chunks against it. Spawn failure is downgraded to a single
+	// stderr warning + skip; we never abort the secret scan because
+	// the PII side-channel is unavailable.
+	if stopPII, err := startPIIEngine(ctx, cmd, cmd.ErrOrStderr()); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "pii-engine: %v — continuing without PII detection\n", err)
+	} else if stopPII != nil {
+		defer stopPII()
+	}
+
+	sink, err := output.NewSink(scanOpts.format, cmd.OutOrStdout())
 	if err != nil {
 		return err
 	}
@@ -457,6 +482,20 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 				revoker.attempted.Load(), revoker.revoked.Load(), revoker.failed.Load(),
 				revoker.skipped.Load(), scanOpts.revokeDryRun,
 			)
+		}
+	}
+	if incrementalKey != "" {
+		incrementalState.Entries[incrementalKey] = incrementalStateEntry{
+			ResourceFingerprint: incrementalState.PendingResourceFingerprint,
+			ScannerFingerprint:  incrementalState.PendingScannerFingerprint,
+			Chunks:              stats.Chunks,
+			Bytes:               stats.Bytes,
+			Findings:            counter.count.Load(),
+			Failing:             counter.failing.Load(),
+			UpdatedAt:           time.Now().UTC().Format(time.RFC3339),
+		}
+		if err := saveIncrementalState(scanOpts.incrementalState, incrementalState); err != nil {
+			return err
 		}
 	}
 
@@ -577,18 +616,26 @@ func isTerminalReader(r io.Reader) bool {
 // Auto-discovery walks up to 8 directories (covers nested monorepos
 // without scanning the entire filesystem). The first match wins.
 func loadAllowlistMaybe(explicitPath string) (*engine.Allowlist, error) {
+	path := discoverAllowlistPath(explicitPath)
+	if path == "" {
+		return nil, nil
+	}
+	return engine.LoadAllowlistFile(path)
+}
+
+func discoverAllowlistPath(explicitPath string) string {
 	if explicitPath != "" {
-		return engine.LoadAllowlistFile(explicitPath)
+		return explicitPath
 	}
 	wd, err := os.Getwd()
 	if err != nil {
-		return nil, nil
+		return ""
 	}
 	dir := wd
 	for i := 0; i < 8; i++ {
 		candidate := dir + string(os.PathSeparator) + ".pleno-allow.json"
 		if _, err := os.Stat(candidate); err == nil {
-			return engine.LoadAllowlistFile(candidate)
+			return candidate
 		}
 		parent := dirParent(dir)
 		if parent == dir {
@@ -596,7 +643,145 @@ func loadAllowlistMaybe(explicitPath string) (*engine.Allowlist, error) {
 		}
 		dir = parent
 	}
-	return nil, nil
+	return ""
+}
+
+type incrementalStateFile struct {
+	Version                    int                              `json:"version"`
+	Entries                    map[string]incrementalStateEntry `json:"entries"`
+	PendingResourceFingerprint string                           `json:"-"`
+	PendingScannerFingerprint  string                           `json:"-"`
+}
+
+type incrementalStateEntry struct {
+	ResourceFingerprint string `json:"resource_fingerprint"`
+	ScannerFingerprint  string `json:"scanner_fingerprint"`
+	Chunks              int64  `json:"chunks"`
+	Bytes               int64  `json:"bytes"`
+	Findings            int64  `json:"findings"`
+	Failing             int64  `json:"failing"`
+	UpdatedAt           string `json:"updated_at"`
+}
+
+func prepareIncremental(ctx context.Context, kind string, cfg []byte, src sources.Source) (string, *incrementalStateEntry, *incrementalStateFile, error) {
+	if !scanOpts.incremental {
+		return "", nil, nil, nil
+	}
+	fp, ok := src.(sources.ResourceFingerprinter)
+	if !ok {
+		return "", nil, nil, fmt.Errorf("--incremental is not supported for %s source", kind)
+	}
+	resourceFP, err := fp.ResourceFingerprint(ctx)
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("incremental: fingerprint %s source: %w", kind, err)
+	}
+	scannerFP, err := scannerFingerprint(kind, cfg)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	state, err := loadIncrementalState(scanOpts.incrementalState)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	key := kind + ":" + scannerFP
+	entry, ok := state.Entries[key]
+	if ok && entry.ResourceFingerprint == resourceFP && entry.ScannerFingerprint == scannerFP {
+		return key, &entry, state, nil
+	}
+	state.PendingResourceFingerprint = resourceFP
+	state.PendingScannerFingerprint = scannerFP
+	return key, nil, state, nil
+}
+
+func scannerFingerprint(kind string, cfg []byte) (string, error) {
+	rulesHash, err := fileContentHash(scanOpts.rulesPath)
+	if err != nil {
+		return "", fmt.Errorf("incremental: hash --rules: %w", err)
+	}
+	allowlistHash, err := fileContentHash(discoverAllowlistPath(scanOpts.allowlistPath))
+	if err != nil {
+		return "", fmt.Errorf("incremental: hash allowlist: %w", err)
+	}
+	payload := map[string]any{
+		"version":             1,
+		"kind":                kind,
+		"source_config":       json.RawMessage(cfg),
+		"verify":              scanOpts.verify,
+		"verify_rps":          scanOpts.verifyRPS,
+		"rules_path":          scanOpts.rulesPath,
+		"rules_hash":          rulesHash,
+		"fail_on":             scanOpts.failOn,
+		"allowlist_path":      discoverAllowlistPath(scanOpts.allowlistPath),
+		"allowlist_hash":      allowlistHash,
+		"include_detectors":   scanOpts.includeDetectors,
+		"exclude_detectors":   scanOpts.excludeDetectors,
+		"blast_radius_only":   scanOpts.blastRadiusOnly,
+		"pii_engine":          scanOpts.piiEngine,
+		"pii_engine_cmd":      scanOpts.piiEngineCmd,
+		"pii_engine_language": scanOpts.piiEngineLanguage,
+		"pii_engine_device":   scanOpts.piiEngineDevice,
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func fileContentHash(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func loadIncrementalState(path string) (*incrementalStateFile, error) {
+	state := &incrementalStateFile{Version: 1, Entries: map[string]incrementalStateEntry{}}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return state, nil
+		}
+		return nil, fmt.Errorf("incremental: read state: %w", err)
+	}
+	if len(data) == 0 {
+		return state, nil
+	}
+	if err := json.Unmarshal(data, state); err != nil {
+		return nil, fmt.Errorf("incremental: parse state: %w", err)
+	}
+	if state.Entries == nil {
+		state.Entries = map[string]incrementalStateEntry{}
+	}
+	state.Version = 1
+	return state, nil
+}
+
+func saveIncrementalState(path string, state *incrementalStateFile) error {
+	if state == nil {
+		return nil
+	}
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("incremental: create state dir: %w", err)
+		}
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("incremental: encode state: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("incremental: write state: %w", err)
+	}
+	return nil
 }
 
 // dirParent returns dir's parent. Inlined here rather than depending on

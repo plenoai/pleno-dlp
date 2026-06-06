@@ -15,9 +15,12 @@ package git
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"path/filepath"
 	"sort"
@@ -151,6 +154,28 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 		}
 	}
 	return nil
+}
+
+// ResourceFingerprint identifies the git resource set by the resolved start
+// commit. Scan config is hashed separately by the CLI, so the source digest can
+// stay focused on repository content identity.
+func (s *Source) ResourceFingerprint(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	repo, err := git.PlainOpen(s.repoAbs)
+	if err != nil {
+		return "", fmt.Errorf("git: reopen repo: %w", err)
+	}
+	startHash, err := s.resolveStart(repo)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	writeHash(h, "git-v1")
+	writeHash(h, s.repoAbs)
+	writeHash(h, startHash.String())
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // resolveStart picks the commit hash to start the walk from. The branch flag
@@ -385,3 +410,9 @@ func isBinary(b []byte) bool {
 
 // compile-time interface check
 var _ sources.Source = (*Source)(nil)
+var _ sources.ResourceFingerprinter = (*Source)(nil)
+
+func writeHash(h hash.Hash, s string) {
+	_, _ = h.Write([]byte(s))
+	_, _ = h.Write([]byte{0})
+}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
@@ -154,6 +155,15 @@ func resetScanOpts() {
 	scanOpts.revokeOnVerified = false
 	scanOpts.revokeDryRun = false
 	scanOpts.blastRadiusOnly = false
+	scanOpts.incremental = false
+	scanOpts.incrementalState = ".pleno-dlp-incremental.json"
+	scanOpts.piiEngine = "off"
+	scanOpts.piiEngineCmd = "pleno-dlp pii-server --port {PORT}"
+	scanOpts.piiEnginePort = 0
+	scanOpts.piiEngineLanguage = "auto"
+	scanOpts.piiEngineReady = 0
+	scanOpts.piiEngineRequest = 10 * time.Second
+	scanOpts.piiEngineDevice = "auto"
 }
 
 // TestBlastRadiusFilterSink_DropsAndForwards drives the sink directly to
@@ -423,6 +433,121 @@ func TestScanFilesystemWithAllowlist(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), "allowlist: suppressed") {
 		t.Errorf("expected suppression notice on stderr; got:\n%s", errBuf.String())
+	}
+}
+
+func TestScanFilesystemIncrementalSkipsUnchangedCleanScan(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+
+	dir := t.TempDir()
+	target := dir + "/clean.txt"
+	state := dir + "/state/incremental.json"
+	if err := writeFile(target, "ordinary docs with no credential material\n"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var firstOut, firstErr bytes.Buffer
+	Root.SetOut(&firstOut)
+	Root.SetErr(&firstErr)
+	Root.SetArgs([]string{"scan", "--incremental", "--incremental-state", state, "--verify", "--revoke-on-verified", "--revoke-dry-run", "--format", "json", "filesystem", target})
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("first incremental baseline should scan cleanly: %v\nstderr:\n%s", err, firstErr.String())
+	}
+	if !strings.Contains(firstErr.String(), "scanned 1 chunk") {
+		t.Fatalf("first run should perform the baseline scan; stderr:\n%s", firstErr.String())
+	}
+
+	var secondOut, secondErr bytes.Buffer
+	Root.SetOut(&secondOut)
+	Root.SetErr(&secondErr)
+	Root.SetArgs([]string{"scan", "--incremental", "--incremental-state", state, "--verify", "--revoke-on-verified", "--revoke-dry-run", "--format", "json", "filesystem", target})
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("unchanged clean incremental run should skip and succeed: %v\nstderr:\n%s", err, secondErr.String())
+	}
+	if !strings.Contains(secondErr.String(), "incremental: unchanged resources; skipped scan") {
+		t.Fatalf("second run should skip; stderr:\n%s", secondErr.String())
+	}
+}
+
+func TestScanFilesystemIncrementalSkipPreservesFindingExit(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+
+	dir := t.TempDir()
+	target := dir + "/leak.txt"
+	state := dir + "/incremental.json"
+	rules := dir + "/rules.json"
+	if err := writeFile(target, "acme_token=ACME_QWERTYUIOPASDFGHJKLZ\n"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := writeFile(rules, `[{
+		"name":"ACME Token",
+		"keywords":["ACME_"],
+		"regex":"ACME_[A-Z0-9]{20}",
+		"severity":"high"
+	}]`); err != nil {
+		t.Fatalf("seed rules: %v", err)
+	}
+
+	var firstOut, firstErr bytes.Buffer
+	Root.SetOut(&firstOut)
+	Root.SetErr(&firstErr)
+	Root.SetArgs([]string{"scan", "--incremental", "--incremental-state", state, "--rules", rules, "--format", "json", "filesystem", target})
+	if err := Root.Execute(); !IsFindingsError(err) {
+		t.Fatalf("first baseline should find the custom secret; got %v\nstdout:\n%s\nstderr:\n%s", err, firstOut.String(), firstErr.String())
+	}
+
+	var secondOut, secondErr bytes.Buffer
+	Root.SetOut(&secondOut)
+	Root.SetErr(&secondErr)
+	Root.SetArgs([]string{"scan", "--incremental", "--incremental-state", state, "--rules", rules, "--format", "json", "filesystem", target})
+	if err := Root.Execute(); !IsFindingsError(err) {
+		t.Fatalf("unchanged finding baseline must preserve finding exit; got %v\nstdout:\n%s\nstderr:\n%s", err, secondOut.String(), secondErr.String())
+	}
+	if !strings.Contains(secondErr.String(), "incremental: unchanged resources; skipped scan") {
+		t.Fatalf("second run should skip; stderr:\n%s", secondErr.String())
+	}
+	if secondOut.Len() != 0 {
+		t.Fatalf("skipped scan should not replay stale findings on stdout; got:\n%s", secondOut.String())
+	}
+}
+
+func TestScanFilesystemIncrementalSkipsRevokeDryRunWhenUnchanged(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+	t.Setenv(EnvAllowRevoke, "")
+
+	dir := t.TempDir()
+	target := dir + "/clean.txt"
+	state := dir + "/incremental.json"
+	if err := writeFile(target, "ordinary docs with no credential material\n"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var firstOut, firstErr bytes.Buffer
+	Root.SetOut(&firstOut)
+	Root.SetErr(&firstErr)
+	Root.SetArgs([]string{"scan", "--incremental", "--incremental-state", state, "--verify", "--revoke-on-verified", "--revoke-dry-run", "--format", "json", "filesystem", target})
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("first incremental baseline should scan cleanly: %v\nstderr:\n%s", err, firstErr.String())
+	}
+
+	var secondOut, secondErr bytes.Buffer
+	Root.SetOut(&secondOut)
+	Root.SetErr(&secondErr)
+	Root.SetArgs([]string{"scan", "--incremental", "--incremental-state", state, "--verify", "--revoke-on-verified", "--revoke-dry-run", "--format", "json", "filesystem", target})
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("unchanged incremental revoke dry-run should skip cleanly: %v\nstderr:\n%s", err, secondErr.String())
+	}
+	if !strings.Contains(secondErr.String(), "incremental: unchanged resources; skipped scan") {
+		t.Fatalf("state match should skip even with revoke-on-verified; stderr:\n%s", secondErr.String())
+	}
+	if strings.Contains(secondErr.String(), "scanned 1 chunk") {
+		t.Fatalf("skipped scan should not run detectors; stderr:\n%s", secondErr.String())
+	}
+	if strings.Contains(secondErr.String(), "revoke:") {
+		t.Fatalf("skipped scan should not emit revoke summary; stderr:\n%s", secondErr.String())
 	}
 }
 

@@ -7,9 +7,12 @@ package filesystem
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"io/fs"
 	"os"
@@ -234,6 +237,67 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	return g.Wait()
 }
 
+// ResourceFingerprint hashes the filesystem resources this source would scan.
+// It intentionally uses path, size, mode, and mtime metadata rather than file
+// bytes so an unchanged tree can skip detector work without paying a full read.
+func (s *Source) ResourceFingerprint(ctx context.Context) (string, error) {
+	h := sha256.New()
+	writeHash(h, "filesystem-v1")
+	for _, root := range s.cfg.Paths {
+		absRoot, err := filepath.Abs(root)
+		if err != nil {
+			absRoot = root
+		}
+		writeHash(h, absRoot)
+		if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				if os.IsPermission(walkErr) || errors.Is(walkErr, fs.ErrPermission) {
+					if d != nil && d.IsDir() {
+						return fs.SkipDir
+					}
+					return nil
+				}
+				if errors.Is(walkErr, fs.ErrNotExist) {
+					return nil
+				}
+				return walkErr
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if d.IsDir() {
+				if path != root && s.excluded(d.Name(), relPath(root, path)) {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if d.Type()&os.ModeSymlink != 0 || !d.Type().IsRegular() {
+				return nil
+			}
+			rel := relPath(root, path)
+			if s.excluded(d.Name(), rel) || !s.included(d.Name(), rel) {
+				return nil
+			}
+			info, err := d.Info()
+			if err != nil {
+				if os.IsPermission(err) || errors.Is(err, fs.ErrNotExist) {
+					return nil
+				}
+				return err
+			}
+			if info.Size() > s.cfg.MaxSizeBytes {
+				return nil
+			}
+			writeHash(h, rel)
+			writeHash(h, fmt.Sprintf("%d:%d:%d", info.Size(), info.Mode().Perm(), info.ModTime().UnixNano()))
+			return nil
+		}); err != nil {
+			return "", err
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
 // emitFile reads path, classifies binary/text, and sends one Chunk. ctx is
 // honoured both for cancellation during read and during channel send so a
 // stalled consumer cannot pin the worker.
@@ -335,3 +399,9 @@ func isBinary(b []byte) bool {
 
 // compile-time interface check
 var _ sources.Source = (*Source)(nil)
+var _ sources.ResourceFingerprinter = (*Source)(nil)
+
+func writeHash(h hash.Hash, s string) {
+	_, _ = h.Write([]byte(s))
+	_, _ = h.Write([]byte{0})
+}

@@ -167,3 +167,11 @@ type Source interface {
 	Chunks(ctx context.Context, ch chan<- *Chunk) error
 	Type() SourceType
 }
+
+// ResourceFingerprinter is an optional Source extension used by the CLI's
+// incremental mode. Implementations return a stable digest for the resources
+// this initialized source would scan. It must be computed after Init, because
+// source config such as include/exclude/max-size changes the resource set.
+type ResourceFingerprinter interface {
+	ResourceFingerprint(ctx context.Context) (string, error)
+}
