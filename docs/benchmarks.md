@@ -1,12 +1,11 @@
 # Benchmarks
 
-A reproducible cross-tool comparison of pleno-dlp, trufflehog, and
-gitleaks on two corpora that bracket the practical detector
-workload: a cold-path log corpus with no secrets, and a real
-open-source codebase with ambiguous high-entropy noise.
+Historical benchmark snapshot for pleno-dlp, trufflehog, and gitleaks.
+Use this file to reproduce the methodology, not as a current performance
+claim.
 
 Captured 2026-05-12 against pleno-dlp commit `3be6e6a` (head of
-`main`).
+`main` at capture time).
 
 ## Test environment
 
@@ -124,9 +123,11 @@ inputs is.
 
 ## Threats to validity
 
-1. **Detector-set parity.** pleno-dlp registers 607 detectors,
+1. **Detector-set parity.** pleno-dlp registered 607 detectors at
+   capture time; current builds may differ. The compared tools also ship
+   different rule sets:
    trufflehog ~800, gitleaks ~160. Wall-clock comparisons reflect
-   "scan throughput at each tool's currently-shipping rule set,"
+   "scan throughput at each tool's captured rule set,"
    not a controlled per-rule measurement. A like-for-like
    per-detector benchmark would require restricting each tool to a
    common rule subset; none of the three exposes the same set.

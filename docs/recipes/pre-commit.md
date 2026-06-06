@@ -7,7 +7,7 @@ install` so contributors don't need to vendor a binary. Add to
 ```yaml
 repos:
   - repo: https://github.com/plenoai/pleno-dlp
-    rev: v0.3.0      # pin to a released tag
+    rev: v0.45.0     # pin to a released tag
     hooks:
       - id: pleno-dlp
 ```
