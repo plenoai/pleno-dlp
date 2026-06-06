@@ -12,11 +12,6 @@ pleno-dlp scan git --repo ./repo --max-depth 200
 pleno-dlp scan filesystem ./repo --format sarif --verify > findings.sarif
 ```
 
-Pre-commit hook setup:
-
-```sh
-echo 'pleno-dlp protect' >> .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
-```
 
 Single Go binary. Trufflehog-compatible detector interface,
 archive-aware (zip / tar / tar.gz / gzip), base64 / percent / hex
