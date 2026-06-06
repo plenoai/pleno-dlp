@@ -65,7 +65,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
-		if !nearKeyword(lower, h[2], h[3]) {
+		if !detectors.NearPattern(lower, h[2], h[3], 64, armRe) {
 			continue
 		}
 		seen[token] = struct{}{}
@@ -82,23 +82,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		out = append(out, res)
 	}
 	return out, nil
-}
-
-// nearKeyword reports whether a `forter[_-]?(api[_-]?)?(token|key|secret)`
-// reference appears within a tight window on either side of the candidate.
-// The window spans both directions (not strict immediate precedence) so a
-// credential defined alongside a nearby FORTER_API_KEY reference still arms.
-func nearKeyword(lower string, start, end int) bool {
-	const radius = 64
-	from := start - radius
-	if from < 0 {
-		from = 0
-	}
-	to := end + radius
-	if to > len(lower) {
-		to = len(lower)
-	}
-	return armRe.MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
