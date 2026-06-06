@@ -1,7 +1,7 @@
 // GitLab connector. Single-file Lambda-handler shape: auth, fetch, emit.
 //
-// Surface: group or single-project default-branch blobs. Issues / MR
-// bodies / snippets / wiki are out of scope.
+// Surface: group or single-project default-branch blobs, plus optional merge
+// request notes and discussion notes.
 //
 // Auth: PAT (`glpat-...`) sent as `PRIVATE-TOKEN: <token>`, OAuth /
 // other tokens sent as `Authorization: Bearer <token>`. The header is
@@ -51,6 +51,7 @@ func init() {
 //   - api_base    override https://gitlab.com/api/v4
 //   - max_blob_bytes per-blob size cap
 //   - concurrency per-project blob fanout
+//   - include_comments scan merge request notes and discussion notes
 func scanGitLab(ctx context.Context, cfg Config, emit Emit) error {
 	token := cfg["token"]
 	if token == "" {
@@ -101,6 +102,14 @@ func scanGitLab(ctx context.Context, cfg Config, emit Emit) error {
 			}
 			continue
 		}
+		if parseBool(cfg["include_comments"]) {
+			if err := scanGitLabMergeRequestComments(ctx, cli, p, group, emit); err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return err
+				}
+				continue
+			}
+		}
 	}
 	return nil
 }
@@ -140,6 +149,22 @@ type gitlabTreeEntry struct {
 	Mode string `json:"mode"`
 }
 
+type gitlabMergeRequestRef struct {
+	IID   int64  `json:"iid"`
+	Title string `json:"title"`
+}
+
+type gitlabNote struct {
+	ID   int64  `json:"id"`
+	Type string `json:"type"`
+	Body string `json:"body"`
+}
+
+type gitlabDiscussion struct {
+	ID    string       `json:"id"`
+	Notes []gitlabNote `json:"notes"`
+}
+
 func gitlabListProjects(ctx context.Context, cli *gitlabClient, group, project string) ([]gitlabProjectRef, error) {
 	if project != "" {
 		encoded := url.PathEscape(project)
@@ -163,6 +188,80 @@ func gitlabListProjects(ctx context.Context, cli *gitlabClient, group, project s
 		next = parseLinkHeader(resp.Header.Get("Link"))
 	}
 	return projects, nil
+}
+
+func scanGitLabMergeRequestComments(ctx context.Context, cli *gitlabClient, proj gitlabProjectRef, group string, emit Emit) error {
+	next := fmt.Sprintf("/projects/%d/merge_requests?state=all&per_page=100", proj.ID)
+	for next != "" {
+		var page []gitlabMergeRequestRef
+		resp, err := cli.getJSON(ctx, next, &page)
+		if err != nil {
+			return fmt.Errorf("gitlab: list merge requests for project %d: %w", proj.ID, err)
+		}
+		for _, mr := range page {
+			if err := scanGitLabMergeRequestNotes(ctx, cli, proj, group, mr, emit); err != nil {
+				return err
+			}
+			if err := scanGitLabMergeRequestDiscussions(ctx, cli, proj, group, mr, emit); err != nil {
+				return err
+			}
+		}
+		next = parseLinkHeader(resp.Header.Get("Link"))
+	}
+	return nil
+}
+
+func scanGitLabMergeRequestNotes(ctx context.Context, cli *gitlabClient, proj gitlabProjectRef, group string, mr gitlabMergeRequestRef, emit Emit) error {
+	next := fmt.Sprintf("/projects/%d/merge_requests/%d/notes?per_page=100", proj.ID, mr.IID)
+	for next != "" {
+		var page []gitlabNote
+		resp, err := cli.getJSON(ctx, next, &page)
+		if err != nil {
+			return fmt.Errorf("gitlab: list merge request notes for project %d MR !%d: %w", proj.ID, mr.IID, err)
+		}
+		for _, note := range page {
+			if err := emitGitLabNote(proj, group, mr, "merge-request-note", note, emit); err != nil {
+				return err
+			}
+		}
+		next = parseLinkHeader(resp.Header.Get("Link"))
+	}
+	return nil
+}
+
+func scanGitLabMergeRequestDiscussions(ctx context.Context, cli *gitlabClient, proj gitlabProjectRef, group string, mr gitlabMergeRequestRef, emit Emit) error {
+	next := fmt.Sprintf("/projects/%d/merge_requests/%d/discussions?per_page=100", proj.ID, mr.IID)
+	for next != "" {
+		var page []gitlabDiscussion
+		resp, err := cli.getJSON(ctx, next, &page)
+		if err != nil {
+			return fmt.Errorf("gitlab: list merge request discussions for project %d MR !%d: %w", proj.ID, mr.IID, err)
+		}
+		for _, discussion := range page {
+			for _, note := range discussion.Notes {
+				if err := emitGitLabNote(proj, group, mr, "merge-request-discussion:"+discussion.ID, note, emit); err != nil {
+					return err
+				}
+			}
+		}
+		next = parseLinkHeader(resp.Header.Get("Link"))
+	}
+	return nil
+}
+
+func emitGitLabNote(proj gitlabProjectRef, group string, mr gitlabMergeRequestRef, part string, note gitlabNote, emit Emit) error {
+	body := strings.TrimSpace(note.Body)
+	if body == "" {
+		return nil
+	}
+	return emit([]byte(body), sources.Metadata{
+		GitLab: &sources.GitLabMeta{
+			ProjectID: proj.ID,
+			Path:      fmt.Sprintf("%s:!%d:%d", part, mr.IID, note.ID),
+			Group:     group,
+			Project:   proj.PathWithNS,
+		},
+	})
 }
 
 func scanGitLabProject(ctx context.Context, cli *gitlabClient, proj gitlabProjectRef, group string, maxBytes int64, concurrency int, emit Emit) error {

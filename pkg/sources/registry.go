@@ -55,6 +55,22 @@ func (t SourceType) String() string {
 		return "notion"
 	case SourceStdin:
 		return "stdin"
+	case SourceForgejo:
+		return "forgejo"
+	case SourceGitea:
+		return "gitea"
+	case SourceGogs:
+		return "gogs"
+	case SourceGitbucket:
+		return "gitbucket"
+	case SourceCodeberg:
+		return "codeberg"
+	case SourceOneDev:
+		return "onedev"
+	case SourceCodebase:
+		return "codebase"
+	case SourcePagure:
+		return "pagure"
 	default:
 		return "unknown"
 	}

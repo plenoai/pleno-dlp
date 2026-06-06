@@ -82,6 +82,8 @@ func tableLocationOf(f engine.Finding) string {
 		return md.Slack.Channel + "@" + md.Slack.Timestamp
 	case md.Stdin != nil:
 		return md.Stdin.Label
+	case md.Forge != nil:
+		return md.Forge.Repository + "@" + md.Forge.Commit + ":" + md.Forge.File + ":" + strconv.Itoa(md.Forge.Line)
 	}
 	return f.Chunk.SourceType.String()
 }

@@ -98,7 +98,10 @@ var scanCmd = &cobra.Command{
 		"  filesystem  walk one or more local paths\n" +
 		"  git         walk the commit history of a local git repo\n" +
 		"  stdin       read input from os.Stdin (e.g. `cat file | pleno-dlp scan stdin`)\n" +
-		"  github      walk every default-branch blob in a GitHub org or single repo",
+		"  github      walk every default-branch blob in a GitHub org or single repo; --include-comments scans issue/PR comments\n" +
+		"  gitlab      walk GitLab API blobs; --include-comments scans MR notes/discussions\n" +
+		"  forgejo|gitea|gogs|gitbucket|codeberg  scan issue comments via forge API\n" +
+		"  onedev|codebase|pagure                  scan issue/PR comments via forge API",
 }
 
 // scanFilesystemCmd preserves the original `scan <path>...` semantics under

@@ -60,8 +60,9 @@ and others):
 
 | Connector | Scope | Auth |
 |---|---|---|
-| `github` | `--org` or `--repo` | `--token` or `GITHUB_TOKEN`; `--api-base` supports GHE |
-| `gitlab` | `--group` or `--project` | `--token` or `GITLAB_TOKEN`; `--api-base` supports self-hosted |
+| `github` | `--org` or `--repo`; optional `--include-comments` | `--token` or `GITHUB_TOKEN`; `--api-base` supports GHE |
+| `gitlab` | `--group` or `--project`; optional `--include-comments` | `--token` or `GITLAB_TOKEN`; `--api-base` supports self-hosted |
+| forge API comments | issue / PR / MR / ticket comments | see [`docs/source-forge-api-comments.md`](docs/source-forge-api-comments.md) |
 | `bitbucket` | `--workspace` or `--repo` | Bearer `--token`, or `--username` + `--app-password` |
 | `slack` | optional `--channel` | `--token` or `SLACK_TOKEN` |
 | `notion` | optional `--query` | `--token` or `NOTION_TOKEN` |
@@ -70,10 +71,15 @@ and others):
 
 ```sh
 pleno-dlp scan github --org acme
-pleno-dlp scan gitlab --project acme/widget
+pleno-dlp scan github --repo acme/widget --include-comments
+pleno-dlp scan gitlab --project acme/widget --include-comments
 pleno-dlp scan slack --channel C0123456789
 pleno-dlp scan jira --site acme --email alice@acme.com --project PROJ
 ```
+
+Forge issue/PR comment scans read API-only review text that normal Git
+history scans cannot see. They do not clone repository contents; use
+`scan git` or `scan filesystem` for source blobs.
 
 Validate connector credentials without scanning:
 

@@ -27,6 +27,14 @@ func TestSourceTypeString(t *testing.T) {
 		{SourceBitbucket, "bitbucket"},
 		{SourceNotion, "notion"},
 		{SourceStdin, "stdin"},
+		{SourceForgejo, "forgejo"},
+		{SourceGitea, "gitea"},
+		{SourceGogs, "gogs"},
+		{SourceGitbucket, "gitbucket"},
+		{SourceCodeberg, "codeberg"},
+		{SourceOneDev, "onedev"},
+		{SourceCodebase, "codebase"},
+		{SourcePagure, "pagure"},
 		{SourceType(9999), "unknown"},
 	}
 	for _, c := range cases {
