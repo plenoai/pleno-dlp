@@ -4,8 +4,8 @@ Loopback HTTP wrapper around [openai/privacy-filter](https://github.com/openai/p
 for use by `pleno-dlp`.
 
 This package is not on PyPI. `pleno-dlp openai-pf-server` materializes it
-on first use via `uvx`. See ADR-0004 in the pleno-dlp repo for the design
-rationale.
+on first use via `uv tool run` (`uvx`). See ADR-0004 in the pleno-dlp
+repo for the design rationale.
 
 ## Endpoints
 

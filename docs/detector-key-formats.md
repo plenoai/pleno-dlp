@@ -6,28 +6,23 @@
   the curated Key-format / Source / Hardening columns).
 -->
 
-# Detector key formats & false-positive hardening campaign
+# Detector key formats and FP-hardening reference
 
-## Why this document exists
+## Purpose
 
-The scanner grew ~121 secret detectors from one copy-pasted template: a bare
+The scanner once had 121 secret detectors built from one template: a bare
 `\b([A-Za-z0-9]{N})\b` token regex + a `nearKeyword` proximity gate with
-`radius = 256` + **no entropy floor**. In aggregate this is a Medium
-false-positive surface — any generic high-entropy-looking string (a UUID, a git
-SHA, a build ID, a base64 blob) that happens to sit within 256 bytes of a
-provider keyword gets reported as that provider's secret.
+`radius = 256` + no entropy floor. Any UUID, git SHA, build ID, or
+base64 blob near a provider keyword could be reported as that provider's
+secret.
 
-These detectors **cannot be hardened mechanically**. A blanket
-`HasMinEntropy(token, 3.5)` would silently destroy **recall** on providers whose
-real credentials are short or low-variety (a missed secret is worse than a false
-positive for a scanner), and the correct length / charset / entropy threshold is
-**provider-specific**. So each detector needs its real credential format
-researched from an authoritative source before it is tightened.
+The campaign is complete. This document is now the durable reference for
+the provider key-format research that supported that hardening. New
+detectors should reuse these cited formats when applicable and must cite
+sources for any new length or shape claim.
 
-This document is the **durable record of that research** — captured so the
-knowledge outlives the campaign and future detector authors can reuse a cited
-key format instead of re-deriving it. Every length or format claim must cite a
-source.
+Avoid blanket fixes. A generic entropy floor or length pin can silently
+drop real credentials for providers with short or low-variety formats.
 
 ## Methodology (per detector)
 
@@ -76,22 +71,16 @@ These were hardened before the campaign and are the worked examples:
 | bitfinex | entropy 3.5 on key+secret | #121 |
 | gladly | entropy 3.5, radius→64, `gladly[_-]?...` arm regex | #127 |
 
-## Status legend
+## Campaign status
 
-`pending` → not yet researched · `researched` → format captured, not yet
-hardened · `hardened (#PR)` → shipped.
-
-> **Campaign complete (2026-06-01): all 121 template detectors hardened.**
-> Shipped across PRs #130–#136 (batches 1–7) on top of the 8 pre-campaign
-> worked examples (#121/#127). Every row below carries a cited key format and
-> the hardening applied; the radius-256 + bare-`strings.Contains` + no-entropy
-> template is fully retired. This table is now a **reference** for future
-> detector authors — reuse the cited format instead of re-deriving it, and obey
-> the cardinal rule when adding new detectors.
+Complete as of 2026-06-01. All 121 template detectors were hardened
+across PRs #130-#136, building on the worked examples in #121 and #127.
+The radius-256 + bare-`strings.Contains` + no-entropy template is
+retired.
 
 ## Detectors
 
-| Detector | Status | Current token regex | radius | Key format (cited) | Source | Hardening applied | Shipped |
+| Detector | Status | Pre-hardening token regex | Pre-hardening radius | Key format (cited) | Source | Hardening applied | Shipped |
 |----------|--------|---------------------|--------|--------------------|--------|-------------------|---------|
 | abnormalsec | hardened | `[A-Za-z0-9]{32,64}` | 256 | unknown — not documented (vendor + integration guides say only "API access token") | conservative fallback (trufflehog has no detector; KB/Swagger no format) | radius→64, arm regex, entropy 3.0, length kept | #130 |
 | activecampaign | hardened | `[A-Za-z0-9]{60,80}` | 256 | unknown — docs show Api-Token header only, example is a hyphenated placeholder | conservative fallback ([developers.activecampaign.com/reference/authentication](https://developers.activecampaign.com/reference/authentication); no trufflehog detector) | radius→64, arm regex, entropy 3.0, length kept | #130 |
