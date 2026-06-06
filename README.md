@@ -9,7 +9,7 @@ go install github.com/plenoai/pleno-dlp/cmd/pleno-dlp@latest
 pleno-dlp scan filesystem ./repo
 pleno-dlp scan git --repo ./repo --max-depth 200
 pleno-dlp protect                               # scan staged changes (pre-commit hook)
-pleno-dlp protect --no-staged                  # scan working-tree diff (pre-push)
+pleno-dlp protect --no-staged                  # scan unstaged tracked-file changes
 pleno-dlp scan filesystem ./repo --format sarif --verify > findings.sarif
 pleno-dlp detectors list                        # audit registered coverage
 ```

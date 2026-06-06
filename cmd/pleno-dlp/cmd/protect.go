@@ -40,8 +40,9 @@ Install as a pre-commit hook:
   echo 'pleno-dlp protect' >> .git/hooks/pre-commit
   chmod +x .git/hooks/pre-commit
 
-Pass --no-staged to scan the working-tree diff (pre-push):
-  pleno-dlp protect --no-staged`,
+Pass --no-staged to scan unstaged changes in tracked files (git diff):
+  pleno-dlp protect --no-staged
+Note: untracked (new) files are not scanned until staged.`,
 	Args: cobra.NoArgs,
 	RunE: runProtect,
 }
