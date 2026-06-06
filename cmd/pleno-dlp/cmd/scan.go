@@ -92,7 +92,7 @@ var scanCmd = &cobra.Command{
 	Long: "Scan a source for leaked secrets. Supported kinds:\n" +
 		"  filesystem  walk one or more local paths\n" +
 		"  git         walk the commit history of a local git repo\n" +
-		"  stdin       read input from os.Stdin (e.g. `git diff | pleno-dlp scan stdin`)\n" +
+		"  stdin       read input from os.Stdin (e.g. `cat file | pleno-dlp scan stdin`)\n" +
 		"  github      walk every default-branch blob in a GitHub org or single repo",
 }
 

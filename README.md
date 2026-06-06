@@ -1,7 +1,7 @@
 # pleno-dlp
 
 Trufflehog-compatible DLP scanner — secrets **and** PII — over the local
-filesystem, git history, and stdin. AGPL-3.0.
+filesystem, git history, stdin, and SaaS sources. AGPL-3.0.
 
 ```sh
 go install github.com/plenoai/pleno-dlp/cmd/pleno-dlp@latest
