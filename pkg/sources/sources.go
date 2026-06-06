@@ -22,6 +22,14 @@ const (
 	SourceBitbucket
 	SourceNotion
 	SourceStdin
+	SourceForgejo
+	SourceGitea
+	SourceGogs
+	SourceGitbucket
+	SourceCodeberg
+	SourceOneDev
+	SourceCodebase
+	SourcePagure
 )
 
 // Metadata is a discriminated union of source-specific location info. Each
@@ -40,6 +48,7 @@ type Metadata struct {
 	Notion     *NotionMeta
 	Bitbucket  *BitbucketMeta
 	Stdin      *StdinMeta
+	Forge      *ForgeMeta
 }
 
 type FilesystemMeta struct {
@@ -145,6 +154,15 @@ type BitbucketMeta struct {
 // output formatters render something more useful than a generic placeholder.
 type StdinMeta struct {
 	Label string
+}
+
+type ForgeMeta struct {
+	Provider   string
+	Repository string
+	Branch     string
+	Commit     string
+	File       string
+	Line       int
 }
 
 // Chunk is a unit of data emitted by a Source for detectors to scan. Sources

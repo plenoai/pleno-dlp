@@ -10,10 +10,9 @@ import (
 // package wires exactly the source types that self-register against
 // sources.Register via init(): filesystem, git, stdin.
 //
-// SaaS types (GitHub, GitLab, S3, GCS, Slack, Jira, Confluence, AzureBlob,
-// Bitbucket, Notion) deliberately route through pkg/connectors and do NOT
-// register against sources.Register, so sources.New must return nil for them.
-// Asserting they resolve here would false-fail.
+// SaaS types deliberately route through pkg/connectors and do NOT register
+// against sources.Register, so sources.New must return nil for them. Asserting
+// they resolve here would false-fail.
 func TestAllRegistersRealSources(t *testing.T) {
 	registered := []sources.SourceType{
 		sources.SourceFilesystem,
@@ -47,6 +46,14 @@ func TestAllDoesNotRegisterSaaS(t *testing.T) {
 		sources.SourceAzureBlob,
 		sources.SourceBitbucket,
 		sources.SourceNotion,
+		sources.SourceForgejo,
+		sources.SourceGitea,
+		sources.SourceGogs,
+		sources.SourceGitbucket,
+		sources.SourceCodeberg,
+		sources.SourceOneDev,
+		sources.SourceCodebase,
+		sources.SourcePagure,
 	}
 	for _, typ := range saas {
 		if s := sources.New(typ); s != nil {

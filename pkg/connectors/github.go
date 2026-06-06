@@ -1,8 +1,9 @@
 // GitHub connector. Single-file Lambda-handler shape: auth, fetch, emit.
 //
-// Surface: org or single-repo default-branch blobs. Issues / PRs land in
-// follow-ups; the Config keys for them are accepted today and ignored so
-// invocation shape stays stable.
+// Surface: org or single-repo default-branch blobs, plus optional issue /
+// pull-request comments. GitHub models pull requests as issues, so issue
+// comments cover PR conversation comments; pull review comments cover inline
+// code-review comments.
 //
 // Auth: Personal Access Token via `Authorization: Bearer <token>` against
 // the public REST API (`https://api.github.com`). GitHub Enterprise
@@ -50,6 +51,7 @@ func init() {
 //   - api_base      override https://api.github.com
 //   - max_blob_bytes per-blob size cap
 //   - concurrency   per-repo blob fanout
+//   - include_comments scan issue comments and pull review comments
 func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
 	token := cfg["token"]
 	if token == "" {
@@ -100,6 +102,14 @@ func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
 			}
 			// per-repo failures are tolerated — keep walking the org.
 			continue
+		}
+		if parseBool(cfg["include_comments"]) {
+			if err := scanGitHubComments(ctx, cli, r, emit); err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return err
+				}
+				continue
+			}
 		}
 	}
 	return nil
@@ -156,6 +166,22 @@ type githubBlobResp struct {
 	Size     int64  `json:"size"`
 }
 
+type githubIssueComment struct {
+	ID      int64  `json:"id"`
+	Body    string `json:"body"`
+	HTMLURL string `json:"html_url"`
+	Issue   string `json:"issue_url"`
+}
+
+type githubPullReviewComment struct {
+	ID       int64  `json:"id"`
+	Body     string `json:"body"`
+	Path     string `json:"path"`
+	Position int    `json:"position"`
+	HTMLURL  string `json:"html_url"`
+	PullURL  string `json:"pull_request_url"`
+}
+
 func githubListRepos(ctx context.Context, cli *githubClient, org, repo string) ([]githubRepoRef, error) {
 	if repo != "" {
 		parts := strings.SplitN(repo, "/", 2)
@@ -184,6 +210,80 @@ func githubListRepos(ctx context.Context, cli *githubClient, org, repo string) (
 		next = parseLinkHeader(resp.Header.Get("Link"))
 	}
 	return repos, nil
+}
+
+func scanGitHubComments(ctx context.Context, cli *githubClient, repo githubRepoRef, emit Emit) error {
+	if err := scanGitHubIssueComments(ctx, cli, repo, emit); err != nil {
+		return err
+	}
+	return scanGitHubPullReviewComments(ctx, cli, repo, emit)
+}
+
+func scanGitHubIssueComments(ctx context.Context, cli *githubClient, repo githubRepoRef, emit Emit) error {
+	next := fmt.Sprintf("/repos/%s/%s/issues/comments?per_page=100", repo.Owner.Login, repo.Name)
+	for next != "" {
+		var page []githubIssueComment
+		resp, err := cli.getJSON(ctx, next, &page)
+		if err != nil {
+			return fmt.Errorf("github: list issue comments for %s/%s: %w", repo.Owner.Login, repo.Name, err)
+		}
+		for _, c := range page {
+			body := strings.TrimSpace(c.Body)
+			if body == "" {
+				continue
+			}
+			if err := emit([]byte(body), sources.Metadata{
+				GitHub: &sources.GitHubMeta{
+					Repository: repo.Owner.Login + "/" + repo.Name,
+					Link:       c.HTMLURL,
+					File:       fmt.Sprintf("issue-comment:%d", c.ID),
+					Owner:      repo.Owner.Login,
+					Repo:       repo.Name,
+					Path:       fmt.Sprintf("issue-comment:%d", c.ID),
+				},
+			}); err != nil {
+				return err
+			}
+		}
+		next = parseLinkHeader(resp.Header.Get("Link"))
+	}
+	return nil
+}
+
+func scanGitHubPullReviewComments(ctx context.Context, cli *githubClient, repo githubRepoRef, emit Emit) error {
+	next := fmt.Sprintf("/repos/%s/%s/pulls/comments?per_page=100", repo.Owner.Login, repo.Name)
+	for next != "" {
+		var page []githubPullReviewComment
+		resp, err := cli.getJSON(ctx, next, &page)
+		if err != nil {
+			return fmt.Errorf("github: list pull review comments for %s/%s: %w", repo.Owner.Login, repo.Name, err)
+		}
+		for _, c := range page {
+			body := strings.TrimSpace(c.Body)
+			if body == "" {
+				continue
+			}
+			path := c.Path
+			if path == "" {
+				path = fmt.Sprintf("pull-review-comment:%d", c.ID)
+			}
+			if err := emit([]byte(body), sources.Metadata{
+				GitHub: &sources.GitHubMeta{
+					Repository: repo.Owner.Login + "/" + repo.Name,
+					Link:       c.HTMLURL,
+					File:       path,
+					Line:       c.Position,
+					Owner:      repo.Owner.Login,
+					Repo:       repo.Name,
+					Path:       path,
+				},
+			}); err != nil {
+				return err
+			}
+		}
+		next = parseLinkHeader(resp.Header.Get("Link"))
+	}
+	return nil
 }
 
 func scanGitHubRepo(ctx context.Context, cli *githubClient, repo githubRepoRef, maxBytes int64, concurrency int, emit Emit) error {

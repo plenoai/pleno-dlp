@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -10,10 +11,11 @@ import (
 )
 
 type gitlabFlags struct {
-	group   string
-	project string
-	token   string
-	apiBase string
+	group           string
+	project         string
+	token           string
+	apiBase         string
+	includeComments bool
 }
 
 var (
@@ -42,6 +44,7 @@ func init() {
 	scanGitLabCmd.Flags().StringVar(&scanGitLabOpts.project, "project", "", "single GitLab project in namespace/name form (mutually exclusive with --group)")
 	scanGitLabCmd.Flags().StringVar(&scanGitLabOpts.token, "token", "", "GitLab PAT or OAuth token (falls back to the GITLAB_TOKEN env var)")
 	scanGitLabCmd.Flags().StringVar(&scanGitLabOpts.apiBase, "api-base", "", "GitLab API base URL (default https://gitlab.com/api/v4; override for self-hosted)")
+	scanGitLabCmd.Flags().BoolVar(&scanGitLabOpts.includeComments, "include-comments", false, "also scan merge request notes and discussion notes")
 	scanCmd.AddCommand(scanGitLabCmd)
 
 	verifyGitLabCmd.Flags().StringVar(&verifyGitLabOpts.token, "token", "", "GitLab PAT or OAuth token (falls back to the GITLAB_TOKEN env var)")
@@ -58,10 +61,11 @@ func runScanGitLab(cmd *cobra.Command, _ []string) error {
 		return errors.New("gitlab: --token is required (or set the GITLAB_TOKEN env var)")
 	}
 	return runScanSaaS(cmd, "gitlab", connectors.Config{
-		"token":    token,
-		"group":    scanGitLabOpts.group,
-		"project":  scanGitLabOpts.project,
-		"api_base": scanGitLabOpts.apiBase,
+		"token":            token,
+		"group":            scanGitLabOpts.group,
+		"project":          scanGitLabOpts.project,
+		"api_base":         scanGitLabOpts.apiBase,
+		"include_comments": fmt.Sprintf("%t", scanGitLabOpts.includeComments),
 	})
 }
 

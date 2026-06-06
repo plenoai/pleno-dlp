@@ -16,10 +16,11 @@ import (
 // is intentionally omitted from the v1 surface — those land alongside
 // follow-up source surfaces.
 type githubFlags struct {
-	org     string
-	repo    string
-	token   string
-	apiBase string
+	org             string
+	repo            string
+	token           string
+	apiBase         string
+	includeComments bool
 }
 
 var (
@@ -55,6 +56,7 @@ func init() {
 	scanGitHubCmd.Flags().StringVar(&scanGitHubOpts.repo, "repo", "", "single GitHub repository in owner/name form (mutually exclusive with --org)")
 	scanGitHubCmd.Flags().StringVar(&scanGitHubOpts.token, "token", "", "GitHub PAT (falls back to the GITHUB_TOKEN env var)")
 	scanGitHubCmd.Flags().StringVar(&scanGitHubOpts.apiBase, "api-base", "", "GitHub API base URL (default https://api.github.com; override for GitHub Enterprise)")
+	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeComments, "include-comments", false, "also scan issue comments and pull request review comments")
 	scanCmd.AddCommand(scanGitHubCmd)
 
 	verifyGitHubCmd.Flags().StringVar(&verifyGitHubOpts.token, "token", "", "GitHub PAT (falls back to the GITHUB_TOKEN env var)")
@@ -72,10 +74,11 @@ func runScanGitHub(cmd *cobra.Command, _ []string) error {
 		return errors.New("github: --token is required (or set the GITHUB_TOKEN env var)")
 	}
 	cfg := connectors.Config{
-		"token":    token,
-		"org":      scanGitHubOpts.org,
-		"repo":     scanGitHubOpts.repo,
-		"api_base": scanGitHubOpts.apiBase,
+		"token":            token,
+		"org":              scanGitHubOpts.org,
+		"repo":             scanGitHubOpts.repo,
+		"api_base":         scanGitHubOpts.apiBase,
+		"include_comments": fmt.Sprintf("%t", scanGitHubOpts.includeComments),
 	}
 	src, err := connectors.AsSource("github", cfg)
 	if err != nil {
