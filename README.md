@@ -6,27 +6,17 @@ filesystem, git history, stdin, and SaaS sources. AGPL-3.0.
 ```sh
 go install github.com/plenoai/pleno-dlp/cmd/pleno-dlp@latest
 
+pleno-dlp protect                               # pre-commit: staged changes only
 pleno-dlp scan filesystem ./repo
 pleno-dlp scan git --repo ./repo --max-depth 200
-pleno-dlp protect                               # scan staged changes (pre-commit hook)
-pleno-dlp protect --no-staged                  # scan unstaged tracked-file changes
 pleno-dlp scan filesystem ./repo --format sarif --verify > findings.sarif
-pleno-dlp detectors list                        # audit registered coverage
 ```
 
-## Pre-commit hook
-
-`protect` runs `git diff --cached` internally and scans only added lines,
-so removed-line false positives are silenced — unlike the naive pipe approach.
+Pre-commit hook setup:
 
 ```sh
-# one-time setup
-echo 'pleno-dlp protect' >> .git/hooks/pre-commit
-chmod +x .git/hooks/pre-commit
+echo 'pleno-dlp protect' >> .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 ```
-
-All scan flags (`--format`, `--verify`, `--fail-on`, `--rules`, `--allowlist`,
-`--include-detectors`, …) are available on `protect` as well.
 
 Single Go binary. Trufflehog-compatible detector interface,
 archive-aware (zip / tar / tar.gz / gzip), base64 / percent / hex
