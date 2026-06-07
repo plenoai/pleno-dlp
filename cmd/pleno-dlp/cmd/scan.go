@@ -22,6 +22,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors/custom"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/output"
+	"github.com/plenoai/pleno-dlp/pkg/piidb"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 	"github.com/plenoai/pleno-dlp/pkg/sources/stdin"
 	"github.com/plenoai/pleno-dlp/pkg/verify"
@@ -357,14 +358,19 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	//     don't poison the dedup map (a different finding nearby
 	//     should still emit).
 	counter := &countingSink{inner: sink, threshold: threshold}
-	// revokingSink wraps the counter when --revoke-on-verified is set.
-	// It sits BETWEEN allowlist and counter so allowlisted (false-positive)
-	// findings never trigger a real revocation, but the counter still
-	// reflects the original finding count for exit-code purposes.
-	var topSink engine.Sink = counter
+	// PIIDB classification sits between counter and the upstream
+	// chain. PII findings are buffered, classified in batch at Close,
+	// then forwarded to counter with escalated severity so --fail-on
+	// reflects the escalated level.
+	piidbSink := piidb.NewSink(counter)
+	// revokingSink wraps piidbSink when --revoke-on-verified is set.
+	// PII findings are never verified so they pass through revoker
+	// untouched; secrets that are verified get revoked before reaching
+	// the PIIDB buffer (which ignores non-PII anyway).
+	var topSink engine.Sink = piidbSink
 	var revoker *revokingSink
 	if scanOpts.revokeOnVerified {
-		revoker = newRevokingSink(counter, dets, scanOpts.revokeDryRun, cmd.ErrOrStderr())
+		revoker = newRevokingSink(piidbSink, dets, scanOpts.revokeDryRun, cmd.ErrOrStderr())
 		topSink = revoker
 	}
 	// --blast-radius-only sits OUTSIDE counter+revoker so the filter
@@ -408,6 +414,12 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		} else {
 			return fmt.Errorf("scan: %w", err)
 		}
+	}
+
+	// Flush the PIIDB classification buffer so counter reflects
+	// escalated PII findings before the summary prints.
+	if err := piidbSink.Flush(); err != nil {
+		return fmt.Errorf("piidb: %w", err)
 	}
 
 	// End-of-scan summary on stderr so it doesn't pollute --format json /
