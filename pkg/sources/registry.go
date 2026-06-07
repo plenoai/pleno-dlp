@@ -79,6 +79,8 @@ func (t SourceType) String() string {
 		return "bigquery"
 	case SourceRedash:
 		return "redash"
+	case SourceSQLDump:
+		return "sqldump"
 	default:
 		return "unknown"
 	}

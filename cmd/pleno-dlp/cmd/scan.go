@@ -82,7 +82,8 @@ var scanCmd = &cobra.Command{
 		"  github      walk every default-branch blob in a GitHub org or single repo; --include-comments scans issue/PR comments\n" +
 		"  gitlab      walk GitLab API blobs; --include-comments scans MR notes/discussions\n" +
 		"  forgejo|gitea|gogs|gitbucket|codeberg  scan issue comments via forge API\n" +
-		"  onedev|codebase|pagure                  scan issue/PR comments via forge API",
+		"  onedev|codebase|pagure                  scan issue/PR comments via forge API\n" +
+		"  sqldump     scan SQL dump files (mysqldump, pg_dump, sqlite3 .dump)",
 }
 
 var scanFilesystemCmd = &cobra.Command{
@@ -131,6 +132,29 @@ var scanStdinCmd = &cobra.Command{
 	Short: "Scan input piped to standard input",
 	Args:  cobra.NoArgs,
 	RunE:  runScanStdin,
+}
+
+type sqldumpFlags struct {
+	format         string
+	includeTables  []string
+	excludeTables  []string
+	maxSizeBytes   int64
+	maxLineBytes   int
+	chunkLineCount int
+}
+
+var sqldumpOpts sqldumpFlags
+
+var scanSQLDumpCmd = &cobra.Command{
+	Use:   "sqldump <file> [file...]",
+	Short: "Scan SQL dump files (mysqldump, pg_dump, sqlite3 .dump)",
+	Long: "Scan SQL dump files for secrets. Supports mysqldump, pg_dump, and sqlite3 .dump formats.\n" +
+		"Auto-detects the format from file headers; override with --dump-format.\n\n" +
+		"Example (AWS RDS):\n" +
+		"  mysqldump -h mydb.abc123.us-east-1.rds.amazonaws.com -u admin -p mydb > dump.sql\n" +
+		"  pleno-dlp scan sqldump dump.sql",
+	Args: cobra.MinimumNArgs(1),
+	RunE: runScanSQLDump,
 }
 
 func init() {
@@ -190,10 +214,18 @@ func init() {
 	scanStdinCmd.Flags().StringVar(&stdinOpts.label, "label", "", "label for the stdin input (rendered in output; default \"<stdin>\")")
 	scanStdinCmd.Flags().Int64Var(&stdinOpts.maxBytes, "max-bytes", 0, "buffer cap for stdin (0 = default 64 MiB); excess input is truncated and the run exits non-zero")
 
+	scanSQLDumpCmd.Flags().StringVar(&sqldumpOpts.format, "dump-format", "auto", "dump format: auto, mysql, postgres, sqlite")
+	scanSQLDumpCmd.Flags().StringSliceVar(&sqldumpOpts.includeTables, "include-tables", nil, "only scan these tables (case-insensitive)")
+	scanSQLDumpCmd.Flags().StringSliceVar(&sqldumpOpts.excludeTables, "exclude-tables", nil, "skip these tables (case-insensitive)")
+	scanSQLDumpCmd.Flags().Int64Var(&sqldumpOpts.maxSizeBytes, "max-size", 0, "skip dump files larger than this many bytes (0 = default 512 MiB)")
+	scanSQLDumpCmd.Flags().IntVar(&sqldumpOpts.maxLineBytes, "max-line-bytes", 0, "max bytes per line (0 = default 4 MiB); longer lines are skipped")
+	scanSQLDumpCmd.Flags().IntVar(&sqldumpOpts.chunkLineCount, "chunk-lines", 0, "number of data lines per chunk (0 = default 50)")
+
 	scanCmd.AddCommand(scanFilesystemCmd)
 	scanCmd.AddCommand(scanGitCmd)
 	scanCmd.AddCommand(scanS3Cmd)
 	scanCmd.AddCommand(scanStdinCmd)
+	scanCmd.AddCommand(scanSQLDumpCmd)
 	Root.AddCommand(scanCmd)
 }
 
@@ -256,6 +288,26 @@ func runScanGit(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("encode source config: %w", err)
 	}
 	return runScanCommon(cmd, src, cfg, "git")
+}
+
+func runScanSQLDump(cmd *cobra.Command, args []string) error {
+	src := sources.New(sources.SourceSQLDump)
+	if src == nil {
+		return fmt.Errorf("sqldump source is not registered (missing pkg/sources/all import?)")
+	}
+	cfg, err := json.Marshal(map[string]any{
+		"paths":           args,
+		"format":          sqldumpOpts.format,
+		"include_tables":  sqldumpOpts.includeTables,
+		"exclude_tables":  sqldumpOpts.excludeTables,
+		"max_size_bytes":  sqldumpOpts.maxSizeBytes,
+		"max_line_bytes":  sqldumpOpts.maxLineBytes,
+		"chunk_line_count": sqldumpOpts.chunkLineCount,
+	})
+	if err != nil {
+		return fmt.Errorf("encode source config: %w", err)
+	}
+	return runScanCommon(cmd, src, cfg, "sqldump")
 }
 
 // runScanCommon wires source init, engine execution, and output.

@@ -910,6 +910,8 @@ func sarifLocationOf(f engine.Finding) (string, int) {
 			return md.SIEM.Link, 0
 		}
 		return md.SIEM.Provider + "://" + md.SIEM.Host + "/" + md.SIEM.Index, 0
+	case md.SQLDump != nil:
+		return md.SQLDump.File, md.SQLDump.Line
 	}
 	return "", 0
 }
