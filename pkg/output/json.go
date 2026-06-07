@@ -105,6 +105,14 @@ func jsonSourceOf(c *sources.Chunk) jsonSource {
 		md["commit"] = f.Commit
 		md["file"] = f.File
 		md["line"] = f.Line
+	case c.SourceMetadata.SIEM != nil:
+		s := c.SourceMetadata.SIEM
+		md["provider"] = s.Provider
+		md["host"] = s.Host
+		md["index"] = s.Index
+		md["event_id"] = s.EventID
+		md["timestamp"] = s.Timestamp
+		md["link"] = s.Link
 	}
 	if len(md) > 0 {
 		out.Metadata = md

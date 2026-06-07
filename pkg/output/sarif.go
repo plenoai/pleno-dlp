@@ -905,6 +905,11 @@ func sarifLocationOf(f engine.Finding) (string, int) {
 		return md.Slack.Permalink, 0
 	case md.Stdin != nil:
 		return md.Stdin.Label, 0
+	case md.SIEM != nil:
+		if md.SIEM.Link != "" {
+			return md.SIEM.Link, 0
+		}
+		return md.SIEM.Provider + "://" + md.SIEM.Host + "/" + md.SIEM.Index, 0
 	}
 	return "", 0
 }
