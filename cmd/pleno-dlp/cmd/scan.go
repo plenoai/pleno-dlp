@@ -40,10 +40,16 @@ var Root = &cobra.Command{
 	SilenceErrors: true,
 }
 
+// toolVersion holds the bare semver string injected by the linker (e.g.
+// "1.2.3") so it can be embedded in SARIF output and the incremental-scan
+// fingerprint without parsing Root.Version.
+var toolVersion string
+
 // SetVersion lets main.go inject build-time version/commit metadata after
 // linker flags resolve. Keeping it out of init() ordering avoids races with
 // subcommand registration.
 func SetVersion(version, commit string) {
+	toolVersion = version
 	Root.Version = fmt.Sprintf("%s (%s)", version, commit)
 }
 
@@ -400,7 +406,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		defer stopPII()
 	}
 
-	sink, err := output.NewSink(scanOpts.format, cmd.OutOrStdout())
+	sink, err := output.NewSink(scanOpts.format, cmd.OutOrStdout(), toolVersion)
 	if err != nil {
 		return err
 	}
@@ -707,6 +713,7 @@ func scannerFingerprint(kind string, cfg []byte) (string, error) {
 	}
 	payload := map[string]any{
 		"version":             1,
+		"tool_version":        toolVersion,
 		"kind":                kind,
 		"source_config":       json.RawMessage(cfg),
 		"verify":              scanOpts.verify,

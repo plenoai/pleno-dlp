@@ -128,6 +128,16 @@ func locationOf(f Finding) (string, int) {
 		return "gs://" + md.GCS.Bucket + "/" + md.GCS.Object, 0
 	case md.Slack != nil:
 		return md.Slack.Channel + "@" + md.Slack.Timestamp, 0
+	case md.GitLab != nil:
+		return md.GitLab.Group + "/" + md.GitLab.Project + "@" + md.GitLab.Sha + ":" + md.GitLab.Path, 0
+	case md.Confluence != nil:
+		return md.Confluence.SpaceKey + "/" + md.Confluence.PageID + ":" + md.Confluence.Type, 0
+	case md.Jira != nil:
+		return md.Jira.Project + "/" + md.Jira.IssueKey + ":" + md.Jira.Part, 0
+	case md.Notion != nil:
+		return md.Notion.PageID + ":" + md.Notion.Part, 0
+	case md.Bitbucket != nil:
+		return md.Bitbucket.Workspace + "/" + md.Bitbucket.Repo + "@" + md.Bitbucket.Commit + ":" + md.Bitbucket.Path, 0
 	case md.Stdin != nil:
 		// Stdin produces one chunk per scan, so the key needs to
 		// include the stdin label to avoid collapsing distinct scans

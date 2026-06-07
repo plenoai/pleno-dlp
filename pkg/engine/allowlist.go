@@ -182,6 +182,16 @@ func findingPath(f Finding) string {
 		return md.GCS.Object
 	case md.Slack != nil:
 		return md.Slack.Channel
+	case md.GitLab != nil:
+		return md.GitLab.Path
+	case md.Confluence != nil:
+		return md.Confluence.SpaceKey + "/" + md.Confluence.Title
+	case md.Jira != nil:
+		return md.Jira.Project + "/" + md.Jira.IssueKey
+	case md.Notion != nil:
+		return md.Notion.Title
+	case md.Bitbucket != nil:
+		return md.Bitbucket.Workspace + "/" + md.Bitbucket.Repo + "/" + md.Bitbucket.Path
 	case md.Stdin != nil:
 		return md.Stdin.Label
 	}

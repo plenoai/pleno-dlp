@@ -19,14 +19,16 @@ type Sink interface {
 }
 
 // NewSink builds a sink for the given format name. Writer w is where the
-// rendered output goes (stdout from the CLI). Unknown formats return an
-// error rather than silently picking a default — callers must be explicit.
-func NewSink(format string, w io.Writer) (Sink, error) {
+// rendered output goes (stdout from the CLI). version is the tool's
+// semantic version string (e.g. "1.2.3") and is embedded in SARIF output;
+// pass "dev" for local builds. Unknown formats return an error rather than
+// silently picking a default — callers must be explicit.
+func NewSink(format string, w io.Writer, version string) (Sink, error) {
 	switch format {
 	case "json":
 		return newJSONSink(w), nil
 	case "sarif":
-		return newSARIFSink(w), nil
+		return newSARIFSink(w, version), nil
 	case "table":
 		return newTableSink(w), nil
 	default:

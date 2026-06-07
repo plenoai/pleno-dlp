@@ -99,14 +99,16 @@ type sarifRegion struct {
 // activity map (which detectors actually fired this run).
 type sarifSink struct {
 	w           io.Writer
+	version     string
 	mu          sync.Mutex
 	results     []sarifResult
 	seenRuleIDs map[string]struct{}
 }
 
-func newSARIFSink(w io.Writer) *sarifSink {
+func newSARIFSink(w io.Writer, version string) *sarifSink {
 	return &sarifSink{
 		w:           w,
+		version:     version,
 		results:     make([]sarifResult, 0, 64),
 		seenRuleIDs: make(map[string]struct{}),
 	}
@@ -130,7 +132,7 @@ func (s *sarifSink) Close() error {
 			Tool: sarifTool{Driver: sarifDriver{
 				Name:            "pleno-dlp",
 				InformationURI:  "https://github.com/plenoai/pleno-dlp",
-				SemanticVersion: "0.1.0",
+				SemanticVersion: s.version,
 				Rules:           rulesFor(s.seenRuleIDs),
 			}},
 			Results: s.results,

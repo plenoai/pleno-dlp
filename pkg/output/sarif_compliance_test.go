@@ -18,7 +18,7 @@ import (
 // uploads start silently 422-ing.
 func TestSARIF_GitHubCodeScanning_RequiredFields(t *testing.T) {
 	var buf bytes.Buffer
-	s, _ := NewSink("sarif", &buf)
+	s, _ := NewSink("sarif", &buf, "test")
 	s.Emit(sample())
 	s.Emit(sample()) // emit twice to verify rule list dedups
 	if err := s.Close(); err != nil {
@@ -68,7 +68,7 @@ func TestSARIF_GitHubCodeScanning_RequiredFields(t *testing.T) {
 // catastrophic in CI because the build still passes.
 func TestSARIF_RuleIDsMatchDeclaredRules(t *testing.T) {
 	var buf bytes.Buffer
-	s, _ := NewSink("sarif", &buf)
+	s, _ := NewSink("sarif", &buf, "test")
 
 	// Three findings, two distinct detectors. We expect 2 rule
 	// descriptors and 3 results, all referencing one of the 2 ids.
@@ -103,7 +103,7 @@ func TestSARIF_StableOrdering(t *testing.T) {
 	var first, second bytes.Buffer
 
 	for _, buf := range []*bytes.Buffer{&first, &second} {
-		s, _ := NewSink("sarif", buf)
+		s, _ := NewSink("sarif", buf, "test")
 		s.Emit(findingFor(detectors.SlackBotToken, "xoxb-1"))
 		s.Emit(findingFor(detectors.AWS, "AKIA0000000000000000"))
 		s.Emit(findingFor(detectors.GitHub, "ghp_1"))
@@ -139,7 +139,7 @@ func TestSARIF_SeverityDrivesLevel(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			s, _ := NewSink("sarif", &buf)
+			s, _ := NewSink("sarif", &buf, "test")
 			f := sample()
 			f.Result.Severity = tc.sev
 			s.Emit(f)
@@ -170,7 +170,7 @@ func TestSARIF_FingerprintIsContentBased(t *testing.T) {
 		}
 	}
 	var buf bytes.Buffer
-	s, _ := NewSink("sarif", &buf)
+	s, _ := NewSink("sarif", &buf, "test")
 	s.Emit(mk("/old/leak.txt"))
 	s.Emit(mk("/new/leak.txt"))
 	_ = s.Close()
