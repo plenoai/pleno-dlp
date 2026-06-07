@@ -15,9 +15,9 @@
 package connectors
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
