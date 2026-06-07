@@ -2,11 +2,13 @@ package azureapp
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
 const dummyAppID = "12345678-90ab-cdef-1234-567890abcdef"
 const dummyV1Secret = "abc.de_fgh-ijkl0123456789mnopqrstuv"
+const dummyTenantID = "aabbccdd-1122-3344-5566-778899aabbcc"
 
 func TestFromData_PairLegacy(t *testing.T) {
 	body := "azure_client_id=" + dummyAppID + "\nazure_client_secret=" + dummyV1Secret
@@ -118,4 +120,137 @@ func TestFromData_TruePositiveStillDetected(t *testing.T) {
 	if !found {
 		t.Fatalf("true-positive v1 secret must still be detected, got %+v", res)
 	}
+}
+
+// TestFromData_ContextExtractTenantEnv verifies tenant_id extraction from a
+// realistic .env chunk where AZURE_TENANT_ID sits near the secret.
+func TestFromData_ContextExtractTenantEnv(t *testing.T) {
+	chunk := "AZURE_TENANT_ID=" + dummyTenantID + "\n" +
+		"azure_client_id=" + dummyAppID + "\n" +
+		"azure_client_secret=" + dummyV1Secret + "\n"
+	res, err := Scanner{}.FromData(context.Background(), false, []byte(chunk))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) == 0 {
+		t.Fatal("expected at least 1 result")
+	}
+	var found bool
+	for _, r := range res {
+		if string(r.Raw) == dummyV1Secret {
+			found = true
+			tid, ok := r.ExtraData["tenant_id"]
+			if !ok {
+				t.Fatal("tenant_id not found in ExtraData")
+			}
+			if tid != dummyTenantID {
+				t.Fatalf("tenant_id mismatch: got %q, want %q", tid, dummyTenantID)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected v1 secret to be detected")
+	}
+}
+
+// TestFromData_ContextExtractTenantJSON verifies tenant_id extraction from a
+// realistic JSON config chunk.
+func TestFromData_ContextExtractTenantJSON(t *testing.T) {
+	chunk := `{
+  "azure": {
+    "tenant_id": "` + dummyTenantID + `",
+    "client_id": "` + dummyAppID + `",
+    "client_secret": "` + dummyV1Secret + `"
+  }
+}`
+	res, err := Scanner{}.FromData(context.Background(), false, []byte(chunk))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) == 0 {
+		t.Fatal("expected at least 1 result")
+	}
+	var found bool
+	for _, r := range res {
+		if string(r.Raw) == dummyV1Secret {
+			found = true
+			tid, ok := r.ExtraData["tenant_id"]
+			if !ok {
+				t.Fatal("tenant_id not found in ExtraData")
+			}
+			if tid != dummyTenantID {
+				t.Fatalf("tenant_id mismatch: got %q, want %q", tid, dummyTenantID)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected v1 secret to be detected")
+	}
+}
+
+// TestFromData_VerifySkippedWhenNoTenant asserts that when verify=true but no
+// tenant_id is in the chunk, verification is skipped and the reason is recorded.
+func TestFromData_VerifySkippedWhenNoTenant(t *testing.T) {
+	chunk := "azure_client_id=" + dummyAppID + "\n" +
+		"azure_client_secret=" + dummyV1Secret + "\n"
+	res, err := Scanner{}.FromData(context.Background(), true, []byte(chunk))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) == 0 {
+		t.Fatal("expected at least 1 result")
+	}
+	var found bool
+	for _, r := range res {
+		if string(r.Raw) == dummyV1Secret {
+			found = true
+			if r.Verified {
+				t.Fatal("should not be verified without tenant_id in context")
+			}
+			reason, ok := r.ExtraData["verify_skip_reason"]
+			if !ok {
+				t.Fatal("verify_skip_reason not found in ExtraData")
+			}
+			if reason != "tenant_id_not_in_context" {
+				t.Fatalf("unexpected verify_skip_reason: %q", reason)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected v1 secret to be detected")
+	}
+}
+
+// TestVerify_PackedFormat asserts the Verify method correctly parses the
+// packed "tenant_id:client_id:client_secret" format.
+func TestVerify_PackedFormat(t *testing.T) {
+	t.Run("invalid_format_too_few_parts", func(t *testing.T) {
+		_, err := Scanner{}.Verify(context.Background(), "only_one_part")
+		if err == nil {
+			t.Fatal("expected error for invalid packed format")
+		}
+		if !strings.Contains(err.Error(), "expected packed format") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("invalid_format_two_parts", func(t *testing.T) {
+		_, err := Scanner{}.Verify(context.Background(), "tenant:client")
+		if err == nil {
+			t.Fatal("expected error for invalid packed format")
+		}
+	})
+
+	t.Run("valid_three_parts_parses_ok", func(t *testing.T) {
+		// The actual HTTP call will fail (no server), but parsing should succeed.
+		// verifyOAuth2 returns (false, nil) on connection failure.
+		ok, err := Scanner{}.Verify(context.Background(), dummyTenantID+":"+dummyAppID+":"+dummyV1Secret)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Not verified because there's no real Azure AD endpoint to hit.
+		if ok {
+			t.Fatal("should not be verified against a non-existent endpoint")
+		}
+	})
 }

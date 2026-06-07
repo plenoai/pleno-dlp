@@ -3,6 +3,10 @@ package azurecr
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -19,8 +23,11 @@ func makeJWT(payloadJSON string) string {
 	return header + "." + payload + "." + sig
 }
 
-// A token whose decoded payload self-identifies as ACR.
+// A token whose decoded payload self-identifies as ACR (refresh token shape).
 var acrToken = makeJWT(`{"jti":"abc","sub":"client","aud":"myregistry.azurecr.io","grant_type":"refresh_token"}`)
+
+// An ACR access token (no grant_type claim).
+var acrAccessToken = makeJWT(`{"jti":"def","sub":"client","aud":"myregistry.azurecr.io","permissions":{"actions":["read"]}}`)
 
 // An Azure AD access token shape: points at login.microsoftonline.com / Graph.
 var azureADToken = makeJWT(`{"aud":"https://graph.microsoft.com","iss":"https://sts.windows.net/tenant/","appid":"x"}`)
@@ -122,5 +129,203 @@ func TestFromData_NotJWTShaped(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for non-JWT shape, got %d", len(res))
+	}
+}
+
+// --- extractACRHost tests ---
+
+func TestExtractACRHost_RefreshToken(t *testing.T) {
+	host, ok := extractACRHost(acrToken)
+	if !ok {
+		t.Fatal("expected host extraction to succeed")
+	}
+	if host != "myregistry.azurecr.io" {
+		t.Fatalf("expected myregistry.azurecr.io, got %s", host)
+	}
+}
+
+func TestExtractACRHost_AccessToken(t *testing.T) {
+	host, ok := extractACRHost(acrAccessToken)
+	if !ok {
+		t.Fatal("expected host extraction to succeed")
+	}
+	if host != "myregistry.azurecr.io" {
+		t.Fatalf("expected myregistry.azurecr.io, got %s", host)
+	}
+}
+
+func TestExtractACRHost_NoACRHost(t *testing.T) {
+	_, ok := extractACRHost(oidcToken)
+	if ok {
+		t.Fatal("expected extraction to fail for non-ACR token")
+	}
+}
+
+func TestExtractACRHost_NotJWT(t *testing.T) {
+	_, ok := extractACRHost("not-a-jwt")
+	if ok {
+		t.Fatal("expected extraction to fail for non-JWT input")
+	}
+}
+
+func TestExtractACRHost_HyphenatedRegistry(t *testing.T) {
+	token := makeJWT(`{"aud":"my-cool-registry.azurecr.io"}`)
+	host, ok := extractACRHost(token)
+	if !ok {
+		t.Fatal("expected host extraction to succeed for hyphenated registry")
+	}
+	if host != "my-cool-registry.azurecr.io" {
+		t.Fatalf("expected my-cool-registry.azurecr.io, got %s", host)
+	}
+}
+
+// --- isRefreshToken tests ---
+
+func TestIsRefreshToken_True(t *testing.T) {
+	if !isRefreshToken(acrToken) {
+		t.Fatal("expected acrToken to be classified as refresh token")
+	}
+}
+
+func TestIsRefreshToken_False(t *testing.T) {
+	if isRefreshToken(acrAccessToken) {
+		t.Fatal("expected acrAccessToken to not be classified as refresh token")
+	}
+}
+
+func TestIsRefreshToken_NotJWT(t *testing.T) {
+	if isRefreshToken("not-a-jwt") {
+		t.Fatal("expected non-JWT to return false")
+	}
+}
+
+// --- FromData with verify (httptest) ---
+
+func TestFromData_ExtraDataRegistry(t *testing.T) {
+	body := []byte("docker login myregistry.azurecr.io -p " + acrToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(res))
+	}
+	if res[0].ExtraData["registry"] != "myregistry.azurecr.io" {
+		t.Fatalf("expected registry=myregistry.azurecr.io, got %s", res[0].ExtraData["registry"])
+	}
+}
+
+// TestVerify_AccessToken_OK tests the access-token verify path against a
+// local httptest server that returns 200 on /v2/.
+func TestVerify_AccessToken_OK(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v2/" && r.Header.Get("Authorization") != "" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	// Override httpClient for the test.
+	origClient := httpClient
+	httpClient = srv.Client()
+	defer func() { httpClient = origClient }()
+
+	// Build a token whose payload references the test server's host.
+	host := strings.TrimPrefix(srv.URL, "https://")
+	// The test server uses 127.0.0.1:<port> which doesn't match azurecrHostRe,
+	// so we call verifyAccessToken directly.
+	verified, err := verifyAccessToken(context.Background(), host, "fake-bearer")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !verified {
+		t.Fatal("expected verified=true for 200 response")
+	}
+}
+
+// TestVerify_AccessToken_Unauthorized tests that a 401 response yields
+// verified=false.
+func TestVerify_AccessToken_Unauthorized(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	origClient := httpClient
+	httpClient = srv.Client()
+	defer func() { httpClient = origClient }()
+
+	host := strings.TrimPrefix(srv.URL, "https://")
+	verified, err := verifyAccessToken(context.Background(), host, "bad-token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if verified {
+		t.Fatal("expected verified=false for 401 response")
+	}
+}
+
+// TestVerify_RefreshToken_OK tests the refresh-token verify path against a
+// local httptest server that returns a valid access_token.
+func TestVerify_RefreshToken_OK(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oauth2/token" && r.Method == http.MethodPost {
+			body, _ := io.ReadAll(r.Body)
+			if strings.Contains(string(body), "grant_type=refresh_token") {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"access_token": "new-access-token",
+				})
+				return
+			}
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	origClient := httpClient
+	httpClient = srv.Client()
+	defer func() { httpClient = origClient }()
+
+	host := strings.TrimPrefix(srv.URL, "https://")
+	verified, err := verifyRefreshToken(context.Background(), host, "fake-refresh-token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !verified {
+		t.Fatal("expected verified=true for successful refresh exchange")
+	}
+}
+
+// TestVerify_RefreshToken_Rejected tests that a 401 from the oauth2/token
+// endpoint yields verified=false.
+func TestVerify_RefreshToken_Rejected(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	origClient := httpClient
+	httpClient = srv.Client()
+	defer func() { httpClient = origClient }()
+
+	host := strings.TrimPrefix(srv.URL, "https://")
+	verified, err := verifyRefreshToken(context.Background(), host, "bad-refresh-token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if verified {
+		t.Fatal("expected verified=false for 401 response")
+	}
+}
+
+// TestVerify_NoHost tests that Verify returns (false, nil) when the token
+// payload does not contain an ACR host.
+func TestVerify_NoHost(t *testing.T) {
+	verified, err := Scanner{}.Verify(context.Background(), oidcToken)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if verified {
+		t.Fatal("expected verified=false when no ACR host in payload")
 	}
 }

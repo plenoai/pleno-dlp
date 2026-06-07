@@ -2,17 +2,21 @@
 // ACR uses long JWT-style tokens (`<base64url>.<base64url>.<base64url>`)
 // fetched via /oauth2/token from a per-registry host (`<name>.azurecr.io`).
 //
-// Unverified by design. The doc-row once claimed a `GET /v2/` registry probe
-// using a host "parsed from the refresh token claim", but that is wrong:
-// ACR refresh tokens (the dominant shape — what `docker login -p` and
-// `acr_refresh` store) are NOT accepted by the Docker Registry v2 `/v2/`
-// endpoint as a bearer. The real flow is two-leg —
-// refresh_token -> POST /oauth2/token (grant_type=refresh_token, with the
-// correct service=<host> and scope) -> access_token -> GET /v2/ with
-// Authorization: Bearer <access_token>. A single-shot probe with the matched
-// token would 401 every refresh token (mass false-negative), and the host is
-// not reliably recoverable from the token alone without user config. So we do
-// NOT implement Verify; instead we harden semantically.
+// Verification strategy (two flows):
+//
+//  1. Access token: GET https://<registry>/v2/ with Authorization: Bearer <token>.
+//     HTTP 200 = verified; 401 = not verified (token expired or insufficient scope).
+//
+//  2. Refresh token: POST https://<registry>/oauth2/token with
+//     grant_type=refresh_token&service=<registry>&scope=repository:*:pull&refresh_token=<token>.
+//     HTTP 200 with an access_token in the response body = verified.
+//
+// The registry host is extracted from the JWT payload (the same *.azurecr.io
+// host used by the existing payloadIsACR gate). The token class (access vs
+// refresh) is distinguished by checking for a "grant_type":"refresh_token"
+// claim in the payload — present in refresh tokens, absent in access tokens.
+// When the class is ambiguous, the detector tries the access-token probe
+// first and falls back to the refresh-token exchange.
 //
 // Hardening: the JWT payload (middle base64url segment) is decoded and must
 // self-identify as ACR — a claim (`aud`/`iss`/`service`/`grant_type`/`jti`
@@ -26,11 +30,18 @@ package azurecr
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
+
+var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{10,400}\.[A-Za-z0-9_\-]{10,800}\.[A-Za-z0-9_\-]{10,400})\b`)
 
@@ -52,7 +63,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AzureContainerRe
 
 func (Scanner) Keywords() []string { return []string{"azurecr", "acr_"} }
 
-func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	hits := tokenRe.FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
@@ -81,16 +92,155 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			continue
 		}
 		seen[token] = struct{}{}
-		out = append(out, detectors.Result{
+		extra := map[string]string{}
+		if host, ok := extractACRHost(token); ok {
+			extra["registry"] = host
+		}
+		res := detectors.Result{
 			DetectorType: detectors.AzureContainerRegistry,
 			Raw:          []byte(token),
 			Redacted:     redact(token),
-		})
+			ExtraData:    extra,
+		}
+		if verify {
+			verified, err := s.Verify(ctx, token)
+			res.Verified = verified
+			res.VerificationErr = err
+		}
+		out = append(out, res)
 	}
 	if len(out) == 0 {
 		return nil, nil
 	}
 	return out, nil
+}
+
+// extractACRHost decodes the JWT payload and extracts the *.azurecr.io
+// hostname. Returns the host and true when found, or ("", false) when the
+// payload cannot be decoded or contains no ACR host.
+func extractACRHost(token string) (string, bool) {
+	segs := strings.Split(token, ".")
+	if len(segs) != 3 {
+		return "", false
+	}
+	payload, ok := decodeSegment(segs[1])
+	if !ok {
+		return "", false
+	}
+	m := azurecrHostRe.FindString(strings.ToLower(payload))
+	if m == "" {
+		return "", false
+	}
+	return m, true
+}
+
+// isRefreshToken inspects the decoded JWT payload for a
+// "grant_type":"refresh_token" claim, which identifies ACR refresh tokens.
+// Access tokens lack this claim and carry permissions/scope claims instead.
+func isRefreshToken(token string) bool {
+	segs := strings.Split(token, ".")
+	if len(segs) != 3 {
+		return false
+	}
+	payload, ok := decodeSegment(segs[1])
+	if !ok {
+		return false
+	}
+	return strings.Contains(payload, `"grant_type"`) &&
+		strings.Contains(payload, `"refresh_token"`)
+}
+
+// Verify confirms the ACR token is live by probing the registry extracted from
+// the JWT payload. Access tokens are tested via GET /v2/; refresh tokens are
+// exchanged via POST /oauth2/token (grant_type=refresh_token). When the token
+// class is ambiguous, the access-token probe runs first with a refresh-token
+// fallback.
+func (s Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	host, ok := extractACRHost(secret)
+	if !ok {
+		return false, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	if isRefreshToken(secret) {
+		return verifyRefreshToken(ctx, host, secret)
+	}
+	// Try access-token probe first.
+	verified, err := verifyAccessToken(ctx, host, secret)
+	if verified || err != nil {
+		return verified, err
+	}
+	// Fallback: the token might be a refresh token without the expected
+	// grant_type claim. Try the refresh exchange.
+	return verifyRefreshToken(ctx, host, secret)
+}
+
+// verifyAccessToken probes GET https://<registry>/v2/ with a Bearer token.
+// HTTP 200 means the token is live and has at least catalog-level scope.
+func verifyAccessToken(ctx context.Context, registry, token string) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://"+registry+"/v2/", nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+
+	return resp.StatusCode == http.StatusOK, nil
+}
+
+// verifyRefreshToken exchanges the refresh token for a short-lived access
+// token via POST https://<registry>/oauth2/token. A 200 response containing
+// an access_token proves the refresh token is live.
+func verifyRefreshToken(ctx context.Context, registry, token string) (bool, error) {
+	form := url.Values{
+		"grant_type":    {"refresh_token"},
+		"service":       {registry},
+		"scope":         {"repository:*:pull"},
+		"refresh_token": {token},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://"+registry+"/oauth2/token",
+		strings.NewReader(form.Encode()))
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, nil
+	}
+	// Parse just enough of the response to confirm an access_token was issued.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return false, nil
+	}
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+	}
+	if json.Unmarshal(body, &tokenResp) != nil {
+		return false, nil
+	}
+	return tokenResp.AccessToken != "", nil
 }
 
 // payloadIsACR decodes the JWT's middle (payload) segment and reports whether
@@ -168,6 +318,12 @@ func redact(t string) string {
 	}
 	return t[:12] + "..."
 }
+
+// Compile-time interface checks.
+var (
+	_ detectors.Detector = Scanner{}
+	_ detectors.Verifier = Scanner{}
+)
 
 func init() {
 	detectors.Register(Scanner{})

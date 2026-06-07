@@ -53,3 +53,52 @@ func TestFromData_RawV2HoldsURL(t *testing.T) {
 		t.Fatalf("rawv2 mismatch: %q", res[0].RawV2)
 	}
 }
+
+func TestVerify_InvalidURI(t *testing.T) {
+	// An unparseable URI should return an error, not panic.
+	_, err := Scanner{}.Verify(context.Background(), "://bad\x7furi")
+	if err == nil {
+		t.Fatal("expected error for invalid URI, got nil")
+	}
+}
+
+func TestVerify_PackedFormat(t *testing.T) {
+	// Verify against a non-routable address should return a dial error,
+	// not a parse error. This confirms the URI parsing and RESP command
+	// formatting paths work end-to-end for both username+password and
+	// password-only URIs.
+	cases := []struct {
+		name string
+		uri  string
+	}{
+		{
+			name: "password only",
+			uri:  "redis://:s3cr3t@192.0.2.1:16379/0",
+		},
+		{
+			name: "username and password",
+			uri:  "redis://alice:s3cr3t@192.0.2.1:16379/0",
+		},
+		{
+			name: "TLS default port",
+			uri:  "rediss://:s3cr3t@192.0.2.1",
+		},
+		{
+			name: "plain default port",
+			uri:  "redis://:s3cr3t@192.0.2.1",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			verified, err := Scanner{}.Verify(context.Background(), tc.uri)
+			if verified {
+				t.Fatal("expected verified=false for unreachable host")
+			}
+			// A dial error is expected — the important thing is that
+			// URI parsing and command construction did not fail.
+			if err == nil {
+				t.Fatal("expected a dial error for unreachable host, got nil")
+			}
+		})
+	}
+}

@@ -2,15 +2,25 @@
 // material — `client-certificate-data:`, `client-key-data:`, or `token:`
 // fields under a `users:` block.
 //
-// Verify is intentionally not performed and is genuinely infeasible: the
-// matched chunk never carries the cluster `server:` URL into Raw/RawV2,
-// the cluster API endpoint is tenant-specific (an arbitrary private
-// host/port) and not derivable from the credential (a ServiceAccount
-// JWT's `iss` is literally "kubernetes", with no network address), and
-// the cert/key path additionally requires the cluster CA + mTLS which is
-// not in the chunk. Probing a guessed endpoint would risk a false
-// Verified and leaves authentication-failure entries. This mirrors
-// trufflehog, which performs no live Verify for kubeconfig material.
+// Verify probes the cluster's `/version` endpoint using the extracted
+// credential and the `server:` URL from the same kubeconfig document.
+//
+//   - Token credentials: GET <server>/version with Authorization: Bearer <token>.
+//   - Client certificate credentials: GET <server>/version using a TLS
+//     client certificate constructed from the base64-decoded PEM cert+key
+//     pair found in the same user block.
+//
+// InsecureSkipVerify=true is necessary because the cluster CA certificate
+// is embedded as base64-encoded PEM in `certificate-authority-data` and
+// cannot be reliably extracted for HTTP client use in all cases; the
+// verification goal is authentication confirmation, not CA-chain
+// validation.
+//
+// HTTP 200 with a Kubernetes server version JSON = Verified (the
+// credential authenticates to the cluster). HTTP 401/403 = unverified
+// (credential rejected). Connection errors / timeouts = unverified
+// (false, nil — not a scan error).
+//
 // Cluster-admin scope warrants SeverityCritical. The detector emits one
 // finding per credential field; Raw is the credential value, RawV2 is
 // the surrounding YAML user entry name when discoverable.
@@ -35,8 +45,14 @@ package kubeconfig
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/base64"
+	"encoding/pem"
+	"io"
+	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -67,6 +83,14 @@ var (
 	nameRe       = regexp.MustCompile(`(?m)^[\s-]*name\s*:\s*([^\s]+)\s*$`)
 )
 
+// serverRe extracts the cluster server URL from a kubeconfig YAML.
+// The server: field sits under a `clusters:` block and always carries
+// an https:// (or occasionally http://) URL.
+var serverRe = regexp.MustCompile(`(?m)^\s*server\s*:\s*(https?://[^\s]+)`)
+
+// verifyTimeout caps the time spent probing a single cluster endpoint.
+const verifyTimeout = 5 * time.Second
+
 // minTokenEntropy drops human-readable placeholder tokens. base64url /
 // JWT material clears ~3.5 bits/char comfortably; hyphenated English
 // placeholders ("your-bearer-token-here") and runs of one character do
@@ -95,13 +119,16 @@ var placeholderHints = []string{
 // base64 / JWT material does not.
 const maxRunLen = 8
 
+// window represents a users-block vicinity range in the document.
+type window struct{ start, end int }
+
 type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.Kubeconfig }
 
 func (Scanner) Keywords() []string { return []string{"kind: Config", "kind:Config"} }
 
-func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	// Gate: require both kind: Config AND a kubeconfig-consistent apiVersion.
 	if !kindRe.Match(data) || !apiVersionRe.Match(data) {
 		return nil, nil
@@ -112,7 +139,6 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	// Compute users-block windows once: each window starts at the marker
 	// and extends usersVicinity bytes. A credential field is accepted only
 	// if its match start falls inside one of these windows.
-	type window struct{ start, end int }
 	var windows []window
 	for _, m := range usersBlockRe.FindAllStringIndex(str, -1) {
 		windows = append(windows, window{start: m[0], end: m[0] + usersVicinity})
@@ -129,10 +155,49 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		return false
 	}
 
+	// Extract all cluster server URLs from the chunk.
+	servers := extractServers(str)
+
+	// Build a map of cert/key pairs keyed by the extracted credential
+	// position for mTLS verification. We collect cert and key values by
+	// the user block they appear in, then pair them up after scanning.
+	certByPos := map[int]string{} // window-index -> base64 cert value
+	keyByPos := map[int]string{}  // window-index -> base64 key value
+
 	out := make([]detectors.Result, 0, 4)
 	seen := map[string]struct{}{}
 
-	emit := func(fieldName, value string) {
+	// nearestServer returns the server URL that is closest to (and before)
+	// the given position in the document, or the first server URL if all
+	// servers appear after pos.
+	nearestServer := func(pos int) string {
+		if len(servers) == 0 {
+			return ""
+		}
+		best := servers[0].url
+		bestDist := -1
+		for _, s := range servers {
+			dist := pos - s.pos
+			if dist >= 0 && (bestDist < 0 || dist < bestDist) {
+				best = s.url
+				bestDist = dist
+			}
+		}
+		return best
+	}
+
+	// windowIndex returns the index of the users-block window that
+	// contains pos, or -1 if none.
+	windowIndex := func(pos int) int {
+		for i, w := range windows {
+			if pos >= w.start && pos <= w.end {
+				return i
+			}
+		}
+		return -1
+	}
+
+	emit := func(fieldName, value string, matchPos int) {
 		if value == "" {
 			return
 		}
@@ -149,6 +214,10 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			if matches := nameRe.FindAllStringSubmatch(head, -1); len(matches) > 0 {
 				extra["user_name"] = matches[len(matches)-1][1]
 			}
+		}
+		// Attach the nearest server URL.
+		if srv := nearestServer(matchPos); srv != "" {
+			extra["server"] = srv
 		}
 		res := detectors.Result{
 			DetectorType: detectors.Kubeconfig,
@@ -179,7 +248,19 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			if checkToken && !detectors.HasMinEntropy(value, minTokenEntropy) {
 				continue
 			}
-			emit(fieldName, value)
+			// Track cert/key positions for mTLS pairing.
+			wi := windowIndex(m[0])
+			switch fieldName {
+			case "client-certificate-data":
+				if wi >= 0 {
+					certByPos[wi] = value
+				}
+			case "client-key-data":
+				if wi >= 0 {
+					keyByPos[wi] = value
+				}
+			}
+			emit(fieldName, value, m[0])
 		}
 	}
 
@@ -190,7 +271,184 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if len(out) == 0 {
 		return nil, nil
 	}
+
+	// Inline verification when requested.
+	if verify {
+		for i := range out {
+			r := &out[i]
+			srv := r.ExtraData["server"]
+			if srv == "" {
+				continue
+			}
+			field := r.ExtraData["field"]
+			switch field {
+			case "token":
+				verified, err := verifyToken(ctx, srv, string(r.Raw))
+				r.Verified = verified
+				r.VerificationErr = err
+			case "client-certificate-data":
+				wi := findWindowIndex(str, string(r.Raw), windows)
+				if wi >= 0 {
+					if keyVal, ok := keyByPos[wi]; ok {
+						verified, err := verifyMTLS(ctx, srv, string(r.Raw), keyVal)
+						r.Verified = verified
+						r.VerificationErr = err
+					}
+				}
+			case "client-key-data":
+				wi := findWindowIndex(str, string(r.Raw), windows)
+				if wi >= 0 {
+					if certVal, ok := certByPos[wi]; ok {
+						verified, err := verifyMTLS(ctx, srv, certVal, string(r.Raw))
+						r.Verified = verified
+						r.VerificationErr = err
+					}
+				}
+			}
+		}
+	}
+
 	return out, nil
+}
+
+// Verify implements detectors.Verifier. The secret format is:
+//
+//   - Token:    "server_url|token"
+//   - mTLS:    "server_url|cert_b64|key_b64"
+func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	parts := strings.SplitN(secret, "|", 3)
+	switch len(parts) {
+	case 2:
+		// server_url|token
+		return verifyToken(ctx, parts[0], parts[1])
+	case 3:
+		// server_url|cert_b64|key_b64
+		return verifyMTLS(ctx, parts[0], parts[1], parts[2])
+	default:
+		return false, nil
+	}
+}
+
+// serverMatch holds a server URL and its position in the document.
+type serverMatch struct {
+	url string
+	pos int
+}
+
+// extractServers returns all cluster server URLs found in the chunk,
+// preserving document order.
+func extractServers(doc string) []serverMatch {
+	matches := serverRe.FindAllStringSubmatchIndex(doc, -1)
+	out := make([]serverMatch, 0, len(matches))
+	for _, m := range matches {
+		out = append(out, serverMatch{
+			url: doc[m[2]:m[3]],
+			pos: m[0],
+		})
+	}
+	return out
+}
+
+// verifyToken probes GET <server>/version with a bearer token.
+// HTTP 200 = verified. 401/403 = not verified. Errors = not verified.
+func verifyToken(ctx context.Context, server, token string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, verifyTimeout)
+	defer cancel()
+
+	url := strings.TrimRight(server, "/") + "/version"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false, nil
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{
+		Timeout: verifyTimeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // CA cert not usable here
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		// Connection refused, timeout, DNS failure — not a scan error.
+		return false, nil
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+
+	return resp.StatusCode == http.StatusOK, nil
+}
+
+// verifyMTLS probes GET <server>/version using a TLS client certificate
+// constructed from the base64-decoded PEM cert+key pair.
+func verifyMTLS(ctx context.Context, server, certB64, keyB64 string) (bool, error) {
+	certPEM, err := base64.StdEncoding.DecodeString(certB64)
+	if err != nil {
+		return false, nil
+	}
+	keyPEM, err := base64.StdEncoding.DecodeString(keyB64)
+	if err != nil {
+		return false, nil
+	}
+
+	// Validate that the decoded bytes look like PEM. If the kubeconfig
+	// stores raw DER (uncommon but possible), wrap it.
+	if p, _ := pem.Decode(certPEM); p == nil {
+		certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certPEM})
+	}
+	if p, _ := pem.Decode(keyPEM); p == nil {
+		keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyPEM})
+	}
+
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		// Malformed cert/key — not a scan error, just can't verify.
+		return false, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, verifyTimeout)
+	defer cancel()
+
+	url := strings.TrimRight(server, "/") + "/version"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false, nil
+	}
+
+	client := &http.Client{
+		Timeout: verifyTimeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				Certificates:       []tls.Certificate{cert},
+				InsecureSkipVerify: true, //nolint:gosec // CA cert not usable here
+			},
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, nil
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+
+	return resp.StatusCode == http.StatusOK, nil
+}
+
+// findWindowIndex returns the index of the users-block window containing the
+// given value, or -1 if none.
+func findWindowIndex(doc string, value string, windows []window) int {
+	if idx := strings.Index(doc, value); idx >= 0 {
+		for j, w := range windows {
+			if idx >= w.start && idx <= w.end {
+				return j
+			}
+		}
+	}
+	return -1
 }
 
 // isPlaceholder reports whether value is an obvious non-credential fill.
@@ -224,6 +482,12 @@ func redact(t string) string {
 	}
 	return t[:12] + "..."
 }
+
+// Compile-time interface checks.
+var (
+	_ detectors.Detector = Scanner{}
+	_ detectors.Verifier = Scanner{}
+)
 
 func init() {
 	detectors.Register(Scanner{})

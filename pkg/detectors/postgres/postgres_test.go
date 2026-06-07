@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/binary"
 	"testing"
 )
 
@@ -111,5 +112,136 @@ func TestFromData_RealisticPasswordStillDetected(t *testing.T) {
 	}
 	if got := res[0].ExtraData["user"]; got != "svc" {
 		t.Fatalf("user: %q", got)
+	}
+}
+
+// --- URI parsing tests for Verify ---
+
+func TestShouldSkipHost(t *testing.T) {
+	for _, h := range []string{"localhost", "127.0.0.1", "::1", "example.com", "host.example.com"} {
+		if !shouldSkipHost(h) {
+			t.Errorf("shouldSkipHost(%q) = false, want true", h)
+		}
+	}
+	for _, h := range []string{"db.prod.internal", "pg.example.org", "10.0.0.1"} {
+		if shouldSkipHost(h) {
+			t.Errorf("shouldSkipHost(%q) = true, want false", h)
+		}
+	}
+}
+
+func TestVerify_InvalidURI(t *testing.T) {
+	_, err := Scanner{}.Verify(context.Background(), "://bad\x7furi")
+	if err == nil {
+		t.Fatal("expected error for invalid URI, got nil")
+	}
+}
+
+func TestVerify_SkipsLocalhost(t *testing.T) {
+	verified, err := Scanner{}.Verify(context.Background(), "postgres://user:pass@localhost:5432/db")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if verified {
+		t.Fatal("expected verified=false for localhost")
+	}
+}
+
+func TestVerify_SkipsExampleHost(t *testing.T) {
+	verified, err := Scanner{}.Verify(context.Background(), "postgres://user:pass@example.com/db")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if verified {
+		t.Fatal("expected verified=false for example.com")
+	}
+}
+
+func TestVerify_UnreachableHost(t *testing.T) {
+	// 192.0.2.0/24 is TEST-NET-1, routed to nowhere.
+	verified, err := Scanner{}.Verify(context.Background(), "postgres://user:pass@192.0.2.1:5432/db")
+	if verified {
+		t.Fatal("expected verified=false for unreachable host")
+	}
+	if err == nil {
+		t.Fatal("expected a dial error for unreachable host, got nil")
+	}
+}
+
+func TestVerify_DefaultPort(t *testing.T) {
+	// Confirm a URI without an explicit port uses 5432 and does not panic.
+	verified, err := Scanner{}.Verify(context.Background(), "postgres://user:pass@192.0.2.1/db")
+	if verified {
+		t.Fatal("expected verified=false for unreachable host")
+	}
+	if err == nil {
+		t.Fatal("expected a dial error for unreachable host")
+	}
+}
+
+func TestVerify_PostgresqlScheme(t *testing.T) {
+	// postgresql:// scheme also works.
+	verified, err := Scanner{}.Verify(context.Background(), "postgresql://user:pass@192.0.2.1:5432/db")
+	if verified {
+		t.Fatal("expected verified=false for unreachable host")
+	}
+	if err == nil {
+		t.Fatal("expected a dial error for unreachable host")
+	}
+}
+
+// TestComputeMD5Password verifies the PostgreSQL MD5 password hash algorithm.
+func TestComputeMD5Password(t *testing.T) {
+	// Known test vector: PostgreSQL MD5 password for user "user", password "pass",
+	// salt [0x01, 0x02, 0x03, 0x04].
+	result := computeMD5Password("user", "pass", []byte{0x01, 0x02, 0x03, 0x04})
+	if len(result) < 3 || result[:3] != "md5" {
+		t.Fatalf("expected md5 prefix, got %q", result)
+	}
+	// 3 ("md5") + 32 (hex md5) = 35 chars
+	if len(result) != 35 {
+		t.Fatalf("expected 35 chars, got %d: %q", len(result), result)
+	}
+
+	// Determinism check.
+	result2 := computeMD5Password("user", "pass", []byte{0x01, 0x02, 0x03, 0x04})
+	if result != result2 {
+		t.Fatal("non-deterministic MD5 password computation")
+	}
+}
+
+// TestBuildStartupMessage verifies the startup message structure.
+func TestBuildStartupMessage(t *testing.T) {
+	msg := buildStartupMessage("testuser", "testdb")
+
+	if len(msg) < 8 {
+		t.Fatalf("message too short: %d bytes", len(msg))
+	}
+
+	// First 4 bytes = total length (big-endian).
+	totalLen := binary.BigEndian.Uint32(msg[0:4])
+	if int(totalLen) != len(msg) {
+		t.Fatalf("length mismatch: header says %d, actual %d", totalLen, len(msg))
+	}
+
+	// Next 4 bytes = protocol version (196608 = 3.0).
+	protoVer := binary.BigEndian.Uint32(msg[4:8])
+	if protoVer != 196608 {
+		t.Fatalf("protocol version: got %d, want 196608", protoVer)
+	}
+}
+
+// TestBuildTerminate verifies the terminate message structure.
+func TestBuildTerminate(t *testing.T) {
+	msg := buildTerminate()
+	if len(msg) != 5 {
+		t.Fatalf("expected 5 bytes, got %d", len(msg))
+	}
+	if msg[0] != 'X' {
+		t.Fatalf("expected 'X', got %c", msg[0])
+	}
+	msgLen := binary.BigEndian.Uint32(msg[1:5])
+	if msgLen != 4 {
+		t.Fatalf("expected length 4, got %d", msgLen)
 	}
 }
