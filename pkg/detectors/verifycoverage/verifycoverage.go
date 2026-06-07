@@ -31,13 +31,13 @@ func Lookup(detectorType string) (Class, bool) {
 
 var Classes = map[string]Class{
 	// (b) Unverified-by-design — 50 detectors
-	"APNs":                   ClassUnverifiedByDesign,
-	"AWSS3PresignedURL":      ClassUnverifiedByDesign,
-	"AgoraIO":                ClassUnverifiedByDesign,
-	"Akamai":                 ClassUnverifiedByDesign,
-	"AppStoreConnect":        ClassUnverifiedByDesign,
-	"Atlassian":              ClassUnverifiedByDesign,
-	"Auth0":                  ClassUnverifiedByDesign,
+	"APNs":              ClassUnverifiedByDesign,
+	"AWSS3PresignedURL": ClassUnverifiedByDesign,
+	"AgoraIO":           ClassUnverifiedByDesign,
+	"Akamai":            ClassUnverifiedByDesign,
+	"AppStoreConnect":   ClassUnverifiedByDesign,
+	"Atlassian":         ClassUnverifiedByDesign,
+	"Auth0":             ClassUnverifiedByDesign,
 	// AzureAD, AzureApp, and AzureContainerRegistry intentionally absent —
 	// AzureAD/AzureApp satisfy detectors.Verifier via context-extraction-based
 	// OAuth2 client_credentials grant; AzureContainerRegistry satisfies it via
@@ -48,41 +48,41 @@ var Classes = map[string]Class{
 	// detectors.Verifier via TDS LOGIN7 wire-protocol handshake over TLS
 	// against the *.database.windows.net host extracted from the connection
 	// string. It falls into the open-set complement (class a).
-	"BasicAuth":              ClassUnverifiedByDesign,
-	"Bugsnag":                ClassUnverifiedByDesign,
-	"CloudflareR2":           ClassUnverifiedByDesign,
-	"ConcourseCI":            ClassUnverifiedByDesign,
-	"Confluence":             ClassUnverifiedByDesign,
-	"CrispChat":              ClassUnverifiedByDesign,
-	"DatadogAppKey":          ClassUnverifiedByDesign,
-	"DroneCI":                ClassUnverifiedByDesign,
-	"Exoscale":               ClassUnverifiedByDesign,
-	"GCSSignedURL":           ClassUnverifiedByDesign,
-	"GenericHighEntropy":     ClassUnverifiedByDesign,
-	"GetStream":              ClassUnverifiedByDesign,
-	"GitLabPipeline":         ClassUnverifiedByDesign,
-	"GoCD":                   ClassUnverifiedByDesign,
-	"JWT":                    ClassUnverifiedByDesign,
-	"Jenkins":                ClassUnverifiedByDesign,
-	"Jira":                   ClassUnverifiedByDesign,
-	"Kafka":                  ClassUnverifiedByDesign,
+	"BasicAuth":          ClassUnverifiedByDesign,
+	"Bugsnag":            ClassUnverifiedByDesign,
+	"CloudflareR2":       ClassUnverifiedByDesign,
+	"ConcourseCI":        ClassUnverifiedByDesign,
+	"Confluence":         ClassUnverifiedByDesign,
+	"CrispChat":          ClassUnverifiedByDesign,
+	"DatadogAppKey":      ClassUnverifiedByDesign,
+	"DroneCI":            ClassUnverifiedByDesign,
+	"Exoscale":           ClassUnverifiedByDesign,
+	"GCSSignedURL":       ClassUnverifiedByDesign,
+	"GenericHighEntropy": ClassUnverifiedByDesign,
+	"GetStream":          ClassUnverifiedByDesign,
+	"GitLabPipeline":     ClassUnverifiedByDesign,
+	"GoCD":               ClassUnverifiedByDesign,
+	"JWT":                ClassUnverifiedByDesign,
+	"Jenkins":            ClassUnverifiedByDesign,
+	"Jira":               ClassUnverifiedByDesign,
+	"Kafka":              ClassUnverifiedByDesign,
 	// Kubeconfig intentionally absent — the detector now satisfies
 	// detectors.Verifier by probing GET <server>/version with the bearer
 	// token or mTLS client cert extracted from the same kubeconfig YAML.
 	// It falls into the open-set complement (class a).
-	"LaunchNotes":            ClassUnverifiedByDesign,
-	"Looker":                 ClassUnverifiedByDesign,
-	"Magento":                ClassUnverifiedByDesign,
-	"Modal":                  ClassUnverifiedByDesign,
+	"LaunchNotes": ClassUnverifiedByDesign,
+	"Looker":      ClassUnverifiedByDesign,
+	"Magento":     ClassUnverifiedByDesign,
+	"Modal":       ClassUnverifiedByDesign,
 	// MongoDB intentionally absent — the detector now satisfies
 	// detectors.Verifier via OP_MSG isMaster connectivity probe. It falls
 	// into the open-set complement (class a).
 	// MySQL intentionally absent — the detector now satisfies
 	// detectors.Verifier via mysql_native_password wire-protocol handshake.
 	// It falls into the open-set complement (class a).
-	"OVHCloud":               ClassUnverifiedByDesign,
-	"PIIAnonymize":           ClassUnverifiedByDesign,
-	"PIIOpenAIPF":            ClassUnverifiedByDesign,
+	"OVHCloud":     ClassUnverifiedByDesign,
+	"PIIAnonymize": ClassUnverifiedByDesign,
+	"PIIOpenAIPF":  ClassUnverifiedByDesign,
 	// PIICreditCard / PIIEmail / PIIIBAN / PIIUSSSN entries removed —
 	// the detectors were retired in favour of PIIAnonymize. The
 	// DetectorType constants stay pinned at their ordinals (76..79)
@@ -103,7 +103,7 @@ var Classes = map[string]Class{
 	// Redis intentionally absent — the detector now satisfies
 	// detectors.Verifier via RESP-protocol AUTH probe. It falls into the
 	// open-set complement (class a).
-	"RequestBin": ClassUnverifiedByDesign,
+	"RequestBin":    ClassUnverifiedByDesign,
 	"SMTP":          ClassUnverifiedByDesign,
 	"Segment":       ClassUnverifiedByDesign,
 	"Sinch":         ClassUnverifiedByDesign,
