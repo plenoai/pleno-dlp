@@ -30,7 +30,7 @@ func Lookup(detectorType string) (Class, bool) {
 }
 
 var Classes = map[string]Class{
-	// (b) Unverified-by-design — 56 detectors
+	// (b) Unverified-by-design — 50 detectors
 	"APNs":                   ClassUnverifiedByDesign,
 	"AWSS3PresignedURL":      ClassUnverifiedByDesign,
 	"AgoraIO":                ClassUnverifiedByDesign,
@@ -38,10 +38,16 @@ var Classes = map[string]Class{
 	"AppStoreConnect":        ClassUnverifiedByDesign,
 	"Atlassian":              ClassUnverifiedByDesign,
 	"Auth0":                  ClassUnverifiedByDesign,
-	"AzureAD":                ClassUnverifiedByDesign,
-	"AzureApp":               ClassUnverifiedByDesign,
-	"AzureContainerRegistry": ClassUnverifiedByDesign,
-	"AzureSQLConnString":     ClassUnverifiedByDesign,
+	// AzureAD, AzureApp, and AzureContainerRegistry intentionally absent —
+	// AzureAD/AzureApp satisfy detectors.Verifier via context-extraction-based
+	// OAuth2 client_credentials grant; AzureContainerRegistry satisfies it via
+	// GET /v2/ (access tokens) and POST /oauth2/token (refresh tokens),
+	// with the registry host extracted from the JWT payload. All three fall
+	// into the open-set complement (class a).
+	// AzureSQLConnString intentionally absent — the detector now satisfies
+	// detectors.Verifier via TDS LOGIN7 wire-protocol handshake over TLS
+	// against the *.database.windows.net host extracted from the connection
+	// string. It falls into the open-set complement (class a).
 	"BasicAuth":              ClassUnverifiedByDesign,
 	"Bugsnag":                ClassUnverifiedByDesign,
 	"CloudflareR2":           ClassUnverifiedByDesign,
@@ -60,13 +66,20 @@ var Classes = map[string]Class{
 	"Jenkins":                ClassUnverifiedByDesign,
 	"Jira":                   ClassUnverifiedByDesign,
 	"Kafka":                  ClassUnverifiedByDesign,
-	"Kubeconfig":             ClassUnverifiedByDesign,
+	// Kubeconfig intentionally absent — the detector now satisfies
+	// detectors.Verifier by probing GET <server>/version with the bearer
+	// token or mTLS client cert extracted from the same kubeconfig YAML.
+	// It falls into the open-set complement (class a).
 	"LaunchNotes":            ClassUnverifiedByDesign,
 	"Looker":                 ClassUnverifiedByDesign,
 	"Magento":                ClassUnverifiedByDesign,
 	"Modal":                  ClassUnverifiedByDesign,
-	"MongoDB":                ClassUnverifiedByDesign,
-	"MySQL":                  ClassUnverifiedByDesign,
+	// MongoDB intentionally absent — the detector now satisfies
+	// detectors.Verifier via OP_MSG isMaster connectivity probe. It falls
+	// into the open-set complement (class a).
+	// MySQL intentionally absent — the detector now satisfies
+	// detectors.Verifier via mysql_native_password wire-protocol handshake.
+	// It falls into the open-set complement (class a).
 	"OVHCloud":               ClassUnverifiedByDesign,
 	"PIIAnonymize":           ClassUnverifiedByDesign,
 	"PIIOpenAIPF":            ClassUnverifiedByDesign,
@@ -76,16 +89,21 @@ var Classes = map[string]Class{
 	// per ADR-0002 but no live registration exists, so the doc /
 	// Classes drift tests no longer require entries here.
 	"PingIdentity": ClassUnverifiedByDesign,
-	"Postgres":     ClassUnverifiedByDesign,
+	// Postgres intentionally absent — the detector now satisfies
+	// detectors.Verifier via PostgreSQL wire-protocol StartupMessage +
+	// cleartext / MD5 password authentication. It falls into the open-set
+	// complement (class a).
 	// PrivateKeyPEM intentionally absent — the detector now satisfies
 	// detectors.Verifier via blast-radius lookup against Certificate
 	// Transparency (crt.sh `?spkisha256=`). It falls into the open-set
 	// complement (class a). See docs/verify-coverage.md and the
 	// pkg/detectors/privatekey/blastradius package.
-	"PusherBeams":   ClassUnverifiedByDesign,
-	"RabbitMQ":      ClassUnverifiedByDesign,
-	"Redis":         ClassUnverifiedByDesign,
-	"RequestBin":    ClassUnverifiedByDesign,
+	"PusherBeams": ClassUnverifiedByDesign,
+	"RabbitMQ":    ClassUnverifiedByDesign,
+	// Redis intentionally absent — the detector now satisfies
+	// detectors.Verifier via RESP-protocol AUTH probe. It falls into the
+	// open-set complement (class a).
+	"RequestBin": ClassUnverifiedByDesign,
 	"SMTP":          ClassUnverifiedByDesign,
 	"Segment":       ClassUnverifiedByDesign,
 	"Sinch":         ClassUnverifiedByDesign,
@@ -100,15 +118,12 @@ var Classes = map[string]Class{
 
 	// (b) reclassified from (c): fundamentally unverifiable from the
 	// matched secret, not merely not-yet-wired —
-	//   GCPIDToken: an audience-bound OIDC *identity* token; tokeninfo
-	//     validates identity (and is audit-logged), not live access.
 	//   SalesforceRefresh: refresh-token exchange requires instance URL +
 	//     client_id + client_secret, none co-located in the matched chunk.
 	//   Sentry: the matched value is a DSN ingest *write* key; the only
 	//     "verify" is submitting an event (destructive / billed).
 	//   Snowflake: keypair JWT auth needs the *private key* to sign the
 	//     assertion, which is never present in the matched chunk.
-	"GCPIDToken":        ClassUnverifiedByDesign,
 	"SalesforceRefresh": ClassUnverifiedByDesign,
 	"Sentry":            ClassUnverifiedByDesign,
 	"Snowflake":         ClassUnverifiedByDesign,

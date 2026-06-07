@@ -25,7 +25,7 @@ because the leak surface is destructive even before verification. Those
 are not enumerated here — `DefaultSeverity` is the floor; per-detector
 overrides only raise it.
 
-## (a) Verify implemented — 540 detectors
+## (a) Verify implemented — 550 detectors
 
 Detector type satisfies `detectors.Verifier`. The detector calls the
 upstream provider and returns `(true, nil)` on success, `(false, nil)`
@@ -42,7 +42,48 @@ and no apiBase fallback is wired, the detector lives in (b) instead.
 
 The full enumeration lives in the machine block.
 
-## (b) Unverified-by-design — 60 detectors
+> **Newly verified (batch 2026-06).** The following 10 detectors were
+> previously class (b) (unverified-by-design) and have been promoted to
+> class (a) after `Verify` implementations were added:
+>
+> - **AzureAD** — OAuth2 client_credentials grant; tenant_id extracted
+>   from surrounding chunk context.
+> - **AzureApp** — OAuth2 client_credentials grant; tenant_id extracted
+>   from surrounding chunk context.
+> - **AzureContainerRegistry** — `GET /v2/` (access tokens) and
+>   `POST /oauth2/token` (refresh tokens); registry host extracted from
+>   JWT payload.
+> - **AzureSQLConnString** — TDS LOGIN7 wire-protocol handshake over TLS
+>   against `*.database.windows.net` host extracted from the connection
+>   string.
+> - **GCPIDToken** — token validation via Google's tokeninfo endpoint.
+> - **Kubeconfig** — `GET <server>/version` probe with the bearer token
+>   or mTLS client cert extracted from the kubeconfig YAML.
+> - **MongoDB** — `OP_MSG isMaster` connectivity probe against the host
+>   in the connection URI.
+> - **MySQL** — `mysql_native_password` wire-protocol handshake against
+>   the host in the connection string.
+> - **Postgres** — PostgreSQL wire-protocol `StartupMessage` +
+>   cleartext / MD5 password authentication.
+> - **Redis** — RESP-protocol `AUTH` probe against the host in the
+>   connection URI.
+
+### Context-extraction Verify
+
+Azure AD and Azure App detectors extract `tenant_id` from surrounding
+chunk data (assignment anchors, URLs, and known Azure directory
+patterns). The extracted tenant is combined with the matched
+`client_id` / `client_secret` pair to attempt an OAuth2
+`client_credentials` grant against
+`https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token`.
+A `200` with a valid `access_token` marks the finding verified; a
+`401` / `invalid_client` marks it unverified; transport errors are
+returned as `(false, err)` per the standard Verifier contract. This
+"context-extraction" pattern lets the detector verify credentials whose
+host endpoint is not self-contained in the secret itself but is
+recoverable from neighbouring text.
+
+## (b) Unverified-by-design — 50 detectors
 
 These detectors deliberately do not implement `Verify`. The rationale
 is one of:
@@ -94,10 +135,6 @@ absent, so the finding acknowledges the token shape without implying live access
 | Atlassian               | secret   | token is half of a Basic-auth credential, `<workspace>.atlassian.net` not in chunk; hardened: ATATT3 prefix anchor + entropy gate |
 | Auth0                   | secret   | matched token not self-authenticating, tenant host not derivable; hardened: auth0.com context regex + signature entropy, RFC-7519/alg:none exclusion |
 | AWSS3PresignedURL       | secret   | presigned URL, signed-time-bound, no verify endpoint |
-| AzureAD                 | secret   | tenant not derivable, secret not self-authenticating; hardened: tilde anchor + entropy/char-class shape gate |
-| AzureApp                | secret   | needs subscription scope + tenant, secret alone can't auth; hardened: secret-intent window + entropy + dense-run check |
-| AzureContainerRegistry  | secret   | refresh-token host claim spoofable; hardened: require *.azurecr.io in JWT payload + entropy gate |
-| AzureSQLConnString      | secret   | connection string, host not derivable from chunk |
 | BasicAuth               | secret   | HTTP basic credential, host not in chunk |
 | Bugsnag                 | secret   | matched value is project ingest key, not a /user-authorizing token; hardened: assignment anchor + hash exclusion + entropy |
 | CloudflareR2            | secret   | SigV4 signing unfakeable, no signing host in chunk; hardened: entropy floor + digest-lookalike exclusion |
@@ -107,7 +144,6 @@ absent, so the finding acknowledges the token shape without implying live access
 | DatadogAppKey           | secret   | a lone App key cannot be authenticated (needs API-key pair); hardened: assignment/header anchor + SHA exclusion + entropy |
 | DroneCI                 | secret   | self-hosted, host not in chunk; hardened: drone-prefixed assignment anchor + entropy + SHA exclusion |
 | Exoscale                | secret   | HMAC signing required |
-| GCPIDToken              | secret   | audience-bound OIDC *identity* token; tokeninfo validates identity (and is audit-logged), not live access — reclassified from (c) |
 | GCSSignedURL            | secret   | signed URL, signed-time-bound, no verify endpoint |
 | GenericHighEntropy      | secret   | entropy-only shape, no fixed upstream provider |
 | GetStream               | secret   | HMAC/JWT signing, no mirrorable reference impl; hardened: credential-context anchor + entropy + char-class gate |
@@ -117,21 +153,16 @@ absent, so the finding acknowledges the token shape without implying live access
 | Jira                    | secret   | token-only probe always 401 (needs email pair), host not in chunk; hardened: entropy + assignment vicinity + hex exclusion |
 | JWT                     | secret   | generic shape, issuer-dependent verification not centralizable |
 | Kafka                   | secret   | connection string, broker host not in chunk |
-| Kubeconfig              | secret   | static config, no remote endpoint to call |
 | LaunchNotes             | secret   | ln_ shape isn't an authentic credential; hardened: delimiter+public_ regex + context + entropy |
 | Looker                  | secret   | no per-instance host channel; hardened: client_id/secret/api3 anchor + entropy + lookalike exclusion |
 | Magento                 | secret   | per-store host not in chunk; hardened: hex-digest exclusion + entropy + two-tier proximity |
 | Modal                   | secret   | no documented REST endpoint for the (id,secret) pair; hardened: entropy/char-class looksRandom gate on the pair |
-| MongoDB                 | secret   | connection string, host not in chunk |
-| MySQL                   | secret   | connection string, host not in chunk |
 | OVHCloud                | secret   | HMAC signing required |
 | PIIAnonymize            | pii      | PII finding class — NER + regex via pleno-anonymize, no provider API to verify |
 | PIIOpenAIPF             | pii      | PII finding class — MoE classifier (openai/privacy-filter), no provider-side verify path |
 | PingIdentity            | secret   | per-region host (`api.pingone.{com,eu,asia,ca}`) not in chunk |
-| Postgres                | secret   | connection string, host not in chunk |
 | PusherBeams             | secret   | instance_id host/path uncapturable; hardened: narrowed vicinity + digest exclusion + entropy |
 | RabbitMQ                | secret   | connection string, host not in chunk |
-| Redis                   | secret   | connection string, host not in chunk |
 | RequestBin              | secret   | per-bin endpoint not in chunk |
 | SalesforceRefresh       | secret   | paired credential — instance URL + client_id + client_secret not co-located; Severity=Medium (explicit override, see severity recap above) |
 | Segment                 | secret   | ingest returns 200 for invalid keys and a probe mints billed events; hardened: entropy floor + pure-hex exclusion |
@@ -157,8 +188,8 @@ The `coverage-machine` block pins counts and per-detector class.
 
 ```coverage-machine
 total=600
-a=540
-b=60
+a=550
+b=50
 type=APNs class=b
 type=AWSS3PresignedURL class=b
 type=AgoraIO class=b
@@ -166,10 +197,6 @@ type=Akamai class=b
 type=AppStoreConnect class=b
 type=Atlassian class=b
 type=Auth0 class=b
-type=AzureAD class=b
-type=AzureApp class=b
-type=AzureContainerRegistry class=b
-type=AzureSQLConnString class=b
 type=BasicAuth class=b
 type=Bugsnag class=b
 type=CloudflareR2 class=b
@@ -179,7 +206,6 @@ type=CrispChat class=b
 type=DatadogAppKey class=b
 type=DroneCI class=b
 type=Exoscale class=b
-type=GCPIDToken class=b
 type=GCSSignedURL class=b
 type=GenericHighEntropy class=b
 type=GetStream class=b
@@ -189,21 +215,16 @@ type=JWT class=b
 type=Jenkins class=b
 type=Jira class=b
 type=Kafka class=b
-type=Kubeconfig class=b
 type=LaunchNotes class=b
 type=Looker class=b
 type=Magento class=b
 type=Modal class=b
-type=MongoDB class=b
-type=MySQL class=b
 type=OVHCloud class=b
 type=PIIAnonymize class=b
 type=PIIOpenAIPF class=b
 type=PingIdentity class=b
-type=Postgres class=b
 type=PusherBeams class=b
 type=RabbitMQ class=b
-type=Redis class=b
 type=RequestBin class=b
 type=SMTP class=b
 type=SalesforceRefresh class=b
