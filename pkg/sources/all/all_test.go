@@ -17,6 +17,7 @@ func TestAllRegistersRealSources(t *testing.T) {
 	registered := []sources.SourceType{
 		sources.SourceFilesystem,
 		sources.SourceGit,
+		sources.SourceS3,
 		sources.SourceStdin,
 	}
 	for _, typ := range registered {
@@ -38,7 +39,6 @@ func TestAllDoesNotRegisterSaaS(t *testing.T) {
 	saas := []sources.SourceType{
 		sources.SourceGitHub,
 		sources.SourceGitLab,
-		sources.SourceS3,
 		sources.SourceGCS,
 		sources.SourceSlack,
 		sources.SourceJira,

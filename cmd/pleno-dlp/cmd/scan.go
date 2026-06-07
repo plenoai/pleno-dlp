@@ -77,6 +77,7 @@ var scanCmd = &cobra.Command{
 	Long: "Scan a source for leaked secrets. Supported kinds:\n" +
 		"  filesystem  walk one or more local paths\n" +
 		"  git         walk the commit history of a local git repo\n" +
+		"  s3          walk objects in an S3 bucket (or S3-compatible store)\n" +
 		"  stdin       read input from os.Stdin (e.g. `cat file | pleno-dlp scan stdin`)\n" +
 		"  github      walk every default-branch blob in a GitHub org or single repo; --include-comments scans issue/PR comments\n" +
 		"  gitlab      walk GitLab API blobs; --include-comments scans MR notes/discussions\n" +
@@ -191,6 +192,7 @@ func init() {
 
 	scanCmd.AddCommand(scanFilesystemCmd)
 	scanCmd.AddCommand(scanGitCmd)
+	scanCmd.AddCommand(scanS3Cmd)
 	scanCmd.AddCommand(scanStdinCmd)
 	Root.AddCommand(scanCmd)
 }
