@@ -71,6 +71,14 @@ func (t SourceType) String() string {
 		return "codebase"
 	case SourcePagure:
 		return "pagure"
+	case SourceDatadog:
+		return "datadog"
+	case SourceSplunk:
+		return "splunk"
+	case SourceBigQuery:
+		return "bigquery"
+	case SourceRedash:
+		return "redash"
 	default:
 		return "unknown"
 	}

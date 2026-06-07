@@ -30,6 +30,10 @@ const (
 	SourceOneDev
 	SourceCodebase
 	SourcePagure
+	SourceDatadog
+	SourceSplunk
+	SourceBigQuery
+	SourceRedash
 )
 
 // Metadata is a discriminated union of source-specific location info. Each
@@ -49,6 +53,7 @@ type Metadata struct {
 	Bitbucket  *BitbucketMeta
 	Stdin      *StdinMeta
 	Forge      *ForgeMeta
+	SIEM       *SIEMMeta
 }
 
 type FilesystemMeta struct {
@@ -163,6 +168,19 @@ type ForgeMeta struct {
 	Commit     string
 	File       string
 	Line       int
+}
+
+// SIEMMeta is populated by SIEM connectors (Datadog, Splunk, BigQuery,
+// Redash). Provider distinguishes the SIEM system; the remaining fields
+// map to the event/log/query provenance so output formatters can render
+// a clickable location without provider-specific branching.
+type SIEMMeta struct {
+	Provider  string // "datadog", "splunk", "bigquery", "redash"
+	Host      string // SIEM host or project
+	Index     string // index, dataset, or query name
+	EventID   string // unique event/log/row identifier
+	Timestamp string // event timestamp (RFC 3339 or provider-native)
+	Link      string // deep link to the event in the SIEM UI
 }
 
 // Chunk is a unit of data emitted by a Source for detectors to scan. Sources
