@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -261,8 +260,4 @@ func (c *bigqueryClient) getQueryResults(ctx context.Context, jobID, pageToken s
 		return nil, fmt.Errorf("bigquery: decode query results: %w", err)
 	}
 	return &result, nil
-}
-
-var bigqueryWarn = func(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "bigquery: warning: "+format+"\n", args...)
 }

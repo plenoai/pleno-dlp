@@ -278,12 +278,7 @@ func (p *parser) trackMySQL(line, upper string) {
 	case strings.HasPrefix(upper, "INSERT INTO "):
 		p.table = extractTableName(line[12:])
 	case strings.HasPrefix(upper, "CREATE TABLE "):
-		raw := upper[13:]
-		if strings.HasPrefix(raw, "IF NOT EXISTS ") {
-			raw = raw[14:]
-		}
 		p.table = extractTableName(line[len(line)-len(strings.TrimLeft(line, " \t"))+13:])
-		_ = raw
 	}
 }
 
