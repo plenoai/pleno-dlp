@@ -1,12 +1,13 @@
 // Package salesforcerefresh detects Salesforce OAuth refresh tokens
-// (5Aep861... shape). Verification is skipped because the Salesforce token
-// endpoint requires the org's instance URL plus the connected-app client_id
-// and client_secret — we don't have any of those at scan time.
+// (5Aep861... shape). Verification is unverified-by-design: the Salesforce
+// token endpoint requires the org's instance URL plus the connected-app
+// client_id and client_secret — none of which are co-located with the token
+// in the matched chunk (classify b, per docs/verify-coverage.md).
 //
-// Even unverified, a leaked refresh token is a real risk class: anyone who
-// knows the matching connected-app credentials (or finds them in the same
-// repo) can mint access tokens. We surface the finding at Severity=Medium
-// to acknowledge "definitely a refresh token, but I can't prove it's live".
+// Even unverified, a leaked refresh token is a real risk: anyone who obtains
+// the matching connected-app credentials can mint access tokens. We surface
+// the finding at Severity=Medium to acknowledge "definitely a refresh token,
+// but verification of liveness is structurally impossible from the chunk alone".
 package salesforcerefresh
 
 import (

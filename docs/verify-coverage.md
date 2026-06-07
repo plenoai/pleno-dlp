@@ -60,7 +60,7 @@ machine block. Spot-check examples: `AWS`, `GitHub`, `GitHubFineGrained`,
 `Coinbase` (unsigned-bearer fallback — verifies via HTTP 401 → false),
 plus most batch 1–40 detectors that hit a public API host.
 
-## (b) Unverified-by-design — 59 detectors
+## (b) Unverified-by-design — 60 detectors
 
 These detectors deliberately do not implement `Verify`. The rationale
 is one of:
@@ -87,7 +87,9 @@ is one of:
   control / redaction, not verification.
 
 Severity-on-finding is High by default, Medium for `JWT`,
-`PrivateKeyPEM`, `GenericHighEntropy`, `PIIAnonymize`, and `PIIOpenAIPF`.
+`PrivateKeyPEM`, `GenericHighEntropy`, `PIIAnonymize`, `PIIOpenAIPF`, and
+`SalesforceRefresh` (explicit override — instance URL and client credentials
+absent, so the finding acknowledges the token shape without implying live access).
 
 > **PrivateKeyPEM Verifier (class a).** PEM private keys do not have a
 > single upstream provider, but the public-key half can be correlated
@@ -149,6 +151,7 @@ Severity-on-finding is High by default, Medium for `JWT`,
 | RabbitMQ                | secret   | connection string, host not in chunk |
 | Redis                   | secret   | connection string, host not in chunk |
 | RequestBin              | secret   | per-bin endpoint not in chunk |
+| SalesforceRefresh       | secret   | paired credential — instance URL + client_id + client_secret not co-located; Severity=Medium (explicit override, see severity recap above) |
 | Segment                 | secret   | ingest returns 200 for invalid keys and a probe mints billed events; hardened: entropy floor + pure-hex exclusion |
 | Sentry                  | secret   | matched value is a DSN ingest *write* key; the only verify is submitting an event (destructive / billed), no non-destructive validate — reclassified from (c) |
 | Sinch                   | secret   | project_id half of (project_id, key) not in chunk |
@@ -163,33 +166,6 @@ Severity-on-finding is High by default, Medium for `JWT`,
 | Wiz                     | secret   | tenant-specific host (`api.<tenant>.app.wiz.io`) not in chunk |
 | Zoho                    | secret   | region-specific accounts host (`accounts.zoho.<tld>`) not in chunk |
 
-## (c) Verifiable but not implemented — 1 detector
-
-These detectors regex-match but do not call upstream. The provider
-*does* expose a verify-able endpoint; we have just not wired it. Each
-row is a candidate for a follow-up PR that adds `Verify(ctx, secret)`.
-
-Severity-on-finding is High (default unverified). Once `Verify` lands,
-verified hits surface at Critical.
-
-| DetectorType            | Class    | Verify path on the upstream / why still a gap                               |
-|-------------------------|----------|---------------------------------------------------------------------------|
-| SalesforceRefresh       | secret   | `POST /services/oauth2/token` with refresh_token grant (gap: client_id + client_secret + instance host not co-located, but obtainable — a real follow-up Verify candidate) |
-
-The 26 former (c) gaps that gained live verification this round (AWS
-session, AlibabaCloud + TencentCloud HMAC-signed, the apiBase-overridable
-self-hosted ArgoCD / BitbucketServer / Grafana / Vault / DroneCI-class
-providers, and fixed-host DockerHub / Okta / Zendesk / Supabase / …) moved
-to class (a). Three more former (c) entries were reclassified to (b) as
-*fundamentally* unverifiable from the matched secret rather than merely
-not-yet-wired: GCP ID token (an audience-bound identity token; tokeninfo
-checks identity, not live access), Sentry (a DSN ingest write-key whose
-only probe mints a billed event), and Snowflake (keypair JWT auth needs
-the private signing key, never in the chunk). That leaves a single true
-(c) gap — SalesforceRefresh — where the refresh token *is* exchangeable
-once its client_id + client_secret + instance host are obtained, making
-it a genuine follow-up `Verify` candidate.
-
 ## Machine-readable block
 
 The `coverage-machine` block below pins counts and per-detector class.
@@ -198,13 +174,11 @@ the live `detectors.All()` registry.
 
 - `class=a` → Verify implemented (detector satisfies `detectors.Verifier`)
 - `class=b` → Unverified-by-design (no Verify, deliberate)
-- `class=c` → Verifiable but not implemented (gap item)
 
 ```coverage-machine
 total=600
 a=540
-b=59
-c=1
+b=60
 type=APNs class=b
 type=AWSS3PresignedURL class=b
 type=AgoraIO class=b
@@ -252,7 +226,7 @@ type=RabbitMQ class=b
 type=Redis class=b
 type=RequestBin class=b
 type=SMTP class=b
-type=SalesforceRefresh class=c
+type=SalesforceRefresh class=b
 type=Segment class=b
 type=Sentry class=b
 type=Sinch class=b
@@ -269,5 +243,5 @@ type=Zoho class=b
 
 The `class=a` membership is the open-set complement: every registered
 DetectorType not listed above is in (a). The CI test enforces this —
-adding a new detector without listing it as `b` or `c` here, AND
+adding a new detector without listing it as `b` here, AND
 without implementing `Verify`, will fail.

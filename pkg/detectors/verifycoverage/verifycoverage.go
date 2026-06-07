@@ -149,14 +149,14 @@ var Classes = map[string]Class{
 	// matched secret, not merely not-yet-wired —
 	//   GCPIDToken: an audience-bound OIDC *identity* token; tokeninfo
 	//     validates identity (and is audit-logged), not live access.
+	//   SalesforceRefresh: refresh-token exchange requires instance URL +
+	//     client_id + client_secret, none co-located in the matched chunk.
 	//   Sentry: the matched value is a DSN ingest *write* key; the only
 	//     "verify" is submitting an event (destructive / billed).
 	//   Snowflake: keypair JWT auth needs the *private key* to sign the
 	//     assertion, which is never present in the matched chunk.
-	"GCPIDToken": ClassUnverifiedByDesign,
-	"Sentry":     ClassUnverifiedByDesign,
-	"Snowflake":  ClassUnverifiedByDesign,
-
-	// (c) Verifiable but not implemented — 1 detector
-	"SalesforceRefresh": ClassVerifyGap,
+	"GCPIDToken":        ClassUnverifiedByDesign,
+	"SalesforceRefresh": ClassUnverifiedByDesign,
+	"Sentry":            ClassUnverifiedByDesign,
+	"Snowflake":         ClassUnverifiedByDesign,
 }
