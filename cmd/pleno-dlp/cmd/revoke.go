@@ -1,15 +1,4 @@
-// `pleno-dlp revoke` — revoke a leaked credential against the issuing
-// provider's revocation API. ADR-0001 D6 names the CLI as the single
-// gating choke point: detectors / connectors expose Revoke through the
-// detectors.Revoker contract WITHOUT local guards, and this command
-// enforces uniform `--confirm` / `--dry-run` / PLENO_DLP_ALLOW_REVOKE
-// policy across every provider.
-//
-// The first (and only, for the v1 scope of issue #73) supported
-// detector is `GitHub`. Adding more is a one-line edit to
-// resolveRevoker — every provider that implements detectors.Revoker
-// against its leaked-credential class plugs in here without schema
-// changes.
+// `pleno-dlp revoke` revokes a leaked credential through the provider API.
 package cmd
 
 import (
@@ -34,9 +23,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/verify"
 )
 
-// revokeFlags collects everything `pleno-dlp revoke` needs. Held in a
-// dedicated struct so the package-level revoke flag state lives in one
-// place rather than scattered across individual cobra flag bindings.
+// revokeFlags collects `pleno-dlp revoke` options.
 type revokeFlags struct {
 	detector     string
 	secret       string
@@ -47,9 +34,6 @@ type revokeFlags struct {
 	format       string
 	rateLimitRPS int
 
-	// AWS principal context. AWS revoke needs admin IAM creds plus the
-	// target user name because `iam:DeleteAccessKey` is keyed on
-	// (UserName, AccessKeyId), not the access-key id alone.
 	awsAdminAccessKeyID     string
 	awsAdminSecretAccessKey string
 	awsAdminSessionToken    string
@@ -59,10 +43,6 @@ type revokeFlags struct {
 
 var revokeOpts revokeFlags
 
-// EnvAllowRevoke gates revoke from non-TTY contexts. ADR-0001 D6 names
-// it explicitly so a misconfigured CI cannot accidentally blow up live
-// credentials. The variable is exported so tests can assert against the
-// same constant the implementation reads.
 const EnvAllowRevoke = "PLENO_DLP_ALLOW_REVOKE"
 
 var revokeCmd = &cobra.Command{
@@ -100,24 +80,14 @@ func init() {
 	Root.AddCommand(revokeCmd)
 }
 
-// errRevokeRefused signals "the gating policy refused to run". main.go
-// could map this to a distinct exit code (we use 2 to match invalid
-// usage); separated from a transport-level failure so scripted callers
-// can distinguish "you asked us not to do this" from "we tried and it
-// failed".
+// errRevokeRefused means the CLI gate refused to run.
 var errRevokeRefused = errors.New("revoke: refused by gate")
 
-// errRevokeFailed signals "we tried to revoke and the provider declined
-// or unavailable". Maps to exit 1 — distinct from errRevokeRefused (gate
-// refusal) and from generic flag parse errors.
+// errRevokeFailed means the provider declined or could not be reached.
 var errRevokeFailed = errors.New("revoke: provider rejected or unavailable")
 
-// IsRevokeRefused reports whether err came from the gating logic refusing
-// to proceed. main.go uses this to map to exit 2 (invalid usage shape).
 func IsRevokeRefused(err error) bool { return errors.Is(err, errRevokeRefused) }
 
-// IsRevokeFailed reports whether err came from a provider rejection.
-// main.go maps this to exit 1.
 func IsRevokeFailed(err error) bool { return errors.Is(err, errRevokeFailed) }
 
 func runRevoke(cmd *cobra.Command, _ []string) error {
@@ -129,11 +99,6 @@ func runRevoke(cmd *cobra.Command, _ []string) error {
 		return errRevokeRefused
 	}
 	if revokeOpts.confirm && !revokeOpts.dryRun {
-		// Non-interactive callers (pipes, CI) MUST set the env override
-		// in addition to --confirm. TTY-attached operators get the
-		// shorter `--confirm` UX. The check is best-effort: if Stdin is
-		// not an *os.File (test buffer), we treat it as non-interactive
-		// to keep CI behaviour predictable.
 		if !isInteractiveStdin(cmd.InOrStdin()) && os.Getenv(EnvAllowRevoke) != "1" {
 			fmt.Fprintf(cmd.ErrOrStderr(),
 				"revoke: refusing to proceed in a non-interactive context without %s=1\n", EnvAllowRevoke)
@@ -166,10 +131,6 @@ func runRevoke(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	// Per-host rate limiter is opt-in for `revoke` because the typical
-	// invocation revokes a single secret. Operators running batch revokes
-	// (e.g. an audit script that pipes many leaked tokens) set
-	// --rate-limit-rps to avoid tripping provider quotas.
 	if revokeOpts.rateLimitRPS > 0 {
 		prev := verify.Install(revokeOpts.rateLimitRPS)
 		defer verify.Restore(prev)
@@ -205,36 +166,21 @@ func runRevoke(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// resolveRevoker maps the user-facing --detector name to the concrete
-// detectors.Revoker implementation plus the wire-stable DetectorType
-// for the JSON output. Keep this function explicit (not registry-driven)
-// for v1: the policy of *which* detectors expose a CLI revoke is a
-// product decision, and routing should not silently expand whenever a
-// detector grows a Revoke method without a CLI plumbing review.
+// resolveRevoker maps --detector to a concrete Revoker and DetectorType.
 func resolveRevoker(name string) (detectors.Revoker, detectors.DetectorType, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "github":
-		// CLI overrides win; empty values fall back to the env vars
-		// inside the github package's loadRevokeCreds helper.
 		if revokeOpts.clientID != "" || revokeOpts.clientSecret != "" {
 			githubdet.SetRevokeCredentials(revokeOpts.clientID, revokeOpts.clientSecret)
 		}
 		return githubdet.Scanner{}, detectors.GitHub, nil
 	case "gitlab":
-		// GitLab PATs self-revoke (the token is its own auth) — no
-		// additional CLI plumbing required.
 		return gitlabdet.Scanner{}, detectors.GitLab, nil
 	case "slack":
-		// Slack tokens self-revoke via auth.revoke.
 		return slackdet.Scanner{}, detectors.SlackBotToken, nil
 	case "stripe":
-		// Stripe restricted keys self-revoke; secret keys (sk_) are
-		// rejected inside the detector with an explanatory error.
 		return stripedet.Scanner{}, detectors.Stripe, nil
 	case "aws":
-		// AWS revoke needs admin IAM creds + the target user name. CLI
-		// overrides take precedence; missing values fall back to the
-		// PLENO_DLP_REVOKE_AWS_* env vars inside loadRevokeCreds.
 		if revokeOpts.awsAdminAccessKeyID != "" || revokeOpts.awsAdminSecretAccessKey != "" ||
 			revokeOpts.awsAdminSessionToken != "" || revokeOpts.awsRegion != "" || revokeOpts.awsUserName != "" {
 			awsdet.SetRevokeCredentials(
@@ -251,11 +197,7 @@ func resolveRevoker(name string) (detectors.Revoker, detectors.DetectorType, err
 	}
 }
 
-// resolveSecret returns the secret to revoke. `--secret -` reads from
-// stdin (with a 1 KiB cap so a pipe accident doesn't OOM); any other
-// value passes through verbatim. Trailing whitespace is trimmed because
-// `echo "ghp_..." | pleno-dlp revoke ...` always sends a trailing
-// newline.
+// resolveSecret returns the secret to revoke.
 func resolveSecret(cmd *cobra.Command, raw string) (string, error) {
 	if raw != "-" {
 		return strings.TrimSpace(raw), nil

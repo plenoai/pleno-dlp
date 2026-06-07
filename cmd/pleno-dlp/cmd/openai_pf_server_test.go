@@ -7,12 +7,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// validateOpenAIPFHost is the gate that prevents a misconfigured
-// openai-pf-server from binding a public interface. The matrix below
-// is intentionally identical to the pii-server tests — same hard
-// rule, same audience — but exercised directly so a regression in
-// one engine's gate doesn't depend on the other engine's tests for
-// coverage.
 func TestValidateOpenAIPFHost(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -60,10 +54,6 @@ func TestValidateOpenAIPFDevice(t *testing.T) {
 	}
 }
 
-// TestResolveOpenAIPFSource pins the @ref splice behaviour for every
-// shape the operator might supply --source in. The fragment
-// (#subdirectory=...) must survive the splice; URL userinfo "@"
-// must not be confused with a ref "@".
 func TestResolveOpenAIPFSource(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -135,15 +125,7 @@ func TestBuildOpenAIPFServerArgv(t *testing.T) {
 	}
 }
 
-// TestPiiEngineCmdValue_PerEngineDefault exercises the conditional-
-// default logic: cobra holds the anonymize argv as the static default,
-// startPIIEngine must substitute the openai-pf default when the
-// operator selects openai-pf without overriding --pii-engine-cmd.
 func TestPiiEngineCmdValue_PerEngineDefault(t *testing.T) {
-	// Synthesize a minimal cobra command with the same flag shape
-	// the scan command uses. We can't reuse scanCmd here because its
-	// init() side-effects bind to a global flag set we'd then have
-	// to mutate per-case.
 	mk := func(set bool, raw string) *cobra.Command {
 		c := &cobra.Command{}
 		var dst string
@@ -152,8 +134,6 @@ func TestPiiEngineCmdValue_PerEngineDefault(t *testing.T) {
 		// fallback path sees the same string when Changed=false.
 		scanOpts.piiEngineCmd = "pleno-dlp pii-server --port {PORT}"
 		if set {
-			// Simulate the operator supplying --pii-engine-cmd on the
-			// command line. cobra's Flag().Changed flips on Set().
 			if err := c.Flags().Set("pii-engine-cmd", raw); err != nil {
 				t.Fatalf("flag set: %v", err)
 			}
@@ -170,17 +150,12 @@ func TestPiiEngineCmdValue_PerEngineDefault(t *testing.T) {
 	if got := piiEngineCmdValue(mk(false, ""), "openai-pf"); got != defaultOpenAIPFCmd {
 		t.Errorf("openai-pf default: got %q want %q", got, defaultOpenAIPFCmd)
 	}
-	// Operator override beats both defaults.
 	custom := "uv run /local/openaipf --port {PORT}"
 	if got := piiEngineCmdValue(mk(true, custom), "openai-pf"); got != custom {
 		t.Errorf("operator override: got %q want %q", got, custom)
 	}
 }
 
-// TestUnknownPIIEngine asserts the error message lists all three
-// valid values. Operators rely on the error message to discover the
-// flag's accepted set; dropping a value here silently regresses
-// discoverability.
 func TestUnknownPIIEngine(t *testing.T) {
 	prev := scanOpts.piiEngine
 	defer func() { scanOpts.piiEngine = prev }()

@@ -1,37 +1,4 @@
-// Package slack detects Slack bot tokens (xoxb-…) and verifies them against
-// auth.test.
-//
-// Verify also enriches the finding with blast-radius metadata when the
-// upstream call succeeds (driftwood-style "what does this credential
-// actually unlock"):
-//
-//   - slack_team_id        T-prefixed workspace id
-//   - slack_team_name      workspace display name
-//   - slack_team_url       https://<workspace>.slack.com/
-//   - slack_user_id        U-prefixed user / B-prefixed bot id
-//   - slack_user_name      authenticated user/bot name
-//   - slack_bot_id         B-prefixed bot id (bot tokens only)
-//   - slack_enterprise_id  E-prefixed enterprise id (Grid installs)
-//   - slack_scopes         comma-joined `X-OAuth-Scopes` header
-//   - slack_privileged     "true" when scopes include any of
-//     `admin`, `admin.users:write`,
-//     `admin.conversations:write`,
-//     `chat:write.public`, `users:read.email`,
-//     `files:write`. Same Critical bucket but
-//     triage-sortable.
-//
-// Revoke (issue #73) calls POST /api/auth.revoke on slack.com. Slack's
-// API contract is unusual — every response is HTTP 200 and the
-// success/failure signal is in the JSON body's `ok` field. Revoke
-// honours that: `ok=true,revoked=true` is a successful revocation,
-// while `token_revoked` / `invalid_auth` / `not_authed` errors are
-// treated as idempotent successes (Revoked=true with a non-fatal
-// diagnostic in RevokeResult.Err) so a second call against an already-
-// revoked token does not hard-fail. HTTP 429 and transport failures
-// surface via the second return value so callers can distinguish "we
-// couldn't reach the provider" from "the provider said no". Revoke
-// supports every Slack token shape (`xoxb-`, `xoxp-`, `xoxa-`, `xoxe-`,
-// `xapp-`) since auth.revoke accepts any of them as the bearer.
+// Package slack detects Slack bot tokens, verifies them, and supports revoke.
 package slack
 
 import (
@@ -52,8 +19,7 @@ var apiBase = "https://slack.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// xoxb-<workspace_id>-<bot_id>-<secret>. The trailing run is base62-ish; we
-// require at least 24 chars to avoid latching on truncated samples.
+// xoxb-<workspace_id>-<bot_id>-<secret>.
 var tokenRe = regexp.MustCompile(`\b(xoxb-\d+-\d+-[A-Za-z0-9]{24,})\b`)
 
 type Scanner struct{}
@@ -90,20 +56,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-// Verify implements the detectors.Verifier interface contract. The
-// metadata-bearing path lives in verifyWithMetadata; this wrapper
-// strips the metadata so the engine and verifycoverage classifier see
-// the same (bool, error) shape every other Verifier exposes.
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	v, _, err := verifyWithMetadata(ctx, secret)
 	return v, err
 }
 
-// privilegedScopes is the curated set of Slack OAuth scopes whose
-// grant materially extends a bot token's blast radius. `admin` covers
-// the full Grid admin surface; the others are the minimum set that
-// can read user emails, post as anyone, or rewrite files in any
-// channel — each enough on its own to escalate triage.
+// privilegedScopes mark high-blast-radius Slack OAuth scopes.
 var privilegedScopes = map[string]bool{
 	"admin":                     true,
 	"admin.users:write":         true,
@@ -114,10 +72,7 @@ var privilegedScopes = map[string]bool{
 	"files:write":               true,
 }
 
-// verifyWithMetadata posts to /api/auth.test and decodes the identity
-// response into ExtraData. Slack's contract: HTTP 200 always, with
-// outcome in the body's `ok` field. We treat HTTP 429 / non-200 as
-// unverified (no scan error) consistent with every other Verifier.
+// verifyWithMetadata posts to /api/auth.test and decodes identity metadata.
 func verifyWithMetadata(ctx context.Context, secret string) (bool, map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -164,8 +119,7 @@ func verifyWithMetadata(ctx context.Context, secret string) (bool, map[string]st
 	return true, meta, nil
 }
 
-// buildAuthMetadata assembles the ExtraData map from a successful
-// auth.test response. Empty fields are omitted so the map stays compact.
+// buildAuthMetadata assembles ExtraData from a successful auth.test response.
 func buildAuthMetadata(h http.Header, auth *struct {
 	OK           bool   `json:"ok"`
 	URL          string `json:"url"`
@@ -212,8 +166,6 @@ func buildAuthMetadata(h http.Header, auth *struct {
 	return meta
 }
 
-// hasPrivilegedScope returns true if any token in the comma-delimited
-// scopes list is in privilegedScopes.
 func hasPrivilegedScope(scopes string) bool {
 	for _, s := range splitAndTrim(scopes, ",") {
 		if privilegedScopes[s] {
@@ -237,35 +189,6 @@ func splitAndTrim(s, sep string) []string {
 	return out
 }
 
-// Revoke implements detectors.Revoker for Slack-issued bearer tokens.
-//
-// Slack's auth.revoke endpoint always returns HTTP 200 and encodes the
-// outcome in the JSON body. The mapping here:
-//
-//   - {"ok":true,"revoked":true}              -> Revoked=true.
-//   - {"ok":false,"error":"token_revoked"}    -> Revoked=true (idempotent;
-//     the token was already revoked). Err carries the diagnostic.
-//   - {"ok":false,"error":"invalid_auth"}     -> Revoked=true (idempotent;
-//     either already revoked or never valid — both terminal states from
-//     the caller's perspective).
-//   - {"ok":false,"error":"not_authed"}       -> Revoked=true (same).
-//   - {"ok":false,"error":"<other>"}          -> Revoked=false with the
-//     provider error in RevokeResult.Err.
-//   - HTTP 429                                -> hard error, no retry
-//     (same policy as Verify; the caller decides whether to back off).
-//   - HTTP 5xx / transport failure            -> hard error via second
-//     return value so callers can distinguish "we couldn't reach the
-//     provider" from "the provider said no".
-//
-// ProviderID is left empty: auth.revoke does not echo a token id, and
-// we deliberately do not echo the secret as an id. Audit logs cross-
-// reference revocations via the (RevokedAt, detector type) pair the
-// CLI records.
-//
-// Revoke is irreversible. Per ADR-0001 D6 the CLI gates this behind
-// `--confirm` / `--dry-run` and the env var PLENO_DLP_ALLOW_REVOKE=1;
-// the detector itself does NOT enforce any local gate so the policy
-// lives uniformly at the CLI boundary.
 func (Scanner) Revoke(ctx context.Context, secret string) (detectors.RevokeResult, error) {
 	if secret == "" {
 		return detectors.RevokeResult{}, errors.New("slack: revoke: empty secret")
@@ -297,9 +220,6 @@ func (Scanner) Revoke(ctx context.Context, secret string) (detectors.RevokeResul
 		return detectors.RevokeResult{}, fmt.Errorf("slack: revoke: server error: %s", resp.Status)
 	}
 	if resp.StatusCode != http.StatusOK {
-		// Slack's documented contract is "always 200"; anything else is
-		// unexpected enough to surface as a hard error rather than a
-		// silent unverified result.
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
 		return detectors.RevokeResult{}, fmt.Errorf("slack: revoke: unexpected status %s: %s", resp.Status, strings.TrimSpace(string(snippet)))
 	}

@@ -44,13 +44,11 @@ func TestDetectorsList_JSON(t *testing.T) {
 	if len(rows) < 50 {
 		t.Errorf("expected at least 50 detectors registered, got %d", len(rows))
 	}
-	// Sort stability: type names must come back ascending.
 	for i := 1; i < len(rows); i++ {
 		if rows[i].Type < rows[i-1].Type {
 			t.Errorf("detector list not sorted: %q < %q at index %d", rows[i].Type, rows[i-1].Type, i)
 		}
 	}
-	// Spot-check the verifies bit on a known-verified detector.
 	for _, r := range rows {
 		if r.Type == "AWS" {
 			if !r.Verifies {
@@ -93,14 +91,6 @@ func TestDetectorsList_RejectsBadFormat(t *testing.T) {
 	}
 }
 
-// TestDetectorsList_RevokeSupport asserts the --revoke-support
-// classification matches the implementation surface: GitHub / GitLab /
-// Slack / Stripe must report "supported", AWS must report
-// "context-required" (admin IAM creds + UserName needed), and a
-// well-known detector without a Revoker (e.g. JWT) must report
-// "unsupported". Pinning the AWS row in particular guards against
-// silent drift in revokeContextRequired when new principal-context
-// detectors land.
 func TestDetectorsList_RevokeSupport(t *testing.T) {
 	t.Cleanup(func() {
 		detectorsListOpts.format = "table"
@@ -140,10 +130,6 @@ func TestDetectorsList_RevokeSupport(t *testing.T) {
 	}
 }
 
-// TestDetectorsList_RevokeSupportTable asserts the table form picks up
-// the extra REVOKES / REVOKE-STATUS columns when --revoke-support is
-// passed. Failure here usually means the table header / row builder
-// drifted out of sync with detectorRecord fields.
 func TestDetectorsList_RevokeSupportTable(t *testing.T) {
 	t.Cleanup(func() {
 		detectorsListOpts.format = "table"

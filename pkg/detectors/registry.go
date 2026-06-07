@@ -7,8 +7,6 @@ var (
 	registry = map[DetectorType]Detector{}
 )
 
-// Register adds a detector to the global registry. Concrete detector packages
-// call this from init(). Duplicate types panic to surface the conflict early.
 func Register(d Detector) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -18,7 +16,6 @@ func Register(d Detector) {
 	registry[d.Type()] = d
 }
 
-// All returns a snapshot of registered detectors. Safe for concurrent reads.
 func All() []Detector {
 	mu.RLock()
 	defer mu.RUnlock()

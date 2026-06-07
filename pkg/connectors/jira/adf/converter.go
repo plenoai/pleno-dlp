@@ -21,10 +21,6 @@ import (
 	"strings"
 )
 
-// node mirrors the JSON structure of an ADF node. Type is mandatory;
-// Content holds child nodes; Text is present on leaf text nodes;
-// Attrs carries node-specific attributes (level, order, etc.); Marks
-// is the inline formatting layer.
 type node struct {
 	Type    string          `json:"type"`
 	Content []node          `json:"content,omitempty"`

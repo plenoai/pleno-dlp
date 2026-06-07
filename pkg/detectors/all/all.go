@@ -1,6 +1,4 @@
-// Package all blank-imports every concrete detector so that their init()
-// functions run and register themselves with pkg/detectors. Per ADR-0002, the
-// CLI binary blank-imports this package; new detectors add one line here.
+// Package all blank-imports every concrete detector for self-registration.
 package all
 
 import (
@@ -55,10 +53,7 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/openrouter"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pagerduty"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/paypal"
-	// piicc, piiemail, piiiban, piissn — removed; superseded by
-	// pkg/detectors/anonymize. The DetectorType constants
-	// PIIEmail/PIIUSSSN/PIICreditCard/PIIIBAN remain pinned at their
-	// ordinals (76..79) for wire compatibility per ADR-0002.
+	// Legacy regex PII detectors were removed; ordinals stay pinned.
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/plaid"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/postman"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/postmark"
@@ -83,7 +78,7 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vault"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vercel"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/virustotal"
-	// batch 6 — wire-stable order, never reorder.
+	// batch 6 — append-only.
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/awssession"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/azuresas"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/bitbucketserver"
@@ -99,7 +94,7 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sumologic"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/tailscale"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/zoom"
-	// batch 7 — wire-stable order, never reorder.
+	// batch 7 — append-only.
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/aliyun"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/azureapp"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/databricks"
@@ -115,9 +110,7 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/tencentcloud"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/terraformcloudteam"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/zendesk"
-	// batch 8 — wire-stable order, never reorder. Connection-string and
-	// URL-embedded credentials, container-registry tokens, AWS S3 / GCS
-	// presigned URLs, Azure SQL connection strings, kubeconfig, Adobe.io.
+	// batch 8 — append-only.
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/adobeio"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/awss3presigned"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/azuresqlconn"
@@ -133,9 +126,7 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/rabbitmq"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/redis"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/smtp"
-	// batch 9 — wire-stable order, never reorder. Enterprise SaaS leverage
-	// tokens (project-management, alt-cloud GPU/IaaS, edge-Redis, DB platform,
-	// auth, BaaS service-role).
+	// batch 9 — append-only.
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/clerk"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/clickup"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gitter"
@@ -151,12 +142,7 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/trello"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/upstashredis"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vultr"
-	// batch 10 — wire-stable order, never reorder. Identity + IT-management
-	// (OneLogin, JumpCloud), CI/CD (DroneCI, Harness), observability + cloud-
-	// security (Lacework, Sysdig), localization (Lokalise), IaC platform
-	// (Pulumi), docs/notes (Coda), email/comms (LoopsSo, Resend), mobile-app
-	// platform (AppCenter), creator-platform OAuth (Twitch), secrets-manager
-	// machine accounts (Bitwarden), and payments (Helcim).
+	// batch 10 — append-only.
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/appcenter"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/bitwarden"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/coda"
@@ -172,11 +158,7 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/resend"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/sysdig"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/twitch"
-	// batch 11 — wire-stable order, never reorder. Frontier-model admin
-	// keys (Anthropic Console), AI infra (Pinecone, Weaviate, VoyageAI,
-	// Fireworks, Cerebras), GitHub Apps installation tokens, JFrog
-	// Artifactory, Pendo, PostHog, Sentry user tokens, Cloudflare R2
-	// access-key + secret pair, Mapbox secret tokens, Railway, Telnyx.
+	// batch 11 — append-only.
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/anthropicadmin"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/cerebras"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/cloudflarer2"
@@ -192,11 +174,7 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/telnyx"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/voyageai"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/weaviate"
-	// batch 12 — wire-stable order, never reorder. Observability +
-	// log-aggregator tokens, uptime monitoring, error-tracking, incident /
-	// status, and CI/CD bearer tokens. Self-hosted (AWX, ConcourseCI,
-	// TeamCity) and per-customer-host SaaS (SplunkHEC, ElasticCloud) are
-	// unverified-by-design because the host isn't in the chunk.
+	// batch 12 — append-only.
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/awx"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/concourseci"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/coralogix"
@@ -212,10 +190,7 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/teamcity"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/uptimerobot"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/victorops"
-	// batch 13 — wire-stable order, never reorder. Modern DBaaS platforms,
-	// CI/CD bearer tokens distinct from existing GitLab PAT/Deploy shapes,
-	// email/marketing (Constant Contact), telephony (Vonage), and
-	// enterprise integration platforms (Workato, Aikido).
+	// batch 13 — append-only.
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/aikidosecurity"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/aiven"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/argocd"
@@ -231,13 +206,7 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vonage"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/workato"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/yugabytecloud"
-	// batch 14 — wire-stable order, never reorder. CDN/edge (Akamai,
-	// Fastly), productivity / docs (Quip, Box, Zoho), payments / fintech
-	// (Adyen, Wise, Razorpay, Mollie), telephony (MessageBird, Sinch),
-	// S3-compatible object storage (Backblaze B2, Wasabi), identity
-	// (Stytch), PaaS (Cloud66). Razorpay and Backblaze are paired
-	// (key+secret); Stytch live, Razorpay live, and Mollie live surface
-	// SeverityCritical when verified or matched.
+	// batch 14 — append-only.
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/adyen"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/akamai"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/backblazeb2"

@@ -1,28 +1,16 @@
 # Revoke support
 
-This file is the source of truth for which detectors implement
-provider-side credential revocation, what each provider's revocation
-endpoint requires, and how the CLI gates the irreversible action.
-
-The runtime answer to "does this build know how to revoke detector X?"
-is `pleno-dlp detectors list --revoke-support`. This document explains
-the *why* — endpoint shapes, idempotency contract, principal-context
-requirements, and the end-to-end safety story — that the JSON output
-cannot.
+Use `pleno-dlp detectors list --revoke-support` for the runtime answer.
+This page keeps the static contract: gating, idempotency, provider requirements, and caveats.
 
 ## Severity recap
 
-Revoke runs only against **verified** findings. Unverified candidates
-are by definition tokens we could not confirm belong to the configured
-provider; revoking them risks invalidating an unrelated party's
-credential. The CLI enforces this gate at the boundary
-(`scan --revoke-on-verified` requires `--verify`); detectors do not
-re-check.
+Revoke runs only against **verified** findings. `scan --revoke-on-verified`
+therefore requires `--verify`.
 
 ## Safety gating
 
-Revoke is irreversible. The CLI applies three independent gates so a
-misconfigured CI cannot revoke live credentials by accident:
+Revoke is irreversible. The CLI applies three gates:
 
 1. **Mode flag.** `pleno-dlp revoke` requires one of `--confirm` or
    `--dry-run`. Without either, the command refuses with exit code 2
@@ -39,11 +27,7 @@ misconfigured CI cannot revoke live credentials by accident:
    provider and bypasses only the env-var gate (operators previewing
    work shouldn't have to mark CI as ready-to-revoke).
 
-The detector-level `Revoker.Revoke` implementations themselves perform
-**no local gating**. The contract is uniform: callers (CLI, future
-SaaS revoke API) decide policy; detectors execute it. This keeps
-dry-run identical across providers — the path through the CLI is the
-single source of truth.
+`Revoker.Revoke` implementations do not enforce local policy. The caller owns gating.
 
 ## Idempotency contract
 
@@ -54,10 +38,7 @@ already-revoked secret returns `Revoked=true` with a non-nil
 (transport, 5xx, rate-limit) surface via the second return value;
 `RevokeResult.Err` is reserved for provider-acknowledged diagnostics.
 
-This split lets audit pipelines distinguish "we tried and the provider
-declined" (`Err == nil`, `Revoked == false`) from "we tried and the
-provider says it's already gone" (`Err != nil`, `Revoked == true`)
-from "we couldn't reach the provider" (second return value `!= nil`).
+This split distinguishes provider rejection, idempotent success, and transport failure.
 
 ## Detector × provider matrix
 
@@ -200,11 +181,8 @@ The recommended automation pattern:
       --format json filesystem .
 ```
 
-The `--revoke-dry-run` line is intentional: most CI runs should
-preview-only. Production runbooks that wire the env opt-in without
-`--revoke-dry-run` should additionally pin the detector set with
-`--include-detectors` so the revoke surface is auditable in the
-workflow file itself, not implicit in the registry.
+Most CI runs should stay on `--revoke-dry-run`. Production runbooks should also
+pin the detector set with `--include-detectors`.
 
 ## Querying support at runtime
 
@@ -217,8 +195,4 @@ emits one JSON object per detector with `revokes` (bool) and
 fields alongside the existing `verifies` / `verify_status` columns.
 The same data renders as a table when `--format` is omitted.
 
-This is the canonical answer for "does this binary support revoke for
-detector X?"; documentation can drift, but the runtime classification
-is derived directly from interface satisfaction (`detectors.Revoker`)
-plus the `revokeContextRequired` allowlist in
-`cmd/pleno-dlp/cmd/detectors.go`.
+This is the runtime answer for detector revoke support.

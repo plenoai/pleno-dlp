@@ -1,7 +1,4 @@
-// Package output owns the user-visible reporting surface. A Sink consumes
-// engine.Finding values and renders them in one of three formats: pretty
-// table for humans, JSON array for tooling, SARIF 2.1.0 for code-scanning
-// pipelines. New formats land here behind the same factory.
+// Package output renders findings in table, JSON, or SARIF form.
 package output
 
 import (
@@ -11,18 +8,10 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 )
 
-// Sink is the output contract. It extends engine.Sink with no extra methods
-// today; the alias exists so callers can program against pkg/output without
-// pulling pkg/engine for the interface itself.
 type Sink interface {
 	engine.Sink
 }
 
-// NewSink builds a sink for the given format name. Writer w is where the
-// rendered output goes (stdout from the CLI). version is the tool's
-// semantic version string (e.g. "1.2.3") and is embedded in SARIF output;
-// pass "dev" for local builds. Unknown formats return an error rather than
-// silently picking a default — callers must be explicit.
 func NewSink(format string, w io.Writer, version string) (Sink, error) {
 	switch format {
 	case "json":

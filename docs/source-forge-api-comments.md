@@ -2,12 +2,6 @@
 
 Forge API comment sources scan review and discussion text that is not
 present in normal Git history. They do not clone repository contents.
-Use `pleno-dlp scan git` or `pleno-dlp scan filesystem` for source
-blobs.
-
-All commands inherit the regular scan flags, including `--format`,
-`--verify`, `--include-detectors`, `--exclude-detectors`, and
-`--fail-on`.
 
 ## Implemented providers
 
@@ -69,9 +63,7 @@ responses include the discussion fields scanned by this source.
 
 ## TBD / out of scope
 
-The surfaces below are intentionally not part of the current connector
-scope. Add them as separate connector changes once their provider API
-contracts are confirmed and the emitted metadata shape is clear.
+The surfaces below are out of the current connector scope.
 
 | Provider | TBD surface | Reason |
 |---|---|---|

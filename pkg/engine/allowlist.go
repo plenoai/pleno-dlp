@@ -11,20 +11,12 @@ import (
 	"sync"
 )
 
-// Allowlist describes findings the user has explicitly accepted. Entries
-// match by detector type (string form: "AWS", "GitHub", ...), by raw
-// secret literal, by raw secret regex, or by path glob. Empty fields
-// match anything in their dimension; an entry with all four empty is
-// rejected at LoadAllowlist time so users can't accidentally mute every
-// finding.
+// Allowlist describes accepted findings.
 type Allowlist struct {
 	Entries []AllowlistEntry `json:"entries"`
 }
 
-// AllowlistEntry is one rule. AND across the four matchers — every
-// non-empty matcher must hit for the entry to suppress a finding.
-// Reason is opaque to the engine and surfaces in --explain output to
-// remind reviewers why this entry exists.
+// AllowlistEntry is one suppression rule.
 type AllowlistEntry struct {
 	Reason   string `json:"reason,omitempty"`
 	Detector string `json:"detector,omitempty"`
@@ -35,10 +27,7 @@ type AllowlistEntry struct {
 	rawRegexCompiled *regexp.Regexp `json:"-"`
 }
 
-// LoadAllowlist parses JSON from r. The JSON shape is `{"entries": [...]}`
-// — choosing a wrapper object (vs a top-level array) leaves room to grow
-// the allowlist without breaking the wire format. Returns a nil
-// Allowlist on empty input so callers can pass it through unconditionally.
+// LoadAllowlist parses `{"entries":[...]}`. Empty input returns nil.
 func LoadAllowlist(r io.Reader) (*Allowlist, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
@@ -67,8 +56,7 @@ func LoadAllowlist(r io.Reader) (*Allowlist, error) {
 	return &raw, nil
 }
 
-// LoadAllowlistFile is a thin wrapper that opens path and feeds it to
-// LoadAllowlist. The CLI calls this when --allowlist is set.
+// LoadAllowlistFile opens path and delegates to LoadAllowlist.
 func LoadAllowlistFile(path string) (*Allowlist, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -78,10 +66,6 @@ func LoadAllowlistFile(path string) (*Allowlist, error) {
 	return LoadAllowlist(f)
 }
 
-// Match reports whether any entry suppresses f. Used by allowlistSink to
-// filter the stream; exported so tests (and downstream embedders that
-// build their own sink chains) can reuse the matching logic without
-// reimplementing it.
 func (a *Allowlist) Match(f Finding) bool {
 	if a == nil {
 		return false
@@ -109,10 +93,7 @@ func (a *Allowlist) Match(f Finding) bool {
 	return false
 }
 
-// allowlistSink suppresses findings the allowlist matches and forwards
-// the rest. It must sit OUTSIDE dedup so suppressed entries don't poison
-// the dedup map (a different finding at a similar location should still
-// emit even if the prior allowlisted one would have populated the cache).
+// allowlistSink suppresses matched findings before they reach the inner sink.
 type allowlistSink struct {
 	inner     Sink
 	allowlist *Allowlist
@@ -120,8 +101,7 @@ type allowlistSink struct {
 	suppCount int64
 }
 
-// NewAllowlist wraps inner. nil allowlist degenerates to a pass-through
-// so callers don't need to special-case "no allowlist configured".
+// NewAllowlist wraps inner and passes through when no rules are configured.
 func NewAllowlist(allowlist *Allowlist, inner Sink) Sink {
 	if allowlist == nil || len(allowlist.Entries) == 0 {
 		return inner
@@ -141,18 +121,12 @@ func (a *allowlistSink) Emit(f Finding) {
 
 func (a *allowlistSink) Close() error { return a.inner.Close() }
 
-// SuppressedCount returns how many findings the allowlist muted. The CLI
-// surfaces this so users can spot stale allowlist entries: any rule with
-// zero hits across many runs is probably a candidate for removal.
 func (a *allowlistSink) SuppressedCount() int64 {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.suppCount
 }
 
-// SuppressedCounter is the public accessor for callers that hold a Sink
-// and want the count. Returns -1 when sink is not an allowlistSink so
-// pass-through wrapping (no allowlist configured) reports cleanly.
 func SuppressedCounter(s Sink) int64 {
 	if a, ok := s.(*allowlistSink); ok {
 		return a.SuppressedCount()
@@ -160,10 +134,7 @@ func SuppressedCounter(s Sink) int64 {
 	return -1
 }
 
-// findingPath returns a path-shaped string for path-glob matching.
-// Mirrors the dedup logic so allowlist semantics line up with what the
-// user sees in output (file paths for filesystem, "<repo>:<file>" for
-// git, etc).
+// findingPath returns the path-like field used for path matching.
 func findingPath(f Finding) string {
 	if f.Chunk == nil {
 		return ""
@@ -198,16 +169,8 @@ func findingPath(f Finding) string {
 	return ""
 }
 
-// pathMatch implements glob matching against the basename and the full
-// path so an entry like `path: "*_test.go"` matches via basename, while
-// `path: "fixtures/*.env"` matches via the full string. Mirrors the
-// filesystem source's exclusion semantics — users only need to learn one
-// glob dialect across the tool.
-//
-// We deliberately use filepath.Match (no `**` recursion). When `**` is
-// in the pattern, fall back to a substring-style match by stripping the
-// `**` markers — sufficient for the common "match anywhere in this
-// subtree" intent without pulling in a full doublestar dependency.
+// pathMatch matches against the full path and basename.
+// `**` uses a lightweight ordered-fragment fallback.
 func pathMatch(pattern, path string) bool {
 	if pattern == "" {
 		return false
@@ -224,11 +187,7 @@ func pathMatch(pattern, path string) bool {
 	return false
 }
 
-// globContainsMatch implements a degenerate `**` handler: split on `**`
-// and require every fragment to appear in order in the path. Good
-// enough for `fixtures/**/*.env` and similar; full doublestar semantics
-// (across slash boundaries) would require a third-party lib we'd rather
-// not pull in for one feature.
+// globContainsMatch is the lightweight `**` fallback.
 func globContainsMatch(pattern, path string) bool {
 	frags := strings.Split(pattern, "**")
 	rest := filepath.ToSlash(path)
@@ -236,11 +195,7 @@ func globContainsMatch(pattern, path string) bool {
 		if frag == "" {
 			continue
 		}
-		// Strip leading/trailing path separators that flank the **.
 		frag = strings.Trim(frag, "/")
-		// Final fragment may be a glob pattern (e.g. `*.env`); allow it
-		// to match anywhere in the remaining suffix via filepath.Match
-		// against each remaining path component.
 		if i == len(frags)-1 && strings.ContainsAny(frag, "*?[") {
 			for {
 				if rest == "" {

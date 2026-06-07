@@ -1,17 +1,4 @@
-// Package adobeio detects Adobe.io API key + client secret pairs and
-// verifies them against the IMS (Identity Management Service) token
-// endpoint. Adobe.io credentials are issued in pairs:
-//
-//   - api_key   — 32 lowercase hex (a.k.a. client_id)
-//   - secret    — 32 alphanumerics, sometimes prefixed with "p8e-"
-//
-// Both must appear within the same chunk near an `adobeio` / `adobe.io`
-// keyword. Verify performs a client_credentials POST to
-// /ims/token/v3 — the response is 200 with a JSON envelope on success
-// and 400/401 with `error="invalid_client"` on a wrong pair.
-//
-// We capture the api_key as Raw and the secret as RawV2 so RawV2-aware
-// downstream tooling can rotate the right field.
+// Package adobeio detects Adobe.io key/secret pairs and verifies them via IMS.
 package adobeio
 
 import (
@@ -29,10 +16,8 @@ var imsBase = "https://ims-na1.adobelogin.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// 32-hex client_id. Adobe rotates these as lowercase hex.
 var keyRe = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
 
-// Client secret — 32+ alphanumerics, optionally `p8e-` prefixed.
 var secretRe = regexp.MustCompile(`\b((?:p8e-)?[A-Za-z0-9_-]{32,64})\b`)
 
 var contextKeywords = []string{"adobeio", "adobe.io", "adobe_client", "adobe_api"}
@@ -58,14 +43,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[key]; dup {
 			continue
 		}
-		// Co-occurrence is mandatory — 32-hex collides with md5/sha1.
 		if !nearKeyword(lower, k[2], k[3]) {
 			continue
 		}
 		secret, hasSecret := nearestSecret(k[2], data, secrets, key, 512)
 		if !hasSecret {
-			// Without a matching secret we cannot verify, and a bare 32-hex is
-			// indistinguishable from a md5 hash. Skip.
 			continue
 		}
 		seen[key] = struct{}{}
@@ -89,14 +71,10 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-// Verify implements detectors.Verifier with a single secret. Adobe.io
-// requires both fields, so the single-secret form is documented as a
-// no-op (returns false, nil) — callers should use VerifyPair.
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	return false, nil
 }
 
-// VerifyPair posts client_credentials to /ims/token/v3.
 func (Scanner) VerifyPair(ctx context.Context, clientID, clientSecret string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

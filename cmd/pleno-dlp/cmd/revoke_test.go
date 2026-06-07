@@ -8,10 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// TestRedactSecret verifies the prefix-view redaction rule lifted directly
-// from redactSecret: len <= 8 collapses to "***"; otherwise the first 8
-// bytes are kept and the remainder is replaced with "...". Failure messages
-// never print the full secret — only lengths and the (already-safe) output.
 func TestRedactSecret(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -34,8 +30,6 @@ func TestRedactSecret(t *testing.T) {
 				t.Errorf("redactSecret(<secret len=%d>) = %q, want %q",
 					len(tt.secret), got, tt.want)
 			}
-			// Guard: a non-empty secret longer than 8 bytes must never be
-			// echoed verbatim in the redacted form.
 			if len(tt.secret) > 8 && got == tt.secret {
 				t.Errorf("redactSecret leaked full secret (len=%d)", len(tt.secret))
 			}
@@ -46,7 +40,6 @@ func TestRedactSecret(t *testing.T) {
 func TestResolveSecret(t *testing.T) {
 	t.Run("raw_passthrough_trims", func(t *testing.T) {
 		cmd := &cobra.Command{}
-		// raw != "-" and != "" passes through, trimmed.
 		got, err := resolveSecret(cmd, "  ghp_token  ")
 		if err != nil {
 			t.Fatalf("resolveSecret returned error: %v", err)
@@ -69,8 +62,6 @@ func TestResolveSecret(t *testing.T) {
 	})
 
 	t.Run("stdin_at_limit_accepted", func(t *testing.T) {
-		// maxSecretBytes is 1024 (revoke.go:264). Exactly-at-limit input is
-		// accepted. Use a non-whitespace payload so TrimSpace is a no-op.
 		const maxSecretBytes = 1024
 		payload := strings.Repeat("a", maxSecretBytes)
 		cmd := &cobra.Command{}
@@ -101,7 +92,6 @@ func TestResolveSecret(t *testing.T) {
 }
 
 func TestIsInteractiveStdin(t *testing.T) {
-	// A non-*os.File reader (bytes.Buffer) is never interactive.
 	if isInteractiveStdin(bytes.NewBufferString("anything")) {
 		t.Error("isInteractiveStdin(bytes.Buffer) = true, want false")
 	}

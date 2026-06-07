@@ -1,15 +1,4 @@
-// Package gitlab detects GitLab Personal Access Tokens (glpat-…) and verifies
-// them against api/v4/personal_access_tokens/self.
-//
-// Revoke (issue #73) is a 2-step flow against the same Bearer-authenticated
-// endpoint family: GET /api/v4/personal_access_tokens/self resolves the
-// token's own id, then POST /api/v4/personal_access_tokens/{id}/revoke
-// invalidates it. The detector is idempotent — a second call against an
-// already-revoked or unknown token returns Revoked=true with a non-fatal
-// diagnostic in RevokeResult.Err so retries do not hard-fail. Per ADR-0001
-// D6 the CLI gates this behind --confirm / --dry-run and PLENO_DLP_ALLOW_REVOKE=1;
-// the detector itself enforces no local gate so dry-run policy lives
-// uniformly at the CLI boundary.
+// Package gitlab detects GitLab PATs, verifies them, and supports revoke.
 package gitlab
 
 import (
@@ -30,7 +19,6 @@ var apiBase = "https://gitlab.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// glpat- prefix + 20 chars from the URL-safe alphabet GitLab uses.
 var tokenRe = regexp.MustCompile(`\b(glpat-[A-Za-z0-9_-]{20})\b`)
 
 type Scanner struct{}
@@ -87,33 +75,7 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	}
 }
 
-// Revoke implements detectors.Revoker for GitLab personal access tokens.
-//
-// GitLab does not expose a "revoke this token" endpoint that takes the
-// token bytes directly — revocation is keyed on the token's numeric id.
-// We therefore make two calls:
-//
-//  1. GET /api/v4/personal_access_tokens/self    -> resolves {"id": <int>}
-//  2. POST /api/v4/personal_access_tokens/{id}/revoke
-//
-// Both calls authenticate with `Authorization: Bearer <token>` per
-// https://docs.gitlab.com/ee/api/personal_access_tokens.html#self-revoke.
-//
-// Status mapping:
-//
-//   - step1 200 + step2 204 -> Revoked=true, ProviderID=<id>.
-//   - step1 401/403         -> idempotent: Revoked=true with diagnostic
-//     ("already revoked or invalid"). A second call against a dead
-//     token MUST NOT hard-fail, per the Revoker idempotency contract.
-//   - step2 401/403         -> idempotent: Revoked=true with diagnostic.
-//   - step2 404             -> idempotent: Revoked=true with diagnostic
-//     ("token not found"). The id was resolved but the revoke endpoint
-//     no longer sees it — almost certainly a race with another revoker.
-//   - step2 429             -> hard error (caller decides backoff).
-//   - other                 -> hard error including status + body snippet.
-//
-// Network failures surface via the second return value; RevokeResult.Err
-// is reserved for non-fatal provider diagnostics.
+// Revoke resolves the PAT id via /self, then revokes by id.
 func (Scanner) Revoke(ctx context.Context, secret string) (detectors.RevokeResult, error) {
 	if secret == "" {
 		return detectors.RevokeResult{}, errors.New("gitlab: revoke: empty secret")
@@ -124,7 +86,6 @@ func (Scanner) Revoke(ctx context.Context, secret string) (detectors.RevokeResul
 
 	now := func() time.Time { return time.Now().UTC() }
 
-	// Step 1: resolve the token's own id.
 	selfReq, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/api/v4/personal_access_tokens/self", nil)
 	if err != nil {
 		return detectors.RevokeResult{}, err
@@ -143,7 +104,6 @@ func (Scanner) Revoke(ctx context.Context, secret string) (detectors.RevokeResul
 
 	switch selfResp.StatusCode {
 	case http.StatusOK:
-		// fall through to step 2
 	case http.StatusUnauthorized, http.StatusForbidden:
 		return detectors.RevokeResult{
 			Revoked:   true,
@@ -172,7 +132,6 @@ func (Scanner) Revoke(ctx context.Context, secret string) (detectors.RevokeResul
 	}
 	idStr := strconv.FormatInt(parsed.ID, 10)
 
-	// Step 2: revoke by id.
 	revokeReq, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBase+"/api/v4/personal_access_tokens/"+idStr+"/revoke", nil)
 	if err != nil {
 		return detectors.RevokeResult{}, err

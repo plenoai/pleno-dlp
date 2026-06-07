@@ -138,11 +138,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-// Verify implements detectors.Verifier for the engine-level verify path. The
-// secret is packed as "<host>|<email>|<token>" — the host and email are not
-// derivable from the token alone, so the caller must supply them (FromData
-// packs Raw with just the token; the engine that wants standalone Verify must
-// pass the full triple). An incomplete triple no-ops rather than guessing.
 func (s Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	host, email, token, ok := splitTriple(secret)
 	if !ok {
@@ -159,10 +154,6 @@ func splitTriple(s string) (host, email, token string, ok bool) {
 	return parts[0], parts[1], parts[2], true
 }
 
-// verifyCredential performs the documented Zendesk Basic-auth probe against
-// GET https://<host>/api/v2/users/me.json. Returns (false, nil) without any
-// network call when the credential is incomplete (no host or no email), so a
-// guessed host is never contacted.
 func verifyCredential(ctx context.Context, host, email, token string) (bool, error) {
 	base := apiBase
 	if base == "" {

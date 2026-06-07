@@ -9,9 +9,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
-// jsonRecord is the wire shape for one finding. Keep field names stable —
-// pkg/output schema is SemVer-managed and breaking changes here require a
-// major bump tracked in _workspace/breaking-changes.md.
+// jsonRecord is the wire shape for one finding.
 type jsonRecord struct {
 	Detector          string            `json:"detector"`
 	Verified          bool              `json:"verified"`
@@ -26,9 +24,7 @@ type jsonSource struct {
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
-// jsonSink buffers findings and writes a single indented JSON array on
-// Close. We deliberately avoid NDJSON: the array form is friendlier to
-// `jq` and the buffering cost is bounded by dedup upstream.
+// jsonSink buffers findings and writes a single JSON array on Close.
 type jsonSink struct {
 	w   io.Writer
 	mu  sync.Mutex
@@ -50,8 +46,6 @@ func (s *jsonSink) Close() error {
 	defer s.mu.Unlock()
 	enc := json.NewEncoder(s.w)
 	enc.SetIndent("", "  ")
-	// Encode the slice itself so the output is always a JSON array, even
-	// when zero findings — downstream consumers rely on `[]` not `null`.
 	return enc.Encode(s.buf)
 }
 

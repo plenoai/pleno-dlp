@@ -15,15 +15,14 @@ pleno-dlp scan filesystem ./repo --format sarif --verify > findings.sarif
 ## Coverage
 
 - 600 built-in detector types.
-- Secret detectors that can safely call an upstream provider implement
-  `Verify`; enable that path with `--verify`.
+- Use `--verify` to call provider-side validation where available.
 - Deliberately unverified detectors are documented in
   [`docs/verify-coverage.md`](docs/verify-coverage.md).
 - PII detection is opt-in through `--pii-engine=anonymize` or
   `--pii-engine=openai-pf`; PII findings set
   `properties.finding_class=pii`.
 
-Useful introspection:
+Inspect the registry:
 
 ```sh
 pleno-dlp detectors list
@@ -49,14 +48,10 @@ git diff | pleno-dlp scan stdin --label git-diff
 kubectl get secret app-config -o yaml | pleno-dlp scan stdin
 ```
 
-Filesystem scans exclude common dependency/build directories by default:
-`.git`, `.hg`, `.svn`, `node_modules`, `vendor`, `target`, `dist`,
-`build`, `__pycache__`, `.venv`, and `.tox`. Use
-`--no-default-excludes` when you intentionally want those paths.
+Filesystem scans skip common dependency and build directories by default.
+Use `--no-default-excludes` to include them.
 
-Native SaaS connectors inherit the same persistent scan flags
-(`--format`, `--verify`, `--include-detectors`, `--exclude-detectors`,
-and others):
+SaaS connectors inherit the shared scan flags:
 
 | Connector | Scope | Auth |
 |---|---|---|
@@ -77,9 +72,7 @@ pleno-dlp scan slack --channel C0123456789
 pleno-dlp scan jira --site acme --email alice@acme.com --project PROJ
 ```
 
-Forge issue/PR comment scans read API-only review text that normal Git
-history scans cannot see. They do not clone repository contents; use
-`scan git` or `scan filesystem` for source blobs.
+Forge issue and PR comment scans cover API-only review text. They do not clone repository contents.
 
 Validate connector credentials without scanning:
 
@@ -104,9 +97,8 @@ pleno-dlp scan filesystem ./src --pii-engine=anonymize
 pleno-dlp scan filesystem ./src --pii-engine=openai-pf
 ```
 
-Both engines run as loopback HTTP subprocesses and are torn down at the
-end of the scan. Runtime requirements: `uv`, Python 3.12+, and `git`
-for default `git+` sources. Docker is not required.
+Both engines run as loopback HTTP subprocesses for the duration of the scan.
+Requirements: `uv`, Python 3.12+, and `git` for default `git+` sources.
 
 Effective defaults:
 
@@ -120,7 +112,7 @@ Effective defaults:
 | `--pii-engine-ready-timeout` | `0` | engine default: 60s for `anonymize`, 300s for `openai-pf` |
 | `--pii-engine-request-timeout` | `10s` | per `/api/analyze` request |
 
-Direct server commands are available for local debugging:
+Direct server commands:
 
 ```sh
 pleno-dlp pii-server --port 8080
@@ -129,8 +121,7 @@ pleno-dlp openai-pf-server --port 8081
 pleno-dlp openai-pf-server --device cuda
 ```
 
-Both server commands refuse public bind addresses; use loopback,
-RFC1918, or link-local hosts only.
+Both server commands refuse public bind addresses.
 
 ## Output and gating
 
@@ -140,7 +131,7 @@ pleno-dlp scan filesystem ./repo --format json
 pleno-dlp scan filesystem ./repo --format sarif
 ```
 
-Severity defaults:
+Default severities:
 
 | Finding | Severity |
 |---|---|
@@ -220,13 +211,11 @@ echo "$LEAKED_TOKEN" | pleno-dlp revoke --detector github --secret - --confirm
 pleno-dlp revoke --detector slack --secret xoxb-... --dry-run
 ```
 
-Revocation is irreversible. The CLI requires `--confirm` or
-`--dry-run`; non-interactive confirmed runs also require
-`PLENO_DLP_ALLOW_REVOKE=1`.
+Revocation is irreversible. The CLI requires `--confirm` or `--dry-run`.
+Non-interactive confirmed runs also require `PLENO_DLP_ALLOW_REVOKE=1`.
 
-During scans, `--revoke-on-verified` revokes only verified findings and
-therefore requires both `--verify` and `PLENO_DLP_ALLOW_REVOKE=1`.
-Preview with `--revoke-dry-run`.
+`--revoke-on-verified` only acts on verified findings and therefore requires
+both `--verify` and `PLENO_DLP_ALLOW_REVOKE=1`. Preview with `--revoke-dry-run`.
 
 Details: [`docs/revoke-support.md`](docs/revoke-support.md).
 

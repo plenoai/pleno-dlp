@@ -90,9 +90,6 @@ const detectorLanguage = "ja"
 // a true positive.
 type Scanner struct{}
 
-// Type returns the wire-stable PIIAnonymize ordinal. Downstream
-// consumers route on this; the per-entity kind lives in
-// ExtraData["pii_kind"].
 func (Scanner) Type() detectors.DetectorType { return detectors.PIIAnonymize }
 
 // keywords is intentionally permissive but non-empty. An empty
@@ -104,8 +101,6 @@ func (Scanner) Type() detectors.DetectorType { return detectors.PIIAnonymize }
 // that appears in most Western PII shapes (IBAN, SSN, phone, card).
 var keywords = []string{"@", "〒", "電話", "住所", "氏名", "-"}
 
-// Keywords returns the engine prefilter set. See package doc for the
-// rationale of each entry.
 func (Scanner) Keywords() []string { return keywords }
 
 // FromData runs the chunk through the registered Analyzer and maps

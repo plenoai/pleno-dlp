@@ -1,21 +1,4 @@
-// Package zoho detects Zoho OAuth refresh tokens of the shape
-// `1000.<base62>.<base62>` gated on the `zoho` keyword window.
-//
-// Unverified-by-design (class b). A bare refresh token is not a
-// credential any Zoho endpoint accepts: the refresh-token grant
-// (POST /oauth/v2/token grant_type=refresh_token) mandates client_id +
-// client_secret in addition to the token, neither of which is captured
-// in Raw. Verifying with only the refresh token would return
-// invalid_client and falsely report Verified=false on genuinely live
-// tokens. The region argument is secondary: the OAuth endpoint is
-// region-specific (accounts.zoho.com / .eu / .in / .com.au / .jp) so
-// verification would also require guessing the customer's data residency.
-//
-// The 1000.<base62>.<base62> shape is structurally generic (dotted
-// blobs), so detection is semantically hardened: each base62 segment
-// must clear a Shannon entropy floor, must not be entirely decimal
-// (millis/IDs) or entirely lowercase-hex (build digests), and a `zoho`
-// context keyword must sit adjacent to the match.
+// Package zoho detects Zoho OAuth refresh tokens near Zoho context.
 package zoho
 
 import (
@@ -26,15 +9,10 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// Capture the two base62 segments individually so each can be gated on
-// entropy and lookalike exclusions.
 var tokenRe = regexp.MustCompile(`\b1000\.([A-Za-z0-9]{32,})\.([A-Za-z0-9]{32,})\b`)
 
 var contextKeywords = []string{"zoho", "zoho_refresh", "zoho_token", "zoho_oauth"}
 
-// Real Zoho refresh-token segments are mixed-case base62. minSegmentEntropy
-// rejects padded/placeholder blobs that pass the {32,} length check but
-// carry almost no information.
 const minSegmentEntropy = 3.5
 
 var (
@@ -42,8 +20,6 @@ var (
 	allHexRe     = regexp.MustCompile(`^[0-9a-f]+$`)
 )
 
-// plausibleSegment rejects lookalikes: all-decimal (timestamps/IDs),
-// all-lowercase-hex (build hashes/digests), and low-entropy padding.
 func plausibleSegment(seg string) bool {
 	if allDecimalRe.MatchString(seg) || allHexRe.MatchString(seg) {
 		return false
@@ -55,9 +31,6 @@ type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.Zoho }
 
-// Keywords gates on "zoho" only. The bare "1000." prefix is dropped: a
-// generic 1000.<blob>.<blob> with no zoho context must not enter the
-// regex path, matching the in-detector nearKeyword requirement.
 func (Scanner) Keywords() []string { return []string{"zoho"} }
 
 func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
@@ -95,10 +68,6 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 	return out, nil
 }
 
-// nearKeyword requires a zoho context keyword within a tight 64-byte
-// vicinity (assignment-line proximity) rather than merely co-located in
-// the same chunk. Every contextKeyword contains "zoho", so a generic
-// 1000.<blob>.<blob> with no nearby zoho context is rejected.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius

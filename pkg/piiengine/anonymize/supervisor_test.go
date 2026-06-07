@@ -15,20 +15,6 @@ import (
 	"time"
 )
 
-// httptest spins up a real loopback HTTP server, which is exactly
-// what the supervisor expects to talk to. The tests below exercise
-// every public method of Supervisor without ever invoking exec —
-// they substitute Cmd with a no-op `sleep`-style argv whose stdout
-// we don't care about, OR they bypass spawn entirely by constructing
-// a Supervisor directly and pointing it at the httptest URL.
-//
-// The "directly construct" approach is the heavier surface coverage
-// path; the spawn-based path appears only in the spawn integration
-// test guarded by a build tag, intentionally not in unit tests.
-
-// fakeEngine wires a httptest.Server with configurable /ready and
-// /api/analyze handlers. Tests mutate readyAfter to simulate slow
-// model load; analyzeFn to drive the response.
 type fakeEngine struct {
 	server     *httptest.Server
 	readyAfter time.Time
@@ -76,9 +62,6 @@ func newFakeEngine(t *testing.T) *fakeEngine {
 	return fe
 }
 
-// makeSupervisor returns a Supervisor pre-pointed at fe — bypassing
-// the spawn step. Useful when we want to exercise Analyze and the
-// concurrency model without managing an exec.Cmd in unit tests.
 func makeSupervisor(t *testing.T, fe *fakeEngine) *Supervisor {
 	t.Helper()
 	u, err := url.Parse(fe.server.URL)
@@ -95,7 +78,6 @@ func makeSupervisor(t *testing.T, fe *fakeEngine) *Supervisor {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	// Hot-wire the supervisor: fake Cmd, real httptest URL.
 	s.mu.Lock()
 	s.baseURL = fe.server.URL
 	s.started = true
@@ -190,9 +172,6 @@ func TestAnalyze_EngineFailure(t *testing.T) {
 }
 
 func TestAnalyze_Concurrent(t *testing.T) {
-	// Hits the lifecycle mutex on every call concurrently; under
-	// `go test -race` this catches any unsynchronised access to
-	// baseURL / hc.
 	fe := newFakeEngine(t)
 	fe.analyzeFn = func(_ analyzeRequest) (int, []Finding, string) {
 		return http.StatusOK, []Finding{{EntityType: "PERSON"}}, ""

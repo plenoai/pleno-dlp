@@ -19,8 +19,6 @@ func TestLooksLikeArchive_DetectsKnownMagic(t *testing.T) {
 		{"zip", []byte{0x50, 0x4b, 0x03, 0x04, 0x00}, true},
 		{"empty zip", []byte{0x50, 0x4b, 0x05, 0x06, 0x00}, true},
 		{"gzip", []byte{0x1f, 0x8b, 0x00}, true},
-		// Tar requires the magic at offset 257; padding 257 zero
-		// bytes followed by "ustar" satisfies it.
 		{"tar", append(bytes.Repeat([]byte{0}, 257), []byte("ustar\x00")...), true},
 	}
 	for _, tc := range cases {
@@ -63,7 +61,6 @@ func TestWalk_NestedZipInZip(t *testing.T) {
 	if !containsAKIA(entries, akia) {
 		t.Fatalf("AKIA not surfaced from nested zip; got entries: %+v", entries)
 	}
-	// The composed path proves the nesting trail.
 	for _, e := range entries {
 		if strings.Contains(e.Path, "inner.zip") && strings.Contains(e.Path, "leak.txt") {
 			return
@@ -94,8 +91,6 @@ func TestWalk_TarGzExpandsThroughGzipThenTar(t *testing.T) {
 }
 
 func TestWalk_RecursionCap(t *testing.T) {
-	// Build a 3-level nesting and run with MaxDepth=2 — the leaf
-	// leak should be dropped silently.
 	akia := "AKIAIOSFODNN7EXAMPLE"
 	level3 := buildZip(t, map[string]string{"leak.txt": akia})
 	level2 := buildZipBytes(t, map[string][]byte{"l3.zip": level3})
@@ -111,8 +106,6 @@ func TestWalk_RecursionCap(t *testing.T) {
 }
 
 func TestWalk_SizeLimitTrips(t *testing.T) {
-	// Build a zip containing one giant entry; cap MaxEntryBytes
-	// well below the entry size and assert nothing comes out.
 	big := strings.Repeat("A", 100*1024)
 	z := buildZip(t, map[string]string{"big.txt": big})
 
@@ -126,7 +119,6 @@ func TestWalk_SizeLimitTrips(t *testing.T) {
 }
 
 func TestWalk_NotAnArchiveReturnsEmpty(t *testing.T) {
-	// Walk on plain text should be a no-op (empty result, no error).
 	entries, err := Walk("plain.txt", []byte("just some text"), Limits{})
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
@@ -136,9 +128,6 @@ func TestWalk_NotAnArchiveReturnsEmpty(t *testing.T) {
 	}
 }
 
-// buildZip constructs an in-memory zip from name->content map. Every
-// test that needs a zip uses this so zip-format quirks (date, mode)
-// stay centralised.
 func buildZip(t *testing.T, files map[string]string) []byte {
 	t.Helper()
 	bytesMap := map[string][]byte{}

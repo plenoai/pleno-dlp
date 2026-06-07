@@ -114,12 +114,9 @@ Pairwise (Welch's *t*):
 | pleno-dlp vs gitleaks   |  8.42 | 19.0 | < 10⁻⁵           |  2.66       | 17.22        |
 | trufflehog vs gitleaks  | 12.43 | 19.0 | < 10⁻⁵           |  3.93       | 23.41        |
 
-Finding-count comparability is bounded: pleno-dlp emits 320
-unverified `GenericHighEntropy` and 67 unverified `Bandwidth`
-candidates that the other two tools either don't enumerate or
-filter out at a different stage. Cross-tool *count* equality is not
-a goal of this benchmark; cross-tool *engine cost* on identical
-inputs is.
+Finding counts are not directly comparable. pleno-dlp emits many
+unverified `GenericHighEntropy` and `Bandwidth` candidates that the
+other tools either do not enumerate or filter differently.
 
 ## Threats to validity
 
@@ -140,13 +137,8 @@ inputs is.
    results therefore reflect hot-cache scans. Cold-cache numbers
    would add ~50-150 ms of `read()` latency uniformly across all
    tools and is unlikely to change pairwise ordering.
-4. **Bonferroni is conservative.** Three planned pairs makes
-   Holm-Bonferroni or Hochberg slightly more powerful, but every
-   reported *p* is many orders of magnitude below 0.05/3 except
-   the pleno-dlp-vs-trufflehog Workload D comparison (Bonferroni
-   *p* = 0.021), which remains below α' = 0.0167… *barely*. We
-   report it as significant but flag it as the only comparison
-   close to the corrected threshold.
+4. **Bonferroni is conservative.** The only borderline comparison is
+   pleno-dlp vs trufflehog on Workload D.
 5. **Single hardware platform.** All measurements are on a single
    Apple M3 MacBook. Behaviour on x86-64 servers, on Linux with a
    different scheduler, or under containers with cgroup CPU caps

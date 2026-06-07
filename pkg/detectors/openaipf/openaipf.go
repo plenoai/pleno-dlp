@@ -90,9 +90,6 @@ func (a supervisorAdapter) Analyze(ctx context.Context, text string) ([]Finding,
 // thing one "rotates" anyway.
 type Scanner struct{}
 
-// Type returns the wire-stable PIIOpenAIPF ordinal. The per-entity
-// kind lives in ExtraData["pii_kind"] — downstream routing on
-// finding_class="pii" stays compatible with anonymize-emitted findings.
 func (Scanner) Type() detectors.DetectorType { return detectors.PIIOpenAIPF }
 
 // keywords is intentionally permissive but non-empty. opf classifies
@@ -128,11 +125,6 @@ var keywords = []string{
 	"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
 }
 
-// Keywords returns the engine prefilter set. See package doc for the
-// rationale of each entry. Must remain non-empty; an empty Keywords()
-// forces the engine to run FromData on every chunk including
-// pure-binary chunks, which would shovel garbage through the
-// supervisor with no chance of a hit.
 func (Scanner) Keywords() []string { return keywords }
 
 // FromData runs the chunk through the registered Analyzer and maps

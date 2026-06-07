@@ -1,18 +1,4 @@
-// Package decoder expands a chunk of bytes into the original plus any
-// decoded variants worth re-scanning. Three encodings are inspected:
-//
-//   - base64 (std + url-safe), runs of >=32 chars
-//   - percent-encoded sequences (%xx), when at least two are present
-//   - hex, runs of >=40 chars (covers SHA1/256 and key-shaped blobs)
-//
-// Each variant is returned only when its decoded byte stream is mostly
-// printable ASCII — a heuristic that filters out random-looking decoded
-// noise such as binary blobs accidentally inside a base64 paragraph.
-//
-// Variants() never returns the original twice, even if no decoder fired.
-// Callers feed every returned slice through their detector pipeline so a
-// secret hidden inside `Authorization: Bearer <base64-of-token>` is found
-// the same way as one written in plaintext.
+// Package decoder expands a chunk into the original plus useful decoded variants.
 package decoder
 
 import (
@@ -23,54 +9,22 @@ import (
 	"regexp"
 )
 
-// minBase64Run is the shortest base64 run we'll attempt to decode. AWS
-// secret access keys are 40 chars and produce 30 raw bytes, but anything
-// shorter than 32 input chars is overwhelmingly noise (UUIDs, hashes).
 const minBase64Run = 32
 
-// minHexRun is the shortest hex run worth decoding. SHA1 (40), MD5 (32 —
-// excluded as too noisy), SHA256 (64). 40 strikes a balance: catches keys
-// pasted as hex, skips the average UUID without dashes (32).
 const minHexRun = 40
 
-// printableThreshold is the minimum fraction of printable bytes a decoded
-// variant must contain before we forward it to detectors. 0.8 was chosen
-// empirically: lower lets binary slip through and floods detectors with
-// nonsense; higher loses real secrets that happen to neighbour binary.
 const printableThreshold = 0.8
 
 // percentEncoded matches a substring containing at least two %xx escapes.
-// Single isolated escapes (e.g. literal "%20" in a comment) aren't worth
-// the decode pass — they're almost never how a secret is hidden.
-//
-// base64 and hex run detection was migrated off RE2 onto a linear byte
-// scan (see walkBase64Runs / walkHexRuns) after profiling showed the
-// regex variants dominating the real-OSS workload. The literals remain
-// documented above as the source-of-truth shape that the scans must
-// stay in sync with.
 var percentEncoded = regexp.MustCompile(`(?:%[0-9A-Fa-f]{2}){2,}`)
 
 // Variant pairs a decoded byte slice with the decoder that produced it.
-// The original chunk uses Source="" so callers can branch on the empty
-// string to detect "this is the unmodified input".
 type Variant struct {
 	Source string
 	Data   []byte
 }
 
-// Variants returns the original chunk plus any decoded forms produced by
-// inspecting data for embedded base64 / percent / hex runs. The original
-// is always the first element so callers may iterate without a special
-// case for "no decode applied".
-//
-// Each decoder is gated by a cheap byte-scan that checks whether the
-// chunk *could* contain a candidate run. On the cold path — the dominant
-// shape on real codebases — the gate falls through in one linear pass
-// and the per-decoder regex never runs. Profiling showed the bare regex
-// FindAll calls were consuming ~26% of the cold-path engine CPU because
-// FindAll walks the full input even on a no-match, so the gate is the
-// difference between O(N) memmove-friendly byte work and O(N) regex
-// machine stepping.
+// Variants returns the original chunk followed by decoded forms worth rescanning.
 func Variants(data []byte) []Variant {
 	out := []Variant{{Data: data}}
 
@@ -92,11 +46,7 @@ func Variants(data []byte) []Variant {
 	return out
 }
 
-// hasBase64Run reports whether data contains a run of >=minBase64Run
-// bytes drawn from the base64 alphabet (std + url-safe). Tracks runs in
-// a single pass; bails out the moment the threshold is reached. Cheaper
-// than regexp.FindAll on the no-match path because it skips RE2 machine
-// setup entirely.
+// hasBase64Run reports whether data contains a plausible base64 run.
 func hasBase64Run(data []byte) bool {
 	run := 0
 	for _, c := range data {
@@ -113,9 +63,7 @@ func hasBase64Run(data []byte) bool {
 	return false
 }
 
-// hasHexRun reports whether data contains a run of >=minHexRun bytes
-// drawn from a single-case hex alphabet (matching hexRun's
-// mixed-case-rejecting behaviour).
+// hasHexRun reports whether data contains a plausible hex run.
 func hasHexRun(data []byte) bool {
 	var lowerRun, upperRun int
 	for _, c := range data {
@@ -136,21 +84,10 @@ func hasHexRun(data []byte) bool {
 			lowerRun, upperRun = 0, 0
 		}
 	}
-	// A run that's pure digits would have been counted under either side;
-	// re-walk only when the chunk has at least one digit-only span >=
-	// minHexRun. Cheap: in practice the loop above already returned, so
-	// we just need to consider chunks of all-digits that never crossed
-	// either alpha. Skip — pure-digit runs aren't valid hex secrets in
-	// any of our targets, and the original hexRun regex would have
-	// matched them but never produced a printable decode anyway.
 	return false
 }
 
-// hasPercentRun reports whether data contains >=2 percent signs. The
-// original percentEncoded regex required two %xx escapes; the cheap
-// guard here doesn't validate the trailing hex, just counts '%'. False
-// positives fall through to url.QueryUnescape which then returns the
-// unchanged string (caught by the equality check below).
+// hasPercentRun reports whether data contains at least two percent escapes.
 func hasPercentRun(data []byte) bool {
 	n := 0
 	for _, c := range data {
@@ -164,16 +101,7 @@ func hasPercentRun(data []byte) bool {
 	return false
 }
 
-// decodeBase64 walks every base64-shaped run, decodes it, and returns the
-// concatenation of all printable decode results. Returns nil when nothing
-// decoded into something printable.
-//
-// Run boundaries are produced by a single linear byte scan instead of
-// the RE2 base64Run regex — the regex was the largest single hot spot
-// on the real-OSS workload (~17% of total CPU) because every chunk
-// holding any encoded blob paid full RE2 machine setup. The byte scan
-// hands back the same slice spans with no allocation beyond the result
-// list itself.
+// decodeBase64 returns the printable decodes from all base64-like runs.
 func decodeBase64(data []byte) []byte {
 	var buf bytes.Buffer
 	walkBase64Runs(data, func(run []byte) {
@@ -184,8 +112,6 @@ func decodeBase64(data []byte) []byte {
 		if !mostlyPrintable(decoded) {
 			return
 		}
-		// Separate runs with a newline so a regex anchored on `\b` still
-		// finds matches that started at the boundary of a decoded blob.
 		if buf.Len() > 0 {
 			buf.WriteByte('\n')
 		}
@@ -197,9 +123,7 @@ func decodeBase64(data []byte) []byte {
 	return buf.Bytes()
 }
 
-// walkBase64Runs invokes fn for every maximal run of >=minBase64Run
-// base64-alphabet bytes (std + url-safe) plus any trailing '=' padding.
-// Mirrors the base64Run regex `[A-Za-z0-9+/_-]{32,}={0,2}` without RE2.
+// walkBase64Runs finds maximal base64-like runs plus trailing padding.
 func walkBase64Runs(data []byte, fn func([]byte)) {
 	start := -1
 	for i := 0; i < len(data); i++ {
@@ -214,7 +138,6 @@ func walkBase64Runs(data []byte, fn func([]byte)) {
 		if start >= 0 {
 			end := i
 			if i-start >= minBase64Run {
-				// Consume up to two '=' padding bytes immediately following.
 				pad := 0
 				for pad < 2 && end+pad < len(data) && data[end+pad] == '=' {
 					pad++

@@ -1,41 +1,4 @@
-// Package github detects GitHub Personal Access Tokens (classic and
-// fine-grained) and verifies them against api.github.com/user.
-//
-// Verify also enriches the finding with blast-radius metadata when the
-// upstream call succeeds:
-//
-//   - github_login         the authenticated user's login
-//   - github_user_id       the numeric user id
-//   - github_token_type    classic | fine-grained | oauth | user-to-server | server-to-server | refresh
-//   - github_scopes        the X-OAuth-Scopes header (classic only;
-//     fine-grained tokens do not expose granular
-//     scope strings via this header — they encode
-//     permissions per-resource on the token itself)
-//   - github_token_expiration  the GitHub-Authentication-Token-Expiration
-//     header value when present (fine-grained PATs
-//     and SAML-enforced classic PATs)
-//   - github_privileged    "true" when github_scopes contains any of the
-//     high-blast-radius scopes (`repo`, `admin:org`,
-//     `delete_repo`, `admin:enterprise`,
-//     `write:packages`, `workflow`). Severity stays
-//     Critical via the verified path; the flag
-//     surfaces the WHY for triage.
-//
-// Inspired by trufflesecurity/driftwood's "what does this credential
-// actually unlock" pattern, ported from PrivateKeyPEM CT-log lookup
-// (see pkg/detectors/privatekey/blastradius).
-//
-// Revoke (issue #73) calls DELETE /applications/{client_id}/token on
-// api.github.com against an OAuth app's client_id+client_secret,
-// per https://docs.github.com/en/rest/apps/oauth-applications. The
-// endpoint only works for tokens that the configured OAuth app issued;
-// raw user-owned PATs (`ghp_...` not minted by an app) reject with 422
-// and surface as Revoked=false with a non-fatal diagnostic in
-// RevokeResult.Err. Callers wire the OAuth app's client credentials via
-// SetRevokeCredentials (CLI plumbing) or the
-// PLENO_DLP_REVOKE_GITHUB_CLIENT_ID / PLENO_DLP_REVOKE_GITHUB_CLIENT_SECRET
-// env vars; without them, Revoke returns a hard error so a misconfigured
-// CI does not silently skip revocation.
+// Package github detects GitHub PATs, verifies them, and supports revoke.
 package github
 
 import (
@@ -56,22 +19,17 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// apiBase is overridable from tests so verification can hit an httptest server.
+// apiBase is overridable from tests.
 var apiBase = "https://api.github.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Env variable names for the OAuth App credential pair Revoke needs.
 const (
 	EnvClientID     = "PLENO_DLP_REVOKE_GITHUB_CLIENT_ID"
 	EnvClientSecret = "PLENO_DLP_REVOKE_GITHUB_CLIENT_SECRET"
 )
 
-// privilegedScopes is the subset of OAuth-app scopes whose grant amounts
-// to "this token can substantially damage the org" — repo write, admin
-// surfaces, package publishing, workflow editing, repo deletion. Used to
-// flip the github_privileged ExtraData flag so triage can sort verified
-// findings by impact even within the Critical bucket.
+// privilegedScopes mark high-blast-radius GitHub scopes.
 var privilegedScopes = map[string]bool{
 	"repo":             true,
 	"delete_repo":      true,
@@ -92,7 +50,6 @@ var (
 	}
 )
 
-// SetRevokeCredentials wires the OAuth app credentials Revoke uses.
 func SetRevokeCredentials(clientID, clientSecret string) {
 	revokeCredsMu.Lock()
 	revokeCreds.clientID = clientID
@@ -114,11 +71,6 @@ func loadRevokeCreds() (clientID, clientSecret string) {
 	return clientID, clientSecret
 }
 
-// Classic PAT: ghp_ + 36 base62 chars.
-// Fine-grained PAT: github_pat_ + 82 chars from [A-Za-z0-9_].
-//
-// Other GitHub token shapes (gho_/ghs_/ghu_/ghr_) share the ghp_ regex
-// shape but have distinct semantics — surfaced via tokenType().
 var (
 	classicRe = regexp.MustCompile(`\b(ghp_[A-Za-z0-9]{36})\b`)
 	fineRe    = regexp.MustCompile(`\b(github_pat_[A-Za-z0-9_]{82})\b`)
@@ -162,26 +114,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-// Verify implements detectors.Verifier with the bool return shape the
-// engine and the verifycoverage classifier expect. The richer
-// metadata-bearing path lives in verifyWithMetadata so FromData can fold
-// it into ExtraData without changing the interface contract.
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	verified, _, err := verifyWithMetadata(ctx, secret)
 	return verified, err
 }
 
-// verifyWithMetadata calls GET /user and returns the verification
-// outcome plus blast-radius metadata. Failure modes:
-//
-//   - HTTP 200       → verified=true, metadata populated
-//   - HTTP 401/403   → verified=false, no metadata, no error
-//   - HTTP 429       → verified=false, no error (rate-limited; same
-//     policy as the original Verify)
-//   - transport err  → verified=false, error surfaced
-//
-// metadata is best-effort: a missing X-OAuth-Scopes header (fine-
-// grained tokens do not set it) just leaves github_scopes absent.
+// verifyWithMetadata calls GET /user and returns verification plus metadata.
 func verifyWithMetadata(ctx context.Context, secret string) (bool, map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -202,8 +140,6 @@ func verifyWithMetadata(ctx context.Context, secret string) (bool, map[string]st
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		// Decode the small subset of the user payload we surface. Read
-		// is bounded to 64 KiB so a hostile mock cannot exhaust memory.
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		meta := buildMetadata(resp.Header, body)
 		return true, meta, nil
@@ -214,9 +150,7 @@ func verifyWithMetadata(ctx context.Context, secret string) (bool, map[string]st
 	}
 }
 
-// buildMetadata extracts the blast-radius surface from the GET /user
-// response. Headers carry OAuth scopes and token expiration; the body
-// carries the authenticated identity.
+// buildMetadata extracts blast-radius metadata from the GET /user response.
 func buildMetadata(h http.Header, body []byte) map[string]string {
 	meta := map[string]string{}
 	if scopes := strings.TrimSpace(h.Get("X-OAuth-Scopes")); scopes != "" {
@@ -294,9 +228,6 @@ func tokenType(token string) string {
 	}
 }
 
-// splitAndTrim splits s on sep and trims whitespace from each element,
-// dropping empties. Used for the X-OAuth-Scopes header which may use
-// "scope, scope2" or "scope,scope2" depending on the upstream version.
 func splitAndTrim(s, sep string) []string {
 	parts := strings.Split(s, sep)
 	out := make([]string, 0, len(parts))
@@ -308,26 +239,6 @@ func splitAndTrim(s, sep string) []string {
 	return out
 }
 
-// Revoke implements detectors.Revoker for GitHub-issued OAuth tokens.
-//
-// The endpoint is `DELETE /applications/{client_id}/token` with HTTP
-// Basic auth (client_id:client_secret) and a JSON body
-// `{"access_token": "<token>"}`. GitHub's documented response codes:
-//
-//   - 204 No Content    -> token revoked. RevokeResult.Revoked = true.
-//   - 422 Unprocessable -> token did not belong to this OAuth app
-//     (typical for raw user PATs). Revoked = false; non-fatal err in
-//     RevokeResult.Err so the caller can distinguish "we tried, the
-//     provider declined" from "we couldn't reach the provider".
-//   - 404 Not Found     -> token already revoked / never existed.
-//     Revoked = true (idempotency contract — second-call against an
-//     already-revoked secret MUST NOT hard-fail).
-//   - other             -> hard error via the second return value.
-//
-// Revoke is irreversible. Per ADR-0001 D6 the CLI gates this behind
-// `--confirm` / `--dry-run` and the env var PLENO_DLP_ALLOW_REVOKE=1;
-// the detector itself does NOT enforce any local gate so dry-run /
-// confirmation policy lives uniformly at the CLI boundary.
 func (Scanner) Revoke(ctx context.Context, secret string) (detectors.RevokeResult, error) {
 	if secret == "" {
 		return detectors.RevokeResult{}, errors.New("github: revoke: empty secret")

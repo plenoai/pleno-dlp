@@ -45,8 +45,7 @@ jobs:
 
 ## Scan only the diff on PRs (faster)
 
-Use `scan git --since` against the merge base instead of the full
-filesystem:
+Use the merge-base diff instead of the full filesystem:
 
 ```yaml
 - name: Scan diff
@@ -79,10 +78,7 @@ secrets fail the build.
 
 ## Verify rate limiting
 
-`--verify` against thousands of candidate keys can trigger upstream
-rate limits. The default 10 RPS per host is safe for most providers;
-bump it via `--verify-rps` if you have provider quotas to spend, or
-drop to 0 to disable rate limiting entirely:
+`--verify` against many candidate keys can trigger upstream rate limits.
 
 ```sh
 pleno-dlp scan filesystem . --verify --verify-rps 30

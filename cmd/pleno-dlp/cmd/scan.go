@@ -1,6 +1,4 @@
 // Package cmd hosts cobra subcommands for the pleno-dlp binary.
-// Each subcommand registers itself with Root from a package-level init(),
-// so adding a command means adding one file here — not editing main.go.
 package cmd
 
 import (
@@ -29,10 +27,6 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/verify"
 )
 
-// Root is the top-level cobra command. main.go calls Root.Execute(); every
-// subcommand attaches itself here from its own init(). Exposed as a package
-// variable so tests can introspect the wired-up command tree without
-// triggering os.Exit.
 var Root = &cobra.Command{
 	Use:           "pleno-dlp",
 	Short:         "Scan sources for leaked secrets",
@@ -40,63 +34,42 @@ var Root = &cobra.Command{
 	SilenceErrors: true,
 }
 
-// toolVersion holds the bare semver string injected by the linker (e.g.
-// "1.2.3") so it can be embedded in SARIF output and the incremental-scan
-// fingerprint without parsing Root.Version.
 var toolVersion string
 
-// SetVersion lets main.go inject build-time version/commit metadata after
-// linker flags resolve. Keeping it out of init() ordering avoids races with
-// subcommand registration.
 func SetVersion(version, commit string) {
 	toolVersion = version
 	Root.Version = fmt.Sprintf("%s (%s)", version, commit)
 }
 
-// scanFlags holds flags that apply across every source kind. Per-source
-// flags (paths, repo, since, ...) live on the corresponding subcommand to
-// keep cobra's --help output narrow and to give each kind its own validation.
+// scanFlags holds flags shared by every source kind.
 type scanFlags struct {
-	format           string
-	verify           bool
-	verifyRPS        int
-	concurrency      int
-	rulesPath        string
-	failOn           string
-	allowlistPath    string
-	includeDetectors []string
-	excludeDetectors []string
-	quiet            bool
-	revokeOnVerified bool
-	revokeDryRun     bool
-	blastRadiusOnly  bool
-	incremental      bool
-	incrementalState string
-	// piiEngine selects the PII engine integration. "off" (default)
-	// preserves the historical single-binary UX: the anonymize
-	// detector is registered but the supervisor handle stays nil,
-	// so it returns no findings and incurs no spawn cost. "anonymize"
-	// spawns the pleno-anonymize HTTP server for the duration of the
-	// scan and routes PII detection through it.
+	format            string
+	verify            bool
+	verifyRPS         int
+	concurrency       int
+	rulesPath         string
+	failOn            string
+	allowlistPath     string
+	includeDetectors  []string
+	excludeDetectors  []string
+	quiet             bool
+	revokeOnVerified  bool
+	revokeDryRun      bool
+	blastRadiusOnly   bool
+	incremental       bool
+	incrementalState  string
 	piiEngine         string
 	piiEngineCmd      string
 	piiEnginePort     int
 	piiEngineLanguage string
 	piiEngineReady    time.Duration
 	piiEngineRequest  time.Duration
-	// piiEngineDevice is the inference device hint forwarded to the
-	// openai-pf engine. Ignored when --pii-engine != openai-pf. Kept
-	// on the shared flag set rather than under a per-engine namespace
-	// so future engines can reuse the same operator-facing knob.
-	piiEngineDevice string
+	piiEngineDevice   string
 }
 
 var scanOpts scanFlags
 
-// scanCmd is the parent command for source-specific subcommands. We keep
-// it routable on its own (no positional args required) so that `scan
-// --help` still describes the shared flags. The first positional arg
-// selects the source kind: `scan filesystem <paths>` or `scan git --repo`.
+// scanCmd is the parent command for source-specific subcommands.
 var scanCmd = &cobra.Command{
 	Use:   "scan <kind> [args...]",
 	Short: "Scan a source for leaked secrets",
@@ -110,9 +83,6 @@ var scanCmd = &cobra.Command{
 		"  onedev|codebase|pagure                  scan issue/PR comments via forge API",
 }
 
-// scanFilesystemCmd preserves the original `scan <path>...` semantics under
-// the new `scan filesystem <path>...` form. Keeping it as an explicit
-// subcommand removes the implicit-default ambiguity.
 var scanFilesystemCmd = &cobra.Command{
 	Use:   "filesystem <path> [path...]",
 	Short: "Scan local filesystem paths",
@@ -120,8 +90,6 @@ var scanFilesystemCmd = &cobra.Command{
 	RunE:  runScanFilesystem,
 }
 
-// fsFlags captures filesystem-specific configuration. Mirrors gitOpts
-// so users get the same --include/--exclude vocabulary across kinds.
 type fsFlags struct {
 	include                []string
 	exclude                []string
@@ -131,8 +99,6 @@ type fsFlags struct {
 
 var fsOpts fsFlags
 
-// gitFlags captures git-specific configuration. Defined alongside scanCmd
-// because git is a first-class source for the v1 scope.
 type gitFlags struct {
 	repo     string
 	branch   string
@@ -144,8 +110,6 @@ type gitFlags struct {
 
 var gitOpts gitFlags
 
-// scanGitCmd walks a local git repository's history. Remote URLs are not
-// accepted yet — pair this with a separate `clone` step if you need that.
 var scanGitCmd = &cobra.Command{
 	Use:   "git --repo <path>",
 	Short: "Scan a local git repository's commit history",
@@ -153,9 +117,6 @@ var scanGitCmd = &cobra.Command{
 	RunE:  runScanGit,
 }
 
-// stdinFlags captures stdin-specific options. Label rides through to
-// StdinMeta.Label so output formatters render something more useful than
-// the default "<stdin>" placeholder.
 type stdinFlags struct {
 	label    string
 	maxBytes int64
@@ -163,9 +124,6 @@ type stdinFlags struct {
 
 var stdinOpts stdinFlags
 
-// scanStdinCmd reads a single chunk from os.Stdin. We refuse to attach a
-// terminal — a TTY on stdin is almost certainly a user mistake (forgot to
-// pipe), and silently waiting for input wedges scripts.
 var scanStdinCmd = &cobra.Command{
 	Use:   "stdin",
 	Short: "Scan input piped to standard input",
@@ -174,8 +132,6 @@ var scanStdinCmd = &cobra.Command{
 }
 
 func init() {
-	// Persistent flags on scanCmd so every subcommand inherits them — keeps
-	// `scan filesystem --format json` and `scan git --format json` consistent.
 	scanCmd.PersistentFlags().StringVar(&scanOpts.format, "format", "table", "output format: json, sarif, table")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.verify, "verify", false, "verify candidate secrets against upstream APIs")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.verifyRPS, "verify-rps", 10, "per-host requests-per-second cap during --verify (0 = disable rate limiting)")
@@ -200,18 +156,8 @@ func init() {
 	scanCmd.PersistentFlags().StringVar(&scanOpts.incrementalState, "incremental-state", ".pleno-dlp-incremental.json",
 		"path to the incremental scan state file")
 
-	// PII engine flags. Default is "off" so the binary keeps its
-	// single-process UX for users without uvx / Python on PATH.
-	// When --pii-engine=anonymize, runScanCommon spawns the supervisor
-	// before the scan and tears it down after.
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngine, "pii-engine", "off",
 		"PII detection engine: 'off' disables PII detection; 'anonymize' spawns the pleno-anonymize HTTP server (ja-first NER, fast cold start); 'openai-pf' spawns the openai/privacy-filter wrapper (1.5B-param MoE classifier, GPU-recommended). Both require uv + Python 3.12+ on PATH. Mutually exclusive — choose one.")
-	// pii-engine-cmd default is the anonymize argv. When --pii-engine=openai-pf
-	// is selected and the operator did NOT override this flag, startPIIEngine
-	// substitutes the openai-pf default (`pleno-dlp openai-pf-server --port
-	// {PORT}`). Surfacing one cobra default that's wrong for the other
-	// engine is acceptable because explicit operator overrides are the
-	// common case for non-default engines; the help text says so.
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngineCmd, "pii-engine-cmd",
 		"pleno-dlp pii-server --port {PORT}",
 		"argv to spawn the PII engine; the literal '{PORT}' is substituted with the chosen ephemeral loopback port. When unset, defaults match the selected engine: 'pleno-dlp pii-server --port {PORT}' for anonymize, 'pleno-dlp openai-pf-server --port {PORT}' for openai-pf. 'pleno-dlp' as argv[0] is auto-resolved via os.Executable() so the spawn finds the running binary regardless of how it was installed.")
@@ -267,11 +213,7 @@ func runScanFilesystem(cmd *cobra.Command, args []string) error {
 }
 
 func runScanStdin(cmd *cobra.Command, _ []string) error {
-	// Refuse to block on a TTY. Stdin scans are pipe-only by design;
-	// silently waiting for keyboard input is an almost-certain bug in
-	// the caller's pipeline. The check is best-effort — non-files (eg
-	// in tests, where we hand a Buffer to runStdinScan via cmd.SetIn)
-	// won't fail this guard because their Stat fails outright.
+	// Stdin scans are pipe-only.
 	if isTerminalReader(cmd.InOrStdin()) {
 		return fmt.Errorf("stdin source: refusing to read from a terminal — pipe input via `cmd | pleno-dlp scan stdin`")
 	}
@@ -286,8 +228,6 @@ func runScanStdin(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("encode source config: %w", err)
 	}
-	// Pass cmd.InOrStdin() through to the source so cobra-level rebinding
-	// (cmd.SetIn) reaches the reader; production stays on os.Stdin.
 	if r := cmd.InOrStdin(); r != nil {
 		if setter, ok := src.(interface{ SetReader(io.Reader) }); ok {
 			setter.SetReader(r)
@@ -315,18 +255,11 @@ func runScanGit(cmd *cobra.Command, _ []string) error {
 	return runScanCommon(cmd, src, cfg, "git")
 }
 
-// runScanCommon centralises the source-init -> engine.Run -> sink wiring so
-// the per-kind RunE functions only have to translate flags into a JSON config.
+// runScanCommon wires source init, engine execution, and output.
 func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind string) error {
-	// SIGINT / SIGTERM cancel the context so the engine drains in-flight
-	// chunks instead of leaving worker goroutines blocked on send.
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// --revoke-on-verified gate (issue #73): refuse early if the
-	// environment isn't explicitly opted-in. We do this before any I/O
-	// so a misconfigured CI fails fast with a clear message rather
-	// than silently scanning and then silently skipping revocation.
 	if scanOpts.revokeOnVerified {
 		if !scanOpts.verify {
 			return fmt.Errorf("--revoke-on-verified requires --verify (revoking unverified candidates would be unsafe)")
@@ -814,8 +747,6 @@ func dirParent(dir string) string {
 // secrets were found". main.go maps this to exit code 1.
 var errFindingsFound = fmt.Errorf("findings detected")
 
-// IsFindingsError reports whether err is the findings sentinel. main.go
-// uses this to choose its exit code without importing the variable directly.
 func IsFindingsError(err error) bool { return err == errFindingsFound }
 
 // countingSink is a tiny pass-through that tallies forwarded findings

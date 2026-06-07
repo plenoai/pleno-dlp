@@ -1,7 +1,4 @@
-// Package filesystem is a Source that walks one or more paths and emits one
-// Chunk per regular file. Symlinks are not followed; binary files and files
-// larger than max_size_bytes are skipped. Permission errors during walk are
-// silently skipped so a single unreadable directory does not abort the scan.
+// Package filesystem walks local paths and emits one chunk per regular file.
 package filesystem
 
 import (
@@ -24,22 +21,12 @@ import (
 
 const defaultMaxSizeBytes int64 = 10 * 1024 * 1024 // 10 MiB
 
-// binarySniffLen is the prefix size used to classify a file as binary by
-// presence of NUL bytes — matches what `file(1)` and git use.
 const binarySniffLen = 512
 
 func init() {
 	sources.Register(sources.SourceFilesystem, func() sources.Source { return &Source{} })
 }
 
-// Config is the JSON shape passed to Init. Include / Exclude take
-// `path/filepath.Match` glob syntax (no `**` recursion — directories
-// pruned by walking the tree, not by globbing). Both lists are matched
-// against the path RELATIVE to its config root, so `--exclude
-// node_modules` does the right thing whether the user passes
-// `./repo` or `/abs/path/repo`. Default-on excludes ship in
-// commonExcludes (the .git, vendor, node_modules patterns every team
-// turns off the same way) — set DisableDefaultExcludes to scan them.
 type Config struct {
 	Paths                  []string `json:"paths"`
 	MaxSizeBytes           int64    `json:"max_size_bytes"`
@@ -58,22 +45,8 @@ type Source struct {
 	excludes    []string
 }
 
-// commonExcludes are skipped by default. Users can opt back in with
-// DisableDefaultExcludes. Each entry matches a directory or file name
-// (NOT a path) so a glob deep in the tree still applies.
-//
-// Two flavours live here side-by-side:
-//   - directory basenames (.git, node_modules, vendor, …) — pruned via
-//     fs.SkipDir before walking children, so they cost zero on cold paths.
-//   - file basenames and globs (package-lock.json, *.min.js, *.map) —
-//     these are dense streams of sha256/integrity hashes and minifier
-//     output that sail past the generic high-entropy detector (entropy
-//     ≥ 4.0) and were the dominant source of FP noise observed in real
-//     scans. Excluded by default because nobody ships secrets in a
-//     lockfile or a minified bundle; users who want them can opt back in
-//     with DisableDefaultExcludes.
+// commonExcludes are skipped unless DisableDefaultExcludes is set.
 var commonExcludes = []string{
-	// VCS / build / language sandboxes — directory basenames.
 	".git",
 	".hg",
 	".svn",
@@ -85,7 +58,6 @@ var commonExcludes = []string{
 	"__pycache__",
 	".venv",
 	".tox",
-	// Lockfiles. Hash-heavy, ship no real secrets, and dominate FPs.
 	"package-lock.json",
 	"yarn.lock",
 	"pnpm-lock.yaml",
@@ -97,9 +69,6 @@ var commonExcludes = []string{
 	"Gemfile.lock",
 	"mix.lock",
 	"Podfile.lock",
-	// Minified bundles and sourcemaps — entropy-dense by construction.
-	// Globs are evaluated via filepath.Match against the basename in
-	// excluded(); the same code path that already supports `*.env`.
 	"*.min.js",
 	"*.min.css",
 	"*.map",
@@ -121,16 +90,11 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, v
 	if cfg.MaxSizeBytes <= 0 {
 		cfg.MaxSizeBytes = defaultMaxSizeBytes
 	}
-	// Validate every root up front. A missing root is a user error and must
-	// fail Init so the orchestrator does not silently scan nothing.
 	for _, p := range cfg.Paths {
 		if _, err := os.Lstat(p); err != nil {
 			return fmt.Errorf("filesystem: path %q: %w", p, err)
 		}
 	}
-	// Validate every glob pattern up front so a typo surfaces here
-	// rather than mid-walk. filepath.Match returns ErrBadPattern for
-	// unmatched brackets etc.; we treat that as a fatal config error.
 	for _, p := range append(append([]string{}, cfg.Include...), cfg.Exclude...) {
 		if _, err := filepath.Match(p, ""); err != nil {
 			return fmt.Errorf("filesystem: invalid glob %q: %w", p, err)
@@ -156,8 +120,6 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	g, gctx := errgroup.WithContext(ctx)
 	sem := make(chan struct{}, s.concurrency)
 
-	// Each root is walked sequentially; per-file reads are fanned out under
-	// the semaphore so concurrency is bounded regardless of tree shape.
 	for _, root := range s.cfg.Paths {
 		root := root
 		if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
@@ -177,17 +139,12 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 			if err := gctx.Err(); err != nil {
 				return err
 			}
-			// Directory pruning before per-entry checks: if a directory
-			// matches any exclude, skip the whole subtree. This is the
-			// payoff for default excludes — `node_modules` adds zero
-			// walk cost when it's the first thing pruned.
 			if d.IsDir() {
 				if path != root && s.excluded(d.Name(), relPath(root, path)) {
 					return fs.SkipDir
 				}
 				return nil
 			}
-			// Skip symlinks entirely — do not follow, do not emit. Lstat'd by WalkDir.
 			if d.Type()&os.ModeSymlink != 0 {
 				return nil
 			}
@@ -224,12 +181,10 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 			})
 			return nil
 		}); err != nil {
-			// Surface only ctx cancellation/walk-fatal; per-file errors are skipped above.
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				_ = g.Wait()
 				return err
 			}
-			// Stop additional fanout but drain in-flight goroutines.
 			_ = g.Wait()
 			return err
 		}
@@ -237,9 +192,7 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	return g.Wait()
 }
 
-// ResourceFingerprint hashes the filesystem resources this source would scan.
-// It intentionally uses path, size, mode, and mtime metadata rather than file
-// bytes so an unchanged tree can skip detector work without paying a full read.
+// ResourceFingerprint hashes the resource set without rereading file bytes.
 func (s *Source) ResourceFingerprint(ctx context.Context) (string, error) {
 	h := sha256.New()
 	writeHash(h, "filesystem-v1")

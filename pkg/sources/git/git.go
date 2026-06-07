@@ -1,15 +1,4 @@
-// Package git is a Source that walks the commit history of a local git
-// repository and emits one Chunk per added/modified file blob per commit.
-//
-// We diff each commit against its first parent (or against an empty tree for
-// root commits) rather than walking every blob in every commit's tree. The
-// first-parent diff is what humans associate with "what this commit
-// introduced", and it keeps the chunk count proportional to changes rather
-// than to repository size — a 10k-commit repo with a 1MB blob touched twice
-// scans 2 chunks here, not 10k.
-//
-// Remote URLs (https://..., git@...) are out of scope for now; this source
-// only operates on a working tree that already exists on disk.
+// Package git walks local git history and emits changed blobs.
 package git
 
 import (
@@ -34,25 +23,14 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
-// binarySniffLen mirrors the filesystem source: presence of a NUL byte in the
-// first 512 bytes of a blob classifies it as binary and skips emission.
 const binarySniffLen = 512
 
-// maxBlobSize caps the per-blob read size. go-git's blob.Reader is unbounded;
-// without this guard a single multi-GB blob in history could OOM the scanner.
 const maxBlobSize int64 = 50 * 1024 * 1024 // 50 MiB
 
 func init() {
 	sources.Register(sources.SourceGit, func() sources.Source { return &Source{} })
 }
 
-// Config is the JSON shape passed to Init.
-//
-// Repo is the path to the working tree (or a bare repo). Branch defaults to
-// HEAD. MaxDepth caps the number of commits walked (0 = unbounded). Since is
-// an RFC3339 cutoff applied to commit timestamp; commits older than Since are
-// skipped. Include/Exclude are filepath.Match-style globs evaluated against
-// the path of each changed file relative to the repo root.
 type Config struct {
 	Repo     string   `json:"repo"`
 	Branch   string   `json:"branch,omitempty"`
@@ -93,8 +71,6 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, v
 	if err != nil {
 		return fmt.Errorf("git: resolve repo path: %w", err)
 	}
-	// Open eagerly so a missing/invalid repo is a hard Init failure rather
-	// than a silent zero-chunk scan.
 	if _, err := git.PlainOpen(abs); err != nil {
 		return fmt.Errorf("git: open repo %q: %w", abs, err)
 	}
@@ -105,8 +81,6 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, v
 		}
 		s.since = t
 	}
-	// Validate globs up front: filepath.Match returns ErrBadPattern only on
-	// malformed patterns, so a dummy match is enough to surface user error.
 	for _, p := range append(append([]string{}, cfg.Include...), cfg.Exclude...) {
 		if _, err := filepath.Match(p, "x"); err != nil {
 			return fmt.Errorf("git: bad glob %q: %w", p, err)
@@ -138,8 +112,6 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 		return err
 	}
 
-	// Collect commits oldest-first so that the diff direction "this commit's
-	// new content vs its parent" reads naturally for downstream consumers.
 	commits, err := s.collectCommits(repo, startHash)
 	if err != nil {
 		return err
@@ -156,9 +128,7 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	return nil
 }
 
-// ResourceFingerprint identifies the git resource set by the resolved start
-// commit. Scan config is hashed separately by the CLI, so the source digest can
-// stay focused on repository content identity.
+// ResourceFingerprint identifies the scanned git resource set.
 func (s *Source) ResourceFingerprint(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -178,11 +148,7 @@ func (s *Source) ResourceFingerprint(ctx context.Context) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// resolveStart picks the commit hash to start the walk from. The branch flag
-// wins; otherwise we fall back to HEAD. We resolve to a branch ref before
-// HEAD because plumbing.Revision lookup on bare branch names ("main") fails
-// when no remote tracking ref exists — go-git only checks heads/<name> when
-// asked explicitly.
+// resolveStart picks the commit hash to start the walk from.
 func (s *Source) resolveStart(repo *git.Repository) (plumbing.Hash, error) {
 	if s.branch != "" {
 		ref, err := repo.Reference(plumbing.NewBranchReferenceName(s.branch), true)
@@ -198,9 +164,7 @@ func (s *Source) resolveStart(repo *git.Repository) (plumbing.Hash, error) {
 	return head.Hash(), nil
 }
 
-// collectCommits walks reachable history newest-first (go-git's natural order)
-// then reverses to oldest-first. We apply max_depth and since filters during
-// walk so a 50k-commit repo with --since=last-week stops near-immediately.
+// collectCommits returns commits in oldest-first order.
 func (s *Source) collectCommits(repo *git.Repository, start plumbing.Hash) ([]*object.Commit, error) {
 	iter, err := repo.Log(&git.LogOptions{From: start})
 	if err != nil {
@@ -211,9 +175,6 @@ func (s *Source) collectCommits(repo *git.Repository, start plumbing.Hash) ([]*o
 	var commits []*object.Commit
 	err = iter.ForEach(func(c *object.Commit) error {
 		if !s.since.IsZero() && c.Committer.When.Before(s.since) {
-			// History is committer-time-monotonic only on linear branches;
-			// stopping early on the first hit would prune real ancestors on
-			// merge-heavy repos. Skip-but-continue is the safe default.
 			return nil
 		}
 		commits = append(commits, c)
@@ -226,21 +187,15 @@ func (s *Source) collectCommits(repo *git.Repository, start plumbing.Hash) ([]*o
 		return nil, fmt.Errorf("git: iterate commits: %w", err)
 	}
 
-	// Reverse to oldest-first. Stable sort by committer time gives a
-	// deterministic order across runs even when two commits share a tick.
 	sort.SliceStable(commits, func(i, j int) bool {
 		return commits[i].Committer.When.Before(commits[j].Committer.When)
 	})
 	return commits, nil
 }
 
-// errStorerStop is a sentinel used to bail out of go-git's ForEach early.
-// go-git treats any non-nil error from the callback as a terminator.
 var errStorerStop = errors.New("git: stop iteration")
 
-// emitCommit diffs the commit against its first parent and emits one Chunk
-// per added/modified file. Root commits (no parents) are diffed against the
-// empty tree so initial-commit content still gets scanned.
+// emitCommit diffs the commit against its first parent.
 func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *sources.Chunk) error {
 	newTree, err := c.Tree()
 	if err != nil {
@@ -249,10 +204,6 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 
 	var oldTree *object.Tree
 	if c.NumParents() > 0 {
-		// First-parent diff: matches the conventional "what did this commit
-		// introduce" notion. Multi-parent merges scan only the first-parent
-		// delta — the second-parent side will be picked up when its own
-		// commits come around in the linear walk.
 		parent, err := c.Parent(0)
 		if err == nil {
 			oldTree, _ = parent.Tree()

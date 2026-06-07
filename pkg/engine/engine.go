@@ -1,9 +1,4 @@
-// Package engine drives the scan loop: it pulls chunks from a Source, runs
-// each registered Detector against chunks whose data contains at least one of
-// the detector's keywords, and forwards results to the configured output sink.
-//
-// This file contains only the skeleton; concrete chunking, dedup, and filter
-// behavior lives in dedup.go / filter.go and is filled in by core-engineer.
+// Package engine drives chunk dispatch, detector execution, and sink emission.
 package engine
 
 import (
@@ -23,13 +18,6 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
-// Finding is the engine's per-emit payload. VerifierBacked is stamped by
-// scanChunkLeaf via a runtime interface assertion against the emitting
-// detector and is the input to dedup's cross-detector collision rule
-// (Verifier > non-Verifier when two detectors fire on identical raw
-// bytes at the same location). Keeping it on the Finding rather than
-// re-running the assertion in dedup means the dedup sink stays free of
-// detector-package coupling.
 type Finding struct {
 	Result         detectors.Result
 	Chunk          *sources.Chunk
@@ -48,41 +36,18 @@ type Options struct {
 }
 
 type Engine struct {
-	opts Options
-	dets []detectors.Detector
-	// isVerifier[i] is true when dets[i] satisfies detectors.Verifier.
-	// Cached at construction time so the hot path doesn't re-run the
-	// interface assertion per chunk.
-	isVerifier []bool
-	// wantsFull[i] is true when dets[i] opted in via FullChunkDetector.
-	// Dispatch then passes the entire variant data (not a vicinity
-	// slice) so BEGIN/END-style anchored regexes don't get split.
-	wantsFull []bool
-	// prefilter is the Aho-Corasick keyword matcher across the union of
-	// every detector's lower-cased keywords. detectorIdxByPattern[p]
-	// lists the detector indices unlocked when pattern p matches. Both
-	// are nil when the engine has no detectors (test seam).
+	opts                 Options
+	dets                 []detectors.Detector
+	isVerifier           []bool
+	wantsFull            []bool
 	prefilter            *ahocorasick.Matcher
 	detectorIdxByPattern [][]int
-	// lowerBufPool holds reusable lower-case scratch buffers (one per
-	// scan invocation; sized to the chunk being scanned). Avoids the
-	// per-detector bytes.ToLower copy that dominated the cold path.
-	lowerBufPool sync.Pool
-	// seenBufPool holds reusable bool[] of length len(dets), used by
-	// scanChunkLeaf to collect "which detectors got a keyword hit"
-	// without allocating per chunk.
-	seenBufPool sync.Pool
-	sink        Sink
-	stats       statsCounters
+	lowerBufPool         sync.Pool
+	seenBufPool          sync.Pool
+	sink                 Sink
+	stats                statsCounters
 }
 
-// Stats summarises a completed scan. It is the user-facing snapshot derived
-// from the engine's atomic counters; safe to serialise as JSON.
-//
-// Chunks counts every leaf chunk after archive expansion (one zip entry
-// scanned = one chunk). Bytes counts the raw bytes fed to the keyword
-// match — decoder variants don't double-count. Findings is the count
-// before dedup; the CLI's countingSink owns the post-dedup tally.
 type Stats struct {
 	Chunks   int64         `json:"chunks"`
 	Bytes    int64         `json:"bytes"`
@@ -90,19 +55,12 @@ type Stats struct {
 	Duration time.Duration `json:"duration"`
 }
 
-// statsCounters holds the engine-side atomic counters. Lives alongside the
-// Engine rather than as a separate field on Run so partial progress is
-// observable from another goroutine if ever needed (eg a future progress
-// reporter polling on a tick).
 type statsCounters struct {
 	chunks   atomic.Int64
 	bytes    atomic.Int64
 	findings atomic.Int64
 }
 
-// Stats returns a snapshot of the engine counters. Run() calls this at the
-// end and stamps Duration; callers that want intermediate progress can poll
-// this directly (Duration will be zero in that case).
 func (e *Engine) Stats() Stats {
 	return Stats{
 		Chunks:   e.stats.chunks.Load(),
@@ -115,20 +73,6 @@ func New(opts Options, sink Sink) *Engine {
 	return NewWithDetectors(detectors.All(), opts, sink)
 }
 
-// NewWithDetectors builds an engine with an explicit detector list. The CLI
-// uses this to compose registered built-ins with custom rules loaded from
-// disk; tests use it to inject pinpoint detectors. Concurrency is clamped
-// here so callers don't need to remember the floor.
-//
-// Detector ordering matters for the dedup cross-detector collision rule:
-// when a provider-specific Verifier-backed detector and the generic
-// high-entropy detector both fire on the same raw bytes at the same
-// location, dedup keeps the first emitted finding for that key.
-// Putting Verifier-backed detectors first means the provider hit lands
-// before generic — the user sees the higher-confidence finding and the
-// generic noise is suppressed downstream. The sort is stable so the
-// relative order of Verifier-backed detectors (and the relative order
-// of non-Verifier detectors) is preserved.
 func NewWithDetectors(dets []detectors.Detector, opts Options, sink Sink) *Engine {
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = 8
@@ -137,7 +81,6 @@ func NewWithDetectors(dets []detectors.Detector, opts Options, sink Sink) *Engin
 	sort.SliceStable(ordered, func(i, j int) bool {
 		_, vi := ordered[i].(detectors.Verifier)
 		_, vj := ordered[j].(detectors.Verifier)
-		// true (Verifier-backed) sorts before false.
 		return vi && !vj
 	})
 	isVerifier := make([]bool, len(ordered))
@@ -159,16 +102,6 @@ func NewWithDetectors(dets []detectors.Detector, opts Options, sink Sink) *Engin
 	return e
 }
 
-// buildPrefilter constructs the Aho-Corasick automaton over the union of
-// lower-cased detector keywords. Multiple detectors may share a keyword
-// ("key", "token", "api"); each keyword becomes one pattern, and the
-// pattern's detectorIdxByPattern entry lists every detector that asked for
-// it. The single pass at scan time then unions those lists.
-//
-// Keywords are stored lower-cased; the scan path lower-cases the input
-// once into a pooled buffer to match. Empty keyword lists make the
-// detector unreachable through the prefilter — same semantics as the old
-// keywordMatch, which returned false for an empty list.
 func (e *Engine) buildPrefilter() {
 	if len(e.dets) == 0 {
 		return
@@ -207,17 +140,11 @@ func (e *Engine) buildPrefilter() {
 	}
 }
 
-// Run streams chunks from src and dispatches them across worker goroutines.
-// Returns when src.Chunks returns or ctx is cancelled. Engine stats are
-// available via Stats() during and after Run; the returned Stats has its
-// Duration field stamped from the wall-clock time of the call.
 func (e *Engine) Run(ctx context.Context, src sources.Source) error {
 	_, err := e.RunWithStats(ctx, src)
 	return err
 }
 
-// RunWithStats is Run plus a Stats snapshot. The CLI uses this to render
-// "Scanned N chunks in T" on stderr without re-fetching from the engine.
 func (e *Engine) RunWithStats(ctx context.Context, src sources.Source) (Stats, error) {
 	start := time.Now()
 	ch := make(chan *sources.Chunk, e.opts.Concurrency*2)
@@ -241,20 +168,8 @@ func (e *Engine) RunWithStats(ctx context.Context, src sources.Source) (Stats, e
 	return s, srcErr
 }
 
-// scanChunk expands archive chunks and dispatches every (inner) leaf
-// chunk to scanChunkLeaf. archive.Walk has partial-failure semantics: a
-// failure part-way through a multi-entry or nested archive (e.g. a
-// corrupt gzip member inside a tar) stops iteration, so entries after
-// the failure are not returned and therefore not scanned. We log the
-// error rather than discarding it so silently incomplete scans are
-// observable; the entries collected before the failure are still
-// scanned.
+// scanChunk expands archive chunks and dispatches every leaf chunk.
 func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
-	// Archive expansion runs first: if the chunk is a zip / tar / gzip,
-	// every inner entry becomes a synthetic chunk and is scanned in
-	// place. Plain (non-archive) chunks fall through to the decoder
-	// pipeline below unchanged. archive.Walk returns nil quickly for
-	// non-archive bytes, so the cold path is one byte-prefix compare.
 	if archive.LooksLikeArchive(c.Data) {
 		entries, err := archive.Walk(archiveRootName(c), c.Data, archive.Limits{})
 		if err != nil {

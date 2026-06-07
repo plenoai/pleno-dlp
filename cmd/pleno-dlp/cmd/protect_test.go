@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// TestExtractAddedLines verifies the core diff-filtering logic:
-// only '+'-prefixed lines (minus the '+++' file header) should
-// reach the scanner. Removed lines and context lines must be
-// dropped so pre-commit never fires on secrets being deleted.
 func TestExtractAddedLines(t *testing.T) {
 	diff := `diff --git a/config.go b/config.go
 index abc..def 100644
@@ -23,22 +19,18 @@ index abc..def 100644
 
 	got := extractAddedLines(diff)
 
-	// Added line must be present (without the leading '+').
 	if !strings.Contains(got, "aws_access_key=AKIA1234567890ABCDEF") {
 		t.Errorf("added line missing from result:\n%s", got)
 	}
 
-	// Removed line must not appear.
 	if strings.Contains(got, "old_key=") || strings.Contains(got, "AKIAIOSFODNN7EXAMPLE") {
 		t.Errorf("removed line leaked into result:\n%s", got)
 	}
 
-	// Context line must not appear.
 	if strings.Contains(got, "context line") {
 		t.Errorf("context line leaked into result:\n%s", got)
 	}
 
-	// '+++' file header must not appear.
 	if strings.Contains(got, "+++") {
 		t.Errorf("diff header leaked into result:\n%s", got)
 	}

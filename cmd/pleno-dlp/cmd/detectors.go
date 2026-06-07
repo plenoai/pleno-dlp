@@ -1,7 +1,4 @@
-// Operator-facing introspection over the registered detector set. Lives
-// alongside scan.go so both commands share Root and the blank-imports
-// that populate the detector registry — the list output stays in sync
-// with whatever the scanner actually runs without a hand-maintained map.
+// Operator-facing introspection over the registered detector set.
 package cmd
 
 import (
@@ -17,18 +14,11 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors/verifycoverage"
 )
 
-// detectorsCmd is the parent for all introspection subcommands. Today
-// only `list` exists; future siblings (`describe <type>`, `keywords
-// <type>`) attach here without crowding the top-level help.
 var detectorsCmd = &cobra.Command{
 	Use:   "detectors",
 	Short: "Introspect the registered detector set",
 }
 
-// listFormat captures the --format choice. Stays in this file rather
-// than alongside scanFlags because scan and detectors output are
-// independent — the flag parser shouldn't suggest cross-talk between
-// them.
 type detectorsListFlags struct {
 	format        string
 	verifyStatus  bool
@@ -62,26 +52,14 @@ func init() {
 	Root.AddCommand(detectorsCmd)
 }
 
-// detectorRecord is the JSON shape one row maps to. Stable wire format
-// — additions go at the end, never reorder, so downstream tooling
-// (audit dashboards, CI matrices) can pin to fields they care about.
+// detectorRecord is the JSON shape for one row.
 type detectorRecord struct {
-	Type     string   `json:"type"`
-	Keywords []string `json:"keywords"`
-	Verifies bool     `json:"verifies"`
-	// VerifyStatus is "verified" | "unverified-by-design" | "verify-gap".
-	// Empty when --verify-status is not requested so the JSON shape
-	// stays minimal for callers that do not care about the audit class.
-	VerifyStatus string `json:"verify_status,omitempty"`
-	// Revokes reports whether the detector implements detectors.Revoker.
-	// `false` does not always mean "not implementable" — for many
-	// providers there is simply no public revocation API. See
-	// RevokeStatus for the human-readable classification.
-	Revokes bool `json:"revokes,omitempty"`
-	// RevokeStatus is "supported" | "context-required" | "unsupported".
-	// Empty when --revoke-support is not requested so the JSON shape
-	// stays minimal for callers that do not care about revoke routing.
-	RevokeStatus string `json:"revoke_status,omitempty"`
+	Type         string   `json:"type"`
+	Keywords     []string `json:"keywords"`
+	Verifies     bool     `json:"verifies"`
+	VerifyStatus string   `json:"verify_status,omitempty"`
+	Revokes      bool     `json:"revokes,omitempty"`
+	RevokeStatus string   `json:"revoke_status,omitempty"`
 }
 
 func runDetectorsList(cmd *cobra.Command, _ []string) error {
@@ -101,9 +79,6 @@ func runDetectorsList(cmd *cobra.Command, _ []string) error {
 		enc.SetIndent("", "  ")
 		return enc.Encode(rows)
 	case "names":
-		// One detector type per line — what `--list-detectors | grep`
-		// or `xargs` users want. Sorted alphabetically so consecutive
-		// runs are byte-identical (assertable in CI).
 		for _, r := range rows {
 			fmt.Fprintln(cmd.OutOrStdout(), r.Type)
 		}
@@ -113,9 +88,7 @@ func runDetectorsList(cmd *cobra.Command, _ []string) error {
 	}
 }
 
-// buildDetectorRecords snapshots the registry into a stable-ordered
-// slice. The source of truth is detectors.All(); we sort by type name
-// so output is deterministic across runs (Go map iteration order isn't).
+// buildDetectorRecords snapshots the registry into a stable-ordered slice.
 func buildDetectorRecords() []detectorRecord {
 	all := detectors.All()
 	out := make([]detectorRecord, 0, len(all))
@@ -133,32 +106,12 @@ func buildDetectorRecords() []detectorRecord {
 	return out
 }
 
-// revokeContextRequired enumerates detectors whose Revoker
-// implementation is wired but cannot run without operator-supplied
-// principal context (e.g. AWS needs admin IAM creds + the target IAM
-// user name; the access-key id alone is insufficient). These render
-// as "context-required" rather than plain "supported" so audit
-// readers can see they need extra setup before scan
-// --revoke-on-verified will revoke them.
-//
-// Pinned to DetectorType identifiers (not name strings) so renames in
-// the wire-stable enum cannot silently flip a row's classification.
+// revokeContextRequired enumerates detectors that need extra operator context.
 var revokeContextRequired = map[detectors.DetectorType]struct{}{
 	detectors.AWS: {},
 }
 
-// annotateRevokeSupport fills RevokeStatus on each row using the
-// implementation surface plus the context-required allowlist:
-//
-//   - implements Revoker AND in revokeContextRequired → "context-required"
-//   - implements Revoker → "supported"
-//   - does not implement Revoker → "unsupported"
-//
-// We deliberately do not distinguish "no public API" from "not yet
-// implemented" here — that is a docs/revoke-support.md concern. The
-// CLI flag's job is to answer "would scan --revoke-on-verified do
-// anything for this detector?", and that question is binary at the
-// implementation layer.
+// annotateRevokeSupport fills RevokeStatus from implementation plus allowlist.
 func annotateRevokeSupport(rows []detectorRecord) {
 	all := detectors.All()
 	byName := make(map[string]detectors.DetectorType, len(all))
@@ -200,9 +153,6 @@ func writeDetectorTable(w cobraWriter, rows []detectorRecord) error {
 	fmt.Fprintln(tw, strings.Join(header, "\t"))
 
 	for _, r := range rows {
-		// Cap keyword list at 3 entries per row — the full set is
-		// available via --format=json. Keeps the table narrow enough
-		// for an 80-column terminal.
 		kw := r.Keywords
 		more := ""
 		if len(kw) > 3 {

@@ -1,9 +1,4 @@
-// Command pleno-dlp is a Go-native secret scanner with a
-// trufflehog-compatible detector layer and a fresh source-connector layer.
-//
-// Subcommand wiring lives in cmd/pleno-dlp/cmd/*.go. This file
-// is intentionally thin: build metadata injection, blank-import manifests,
-// and the exit-code mapping are the only concerns here.
+// Command pleno-dlp wires build metadata, registries, and exit codes.
 package main
 
 import (
@@ -13,9 +8,7 @@ import (
 
 	"github.com/plenoai/pleno-dlp/cmd/pleno-dlp/cmd"
 
-	// Blank-imports activate detector and source self-registration. Each
-	// concrete provider lives behind a manifest package so adding one is a
-	// one-line edit there, not here.
+	// Activate detector and source self-registration.
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/all"
 	_ "github.com/plenoai/pleno-dlp/pkg/sources/all"
 )
@@ -34,10 +27,7 @@ func main() {
 	if cmd.IsFindingsError(err) {
 		os.Exit(1)
 	}
-	// Verify-failed is a "negative result" rather than an error: the
-	// provider responded cleanly with 401/403, the call itself succeeded.
-	// Map it to exit 1 to match `IsFindingsError` so CI scripts can dispatch
-	// uniformly on "command ran but the answer is no".
+	// Treat verify-failed like findings: the command succeeded, the answer was "no".
 	if cmd.IsVerifyError(err) {
 		os.Exit(1)
 	}

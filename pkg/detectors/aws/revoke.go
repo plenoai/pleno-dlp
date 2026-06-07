@@ -1,29 +1,4 @@
-// Package aws — Revoke implementation (issue #73).
-//
-// AWS revocation is structurally different from the other Revokers in
-// this tree. GitHub / GitLab / Slack let the *holder of the secret*
-// revoke the secret itself; the only credential needed is the secret
-// (or the OAuth-app pair that minted it). AWS does not work that way:
-// `iam:DeleteAccessKey` is a *principal-context* operation —
-// revoking access key `AKIA...` requires (1) admin IAM credentials
-// authorised to call iam:DeleteAccessKey, and (2) the IAM user the key
-// belongs to (`UserName`). Neither piece is recoverable from the leaked
-// access-key id alone.
-//
-// We therefore require the operator to supply both the admin
-// credentials and the target user name out-of-band, via
-// SetRevokeCredentials (CLI plumbing) or via the
-// PLENO_DLP_REVOKE_AWS_* env vars. Without them Revoke returns a hard
-// error so a misconfigured CI does not silently no-op.
-//
-// Implementation note: the SigV4 signer is implemented inline rather
-// than via aws-sdk-go-v2's signer/v4 package. The detector dispatch
-// path is hot and the SDK signer pulls in middleware/retry machinery
-// we do not need for a single fire-and-forget POST. Inline keeps the
-// dependency surface honest (already importing aws-sdk-go-v2 for
-// sts:GetCallerIdentity in Verify) and keeps the revoke path
-// independent of SDK retry timing — Revoke's policy is "one attempt,
-// surface the result", not "retry on transient signing errors".
+// Package aws includes the AWS revoke implementation.
 package aws
 
 import (
@@ -46,17 +21,11 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// apiBase is overridable from tests so revoke can hit an httptest server.
-// The real IAM endpoint is global (region in the SigV4 signature is
-// always "us-east-1" — IAM is a global service).
+// apiBase is overridable from tests.
 var apiBase = "https://iam.amazonaws.com"
 
-// httpClient is shared across Revoke calls. 10s timeout matches Verify.
 var revokeHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
-// Env variable names for the admin IAM credentials Revoke needs.
-// Documented here so cmd/pleno-dlp/cmd/revoke.go and
-// docs/revoke-support.md stay in sync with the canonical source.
 const (
 	EnvAdminAccessKeyID     = "PLENO_DLP_REVOKE_AWS_ADMIN_ACCESS_KEY_ID"
 	EnvAdminSecretAccessKey = "PLENO_DLP_REVOKE_AWS_ADMIN_SECRET_ACCESS_KEY"
@@ -65,15 +34,10 @@ const (
 	EnvUserName             = "PLENO_DLP_REVOKE_AWS_USER_NAME"
 )
 
-// defaultRevokeRegion is used when the operator does not explicitly set
-// a region. IAM is global; us-east-1 is the canonical signing region.
+// defaultRevokeRegion is the default IAM signing region.
 const defaultRevokeRegion = "us-east-1"
 
-// revokeCreds holds the admin IAM credentials Revoke uses. Same
-// rationale as the GitHub detector: Scanner is a value type registered
-// through detectors.Register and shared across detector dispatch, so a
-// package-level mutex-guarded struct is simpler than threading state
-// through Scanner.
+// revokeCreds holds the admin IAM credentials Revoke uses.
 var (
 	revokeCredsMu sync.RWMutex
 	revokeCreds   struct {
@@ -85,10 +49,6 @@ var (
 	}
 )
 
-// SetRevokeCredentials wires the admin IAM credentials and target
-// user name Revoke uses. Calling with all-empty args clears prior
-// state (useful in tests). Region falls back to us-east-1 when
-// unset.
 func SetRevokeCredentials(adminAccessKeyID, adminSecretAccessKey, sessionToken, region, userName string) {
 	revokeCredsMu.Lock()
 	revokeCreds.accessKeyID = adminAccessKeyID
@@ -128,39 +88,10 @@ func loadRevokeCreds() (accessKeyID, secretAccessKey, sessionToken, region, user
 	return
 }
 
-// Revoke implements detectors.Revoker for AWS access-key id secrets.
-//
-// The endpoint is `POST https://iam.amazonaws.com/` with a
-// form-encoded body invoking the DeleteAccessKey action. AWS's
-// documented response codes (after SigV4 auth):
-//
-//   - 200 OK                                        -> revoked. Revoked = true.
-//   - 404 / Error code "NoSuchEntity"               -> already revoked or
-//     never existed. Revoked = true (idempotency contract — second-call
-//     against an already-revoked secret MUST NOT hard-fail). Diagnostic
-//     in RevokeResult.Err so the caller can distinguish "we revoked
-//     just now" from "it was already gone".
-//   - 403 / "AccessDenied" / "InvalidClientTokenId" /
-//     "SignatureDoesNotMatch"                       -> hard error via the
-//     second return value (admin creds don't have iam:DeleteAccessKey,
-//     or the creds are wrong / expired).
-//   - 429 ThrottlingException / Throttling          -> hard error, no retry.
-//   - other                                         -> hard error with status + body snippet.
-//
-// Revoke is irreversible. Per ADR-0001 D6 the CLI gates this behind
-// `--confirm` / `--dry-run` and the env var PLENO_DLP_ALLOW_REVOKE=1;
-// the detector itself does NOT enforce any local gate so dry-run /
-// confirmation policy lives uniformly at the CLI boundary.
-//
-// ProviderID is set to the revoked AccessKeyId so audit logs can
-// cross-reference the provider's own records.
 func (Scanner) Revoke(ctx context.Context, secret string) (detectors.RevokeResult, error) {
 	if secret == "" {
 		return detectors.RevokeResult{}, errors.New("aws: revoke: empty secret")
 	}
-	// Validate input shape: only AKIA-prefixed access-key ids are
-	// revocable via iam:DeleteAccessKey. Secret access keys, session
-	// tokens (ASIA), and other AWS credential classes are out of scope.
 	if !isAccessKeyID(secret) {
 		return detectors.RevokeResult{}, errors.New("aws: revoke: secret must be an Access Key ID (AKIA...)")
 	}
@@ -205,10 +136,6 @@ func (Scanner) Revoke(ctx context.Context, secret string) (detectors.RevokeResul
 
 	revokedAt := time.Now().UTC()
 
-	// AWS query API conventionally returns 4xx on errors and 200 on
-	// success, with an XML <Error><Code>...</Code></Error> envelope
-	// under the failure cases. Inspect the body for the error code so
-	// we route NoSuchEntity to idempotency rather than to a hard fail.
 	if resp.StatusCode == http.StatusOK {
 		return detectors.RevokeResult{Revoked: true, RevokedAt: revokedAt, ProviderID: secret}, nil
 	}
@@ -216,7 +143,6 @@ func (Scanner) Revoke(ctx context.Context, secret string) (detectors.RevokeResul
 	code := extractErrorCode(respBody)
 	switch code {
 	case "NoSuchEntity":
-		// Idempotent: key already gone (or the user has no such key).
 		return detectors.RevokeResult{
 			Revoked:    true,
 			RevokedAt:  revokedAt,

@@ -1,26 +1,13 @@
 # Verify coverage audit
 
-This file is the source of truth for which detectors under
-`pkg/detectors/<provider>/` implement live verification (call the
-provider API to confirm a candidate secret), which are deliberately
-shipped without verification, and which are currently regex-only with a
-verifiable upstream that we just have not wired yet.
+This page classifies each registered detector as verifier-backed or
+unverified-by-design. The machine block is parsed by
+`pkg/detectors/verifycoverage_test.go`.
 
-The fenced ` ```coverage-machine ` block at the end of this document is
-machine-readable. `pkg/detectors/verifycoverage_test.go` walks the
-registry, asserts every registered `DetectorType` appears here exactly
-once, and fails CI on drift (count change, classification change, or
-a registered detector missing from the doc).
-
-Counts are pinned at the top of the machine block. Total = 600
-(598 secret + 1 NER-backed PIIAnonymize detector + 1 transformer-backed
-PIIOpenAIPF detector). The four legacy regex PII detectors (piiemail /
-piicc / piiiban / piissn) were retired in favour of PIIAnonymize; their
-DetectorType constants (PIIEmail / PIIUSSSN / PIICreditCard / PIIIBAN,
-ordinals 76..79) stay pinned for wire compatibility per ADR-0002 but no
-live scan emits them, so the registry / doc drift test does not list
-them. PIIOpenAIPF (ADR-0004) is a sibling PII engine — opt-in via
-`--pii-engine=openai-pf`, mutually exclusive with `anonymize` in v1.
+Counts are pinned in the machine block. Total = 600: 598 secret
+detectors, `PIIAnonymize`, and `PIIOpenAIPF`. The retired regex PII
+detector constants remain reserved for wire compatibility but are not
+listed because they are no longer registered.
 
 ## Severity model recap
 
@@ -53,12 +40,7 @@ function exists and is reachable from the engine — and are counted in
 class (a). Where the host shape is structurally absent from the chunk
 and no apiBase fallback is wired, the detector lives in (b) instead.
 
-The full enumeration is in the machine block. There are 540 entries;
-listing every name in prose would not add information beyond the
-machine block. Spot-check examples: `AWS`, `GitHub`, `GitHubFineGrained`,
-`SlackBotToken`, `OpenAI`, `Anthropic`, `Stripe`, `Datadog`, `OpenAI`,
-`Coinbase` (unsigned-bearer fallback — verifies via HTTP 401 → false),
-plus most batch 1–40 detectors that hit a public API host.
+The full enumeration lives in the machine block.
 
 ## (b) Unverified-by-design — 60 detectors
 
@@ -168,9 +150,7 @@ absent, so the finding acknowledges the token shape without implying live access
 
 ## Machine-readable block
 
-The `coverage-machine` block below pins counts and per-detector class.
-`pkg/detectors/verifycoverage_test.go` parses it and compares against
-the live `detectors.All()` registry.
+The `coverage-machine` block pins counts and per-detector class.
 
 - `class=a` → Verify implemented (detector satisfies `detectors.Verifier`)
 - `class=b` → Unverified-by-design (no Verify, deliberate)
@@ -241,7 +221,5 @@ type=Wiz class=b
 type=Zoho class=b
 ```
 
-The `class=a` membership is the open-set complement: every registered
-DetectorType not listed above is in (a). The CI test enforces this —
-adding a new detector without listing it as `b` here, AND
-without implementing `Verify`, will fail.
+`class=a` is the open-set complement of the list above. Adding a new
+detector without `Verify` and without listing it as `b` will fail CI.

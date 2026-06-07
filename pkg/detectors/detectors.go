@@ -1,6 +1,4 @@
-// Package detectors defines the trufflehog-compatible Detector interface and
-// the Result shape returned to the engine. Concrete detectors live under
-// pkg/detectors/<provider>/ and self-register in registry.go via init().
+// Package detectors defines the detector interfaces and result types.
 package detectors
 
 import (
@@ -8,8 +6,7 @@ import (
 	"time"
 )
 
-// DetectorType is a stable identifier for each detector. Values are stable
-// across releases; new detectors get a new value, never reuse retired ones.
+// DetectorType is a stable identifier for each detector.
 type DetectorType int32
 
 const (
@@ -27,7 +24,7 @@ const (
 	JWT
 	PrivateKeyPEM
 	GenericHighEntropy
-	// New constants are appended below — values are wire-stable, never reorder.
+	// Append new constants only; never reorder.
 	Datadog
 	NPM
 	PyPI
@@ -60,7 +57,7 @@ const (
 	Mailchimp
 	Postmark
 	Okta
-	// batch 4 — appended in wire-stable order; never reorder.
+	// batch 4 — append-only.
 	Jira
 	Confluence
 	BitbucketCloud
@@ -76,7 +73,7 @@ const (
 	OpenRouter
 	Together
 	Dropbox
-	// batch 5 — appended in wire-stable order; never reorder.
+	// batch 5 — append-only.
 	AzureAD
 	Telegram
 	Shodan
@@ -92,33 +89,12 @@ const (
 	CircleCI
 	Snyk
 	Spotify
-	// PII class — appended in wire-stable order; never reorder. PII
-	// detectors set ExtraData["finding_class"]="pii" so downstream
-	// callers can route by class (rotate-the-token logic for secrets vs
-	// access-control logic for PII).
-	//
-	// Ordinals 76..79 (PIIEmail / PIIUSSSN / PIICreditCard / PIIIBAN)
-	// are RETAINED for wire compatibility per ADR-0002. The four
-	// regex-based detectors that emitted these types are removed and
-	// replaced by PIIAnonymize (NER-backed). Historical JSON outputs
-	// referencing these values continue to decode; new scans no longer
-	// emit them.
-	//
-	// Deprecated: superseded by PIIAnonymize. The detector for this
-	// type has been removed; the constant remains pinned at its
-	// ordinal for wire-format stability and must not be reused.
+	// PII class — append-only. Legacy ordinals stay pinned for compatibility.
 	PIIEmail
-	// Deprecated: superseded by PIIAnonymize. See PIIEmail above.
 	PIIUSSSN
-	// Deprecated: superseded by PIIAnonymize. See PIIEmail above.
 	PIICreditCard
-	// Deprecated: superseded by PIIAnonymize. See PIIEmail above.
 	PIIIBAN
-	// batch 6 — appended in wire-stable order; never reorder. Secret
-	// detectors land after the PII block because the wire format is
-	// append-only — even though PII is a different finding class,
-	// reusing values 80+ for non-PII detectors keeps existing PII
-	// constants pinned at 76..79.
+	// batch 6 — append-only.
 	AWSSession
 	AzureSAS
 	GCPOAuth
@@ -134,14 +110,7 @@ const (
 	Figma
 	Zoom
 	Klaviyo
-	// batch 7 — appended in wire-stable order, never reorder. Enterprise-
-	// parity coverage: Alibaba/Tencent (regional clouds), Azure App Service
-	// secrets distinct from AzureAD client secrets, Databricks PATs,
-	// Datadog application keys (single-key surface), Doppler CLI tokens
-	// (different scope+endpoint than service tokens), Freshdesk / Zendesk
-	// support-platform tokens, GCP ID tokens, HashiCorp Cloud Platform,
-	// LaunchDarkly relay-proxy tokens, ngrok / Opsgenie SRE tooling,
-	// Snowflake JWT keypair auth, Terraform Cloud team tokens.
+	// batch 7 — append-only.
 	AlibabaCloud
 	AzureApp
 	Databricks
@@ -157,11 +126,7 @@ const (
 	TencentCloud
 	TerraformCloudTeam
 	Zendesk
-	// batch 8 — appended in wire-stable order, never reorder. Connection-
-	// string and URL-embedded credentials (Redis/Postgres/MySQL/MongoDB/
-	// RabbitMQ/Kafka/SMTP/HTTP-basic-auth) plus container-registry tokens
-	// (Docker Hub PAT, GHCR), AWS S3 / GCS presigned URLs, Azure SQL
-	// connection strings, kubeconfig files, and Adobe.io key+secret pairs.
+	// batch 8 — append-only.
 	Redis
 	Postgres
 	MySQL
@@ -177,14 +142,7 @@ const (
 	GCSSignedURL
 	AzureSQLConnString
 	Kubeconfig
-	// batch 9 — appended in wire-stable order, never reorder. Enterprise
-	// SaaS leverage tokens not yet covered: project-management (ClickUp,
-	// Monday, Trello), realtime chat (Gitter), release-notes (LaunchNotes),
-	// alt-cloud GPU/IaaS (Paperspace, RunPod, Modal, Linode, Vultr,
-	// Scaleway), edge-Redis (Upstash), DB platform (PlanetScale), auth
-	// platform (Clerk), and BaaS service-role (Supabase). Pair detectors
-	// here use RawV2: trello (key+token), modal (id+secret), planetscale
-	// (token-id+secret).
+	// batch 9 — append-only.
 	ClickUp
 	Monday
 	Trello
@@ -200,14 +158,7 @@ const (
 	PlanetScale
 	Clerk
 	Supabase
-	// batch 10 — appended in wire-stable order, never reorder. Identity
-	// + IT-management (OneLogin, JumpCloud), CI/CD (DroneCI, Harness),
-	// observability + cloud-security (Lacework, Sysdig), localization
-	// (Lokalise), IaC platform (Pulumi), docs/notes (Coda), email/comms
-	// (LoopsSo, Resend), mobile-app platform (AppCenter), creator-platform
-	// OAuth (Twitch), secrets-manager machine accounts (Bitwarden), and
-	// payments (Helcim). Bitwarden + Helcim ship as SeverityCritical
-	// because their leak surface is destructive money/secret access.
+	// batch 10 — append-only.
 	OneLogin
 	JumpCloud
 	Twitch
@@ -223,15 +174,7 @@ const (
 	Bitwarden
 	Resend
 	Helcim
-	// batch 11 — appended in wire-stable order, never reorder. Frontier-model
-	// admin keys (Anthropic Console), AI infra (Pinecone, Weaviate, VoyageAI,
-	// Fireworks, Cerebras), GitHub Apps installation tokens (distinct from
-	// PATs), JFrog Artifactory access tokens, Pendo integration JWTs,
-	// PostHog project keys, Sentry user tokens, Cloudflare R2 access-key +
-	// secret pair (S3-compatible), Mapbox secret tokens, Railway API tokens,
-	// and Telnyx messaging API keys. AnthropicAdmin / CloudflareR2 / Mapbox
-	// secret keys all surface SeverityCritical because they grant full
-	// account-level scope on the issuing platform.
+	// batch 11 — append-only.
 	AnthropicAdmin
 	Pinecone
 	Weaviate
@@ -247,15 +190,7 @@ const (
 	Mapbox
 	Railway
 	Telnyx
-	// batch 12 — appended in wire-stable order, never reorder. Observability
-	// + log-aggregator tokens (Splunk HEC, Elastic Cloud, Logz.io, Coralogix,
-	// Loggly), uptime monitoring (UptimeRobot, Pingdom), error-tracking
-	// (Honeybadger, Raygun), incident/status (Statuspage, VictorOps,
-	// PagerTree), and CI/CD bearer tokens (AWX/Ansible Tower, Concourse CI,
-	// TeamCity). Self-hosted CI/CD detectors (AWX, Concourse, TeamCity) and
-	// per-customer-host SaaS (SplunkHEC, ElasticCloud) ship without Verify
-	// because the host isn't in the chunk; keyword + shape gating bound
-	// the false-positive rate.
+	// batch 12 — append-only.
 	SplunkHEC
 	ElasticCloud
 	LogzIO
@@ -1026,9 +961,6 @@ const (
 	SeverityCritical Severity = 5
 )
 
-// String returns the lowercase wire form of a Severity. Unknown is rendered
-// as "info" so legacy results without a Severity field don't surface as the
-// literal "unknown" — that would falsely look like a triage failure.
 func (s Severity) String() string {
 	switch s {
 	case SeverityCritical:

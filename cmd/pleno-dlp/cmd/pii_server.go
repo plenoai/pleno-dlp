@@ -19,38 +19,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// pii-server is the foreground supervisor that materializes the
-// pleno-anonymize HTTP server via uv. Per ADR-0003 the runtime
-// dependency is uv (https://docs.astral.sh/uv/) and Python 3.12+
-// — no Docker. The strategy is a cached clone of the upstream repo
-// plus `uv sync` + `uv run`, mirroring the upstream Dockerfile so
-// the workspace dependency graph (the server depends on the SDK as
-// a `[tool.uv.sources] workspace = true` member) actually resolves:
-//
-//	pleno-dlp scan --pii-engine=anonymize ...
-//	  └─ pleno-dlp pii-server --port <ephemeral>
-//	      ├─ git clone --depth 1 [--branch ref] <url> <cache-dir>          (cold)
-//	      │  or git fetch --depth 1 origin <ref> && git checkout <ref>    (warm, unless --no-fetch)
-//	      ├─ uv sync --frozen --no-dev --package pleno-anonymize-server   (in cache-dir)
-//	      ├─ uv pip install <NER wheel URLs>                              (cold cache only;
-//	      │                                                                 sync prunes them)
-//	      └─ uv run --no-sync --package pleno-anonymize-server uvicorn \
-//	             server.src.app:app --host <host> --port <port>           (cwd = cache-dir;
-//	                                                                       --no-sync preserves
-//	                                                                       the NER wheels)
-//
-// Why the cached-clone strategy and not `uvx --from "git+...#subdirectory=server"`:
-// uvx in that form only sees server/pyproject.toml. The upstream
-// `[tool.uv.sources] pleno-anonymize = { workspace = true }` declaration
-// requires the parent workspace (root pyproject + packages/sdk/) to
-// resolve. Without those, uv cannot install the SDK dependency and
-// the server import fails. T2.1's first attempt hit exactly this
-// wall (qa T4.1 e2e, 2026-05-10).
-//
-// Network safety: --host is hard-restricted at flag parse to
-// loopback / RFC1918 / link-local. 0.0.0.0 (and any other unspecified
-// or public IP) is refused — pleno-dlp is a DLP tool and an
-// accidentally exposed analyze endpoint would relay scanned text.
+// pii-server materializes the pleno-anonymize HTTP server via uv.
+// It uses a cached clone plus `uv sync` / `uv run` so the upstream
+// workspace layout resolves correctly.
 
 type piiServerFlags struct {
 	port     int
@@ -63,27 +34,16 @@ type piiServerFlags struct {
 
 var piiServerOpts piiServerFlags
 
-// uvBin / gitBin are exposed as package vars so tests can substitute
-// fake scripts without putting them on PATH. Production always uses
-// the literal "uv" / "git". Note: we shell out to `uv`, not `uvx` —
-// `uv sync` and `uv run` are the workspace-aware verbs we need.
+// Tests can override uvBin and gitBin with fake executables.
 var (
 	uvBin  = "uv"
 	gitBin = "git"
 )
 
-// defaultPIIServerSource is the canonical clone URL. Note the
-// absence of any `#subdirectory=...` fragment: we clone the whole
-// repo and let `uv sync --package pleno-anonymize-server` do the
-// workspace selection. Operators with a local checkout override
-// via --source pointing at the workspace root.
+// defaultPIIServerSource is the canonical clone URL.
 const defaultPIIServerSource = "git+https://github.com/plenoai/pleno-anonymize.git"
 
-// nerWheelURLs lists the model wheels that uv.lock does NOT pin
-// because they live outside PyPI. The upstream Dockerfile installs
-// these AFTER uv sync (which would otherwise prune them); we mirror
-// that exact ordering. Update these when the upstream Dockerfile's
-// equivalent lines change.
+// nerWheelURLs are installed after sync because they live outside PyPI.
 var nerWheelURLs = []string{
 	"https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
 	"https://huggingface.co/0xhikae/ja-ner-ja/resolve/main/ja_ner_ja-0.2.0-py3-none-any.whl",
@@ -173,14 +133,6 @@ func runPIIServer(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Sync resolves the workspace into <workdir>/.venv. Always
-	// running it on every invocation is correct: it's a no-op when
-	// already in sync, and a fresh fetch may have moved the
-	// lockfile. The followup `uv pip install` of NER wheels only
-	// runs when sync may have pruned them — i.e. on a fresh clone
-	// or after a fetch that changed HEAD. We err on the side of
-	// always installing on `freshCheckout`; uv pip install is
-	// idempotent on already-satisfied requirements.
 	if err := runUVSync(ctx, workdir, stderr); err != nil {
 		return fmt.Errorf("uv sync: %w", err)
 	}
@@ -192,16 +144,10 @@ func runPIIServer(cmd *cobra.Command, _ []string) error {
 
 	argv := buildPIIServerArgv(uvBin, piiServerOpts.host, port)
 
-	// Print the resolved listening address before exec so a direct
-	// caller can scrape it from stdout. The line shape is
-	// intentionally stable: "pii-server: listening on HOST:PORT".
-	// When the parent is the supervisor it doesn't need to scrape
-	// (it already chose the port), so this line is harmless noise
-	// in that path; for ad-hoc invocation it is the contract.
 	fmt.Fprintf(cmd.OutOrStdout(), "pii-server: listening on %s:%d\n", piiServerOpts.host, port)
 
 	child := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	child.Dir = workdir // critical: server.src.app:app resolves against the workspace root
+	child.Dir = workdir
 	child.Stdin = cmd.InOrStdin()
 	child.Stdout = cmd.OutOrStdout()
 	child.Stderr = cmd.ErrOrStderr()
@@ -214,10 +160,6 @@ func runPIIServer(cmd *cobra.Command, _ []string) error {
 	child.WaitDelay = 5 * time.Second
 
 	if err := child.Run(); err != nil {
-		// Treat ctx-cancellation as a clean shutdown rather than an
-		// error so `pleno-dlp pii-server` returns 0 when the user
-		// hits Ctrl-C — a long-running foreground command that
-		// exit-1's on every clean shutdown is friction for nothing.
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -227,16 +169,6 @@ func runPIIServer(cmd *cobra.Command, _ []string) error {
 }
 
 // validatePIIServerHost rejects unspecified and public bind addresses.
-// Loopback, RFC1918 (IsPrivate per Go stdlib, which covers RFC4193
-// IPv6 ULA too), and link-local addresses are accepted.
-//
-// Hostnames are accepted only when they're literal "localhost"; we do
-// not attempt DNS resolution here because operators' DNS could be
-// hostile (split-horizon resolvers, /etc/hosts shenanigans) and the
-// supervisor's own loopback gate already covers the call-site path.
-// The point of this gate is to refuse the obvious-mistake values
-// (0.0.0.0, the machine's LAN IP if someone copy-pastes from a
-// general server tutorial) before the expensive uv cold-start.
 func validatePIIServerHost(host string) error {
 	host = strings.TrimSpace(host)
 	if host == "" {

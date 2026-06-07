@@ -10,19 +10,16 @@
 
 ## Purpose
 
-The scanner once had 121 secret detectors built from one template: a bare
-`\b([A-Za-z0-9]{N})\b` token regex + a `nearKeyword` proximity gate with
-`radius = 256` + no entropy floor. Any UUID, git SHA, build ID, or
-base64 blob near a provider keyword could be reported as that provider's
-secret.
+The scanner once had 121 template detectors built from a loose
+alphanumeric regex plus a wide keyword window. That shape over-reported
+UUIDs, hashes, build ids, and base64 blobs.
 
-The campaign is complete. This document is now the durable reference for
-the provider key-format research that supported that hardening. New
-detectors should reuse these cited formats when applicable and must cite
-sources for any new length or shape claim.
+The campaign is complete. This document is the durable reference for the
+format research behind that hardening. New detectors should reuse cited
+formats where possible and cite any new length or shape claim.
 
-Avoid blanket fixes. A generic entropy floor or length pin can silently
-drop real credentials for providers with short or low-variety formats.
+Avoid blanket fixes. Generic entropy or length rules can silently drop
+real credentials.
 
 ## Methodology (per detector)
 
@@ -58,7 +55,7 @@ drop real credentials for providers with short or low-variety formats.
 
 ## Reference: already hardened (the pattern to follow)
 
-These were hardened before the campaign and are the worked examples:
+These were hardened before the campaign and remain the worked examples:
 
 | Detector | Hardening | Shipped |
 |----------|-----------|---------|
@@ -74,9 +71,7 @@ These were hardened before the campaign and are the worked examples:
 ## Campaign status
 
 Complete as of 2026-06-01. All 121 template detectors were hardened
-across PRs #130-#136, building on the worked examples in #121 and #127.
-The radius-256 + bare-`strings.Contains` + no-entropy template is
-retired.
+across PRs #130-#136. The old radius-256 plus bare-keyword template is retired.
 
 ## Detectors
 

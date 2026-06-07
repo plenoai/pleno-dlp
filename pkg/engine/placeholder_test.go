@@ -7,11 +7,6 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
-// TestIsPlaceholder_Rejects covers every category named in the spec —
-// AWS's AKIAIOSFODNN7EXAMPLE (substring "EXAMPLE"), bracketed
-// templates, long X / 0 runs, exact-match generics. One table keeps
-// the rejection rationale visible per case so a future contributor
-// can tell at a glance why the literal earned its row.
 func TestIsPlaceholder_Rejects(t *testing.T) {
 	cases := []struct {
 		name string
@@ -46,11 +41,6 @@ func TestIsPlaceholder_Rejects(t *testing.T) {
 	}
 }
 
-// TestIsPlaceholder_AcceptsRealLooking guards against the substring /
-// exact split: we must NOT reject a real high-entropy token just
-// because it embeds the three letters "test" or "foo". Equally
-// important is that short runs of X / 0 inside legitimate base64 /
-// hex output sail through — the threshold has to be load-bearing.
 func TestIsPlaceholder_AcceptsRealLooking(t *testing.T) {
 	cases := []struct {
 		name string
@@ -74,9 +64,6 @@ func TestIsPlaceholder_AcceptsRealLooking(t *testing.T) {
 	}
 }
 
-// TestIsPlaceholder_EmptyRaw documents the corner case: a finding with
-// empty Raw bytes is not a placeholder — it's a malformed finding.
-// Either way it should pass through so other layers can react.
 func TestIsPlaceholder_EmptyRaw(t *testing.T) {
 	if IsPlaceholder(nil) {
 		t.Fatal("nil raw must not be classified placeholder")
@@ -86,9 +73,6 @@ func TestIsPlaceholder_EmptyRaw(t *testing.T) {
 	}
 }
 
-// TestPlaceholderSink_DropsAndCounts verifies the sink contract: drop
-// placeholder findings, forward real ones, and account for both in
-// the suppression counter so the CLI can report "filtered N".
 func TestPlaceholderSink_DropsAndCounts(t *testing.T) {
 	rec := &recordingSink{}
 	s := NewPlaceholderFilter(rec)
@@ -121,10 +105,6 @@ func TestPlaceholderSink_DropsAndCounts(t *testing.T) {
 	}
 }
 
-// TestPlaceholderSuppressedCounter_NotAPlaceholderSink documents the
-// "-1 on wrong type" contract — callers that hold a non-placeholder
-// sink should be able to distinguish "no filter installed" from
-// "filter installed, zero hits".
 func TestPlaceholderSuppressedCounter_NotAPlaceholderSink(t *testing.T) {
 	rec := &recordingSink{}
 	if got := PlaceholderSuppressedCounter(rec); got != -1 {
@@ -132,9 +112,6 @@ func TestPlaceholderSuppressedCounter_NotAPlaceholderSink(t *testing.T) {
 	}
 }
 
-// TestPlaceholderSink_CloseDelegates ensures Close propagates to the
-// inner sink — without this, a defer chain in the CLI could leak a
-// file descriptor on the output formatter.
 func TestPlaceholderSink_CloseDelegates(t *testing.T) {
 	rec := &recordingSink{}
 	s := NewPlaceholderFilter(rec)

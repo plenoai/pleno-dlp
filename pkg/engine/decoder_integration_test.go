@@ -10,9 +10,6 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
-// fakeDetector matches a fixed needle and returns its location-agnostic
-// result. Pinned to detectors.AWS so dedup keys behave identically to
-// real-world traffic.
 type fakeDetector struct{ needle string }
 
 func (f fakeDetector) Keywords() []string         { return []string{"AKIA"} }
@@ -46,7 +43,6 @@ func contains(haystack, needle []byte) bool {
 	return false
 }
 
-// fakeSource emits one chunk and closes.
 type fakeSource struct{ data []byte }
 
 func (fakeSource) Init(context.Context, string, int64, int64, bool, []byte, int) error { return nil }
@@ -67,10 +63,6 @@ func (s fakeSource) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error 
 	return nil
 }
 
-// TestDecoderIntegration_FindsBase64HiddenSecret asserts the engine
-// reaches into base64 payloads to surface secrets the source itself
-// only carries in encoded form. Without the decoder integration this
-// test fails: the AKIA string is not present in the raw chunk bytes.
 func TestDecoderIntegration_FindsBase64HiddenSecret(t *testing.T) {
 	akia := "AKIAIOSFODNN7EXAMPLE"
 	hidden := base64.StdEncoding.EncodeToString([]byte("Authorization: " + akia))
@@ -101,9 +93,6 @@ func TestDecoderIntegration_FindsBase64HiddenSecret(t *testing.T) {
 	}
 }
 
-// TestDecoderIntegration_PlainTextPathUntagged guarantees plain-text
-// hits don't gain a spurious decoded_from tag — only chunks that came
-// out of the decoder pipeline should be marked.
 func TestDecoderIntegration_PlainTextPathUntagged(t *testing.T) {
 	akia := "AKIAIOSFODNN7EXAMPLE"
 	raw := []byte("aws_access_key_id=" + akia)
@@ -129,7 +118,4 @@ func TestDecoderIntegration_PlainTextPathUntagged(t *testing.T) {
 	}
 }
 
-// _ keeps the unused-import linter quiet about sync; recordingSink
-// already imports it transitively but a direct reference is cheaper
-// than the alternative of inlining the sink.
 var _ = sync.Mutex{}
