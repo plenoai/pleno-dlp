@@ -9,7 +9,29 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
-- Documentation cleanup.
+## [0.46.0] - 2026-06-07
+
+### Fixed
+
+- **dedup + allowlist**: `locationOf()` and `findingPath()` now handle
+  GitLab, Confluence, Jira, Notion, and Bitbucket findings. Previously
+  all findings from these sources resolved to the same location key,
+  causing deduplification to suppress every occurrence after the first
+  when the same secret appeared in multiple pages or repositories.
+  Path-based allowlist rules were also silently ignored for these
+  connectors. Both functions now emit stable, connector-specific keys.
+- **Notion connector**: `do()` retry logic recreates the request body
+  on each attempt. The previous implementation reused a consumed
+  `io.Reader`, sending an empty POST body on 429 retries and receiving
+  400 responses instead of retrying successfully.
+- **SARIF output**: `semanticVersion` in the SARIF `tool.driver` block
+  now reflects the actual binary version injected by the linker. It was
+  previously hardcoded to `"0.1.0"`, breaking version-aware diffing in
+  GitHub Code Scanning.
+- **Incremental scan**: `scannerFingerprint` now includes `tool_version`
+  so incremental cache invalidates when the binary version changes. Tool
+  upgrades that improve detector regexes no longer return stale
+  false-clean results for unchanged resources.
 
 ## [0.45.0] - 2026-05-31
 
@@ -149,7 +171,8 @@ releases. Their durable references are:
 - Initial CLI with filesystem scanning, core secret detectors, and JSON
   output.
 
-[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.45.0...HEAD
+[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.46.0...HEAD
+[0.46.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.46.0
 [0.45.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.45.0
 [0.44.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.44.0
 [0.43.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.43.0
