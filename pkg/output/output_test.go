@@ -40,14 +40,14 @@ func sample() engine.Finding {
 }
 
 func TestNewSinkRejectsUnknownFormat(t *testing.T) {
-	if _, err := NewSink("yaml", &bytes.Buffer{}); err == nil {
+	if _, err := NewSink("yaml", &bytes.Buffer{}, "test"); err == nil {
 		t.Fatal("expected error for unknown format")
 	}
 }
 
 func TestJSONSinkEmitsArray(t *testing.T) {
 	var buf bytes.Buffer
-	s, err := NewSink("json", &buf)
+	s, err := NewSink("json", &buf, "test")
 	if err != nil {
 		t.Fatalf("NewSink: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestJSONSinkEmitsArray(t *testing.T) {
 
 func TestJSONSinkEmptyIsArrayNotNull(t *testing.T) {
 	var buf bytes.Buffer
-	s, _ := NewSink("json", &buf)
+	s, _ := NewSink("json", &buf, "test")
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestJSONSinkVerificationError(t *testing.T) {
 	f.Result.VerificationErr = errors.New("network down")
 
 	var buf bytes.Buffer
-	s, _ := NewSink("json", &buf)
+	s, _ := NewSink("json", &buf, "test")
 	s.Emit(f)
 	_ = s.Close()
 
@@ -113,7 +113,7 @@ func TestJSONSinkVerificationError(t *testing.T) {
 
 func TestSARIFSinkShape(t *testing.T) {
 	var buf bytes.Buffer
-	s, _ := NewSink("sarif", &buf)
+	s, _ := NewSink("sarif", &buf, "test")
 	s.Emit(sample())
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -166,7 +166,7 @@ func TestSARIFSink_BlastRadiusBumpsSecuritySeverity(t *testing.T) {
 	f.Result.ExtraData["aws_privileged"] = "true"
 
 	var buf bytes.Buffer
-	s, _ := NewSink("sarif", &buf)
+	s, _ := NewSink("sarif", &buf, "test")
 	s.Emit(f)
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -188,7 +188,7 @@ func TestSARIFSink_BlastRadiusBumpsSecuritySeverity(t *testing.T) {
 func TestSARIFSink_NoBlastRadiusNoSecuritySeverity(t *testing.T) {
 	f := sample() // sample() has no blast_radius flag
 	var buf bytes.Buffer
-	s, _ := NewSink("sarif", &buf)
+	s, _ := NewSink("sarif", &buf, "test")
 	s.Emit(f)
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -206,7 +206,7 @@ func TestSARIFSink_NoBlastRadiusNoSecuritySeverity(t *testing.T) {
 
 func TestTableSinkColumns(t *testing.T) {
 	var buf bytes.Buffer
-	s, _ := NewSink("table", &buf)
+	s, _ := NewSink("table", &buf, "test")
 	s.Emit(sample())
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -245,7 +245,7 @@ func TestTableSinkUnverifiedGlyph(t *testing.T) {
 			f.Chunk.Verify = tc.verify
 			f.Result.Verified = tc.ok
 			var buf bytes.Buffer
-			s, _ := NewSink("table", &buf)
+			s, _ := NewSink("table", &buf, "test")
 			s.Emit(f)
 			_ = s.Close()
 			if !strings.Contains(buf.String(), tc.want) {
@@ -257,7 +257,7 @@ func TestTableSinkUnverifiedGlyph(t *testing.T) {
 
 func TestTableSinkEmptyOutput(t *testing.T) {
 	var buf bytes.Buffer
-	s, _ := NewSink("table", &buf)
+	s, _ := NewSink("table", &buf, "test")
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}

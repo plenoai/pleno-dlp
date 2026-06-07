@@ -17,6 +17,7 @@ package connectors
 import (
 	"context"
 	"encoding/json"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -454,9 +455,13 @@ func newNotionClient(base, token string) *notionClient {
 	}
 }
 
-func (c *notionClient) do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
+func (c *notionClient) do(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
 	for attempt := 0; attempt < notionMaxRetries; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, method, c.url(path), body)
+		var bodyReader io.Reader
+		if body != nil {
+			bodyReader = bytes.NewReader(body)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, c.url(path), bodyReader)
 		if err != nil {
 			return nil, err
 		}
@@ -508,7 +513,7 @@ func (c *notionClient) getJSON(ctx context.Context, path string, out any) error 
 // postJSON issues a POST and decodes a 2xx body into out, applying the
 // same non-2xx rejection as getJSON.
 func (c *notionClient) postJSON(ctx context.Context, path string, body []byte, out any) error {
-	resp, err := c.do(ctx, http.MethodPost, path, strings.NewReader(string(body)))
+	resp, err := c.do(ctx, http.MethodPost, path, body)
 	if err != nil {
 		return err
 	}
