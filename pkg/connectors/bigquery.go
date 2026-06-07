@@ -176,9 +176,9 @@ type bigqueryQueryResp struct {
 			V string `json:"v"`
 		} `json:"f"`
 	} `json:"rows"`
-	PageToken    string `json:"pageToken"`
-	JobComplete  bool   `json:"jobComplete"`
-	TotalRows    string `json:"totalRows"`
+	PageToken   string `json:"pageToken"`
+	JobComplete bool   `json:"jobComplete"`
+	TotalRows   string `json:"totalRows"`
 }
 
 func (c *bigqueryClient) doReq(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
@@ -195,7 +195,7 @@ func (c *bigqueryClient) doReq(ctx context.Context, method, path string, body io
 
 func (c *bigqueryClient) runQuery(ctx context.Context, query string) (*bigqueryQueryResp, error) {
 	payload, err := json.Marshal(map[string]any{
-		"query":    query,
+		"query":        query,
 		"useLegacySql": false,
 		"maxResults":   bigqueryMaxRows,
 	})

@@ -10,12 +10,12 @@ import (
 )
 
 type datadogFlags struct {
-	apiKey  string
-	appKey  string
-	site    string
-	query   string
-	from    string
-	to      string
+	apiKey string
+	appKey string
+	site   string
+	query  string
+	from   string
+	to     string
 }
 
 var (

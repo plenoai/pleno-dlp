@@ -296,12 +296,12 @@ func runScanSQLDump(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("sqldump source is not registered (missing pkg/sources/all import?)")
 	}
 	cfg, err := json.Marshal(map[string]any{
-		"paths":           args,
-		"format":          sqldumpOpts.format,
-		"include_tables":  sqldumpOpts.includeTables,
-		"exclude_tables":  sqldumpOpts.excludeTables,
-		"max_size_bytes":  sqldumpOpts.maxSizeBytes,
-		"max_line_bytes":  sqldumpOpts.maxLineBytes,
+		"paths":            args,
+		"format":           sqldumpOpts.format,
+		"include_tables":   sqldumpOpts.includeTables,
+		"exclude_tables":   sqldumpOpts.excludeTables,
+		"max_size_bytes":   sqldumpOpts.maxSizeBytes,
+		"max_line_bytes":   sqldumpOpts.maxLineBytes,
 		"chunk_line_count": sqldumpOpts.chunkLineCount,
 	})
 	if err != nil {

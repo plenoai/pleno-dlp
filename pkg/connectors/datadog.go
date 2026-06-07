@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	datadogDefaultSite   = "https://api.datadoghq.com"
+	datadogDefaultSite    = "https://api.datadoghq.com"
 	datadogRequestTimeout = 60 * time.Second
 	datadogPageLimit      = 100
 )

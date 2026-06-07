@@ -255,8 +255,8 @@ func TestScanRedash(t *testing.T) {
 		case r.URL.Path == "/api/queries/42" && r.Method == http.MethodGet:
 			latestID := 100
 			json.NewEncoder(w).Encode(map[string]any{
-				"name":                  "test query",
-				"latest_query_data_id":  latestID,
+				"name":                 "test query",
+				"latest_query_data_id": latestID,
 			})
 		case r.URL.Path == "/api/queries/42/results":
 			json.NewEncoder(w).Encode(map[string]any{

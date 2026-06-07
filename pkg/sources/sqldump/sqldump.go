@@ -32,7 +32,7 @@ func init() {
 
 type Config struct {
 	Paths          []string `json:"paths"`
-	Format         string   `json:"format"`         // "auto", "mysql", "postgres", "sqlite"
+	Format         string   `json:"format"` // "auto", "mysql", "postgres", "sqlite"
 	MaxSizeBytes   int64    `json:"max_size_bytes"`
 	IncludeTables  []string `json:"include_tables,omitempty"`
 	ExcludeTables  []string `json:"exclude_tables,omitempty"`
