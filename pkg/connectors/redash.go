@@ -206,8 +206,8 @@ func (c *redashClient) getQueryResult(ctx context.Context, queryID int) (*redash
 		return nil, err
 	}
 	var meta struct {
-		Name             string `json:"name"`
-		LatestResultID   *int   `json:"latest_query_data_id"`
+		Name           string `json:"name"`
+		LatestResultID *int   `json:"latest_query_data_id"`
 	}
 	err = json.NewDecoder(resp.Body).Decode(&meta)
 	_ = resp.Body.Close()

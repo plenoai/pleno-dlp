@@ -113,6 +113,13 @@ func jsonSourceOf(c *sources.Chunk) jsonSource {
 		md["event_id"] = s.EventID
 		md["timestamp"] = s.Timestamp
 		md["link"] = s.Link
+	case c.SourceMetadata.SQLDump != nil:
+		d := c.SourceMetadata.SQLDump
+		md["file"] = d.File
+		md["database"] = d.Database
+		md["table"] = d.Table
+		md["line"] = d.Line
+		md["format"] = d.Format
 	}
 	if len(md) > 0 {
 		out.Metadata = md

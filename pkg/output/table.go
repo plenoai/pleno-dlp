@@ -86,6 +86,12 @@ func tableLocationOf(f engine.Finding) string {
 		return md.Forge.Repository + "@" + md.Forge.Commit + ":" + md.Forge.File + ":" + strconv.Itoa(md.Forge.Line)
 	case md.SIEM != nil:
 		return md.SIEM.Provider + "://" + md.SIEM.Host + "/" + md.SIEM.Index + "@" + md.SIEM.EventID
+	case md.SQLDump != nil:
+		loc := md.SQLDump.File + ":" + strconv.Itoa(md.SQLDump.Line)
+		if md.SQLDump.Table != "" {
+			loc += " [" + md.SQLDump.Table + "]"
+		}
+		return loc
 	}
 	return f.Chunk.SourceType.String()
 }

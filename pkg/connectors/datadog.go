@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -25,7 +24,7 @@ import (
 )
 
 const (
-	datadogDefaultSite   = "https://api.datadoghq.com"
+	datadogDefaultSite    = "https://api.datadoghq.com"
 	datadogRequestTimeout = 60 * time.Second
 	datadogPageLimit      = 100
 )
@@ -202,8 +201,4 @@ func (c *datadogClient) searchLogs(ctx context.Context, query, from, to, cursor 
 		return nil, fmt.Errorf("datadog: decode search response: %w", err)
 	}
 	return &result, nil
-}
-
-var datadogWarn = func(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "datadog: warning: "+format+"\n", args...)
 }

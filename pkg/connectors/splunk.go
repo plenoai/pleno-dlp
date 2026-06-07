@@ -18,7 +18,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -244,8 +243,4 @@ func (c *splunkClient) getResults(ctx context.Context, sid string, offset, count
 		return nil, fmt.Errorf("splunk: decode results: %w", err)
 	}
 	return result.Results, nil
-}
-
-var splunkWarn = func(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "splunk: warning: "+format+"\n", args...)
 }

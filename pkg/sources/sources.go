@@ -34,6 +34,7 @@ const (
 	SourceSplunk
 	SourceBigQuery
 	SourceRedash
+	SourceSQLDump
 )
 
 // Metadata is a discriminated union of source-specific location info. Each
@@ -54,6 +55,7 @@ type Metadata struct {
 	Stdin      *StdinMeta
 	Forge      *ForgeMeta
 	SIEM       *SIEMMeta
+	SQLDump    *SQLDumpMeta
 }
 
 type FilesystemMeta struct {
@@ -181,6 +183,17 @@ type SIEMMeta struct {
 	EventID   string // unique event/log/row identifier
 	Timestamp string // event timestamp (RFC 3339 or provider-native)
 	Link      string // deep link to the event in the SIEM UI
+}
+
+// SQLDumpMeta is populated by the sqldump source. It tracks provenance down
+// to the table and line within the dump file so operators can locate the
+// original record.
+type SQLDumpMeta struct {
+	File     string // path to the dump file
+	Database string // database name (from USE or CREATE DATABASE)
+	Table    string // current table context (from INSERT INTO or CREATE TABLE)
+	Line     int    // 1-based line number in the dump file
+	Format   string // "mysql", "postgres", or "sqlite"
 }
 
 // Chunk is a unit of data emitted by a Source for detectors to scan. Sources
