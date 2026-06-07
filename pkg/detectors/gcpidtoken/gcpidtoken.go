@@ -148,7 +148,16 @@ func isGoogleIssuer(iss string) bool {
 
 func decodeClaims(token string) map[string]string {
 	out := map[string]string{}
-	parts := splitJWT(token)
+	// Split JWT on '.' to extract the payload (middle segment).
+	parts := []string{}
+	last := 0
+	for i := 0; i < len(token); i++ {
+		if token[i] == '.' {
+			parts = append(parts, token[last:i])
+			last = i + 1
+		}
+	}
+	parts = append(parts, token[last:])
 	if len(parts) != 3 {
 		return out
 	}
@@ -175,19 +184,6 @@ func decodeClaims(token string) map[string]string {
 		}
 	}
 	return out
-}
-
-func splitJWT(s string) []string {
-	parts := []string{}
-	last := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '.' {
-			parts = append(parts, s[last:i])
-			last = i + 1
-		}
-	}
-	parts = append(parts, s[last:])
-	return parts
 }
 
 func redact(t string) string {

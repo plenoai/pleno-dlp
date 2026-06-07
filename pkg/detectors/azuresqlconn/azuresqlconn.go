@@ -316,13 +316,13 @@ const (
 
 // TDS token types (MS-TDS §2.2.7).
 const (
-	tdsTokenError    byte = 0xAA
-	tdsTokenLoginAck byte = 0xAD
-	tdsTokenDone     byte = 0xFD
-	tdsTokenDoneProc byte = 0xFE
+	tdsTokenError      byte = 0xAA
+	tdsTokenLoginAck   byte = 0xAD
+	tdsTokenDone       byte = 0xFD
+	tdsTokenDoneProc   byte = 0xFE
 	tdsTokenDoneInProc byte = 0xFF
-	tdsTokenEnvChange byte = 0xE3
-	tdsTokenInfo      byte = 0xAB
+	tdsTokenEnvChange  byte = 0xE3
+	tdsTokenInfo       byte = 0xAB
 )
 
 // PRELOGIN option tokens (MS-TDS §2.2.6.5).
@@ -346,9 +346,9 @@ func buildPreloginPacket() []byte {
 	// ENCRYPTION data: 1 byte
 	// Total option data = 7 bytes
 
-	headerSize := 11 // 2 option entries (5 each) + terminator
+	headerSize := 11                                          // 2 option entries (5 each) + terminator
 	versionData := []byte{0x0F, 0x00, 0x00, 0x00, 0x00, 0x00} // TDS 7.4 (15.0.0.0)
-	encryptData := []byte{0x01}                                 // ENCRYPT_ON
+	encryptData := []byte{0x01}                               // ENCRYPT_ON
 
 	versionOffset := uint16(headerSize)
 	encryptOffset := versionOffset + uint16(len(versionData))

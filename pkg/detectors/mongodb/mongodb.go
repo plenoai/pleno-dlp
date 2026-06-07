@@ -293,16 +293,16 @@ func buildIsMasterMsg() []byte {
 	// OP_MSG body: flagBits (uint32) + kind 0 (body) + BSON document
 	var opMsgBody []byte
 	opMsgBody = append(opMsgBody, 0x00, 0x00, 0x00, 0x00) // flagBits = 0
-	opMsgBody = append(opMsgBody, 0x00)                    // section kind 0 (body)
+	opMsgBody = append(opMsgBody, 0x00)                   // section kind 0 (body)
 	opMsgBody = append(opMsgBody, bsonDoc...)
 
 	// MsgHeader: messageLength (int32) + requestID (int32) + responseTo (int32) + opCode (int32)
 	totalLen := 16 + len(opMsgBody)
 	msg := make([]byte, 16)
-	binary.LittleEndian.PutUint32(msg[0:4], uint32(totalLen))   // messageLength
-	binary.LittleEndian.PutUint32(msg[4:8], 1)                  // requestID
-	binary.LittleEndian.PutUint32(msg[8:12], 0)                 // responseTo
-	binary.LittleEndian.PutUint32(msg[12:16], 2013)             // opCode = OP_MSG
+	binary.LittleEndian.PutUint32(msg[0:4], uint32(totalLen)) // messageLength
+	binary.LittleEndian.PutUint32(msg[4:8], 1)                // requestID
+	binary.LittleEndian.PutUint32(msg[8:12], 0)               // responseTo
+	binary.LittleEndian.PutUint32(msg[12:16], 2013)           // opCode = OP_MSG
 
 	return append(msg, opMsgBody...)
 }

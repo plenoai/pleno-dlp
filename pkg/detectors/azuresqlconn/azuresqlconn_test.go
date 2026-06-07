@@ -388,12 +388,12 @@ func TestParseLoginResponse_AuthFailure(t *testing.T) {
 	// ServerNameLen(2) + ProcNameLen(2) + LineNumber(4)
 	var errData []byte
 	errData = appendUint32LE(errData, 18456) // Number
-	errData = append(errData, 1)              // State
-	errData = append(errData, 14)             // Class
-	errData = appendUint16LE(errData, 0)      // MsgLen = 0
-	errData = appendUint16LE(errData, 0)      // ServerNameLen = 0
-	errData = appendUint16LE(errData, 0)      // ProcNameLen = 0
-	errData = appendUint32LE(errData, 0)      // LineNumber
+	errData = append(errData, 1)             // State
+	errData = append(errData, 14)            // Class
+	errData = appendUint16LE(errData, 0)     // MsgLen = 0
+	errData = appendUint16LE(errData, 0)     // ServerNameLen = 0
+	errData = appendUint16LE(errData, 0)     // ProcNameLen = 0
+	errData = appendUint32LE(errData, 0)     // LineNumber
 
 	payload = appendUint16LE(payload, uint16(len(errData)))
 	payload = append(payload, errData...)
@@ -417,12 +417,12 @@ func TestParseLoginResponse_FirewallError(t *testing.T) {
 
 	var errData []byte
 	errData = appendUint32LE(errData, 40615) // Number
-	errData = append(errData, 1)              // State
-	errData = append(errData, 14)             // Class
-	errData = appendUint16LE(errData, 0)      // MsgLen = 0
-	errData = appendUint16LE(errData, 0)      // ServerNameLen
-	errData = appendUint16LE(errData, 0)      // ProcNameLen
-	errData = appendUint32LE(errData, 0)      // LineNumber
+	errData = append(errData, 1)             // State
+	errData = append(errData, 14)            // Class
+	errData = appendUint16LE(errData, 0)     // MsgLen = 0
+	errData = appendUint16LE(errData, 0)     // ServerNameLen
+	errData = appendUint16LE(errData, 0)     // ProcNameLen
+	errData = appendUint32LE(errData, 0)     // LineNumber
 
 	payload = appendUint16LE(payload, uint16(len(errData)))
 	payload = append(payload, errData...)
@@ -493,14 +493,14 @@ func TestParseLoginResponse_ErrorWithMessage(t *testing.T) {
 	msgBytes := utf16ToBytes(msg)
 
 	var errData []byte
-	errData = appendUint32LE(errData, 40615)             // Number
-	errData = append(errData, 1)                          // State
-	errData = append(errData, 14)                         // Class
-	errData = appendUint16LE(errData, uint16(len(msg)))   // MsgLen in chars
-	errData = append(errData, msgBytes...)                 // MsgText
-	errData = appendUint16LE(errData, 0)                  // ServerNameLen
-	errData = appendUint16LE(errData, 0)                  // ProcNameLen
-	errData = appendUint32LE(errData, 0)                  // LineNumber
+	errData = appendUint32LE(errData, 40615)            // Number
+	errData = append(errData, 1)                        // State
+	errData = append(errData, 14)                       // Class
+	errData = appendUint16LE(errData, uint16(len(msg))) // MsgLen in chars
+	errData = append(errData, msgBytes...)              // MsgText
+	errData = appendUint16LE(errData, 0)                // ServerNameLen
+	errData = appendUint16LE(errData, 0)                // ProcNameLen
+	errData = appendUint32LE(errData, 0)                // LineNumber
 
 	payload = appendUint16LE(payload, uint16(len(errData)))
 	payload = append(payload, errData...)

@@ -85,8 +85,6 @@ func FindNearbyKeyValue(data []byte, key string, maxRadius int) (string, bool) {
 		return val, true
 	}
 
-	// Fallback: scan all matches and pick the nearest to center.
-	_ = maxRadius
 	return "", false
 }
 

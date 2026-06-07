@@ -119,6 +119,9 @@ var placeholderHints = []string{
 // base64 / JWT material does not.
 const maxRunLen = 8
 
+// window represents a users-block vicinity range in the document.
+type window struct{ start, end int }
+
 type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.Kubeconfig }
@@ -136,7 +139,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	// Compute users-block windows once: each window starts at the marker
 	// and extends usersVicinity bytes. A credential field is accepted only
 	// if its match start falls inside one of these windows.
-	type window struct{ start, end int }
 	var windows []window
 	for _, m := range usersBlockRe.FindAllStringIndex(str, -1) {
 		windows = append(windows, window{start: m[0], end: m[0] + usersVicinity})
@@ -285,14 +287,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 				r.Verified = verified
 				r.VerificationErr = err
 			case "client-certificate-data":
-				// Find the matching key in the same user block.
-				wi := -1
-				for j, w := range windows {
-					if idx := strings.Index(str, string(r.Raw)); idx >= w.start && idx <= w.end {
-						wi = j
-						break
-					}
-				}
+				wi := findWindowIndex(str, string(r.Raw), windows)
 				if wi >= 0 {
 					if keyVal, ok := keyByPos[wi]; ok {
 						verified, err := verifyMTLS(ctx, srv, string(r.Raw), keyVal)
@@ -301,14 +296,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 					}
 				}
 			case "client-key-data":
-				// Find the matching cert in the same user block.
-				wi := -1
-				for j, w := range windows {
-					if idx := strings.Index(str, string(r.Raw)); idx >= w.start && idx <= w.end {
-						wi = j
-						break
-					}
-				}
+				wi := findWindowIndex(str, string(r.Raw), windows)
 				if wi >= 0 {
 					if certVal, ok := certByPos[wi]; ok {
 						verified, err := verifyMTLS(ctx, srv, certVal, string(r.Raw))
@@ -448,6 +436,19 @@ func verifyMTLS(ctx context.Context, server, certB64, keyB64 string) (bool, erro
 	}()
 
 	return resp.StatusCode == http.StatusOK, nil
+}
+
+// findWindowIndex returns the index of the users-block window containing the
+// given value, or -1 if none.
+func findWindowIndex(doc string, value string, windows []window) int {
+	if idx := strings.Index(doc, value); idx >= 0 {
+		for j, w := range windows {
+			if idx >= w.start && idx <= w.end {
+				return j
+			}
+		}
+	}
+	return -1
 }
 
 // isPlaceholder reports whether value is an obvious non-credential fill.
