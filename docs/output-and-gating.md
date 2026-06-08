@@ -53,7 +53,7 @@ provider-confirmed findings.
 pleno-dlp scan github --org acme --include-comments --verify --only-verified --format json
 ```
 
-## Incremental GitHub scans
+## Incremental source scans
 
 `scan github --incremental --incremental-state <file>` stores both the
 overall resource fingerprint and a GitHub source watermark. When the
@@ -69,6 +69,12 @@ scan to changed resources:
 The connector still lists repositories, default-branch trees, and
 comment metadata to compute the next watermark, but unchanged blob
 contents and unchanged comment bodies are not fetched or scanned.
+
+`scan s3 --incremental --incremental-state <file>` also stores an S3
+source watermark. The S3 source still lists object metadata to compute
+the next watermark, but unchanged object bodies are not fetched or
+scanned. Objects are considered unchanged when their key, ETag, size,
+and last-modified timestamp match the previous successful baseline.
 
 ## Detector scoping
 
