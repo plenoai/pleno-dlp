@@ -27,11 +27,14 @@ type Verify func(ctx context.Context, cfg Config, secret string) (bool, error)
 
 type Revoke func(ctx context.Context, cfg Config, secret string) (detectors.RevokeResult, error)
 
+type Fingerprint func(ctx context.Context, cfg Config) (string, error)
+
 type Connector struct {
-	SourceType sources.SourceType
-	Scan       Scan
-	Verify     Verify
-	Revoke     Revoke
+	SourceType  sources.SourceType
+	Scan        Scan
+	Verify      Verify
+	Revoke      Revoke
+	Fingerprint Fingerprint
 }
 
 var (
@@ -115,3 +118,12 @@ func (s *sourceAdapter) Chunks(ctx context.Context, ch chan<- *sources.Chunk) er
 	}
 	return s.conn.Scan(ctx, s.cfg, emit)
 }
+
+func (s *sourceAdapter) ResourceFingerprint(ctx context.Context) (string, error) {
+	if s.conn.Fingerprint == nil {
+		return "", fmt.Errorf("connectors: %s source does not implement fingerprint", s.conn.SourceType.String())
+	}
+	return s.conn.Fingerprint(ctx, s.cfg)
+}
+
+var _ sources.ResourceFingerprinter = (*sourceAdapter)(nil)

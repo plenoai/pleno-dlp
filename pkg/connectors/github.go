@@ -13,13 +13,17 @@ package connectors
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,9 +42,10 @@ const (
 
 func init() {
 	Register("github", Connector{
-		SourceType: sources.SourceGitHub,
-		Scan:       scanGitHub,
-		Verify:     verifyGitHub,
+		SourceType:  sources.SourceGitHub,
+		Scan:        scanGitHub,
+		Verify:      verifyGitHub,
+		Fingerprint: fingerprintGitHub,
 	})
 }
 
@@ -167,19 +172,21 @@ type githubBlobResp struct {
 }
 
 type githubIssueComment struct {
-	ID      int64  `json:"id"`
-	Body    string `json:"body"`
-	HTMLURL string `json:"html_url"`
-	Issue   string `json:"issue_url"`
+	ID        int64  `json:"id"`
+	Body      string `json:"body"`
+	HTMLURL   string `json:"html_url"`
+	Issue     string `json:"issue_url"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type githubPullReviewComment struct {
-	ID       int64  `json:"id"`
-	Body     string `json:"body"`
-	Path     string `json:"path"`
-	Position int    `json:"position"`
-	HTMLURL  string `json:"html_url"`
-	PullURL  string `json:"pull_request_url"`
+	ID        int64  `json:"id"`
+	Body      string `json:"body"`
+	Path      string `json:"path"`
+	Position  int    `json:"position"`
+	HTMLURL   string `json:"html_url"`
+	PullURL   string `json:"pull_request_url"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 func githubListRepos(ctx context.Context, cli *githubClient, org, repo string) ([]githubRepoRef, error) {
@@ -322,6 +329,123 @@ func scanGitHubRepo(ctx context.Context, cli *githubClient, repo githubRepoRef, 
 		})
 	}
 	return g.Wait()
+}
+
+func fingerprintGitHub(ctx context.Context, cfg Config) (string, error) {
+	token := cfg["token"]
+	if token == "" {
+		return "", errors.New("github: token is required (set --token or GITHUB_TOKEN)")
+	}
+	org, repo := cfg["org"], cfg["repo"]
+	if org == "" && repo == "" {
+		return "", errors.New("github: either org or repo must be set")
+	}
+	if org != "" && repo != "" {
+		return "", errors.New("github: org and repo are mutually exclusive")
+	}
+	apiBase := cfg.Get("api_base", githubDefaultAPIBase)
+	cli := newGitHubClient(apiBase, token)
+	repos, err := githubListRepos(ctx, cli, org, repo)
+	if err != nil {
+		return "", err
+	}
+	sort.Slice(repos, func(i, j int) bool {
+		return repos[i].Owner.Login+"/"+repos[i].Name < repos[j].Owner.Login+"/"+repos[j].Name
+	})
+
+	h := sha256.New()
+	writeFingerprint(h, "github-v1")
+	writeFingerprint(h, apiBase)
+	writeFingerprint(h, org)
+	writeFingerprint(h, repo)
+	writeFingerprint(h, cfg.Get("include_comments", "false"))
+	for _, r := range repos {
+		if err := fingerprintGitHubRepo(ctx, cli, h, r, parseBool(cfg["include_comments"])); err != nil {
+			return "", err
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func fingerprintGitHubRepo(ctx context.Context, cli *githubClient, h hash.Hash, repo githubRepoRef, includeComments bool) error {
+	if repo.DefaultBranch == "" {
+		path := fmt.Sprintf("/repos/%s/%s", repo.Owner.Login, repo.Name)
+		if _, err := cli.getJSON(ctx, path, &repo); err != nil {
+			return fmt.Errorf("github: resolve default branch for %s/%s: %w", repo.Owner.Login, repo.Name, err)
+		}
+	}
+	writeFingerprint(h, repo.Owner.Login+"/"+repo.Name)
+	writeFingerprint(h, repo.DefaultBranch)
+	writeFingerprint(h, repo.Visibility)
+	if repo.DefaultBranch != "" {
+		var tree githubTreeResp
+		treePath := fmt.Sprintf("/repos/%s/%s/git/trees/%s?recursive=1", repo.Owner.Login, repo.Name, repo.DefaultBranch)
+		if _, err := cli.getJSON(ctx, treePath, &tree); err != nil {
+			return fmt.Errorf("github: fingerprint tree %s/%s@%s: %w", repo.Owner.Login, repo.Name, repo.DefaultBranch, err)
+		}
+		writeFingerprint(h, tree.SHA)
+		writeFingerprint(h, strconv.FormatBool(tree.Truncated))
+		for _, node := range tree.Tree {
+			if node.Type != "blob" {
+				continue
+			}
+			writeFingerprint(h, node.Path)
+			writeFingerprint(h, node.SHA)
+			writeFingerprint(h, strconv.FormatInt(node.Size, 10))
+		}
+	}
+	if includeComments {
+		if err := fingerprintGitHubIssueComments(ctx, cli, h, repo); err != nil {
+			return err
+		}
+		if err := fingerprintGitHubPullReviewComments(ctx, cli, h, repo); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func fingerprintGitHubIssueComments(ctx context.Context, cli *githubClient, h hash.Hash, repo githubRepoRef) error {
+	next := fmt.Sprintf("/repos/%s/%s/issues/comments?per_page=100", repo.Owner.Login, repo.Name)
+	for next != "" {
+		var page []githubIssueComment
+		resp, err := cli.getJSON(ctx, next, &page)
+		if err != nil {
+			return fmt.Errorf("github: fingerprint issue comments for %s/%s: %w", repo.Owner.Login, repo.Name, err)
+		}
+		for _, c := range page {
+			writeFingerprint(h, "issue-comment")
+			writeFingerprint(h, strconv.FormatInt(c.ID, 10))
+			writeFingerprint(h, c.UpdatedAt)
+		}
+		next = parseLinkHeader(resp.Header.Get("Link"))
+	}
+	return nil
+}
+
+func fingerprintGitHubPullReviewComments(ctx context.Context, cli *githubClient, h hash.Hash, repo githubRepoRef) error {
+	next := fmt.Sprintf("/repos/%s/%s/pulls/comments?per_page=100", repo.Owner.Login, repo.Name)
+	for next != "" {
+		var page []githubPullReviewComment
+		resp, err := cli.getJSON(ctx, next, &page)
+		if err != nil {
+			return fmt.Errorf("github: fingerprint pull review comments for %s/%s: %w", repo.Owner.Login, repo.Name, err)
+		}
+		for _, c := range page {
+			writeFingerprint(h, "pull-review-comment")
+			writeFingerprint(h, strconv.FormatInt(c.ID, 10))
+			writeFingerprint(h, c.UpdatedAt)
+			writeFingerprint(h, c.Path)
+			writeFingerprint(h, strconv.Itoa(c.Position))
+		}
+		next = parseLinkHeader(resp.Header.Get("Link"))
+	}
+	return nil
+}
+
+func writeFingerprint(h hash.Hash, s string) {
+	_, _ = h.Write([]byte(s))
+	_, _ = h.Write([]byte{0})
 }
 
 func emitGitHubBlob(ctx context.Context, cli *githubClient, repo githubRepoRef, node githubTreeNode, emit Emit) error {
