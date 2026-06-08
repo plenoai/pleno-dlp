@@ -1,9 +1,27 @@
-# pleno-dlp
+<p align="center">
+  <img src="docs/assets/banner.png" alt="Pleno DLP banner">
+</p>
 
-![pleno-dlp banner](docs/assets/banner.png)
+<h1 align="center">Pleno DLP</h1>
 
-Unified DLP scanner for secrets and PII. One Go binary scans the
-filesystem, local git history, stdin, and SaaS sources.
+<p align="center">
+  Unified DLP scanner for secrets and PII across filesystem, git, stdin, and SaaS sources.
+</p>
+
+<p align="center">
+  <a href="https://github.com/plenoai/pleno-dlp/actions/workflows/test.yml">
+    <img alt="test" src="https://github.com/plenoai/pleno-dlp/actions/workflows/test.yml/badge.svg?branch=main">
+  </a>
+  <a href="https://github.com/plenoai/pleno-dlp/releases">
+    <img alt="release" src="https://img.shields.io/github/v/release/plenoai/pleno-dlp">
+  </a>
+  <a href="https://github.com/plenoai/pleno-dlp/blob/main/LICENSE">
+    <img alt="license" src="https://img.shields.io/github/license/plenoai/pleno-dlp">
+  </a>
+  <a href="https://github.com/plenoai/pleno-dlp/blob/main/go.mod">
+    <img alt="go version" src="https://img.shields.io/badge/go-1.25.0-00ADD8?logo=go&logoColor=white">
+  </a>
+</p>
 
 ```sh
 go install github.com/plenoai/pleno-dlp/cmd/pleno-dlp@latest
@@ -14,227 +32,76 @@ pleno-dlp scan git --repo ./repo --max-depth 200
 pleno-dlp scan filesystem ./repo --format sarif --verify > findings.sarif
 ```
 
-## Coverage
+## Target source
 
-- 600 built-in detector types.
-- Use `--verify` to call provider-side validation where available.
-- Deliberately unverified detectors are documented in
-  [`docs/verify-coverage.md`](docs/verify-coverage.md).
-- PII detection is opt-in through `--pii-engine=anonymize` or
-  `--pii-engine=openai-pf`; PII findings set
-  `properties.finding_class=pii`.
+- `filesystem`: working trees, build outputs, arbitrary directories
+- `git`: local history with branch / depth / time filters
+- `stdin`: diffs, exports, and pipe-based checks
+- SaaS: GitHub, GitLab, Bitbucket, Slack, Notion, Confluence, Jira
 
-Inspect the registry:
+```sh
+pleno-dlp scan filesystem ./repo
+pleno-dlp scan git --repo ./repo --branch main --max-depth 500
+git diff | pleno-dlp scan stdin --label git-diff
+pleno-dlp scan github --org acme
+```
+
+More connector detail: [`docs/source-forge-api-comments.md`](docs/source-forge-api-comments.md)
+
+## Detect coverage
+
+- 600 built-in detector types
+- table / JSON / SARIF output
+- custom allowlists and org-specific rules supported
 
 ```sh
 pleno-dlp detectors list
 pleno-dlp detectors list --format json
+pleno-dlp scan filesystem ./repo --format sarif > findings.sarif
+```
+
+More output and CI detail: [`docs/output-and-gating.md`](docs/output-and-gating.md)
+
+## Verification support
+
+Use `--verify` to call provider-side validation where available.
+
+```sh
+pleno-dlp scan filesystem ./repo --verify
 pleno-dlp detectors list --verify-status
+```
+
+Coverage and unverified classes: [`docs/verify-coverage.md`](docs/verify-coverage.md)
+
+## Revocation support
+
+`pleno-dlp revoke` can invalidate supported leaked credentials for GitHub,
+GitLab, Slack, AWS, and Stripe restricted keys.
+
+```sh
+echo "$LEAKED_TOKEN" | pleno-dlp revoke --detector github --secret - --confirm
+pleno-dlp revoke --detector slack --secret xoxb-... --dry-run
 pleno-dlp detectors list --revoke-support
 ```
 
-## Scan sources
-
-```sh
-# Filesystem
-pleno-dlp scan filesystem ./repo \
-  --include 'src/**' \
-  --exclude '**/*_test.go'
-
-# Local git history
-pleno-dlp scan git --repo ./repo --branch main --max-depth 500
-pleno-dlp scan git --repo ./repo --since 2024-01-01T00:00:00Z
-
-# Stdin
-git diff | pleno-dlp scan stdin --label git-diff
-kubectl get secret app-config -o yaml | pleno-dlp scan stdin
-```
-
-Filesystem scans skip common dependency and build directories by default.
-Use `--no-default-excludes` to include them.
-
-SaaS connectors inherit the shared scan flags:
-
-| Connector | Scope | Auth |
-|---|---|---|
-| `github` | `--org` or `--repo`; optional `--include-comments` | `--token` or `GITHUB_TOKEN`; `--api-base` supports GHE |
-| `gitlab` | `--group` or `--project`; optional `--include-comments` | `--token` or `GITLAB_TOKEN`; `--api-base` supports self-hosted |
-| forge API comments | issue / PR / MR / ticket comments | see [`docs/source-forge-api-comments.md`](docs/source-forge-api-comments.md) |
-| `bitbucket` | `--workspace` or `--repo` | Bearer `--token`, or `--username` + `--app-password` |
-| `slack` | optional `--channel` | `--token` or `SLACK_TOKEN` |
-| `notion` | optional `--query` | `--token` or `NOTION_TOKEN` |
-| `confluence` | optional `--space` | Cloud: `--site --email --token`; Data Center: `--api-base --token` |
-| `jira` | optional `--project` or `--jql` | Cloud: `--site --email --token`; Data Center: `--api-base --token` |
-
-```sh
-pleno-dlp scan github --org acme
-pleno-dlp scan github --repo acme/widget --include-comments
-pleno-dlp scan gitlab --project acme/widget --include-comments
-pleno-dlp scan slack --channel C0123456789
-pleno-dlp scan jira --site acme --email alice@acme.com --project PROJ
-```
-
-Forge issue and PR comment scans cover API-only review text. They do not clone repository contents.
-
-Validate connector credentials without scanning:
-
-```sh
-pleno-dlp verify github --token "$GITHUB_TOKEN"
-pleno-dlp verify gitlab --token "$GITLAB_TOKEN"
-pleno-dlp verify slack  --token "$SLACK_TOKEN"
-pleno-dlp verify notion --token "$NOTION_TOKEN"
-```
+Details and safety constraints: [`docs/revoke-support.md`](docs/revoke-support.md)
 
 ## PII detection
 
-PII scanning is off by default.
-
-| Engine | Flag | Detector | Notes |
-|---|---|---|---|
-| pleno-anonymize | `--pii-engine=anonymize` | `PIIAnonymize` | ja-first NER + regex; fast cold start |
-| openai/privacy-filter | `--pii-engine=openai-pf` | `PIIOpenAIPF` | 1.5B-param classifier; GPU recommended |
+PII scanning is opt-in. Use `anonymize` for faster Japanese-first NER, or
+`openai-pf` for the privacy-filter model path.
 
 ```sh
 pleno-dlp scan filesystem ./src --pii-engine=anonymize
 pleno-dlp scan filesystem ./src --pii-engine=openai-pf
 ```
 
-Both engines run as loopback HTTP subprocesses for the duration of the scan.
-Requirements: `uv`, Python 3.12+, and `git` for default `git+` sources.
+Advanced flags and server commands:
 
-Effective defaults:
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `--pii-engine` | `off` | `off`, `anonymize`, or `openai-pf` |
-| `--pii-engine-cmd` | engine-specific | `pleno-dlp pii-server --port {PORT}` or `pleno-dlp openai-pf-server --port {PORT}` |
-| `--pii-engine-port` | `0` | auto-allocate a loopback port |
-| `--pii-engine-language` | `auto` | `anonymize` only: `ja`, `en`, or `auto` |
-| `--pii-engine-device` | `auto` | `openai-pf` only: `auto`, `cpu`, `cuda`, or `mps` |
-| `--pii-engine-ready-timeout` | `0` | engine default: 60s for `anonymize`, 300s for `openai-pf` |
-| `--pii-engine-request-timeout` | `10s` | per `/api/analyze` request |
-
-Direct server commands:
-
-```sh
-pleno-dlp pii-server --port 8080
-pleno-dlp pii-server --git-ref v0.5.0
-pleno-dlp openai-pf-server --port 8081
-pleno-dlp openai-pf-server --device cuda
-```
-
-Both server commands refuse public bind addresses.
-
-## Output and gating
-
-```sh
-pleno-dlp scan filesystem ./repo --format table
-pleno-dlp scan filesystem ./repo --format json
-pleno-dlp scan filesystem ./repo --format sarif
-```
-
-Default severities:
-
-| Finding | Severity |
-|---|---|
-| Verified secret | Critical |
-| Unverified named secret detector | High |
-| Generic high entropy / JWT / PEM unverified | Medium |
-| PII | Medium |
-
-`--fail-on` controls the exit code:
-
-```sh
-pleno-dlp scan filesystem ./repo --fail-on critical
-pleno-dlp scan filesystem ./repo --fail-on high
-pleno-dlp scan filesystem ./repo --fail-on any
-```
-
-Detector scoping is case-insensitive and fails closed on unknown names:
-
-```sh
-pleno-dlp scan filesystem ./repo --exclude-detectors GenericHighEntropy
-pleno-dlp scan filesystem ./repo --include-detectors AWS,GitHub,Stripe
-```
-
-SARIF output is GitHub Code Scanning compatible:
-
-```yaml
-- run: pleno-dlp scan filesystem . --format sarif > findings.sarif
-- uses: github/codeql-action/upload-sarif@v3
-  with:
-    sarif_file: findings.sarif
-```
-
-See [`docs/recipes/`](docs/recipes/) for CI and pre-commit workflows.
-
-## Allowlist and custom rules
-
-Allow known false positives with `.pleno-allow.json` or `--allowlist`:
-
-```json
-{
-  "entries": [
-    {"detector": "AWS", "raw": "AKIAIOSFODNN7EXAMPLE", "reason": "documented fixture"},
-    {"path": "fixtures/**/*.env", "reason": "local test fixtures"},
-    {"raw_regex": "^sk-test_", "reason": "Stripe test-mode keys"}
-  ]
-}
-```
-
-Add organization-specific detectors with `--rules`:
-
-```json
-[
-  {
-    "name": "ACME Internal API Key",
-    "keywords": ["ACME_API_KEY", "x-acme-token"],
-    "regex": "ACME_[A-Z0-9]{20}",
-    "entropy_min": 3.5,
-    "severity": "high",
-    "verify_url": "https://api.acme.example/verify",
-    "verify_header": "Authorization: Bearer {{ .Secret }}"
-  }
-]
-```
-
-```sh
-pleno-dlp scan filesystem ./repo --rules ./acme-rules.json
-```
-
-## Revocation
-
-`pleno-dlp revoke` invalidates supported leaked credentials through the
-provider API. Supported detector families: GitHub, GitLab, Slack, AWS,
-and Stripe restricted keys.
-
-```sh
-echo "$LEAKED_TOKEN" | pleno-dlp revoke --detector github --secret - --confirm
-pleno-dlp revoke --detector slack --secret xoxb-... --dry-run
-```
-
-Revocation is irreversible. The CLI requires `--confirm` or `--dry-run`.
-Non-interactive confirmed runs also require `PLENO_DLP_ALLOW_REVOKE=1`.
-
-`--revoke-on-verified` only acts on verified findings and therefore requires
-both `--verify` and `PLENO_DLP_ALLOW_REVOKE=1`. Preview with `--revoke-dry-run`.
-
-Details: [`docs/revoke-support.md`](docs/revoke-support.md).
-
-## Development
-
-```sh
-go test ./... -race
-go build ./...
-```
-
-Releases are tag-driven:
-
-- `vX.Y.Z` tag push runs GoReleaser trusted publishing.
-- `main` push runs build and tests only.
-
-Historical throughput data lives in
-[`docs/benchmarks.md`](docs/benchmarks.md).
+- `pleno-dlp scan --help`
+- `pleno-dlp pii-server --help`
+- `pleno-dlp openai-pf-server --help`
+- [`python/openaipf-server/README.md`](python/openaipf-server/README.md)
 
 ## License
 
