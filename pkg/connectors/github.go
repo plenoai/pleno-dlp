@@ -97,11 +97,22 @@ func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
 	if err != nil {
 		return err
 	}
+	previousState, err := loadGitHubIncrementalState(cfg[configKeyIncrementalPreviousState])
+	if err != nil {
+		return err
+	}
+	nextState := &githubIncrementalState{Version: 1, Repos: map[string]githubRepoIncrementalState{}}
+	if previousState == nil {
+		previousState = &githubIncrementalState{Version: 1, Repos: map[string]githubRepoIncrementalState{}}
+	}
 	for _, r := range repos {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := scanGitHubRepo(ctx, cli, r, maxBytes, concurrency, emit); err != nil {
+		repoKey := r.Owner.Login + "/" + r.Name
+		prevRepo, hasPrevRepo := previousState.Repos[repoKey]
+		nextRepo, err := scanGitHubRepoIncremental(ctx, cli, r, prevRepo, hasPrevRepo, maxBytes, concurrency, emit)
+		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
@@ -109,13 +120,17 @@ func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
 			continue
 		}
 		if parseBool(cfg["include_comments"]) {
-			if err := scanGitHubComments(ctx, cli, r, emit); err != nil {
+			if err := scanGitHubCommentsIncremental(ctx, cli, r, prevRepo, hasPrevRepo, &nextRepo, emit); err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return err
 				}
 				continue
 			}
 		}
+		nextState.Repos[repoKey] = nextRepo
+	}
+	if data, err := json.Marshal(nextState); err == nil {
+		cfg[configKeyIncrementalNextState] = string(data)
 	}
 	return nil
 }
@@ -189,6 +204,46 @@ type githubPullReviewComment struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type githubIncrementalState struct {
+	Version int                                   `json:"version"`
+	Repos   map[string]githubRepoIncrementalState `json:"repos"`
+}
+
+type githubRepoIncrementalState struct {
+	DefaultBranch      string                                   `json:"default_branch,omitempty"`
+	Visibility         string                                   `json:"visibility,omitempty"`
+	TreeSHA            string                                   `json:"tree_sha,omitempty"`
+	TreeTruncated      bool                                     `json:"tree_truncated,omitempty"`
+	Blobs              map[string]githubBlobIncrementalState    `json:"blobs,omitempty"`
+	IssueComments      map[string]githubCommentIncrementalState `json:"issue_comments,omitempty"`
+	PullReviewComments map[string]githubCommentIncrementalState `json:"pull_review_comments,omitempty"`
+}
+
+type githubBlobIncrementalState struct {
+	SHA  string `json:"sha"`
+	Size int64  `json:"size"`
+}
+
+type githubCommentIncrementalState struct {
+	UpdatedAt string `json:"updated_at"`
+	Path      string `json:"path,omitempty"`
+	Position  int    `json:"position,omitempty"`
+}
+
+func loadGitHubIncrementalState(raw string) (*githubIncrementalState, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var state githubIncrementalState
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		return nil, fmt.Errorf("github: parse incremental source state: %w", err)
+	}
+	if state.Repos == nil {
+		state.Repos = map[string]githubRepoIncrementalState{}
+	}
+	return &state, nil
+}
+
 func githubListRepos(ctx context.Context, cli *githubClient, org, repo string) ([]githubRepoRef, error) {
 	if repo != "" {
 		parts := strings.SplitN(repo, "/", 2)
@@ -219,22 +274,84 @@ func githubListRepos(ctx context.Context, cli *githubClient, org, repo string) (
 	return repos, nil
 }
 
-func scanGitHubComments(ctx context.Context, cli *githubClient, repo githubRepoRef, emit Emit) error {
-	if err := scanGitHubIssueComments(ctx, cli, repo, emit); err != nil {
-		return err
+func scanGitHubRepoIncremental(ctx context.Context, cli *githubClient, repo githubRepoRef, prev githubRepoIncrementalState, hasPrev bool, maxBytes int64, concurrency int, emit Emit) (githubRepoIncrementalState, error) {
+	if repo.DefaultBranch == "" {
+		path := fmt.Sprintf("/repos/%s/%s", repo.Owner.Login, repo.Name)
+		if _, err := cli.getJSON(ctx, path, &repo); err != nil {
+			return githubRepoIncrementalState{}, fmt.Errorf("github: resolve default branch for %s/%s: %w", repo.Owner.Login, repo.Name, err)
+		}
 	}
-	return scanGitHubPullReviewComments(ctx, cli, repo, emit)
+	next := githubRepoIncrementalState{
+		DefaultBranch: repo.DefaultBranch,
+		Visibility:    repo.Visibility,
+		Blobs:         map[string]githubBlobIncrementalState{},
+	}
+	if repo.DefaultBranch == "" {
+		return next, nil
+	}
+	var tree githubTreeResp
+	treePath := fmt.Sprintf("/repos/%s/%s/git/trees/%s?recursive=1", repo.Owner.Login, repo.Name, repo.DefaultBranch)
+	if _, err := cli.getJSON(ctx, treePath, &tree); err != nil {
+		return githubRepoIncrementalState{}, fmt.Errorf("github: tree %s/%s@%s: %w", repo.Owner.Login, repo.Name, repo.DefaultBranch, err)
+	}
+	next.TreeSHA = tree.SHA
+	next.TreeTruncated = tree.Truncated
+
+	g, gctx := errgroup.WithContext(ctx)
+	sem := make(chan struct{}, concurrency)
+	for _, node := range tree.Tree {
+		node := node
+		if node.Type != "blob" {
+			continue
+		}
+		next.Blobs[node.Path] = githubBlobIncrementalState{SHA: node.SHA, Size: node.Size}
+		if node.Size > maxBytes {
+			continue
+		}
+		if hasPrev && !tree.Truncated && !prev.TreeTruncated && prev.DefaultBranch == repo.DefaultBranch {
+			if old, ok := prev.Blobs[node.Path]; ok && old.SHA == node.SHA && old.Size == node.Size {
+				continue
+			}
+		}
+		select {
+		case sem <- struct{}{}:
+		case <-gctx.Done():
+			return githubRepoIncrementalState{}, gctx.Err()
+		}
+		g.Go(func() error {
+			defer func() { <-sem }()
+			return emitGitHubBlob(gctx, cli, repo, node, emit)
+		})
+	}
+	return next, g.Wait()
 }
 
-func scanGitHubIssueComments(ctx context.Context, cli *githubClient, repo githubRepoRef, emit Emit) error {
-	next := fmt.Sprintf("/repos/%s/%s/issues/comments?per_page=100", repo.Owner.Login, repo.Name)
-	for next != "" {
+func scanGitHubCommentsIncremental(ctx context.Context, cli *githubClient, repo githubRepoRef, prev githubRepoIncrementalState, hasPrev bool, next *githubRepoIncrementalState, emit Emit) error {
+	if err := scanGitHubIssueCommentsIncremental(ctx, cli, repo, prev, hasPrev, next, emit); err != nil {
+		return err
+	}
+	return scanGitHubPullReviewCommentsIncremental(ctx, cli, repo, prev, hasPrev, next, emit)
+}
+
+func scanGitHubIssueCommentsIncremental(ctx context.Context, cli *githubClient, repo githubRepoRef, prev githubRepoIncrementalState, hasPrev bool, next *githubRepoIncrementalState, emit Emit) error {
+	if next.IssueComments == nil {
+		next.IssueComments = map[string]githubCommentIncrementalState{}
+	}
+	nextPath := fmt.Sprintf("/repos/%s/%s/issues/comments?per_page=100", repo.Owner.Login, repo.Name)
+	for nextPath != "" {
 		var page []githubIssueComment
-		resp, err := cli.getJSON(ctx, next, &page)
+		resp, err := cli.getJSON(ctx, nextPath, &page)
 		if err != nil {
 			return fmt.Errorf("github: list issue comments for %s/%s: %w", repo.Owner.Login, repo.Name, err)
 		}
 		for _, c := range page {
+			id := strconv.FormatInt(c.ID, 10)
+			next.IssueComments[id] = githubCommentIncrementalState{UpdatedAt: c.UpdatedAt}
+			if hasPrev {
+				if old, ok := prev.IssueComments[id]; ok && old.UpdatedAt == c.UpdatedAt {
+					continue
+				}
+			}
 			body := strings.TrimSpace(c.Body)
 			if body == "" {
 				continue
@@ -252,27 +369,41 @@ func scanGitHubIssueComments(ctx context.Context, cli *githubClient, repo github
 				return err
 			}
 		}
-		next = parseLinkHeader(resp.Header.Get("Link"))
+		nextPath = parseLinkHeader(resp.Header.Get("Link"))
 	}
 	return nil
 }
 
-func scanGitHubPullReviewComments(ctx context.Context, cli *githubClient, repo githubRepoRef, emit Emit) error {
-	next := fmt.Sprintf("/repos/%s/%s/pulls/comments?per_page=100", repo.Owner.Login, repo.Name)
-	for next != "" {
+func scanGitHubPullReviewCommentsIncremental(ctx context.Context, cli *githubClient, repo githubRepoRef, prev githubRepoIncrementalState, hasPrev bool, next *githubRepoIncrementalState, emit Emit) error {
+	if next.PullReviewComments == nil {
+		next.PullReviewComments = map[string]githubCommentIncrementalState{}
+	}
+	nextPath := fmt.Sprintf("/repos/%s/%s/pulls/comments?per_page=100", repo.Owner.Login, repo.Name)
+	for nextPath != "" {
 		var page []githubPullReviewComment
-		resp, err := cli.getJSON(ctx, next, &page)
+		resp, err := cli.getJSON(ctx, nextPath, &page)
 		if err != nil {
 			return fmt.Errorf("github: list pull review comments for %s/%s: %w", repo.Owner.Login, repo.Name, err)
 		}
 		for _, c := range page {
-			body := strings.TrimSpace(c.Body)
-			if body == "" {
-				continue
-			}
 			path := c.Path
 			if path == "" {
 				path = fmt.Sprintf("pull-review-comment:%d", c.ID)
+			}
+			id := strconv.FormatInt(c.ID, 10)
+			next.PullReviewComments[id] = githubCommentIncrementalState{
+				UpdatedAt: c.UpdatedAt,
+				Path:      path,
+				Position:  c.Position,
+			}
+			if hasPrev {
+				if old, ok := prev.PullReviewComments[id]; ok && old.UpdatedAt == c.UpdatedAt && old.Path == path && old.Position == c.Position {
+					continue
+				}
+			}
+			body := strings.TrimSpace(c.Body)
+			if body == "" {
+				continue
 			}
 			if err := emit([]byte(body), sources.Metadata{
 				GitHub: &sources.GitHubMeta{
@@ -288,47 +419,9 @@ func scanGitHubPullReviewComments(ctx context.Context, cli *githubClient, repo g
 				return err
 			}
 		}
-		next = parseLinkHeader(resp.Header.Get("Link"))
+		nextPath = parseLinkHeader(resp.Header.Get("Link"))
 	}
 	return nil
-}
-
-func scanGitHubRepo(ctx context.Context, cli *githubClient, repo githubRepoRef, maxBytes int64, concurrency int, emit Emit) error {
-	if repo.DefaultBranch == "" {
-		path := fmt.Sprintf("/repos/%s/%s", repo.Owner.Login, repo.Name)
-		if _, err := cli.getJSON(ctx, path, &repo); err != nil {
-			return fmt.Errorf("github: resolve default branch for %s/%s: %w", repo.Owner.Login, repo.Name, err)
-		}
-	}
-	if repo.DefaultBranch == "" {
-		return nil
-	}
-	var tree githubTreeResp
-	treePath := fmt.Sprintf("/repos/%s/%s/git/trees/%s?recursive=1", repo.Owner.Login, repo.Name, repo.DefaultBranch)
-	if _, err := cli.getJSON(ctx, treePath, &tree); err != nil {
-		return fmt.Errorf("github: tree %s/%s@%s: %w", repo.Owner.Login, repo.Name, repo.DefaultBranch, err)
-	}
-	g, gctx := errgroup.WithContext(ctx)
-	sem := make(chan struct{}, concurrency)
-	for _, node := range tree.Tree {
-		node := node
-		if node.Type != "blob" {
-			continue
-		}
-		if node.Size > maxBytes {
-			continue
-		}
-		select {
-		case sem <- struct{}{}:
-		case <-gctx.Done():
-			return gctx.Err()
-		}
-		g.Go(func() error {
-			defer func() { <-sem }()
-			return emitGitHubBlob(gctx, cli, repo, node, emit)
-		})
-	}
-	return g.Wait()
 }
 
 func fingerprintGitHub(ctx context.Context, cfg Config) (string, error) {

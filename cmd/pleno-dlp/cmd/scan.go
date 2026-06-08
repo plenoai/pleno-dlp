@@ -501,9 +501,14 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		}
 	}
 	if incrementalKey != "" {
+		var sourceState json.RawMessage
+		if iss, ok := src.(sources.IncrementalStateSource); ok {
+			sourceState = iss.IncrementalState()
+		}
 		incrementalState.Entries[incrementalKey] = incrementalStateEntry{
 			ResourceFingerprint: incrementalState.PendingResourceFingerprint,
 			ScannerFingerprint:  incrementalState.PendingScannerFingerprint,
+			SourceState:         sourceState,
 			Chunks:              stats.Chunks,
 			Bytes:               stats.Bytes,
 			Findings:            counter.count.Load(),
@@ -670,13 +675,14 @@ type incrementalStateFile struct {
 }
 
 type incrementalStateEntry struct {
-	ResourceFingerprint string `json:"resource_fingerprint"`
-	ScannerFingerprint  string `json:"scanner_fingerprint"`
-	Chunks              int64  `json:"chunks"`
-	Bytes               int64  `json:"bytes"`
-	Findings            int64  `json:"findings"`
-	Failing             int64  `json:"failing"`
-	UpdatedAt           string `json:"updated_at"`
+	ResourceFingerprint string          `json:"resource_fingerprint"`
+	ScannerFingerprint  string          `json:"scanner_fingerprint"`
+	SourceState         json.RawMessage `json:"source_state,omitempty"`
+	Chunks              int64           `json:"chunks"`
+	Bytes               int64           `json:"bytes"`
+	Findings            int64           `json:"findings"`
+	Failing             int64           `json:"failing"`
+	UpdatedAt           string          `json:"updated_at"`
 }
 
 func prepareIncremental(ctx context.Context, kind string, cfg []byte, src sources.Source) (string, *incrementalStateEntry, *incrementalStateFile, error) {
@@ -703,6 +709,15 @@ func prepareIncremental(ctx context.Context, kind string, cfg []byte, src source
 	entry, ok := state.Entries[key]
 	if ok && entry.ResourceFingerprint == resourceFP && entry.ScannerFingerprint == scannerFP {
 		return key, &entry, state, nil
+	}
+	if iss, supportsIncrementalState := src.(sources.IncrementalStateSource); supportsIncrementalState {
+		if ok {
+			if err := iss.SetIncrementalState(entry.SourceState); err != nil {
+				return "", nil, nil, fmt.Errorf("incremental: configure %s source state: %w", kind, err)
+			}
+		} else if err := iss.SetIncrementalState(nil); err != nil {
+			return "", nil, nil, fmt.Errorf("incremental: configure %s source state: %w", kind, err)
+		}
 	}
 	state.PendingResourceFingerprint = resourceFP
 	state.PendingScannerFingerprint = scannerFP

@@ -3,11 +3,17 @@ package connectors
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
+)
+
+const (
+	configKeyIncrementalPreviousState = "_pleno_incremental_previous_state"
+	configKeyIncrementalNextState     = "_pleno_incremental_next_state"
 )
 
 type Config map[string]string
@@ -127,3 +133,27 @@ func (s *sourceAdapter) ResourceFingerprint(ctx context.Context) (string, error)
 }
 
 var _ sources.ResourceFingerprinter = (*sourceAdapter)(nil)
+
+func (s *sourceAdapter) SetIncrementalState(previous json.RawMessage) error {
+	if s.cfg == nil {
+		s.cfg = Config{}
+	}
+	delete(s.cfg, configKeyIncrementalNextState)
+	if len(previous) > 0 {
+		s.cfg[configKeyIncrementalPreviousState] = string(previous)
+	} else {
+		delete(s.cfg, configKeyIncrementalPreviousState)
+	}
+	return nil
+}
+
+func (s *sourceAdapter) IncrementalState() json.RawMessage {
+	if s.cfg != nil {
+		if next := s.cfg[configKeyIncrementalNextState]; next != "" {
+			return json.RawMessage(next)
+		}
+	}
+	return nil
+}
+
+var _ sources.IncrementalStateSource = (*sourceAdapter)(nil)

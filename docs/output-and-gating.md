@@ -53,6 +53,23 @@ provider-confirmed findings.
 pleno-dlp scan github --org acme --include-comments --verify --only-verified --format json
 ```
 
+## Incremental GitHub scans
+
+`scan github --incremental --incremental-state <file>` stores both the
+overall resource fingerprint and a GitHub source watermark. When the
+overall fingerprint is unchanged, the scan is skipped entirely. When
+only part of a GitHub org changes, the GitHub connector narrows the
+scan to changed resources:
+
+- default-branch blobs whose path, SHA, or size changed since the
+  previous successful baseline
+- new or updated issue comments
+- new or updated pull request review comments
+
+The connector still lists repositories, default-branch trees, and
+comment metadata to compute the next watermark, but unchanged blob
+contents and unchanged comment bodies are not fetched or scanned.
+
 ## Detector scoping
 
 Detector scoping is case-insensitive and fails closed on unknown names:

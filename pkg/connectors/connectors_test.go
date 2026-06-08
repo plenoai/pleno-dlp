@@ -228,3 +228,41 @@ func TestAsSourceResourceFingerprint(t *testing.T) {
 		t.Fatalf("ResourceFingerprint = %q, want fp-123", got)
 	}
 }
+
+func TestAsSourceIncrementalState(t *testing.T) {
+	name := uniqueName("test-assource-incremental-state")
+	Register(name, Connector{
+		SourceType: sources.SourceFilesystem,
+		Scan: func(_ context.Context, cfg Config, _ Emit) error {
+			if got := cfg[configKeyIncrementalPreviousState]; got != `{"repos":{}}` {
+				t.Fatalf("previous incremental state = %q, want JSON payload", got)
+			}
+			cfg[configKeyIncrementalNextState] = `{"repos":{"acme/widget":{}}}`
+			return nil
+		},
+	})
+
+	src, err := AsSource(name, Config{})
+	if err != nil {
+		t.Fatalf("AsSource: %v", err)
+	}
+	iss, ok := src.(sources.IncrementalStateSource)
+	if !ok {
+		t.Fatal("source adapter must expose IncrementalStateSource")
+	}
+	if err := iss.SetIncrementalState([]byte(`{"repos":{}}`)); err != nil {
+		t.Fatalf("SetIncrementalState: %v", err)
+	}
+	ch := make(chan *sources.Chunk)
+	go func() {
+		if err := src.Chunks(context.Background(), ch); err != nil {
+			t.Errorf("Chunks: %v", err)
+		}
+		close(ch)
+	}()
+	for range ch {
+	}
+	if got := string(iss.IncrementalState()); got != `{"repos":{"acme/widget":{}}}` {
+		t.Fatalf("IncrementalState = %q", got)
+	}
+}
