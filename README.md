@@ -88,20 +88,16 @@ Details and safety constraints: [`docs/revoke-support.md`](docs/revoke-support.m
 
 ## PII detection
 
-PII scanning is opt-in. Use `anonymize` for faster Japanese-first NER, or
-`openai-pf` for the privacy-filter model path.
+PII scanning is opt-in.
 
 ```sh
 pleno-dlp scan filesystem ./src --pii-engine=anonymize
-pleno-dlp scan filesystem ./src --pii-engine=openai-pf
 ```
 
-Advanced flags and server commands:
+Advanced flags and engine setup:
 
 - `pleno-dlp scan --help`
 - `pleno-dlp pii-server --help`
-- `pleno-dlp openai-pf-server --help`
-- [`python/openaipf-server/README.md`](python/openaipf-server/README.md)
 
 ## License
 
