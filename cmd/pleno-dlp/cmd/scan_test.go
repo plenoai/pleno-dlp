@@ -26,10 +26,28 @@ func TestScanHelp(t *testing.T) {
 	}
 
 	got := out.String()
-	for _, want := range []string{"--format", "--verify", "--concurrency", "scan"} {
+	for _, want := range []string{"--format", "--concurrency", "scan"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("help missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+func TestScanVerifyFlagRemoved(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+	Root.SetArgs([]string{"scan", "--verify", "--help"})
+
+	err := Root.Execute()
+	if err == nil {
+		t.Fatal("--verify must be rejected; verification is default-on")
+	}
+	if !strings.Contains(err.Error(), "unknown flag: --verify") {
+		t.Fatalf("error must reject --verify: %v", err)
 	}
 }
 
@@ -121,7 +139,7 @@ func TestScanFailOnGate(t *testing.T) {
 
 func resetScanOpts() {
 	scanOpts.format = "table"
-	scanOpts.verify = false
+	scanOpts.verify = true
 	scanOpts.onlyVerified = false
 	scanOpts.verifyRPS = 10
 	scanOpts.concurrency = 8
@@ -184,30 +202,6 @@ func TestVerifiedOnlySink_DropsUnverified(t *testing.T) {
 	}
 }
 
-func TestScanOnlyVerifiedRequiresVerify(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
-
-	dir := t.TempDir()
-	target := dir + "/clean.txt"
-	if err := writeFile(target, "no secrets here\n"); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-
-	var out, errBuf bytes.Buffer
-	Root.SetOut(&out)
-	Root.SetErr(&errBuf)
-	Root.SetArgs([]string{"scan", "--only-verified", "--format", "json", "filesystem", target})
-
-	err := Root.Execute()
-	if err == nil {
-		t.Fatal("--only-verified without --verify must fail")
-	}
-	if !strings.Contains(err.Error(), "--verify") {
-		t.Fatalf("error must mention --verify: %v", err)
-	}
-}
-
 func TestScan_RevokeOnVerified_RefusesWithoutEnv(t *testing.T) {
 	resetScanOpts()
 	t.Cleanup(resetScanOpts)
@@ -222,7 +216,7 @@ func TestScan_RevokeOnVerified_RefusesWithoutEnv(t *testing.T) {
 	var out, errBuf bytes.Buffer
 	Root.SetOut(&out)
 	Root.SetErr(&errBuf)
-	Root.SetArgs([]string{"scan", "--verify", "--revoke-on-verified", "--format", "json", "filesystem", target})
+	Root.SetArgs([]string{"scan", "--revoke-on-verified", "--format", "json", "filesystem", target})
 
 	err := Root.Execute()
 	if err == nil {
@@ -230,31 +224,6 @@ func TestScan_RevokeOnVerified_RefusesWithoutEnv(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), EnvAllowRevoke) {
 		t.Errorf("error must mention %s: %v", EnvAllowRevoke, err)
-	}
-}
-
-func TestScan_RevokeOnVerified_RequiresVerify(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
-	t.Setenv(EnvAllowRevoke, "1")
-
-	dir := t.TempDir()
-	target := dir + "/leak.txt"
-	if err := writeFile(target, "no secrets here\n"); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-
-	var out, errBuf bytes.Buffer
-	Root.SetOut(&out)
-	Root.SetErr(&errBuf)
-	Root.SetArgs([]string{"scan", "--revoke-on-verified", "--format", "json", "filesystem", target})
-
-	err := Root.Execute()
-	if err == nil {
-		t.Fatalf("--revoke-on-verified without --verify must fail")
-	}
-	if !strings.Contains(err.Error(), "--verify") {
-		t.Errorf("error must mention --verify: %v", err)
 	}
 }
 
@@ -272,7 +241,7 @@ func TestScan_RevokeOnVerified_DryRunBypassesEnv(t *testing.T) {
 	var out, errBuf bytes.Buffer
 	Root.SetOut(&out)
 	Root.SetErr(&errBuf)
-	Root.SetArgs([]string{"scan", "--verify", "--revoke-on-verified", "--revoke-dry-run", "--format", "json", "filesystem", target})
+	Root.SetArgs([]string{"scan", "--revoke-on-verified", "--revoke-dry-run", "--format", "json", "filesystem", target})
 
 	if err := Root.Execute(); err != nil {
 		t.Fatalf("dry-run with no findings should succeed; got %v\nstderr:\n%s", err, errBuf.String())
@@ -420,7 +389,7 @@ func TestScanFilesystemIncrementalSkipsUnchangedCleanScan(t *testing.T) {
 	var firstOut, firstErr bytes.Buffer
 	Root.SetOut(&firstOut)
 	Root.SetErr(&firstErr)
-	Root.SetArgs([]string{"scan", "--incremental", "--incremental-state", state, "--verify", "--revoke-on-verified", "--revoke-dry-run", "--format", "json", "filesystem", target})
+	Root.SetArgs([]string{"scan", "--incremental", "--incremental-state", state, "--revoke-on-verified", "--revoke-dry-run", "--format", "json", "filesystem", target})
 	if err := Root.Execute(); err != nil {
 		t.Fatalf("first incremental baseline should scan cleanly: %v\nstderr:\n%s", err, firstErr.String())
 	}
@@ -431,7 +400,7 @@ func TestScanFilesystemIncrementalSkipsUnchangedCleanScan(t *testing.T) {
 	var secondOut, secondErr bytes.Buffer
 	Root.SetOut(&secondOut)
 	Root.SetErr(&secondErr)
-	Root.SetArgs([]string{"scan", "--incremental", "--incremental-state", state, "--verify", "--revoke-on-verified", "--revoke-dry-run", "--format", "json", "filesystem", target})
+	Root.SetArgs([]string{"scan", "--incremental", "--incremental-state", state, "--revoke-on-verified", "--revoke-dry-run", "--format", "json", "filesystem", target})
 	if err := Root.Execute(); err != nil {
 		t.Fatalf("unchanged clean incremental run should skip and succeed: %v\nstderr:\n%s", err, secondErr.String())
 	}
@@ -498,7 +467,7 @@ func TestScanFilesystemIncrementalSkipsRevokeDryRunWhenUnchanged(t *testing.T) {
 	var firstOut, firstErr bytes.Buffer
 	Root.SetOut(&firstOut)
 	Root.SetErr(&firstErr)
-	Root.SetArgs([]string{"scan", "--incremental", "--incremental-state", state, "--verify", "--revoke-on-verified", "--revoke-dry-run", "--format", "json", "filesystem", target})
+	Root.SetArgs([]string{"scan", "--incremental", "--incremental-state", state, "--revoke-on-verified", "--revoke-dry-run", "--format", "json", "filesystem", target})
 	if err := Root.Execute(); err != nil {
 		t.Fatalf("first incremental baseline should scan cleanly: %v\nstderr:\n%s", err, firstErr.String())
 	}
@@ -506,7 +475,7 @@ func TestScanFilesystemIncrementalSkipsRevokeDryRunWhenUnchanged(t *testing.T) {
 	var secondOut, secondErr bytes.Buffer
 	Root.SetOut(&secondOut)
 	Root.SetErr(&secondErr)
-	Root.SetArgs([]string{"scan", "--incremental", "--incremental-state", state, "--verify", "--revoke-on-verified", "--revoke-dry-run", "--format", "json", "filesystem", target})
+	Root.SetArgs([]string{"scan", "--incremental", "--incremental-state", state, "--revoke-on-verified", "--revoke-dry-run", "--format", "json", "filesystem", target})
 	if err := Root.Execute(); err != nil {
 		t.Fatalf("unchanged incremental revoke dry-run should skip cleanly: %v\nstderr:\n%s", err, secondErr.String())
 	}

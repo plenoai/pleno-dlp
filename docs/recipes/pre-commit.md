@@ -34,7 +34,7 @@ The pre-commit hook scans only staged paths. Run a full repo scan
 periodically:
 
 ```sh
-pleno-dlp scan filesystem . --verify
+pleno-dlp scan filesystem .
 pleno-dlp scan git --repo . --max-depth 1000
 ```
 

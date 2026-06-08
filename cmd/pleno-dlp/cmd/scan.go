@@ -160,9 +160,8 @@ var scanSQLDumpCmd = &cobra.Command{
 
 func init() {
 	scanCmd.PersistentFlags().StringVar(&scanOpts.format, "format", "table", "output format: json, sarif, table")
-	scanCmd.PersistentFlags().BoolVar(&scanOpts.verify, "verify", false, "verify candidate secrets against upstream APIs")
-	scanCmd.PersistentFlags().BoolVar(&scanOpts.onlyVerified, "only-verified", false, "emit, count, and optionally revoke only findings confirmed by --verify")
-	scanCmd.PersistentFlags().IntVar(&scanOpts.verifyRPS, "verify-rps", 10, "per-host requests-per-second cap during --verify (0 = disable rate limiting)")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.onlyVerified, "only-verified", false, "emit, count, and optionally revoke only provider-verified findings")
+	scanCmd.PersistentFlags().IntVar(&scanOpts.verifyRPS, "verify-rps", 10, "per-host requests-per-second cap during verification (0 = disable rate limiting)")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.failOn, "fail-on", "any", "minimum severity that triggers exit 1: any|info|low|medium|high|critical")
@@ -172,7 +171,7 @@ func init() {
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.quiet, "quiet", false, "suppress the end-of-scan summary line on stderr (use in scripted callers parsing stderr)")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.revokeOnVerified, "revoke-on-verified", false,
 		"after a finding verifies, immediately call the detector's Revoker to invalidate the secret upstream. "+
-			"Requires --verify. Refuses to run unless "+EnvAllowRevoke+"=1 is set in the environment so a misconfigured CI cannot accidentally revoke live credentials. Detectors without a Revoker implementation are skipped.")
+			"Refuses to run unless "+EnvAllowRevoke+"=1 is set in the environment so a misconfigured CI cannot accidentally revoke live credentials. Detectors without a Revoker implementation are skipped.")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.revokeDryRun, "revoke-dry-run", false,
 		"when used with --revoke-on-verified, log what would be revoked without contacting the provider")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.blastRadiusOnly, "blast-radius-only", false,
@@ -317,16 +316,11 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	scanOpts.verify = true
 	if scanOpts.revokeOnVerified {
-		if !scanOpts.verify {
-			return fmt.Errorf("--revoke-on-verified requires --verify (revoking unverified candidates would be unsafe)")
-		}
 		if !scanOpts.revokeDryRun && os.Getenv(EnvAllowRevoke) != "1" {
 			return fmt.Errorf("--revoke-on-verified refuses to run without %s=1 (irreversible operation; set the env var to opt in or pass --revoke-dry-run)", EnvAllowRevoke)
 		}
-	}
-	if scanOpts.onlyVerified && !scanOpts.verify {
-		return fmt.Errorf("--only-verified requires --verify")
 	}
 
 	if err := src.Init(ctx, "cli", 0, 0, scanOpts.verify, cfg, scanOpts.concurrency); err != nil {
@@ -377,7 +371,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		return nil
 	}
 
-	// Install the per-host verify rate limiter when --verify is on.
+	// Install the per-host verify rate limiter when verification is on.
 	// Detectors all share http.DefaultTransport, so wrapping it here
 	// — once, before any detector runs — covers the entire scan
 	// without per-detector refactoring. We restore on exit so unit
@@ -882,8 +876,8 @@ func (b *blastRadiusFilterSink) Emit(f engine.Finding) {
 func (b *blastRadiusFilterSink) Close() error { return b.inner.Close() }
 
 // verifiedOnlySink drops findings that failed or skipped provider
-// verification. It is installed only when --only-verified is set, and
-// runScanCommon rejects that flag unless --verify is also enabled.
+// verification. Verification runs by default, so --only-verified can
+// filter directly to provider-confirmed findings.
 type verifiedOnlySink struct {
 	inner   engine.Sink
 	dropped atomic.Int64

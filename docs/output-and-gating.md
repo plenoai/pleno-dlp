@@ -44,13 +44,13 @@ pleno-dlp scan filesystem ./repo --fail-on high
 pleno-dlp scan filesystem ./repo --fail-on any
 ```
 
-To preserve TruffleHog-style verified-only pipelines, combine
-`--only-verified` with `--verify`. The flag filters output, finding
-counts, exit-code gating, and `--revoke-on-verified` dispatch to
-provider-confirmed findings.
+To preserve TruffleHog-style verified-only pipelines, use
+`--only-verified`. Verification runs by default, and the flag filters
+output, finding counts, exit-code gating, and `--revoke-on-verified`
+dispatch to provider-confirmed findings.
 
 ```sh
-pleno-dlp scan github --org acme --include-comments --verify --only-verified --format json
+pleno-dlp scan github --org acme --include-comments --only-verified --format json
 ```
 
 ## Incremental GitHub scans

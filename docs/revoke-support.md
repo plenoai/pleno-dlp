@@ -5,8 +5,9 @@ This page keeps the static contract: gating, idempotency, provider requirements,
 
 ## Severity recap
 
-Revoke runs only against **verified** findings. `scan --revoke-on-verified`
-therefore requires `--verify`.
+Revoke runs only against **verified** findings. Scan-mode verification runs by
+default, so `scan --revoke-on-verified` can dispatch only provider-confirmed
+findings.
 
 ## Safety gating
 
@@ -21,7 +22,7 @@ Revoke is irreversible. The CLI applies three gates:
    TTY-attached operators do not need the env var.
 3. **Scan-mode opt-in.** `scan --revoke-on-verified` always requires
    `PLENO_DLP_ALLOW_REVOKE=1` regardless of TTY state. The flag
-   additionally requires `--verify`; revoking unverified candidates
+   only dispatches verified findings; revoking unverified candidates
    would risk invalidating tokens that are not ours.
    `--revoke-dry-run` previews the work without contacting any
    provider and bypasses only the env-var gate (operators previewing
@@ -193,7 +194,7 @@ The recommended automation pattern:
     PLENO_DLP_REVOKE_GITHUB_CLIENT_ID: ${{ secrets.OAUTH_APP_CLIENT_ID }}
     PLENO_DLP_REVOKE_GITHUB_CLIENT_SECRET: ${{ secrets.OAUTH_APP_CLIENT_SECRET }}
   run: |
-    pleno-dlp scan --verify --revoke-on-verified \
+    pleno-dlp scan --revoke-on-verified \
       --revoke-dry-run \
       --format json filesystem .
 ```
