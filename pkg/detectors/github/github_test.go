@@ -126,8 +126,44 @@ func withRevokeServer(t *testing.T, status int) (*httptest.Server, *string) {
 	apiBase = srv.URL
 	t.Cleanup(func() { apiBase = old })
 	SetRevokeCredentials(testClientID, testClientSecret)
-	t.Cleanup(func() { SetRevokeCredentials("", "") })
+	SetRevokeMode(RevokeModeOAuthApp)
+	t.Cleanup(func() {
+		SetRevokeCredentials("", "")
+		SetRevokeMode("")
+	})
 	return srv, captured
+}
+
+func credentialsRevokeServer(t *testing.T, status int) (*httptest.Server, *string) {
+	t.Helper()
+	captured := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("credentials revoke: expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/credentials/revoke" {
+			t.Errorf("credentials revoke: path = %q, want /credentials/revoke", r.URL.Path)
+		}
+		if auth := r.Header.Get("Authorization"); auth != "" {
+			t.Errorf("credentials revoke: Authorization must be absent, got %q", auth)
+		}
+		if got := r.Header.Get("X-GitHub-Api-Version"); got != "2026-03-10" {
+			t.Errorf("credentials revoke: api version = %q", got)
+		}
+		body, _ := io.ReadAll(r.Body)
+		captured = string(body)
+		var parsed struct {
+			Credentials []string `json:"credentials"`
+		}
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			t.Errorf("credentials revoke: body is not valid JSON: %v (raw=%q)", err, string(body))
+		} else if len(parsed.Credentials) != 1 || parsed.Credentials[0] == "" {
+			t.Errorf("credentials revoke: body missing credentials array (raw=%q)", string(body))
+		}
+		w.WriteHeader(status)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &captured
 }
 
 func TestRevoke_Success(t *testing.T) {
@@ -193,6 +229,8 @@ func TestRevoke_BadCreds_401(t *testing.T) {
 func TestRevoke_MissingCreds(t *testing.T) {
 	// Make sure no leftover from a prior test taints this one.
 	SetRevokeCredentials("", "")
+	SetRevokeMode(RevokeModeOAuthApp)
+	t.Cleanup(func() { SetRevokeMode("") })
 	t.Setenv(EnvClientID, "")
 	t.Setenv(EnvClientSecret, "")
 
@@ -208,7 +246,11 @@ func TestRevoke_MissingCreds(t *testing.T) {
 
 func TestRevoke_EmptySecret(t *testing.T) {
 	SetRevokeCredentials(testClientID, testClientSecret)
-	t.Cleanup(func() { SetRevokeCredentials("", "") })
+	SetRevokeMode(RevokeModeOAuthApp)
+	t.Cleanup(func() {
+		SetRevokeCredentials("", "")
+		SetRevokeMode("")
+	})
 	_, err := Scanner{}.Revoke(context.Background(), "")
 	if err == nil {
 		t.Fatal("expected error on empty secret")
@@ -224,6 +266,8 @@ func TestRevoke_EnvFallback(t *testing.T) {
 	t.Cleanup(func() { apiBase = old })
 	// Make sure programmatic creds are empty so env-fallback fires.
 	SetRevokeCredentials("", "")
+	SetRevokeMode(RevokeModeOAuthApp)
+	t.Cleanup(func() { SetRevokeMode("") })
 
 	res, err := Scanner{}.Revoke(context.Background(), dummyClassic)
 	if err != nil {
@@ -231,6 +275,71 @@ func TestRevoke_EnvFallback(t *testing.T) {
 	}
 	if !res.Revoked {
 		t.Fatal("expected env-fallback Revoke to succeed on 204")
+	}
+}
+
+func TestRevoke_CredentialsRevokeDefaultWithoutOAuthCreds(t *testing.T) {
+	srv, captured := credentialsRevokeServer(t, http.StatusAccepted)
+	old := apiBase
+	apiBase = srv.URL
+	t.Cleanup(func() { apiBase = old })
+	SetRevokeCredentials("", "")
+	SetRevokeMode("")
+
+	res, err := Scanner{}.Revoke(context.Background(), dummyClassic)
+	if err != nil {
+		t.Fatalf("Revoke err: %v", err)
+	}
+	if !res.Revoked {
+		t.Fatal("expected Revoked=true on 202")
+	}
+	if res.ProviderID != "github-credentials-revoke" {
+		t.Errorf("ProviderID = %q", res.ProviderID)
+	}
+	if !strings.Contains(*captured, dummyClassic) {
+		t.Errorf("body did not include credential (got %q)", *captured)
+	}
+}
+
+func TestRevoke_CredentialsRevokeExplicitMode(t *testing.T) {
+	srv, _ := credentialsRevokeServer(t, http.StatusAccepted)
+	old := apiBase
+	apiBase = srv.URL
+	t.Cleanup(func() { apiBase = old })
+	SetRevokeCredentials(testClientID, testClientSecret)
+	SetRevokeMode(RevokeModeCredentials)
+	t.Cleanup(func() {
+		SetRevokeCredentials("", "")
+		SetRevokeMode("")
+	})
+
+	res, err := Scanner{}.Revoke(context.Background(), dummyClassic)
+	if err != nil {
+		t.Fatalf("Revoke err: %v", err)
+	}
+	if !res.Revoked {
+		t.Fatal("expected Revoked=true on 202")
+	}
+}
+
+func TestRevoke_CredentialsRevokeValidationDiagnostic(t *testing.T) {
+	srv, _ := credentialsRevokeServer(t, http.StatusUnprocessableEntity)
+	old := apiBase
+	apiBase = srv.URL
+	t.Cleanup(func() { apiBase = old })
+	SetRevokeCredentials("", "")
+	SetRevokeMode(RevokeModeCredentials)
+	t.Cleanup(func() { SetRevokeMode("") })
+
+	res, err := Scanner{}.Revoke(context.Background(), dummyClassic)
+	if err != nil {
+		t.Fatalf("Revoke err: %v", err)
+	}
+	if res.Revoked {
+		t.Fatal("expected Revoked=false on 422")
+	}
+	if res.Err == nil {
+		t.Fatal("expected non-nil diagnostic on 422")
 	}
 }
 

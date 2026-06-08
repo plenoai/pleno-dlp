@@ -29,6 +29,7 @@ type revokeFlags struct {
 	secret       string
 	clientID     string
 	clientSecret string
+	githubMode   string
 	confirm      bool
 	dryRun       bool
 	format       string
@@ -50,11 +51,10 @@ var revokeCmd = &cobra.Command{
 	Short: "Revoke a leaked credential against the issuing provider",
 	Long: "Revoke a leaked credential against the issuing provider. Irreversible.\n\n" +
 		"Pass `--secret -` to read the leaked credential from stdin (recommended:\n" +
-		"keeps the value out of shell history). For GitHub, the OAuth-app\n" +
-		"credentials needed for the DELETE /applications/{client_id}/token call\n" +
-		"come from --client-id / --client-secret (overrides) or the\n" +
-		"PLENO_DLP_REVOKE_GITHUB_CLIENT_ID / PLENO_DLP_REVOKE_GITHUB_CLIENT_SECRET\n" +
-		"env vars.\n\n" +
+		"keeps the value out of shell history). GitHub defaults to auto mode:\n" +
+		"OAuth-app credentials use DELETE /applications/{client_id}/token;\n" +
+		"otherwise PATs are revoked via POST /credentials/revoke. Override with\n" +
+		"--github-revoke-mode or " + githubdet.EnvRevokeMode + ".\n\n" +
 		"Gating (ADR-0001 D6): one of --confirm or --dry-run is mandatory.\n" +
 		"Non-interactive contexts (CI, pipes) MUST also set " + EnvAllowRevoke + "=1.",
 	Args: cobra.NoArgs,
@@ -66,6 +66,7 @@ func init() {
 	revokeCmd.Flags().StringVar(&revokeOpts.secret, "secret", "", "the leaked credential, or `-` to read it from stdin")
 	revokeCmd.Flags().StringVar(&revokeOpts.clientID, "client-id", "", "OAuth app client_id (GitHub: overrides "+githubdet.EnvClientID+")")
 	revokeCmd.Flags().StringVar(&revokeOpts.clientSecret, "client-secret", "", "OAuth app client_secret (GitHub: overrides "+githubdet.EnvClientSecret+")")
+	revokeCmd.Flags().StringVar(&revokeOpts.githubMode, "github-revoke-mode", "", "GitHub revoke mode: auto, credentials, oauth-app (overrides "+githubdet.EnvRevokeMode+")")
 	revokeCmd.Flags().StringVar(&revokeOpts.awsAdminAccessKeyID, "aws-admin-access-key-id", "", "AWS admin access key id used to call iam:DeleteAccessKey (overrides "+awsdet.EnvAdminAccessKeyID+")")
 	revokeCmd.Flags().StringVar(&revokeOpts.awsAdminSecretAccessKey, "aws-admin-secret-access-key", "", "AWS admin secret access key (overrides "+awsdet.EnvAdminSecretAccessKey+")")
 	revokeCmd.Flags().StringVar(&revokeOpts.awsAdminSessionToken, "aws-admin-session-token", "", "AWS admin session token, optional (overrides "+awsdet.EnvAdminSessionToken+")")
@@ -172,6 +173,9 @@ func resolveRevoker(name string) (detectors.Revoker, detectors.DetectorType, err
 	case "github":
 		if revokeOpts.clientID != "" || revokeOpts.clientSecret != "" {
 			githubdet.SetRevokeCredentials(revokeOpts.clientID, revokeOpts.clientSecret)
+		}
+		if revokeOpts.githubMode != "" {
+			githubdet.SetRevokeMode(revokeOpts.githubMode)
 		}
 		return githubdet.Scanner{}, detectors.GitHub, nil
 	case "gitlab":

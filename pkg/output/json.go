@@ -1,6 +1,8 @@
 package output
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"sync"
@@ -15,6 +17,8 @@ type jsonRecord struct {
 	Verified          bool              `json:"verified"`
 	VerificationError string            `json:"verification_error,omitempty"`
 	Redacted          string            `json:"redacted"`
+	SecretHash        string            `json:"secret_hash,omitempty"`
+	SecretHashV2      string            `json:"secret_hash_v2,omitempty"`
 	Source            jsonSource        `json:"source"`
 	ExtraData         map[string]string `json:"extra_data,omitempty"`
 }
@@ -51,16 +55,26 @@ func (s *jsonSink) Close() error {
 
 func toJSONRecord(f engine.Finding) jsonRecord {
 	rec := jsonRecord{
-		Detector:  f.Detector.String(),
-		Verified:  f.Result.Verified,
-		Redacted:  f.Result.Redacted,
-		ExtraData: f.Result.ExtraData,
+		Detector:   f.Detector.String(),
+		Verified:   f.Result.Verified,
+		Redacted:   f.Result.Redacted,
+		SecretHash: hashSecret(f.Result.Raw),
+		ExtraData:  f.Result.ExtraData,
 	}
+	rec.SecretHashV2 = hashSecret(f.Result.RawV2)
 	if f.Result.VerificationErr != nil {
 		rec.VerificationError = f.Result.VerificationErr.Error()
 	}
 	rec.Source = jsonSourceOf(f.Chunk)
 	return rec
+}
+
+func hashSecret(raw []byte) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }
 
 func jsonSourceOf(c *sources.Chunk) jsonSource {

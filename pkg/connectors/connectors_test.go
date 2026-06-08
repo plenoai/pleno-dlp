@@ -196,3 +196,35 @@ func TestChunksCancellationPropagates(t *testing.T) {
 		t.Fatal("Chunks returned nil after cancel, want ctx error")
 	}
 }
+
+func TestAsSourceResourceFingerprint(t *testing.T) {
+	name := uniqueName("test-assource-fingerprint")
+	Register(name, Connector{
+		SourceType: sources.SourceFilesystem,
+		Scan: func(context.Context, Config, Emit) error {
+			return nil
+		},
+		Fingerprint: func(ctx context.Context, cfg Config) (string, error) {
+			if got := cfg["k"]; got != "v" {
+				t.Fatalf("Fingerprint cfg[k] = %q, want v", got)
+			}
+			return "fp-123", nil
+		},
+	})
+
+	src, err := AsSource(name, Config{"k": "v"})
+	if err != nil {
+		t.Fatalf("AsSource: %v", err)
+	}
+	fp, ok := src.(sources.ResourceFingerprinter)
+	if !ok {
+		t.Fatal("source adapter must expose ResourceFingerprinter")
+	}
+	got, err := fp.ResourceFingerprint(context.Background())
+	if err != nil {
+		t.Fatalf("ResourceFingerprint: %v", err)
+	}
+	if got != "fp-123" {
+		t.Fatalf("ResourceFingerprint = %q, want fp-123", got)
+	}
+}
