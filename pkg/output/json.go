@@ -97,6 +97,7 @@ func jsonSourceOf(c *sources.Chunk) jsonSource {
 	case c.SourceMetadata.GitHub != nil:
 		gh := c.SourceMetadata.GitHub
 		md["repository"] = gh.Repository
+		md["link"] = gh.Link
 		md["commit"] = gh.Commit
 		md["file"] = gh.File
 		md["line"] = gh.Line
