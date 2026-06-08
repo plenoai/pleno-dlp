@@ -1,5 +1,7 @@
 # pleno-dlp
 
+![pleno-dlp banner](docs/assets/banner.png)
+
 Unified DLP scanner for secrets and PII. One Go binary scans the
 filesystem, local git history, stdin, and SaaS sources.
 
