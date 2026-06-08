@@ -53,13 +53,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Build provenance attestations require GitHub Advanced Security
-      # or a public repo. The plenoai org currently runs this repo as
-      # private without GHAS, so we skip the attestation step rather
-      # than fail every release. Once the repo flips public (or GHAS
-      # ships), drop the `if:` and the step lights up.
-      - if: ${{ !github.event.repository.private }}
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+      - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
             dist/*.tar.gz
