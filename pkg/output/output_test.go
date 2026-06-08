@@ -2,6 +2,8 @@ package output
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -73,6 +75,13 @@ func TestJSONSinkEmitsArray(t *testing.T) {
 	if rec["redacted"] != "AKIA…AMPLE" {
 		t.Errorf("redacted: %v", rec["redacted"])
 	}
+	wantHash := sha256Hex("AKIAIOSFODNN7EXAMPLE")
+	if rec["secret_hash"] != wantHash {
+		t.Errorf("secret_hash: %v, want %s", rec["secret_hash"], wantHash)
+	}
+	if _, ok := rec["secret_hash_v2"]; ok {
+		t.Errorf("secret_hash_v2 should be omitted when RawV2 is empty: %v", rec)
+	}
 	src, _ := rec["source"].(map[string]any)
 	if src["type"] != "filesystem" {
 		t.Errorf("source.type: %v", src["type"])
@@ -81,6 +90,34 @@ func TestJSONSinkEmitsArray(t *testing.T) {
 	if md["path"] != "/tmp/leak.txt" {
 		t.Errorf("metadata.path: %v", md["path"])
 	}
+}
+
+func TestJSONSinkEmitsRawV2Hash(t *testing.T) {
+	f := sample()
+	f.Result.RawV2 = []byte("wJalrXUtnFEMI/K7MDENG/bPxRfiCYqWERTY1KEY")
+
+	var buf bytes.Buffer
+	s, err := NewSink("json", &buf, "test")
+	if err != nil {
+		t.Fatalf("NewSink: %v", err)
+	}
+	s.Emit(f)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	var got []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("output is not a JSON array: %v\n%s", err, buf.String())
+	}
+	if got[0]["secret_hash_v2"] != sha256Hex(string(f.Result.RawV2)) {
+		t.Errorf("secret_hash_v2: %v", got[0]["secret_hash_v2"])
+	}
+}
+
+func sha256Hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
 }
 
 func TestJSONSinkEmptyIsArrayNotNull(t *testing.T) {

@@ -46,6 +46,7 @@ func SetVersion(version, commit string) {
 type scanFlags struct {
 	format            string
 	verify            bool
+	onlyVerified      bool
 	verifyRPS         int
 	concurrency       int
 	rulesPath         string
@@ -160,6 +161,7 @@ var scanSQLDumpCmd = &cobra.Command{
 func init() {
 	scanCmd.PersistentFlags().StringVar(&scanOpts.format, "format", "table", "output format: json, sarif, table")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.verify, "verify", false, "verify candidate secrets against upstream APIs")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.onlyVerified, "only-verified", false, "emit, count, and optionally revoke only findings confirmed by --verify")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.verifyRPS, "verify-rps", 10, "per-host requests-per-second cap during --verify (0 = disable rate limiting)")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
@@ -323,6 +325,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 			return fmt.Errorf("--revoke-on-verified refuses to run without %s=1 (irreversible operation; set the env var to opt in or pass --revoke-dry-run)", EnvAllowRevoke)
 		}
 	}
+	if scanOpts.onlyVerified && !scanOpts.verify {
+		return fmt.Errorf("--only-verified requires --verify")
+	}
 
 	if err := src.Init(ctx, "cli", 0, 0, scanOpts.verify, cfg, scanOpts.concurrency); err != nil {
 		return fmt.Errorf("init %s source: %w", kind, err)
@@ -426,6 +431,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	if scanOpts.revokeOnVerified {
 		revoker = newRevokingSink(piidbSink, dets, scanOpts.revokeDryRun, cmd.ErrOrStderr())
 		topSink = revoker
+	}
+	if scanOpts.onlyVerified {
+		topSink = &verifiedOnlySink{inner: topSink}
 	}
 	// --blast-radius-only sits OUTSIDE counter+revoker so the filter
 	// happens first: non-blast-radius findings never reach the counter
@@ -716,6 +724,7 @@ func scannerFingerprint(kind string, cfg []byte) (string, error) {
 		"kind":                kind,
 		"source_config":       json.RawMessage(cfg),
 		"verify":              scanOpts.verify,
+		"only_verified":       scanOpts.onlyVerified,
 		"verify_rps":          scanOpts.verifyRPS,
 		"rules_path":          scanOpts.rulesPath,
 		"rules_hash":          rulesHash,
@@ -856,6 +865,24 @@ func (b *blastRadiusFilterSink) Emit(f engine.Finding) {
 }
 
 func (b *blastRadiusFilterSink) Close() error { return b.inner.Close() }
+
+// verifiedOnlySink drops findings that failed or skipped provider
+// verification. It is installed only when --only-verified is set, and
+// runScanCommon rejects that flag unless --verify is also enabled.
+type verifiedOnlySink struct {
+	inner   engine.Sink
+	dropped atomic.Int64
+}
+
+func (v *verifiedOnlySink) Emit(f engine.Finding) {
+	if !f.Result.Verified {
+		v.dropped.Add(1)
+		return
+	}
+	v.inner.Emit(f)
+}
+
+func (v *verifiedOnlySink) Close() error { return v.inner.Close() }
 
 // Execute is a thin wrapper main.go invokes. Returning instead of calling
 // os.Exit here keeps the cmd package testable.

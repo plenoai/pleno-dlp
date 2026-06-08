@@ -122,6 +122,7 @@ func TestScanFailOnGate(t *testing.T) {
 func resetScanOpts() {
 	scanOpts.format = "table"
 	scanOpts.verify = false
+	scanOpts.onlyVerified = false
 	scanOpts.verifyRPS = 10
 	scanOpts.concurrency = 8
 	scanOpts.rulesPath = ""
@@ -162,6 +163,48 @@ func TestBlastRadiusFilterSink_DropsAndForwards(t *testing.T) {
 	}
 	if dr := bf.dropped.Load(); dr != 1 {
 		t.Errorf("expected dropped=1, got %d", dr)
+	}
+}
+
+func TestVerifiedOnlySink_DropsUnverified(t *testing.T) {
+	captured := &captureSink{}
+	vo := &verifiedOnlySink{inner: captured}
+
+	vo.Emit(engineFinding(detectors.GitHub, false, "ghp_unverified"))
+	vo.Emit(engineFinding(detectors.GitHub, true, "ghp_verified"))
+
+	if got := len(captured.findings); got != 1 {
+		t.Fatalf("expected only verified finding forwarded, got %d", got)
+	}
+	if !captured.findings[0].Result.Verified {
+		t.Fatal("forwarded finding must be verified")
+	}
+	if dropped := vo.dropped.Load(); dropped != 1 {
+		t.Fatalf("dropped = %d, want 1", dropped)
+	}
+}
+
+func TestScanOnlyVerifiedRequiresVerify(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+
+	dir := t.TempDir()
+	target := dir + "/clean.txt"
+	if err := writeFile(target, "no secrets here\n"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"scan", "--only-verified", "--format", "json", "filesystem", target})
+
+	err := Root.Execute()
+	if err == nil {
+		t.Fatal("--only-verified without --verify must fail")
+	}
+	if !strings.Contains(err.Error(), "--verify") {
+		t.Fatalf("error must mention --verify: %v", err)
 	}
 }
 
