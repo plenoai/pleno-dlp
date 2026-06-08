@@ -115,6 +115,39 @@ func TestJSONSinkEmitsRawV2Hash(t *testing.T) {
 	}
 }
 
+func TestJSONSinkEmitsGitHubLink(t *testing.T) {
+	f := sample()
+	f.Chunk.SourceType = sources.SourceGitHub
+	f.Chunk.SourceMetadata = sources.Metadata{
+		GitHub: &sources.GitHubMeta{
+			Repository: "owner/repo",
+			Link:       "https://github.com/owner/repo/pull/1#discussion_r1",
+			File:       "app/config.go",
+			Line:       12,
+		},
+	}
+
+	var buf bytes.Buffer
+	s, err := NewSink("json", &buf, "test")
+	if err != nil {
+		t.Fatalf("NewSink: %v", err)
+	}
+	s.Emit(f)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	var got []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("output is not a JSON array: %v\n%s", err, buf.String())
+	}
+	src, _ := got[0]["source"].(map[string]any)
+	md, _ := src["metadata"].(map[string]any)
+	if md["link"] != "https://github.com/owner/repo/pull/1#discussion_r1" {
+		t.Errorf("metadata.link: %v", md["link"])
+	}
+}
+
 func sha256Hex(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
