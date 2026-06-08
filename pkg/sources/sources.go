@@ -3,7 +3,10 @@
 // self-register in registry.go via init().
 package sources
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 type SourceType int32
 
@@ -223,4 +226,11 @@ type Source interface {
 // source config such as include/exclude/max-size changes the resource set.
 type ResourceFingerprinter interface {
 	ResourceFingerprint(ctx context.Context) (string, error)
+}
+
+// IncrementalStateSource is an optional Source extension for sources that can
+// narrow a changed scan to only resources newer than the previous baseline.
+type IncrementalStateSource interface {
+	SetIncrementalState(previous json.RawMessage) error
+	IncrementalState() json.RawMessage
 }
