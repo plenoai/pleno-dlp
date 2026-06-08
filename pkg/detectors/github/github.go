@@ -27,6 +27,10 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 const (
 	EnvClientID     = "PLENO_DLP_REVOKE_GITHUB_CLIENT_ID"
 	EnvClientSecret = "PLENO_DLP_REVOKE_GITHUB_CLIENT_SECRET"
+	EnvRevokeMode   = "PLENO_DLP_REVOKE_GITHUB_MODE"
+
+	RevokeModeCredentials = "credentials"
+	RevokeModeOAuthApp    = "oauth-app"
 )
 
 // privilegedScopes mark high-blast-radius GitHub scopes.
@@ -47,6 +51,7 @@ var (
 	revokeCreds   struct {
 		clientID     string
 		clientSecret string
+		mode         string
 	}
 )
 
@@ -54,6 +59,12 @@ func SetRevokeCredentials(clientID, clientSecret string) {
 	revokeCredsMu.Lock()
 	revokeCreds.clientID = clientID
 	revokeCreds.clientSecret = clientSecret
+	revokeCredsMu.Unlock()
+}
+
+func SetRevokeMode(mode string) {
+	revokeCredsMu.Lock()
+	revokeCreds.mode = mode
 	revokeCredsMu.Unlock()
 }
 
@@ -69,6 +80,29 @@ func loadRevokeCreds() (clientID, clientSecret string) {
 		clientSecret = os.Getenv(EnvClientSecret)
 	}
 	return clientID, clientSecret
+}
+
+func loadRevokeMode(clientID, clientSecret string) string {
+	revokeCredsMu.RLock()
+	mode := revokeCreds.mode
+	revokeCredsMu.RUnlock()
+	if mode == "" {
+		mode = os.Getenv(EnvRevokeMode)
+	}
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	switch mode {
+	case "", "auto":
+		if clientID != "" || clientSecret != "" {
+			return RevokeModeOAuthApp
+		}
+		return RevokeModeCredentials
+	case RevokeModeCredentials, "credential", "pat":
+		return RevokeModeCredentials
+	case RevokeModeOAuthApp, "oauth", "application":
+		return RevokeModeOAuthApp
+	default:
+		return mode
+	}
 }
 
 var (
@@ -244,6 +278,59 @@ func (Scanner) Revoke(ctx context.Context, secret string) (detectors.RevokeResul
 		return detectors.RevokeResult{}, errors.New("github: revoke: empty secret")
 	}
 	clientID, clientSecret := loadRevokeCreds()
+	mode := loadRevokeMode(clientID, clientSecret)
+	switch mode {
+	case RevokeModeCredentials:
+		return revokeCredential(ctx, secret)
+	case RevokeModeOAuthApp:
+		return revokeOAuthApp(ctx, secret, clientID, clientSecret)
+	default:
+		return detectors.RevokeResult{}, fmt.Errorf("github: revoke: unknown mode %q (valid: auto, %s, %s)", mode, RevokeModeCredentials, RevokeModeOAuthApp)
+	}
+}
+
+func revokeCredential(ctx context.Context, secret string) (detectors.RevokeResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	body, err := json.Marshal(map[string][]string{"credentials": []string{secret}})
+	if err != nil {
+		return detectors.RevokeResult{}, fmt.Errorf("github: credentials revoke: encode body: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBase+"/credentials/revoke", bytes.NewReader(body))
+	if err != nil {
+		return detectors.RevokeResult{}, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Api-Version", "2026-03-10")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return detectors.RevokeResult{}, err
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+	now := time.Now().UTC()
+	switch resp.StatusCode {
+	case http.StatusAccepted:
+		return detectors.RevokeResult{Revoked: true, RevokedAt: now, ProviderID: "github-credentials-revoke"}, nil
+	case http.StatusUnprocessableEntity:
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return detectors.RevokeResult{Revoked: false, ProviderID: "github-credentials-revoke", Err: fmt.Errorf("github: credentials revoke validation failed or endpoint throttled (HTTP 422): %s", strings.TrimSpace(string(snippet)))}, nil
+	case http.StatusForbidden:
+		return detectors.RevokeResult{}, errors.New("github: credentials revoke rejected (HTTP 403); this endpoint must be called without Authorization")
+	case http.StatusTooManyRequests:
+		return detectors.RevokeResult{}, errors.New("github: credentials revoke rate-limited (HTTP 429)")
+	default:
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return detectors.RevokeResult{}, fmt.Errorf("github: credentials revoke unexpected status %s: %s", resp.Status, string(snippet))
+	}
+}
+
+func revokeOAuthApp(ctx context.Context, secret, clientID, clientSecret string) (detectors.RevokeResult, error) {
 	if clientID == "" || clientSecret == "" {
 		return detectors.RevokeResult{}, fmt.Errorf(
 			"github revoke requires %s + %s (env or --client-id / --client-secret)",

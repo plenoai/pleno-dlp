@@ -44,7 +44,7 @@ This split distinguishes provider rejection, idempotent success, and transport f
 
 | Detector            | Revoke API                                                         | Path through                                                  | Status             |
 |---------------------|--------------------------------------------------------------------|---------------------------------------------------------------|--------------------|
-| `GitHub`            | `DELETE /applications/{client_id}/token`                           | `pkg/detectors/github` (Scanner.Revoke)                       | supported          |
+| `GitHub`            | `POST /credentials/revoke` for PATs; `DELETE /applications/{client_id}/token` for OAuth-app tokens | `pkg/detectors/github` (Scanner.Revoke)                       | supported          |
 | `GitLab`            | 2-step: `GET /personal_access_tokens/self` → `POST .../{id}/revoke` | `pkg/detectors/gitlab` (Scanner.Revoke)                       | supported          |
 | `SlackBotToken`     | `POST /api/auth.revoke`                                            | `pkg/detectors/slack` (Scanner.Revoke)                        | supported          |
 | `Stripe`            | `POST /v1/api_keys/{key}/revoke`                                   | `pkg/detectors/stripe` (Scanner.Revoke)                       | supported (rk_ only) |
@@ -65,15 +65,32 @@ Status semantics:
 
 ## Provider-specific notes
 
-### GitHub PAT
+### GitHub PAT / OAuth-app tokens
 
-GitHub's `DELETE /applications/{client_id}/token` only revokes tokens
-issued by the configured OAuth application. Raw user-owned PATs
-(`ghp_…` not minted by an app) reject with HTTP 422 and surface as
-`Revoked=false` with a non-fatal diagnostic in `RevokeResult.Err` so
-the caller can choose whether to retry against another app or treat
-the token as not-ours. Idempotent: HTTP 404 → `Revoked=true` with a
-"already revoked or never existed" diagnostic.
+GitHub revoke defaults to `auto` mode. When OAuth-app credentials are
+not configured, `pleno-dlp` calls GitHub's unauthenticated
+`POST /credentials/revoke` endpoint with the leaked credential in a
+single-element `credentials` array. This is the right path for normal
+classic and fine-grained PAT leaks; the request intentionally does not
+send an `Authorization` header.
+
+When OAuth-app credentials are configured, `auto` mode preserves the
+older OAuth-app path: `DELETE /applications/{client_id}/token`. That
+endpoint only revokes tokens issued by the configured OAuth
+application. Raw user-owned PATs (`ghp_…` not minted by that app)
+reject with HTTP 422 and surface as `Revoked=false` with a non-fatal
+diagnostic in `RevokeResult.Err`. Idempotent: HTTP 404 →
+`Revoked=true` with a "already revoked or never existed" diagnostic.
+
+Mode selection:
+
+- `--github-revoke-mode credentials` or
+  `PLENO_DLP_REVOKE_GITHUB_MODE=credentials` forces PAT
+  `POST /credentials/revoke`.
+- `--github-revoke-mode oauth-app` or
+  `PLENO_DLP_REVOKE_GITHUB_MODE=oauth-app` forces OAuth-app revoke.
+- `auto` chooses OAuth-app mode when client credentials are present,
+  otherwise credentials mode.
 
 OAuth-app credentials wire through:
 
