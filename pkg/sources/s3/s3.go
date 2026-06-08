@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
@@ -60,6 +61,21 @@ type Source struct {
 	include      []string
 	exclude      []string
 	awsCfg       aws.Config
+
+	hasPreviousState bool
+	previousState    *incrementalState
+	nextState        *incrementalState
+}
+
+type incrementalState struct {
+	Version int                               `json:"version"`
+	Objects map[string]objectIncrementalState `json:"objects"`
+}
+
+type objectIncrementalState struct {
+	ETag         string `json:"etag,omitempty"`
+	Size         int64  `json:"size,omitempty"`
+	LastModified string `json:"last_modified,omitempty"`
 }
 
 func (s *Source) Type() sources.SourceType { return sources.SourceS3 }
@@ -115,6 +131,7 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, v
 
 func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	client := s3.NewFromConfig(s.awsCfg)
+	s.nextState = &incrementalState{Version: 1, Objects: map[string]objectIncrementalState{}}
 
 	input := &s3.ListObjectsV2Input{
 		Bucket: aws.String(s.bucket),
@@ -146,12 +163,55 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 			if !s.keyAllowed(key) {
 				continue
 			}
+			objState := stateForObject(obj)
+			s.nextState.Objects[key] = objState
+			if s.objectUnchanged(key, objState) {
+				continue
+			}
 			if err := s.emitObject(ctx, client, key, ch); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+func (s *Source) SetIncrementalState(previous json.RawMessage) error {
+	s.hasPreviousState = false
+	s.previousState = nil
+	s.nextState = nil
+	if len(previous) == 0 || string(previous) == "null" {
+		return nil
+	}
+	var state incrementalState
+	if err := json.Unmarshal(previous, &state); err != nil {
+		return err
+	}
+	if state.Objects == nil {
+		state.Objects = map[string]objectIncrementalState{}
+	}
+	s.hasPreviousState = true
+	s.previousState = &state
+	return nil
+}
+
+func (s *Source) IncrementalState() json.RawMessage {
+	if s.nextState == nil {
+		return nil
+	}
+	data, err := json.Marshal(s.nextState)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+func (s *Source) objectUnchanged(key string, current objectIncrementalState) bool {
+	if !s.hasPreviousState || s.previousState == nil {
+		return false
+	}
+	prev, ok := s.previousState.Objects[key]
+	return ok && prev == current
 }
 
 // ResourceFingerprint hashes bucket + prefix + object listing (key + ETag).
@@ -251,6 +311,19 @@ func (s *Source) emitObject(ctx context.Context, client *s3.Client, key string, 
 	}
 }
 
+func stateForObject(obj types.Object) objectIncrementalState {
+	state := objectIncrementalState{
+		ETag: aws.ToString(obj.ETag),
+	}
+	if obj.Size != nil {
+		state.Size = *obj.Size
+	}
+	if obj.LastModified != nil {
+		state.LastModified = obj.LastModified.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
+	}
+	return state
+}
+
 func (s *Source) keyAllowed(key string) bool {
 	base := filepath.Base(key)
 	for _, pat := range s.exclude {
@@ -289,3 +362,4 @@ func writeHash(h hash.Hash, s string) {
 
 var _ sources.Source = (*Source)(nil)
 var _ sources.ResourceFingerprinter = (*Source)(nil)
+var _ sources.IncrementalStateSource = (*Source)(nil)
