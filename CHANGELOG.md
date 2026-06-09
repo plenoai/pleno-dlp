@@ -13,6 +13,19 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 - Added GitHub App authentication for GitHub scans and verification,
   including automatic installation token refresh for long-running scans.
+- Added `docs/comparison.md`: measured recall, false-positive, and
+  capability comparison against trufflehog 3.95.5 and gitleaks 8.30.1.
+
+### Fixed
+
+- Fixed `--pii-engine=anonymize` failing readiness with spaCy E050:
+  the NER model wheels were renamed upstream (`ja_ner_ja` →
+  `pleno_anonymize_ja`, `en_ner_en` → `pleno_anonymize_en`) and the
+  bootstrap still installed the old names.
+- Fixed warm-start PII engine breakage with `--no-fetch` or a local
+  `--source`: `uv sync` prunes the NER wheels (outside `uv.lock`) on
+  every run, but reinstall only happened on fresh checkouts. Wheels
+  are now reinstalled unconditionally (idempotent).
 
 ## [0.46.0] - 2026-06-07
 

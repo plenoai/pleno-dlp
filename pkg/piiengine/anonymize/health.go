@@ -12,7 +12,7 @@ import (
 // success.
 //
 // We poll /ready (not /health) because pleno-anonymize lazy-loads
-// spaCy + ja_ner_ja the first time the readiness probe is hit.
+// spaCy + pleno_anonymize_ja the first time the readiness probe is hit.
 // /health responds 200 immediately even before models are loaded;
 // returning from Start with /health green would race the first
 // Analyze call against model load and fail in confusing ways.

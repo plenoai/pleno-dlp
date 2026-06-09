@@ -46,8 +46,8 @@ const defaultPIIServerSource = "git+https://github.com/plenoai/pleno-anonymize.g
 // nerWheelURLs are installed after sync because they live outside PyPI.
 var nerWheelURLs = []string{
 	"https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
-	"https://huggingface.co/0xhikae/ja-ner-ja/resolve/main/ja_ner_ja-0.2.0-py3-none-any.whl",
-	"https://huggingface.co/0xhikae/en-ner-en/resolve/main/en_ner_en-0.1.0.tar.gz",
+	"https://huggingface.co/0xhikae/pleno_anonymize_ja/resolve/main/pleno_anonymize_ja-0.2.0-py3-none-any.whl",
+	"https://huggingface.co/0xhikae/pleno_anonymize_en/resolve/main/pleno_anonymize_en-0.2.1-py3-none-any.whl",
 }
 
 var piiServerCmd = &cobra.Command{
@@ -122,7 +122,7 @@ func runPIIServer(cmd *cobra.Command, _ []string) error {
 
 	stderr := cmd.ErrOrStderr()
 
-	workdir, freshCheckout, err := prepareWorkdir(ctx, prepareInput{
+	workdir, _, err := prepareWorkdir(ctx, prepareInput{
 		source:   piiServerOpts.source,
 		gitRef:   piiServerOpts.gitRef,
 		cacheDir: piiServerOpts.cacheDir,
@@ -136,10 +136,13 @@ func runPIIServer(cmd *cobra.Command, _ []string) error {
 	if err := runUVSync(ctx, workdir, stderr); err != nil {
 		return fmt.Errorf("uv sync: %w", err)
 	}
-	if freshCheckout {
-		if err := runUVPipInstallNERWheels(ctx, workdir, stderr); err != nil {
-			return fmt.Errorf("install NER wheels: %w", err)
-		}
+	// uv sync prunes the NER wheels on EVERY run (they live outside
+	// uv.lock), so the reinstall cannot be gated on a fresh checkout —
+	// a warm cache with --no-fetch or a local --source would otherwise
+	// come up with the models pruned and fail readiness with E050.
+	// The install is idempotent and cheap on a warm uv cache.
+	if err := runUVPipInstallNERWheels(ctx, workdir, stderr); err != nil {
+		return fmt.Errorf("install NER wheels: %w", err)
 	}
 
 	argv := buildPIIServerArgv(uvBin, piiServerOpts.host, port)
@@ -220,9 +223,10 @@ type prepareInput struct {
 }
 
 // prepareWorkdir resolves --source into a usable workspace directory
-// and returns (workdir, freshCheckout, err). freshCheckout is true
-// when the caller should re-install NER wheels after `uv sync`
-// (which prunes anything outside uv.lock).
+// and returns (workdir, freshCheckout, err). freshCheckout reports
+// whether the cached checkout was created or moved this call; the NER
+// wheels are reinstalled unconditionally by the caller regardless,
+// because `uv sync` prunes them (anything outside uv.lock) every run.
 //
 // Local-path source: returned unchanged, freshCheckout=false. The
 // operator is responsible for fetching their own checkout.
@@ -403,7 +407,10 @@ func runUVSync(ctx context.Context, dir string, stderr io.Writer) error {
 
 // runUVPipInstallNERWheels installs the spaCy + NER model wheels that
 // uv.lock cannot pin (they're hosted on GitHub Releases / Hugging
-// Face, not PyPI). Mirrors the upstream Dockerfile lines 27–30.
+// Face, not PyPI). Mirrors the upstream Dockerfile install lines —
+// keep these URLs in lockstep with the model names app.py loads
+// (spacy.load("pleno_anonymize_ja"/"pleno_anonymize_en")); a rename
+// upstream otherwise fails readiness with spaCy E050.
 func runUVPipInstallNERWheels(ctx context.Context, dir string, stderr io.Writer) error {
 	for _, u := range nerWheelURLs {
 		c := exec.CommandContext(ctx, uvBin, "pip", "install", u)

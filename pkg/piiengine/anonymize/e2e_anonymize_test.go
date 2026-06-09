@@ -61,7 +61,7 @@ func TestE2E_Anonymize(t *testing.T) {
 	t.Logf("e2e: spawn argv = %v (ephemeralBuild=%v)", cmd, ephemeralBuild)
 
 	// Generous ReadyTimeout: first run resolves the uvx environment
-	// and warms spaCy + ja_ner_ja on the engine. Subsequent runs hit
+	// and warms spaCy + pleno_anonymize_ja on the engine. Subsequent runs hit
 	// the uv cache and complete in a few seconds.
 	cfg := Config{
 		Cmd:            cmd,

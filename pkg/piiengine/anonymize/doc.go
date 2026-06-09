@@ -2,7 +2,7 @@
 // HTTP server bound to a loopback port and exposes a thin Analyze client.
 //
 // The supervisor exists because pleno-anonymize is a Python application
-// (spaCy + Presidio + ja_ner_ja) with no Go bindings and a multi-second
+// (spaCy + Presidio + pleno_anonymize_ja) with no Go bindings and a multi-second
 // cold start. Per ADR-0001 we amortize that cost by spawning the server
 // once at scan start, calling POST /api/analyze per chunk, and shutting
 // it down at scan end. The spawn argv is supplied by the caller via
