@@ -98,6 +98,7 @@ Advanced flags and engine setup:
 
 - `pleno-dlp scan --help`
 - `pleno-dlp pii-server --help`
+- [`docs/pii-detection.md`](docs/pii-detection.md)
 
 ## License
 
