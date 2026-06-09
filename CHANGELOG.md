@@ -9,6 +9,8 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-06-10
+
 ### Added
 
 - Added GitHub App authentication for GitHub scans and verification,
