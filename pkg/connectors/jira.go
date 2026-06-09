@@ -16,9 +16,12 @@ package connectors
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"strings"
@@ -36,9 +39,10 @@ const (
 
 func init() {
 	Register("jira", Connector{
-		SourceType: sources.SourceJira,
-		Scan:       scanJira,
-		Verify:     verifyJira,
+		SourceType:  sources.SourceJira,
+		Scan:        scanJira,
+		Verify:      verifyJira,
+		Fingerprint: fingerprintJira,
 	})
 }
 
@@ -63,17 +67,31 @@ func scanJira(ctx context.Context, cfg Config, emit Emit) error {
 	if err != nil {
 		return err
 	}
+	previousState, err := loadJiraIncrementalState(cfg[configKeyIncrementalPreviousState])
+	if err != nil {
+		return err
+	}
+	nextState := &jiraIncrementalState{Version: 1, Objects: map[string]jiraObjectIncrementalState{}}
+	if previousState == nil {
+		previousState = &jiraIncrementalState{Version: 1, Objects: map[string]jiraObjectIncrementalState{}}
+	}
+	scanState := jiraScanState{previous: previousState, next: nextState}
 	for _, proj := range projects {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := scanJiraProject(ctx, cli, proj, cfg["jql"], emit); err != nil {
+		if err := scanJiraProject(ctx, cli, proj, cfg["jql"], &scanState, emit); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
 			continue
 		}
 	}
+	data, err := json.Marshal(nextState)
+	if err != nil {
+		return fmt.Errorf("jira: encode incremental source state: %w", err)
+	}
+	cfg[configKeyIncrementalNextState] = string(data)
 	return nil
 }
 
@@ -96,6 +114,45 @@ func verifyJira(ctx context.Context, cfg Config, secret string) (bool, error) {
 	default:
 		return false, fmt.Errorf("jira: verify unexpected status %s", resp.Status)
 	}
+}
+
+func fingerprintJira(ctx context.Context, cfg Config) (string, error) {
+	token := cfg["token"]
+	if token == "" {
+		return "", errors.New("jira: token is required (set --token or JIRA_TOKEN)")
+	}
+	apiBase := strings.TrimRight(cfg["api_base"], "/")
+	if apiBase == "" {
+		return "", errors.New("jira: api_base is required (set --site or --api-base)")
+	}
+	cli := newJiraClient(apiBase, cfg["email"], token)
+	projects, err := jiraResolveProjects(ctx, cli, cfg["project"], cfg["jql"])
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	writeFingerprint(h, "jira-v1")
+	writeFingerprint(h, apiBase)
+	writeFingerprint(h, cfg["project"])
+	writeFingerprint(h, cfg["jql"])
+	for _, proj := range projects {
+		if err := fingerprintJiraProject(ctx, h, cli, proj, cfg["jql"]); err != nil {
+			return "", err
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func fingerprintJiraProject(ctx context.Context, h hash.Hash, cli *jiraClient, proj jiraProjectEntry, rawJQL string) error {
+	return forEachJiraIssue(ctx, cli, proj, rawJQL, func(issue jiraIssue) error {
+		writeFingerprint(h, issue.Key)
+		writeFingerprint(h, string(issue.Fields.Description))
+		for _, com := range issue.Fields.Comments.Comments {
+			writeFingerprint(h, com.ID)
+			writeFingerprint(h, string(com.Body))
+		}
+		return nil
+	})
 }
 
 // --- internal types ---
@@ -145,6 +202,34 @@ type jiraCommentWrapper struct {
 	} `json:"comments"`
 }
 
+type jiraIncrementalState struct {
+	Version int                                   `json:"version"`
+	Objects map[string]jiraObjectIncrementalState `json:"objects"`
+}
+
+type jiraObjectIncrementalState struct {
+	Hash string `json:"hash,omitempty"`
+}
+
+type jiraScanState struct {
+	previous *jiraIncrementalState
+	next     *jiraIncrementalState
+}
+
+func loadJiraIncrementalState(raw string) (*jiraIncrementalState, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var state jiraIncrementalState
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		return nil, fmt.Errorf("jira: parse incremental source state: %w", err)
+	}
+	if state.Objects == nil {
+		state.Objects = map[string]jiraObjectIncrementalState{}
+	}
+	return &state, nil
+}
+
 func jiraResolveProjects(ctx context.Context, cli *jiraClient, project, jql string) ([]jiraProjectEntry, error) {
 	if jql != "" {
 		// Raw JQL — search directly, no project enumeration.
@@ -178,7 +263,21 @@ func jiraResolveProjects(ctx context.Context, cli *jiraClient, project, jql stri
 	return projects, nil
 }
 
-func scanJiraProject(ctx context.Context, cli *jiraClient, proj jiraProjectEntry, rawJQL string, emit Emit) error {
+func scanJiraProject(ctx context.Context, cli *jiraClient, proj jiraProjectEntry, rawJQL string, state *jiraScanState, emit Emit) error {
+	return forEachJiraIssue(ctx, cli, proj, rawJQL, func(issue jiraIssue) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := emitJiraIssueIncremental(issue, proj, state, emit); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func forEachJiraIssue(ctx context.Context, cli *jiraClient, proj jiraProjectEntry, rawJQL string, visit func(jiraIssue) error) error {
 	jql := rawJQL
 	if jql == "" {
 		jql = fmt.Sprintf("project = %s", proj.Key)
@@ -198,14 +297,8 @@ func scanJiraProject(ctx context.Context, cli *jiraClient, proj jiraProjectEntry
 			return fmt.Errorf("jira: search %s: %w", proj.Key, err)
 		}
 		for _, issue := range resp.Issues {
-			if err := ctx.Err(); err != nil {
+			if err := visit(issue); err != nil {
 				return err
-			}
-			if err := emitJiraIssue(issue, proj, emit); err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return err
-				}
-				continue
 			}
 		}
 		if startAt+jiraPageSize >= resp.Total {
@@ -219,19 +312,34 @@ func scanJiraProject(ctx context.Context, cli *jiraClient, proj jiraProjectEntry
 	return nil
 }
 
-func emitJiraIssue(iss jiraIssue, proj jiraProjectEntry, emit Emit) error {
+func emitJiraIssueIncremental(iss jiraIssue, proj jiraProjectEntry, state *jiraScanState, emit Emit) error {
 	if len(iss.Fields.Description) > 0 {
-		text := jiraParseContent(iss.Fields.Description)
-		if text != "" {
-			if err := emit([]byte(text), sources.Metadata{
-				Jira: &sources.JiraMeta{Project: proj.Key, IssueKey: iss.Key, Part: "description"},
-			}); err != nil {
-				return err
+		key := jiraObjectKey(iss.Key, "description")
+		current := jiraStateForRaw(iss.Fields.Description)
+		if state != nil && state.next != nil {
+			state.next.Objects[key] = current
+		}
+		if state == nil || state.previous == nil || state.previous.Objects[key] != current {
+			text := jiraParseContent(iss.Fields.Description)
+			if text != "" {
+				if err := emit([]byte(text), sources.Metadata{
+					Jira: &sources.JiraMeta{Project: proj.Key, IssueKey: iss.Key, Part: "description"},
+				}); err != nil {
+					return err
+				}
 			}
 		}
 	}
 	for _, com := range iss.Fields.Comments.Comments {
 		if len(com.Body) == 0 {
+			continue
+		}
+		key := jiraObjectKey(iss.Key, "comment:"+com.ID)
+		current := jiraStateForRaw(com.Body)
+		if state != nil && state.next != nil {
+			state.next.Objects[key] = current
+		}
+		if state != nil && state.previous != nil && state.previous.Objects[key] == current {
 			continue
 		}
 		text := jiraParseContent(com.Body)
@@ -245,6 +353,15 @@ func emitJiraIssue(iss jiraIssue, proj jiraProjectEntry, emit Emit) error {
 		}
 	}
 	return nil
+}
+
+func jiraObjectKey(issueKey, part string) string {
+	return issueKey + ":" + part
+}
+
+func jiraStateForRaw(raw json.RawMessage) jiraObjectIncrementalState {
+	sum := sha256.Sum256(raw)
+	return jiraObjectIncrementalState{Hash: hex.EncodeToString(sum[:])}
 }
 
 // jiraParseContent dispatches between ADF (Cloud) and storage-format

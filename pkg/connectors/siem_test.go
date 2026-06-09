@@ -333,6 +333,48 @@ func TestSIEMConnectorsRegistered(t *testing.T) {
 		if c.Verify == nil {
 			t.Errorf("connector %q has nil Verify", name)
 		}
+		if c.Fingerprint == nil {
+			t.Errorf("connector %q has nil Fingerprint", name)
+		}
+	}
+}
+
+func TestSIEMIncrementalStateSkipsUnchangedEvents(t *testing.T) {
+	data := []byte("token=unchanged")
+	key := "event-1"
+	state := &siemScanState{
+		previous: &siemIncrementalState{
+			Version: 1,
+			Events: map[string]siemEventIncrementalState{
+				key: siemEventState(data, "2026-06-09T00:00:00Z"),
+			},
+		},
+		next: &siemIncrementalState{Version: 1, Events: map[string]siemEventIncrementalState{}},
+	}
+	var emitted int
+	err := emitSIEMIncremental(key, data, "2026-06-09T00:00:00Z", state, sources.Metadata{}, func([]byte, sources.Metadata) error {
+		emitted++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("emitSIEMIncremental unchanged: %v", err)
+	}
+	if emitted != 0 {
+		t.Fatalf("unchanged event emitted %d times, want 0", emitted)
+	}
+	if _, ok := state.next.Events[key]; !ok {
+		t.Fatal("next state did not retain skipped event")
+	}
+
+	err = emitSIEMIncremental(key, []byte("token=changed"), "2026-06-09T00:00:00Z", state, sources.Metadata{}, func([]byte, sources.Metadata) error {
+		emitted++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("emitSIEMIncremental changed: %v", err)
+	}
+	if emitted != 1 {
+		t.Fatalf("changed event emitted %d times, want 1", emitted)
 	}
 }
 

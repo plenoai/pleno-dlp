@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -72,7 +73,7 @@ func TestEmitNotionPage500SurfacesError(t *testing.T) {
 		return nil
 	}
 
-	err := emitNotionPage(context.Background(), cli, notionSearchItem{Object: "page", ID: "abc"}, emit)
+	err := emitNotionPage(context.Background(), cli, notionSearchItem{Object: "page", ID: "abc"}, nil, emit)
 	if err == nil {
 		t.Fatalf("emitNotionPage returned nil on a 500 /pages/{id} response, want an error")
 	}
@@ -108,5 +109,69 @@ func TestScanNotionPage500ContinuesPerPage(t *testing.T) {
 	err := scanNotion(context.Background(), cfg, func(_ []byte, _ sources.Metadata) error { return nil })
 	if err != nil {
 		t.Fatalf("scanNotion aborted on a single bad page, want nil (per-page continue): %v", err)
+	}
+}
+
+func TestScanNotionIncrementalEmitsOnlyChangedPages(t *testing.T) {
+	blockText := "old page"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/search":
+			_, _ = w.Write([]byte(`{"object":"list","results":[{"object":"page","id":"p1","url":"https://notion.local/p1"}],"has_more":false}`))
+		case r.URL.Path == "/pages/p1":
+			_, _ = w.Write([]byte(`{"properties":{"Name":{"type":"title","title":[{"plain_text":"Runbook"}]}}}`))
+		case r.URL.Path == "/blocks/p1/children":
+			writeJSON(t, w, map[string]any{
+				"results": []map[string]any{{
+					"object":       "block",
+					"id":           "b1",
+					"type":         "paragraph",
+					"has_children": false,
+					"rich_text": []map[string]any{{
+						"type":        "text",
+						"plain_text":  blockText,
+						"annotations": map[string]any{},
+					}},
+				}},
+				"has_more": false,
+			})
+		default:
+			t.Fatalf("unexpected Notion API path: %s", r.URL.String())
+		}
+	}))
+	defer srv.Close()
+
+	cfg := Config{"token": "secret_test", "api_base": srv.URL}
+	var first []string
+	if err := scanNotion(context.Background(), cfg, func(data []byte, _ sources.Metadata) error {
+		first = append(first, string(data))
+		return nil
+	}); err != nil {
+		t.Fatalf("first scanNotion: %v", err)
+	}
+	if len(first) != 1 || !strings.Contains(first[0], "old page") {
+		t.Fatalf("first emitted %q, want page text", strings.Join(first, ","))
+	}
+	previous := cfg[configKeyIncrementalNextState]
+	if previous == "" {
+		t.Fatal("first scan did not persist incremental state")
+	}
+	if !json.Valid([]byte(previous)) {
+		t.Fatalf("invalid incremental state: %s", previous)
+	}
+
+	blockText = "new page"
+	cfg[configKeyIncrementalPreviousState] = previous
+	delete(cfg, configKeyIncrementalNextState)
+	var second []string
+	if err := scanNotion(context.Background(), cfg, func(data []byte, _ sources.Metadata) error {
+		second = append(second, string(data))
+		return nil
+	}); err != nil {
+		t.Fatalf("second scanNotion: %v", err)
+	}
+	if len(second) != 1 || !strings.Contains(second[0], "new page") {
+		t.Fatalf("second emitted %q, want only changed page", strings.Join(second, ","))
 	}
 }

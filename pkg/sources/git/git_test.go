@@ -254,6 +254,70 @@ func TestChunks_FirstChangedLine(t *testing.T) {
 	}
 }
 
+func TestChunks_IncrementalStateEmitsOnlyNewCommits(t *testing.T) {
+	repoPath, _ := buildRepo(t, []commitSpec{
+		{files: map[string]string{"a.txt": "alpha"}, msg: "c1"},
+		{files: map[string]string{"b.txt": "beta"}, msg: "c2"},
+	})
+	first := &Source{}
+	mustInit(t, first, Config{Repo: repoPath})
+	got, err := drain(t, first, 10*time.Second)
+	if err != nil {
+		t.Fatalf("first Chunks: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("first chunks = %d, want 2", len(got))
+	}
+	previous := first.IncrementalState()
+	if len(previous) == 0 {
+		t.Fatal("first scan did not produce incremental state")
+	}
+
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		t.Fatalf("PlainOpen: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoPath, "c.txt"), []byte("gamma"), 0o600); err != nil {
+		t.Fatalf("write c.txt: %v", err)
+	}
+	if _, err := wt.Add("c.txt"); err != nil {
+		t.Fatalf("add c.txt: %v", err)
+	}
+	newHash, err := wt.Commit("c3", &gogit.CommitOptions{
+		Author:    &object.Signature{Name: "Test", Email: "test@example.com", When: time.Date(2026, 5, 1, 0, 3, 0, 0, time.UTC)},
+		Committer: &object.Signature{Name: "Test", Email: "test@example.com", When: time.Date(2026, 5, 1, 0, 3, 0, 0, time.UTC)},
+	})
+	if err != nil {
+		t.Fatalf("commit c3: %v", err)
+	}
+
+	second := &Source{}
+	mustInit(t, second, Config{Repo: repoPath})
+	if err := second.SetIncrementalState(previous); err != nil {
+		t.Fatalf("SetIncrementalState: %v", err)
+	}
+	got, err = drain(t, second, 10*time.Second)
+	if err != nil {
+		t.Fatalf("second Chunks: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("second chunks = %d, want 1", len(got))
+	}
+	if got[0].SourceMetadata.Git.Commit != newHash.String() {
+		t.Fatalf("commit = %q, want %q", got[0].SourceMetadata.Git.Commit, newHash.String())
+	}
+	if got[0].SourceMetadata.Git.File != "c.txt" {
+		t.Fatalf("file = %q, want c.txt", got[0].SourceMetadata.Git.File)
+	}
+	if string(got[0].Data) != "gamma" {
+		t.Fatalf("data = %q, want gamma", got[0].Data)
+	}
+}
+
 func TestInit_MissingRepo(t *testing.T) {
 	s := &Source{}
 	raw, _ := json.Marshal(Config{Repo: filepath.Join(t.TempDir(), "nope")})

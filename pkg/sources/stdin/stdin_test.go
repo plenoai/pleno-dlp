@@ -86,6 +86,74 @@ func TestChunks_TruncationReportsError(t *testing.T) {
 	}
 }
 
+func TestResourceFingerprintCachesInputForChunks(t *testing.T) {
+	s := &Source{}
+	if err := s.Init(t.Context(), "stdin", 0, 0, false, []byte(`{"label":"unit"}`), 1); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	s.SetReader(strings.NewReader("secret=value"))
+
+	fp, err := s.ResourceFingerprint(t.Context())
+	if err != nil {
+		t.Fatalf("ResourceFingerprint: %v", err)
+	}
+	if fp == "" {
+		t.Fatal("ResourceFingerprint returned empty fingerprint")
+	}
+
+	ch := make(chan *sources.Chunk, 1)
+	if err := s.Chunks(t.Context(), ch); err != nil {
+		t.Fatalf("Chunks: %v", err)
+	}
+	close(ch)
+	got := drain(t, ch, time.Second)
+	if len(got) != 1 {
+		t.Fatalf("want 1 chunk, got %d", len(got))
+	}
+	if string(got[0].Data) != "secret=value" {
+		t.Fatalf("data mismatch after fingerprint: %q", got[0].Data)
+	}
+}
+
+func TestIncrementalStateSkipsUnchangedInput(t *testing.T) {
+	first := &Source{}
+	if err := first.Init(t.Context(), "stdin", 0, 0, false, []byte(`{"label":"unit"}`), 1); err != nil {
+		t.Fatalf("Init first: %v", err)
+	}
+	first.SetReader(strings.NewReader("same-input"))
+	if _, err := first.ResourceFingerprint(t.Context()); err != nil {
+		t.Fatalf("first ResourceFingerprint: %v", err)
+	}
+	ch := make(chan *sources.Chunk, 1)
+	if err := first.Chunks(t.Context(), ch); err != nil {
+		t.Fatalf("first Chunks: %v", err)
+	}
+	close(ch)
+	if got := drain(t, ch, time.Second); len(got) != 1 {
+		t.Fatalf("first chunks = %d, want 1", len(got))
+	}
+
+	second := &Source{}
+	if err := second.Init(t.Context(), "stdin", 0, 0, false, []byte(`{"label":"unit"}`), 1); err != nil {
+		t.Fatalf("Init second: %v", err)
+	}
+	if err := second.SetIncrementalState(first.IncrementalState()); err != nil {
+		t.Fatalf("SetIncrementalState: %v", err)
+	}
+	second.SetReader(strings.NewReader("same-input"))
+	if _, err := second.ResourceFingerprint(t.Context()); err != nil {
+		t.Fatalf("second ResourceFingerprint: %v", err)
+	}
+	ch = make(chan *sources.Chunk, 1)
+	if err := second.Chunks(t.Context(), ch); err != nil {
+		t.Fatalf("second Chunks: %v", err)
+	}
+	close(ch)
+	if got := drain(t, ch, time.Second); len(got) != 0 {
+		t.Fatalf("second chunks = %d, want 0", len(got))
+	}
+}
+
 func TestInit_RejectsBadJSON(t *testing.T) {
 	s := &Source{}
 	if err := s.Init(t.Context(), "stdin", 0, 0, false, []byte("{bad"), 1); err == nil {

@@ -12,6 +12,7 @@ package connectors
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,9 +32,10 @@ const (
 
 func init() {
 	Register("datadog", Connector{
-		SourceType: sources.SourceDatadog,
-		Scan:       scanDatadog,
-		Verify:     verifyDatadog,
+		SourceType:  sources.SourceDatadog,
+		Scan:        scanDatadog,
+		Verify:      verifyDatadog,
+		Fingerprint: fingerprintDatadog,
 	})
 }
 
@@ -46,6 +48,21 @@ func init() {
 //   - from            start time (RFC 3339, default 24h ago)
 //   - to              end time   (RFC 3339, default now)
 func scanDatadog(ctx context.Context, cfg Config, emit Emit) error {
+	previousState, err := loadSIEMIncrementalState(cfg[configKeyIncrementalPreviousState], "datadog")
+	if err != nil {
+		return err
+	}
+	nextState := &siemIncrementalState{Version: 1, Events: map[string]siemEventIncrementalState{}}
+	if previousState == nil {
+		previousState = &siemIncrementalState{Version: 1, Events: map[string]siemEventIncrementalState{}}
+	}
+	state := &siemScanState{previous: previousState, next: nextState}
+	defer func() {
+		if data, err := json.Marshal(nextState); err == nil {
+			cfg[configKeyIncrementalNextState] = string(data)
+		}
+	}()
+
 	apiKey := cfg["api_key"]
 	if apiKey == "" {
 		return errors.New("datadog: api_key is required (set --api-key or DD_API_KEY)")
@@ -57,14 +74,7 @@ func scanDatadog(ctx context.Context, cfg Config, emit Emit) error {
 	site := cfg.Get("site", datadogDefaultSite)
 	query := cfg.Get("query", "*")
 
-	from := cfg["from"]
-	to := cfg["to"]
-	if from == "" {
-		from = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
-	}
-	if to == "" {
-		to = time.Now().UTC().Format(time.RFC3339)
-	}
+	from, to := datadogTimeRange(cfg)
 
 	cli := &datadogClient{
 		site:   strings.TrimRight(site, "/"),
@@ -97,7 +107,7 @@ func scanDatadog(ctx context.Context, cfg Config, emit Emit) error {
 					Link:      fmt.Sprintf("%s/logs?query=%s&event_id=%s", cli.site, query, evt.ID),
 				},
 			}
-			if err := emit([]byte(msg), meta); err != nil {
+			if err := emitSIEMIncremental(datadogEventKey(evt), []byte(msg), evt.Attributes.Timestamp, state, meta, emit); err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return err
 				}
@@ -110,6 +120,69 @@ func scanDatadog(ctx context.Context, cfg Config, emit Emit) error {
 		}
 	}
 	return nil
+}
+
+func fingerprintDatadog(ctx context.Context, cfg Config) (string, error) {
+	apiKey := cfg["api_key"]
+	if apiKey == "" {
+		return "", errors.New("datadog: api_key is required (set --api-key or DD_API_KEY)")
+	}
+	appKey := cfg["app_key"]
+	if appKey == "" {
+		return "", errors.New("datadog: app_key is required (set --app-key or DD_APP_KEY)")
+	}
+	site := cfg.Get("site", datadogDefaultSite)
+	query := cfg.Get("query", "*")
+	from, to := datadogTimeRange(cfg)
+	cli := &datadogClient{
+		site:   strings.TrimRight(site, "/"),
+		apiKey: apiKey,
+		appKey: appKey,
+		http:   &http.Client{Timeout: datadogRequestTimeout},
+	}
+	h := sha256.New()
+	writeFingerprint(h, "datadog-v1")
+	writeFingerprint(h, cli.site)
+	writeFingerprint(h, query)
+	writeFingerprint(h, from)
+	writeFingerprint(h, to)
+	var cursor string
+	for {
+		resp, err := cli.searchLogs(ctx, query, from, to, cursor)
+		if err != nil {
+			return "", err
+		}
+		for _, evt := range resp.Data {
+			if evt.Attributes.Message == "" {
+				continue
+			}
+			writeSIEMFingerprintEvent(h, datadogEventKey(evt), []byte(evt.Attributes.Message), evt.Attributes.Timestamp)
+		}
+		cursor = resp.Meta.Page.After
+		if cursor == "" || len(resp.Data) == 0 {
+			break
+		}
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+func datadogTimeRange(cfg Config) (string, string) {
+	from := cfg["from"]
+	to := cfg["to"]
+	if from == "" {
+		from = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	}
+	if to == "" {
+		to = time.Now().UTC().Format(time.RFC3339)
+	}
+	return from, to
+}
+
+func datadogEventKey(evt datadogLogEvent) string {
+	if evt.ID != "" {
+		return evt.ID
+	}
+	return siemContentKey("datadog", []byte(evt.Attributes.Timestamp+"\x00"+evt.Attributes.Message))
 }
 
 func verifyDatadog(ctx context.Context, cfg Config, secret string) (bool, error) {

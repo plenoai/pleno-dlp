@@ -14,9 +14,11 @@ package connectors
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"os"
@@ -33,9 +35,10 @@ const (
 
 func init() {
 	Register("redash", Connector{
-		SourceType: sources.SourceRedash,
-		Scan:       scanRedash,
-		Verify:     verifyRedash,
+		SourceType:  sources.SourceRedash,
+		Scan:        scanRedash,
+		Verify:      verifyRedash,
+		Fingerprint: fingerprintRedash,
 	})
 }
 
@@ -45,6 +48,21 @@ func init() {
 //   - host        (required) Redash host URL (e.g. https://redash.example.com)
 //   - query_ids   comma-separated query IDs to scan (omit to scan all)
 func scanRedash(ctx context.Context, cfg Config, emit Emit) error {
+	previousState, err := loadSIEMIncrementalState(cfg[configKeyIncrementalPreviousState], "redash")
+	if err != nil {
+		return err
+	}
+	nextState := &siemIncrementalState{Version: 1, Events: map[string]siemEventIncrementalState{}}
+	if previousState == nil {
+		previousState = &siemIncrementalState{Version: 1, Events: map[string]siemEventIncrementalState{}}
+	}
+	state := &siemScanState{previous: previousState, next: nextState}
+	defer func() {
+		if data, err := json.Marshal(nextState); err == nil {
+			cfg[configKeyIncrementalNextState] = string(data)
+		}
+	}()
+
 	apiKey := cfg["api_key"]
 	if apiKey == "" {
 		return errors.New("redash: api_key is required (set --api-key or REDASH_API_KEY)")
@@ -61,23 +79,9 @@ func scanRedash(ctx context.Context, cfg Config, emit Emit) error {
 		http:   &http.Client{Timeout: redashRequestTimeout},
 	}
 
-	var queryIDs []int
-	if ids := cfg["query_ids"]; ids != "" {
-		for _, s := range strings.Split(ids, ",") {
-			s = strings.TrimSpace(s)
-			if id, err := strconv.Atoi(s); err == nil {
-				queryIDs = append(queryIDs, id)
-			}
-		}
-	} else {
-		listed, err := cli.listQueries(ctx)
-		if err != nil {
-			return fmt.Errorf("redash: list queries: %w", err)
-		}
-		queryIDs = make([]int, len(listed))
-		for i, q := range listed {
-			queryIDs[i] = q.ID
-		}
+	queryIDs, err := redashQueryIDs(ctx, cfg, cli)
+	if err != nil {
+		return err
 	}
 
 	for _, qid := range queryIDs {
@@ -107,7 +111,7 @@ func scanRedash(ctx context.Context, cfg Config, emit Emit) error {
 					Link:      fmt.Sprintf("%s/queries/%d", host, qid),
 				},
 			}
-			if err := emit(rowJSON, meta); err != nil {
+			if err := emitSIEMIncremental(redashRowKey(qid, rowJSON), rowJSON, result.RetrievedAt, state, meta, emit); err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return err
 				}
@@ -116,6 +120,41 @@ func scanRedash(ctx context.Context, cfg Config, emit Emit) error {
 		}
 	}
 	return nil
+}
+
+func fingerprintRedash(ctx context.Context, cfg Config) (string, error) {
+	apiKey := cfg["api_key"]
+	if apiKey == "" {
+		return "", errors.New("redash: api_key is required (set --api-key or REDASH_API_KEY)")
+	}
+	host := cfg["host"]
+	if host == "" {
+		return "", errors.New("redash: host is required (set --host)")
+	}
+	host = strings.TrimRight(host, "/")
+	cli := &redashClient{
+		host:   host,
+		apiKey: apiKey,
+		http:   &http.Client{Timeout: redashRequestTimeout},
+	}
+	queryIDs, err := redashQueryIDs(ctx, cfg, cli)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	writeFingerprint(h, "redash-v1")
+	writeFingerprint(h, host)
+	for _, qid := range queryIDs {
+		result, err := cli.getQueryResult(ctx, qid)
+		if err != nil {
+			redashWarn("query %d: %v", qid, err)
+			continue
+		}
+		if err := fingerprintRedashRows(h, qid, result); err != nil {
+			return "", err
+		}
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 func verifyRedash(ctx context.Context, cfg Config, secret string) (bool, error) {
@@ -160,6 +199,46 @@ type redashQueryResult struct {
 		} `json:"columns"`
 		Rows []map[string]any `json:"rows"`
 	} `json:"data"`
+}
+
+func redashQueryIDs(ctx context.Context, cfg Config, cli *redashClient) ([]int, error) {
+	if ids := cfg["query_ids"]; ids != "" {
+		var queryIDs []int
+		for _, s := range strings.Split(ids, ",") {
+			s = strings.TrimSpace(s)
+			if id, err := strconv.Atoi(s); err == nil {
+				queryIDs = append(queryIDs, id)
+			}
+		}
+		return queryIDs, nil
+	}
+	listed, err := cli.listQueries(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("redash: list queries: %w", err)
+	}
+	queryIDs := make([]int, len(listed))
+	for i, q := range listed {
+		queryIDs[i] = q.ID
+	}
+	return queryIDs, nil
+}
+
+func fingerprintRedashRows(h hash.Hash, qid int, result *redashQueryResult) error {
+	writeFingerprint(h, strconv.Itoa(qid))
+	writeFingerprint(h, result.QueryName)
+	writeFingerprint(h, result.RetrievedAt)
+	for _, row := range result.Data.Rows {
+		rowJSON, err := json.Marshal(row)
+		if err != nil {
+			return err
+		}
+		writeSIEMFingerprintEvent(h, redashRowKey(qid, rowJSON), rowJSON, result.RetrievedAt)
+	}
+	return nil
+}
+
+func redashRowKey(qid int, rowJSON []byte) string {
+	return fmt.Sprintf("q%d:%s", qid, siemContentKey("row", rowJSON))
 }
 
 func (c *redashClient) doGet(ctx context.Context, path string) (*http.Response, error) {

@@ -10,6 +10,8 @@ package connectors
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,6 +57,9 @@ func init() {
 			Verify: func(ctx context.Context, cfg Config, secret string) (bool, error) {
 				return verifyGiteaCompatible(ctx, p, cfg, secret)
 			},
+			Fingerprint: func(ctx context.Context, cfg Config) (string, error) {
+				return fingerprintGiteaCompatible(ctx, p, cfg)
+			},
 		})
 	}
 }
@@ -84,7 +89,52 @@ func scanGiteaCompatible(ctx context.Context, provider giteaProvider, cfg Config
 	}
 
 	cli := newGiteaClient(apiBase, token)
-	return scanGiteaIssueComments(ctx, provider, cli, owner, name, maxBytes, emit)
+	previousState, err := loadForgeIncrementalState(cfg[configKeyIncrementalPreviousState], provider.name)
+	if err != nil {
+		return err
+	}
+	nextState := &forgeIncrementalState{Version: 1, Objects: map[string]forgeObjectIncrementalState{}}
+	if previousState == nil {
+		previousState = &forgeIncrementalState{Version: 1, Objects: map[string]forgeObjectIncrementalState{}}
+	}
+	scanState := forgeScanState{previous: previousState, next: nextState}
+	if err := scanGiteaIssueComments(ctx, provider, cli, owner, name, maxBytes, &scanState, emit); err != nil {
+		return err
+	}
+	data, err := json.Marshal(nextState)
+	if err != nil {
+		return fmt.Errorf("%s: encode incremental source state: %w", provider.name, err)
+	}
+	cfg[configKeyIncrementalNextState] = string(data)
+	return nil
+}
+
+func fingerprintGiteaCompatible(ctx context.Context, provider giteaProvider, cfg Config) (string, error) {
+	token := cfg["token"]
+	if token == "" {
+		return "", fmt.Errorf("%s: token is required", provider.name)
+	}
+	owner, name, ok := splitOwnerRepo(cfg["repo"])
+	if !ok {
+		return "", fmt.Errorf("%s: repo must be in owner/name form, got %q", provider.name, cfg["repo"])
+	}
+	apiBase := cfg.Get("api_base", provider.apiBase)
+	if apiBase == "" {
+		return "", fmt.Errorf("%s: --api-base is required", provider.name)
+	}
+	cli := newGiteaClient(apiBase, token)
+	h := sha256.New()
+	writeFingerprint(h, provider.name+"-v1")
+	writeFingerprint(h, apiBase)
+	writeFingerprint(h, owner+"/"+name)
+	if err := forEachGiteaIssueComment(ctx, provider, cli, owner, name, func(c giteaComment) error {
+		writeFingerprint(h, giteaCommentKey(c.ID))
+		writeFingerprint(h, c.Body)
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func verifyGiteaCompatible(ctx context.Context, provider giteaProvider, cfg Config, secret string) (bool, error) {
@@ -115,7 +165,23 @@ type giteaComment struct {
 	IssueURL string `json:"issue_url"`
 }
 
-func scanGiteaIssueComments(ctx context.Context, provider giteaProvider, cli *giteaClient, owner, repo string, maxBytes int64, emit Emit) error {
+func scanGiteaIssueComments(ctx context.Context, provider giteaProvider, cli *giteaClient, owner, repo string, maxBytes int64, state *forgeScanState, emit Emit) error {
+	return forEachGiteaIssueComment(ctx, provider, cli, owner, repo, func(c giteaComment) error {
+		body := strings.TrimSpace(c.Body)
+		if body == "" || int64(len(body)) > maxBytes {
+			return nil
+		}
+		meta := sources.ForgeMeta{
+			Provider:   provider.name,
+			Repository: owner + "/" + repo,
+			File:       giteaCommentKey(c.ID),
+			Line:       1,
+		}
+		return emitForgePartIncremental(body, state, meta, emit)
+	})
+}
+
+func forEachGiteaIssueComment(ctx context.Context, provider giteaProvider, cli *giteaClient, owner, repo string, visit func(giteaComment) error) error {
 	next := fmt.Sprintf("/repos/%s/%s/issues/comments?limit=100", url.PathEscape(owner), url.PathEscape(repo))
 	for next != "" {
 		var page []giteaComment
@@ -124,24 +190,17 @@ func scanGiteaIssueComments(ctx context.Context, provider giteaProvider, cli *gi
 			return fmt.Errorf("%s: list issue comments for %s/%s: %w", provider.name, owner, repo, err)
 		}
 		for _, c := range page {
-			body := strings.TrimSpace(c.Body)
-			if body == "" || int64(len(body)) > maxBytes {
-				continue
-			}
-			if err := emit([]byte(body), sources.Metadata{
-				Forge: &sources.ForgeMeta{
-					Provider:   provider.name,
-					Repository: owner + "/" + repo,
-					File:       fmt.Sprintf("issue-comment:%d", c.ID),
-					Line:       1,
-				},
-			}); err != nil {
+			if err := visit(c); err != nil {
 				return err
 			}
 		}
 		next = parseLinkHeader(resp.Header.Get("Link"))
 	}
 	return nil
+}
+
+func giteaCommentKey(id int64) string {
+	return fmt.Sprintf("issue-comment:%d", id)
 }
 
 type giteaClient struct {

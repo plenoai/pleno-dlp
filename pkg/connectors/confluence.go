@@ -17,9 +17,12 @@ package connectors
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"strings"
@@ -36,9 +39,10 @@ const (
 
 func init() {
 	Register("confluence", Connector{
-		SourceType: sources.SourceConfluence,
-		Scan:       scanConfluence,
-		Verify:     verifyConfluence,
+		SourceType:  sources.SourceConfluence,
+		Scan:        scanConfluence,
+		Verify:      verifyConfluence,
+		Fingerprint: fingerprintConfluence,
 	})
 }
 
@@ -57,6 +61,15 @@ func scanConfluence(ctx context.Context, cfg Config, emit Emit) error {
 		return errors.New("confluence: api_base is required")
 	}
 	cli := newConfluenceClient(apiBase, cfg["email"], token)
+	previousState, err := loadConfluenceIncrementalState(cfg[configKeyIncrementalPreviousState])
+	if err != nil {
+		return err
+	}
+	nextState := &confluenceIncrementalState{Version: 1, Objects: map[string]confluenceObjectIncrementalState{}}
+	if previousState == nil {
+		previousState = &confluenceIncrementalState{Version: 1, Objects: map[string]confluenceObjectIncrementalState{}}
+	}
+	scanState := confluenceScanState{previous: previousState, next: nextState}
 
 	next := fmt.Sprintf("/rest/api/content?type=page&limit=%d&expand=body.storage,space,version", confluencePageSize)
 	if space := cfg["space"]; space != "" {
@@ -77,7 +90,7 @@ func scanConfluence(ctx context.Context, cfg Config, emit Emit) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := emitConfluencePage(ctx, cli, apiBase, page, emit); err != nil {
+			if err := emitConfluencePage(ctx, cli, apiBase, page, &scanState, emit); err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return err
 				}
@@ -86,6 +99,11 @@ func scanConfluence(ctx context.Context, cfg Config, emit Emit) error {
 		}
 		next = resp.Links.Next
 	}
+	data, err := json.Marshal(nextState)
+	if err != nil {
+		return fmt.Errorf("confluence: encode incremental source state: %w", err)
+	}
+	cfg[configKeyIncrementalNextState] = string(data)
 	return nil
 }
 
@@ -108,6 +126,62 @@ func verifyConfluence(ctx context.Context, cfg Config, secret string) (bool, err
 		return false, nil
 	default:
 		return false, fmt.Errorf("confluence: verify unexpected status %s", resp.Status)
+	}
+}
+
+func fingerprintConfluence(ctx context.Context, cfg Config) (string, error) {
+	token := cfg["token"]
+	if token == "" {
+		return "", errors.New("confluence: token is required")
+	}
+	apiBase := strings.TrimRight(cfg["api_base"], "/")
+	if apiBase == "" {
+		return "", errors.New("confluence: api_base is required")
+	}
+	cli := newConfluenceClient(apiBase, cfg["email"], token)
+	h := sha256.New()
+	writeFingerprint(h, "confluence-v1")
+	writeFingerprint(h, apiBase)
+	writeFingerprint(h, cfg["space"])
+
+	next := fmt.Sprintf("/rest/api/content?type=page&limit=%d&expand=body.storage,space,version", confluencePageSize)
+	if space := cfg["space"]; space != "" {
+		next += "&spaceKey=" + space
+	}
+	for next != "" {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		var resp confluenceContentResp
+		if err := cli.getJSON(ctx, next, &resp); err != nil {
+			return "", fmt.Errorf("confluence: list content: %w", err)
+		}
+		for _, page := range resp.Results {
+			fingerprintConfluencePage(ctx, h, cli, page)
+		}
+		next = resp.Links.Next
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func fingerprintConfluencePage(ctx context.Context, h hash.Hash, cli *confluenceClient, page confluencePage) {
+	writeFingerprint(h, confluenceObjectKey(page.ID, "page"))
+	writeFingerprint(h, page.Title)
+	writeFingerprint(h, page.Body.Storage.Value)
+	for _, location := range []string{"footer", "inline"} {
+		next := fmt.Sprintf("/rest/api/content/%s/child/comment?location=%s&limit=%d&expand=body.storage,extensions.location",
+			page.ID, location, confluencePageSize)
+		for next != "" {
+			var cresp confluenceCommentsResp
+			if err := cli.getJSON(ctx, next, &cresp); err != nil {
+				break
+			}
+			for _, com := range cresp.Results {
+				writeFingerprint(h, confluenceObjectKey(page.ID, location+"-comment:"+com.ID))
+				writeFingerprint(h, com.Body.Storage.Value)
+			}
+			next = cresp.Links.Next
+		}
 	}
 }
 
@@ -158,23 +232,58 @@ type confluenceComment struct {
 	} `json:"extensions"`
 }
 
-func emitConfluencePage(ctx context.Context, cli *confluenceClient, apiBase string, page confluencePage, emit Emit) error {
+type confluenceIncrementalState struct {
+	Version int                                         `json:"version"`
+	Objects map[string]confluenceObjectIncrementalState `json:"objects"`
+}
+
+type confluenceObjectIncrementalState struct {
+	Hash string `json:"hash,omitempty"`
+}
+
+type confluenceScanState struct {
+	previous *confluenceIncrementalState
+	next     *confluenceIncrementalState
+}
+
+func loadConfluenceIncrementalState(raw string) (*confluenceIncrementalState, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var state confluenceIncrementalState
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		return nil, fmt.Errorf("confluence: parse incremental source state: %w", err)
+	}
+	if state.Objects == nil {
+		state.Objects = map[string]confluenceObjectIncrementalState{}
+	}
+	return &state, nil
+}
+
+func emitConfluencePage(ctx context.Context, cli *confluenceClient, apiBase string, page confluencePage, state *confluenceScanState, emit Emit) error {
 	if v := page.Body.Storage.Value; v != "" {
-		text := storage.ToText(v)
-		if text == "" {
-			text = v
+		key := confluenceObjectKey(page.ID, "page")
+		current := confluenceStateForText(page.Title + "\x00" + v)
+		if state != nil && state.next != nil {
+			state.next.Objects[key] = current
 		}
-		if err := emit([]byte("# "+page.Title+"\n\n"+text), sources.Metadata{
-			Confluence: &sources.ConfluenceMeta{
-				SpaceKey:  page.Space.Key,
-				SpaceName: page.Space.Name,
-				PageID:    page.ID,
-				Title:     page.Title,
-				URL:       apiBase + page.Links.WebUI,
-				Type:      "page",
-			},
-		}); err != nil {
-			return err
+		if state == nil || state.previous == nil || state.previous.Objects[key] != current {
+			text := storage.ToText(v)
+			if text == "" {
+				text = v
+			}
+			if err := emit([]byte("# "+page.Title+"\n\n"+text), sources.Metadata{
+				Confluence: &sources.ConfluenceMeta{
+					SpaceKey:  page.Space.Key,
+					SpaceName: page.Space.Name,
+					PageID:    page.ID,
+					Title:     page.Title,
+					URL:       apiBase + page.Links.WebUI,
+					Type:      "page",
+				},
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	// Walk footer + inline comments. Per-comment errors are tolerated.
@@ -194,11 +303,19 @@ func emitConfluencePage(ctx context.Context, cli *confluenceClient, apiBase stri
 				if v == "" {
 					continue
 				}
+				partType := location + "-comment"
+				key := confluenceObjectKey(page.ID, partType+":"+com.ID)
+				current := confluenceStateForText(v)
+				if state != nil && state.next != nil {
+					state.next.Objects[key] = current
+				}
+				if state != nil && state.previous != nil && state.previous.Objects[key] == current {
+					continue
+				}
 				text := storage.ToText(v)
 				if text == "" {
 					text = v
 				}
-				partType := location + "-comment"
 				if err := emit([]byte(text), sources.Metadata{
 					Confluence: &sources.ConfluenceMeta{
 						SpaceKey:  page.Space.Key,
@@ -216,6 +333,15 @@ func emitConfluencePage(ctx context.Context, cli *confluenceClient, apiBase stri
 		}
 	}
 	return nil
+}
+
+func confluenceObjectKey(pageID, part string) string {
+	return pageID + ":" + part
+}
+
+func confluenceStateForText(text string) confluenceObjectIncrementalState {
+	sum := sha256.Sum256([]byte(text))
+	return confluenceObjectIncrementalState{Hash: hex.EncodeToString(sum[:])}
 }
 
 // --- HTTP client ---

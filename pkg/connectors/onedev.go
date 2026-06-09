@@ -2,8 +2,11 @@ package connectors
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"net/url"
@@ -18,8 +21,9 @@ const onedevDefaultMaxCommentBytes = int64(1024 * 1024)
 
 func init() {
 	Register("onedev", Connector{
-		SourceType: sources.SourceOneDev,
-		Scan:       scanOneDev,
+		SourceType:  sources.SourceOneDev,
+		Scan:        scanOneDev,
+		Fingerprint: fingerprintOneDev,
 	})
 }
 
@@ -47,10 +51,54 @@ func scanOneDev(ctx context.Context, cfg Config, emit Emit) error {
 	}
 
 	cli := newOneDevClient(apiBase, token)
-	if err := scanOneDevIssues(ctx, cli, projectID, maxBytes, emit); err != nil {
+	previousState, err := loadForgeIncrementalState(cfg[configKeyIncrementalPreviousState], "onedev")
+	if err != nil {
 		return err
 	}
-	return scanOneDevPulls(ctx, cli, projectID, maxBytes, emit)
+	nextState := &forgeIncrementalState{Version: 1, Objects: map[string]forgeObjectIncrementalState{}}
+	if previousState == nil {
+		previousState = &forgeIncrementalState{Version: 1, Objects: map[string]forgeObjectIncrementalState{}}
+	}
+	scanState := forgeScanState{previous: previousState, next: nextState}
+	if err := scanOneDevIssues(ctx, cli, projectID, maxBytes, &scanState, emit); err != nil {
+		return err
+	}
+	if err := scanOneDevPulls(ctx, cli, projectID, maxBytes, &scanState, emit); err != nil {
+		return err
+	}
+	data, err := json.Marshal(nextState)
+	if err != nil {
+		return fmt.Errorf("onedev: encode incremental source state: %w", err)
+	}
+	cfg[configKeyIncrementalNextState] = string(data)
+	return nil
+}
+
+func fingerprintOneDev(ctx context.Context, cfg Config) (string, error) {
+	token := cfg["token"]
+	if token == "" {
+		return "", fmt.Errorf("onedev: token is required")
+	}
+	apiBase := cfg["api_base"]
+	if apiBase == "" {
+		return "", fmt.Errorf("onedev: --api-base is required")
+	}
+	projectID := cfg.Get("project_id", cfg["repo"])
+	if projectID == "" {
+		return "", fmt.Errorf("onedev: --project-id or --repo is required")
+	}
+	cli := newOneDevClient(apiBase, token)
+	h := sha256.New()
+	writeFingerprint(h, "onedev-v1")
+	writeFingerprint(h, apiBase)
+	writeFingerprint(h, projectID)
+	if err := fingerprintOneDevIssues(ctx, h, cli, projectID); err != nil {
+		return "", err
+	}
+	if err := fingerprintOneDevPulls(ctx, h, cli, projectID); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 type oneDevProjectRef struct {
@@ -81,7 +129,7 @@ type oneDevComment struct {
 	Project oneDevProjectRef `json:"project"`
 }
 
-func scanOneDevIssues(ctx context.Context, cli *oneDevClient, projectID string, maxBytes int64, emit Emit) error {
+func scanOneDevIssues(ctx context.Context, cli *oneDevClient, projectID string, maxBytes int64, state *forgeScanState, emit Emit) error {
 	for offset := 0; ; offset += 100 {
 		var issues []oneDevIssue
 		if err := cli.getJSON(ctx, fmt.Sprintf("/issues?offset=%d&count=100", offset), &issues); err != nil {
@@ -95,7 +143,7 @@ func scanOneDevIssues(ctx context.Context, cli *oneDevClient, projectID string, 
 				continue
 			}
 			repo := oneDevRepoName(issue.Project, projectID)
-			if err := emitOneDevPart(issue.Description, maxBytes, sources.ForgeMeta{
+			if err := emitOneDevPart(issue.Description, maxBytes, state, sources.ForgeMeta{
 				Provider:   "onedev",
 				Repository: repo,
 				File:       fmt.Sprintf("issue:%d:description", issueIDForPath(issue)),
@@ -108,7 +156,7 @@ func scanOneDevIssues(ctx context.Context, cli *oneDevClient, projectID string, 
 				return fmt.Errorf("onedev: list issue comments for %d: %w", issue.ID, err)
 			}
 			for _, comment := range comments {
-				if err := emitOneDevPart(comment.Content, maxBytes, sources.ForgeMeta{
+				if err := emitOneDevPart(comment.Content, maxBytes, state, sources.ForgeMeta{
 					Provider:   "onedev",
 					Repository: repo,
 					File:       fmt.Sprintf("issue:%d:comment:%d", issueIDForPath(issue), comment.ID),
@@ -121,7 +169,7 @@ func scanOneDevIssues(ctx context.Context, cli *oneDevClient, projectID string, 
 	}
 }
 
-func scanOneDevPulls(ctx context.Context, cli *oneDevClient, projectID string, maxBytes int64, emit Emit) error {
+func scanOneDevPulls(ctx context.Context, cli *oneDevClient, projectID string, maxBytes int64, state *forgeScanState, emit Emit) error {
 	for offset := 0; ; offset += 100 {
 		var pulls []oneDevPull
 		if err := cli.getJSON(ctx, fmt.Sprintf("/pulls?offset=%d&count=100", offset), &pulls); err != nil {
@@ -135,7 +183,7 @@ func scanOneDevPulls(ctx context.Context, cli *oneDevClient, projectID string, m
 				continue
 			}
 			repo := oneDevRepoName(pr.Project, projectID)
-			if err := emitOneDevPart(pr.Description, maxBytes, sources.ForgeMeta{
+			if err := emitOneDevPart(pr.Description, maxBytes, state, sources.ForgeMeta{
 				Provider:   "onedev",
 				Repository: repo,
 				File:       fmt.Sprintf("pull-request:%d:description", pullIDForPath(pr)),
@@ -148,7 +196,7 @@ func scanOneDevPulls(ctx context.Context, cli *oneDevClient, projectID string, m
 				return fmt.Errorf("onedev: list pull request comments for %d: %w", pr.ID, err)
 			}
 			for _, comment := range comments {
-				if err := emitOneDevPart(comment.Content, maxBytes, sources.ForgeMeta{
+				if err := emitOneDevPart(comment.Content, maxBytes, state, sources.ForgeMeta{
 					Provider:   "onedev",
 					Repository: repo,
 					File:       fmt.Sprintf("pull-request:%d:comment:%d", pullIDForPath(pr), comment.ID),
@@ -156,6 +204,60 @@ func scanOneDevPulls(ctx context.Context, cli *oneDevClient, projectID string, m
 				}, emit); err != nil {
 					return err
 				}
+			}
+		}
+	}
+}
+
+func fingerprintOneDevIssues(ctx context.Context, h hash.Hash, cli *oneDevClient, projectID string) error {
+	for offset := 0; ; offset += 100 {
+		var issues []oneDevIssue
+		if err := cli.getJSON(ctx, fmt.Sprintf("/issues?offset=%d&count=100", offset), &issues); err != nil {
+			return fmt.Errorf("onedev: list issues: %w", err)
+		}
+		if len(issues) == 0 {
+			return nil
+		}
+		for _, issue := range issues {
+			if !oneDevProjectMatches(issue.Project, projectID) {
+				continue
+			}
+			writeFingerprint(h, fmt.Sprintf("issue:%d:description", issueIDForPath(issue)))
+			writeFingerprint(h, issue.Description)
+			var comments []oneDevComment
+			if err := cli.getJSON(ctx, fmt.Sprintf("/issues/%d/comments", issue.ID), &comments); err != nil {
+				return fmt.Errorf("onedev: list issue comments for %d: %w", issue.ID, err)
+			}
+			for _, comment := range comments {
+				writeFingerprint(h, fmt.Sprintf("issue:%d:comment:%d", issueIDForPath(issue), comment.ID))
+				writeFingerprint(h, comment.Content)
+			}
+		}
+	}
+}
+
+func fingerprintOneDevPulls(ctx context.Context, h hash.Hash, cli *oneDevClient, projectID string) error {
+	for offset := 0; ; offset += 100 {
+		var pulls []oneDevPull
+		if err := cli.getJSON(ctx, fmt.Sprintf("/pulls?offset=%d&count=100", offset), &pulls); err != nil {
+			return fmt.Errorf("onedev: list pull requests: %w", err)
+		}
+		if len(pulls) == 0 {
+			return nil
+		}
+		for _, pr := range pulls {
+			if !oneDevProjectMatches(pr.Project, projectID) {
+				continue
+			}
+			writeFingerprint(h, fmt.Sprintf("pull-request:%d:description", pullIDForPath(pr)))
+			writeFingerprint(h, pr.Description)
+			var comments []oneDevComment
+			if err := cli.getJSON(ctx, fmt.Sprintf("/pulls/%d/comments", pr.ID), &comments); err != nil {
+				return fmt.Errorf("onedev: list pull request comments for %d: %w", pr.ID, err)
+			}
+			for _, comment := range comments {
+				writeFingerprint(h, fmt.Sprintf("pull-request:%d:comment:%d", pullIDForPath(pr), comment.ID))
+				writeFingerprint(h, comment.Content)
 			}
 		}
 	}
@@ -192,12 +294,12 @@ func pullIDForPath(pr oneDevPull) int64 {
 	return pr.ID
 }
 
-func emitOneDevPart(text string, maxBytes int64, meta sources.ForgeMeta, emit Emit) error {
+func emitOneDevPart(text string, maxBytes int64, state *forgeScanState, meta sources.ForgeMeta, emit Emit) error {
 	text = strings.TrimSpace(text)
 	if text == "" || int64(len(text)) > maxBytes {
 		return nil
 	}
-	return emit([]byte(text), sources.Metadata{Forge: &meta})
+	return emitForgePartIncremental(text, state, meta, emit)
 }
 
 type oneDevClient struct {

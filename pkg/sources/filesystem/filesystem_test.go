@@ -200,6 +200,62 @@ func TestChunks_SkipsSymlink(t *testing.T) {
 	}
 }
 
+func TestChunks_IncrementalStateEmitsOnlyChangedFiles(t *testing.T) {
+	dir := t.TempDir()
+	unchanged := filepath.Join(dir, "unchanged.txt")
+	changed := filepath.Join(dir, "changed.txt")
+	if err := os.WriteFile(unchanged, []byte("old unchanged"), 0o600); err != nil {
+		t.Fatalf("write unchanged: %v", err)
+	}
+	if err := os.WriteFile(changed, []byte("old changed"), 0o600); err != nil {
+		t.Fatalf("write changed: %v", err)
+	}
+	oldTime := time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(unchanged, oldTime, oldTime); err != nil {
+		t.Fatalf("chtimes unchanged: %v", err)
+	}
+	if err := os.Chtimes(changed, oldTime, oldTime); err != nil {
+		t.Fatalf("chtimes changed: %v", err)
+	}
+
+	first := &Source{}
+	mustInit(t, first, Config{Paths: []string{dir}})
+	if got, err := drain(t, first, 5*time.Second); err != nil || len(got) != 2 {
+		t.Fatalf("first scan got %d chunks err=%v, want 2 nil", len(got), err)
+	}
+	previous := first.IncrementalState()
+	if len(previous) == 0 {
+		t.Fatal("first scan did not produce incremental state")
+	}
+
+	newTime := oldTime.Add(time.Hour)
+	if err := os.WriteFile(changed, []byte("new changed"), 0o600); err != nil {
+		t.Fatalf("rewrite changed: %v", err)
+	}
+	if err := os.Chtimes(changed, newTime, newTime); err != nil {
+		t.Fatalf("chtimes changed v2: %v", err)
+	}
+
+	second := &Source{}
+	mustInit(t, second, Config{Paths: []string{dir}})
+	if err := second.SetIncrementalState(previous); err != nil {
+		t.Fatalf("SetIncrementalState: %v", err)
+	}
+	got, err := drain(t, second, 5*time.Second)
+	if err != nil {
+		t.Fatalf("second scan: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want only changed file, got %d chunks", len(got))
+	}
+	if !strings.HasSuffix(got[0].SourceMetadata.Filesystem.Path, "changed.txt") {
+		t.Fatalf("unexpected file: %s", got[0].SourceMetadata.Filesystem.Path)
+	}
+	if string(got[0].Data) != "new changed" {
+		t.Fatalf("unexpected data: %q", got[0].Data)
+	}
+}
+
 func TestRegistry_FilesystemRegistered(t *testing.T) {
 	s := sources.New(sources.SourceFilesystem)
 	if s == nil {

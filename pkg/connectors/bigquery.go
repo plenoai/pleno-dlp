@@ -14,9 +14,11 @@ package connectors
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"strings"
@@ -33,9 +35,10 @@ const (
 
 func init() {
 	Register("bigquery", Connector{
-		SourceType: sources.SourceBigQuery,
-		Scan:       scanBigQuery,
-		Verify:     verifyBigQuery,
+		SourceType:  sources.SourceBigQuery,
+		Scan:        scanBigQuery,
+		Verify:      verifyBigQuery,
+		Fingerprint: fingerprintBigQuery,
 	})
 }
 
@@ -46,6 +49,21 @@ func init() {
 //   - query       (required) SQL query to execute
 //   - api_base    override https://bigquery.googleapis.com
 func scanBigQuery(ctx context.Context, cfg Config, emit Emit) error {
+	previousState, err := loadSIEMIncrementalState(cfg[configKeyIncrementalPreviousState], "bigquery")
+	if err != nil {
+		return err
+	}
+	nextState := &siemIncrementalState{Version: 1, Events: map[string]siemEventIncrementalState{}}
+	if previousState == nil {
+		previousState = &siemIncrementalState{Version: 1, Events: map[string]siemEventIncrementalState{}}
+	}
+	state := &siemScanState{previous: previousState, next: nextState}
+	defer func() {
+		if data, err := json.Marshal(nextState); err == nil {
+			cfg[configKeyIncrementalNextState] = string(data)
+		}
+	}()
+
 	token := cfg["token"]
 	if token == "" {
 		return errors.New("bigquery: token is required (set --token or BIGQUERY_TOKEN)")
@@ -73,7 +91,7 @@ func scanBigQuery(ctx context.Context, cfg Config, emit Emit) error {
 		return fmt.Errorf("bigquery: run query: %w", err)
 	}
 
-	if err := emitBigQueryRows(ctx, cli, resp, query, emit); err != nil {
+	if err := emitBigQueryRows(ctx, cli, resp, query, state, emit); err != nil {
 		return err
 	}
 
@@ -86,7 +104,7 @@ func scanBigQuery(ctx context.Context, cfg Config, emit Emit) error {
 		if err != nil {
 			return fmt.Errorf("bigquery: get query results: %w", err)
 		}
-		if err := emitBigQueryRows(ctx, cli, page, query, emit); err != nil {
+		if err := emitBigQueryRows(ctx, cli, page, query, state, emit); err != nil {
 			return err
 		}
 		pageToken = page.PageToken
@@ -94,7 +112,53 @@ func scanBigQuery(ctx context.Context, cfg Config, emit Emit) error {
 	return nil
 }
 
-func emitBigQueryRows(ctx context.Context, cli *bigqueryClient, resp *bigqueryQueryResp, query string, emit Emit) error {
+func fingerprintBigQuery(ctx context.Context, cfg Config) (string, error) {
+	token := cfg["token"]
+	if token == "" {
+		return "", errors.New("bigquery: token is required (set --token or BIGQUERY_TOKEN)")
+	}
+	project := cfg["project"]
+	if project == "" {
+		return "", errors.New("bigquery: project is required (set --project)")
+	}
+	query := cfg["query"]
+	if query == "" {
+		return "", errors.New("bigquery: query is required (set --query)")
+	}
+	apiBase := cfg.Get("api_base", bigqueryAPIBase)
+	cli := &bigqueryClient{
+		apiBase: strings.TrimRight(apiBase, "/"),
+		token:   token,
+		project: project,
+		http:    &http.Client{Timeout: bigqueryRequestTimeout},
+	}
+	resp, err := cli.runQuery(ctx, query)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	writeFingerprint(h, "bigquery-v1")
+	writeFingerprint(h, cli.apiBase)
+	writeFingerprint(h, project)
+	writeFingerprint(h, query)
+	if err := fingerprintBigQueryRows(h, resp, query); err != nil {
+		return "", err
+	}
+	pageToken := resp.PageToken
+	for pageToken != "" {
+		page, err := cli.getQueryResults(ctx, resp.JobReference.JobID, pageToken)
+		if err != nil {
+			return "", err
+		}
+		if err := fingerprintBigQueryRows(h, page, query); err != nil {
+			return "", err
+		}
+		pageToken = page.PageToken
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+func emitBigQueryRows(ctx context.Context, cli *bigqueryClient, resp *bigqueryQueryResp, query string, state *siemScanState, emit Emit) error {
 	fields := make([]string, len(resp.Schema.Fields))
 	for i, f := range resp.Schema.Fields {
 		fields[i] = f.Name
@@ -120,7 +184,7 @@ func emitBigQueryRows(ctx context.Context, cli *bigqueryClient, resp *bigqueryQu
 				Link:      fmt.Sprintf("https://console.cloud.google.com/bigquery?project=%s&j=bq:%s:%s", cli.project, cli.project, resp.JobReference.JobID),
 			},
 		}
-		if err := emit(rowJSON, meta); err != nil {
+		if err := emitSIEMIncremental(bigQueryRowKey(rowJSON), rowJSON, meta.SIEM.Timestamp, state, meta, emit); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
@@ -128,6 +192,31 @@ func emitBigQueryRows(ctx context.Context, cli *bigqueryClient, resp *bigqueryQu
 		}
 	}
 	return nil
+}
+
+func fingerprintBigQueryRows(h hash.Hash, resp *bigqueryQueryResp, query string) error {
+	fields := make([]string, len(resp.Schema.Fields))
+	for i, f := range resp.Schema.Fields {
+		fields[i] = f.Name
+	}
+	for _, row := range resp.Rows {
+		record := make(map[string]string, len(fields))
+		for j, cell := range row.F {
+			if j < len(fields) {
+				record[fields[j]] = cell.V
+			}
+		}
+		rowJSON, err := json.Marshal(record)
+		if err != nil {
+			return err
+		}
+		writeSIEMFingerprintEvent(h, bigQueryRowKey(rowJSON), rowJSON, query)
+	}
+	return nil
+}
+
+func bigQueryRowKey(rowJSON []byte) string {
+	return siemContentKey("bigquery-row", rowJSON)
 }
 
 func verifyBigQuery(ctx context.Context, cfg Config, secret string) (bool, error) {

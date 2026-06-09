@@ -3,6 +3,8 @@ package stdin
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,18 +28,29 @@ type Config struct {
 }
 
 type Source struct {
-	name     string
-	jobID    int64
-	sourceID int64
-	verify   bool
-	cfg      Config
-	reader   io.Reader
+	name             string
+	jobID            int64
+	sourceID         int64
+	verify           bool
+	cfg              Config
+	reader           io.Reader
+	cached           bool
+	cachedData       []byte
+	cachedTruncated  bool
+	hasPreviousState bool
+	previousState    *incrementalState
+	nextState        *incrementalState
 }
 
 func (s *Source) Type() sources.SourceType { return sources.SourceStdin }
 
 // SetReader overrides the input reader.
-func (s *Source) SetReader(r io.Reader) { s.reader = r }
+func (s *Source) SetReader(r io.Reader) {
+	s.reader = r
+	s.cached = false
+	s.cachedData = nil
+	s.cachedTruncated = false
+}
 
 func (s *Source) Init(_ context.Context, name string, jobID, sourceID int64, verify bool, config []byte, _ int) error {
 	var cfg Config
@@ -57,6 +70,12 @@ func (s *Source) Init(_ context.Context, name string, jobID, sourceID int64, ver
 	s.sourceID = sourceID
 	s.verify = verify
 	s.cfg = cfg
+	s.cached = false
+	s.cachedData = nil
+	s.cachedTruncated = false
+	s.hasPreviousState = false
+	s.previousState = nil
+	s.nextState = nil
 	return nil
 }
 
@@ -68,19 +87,17 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	r := s.reader
-	if r == nil {
-		r = os.Stdin
-	}
-	limited := io.LimitReader(r, s.cfg.MaxBytes)
-	data, err := io.ReadAll(limited)
+	data, truncated, err := s.readInput()
 	if err != nil {
-		return fmt.Errorf("stdin: read: %w", err)
+		return err
 	}
-	truncated := false
-	overflow := make([]byte, 1)
-	if n, _ := r.Read(overflow); n > 0 {
-		truncated = true
+	current := incrementalState{Version: 1, Hash: hashData(data), Label: s.cfg.Label}
+	s.nextState = &current
+	if s.hasPreviousState && s.previousState != nil && *s.previousState == current {
+		if truncated {
+			return errStdinTruncated
+		}
+		return nil
 	}
 
 	chunk := &sources.Chunk{
@@ -104,5 +121,81 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	return nil
 }
 
+func (s *Source) ResourceFingerprint(_ context.Context) (string, error) {
+	data, truncated, err := s.readInput()
+	if err != nil {
+		return "", err
+	}
+	state := incrementalState{Version: 1, Hash: hashData(data), Label: s.cfg.Label}
+	s.nextState = &state
+	if truncated {
+		return state.Hash + ":truncated", nil
+	}
+	return state.Hash, nil
+}
+
+type incrementalState struct {
+	Version int    `json:"version"`
+	Hash    string `json:"hash"`
+	Label   string `json:"label"`
+}
+
+func (s *Source) SetIncrementalState(previous json.RawMessage) error {
+	s.hasPreviousState = false
+	s.previousState = nil
+	if len(previous) == 0 {
+		return nil
+	}
+	var state incrementalState
+	if err := json.Unmarshal(previous, &state); err != nil {
+		return fmt.Errorf("stdin: invalid incremental state: %w", err)
+	}
+	s.previousState = &state
+	s.hasPreviousState = true
+	return nil
+}
+
+func (s *Source) IncrementalState() json.RawMessage {
+	if s.nextState == nil {
+		return nil
+	}
+	data, err := json.Marshal(s.nextState)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+func (s *Source) readInput() ([]byte, bool, error) {
+	if s.cached {
+		return s.cachedData, s.cachedTruncated, nil
+	}
+	r := s.reader
+	if r == nil {
+		r = os.Stdin
+	}
+	limited := io.LimitReader(r, s.cfg.MaxBytes)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, false, fmt.Errorf("stdin: read: %w", err)
+	}
+	truncated := false
+	overflow := make([]byte, 1)
+	if n, _ := r.Read(overflow); n > 0 {
+		truncated = true
+	}
+	s.cached = true
+	s.cachedData = data
+	s.cachedTruncated = truncated
+	return data, truncated, nil
+}
+
+func hashData(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
 // compile-time interface check
 var _ sources.Source = (*Source)(nil)
+var _ sources.ResourceFingerprinter = (*Source)(nil)
+var _ sources.IncrementalStateSource = (*Source)(nil)
