@@ -102,7 +102,7 @@ h2 {
   margin-bottom: 10px;
 }
 .lede { color: var(--text-dim); max-width: 620px; margin-bottom: 32px; }
-.lede code, .cell p code { font-family: var(--mono); font-size: .85em; color: var(--green); }
+.lede code, .cell p code, .fn code { font-family: var(--mono); font-size: .85em; color: var(--green); }
 
 /* ---------- loop diagram ---------- */
 .loop { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: stretch; }
@@ -287,8 +287,8 @@ footer .note { width: 100%; margin-top: 10px; font-size: 13px; }
     <div class="term">
       <div class="term-bar"><i></i><i></i><i></i><span>zsh — pleno-dlp</span></div>
       <pre><span class="p">$</span> pleno-dlp scan git --repo . --max-depth 200
-<span class="d">scanned 1,284 chunk(s), 38.2 MiB in 1.9s</span>
-<span class="d">placeholder: suppressed 12 finding(s)</span>
+<span class="d">scanned 1378 chunk(s), 5285980 byte(s), 3 finding(s) in 362ms</span>
+<span class="d">placeholder: suppressed 47 finding(s)</span>
 DETECTOR  VERIFIED  LOCATION                       REDACTED
 AWS       <span class="ok">yes</span>       config/prod.env:14             AKIA...
 Stripe    <span class="ok">yes</span>       services/billing/client.go:88  sk_live_...
@@ -342,8 +342,9 @@ GitHub    <span class="no">no</span>        scripts/old-deploy.sh:3        ghp_.
       <span class="chip">Notion</span>
       <span class="chip">Confluence</span>
       <span class="chip">Jira</span>
-      <span class="chip alt">+ PII engine, one flag</span>
     </div>
+    <p class="fn">Secrets are also only half of DLP — <code>--pii-engine</code> scans the
+    same sources for names, addresses, and national IDs in the same pass.</p>
   </div>
 </section>
 
@@ -373,7 +374,7 @@ GitHub    <span class="no">no</span>        scripts/old-deploy.sh:3        ghp_.
 
 <div class="cta">
   <div class="wrap">
-    <h2>Scan your repo in 30 seconds</h2>
+    <h2>Scan your repo in one command</h2>
     <div class="install">
       <code><span class="c">$</span> go install github.com/plenoai/pleno-dlp/cmd/pleno-dlp@latest && pleno-dlp scan filesystem .</code>
     </div>
