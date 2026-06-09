@@ -39,15 +39,15 @@ secret-scan-mr:
     - git diff "$BASE"...HEAD | pleno-dlp scan stdin --format sarif > findings.sarif
 ```
 
-## Verify on protected branches only
+## Verification rate limiting
 
-`--verify` round-trips to upstream APIs and burns rate-limit budget.
-Restrict it to the merge-to-default workflow:
+Verification round-trips to upstream APIs and burns rate-limit budget.
+Tune the per-host limiter on the merge-to-default workflow:
 
 ```yaml
 verify:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
-    - pleno-dlp scan filesystem . --verify --verify-rps 20 --fail-on critical
+    - pleno-dlp scan filesystem . --verify-rps 20 --fail-on critical
 ```

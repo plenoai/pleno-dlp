@@ -57,8 +57,7 @@ func init() {
 
 	// Mirror the scan-wide flags onto protectCmd (same scanOpts as scan.go).
 	protectCmd.Flags().StringVar(&scanOpts.format, "format", "table", "output format: json, sarif, table")
-	protectCmd.Flags().BoolVar(&scanOpts.verify, "verify", false, "verify candidate secrets against upstream APIs")
-	protectCmd.Flags().IntVar(&scanOpts.verifyRPS, "verify-rps", 10, "per-host requests-per-second cap during --verify (0 = disable)")
+	protectCmd.Flags().IntVar(&scanOpts.verifyRPS, "verify-rps", 10, "per-host requests-per-second cap during verification (0 = disable)")
 	protectCmd.Flags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
 	protectCmd.Flags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
 	protectCmd.Flags().StringVar(&scanOpts.failOn, "fail-on", "any", "minimum severity that triggers exit 1: any|info|low|medium|high|critical")

@@ -61,8 +61,7 @@ Captured 2026-05-12 against pleno-dlp commit `3be6e6a` (head of
   the filesystem cache and the macOS Gatekeeper / DTrace path-cache
   for the binary; the 20 timed runs are interleaved across tools so
   no single tool sees a consecutive thermal advantage.
-- Verification (`--verify` for pleno-dlp, default-on for trufflehog)
-  was **disabled** on every tool so that the measurement reflects
+- Verification was **disabled** on every tool so that the measurement reflects
   engine cost, not upstream API roundtrip latency. Each tool's
   exit code was ignored because pleno-dlp and gitleaks return
   non-zero whenever findings exist.

@@ -64,7 +64,7 @@ func TestProtectHelp(t *testing.T) {
 		t.Fatalf("protect --help: %v", err)
 	}
 	got := buf.String()
-	for _, want := range []string{"--staged", "--format", "--verify", "--fail-on"} {
+	for _, want := range []string{"--staged", "--format", "--fail-on"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("protect help missing %q:\n%s", want, got)
 		}

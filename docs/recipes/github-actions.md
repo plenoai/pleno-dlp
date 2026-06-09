@@ -69,18 +69,18 @@ Use the merge-base diff instead of the full filesystem:
 | `high`       | severity ≥ High (unverified secrets trip) |
 | `critical`   | severity ≥ Critical (verified secrets only) |
 
-Pair with `--verify` for the strictest mode: only confirmed-active
-secrets fail the build.
+Use the default verification path for the strictest mode: only
+confirmed-active secrets fail the build.
 
 ```yaml
-- run: pleno-dlp scan filesystem . --verify --fail-on critical
+- run: pleno-dlp scan filesystem . --fail-on critical
 ```
 
 ## Verify rate limiting
 
-`--verify` against many candidate keys can trigger upstream rate limits.
+Verification against many candidate keys can trigger upstream rate limits.
 
 ```sh
-pleno-dlp scan filesystem . --verify --verify-rps 30
-pleno-dlp scan filesystem . --verify --verify-rps 0    # no limiter
+pleno-dlp scan filesystem . --verify-rps 30
+pleno-dlp scan filesystem . --verify-rps 0    # no limiter
 ```

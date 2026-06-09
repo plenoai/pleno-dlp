@@ -118,7 +118,7 @@ absent, so the finding acknowledges the token shape without implying live access
 > single upstream provider, but the public-key half can be correlated
 > against Certificate Transparency logs. The detector derives the SPKI
 > SHA-256 locally (the private key never leaves the host) and queries
-> crt.sh `?spkisha256=<hex>` when `--verify` is set. A non-empty CT
+> crt.sh `?spkisha256=<hex>` during verification. A non-empty CT
 > match marks the finding `Verified=true` and surfaces the discovered
 > domains via `ExtraData["blast_radius_domains"]` — the leak's literal
 > blast radius. Encrypted PEMs are also tried against an embedded

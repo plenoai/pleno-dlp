@@ -29,7 +29,7 @@ go install github.com/plenoai/pleno-dlp/cmd/pleno-dlp@latest
 pleno-dlp protect
 pleno-dlp scan filesystem ./repo
 pleno-dlp scan git --repo ./repo --max-depth 200
-pleno-dlp scan filesystem ./repo --format sarif --verify > findings.sarif
+pleno-dlp scan filesystem ./repo --format sarif > findings.sarif
 ```
 
 ## Target source
@@ -64,10 +64,10 @@ More output and CI detail: [`docs/output-and-gating.md`](docs/output-and-gating.
 
 ## Verification support
 
-Use `--verify` to call provider-side validation where available.
+Provider-side validation runs by default where available.
 
 ```sh
-pleno-dlp scan filesystem ./repo --verify
+pleno-dlp scan filesystem ./repo
 pleno-dlp detectors list --verify-status
 ```
 
