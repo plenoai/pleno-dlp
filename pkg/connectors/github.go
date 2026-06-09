@@ -5,24 +5,32 @@
 // comments cover PR conversation comments; pull review comments cover inline
 // code-review comments.
 //
-// Auth: Personal Access Token via `Authorization: Bearer <token>` against
-// the public REST API (`https://api.github.com`). GitHub Enterprise
-// installs override the base via `api_base`.
+// Auth: Personal Access Token or GitHub App installation token via
+// `Authorization: Bearer <token>` against the public REST API
+// (`https://api.github.com`). GitHub Enterprise installs override the base
+// via `api_base`.
 
 package connectors
 
 import (
+	"bytes"
 	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"hash"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -38,6 +46,8 @@ const (
 	githubDefaultAPIBase      = "https://api.github.com"
 	githubDefaultMaxBlobBytes = int64(5 * 1024 * 1024)
 	githubRequestTimeout      = 60 * time.Second
+	githubAppJWTLifetime      = 9 * time.Minute
+	githubAppRefreshSkew      = 5 * time.Minute
 )
 
 func init() {
@@ -50,7 +60,11 @@ func init() {
 }
 
 // scanGitHub is the Lambda handler. cfg keys:
-//   - token         (required) PAT, sent as Bearer
+//   - token         PAT, sent as Bearer
+//   - app_id        GitHub App ID, used with app_installation_id + private key
+//   - app_installation_id GitHub App installation ID
+//   - app_private_key GitHub App PEM private key
+//   - app_private_key_file path to GitHub App PEM private key
 //   - org           org login (mutually exclusive with repo)
 //   - repo          owner/name single-repo scope
 //   - api_base      override https://api.github.com
@@ -58,9 +72,9 @@ func init() {
 //   - concurrency   per-repo blob fanout
 //   - include_comments scan issue comments and pull review comments
 func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
-	token := cfg["token"]
-	if token == "" {
-		return errors.New("github: token is required (set --token or GITHUB_TOKEN)")
+	auth, err := newGitHubAuthProvider(cfg)
+	if err != nil {
+		return err
 	}
 	org, repo := cfg["org"], cfg["repo"]
 	if org == "" && repo == "" {
@@ -92,7 +106,7 @@ func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
 		}
 	}
 
-	cli := newGitHubClient(apiBase, token)
+	cli := newGitHubClient(apiBase, auth)
 	repos, err := githubListRepos(ctx, cli, org, repo)
 	if err != nil {
 		return err
@@ -135,11 +149,24 @@ func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
 	return nil
 }
 
-// verifyGitHub hits GET /user. 200 → verified, 401/403 → not verified.
+// verifyGitHub hits GET /user for PATs and GET /installation/repositories for
+// GitHub App auth. 200 → verified, 401/403 → not verified.
 func verifyGitHub(ctx context.Context, cfg Config, secret string) (bool, error) {
 	apiBase := cfg.Get("api_base", githubDefaultAPIBase)
-	cli := newGitHubClient(apiBase, secret)
-	resp, err := cli.do(ctx, http.MethodGet, "/user", nil)
+	path := "/user"
+	var auth githubTokenProvider
+	if secret != "" {
+		auth = staticGitHubToken(secret)
+	} else {
+		var err error
+		auth, err = newGitHubAuthProvider(cfg)
+		if err != nil {
+			return false, err
+		}
+		path = "/installation/repositories"
+	}
+	cli := newGitHubClient(apiBase, auth)
+	resp, err := cli.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return false, err
 	}
@@ -425,9 +452,9 @@ func scanGitHubPullReviewCommentsIncremental(ctx context.Context, cli *githubCli
 }
 
 func fingerprintGitHub(ctx context.Context, cfg Config) (string, error) {
-	token := cfg["token"]
-	if token == "" {
-		return "", errors.New("github: token is required (set --token or GITHUB_TOKEN)")
+	auth, err := newGitHubAuthProvider(cfg)
+	if err != nil {
+		return "", err
 	}
 	org, repo := cfg["org"], cfg["repo"]
 	if org == "" && repo == "" {
@@ -437,7 +464,7 @@ func fingerprintGitHub(ctx context.Context, cfg Config) (string, error) {
 		return "", errors.New("github: org and repo are mutually exclusive")
 	}
 	apiBase := cfg.Get("api_base", githubDefaultAPIBase)
-	cli := newGitHubClient(apiBase, token)
+	cli := newGitHubClient(apiBase, auth)
 	repos, err := githubListRepos(ctx, cli, org, repo)
 	if err != nil {
 		return "", err
@@ -590,10 +617,203 @@ func emitGitHubBlob(ctx context.Context, cli *githubClient, repo githubRepoRef, 
 
 // --- rate-limit-aware HTTP client ---
 
+type githubTokenProvider interface {
+	Token(context.Context) (string, error)
+}
+
+type staticGitHubToken string
+
+func (s staticGitHubToken) Token(context.Context) (string, error) {
+	return string(s), nil
+}
+
+type githubAppTokenProvider struct {
+	base           string
+	appID          string
+	installationID string
+	key            *rsa.PrivateKey
+	http           *http.Client
+	now            func() time.Time
+
+	mu        sync.Mutex
+	token     string
+	expiresAt time.Time
+}
+
+type githubAppTokenResp struct {
+	Token     string `json:"token"`
+	ExpiresAt string `json:"expires_at"`
+}
+
+func newGitHubAuthProvider(cfg Config) (githubTokenProvider, error) {
+	token := cfg["token"]
+	hasAppConfig := cfg["app_id"] != "" || cfg["app_installation_id"] != "" || cfg["app_private_key"] != "" || cfg["app_private_key_file"] != ""
+	if token != "" && hasAppConfig {
+		return nil, errors.New("github: --token and GitHub App credentials are mutually exclusive")
+	}
+	if token != "" {
+		return staticGitHubToken(token), nil
+	}
+	if !hasAppConfig {
+		return nil, errors.New("github: --token or GitHub App credentials are required")
+	}
+	return newGitHubAppTokenProvider(cfg)
+}
+
+func newGitHubAppTokenProvider(cfg Config) (*githubAppTokenProvider, error) {
+	appID := strings.TrimSpace(cfg["app_id"])
+	installationID := strings.TrimSpace(cfg["app_installation_id"])
+	if appID == "" {
+		return nil, errors.New("github: app_id is required for GitHub App auth")
+	}
+	if installationID == "" {
+		return nil, errors.New("github: app_installation_id is required for GitHub App auth")
+	}
+	keyPEM, err := resolveGitHubAppPrivateKey(cfg)
+	if err != nil {
+		return nil, err
+	}
+	key, err := parseGitHubAppPrivateKey([]byte(keyPEM))
+	if err != nil {
+		return nil, err
+	}
+	base := cfg.Get("api_base", githubDefaultAPIBase)
+	if u, err := url.Parse(base); err != nil || u.Scheme == "" || u.Host == "" {
+		return nil, fmt.Errorf("github: invalid api_base %q", base)
+	}
+	return &githubAppTokenProvider{
+		base:           base,
+		appID:          appID,
+		installationID: installationID,
+		key:            key,
+		http:           &http.Client{Timeout: githubRequestTimeout},
+		now:            time.Now,
+	}, nil
+}
+
+func resolveGitHubAppPrivateKey(cfg Config) (string, error) {
+	if cfg["app_private_key"] != "" && cfg["app_private_key_file"] != "" {
+		return "", errors.New("github: app_private_key and app_private_key_file are mutually exclusive")
+	}
+	if cfg["app_private_key"] != "" {
+		return normalizePEMNewlines(cfg["app_private_key"]), nil
+	}
+	if cfg["app_private_key_file"] == "" {
+		return "", errors.New("github: app_private_key or app_private_key_file is required for GitHub App auth")
+	}
+	data, err := os.ReadFile(cfg["app_private_key_file"])
+	if err != nil {
+		return "", fmt.Errorf("github: read app_private_key_file: %w", err)
+	}
+	return string(data), nil
+}
+
+func normalizePEMNewlines(s string) string {
+	if strings.Contains(s, `\n`) && !strings.Contains(s, "\n") {
+		return strings.ReplaceAll(s, `\n`, "\n")
+	}
+	return s
+}
+
+func parseGitHubAppPrivateKey(data []byte) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, errors.New("github: app private key must be PEM encoded")
+	}
+	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		return key, nil
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("github: parse app private key: %w", err)
+	}
+	key, ok := parsed.(*rsa.PrivateKey)
+	if !ok {
+		return nil, errors.New("github: app private key must be RSA")
+	}
+	return key, nil
+}
+
+func (p *githubAppTokenProvider) Token(ctx context.Context) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	now := p.now()
+	if p.token != "" && now.Before(p.expiresAt.Add(-githubAppRefreshSkew)) {
+		return p.token, nil
+	}
+	token, expiresAt, err := p.fetchInstallationToken(ctx, now)
+	if err != nil {
+		return "", err
+	}
+	p.token = token
+	p.expiresAt = expiresAt
+	return p.token, nil
+}
+
+func (p *githubAppTokenProvider) fetchInstallationToken(ctx context.Context, now time.Time) (string, time.Time, error) {
+	jwt, err := p.signJWT(now)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	path := fmt.Sprintf("%s/app/installations/%s/access_tokens", strings.TrimRight(p.base, "/"), url.PathEscape(p.installationID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	resp, err := p.http.Do(req)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return "", time.Time{}, fmt.Errorf("github: create installation token -> %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	var out githubAppTokenResp
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", time.Time{}, fmt.Errorf("github: decode installation token: %w", err)
+	}
+	if out.Token == "" {
+		return "", time.Time{}, errors.New("github: installation token response missing token")
+	}
+	expiresAt, err := time.Parse(time.RFC3339, out.ExpiresAt)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("github: parse installation token expires_at: %w", err)
+	}
+	return out.Token, expiresAt, nil
+}
+
+func (p *githubAppTokenProvider) signJWT(now time.Time) (string, error) {
+	header, err := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT"})
+	if err != nil {
+		return "", err
+	}
+	claims, err := json.Marshal(map[string]any{
+		"iat": now.Add(-time.Minute).Unix(),
+		"exp": now.Add(githubAppJWTLifetime).Unix(),
+		"iss": p.appID,
+	})
+	if err != nil {
+		return "", err
+	}
+	unsigned := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(claims)
+	digest := sha256.Sum256([]byte(unsigned))
+	sig, err := rsa.SignPKCS1v15(rand.Reader, p.key, crypto.SHA256, digest[:])
+	if err != nil {
+		return "", fmt.Errorf("github: sign app jwt: %w", err)
+	}
+	return unsigned + "." + base64.RawURLEncoding.EncodeToString(sig), nil
+}
+
 type githubClient struct {
-	base  string
-	token string
-	http  *http.Client
+	base string
+	auth githubTokenProvider
+	http *http.Client
 
 	mu          sync.Mutex
 	nextAllowed time.Time
@@ -602,14 +822,14 @@ type githubClient struct {
 	testSleep func(time.Duration)
 }
 
-func newGitHubClient(base, token string) *githubClient {
+func newGitHubClient(base string, auth githubTokenProvider) *githubClient {
 	if base == "" {
 		base = githubDefaultAPIBase
 	}
 	return &githubClient{
-		base:  base,
-		token: token,
-		http:  &http.Client{Timeout: githubRequestTimeout},
+		base: base,
+		auth: auth,
+		http: &http.Client{Timeout: githubRequestTimeout},
 	}
 }
 
@@ -626,8 +846,14 @@ func (c *githubClient) do(ctx context.Context, method, path string, body io.Read
 		}
 		req.Header.Set("Accept", "application/vnd.github+json")
 		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-		if c.token != "" {
-			req.Header.Set("Authorization", "Bearer "+c.token)
+		if c.auth != nil {
+			token, err := c.auth.Token(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if token != "" {
+				req.Header.Set("Authorization", "Bearer "+token)
+			}
 		}
 		resp, err := c.http.Do(req)
 		if err != nil {

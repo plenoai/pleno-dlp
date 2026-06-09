@@ -53,6 +53,22 @@ dispatch to provider-confirmed findings.
 pleno-dlp scan github --org acme --include-comments --only-verified --format json
 ```
 
+GitHub scans accept either a PAT / installation token through `--token`
+or GitHub App credentials. App credentials are exchanged for short-lived
+installation tokens and refreshed before expiry during long scans.
+
+```sh
+pleno-dlp scan github --org acme \
+  --app-id "$GITHUB_APP_ID" \
+  --app-installation-id "$GITHUB_APP_INSTALLATION_ID" \
+  --app-private-key-file ./github-app.pem
+```
+
+The same fields can be provided through `GITHUB_APP_ID`,
+`GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY_FILE`. Use
+`GITHUB_APP_PRIVATE_KEY` only when the environment can safely carry
+multi-line PEM secrets.
+
 ## Incremental source scans
 
 `scan github --incremental --incremental-state <file>` stores both the
