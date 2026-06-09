@@ -15,9 +15,12 @@ package connectors
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"os"
@@ -39,9 +42,10 @@ const (
 
 func init() {
 	Register("slack", Connector{
-		SourceType: sources.SourceSlack,
-		Scan:       scanSlack,
-		Verify:     verifySlack,
+		SourceType:  sources.SourceSlack,
+		Scan:        scanSlack,
+		Verify:      verifySlack,
+		Fingerprint: fingerprintSlack,
 	})
 }
 
@@ -76,17 +80,31 @@ func scanSlack(ctx context.Context, cfg Config, emit Emit) error {
 	if err != nil {
 		return err
 	}
+	previousState, err := loadSlackIncrementalState(cfg[configKeyIncrementalPreviousState])
+	if err != nil {
+		return err
+	}
+	nextState := &slackIncrementalState{Version: 1, Messages: map[string]slackMessageIncrementalState{}, Files: map[string]slackFileIncrementalState{}}
+	if previousState == nil {
+		previousState = &slackIncrementalState{Version: 1, Messages: map[string]slackMessageIncrementalState{}, Files: map[string]slackFileIncrementalState{}}
+	}
+	scanState := slackScanState{previous: previousState, next: nextState}
 	for _, ch := range channels {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := scanSlackChannel(ctx, cli, ch, concurrency, emit); err != nil {
+		if err := scanSlackChannel(ctx, cli, ch, concurrency, &scanState, emit); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
 			continue
 		}
 	}
+	data, err := json.Marshal(nextState)
+	if err != nil {
+		return fmt.Errorf("slack: encode incremental source state: %w", err)
+	}
+	cfg[configKeyIncrementalNextState] = string(data)
 	return nil
 }
 
@@ -106,6 +124,59 @@ func verifySlack(ctx context.Context, cfg Config, secret string) (bool, error) {
 		return false, fmt.Errorf("slack: decode auth.test: %w", err)
 	}
 	return result.OK, nil
+}
+
+func fingerprintSlack(ctx context.Context, cfg Config) (string, error) {
+	token := cfg["token"]
+	if token == "" {
+		return "", errors.New("slack: token is required (set --token or SLACK_TOKEN)")
+	}
+	apiBase := cfg.Get("api_base", slackDefaultAPIBase)
+	cli := newSlackClient(apiBase, token)
+	channels, err := slackResolveChannels(ctx, cli, cfg["channel"])
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	writeFingerprint(h, "slack-v1")
+	writeFingerprint(h, apiBase)
+	writeFingerprint(h, cfg["channel"])
+	for _, ch := range channels {
+		if err := fingerprintSlackChannel(ctx, h, cli, ch); err != nil {
+			return "", err
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func fingerprintSlackChannel(ctx context.Context, h hash.Hash, cli *slackClient, chInfo slackChannelInfo) error {
+	writeFingerprint(h, chInfo.ID)
+	return scanSlackChannelMessages(ctx, cli, chInfo, func(msg slackMessage) error {
+		fingerprintSlackMessage(h, chInfo, msg)
+		if msg.ThreadTS != "" && msg.ThreadTS == msg.TS {
+			return scanSlackThreadMessages(ctx, cli, chInfo, msg, func(reply slackMessage) error {
+				if reply.TS == msg.TS {
+					return nil
+				}
+				fingerprintSlackMessage(h, chInfo, reply)
+				return nil
+			})
+		}
+		return nil
+	})
+}
+
+func fingerprintSlackMessage(h hash.Hash, chInfo slackChannelInfo, msg slackMessage) {
+	writeFingerprint(h, "message")
+	writeFingerprint(h, chInfo.ID)
+	writeFingerprint(h, msg.TS)
+	writeFingerprint(h, msg.Text)
+	for _, f := range msg.Files {
+		writeFingerprint(h, "file")
+		writeFingerprint(h, f.ID)
+		writeFingerprint(h, f.Name)
+		writeFingerprint(h, f.URLPrivateDownload)
+	}
 }
 
 // --- internal types ---
@@ -166,6 +237,43 @@ type slackFilesInfoResp struct {
 	} `json:"file"`
 }
 
+type slackIncrementalState struct {
+	Version  int                                     `json:"version"`
+	Messages map[string]slackMessageIncrementalState `json:"messages"`
+	Files    map[string]slackFileIncrementalState    `json:"files"`
+}
+
+type slackMessageIncrementalState struct {
+	Text string `json:"text,omitempty"`
+}
+
+type slackFileIncrementalState struct {
+	Name               string `json:"name,omitempty"`
+	URLPrivateDownload string `json:"url_private_download,omitempty"`
+}
+
+type slackScanState struct {
+	previous *slackIncrementalState
+	next     *slackIncrementalState
+}
+
+func loadSlackIncrementalState(raw string) (*slackIncrementalState, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var state slackIncrementalState
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		return nil, fmt.Errorf("slack: parse incremental source state: %w", err)
+	}
+	if state.Messages == nil {
+		state.Messages = map[string]slackMessageIncrementalState{}
+	}
+	if state.Files == nil {
+		state.Files = map[string]slackFileIncrementalState{}
+	}
+	return &state, nil
+}
+
 func slackResolveChannels(ctx context.Context, cli *slackClient, single string) ([]slackChannelInfo, error) {
 	if single != "" {
 		return []slackChannelInfo{{ID: single}}, nil
@@ -193,7 +301,24 @@ func slackResolveChannels(ctx context.Context, cli *slackClient, single string) 
 	return channels, nil
 }
 
-func scanSlackChannel(ctx context.Context, cli *slackClient, chInfo slackChannelInfo, concurrency int, emit Emit) error {
+func scanSlackChannel(ctx context.Context, cli *slackClient, chInfo slackChannelInfo, concurrency int, state *slackScanState, emit Emit) error {
+	return scanSlackChannelMessages(ctx, cli, chInfo, func(msg slackMessage) error {
+		if err := emitSlackMessageIncremental(ctx, chInfo, msg, state, emit); err != nil {
+			return err
+		}
+		for _, f := range msg.Files {
+			if err := emitSlackFileIncremental(ctx, cli, chInfo, msg, f.ID, f.Name, f.URLPrivateDownload, state, emit); err != nil {
+				return err
+			}
+		}
+		if msg.ThreadTS != "" && msg.ThreadTS == msg.TS {
+			return scanSlackThreadConcurrent(ctx, cli, chInfo, msg, concurrency, state, emit)
+		}
+		return nil
+	})
+}
+
+func scanSlackChannelMessages(ctx context.Context, cli *slackClient, chInfo slackChannelInfo, visit func(slackMessage) error) error {
 	cursor := ""
 	for {
 		path := fmt.Sprintf("/api/conversations.history?channel=%s&limit=200", chInfo.ID)
@@ -210,39 +335,13 @@ func scanSlackChannel(ctx context.Context, cli *slackClient, chInfo slackChannel
 		if !resp.OK {
 			return fmt.Errorf("slack: history channel=%s: %s", chInfo.ID, resp.Error)
 		}
-		g, gctx := errgroup.WithContext(ctx)
-		sem := make(chan struct{}, concurrency)
 		for i := range resp.Messages {
-			msg := resp.Messages[i]
-			if err := emitSlackMessage(ctx, chInfo, msg, emit); err != nil {
+			if err := visit(resp.Messages[i]); err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return err
 				}
 				continue
 			}
-			for _, f := range msg.Files {
-				if err := emitSlackFile(ctx, cli, chInfo, msg, f.ID, f.Name, f.URLPrivateDownload, emit); err != nil {
-					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-						return err
-					}
-					continue
-				}
-			}
-			if msg.ThreadTS != "" && msg.ThreadTS == msg.TS {
-				select {
-				case sem <- struct{}{}:
-				case <-gctx.Done():
-					return gctx.Err()
-				}
-				parent := msg
-				g.Go(func() error {
-					defer func() { <-sem }()
-					return scanSlackThread(gctx, cli, chInfo, parent, emit)
-				})
-			}
-		}
-		if err := g.Wait(); err != nil {
-			return err
 		}
 		cursor = resp.ResponseMetadata.NextCursor
 		if !resp.HasMore || cursor == "" {
@@ -252,7 +351,39 @@ func scanSlackChannel(ctx context.Context, cli *slackClient, chInfo slackChannel
 	return nil
 }
 
-func scanSlackThread(ctx context.Context, cli *slackClient, chInfo slackChannelInfo, parent slackMessage, emit Emit) error {
+func scanSlackThreadConcurrent(ctx context.Context, cli *slackClient, chInfo slackChannelInfo, parent slackMessage, concurrency int, state *slackScanState, emit Emit) error {
+	g, gctx := errgroup.WithContext(ctx)
+	sem := make(chan struct{}, concurrency)
+	select {
+	case sem <- struct{}{}:
+	case <-gctx.Done():
+		return gctx.Err()
+	}
+	g.Go(func() error {
+		defer func() { <-sem }()
+		return scanSlackThread(gctx, cli, chInfo, parent, state, emit)
+	})
+	return g.Wait()
+}
+
+func scanSlackThread(ctx context.Context, cli *slackClient, chInfo slackChannelInfo, parent slackMessage, state *slackScanState, emit Emit) error {
+	return scanSlackThreadMessages(ctx, cli, chInfo, parent, func(msg slackMessage) error {
+		if msg.TS == parent.TS {
+			return nil
+		}
+		if err := emitSlackMessageIncremental(ctx, chInfo, msg, state, emit); err != nil {
+			return err
+		}
+		for _, f := range msg.Files {
+			if err := emitSlackFileIncremental(ctx, cli, chInfo, msg, f.ID, f.Name, f.URLPrivateDownload, state, emit); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func scanSlackThreadMessages(ctx context.Context, cli *slackClient, chInfo slackChannelInfo, parent slackMessage, visit func(slackMessage) error) error {
 	cursor := ""
 	for {
 		path := fmt.Sprintf("/api/conversations.replies?channel=%s&ts=%s&limit=200", chInfo.ID, parent.ThreadTS)
@@ -276,22 +407,11 @@ func scanSlackThread(ctx context.Context, cli *slackClient, chInfo slackChannelI
 			return nil
 		}
 		for _, msg := range resp.Messages {
-			if msg.TS == parent.TS {
-				continue
-			}
-			if err := emitSlackMessage(ctx, chInfo, msg, emit); err != nil {
+			if err := visit(msg); err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return err
 				}
 				continue
-			}
-			for _, f := range msg.Files {
-				if err := emitSlackFile(ctx, cli, chInfo, msg, f.ID, f.Name, f.URLPrivateDownload, emit); err != nil {
-					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-						return err
-					}
-					continue
-				}
 			}
 		}
 		cursor = resp.ResponseMetadata.NextCursor
@@ -300,6 +420,38 @@ func scanSlackThread(ctx context.Context, cli *slackClient, chInfo slackChannelI
 		}
 	}
 	return nil
+}
+
+func emitSlackMessageIncremental(ctx context.Context, chInfo slackChannelInfo, msg slackMessage, state *slackScanState, emit Emit) error {
+	key := slackMessageKey(chInfo.ID, msg.TS)
+	current := slackMessageIncrementalState{Text: msg.Text}
+	if state != nil && state.next != nil {
+		state.next.Messages[key] = current
+	}
+	if state != nil && state.previous != nil && state.previous.Messages[key] == current {
+		return nil
+	}
+	return emitSlackMessage(ctx, chInfo, msg, emit)
+}
+
+func emitSlackFileIncremental(ctx context.Context, cli *slackClient, chInfo slackChannelInfo, msg slackMessage, fileID, fileName, downloadURL string, state *slackScanState, emit Emit) error {
+	key := slackFileKey(chInfo.ID, msg.TS, fileID)
+	current := slackFileIncrementalState{Name: fileName, URLPrivateDownload: downloadURL}
+	if state != nil && state.next != nil {
+		state.next.Files[key] = current
+	}
+	if state != nil && state.previous != nil && state.previous.Files[key] == current {
+		return nil
+	}
+	return emitSlackFile(ctx, cli, chInfo, msg, fileID, fileName, downloadURL, emit)
+}
+
+func slackMessageKey(channel, ts string) string {
+	return channel + ":" + ts
+}
+
+func slackFileKey(channel, ts, fileID string) string {
+	return channel + ":" + ts + ":file:" + fileID
 }
 
 func emitSlackMessage(_ context.Context, chInfo slackChannelInfo, msg slackMessage, emit Emit) error {

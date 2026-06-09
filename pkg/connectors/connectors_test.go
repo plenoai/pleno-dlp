@@ -266,3 +266,51 @@ func TestAsSourceIncrementalState(t *testing.T) {
 		t.Fatalf("IncrementalState = %q", got)
 	}
 }
+
+func TestProductionConnectorsSupportIncremental(t *testing.T) {
+	names := []string{
+		"bigquery",
+		"bitbucket",
+		"codebase",
+		"codeberg",
+		"confluence",
+		"datadog",
+		"forgejo",
+		"gitea",
+		"gitbucket",
+		"github",
+		"gitlab",
+		"gogs",
+		"jira",
+		"notion",
+		"onedev",
+		"pagure",
+		"redash",
+		"slack",
+		"splunk",
+	}
+	for _, name := range names {
+		c, ok := Get(name)
+		if !ok {
+			t.Errorf("Get(%q) ok = false, want true", name)
+			continue
+		}
+		if c.Scan == nil {
+			t.Errorf("%s connector has nil Scan", name)
+		}
+		if c.Fingerprint == nil {
+			t.Errorf("%s connector has nil Fingerprint", name)
+		}
+		src, err := AsSource(name, Config{})
+		if err != nil {
+			t.Errorf("AsSource(%q): %v", name, err)
+			continue
+		}
+		if _, ok := src.(sources.ResourceFingerprinter); !ok {
+			t.Errorf("%s source adapter does not implement ResourceFingerprinter", name)
+		}
+		if _, ok := src.(sources.IncrementalStateSource); !ok {
+			t.Errorf("%s source adapter does not implement IncrementalStateSource", name)
+		}
+	}
+}

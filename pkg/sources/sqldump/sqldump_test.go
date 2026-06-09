@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
@@ -395,6 +396,72 @@ func TestResourceFingerprint(t *testing.T) {
 	}
 	if fp1 != fp2 {
 		t.Error("fingerprint should be stable")
+	}
+}
+
+func TestIncrementalStateEmitsOnlyChangedDumpFiles(t *testing.T) {
+	dir := t.TempDir()
+	unchanged := writeDump(t, dir, "unchanged.sql", "INSERT INTO a VALUES ('old');\n")
+	changed := writeDump(t, dir, "changed.sql", "INSERT INTO b VALUES ('old');\n")
+	oldTime := time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(unchanged, oldTime, oldTime); err != nil {
+		t.Fatalf("chtimes unchanged: %v", err)
+	}
+	if err := os.Chtimes(changed, oldTime, oldTime); err != nil {
+		t.Fatalf("chtimes changed: %v", err)
+	}
+
+	cfg, _ := json.Marshal(Config{Paths: []string{unchanged, changed}, ChunkLineCount: 10})
+	first := &Source{}
+	if err := first.Init(context.Background(), "test", 0, 0, false, cfg, 1); err != nil {
+		t.Fatal(err)
+	}
+	ch := make(chan *sources.Chunk, 8)
+	if err := first.Chunks(context.Background(), ch); err != nil {
+		t.Fatalf("first scan: %v", err)
+	}
+	close(ch)
+	var firstCount int
+	for range ch {
+		firstCount++
+	}
+	if firstCount != 2 {
+		t.Fatalf("first scan chunks = %d, want 2", firstCount)
+	}
+	previous := first.IncrementalState()
+	if len(previous) == 0 {
+		t.Fatal("first scan did not produce incremental state")
+	}
+
+	newTime := oldTime.Add(time.Hour)
+	if err := os.WriteFile(changed, []byte("INSERT INTO b VALUES ('new');\n"), 0o600); err != nil {
+		t.Fatalf("rewrite changed: %v", err)
+	}
+	if err := os.Chtimes(changed, newTime, newTime); err != nil {
+		t.Fatalf("chtimes changed v2: %v", err)
+	}
+
+	second := &Source{}
+	if err := second.Init(context.Background(), "test", 0, 0, false, cfg, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.SetIncrementalState(previous); err != nil {
+		t.Fatalf("SetIncrementalState: %v", err)
+	}
+	ch = make(chan *sources.Chunk, 8)
+	if err := second.Chunks(context.Background(), ch); err != nil {
+		t.Fatalf("second scan: %v", err)
+	}
+	close(ch)
+	var got []string
+	for c := range ch {
+		got = append(got, string(c.Data))
+	}
+	if len(got) != 1 {
+		t.Fatalf("second scan chunks = %d, want 1", len(got))
+	}
+	if !strings.Contains(got[0], "'new'") {
+		t.Fatalf("second scan data = %q, want changed dump", got[0])
 	}
 }
 

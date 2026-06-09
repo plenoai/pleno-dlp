@@ -14,12 +14,16 @@ package connectors
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,9 +42,10 @@ const (
 
 func init() {
 	Register("bitbucket", Connector{
-		SourceType: sources.SourceBitbucket,
-		Scan:       scanBitbucket,
-		Verify:     verifyBitbucket,
+		SourceType:  sources.SourceBitbucket,
+		Scan:        scanBitbucket,
+		Verify:      verifyBitbucket,
+		Fingerprint: fingerprintBitbucket,
 	})
 }
 
@@ -92,17 +97,37 @@ func scanBitbucket(ctx context.Context, cfg Config, emit Emit) error {
 	if err != nil {
 		return err
 	}
+	previousState, err := loadBitbucketIncrementalState(cfg[configKeyIncrementalPreviousState])
+	if err != nil {
+		return err
+	}
+	nextState := &bitbucketIncrementalState{Version: 1, Repos: map[string]bitbucketRepoIncrementalState{}}
+	if previousState == nil {
+		previousState = &bitbucketIncrementalState{Version: 1, Repos: map[string]bitbucketRepoIncrementalState{}}
+	}
 	for _, r := range repos {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := scanBitbucketRepo(ctx, cli, r, maxBytes, concurrency, emit); err != nil {
+		repoKey := r.FullName
+		if repoKey == "" {
+			repoKey = r.workspaceSlug() + "/" + r.Name
+		}
+		prevRepo, hasPrevRepo := previousState.Repos[repoKey]
+		nextRepo, err := scanBitbucketRepoIncremental(ctx, cli, r, prevRepo, hasPrevRepo, maxBytes, concurrency, emit)
+		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
 			continue
 		}
+		nextState.Repos[repoKey] = nextRepo
 	}
+	data, err := json.Marshal(nextState)
+	if err != nil {
+		return fmt.Errorf("bitbucket: encode incremental source state: %w", err)
+	}
+	cfg[configKeyIncrementalNextState] = string(data)
 	return nil
 }
 
@@ -122,6 +147,63 @@ func verifyBitbucket(ctx context.Context, cfg Config, secret string) (bool, erro
 	default:
 		return false, fmt.Errorf("bitbucket: verify unexpected status %s", resp.Status)
 	}
+}
+
+func fingerprintBitbucket(ctx context.Context, cfg Config) (string, error) {
+	token := cfg["token"]
+	appPassword := cfg["app_password"]
+	username := cfg["username"]
+	if token == "" && appPassword == "" {
+		return "", errors.New("bitbucket: token or app_password is required")
+	}
+	workspace, repo := cfg["workspace"], cfg["repo"]
+	if workspace == "" && repo == "" {
+		return "", errors.New("bitbucket: workspace or repo must be set")
+	}
+	apiBase := cfg.Get("api_base", bitbucketDefaultAPIBase)
+	cli := newBitbucketClient(apiBase, username, appPassword, token)
+	repos, err := bitbucketListRepos(ctx, cli, workspace, repo)
+	if err != nil {
+		return "", err
+	}
+	sort.Slice(repos, func(i, j int) bool { return repos[i].FullName < repos[j].FullName })
+
+	h := sha256.New()
+	writeFingerprint(h, "bitbucket-v1")
+	writeFingerprint(h, apiBase)
+	writeFingerprint(h, workspace)
+	writeFingerprint(h, repo)
+	for _, r := range repos {
+		if err := fingerprintBitbucketRepo(ctx, h, cli, r); err != nil {
+			return "", err
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func fingerprintBitbucketRepo(ctx context.Context, h hash.Hash, cli *bitbucketClient, repo bitbucketRepoRef) error {
+	branch := repo.MainBranch.Name
+	if branch == "" {
+		return nil
+	}
+	ws := repo.workspaceSlug()
+	slug := repo.Name
+	writeFingerprint(h, ws+"/"+slug)
+	writeFingerprint(h, branch)
+	entries, err := bitbucketListSrcEntries(ctx, cli, ws, slug, branch)
+	if err != nil {
+		return err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	for _, entry := range entries {
+		if entry.Type != "commit_file" {
+			continue
+		}
+		writeFingerprint(h, entry.Path)
+		writeFingerprint(h, entry.Commit.Hash)
+		writeFingerprint(h, strconv.FormatInt(entry.Size, 10))
+	}
+	return nil
 }
 
 // --- internal types ---
@@ -149,9 +231,12 @@ func (r *bitbucketRepoRef) workspaceSlug() string {
 }
 
 type bitbucketSrcEntry struct {
-	Path string `json:"path"`
-	Type string `json:"type"`
-	Size int64  `json:"size"`
+	Path   string `json:"path"`
+	Type   string `json:"type"`
+	Size   int64  `json:"size"`
+	Commit struct {
+		Hash string `json:"hash"`
+	} `json:"commit"`
 }
 
 type bitbucketPaginatedSrc struct {
@@ -162,6 +247,35 @@ type bitbucketPaginatedSrc struct {
 type bitbucketPaginatedRepos struct {
 	Values []bitbucketRepoRef `json:"values"`
 	Next   string             `json:"next,omitempty"`
+}
+
+type bitbucketIncrementalState struct {
+	Version int                                      `json:"version"`
+	Repos   map[string]bitbucketRepoIncrementalState `json:"repos"`
+}
+
+type bitbucketRepoIncrementalState struct {
+	Branch string                                   `json:"branch,omitempty"`
+	Files  map[string]bitbucketFileIncrementalState `json:"files,omitempty"`
+}
+
+type bitbucketFileIncrementalState struct {
+	Hash string `json:"hash,omitempty"`
+	Size int64  `json:"size,omitempty"`
+}
+
+func loadBitbucketIncrementalState(raw string) (*bitbucketIncrementalState, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var state bitbucketIncrementalState
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		return nil, fmt.Errorf("bitbucket: parse incremental source state: %w", err)
+	}
+	if state.Repos == nil {
+		state.Repos = map[string]bitbucketRepoIncrementalState{}
+	}
+	return &state, nil
 }
 
 func bitbucketListRepos(ctx context.Context, cli *bitbucketClient, workspace, repo string) ([]bitbucketRepoRef, error) {
@@ -197,50 +311,69 @@ func bitbucketListRepos(ctx context.Context, cli *bitbucketClient, workspace, re
 	return repos, nil
 }
 
-func scanBitbucketRepo(ctx context.Context, cli *bitbucketClient, repo bitbucketRepoRef, maxBytes int64, concurrency int, emit Emit) error {
+func scanBitbucketRepoIncremental(ctx context.Context, cli *bitbucketClient, repo bitbucketRepoRef, prev bitbucketRepoIncrementalState, hasPrev bool, maxBytes int64, concurrency int, emit Emit) (bitbucketRepoIncrementalState, error) {
 	branch := repo.MainBranch.Name
+	nextRepo := bitbucketRepoIncrementalState{Branch: branch, Files: map[string]bitbucketFileIncrementalState{}}
 	if branch == "" {
-		return nil
+		return nextRepo, nil
 	}
 	ws := repo.workspaceSlug()
 	slug := repo.Name
+	entries, err := bitbucketListSrcEntries(ctx, cli, ws, slug, branch)
+	if err != nil {
+		return bitbucketRepoIncrementalState{}, err
+	}
 
 	g, gctx := errgroup.WithContext(ctx)
 	sem := make(chan struct{}, concurrency)
+	for _, entry := range entries {
+		entry := entry
+		if entry.Type != "commit_file" {
+			continue
+		}
+		if entry.Size > maxBytes {
+			continue
+		}
+		state := bitbucketStateForFile(entry)
+		nextRepo.Files[entry.Path] = state
+		if hasPrev && prev.Files != nil && prev.Files[entry.Path] == state {
+			continue
+		}
+		select {
+		case sem <- struct{}{}:
+		case <-gctx.Done():
+			return bitbucketRepoIncrementalState{}, gctx.Err()
+		}
+		g.Go(func() error {
+			defer func() { <-sem }()
+			return emitBitbucketFile(gctx, cli, ws, slug, branch, entry, maxBytes, emit)
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return bitbucketRepoIncrementalState{}, err
+	}
+	return nextRepo, nil
+}
 
+func bitbucketStateForFile(entry bitbucketSrcEntry) bitbucketFileIncrementalState {
+	return bitbucketFileIncrementalState{Hash: entry.Commit.Hash, Size: entry.Size}
+}
+
+func bitbucketListSrcEntries(ctx context.Context, cli *bitbucketClient, ws, slug, branch string) ([]bitbucketSrcEntry, error) {
+	var entries []bitbucketSrcEntry
 	next := fmt.Sprintf("/2.0/repositories/%s/%s/src/%s/?pagelen=100", ws, slug, branch)
 	for next != "" {
-		if err := gctx.Err(); err != nil {
-			return err
-		}
 		var page bitbucketPaginatedSrc
-		if _, err := cli.getJSON(gctx, next, &page); err != nil {
+		if _, err := cli.getJSON(ctx, next, &page); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return err
+				return nil, err
 			}
-			return fmt.Errorf("bitbucket: src listing %s/%s@%s: %w", ws, slug, branch, err)
+			return nil, fmt.Errorf("bitbucket: src listing %s/%s@%s: %w", ws, slug, branch, err)
 		}
-		for _, entry := range page.Values {
-			entry := entry
-			if entry.Type != "commit_file" {
-				continue
-			}
-			if entry.Size > maxBytes {
-				continue
-			}
-			select {
-			case sem <- struct{}{}:
-			case <-gctx.Done():
-				return gctx.Err()
-			}
-			g.Go(func() error {
-				defer func() { <-sem }()
-				return emitBitbucketFile(gctx, cli, ws, slug, branch, entry, maxBytes, emit)
-			})
-		}
+		entries = append(entries, page.Values...)
 		next = page.Next
 	}
-	return g.Wait()
+	return entries, nil
 }
 
 func emitBitbucketFile(ctx context.Context, cli *bitbucketClient, workspace, slug, branch string, entry bitbucketSrcEntry, maxBytes int64, emit Emit) error {

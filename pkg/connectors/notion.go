@@ -17,9 +17,12 @@ package connectors
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"strconv"
@@ -39,9 +42,10 @@ const (
 
 func init() {
 	Register("notion", Connector{
-		SourceType: sources.SourceNotion,
-		Scan:       scanNotion,
-		Verify:     verifyNotion,
+		SourceType:  sources.SourceNotion,
+		Scan:        scanNotion,
+		Verify:      verifyNotion,
+		Fingerprint: fingerprintNotion,
 	})
 }
 
@@ -58,6 +62,15 @@ func scanNotion(ctx context.Context, cfg Config, emit Emit) error {
 	query := cfg["query"]
 
 	cli := newNotionClient(apiBase, token)
+	previousState, err := loadNotionIncrementalState(cfg[configKeyIncrementalPreviousState])
+	if err != nil {
+		return err
+	}
+	nextState := &notionIncrementalState{Version: 1, Objects: map[string]notionObjectIncrementalState{}}
+	if previousState == nil {
+		previousState = &notionIncrementalState{Version: 1, Objects: map[string]notionObjectIncrementalState{}}
+	}
+	scanState := notionScanState{previous: previousState, next: nextState}
 	nextCursor := ""
 	for {
 		if err := ctx.Err(); err != nil {
@@ -88,14 +101,14 @@ func scanNotion(ctx context.Context, cfg Config, emit Emit) error {
 			}
 			switch item.Object {
 			case "page":
-				if err := emitNotionPage(ctx, cli, item, emit); err != nil {
+				if err := emitNotionPage(ctx, cli, item, &scanState, emit); err != nil {
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return err
 					}
 					continue
 				}
 			case "database":
-				if err := emitNotionDatabaseRows(ctx, cli, item, emit); err != nil {
+				if err := emitNotionDatabaseRows(ctx, cli, item, &scanState, emit); err != nil {
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return err
 					}
@@ -109,6 +122,11 @@ func scanNotion(ctx context.Context, cfg Config, emit Emit) error {
 		}
 		nextCursor = sr.Next
 	}
+	data, err := json.Marshal(nextState)
+	if err != nil {
+		return fmt.Errorf("notion: encode incremental source state: %w", err)
+	}
+	cfg[configKeyIncrementalNextState] = string(data)
 	return nil
 }
 
@@ -128,6 +146,53 @@ func verifyNotion(ctx context.Context, cfg Config, secret string) (bool, error) 
 	default:
 		return false, fmt.Errorf("notion: verify unexpected status %s", resp.Status)
 	}
+}
+
+func fingerprintNotion(ctx context.Context, cfg Config) (string, error) {
+	token := cfg["token"]
+	if token == "" {
+		return "", errors.New("notion: token is required (set --token or NOTION_TOKEN)")
+	}
+	apiBase := cfg.Get("api_base", notionDefaultAPIBase)
+	cli := newNotionClient(apiBase, token)
+	h := sha256.New()
+	writeFingerprint(h, "notion-v1")
+	writeFingerprint(h, apiBase)
+	writeFingerprint(h, cfg["query"])
+	if err := forEachNotionSearchItem(ctx, cli, cfg["query"], func(item notionSearchItem) error {
+		switch item.Object {
+		case "page":
+			return fingerprintNotionPage(ctx, h, cli, item)
+		case "database":
+			return fingerprintNotionDatabaseRows(ctx, h, cli, item)
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func fingerprintNotionPage(ctx context.Context, h hash.Hash, cli *notionClient, item notionSearchItem) error {
+	blocks, err := notionFetchAllBlocks(ctx, cli, item.ID)
+	if err != nil {
+		return err
+	}
+	writeFingerprint(h, notionObjectKey("page", item.ID))
+	writeFingerprint(h, string(notionMarshalRawArray(blocks)))
+	return nil
+}
+
+func fingerprintNotionDatabaseRows(ctx context.Context, h hash.Hash, cli *notionClient, item notionSearchItem) error {
+	return forEachNotionDatabaseRow(ctx, cli, item.ID, func(row json.RawMessage) error {
+		var pageObj struct {
+			ID string `json:"id"`
+		}
+		_ = json.Unmarshal(row, &pageObj)
+		writeFingerprint(h, notionObjectKey("database_row", item.ID+":"+pageObj.ID))
+		writeFingerprint(h, string(row))
+		return nil
+	})
 }
 
 // --- internal types ---
@@ -158,7 +223,35 @@ type notionDBQueryResult struct {
 	HasMore bool              `json:"has_more"`
 }
 
-func emitNotionPage(ctx context.Context, cli *notionClient, item notionSearchItem, emit Emit) error {
+type notionIncrementalState struct {
+	Version int                                     `json:"version"`
+	Objects map[string]notionObjectIncrementalState `json:"objects"`
+}
+
+type notionObjectIncrementalState struct {
+	Hash string `json:"hash,omitempty"`
+}
+
+type notionScanState struct {
+	previous *notionIncrementalState
+	next     *notionIncrementalState
+}
+
+func loadNotionIncrementalState(raw string) (*notionIncrementalState, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var state notionIncrementalState
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		return nil, fmt.Errorf("notion: parse incremental source state: %w", err)
+	}
+	if state.Objects == nil {
+		state.Objects = map[string]notionObjectIncrementalState{}
+	}
+	return &state, nil
+}
+
+func emitNotionPage(ctx context.Context, cli *notionClient, item notionSearchItem, state *notionScanState, emit Emit) error {
 	var pageFull struct {
 		Properties map[string]json.RawMessage `json:"properties"`
 	}
@@ -171,6 +264,14 @@ func emitNotionPage(ctx context.Context, cli *notionClient, item notionSearchIte
 	if err != nil {
 		return err
 	}
+	key := notionObjectKey("page", item.ID)
+	current := notionStateForRaw(notionMarshalRawArray(blocks))
+	if state != nil && state.next != nil {
+		state.next.Objects[key] = current
+	}
+	if state != nil && state.previous != nil && state.previous.Objects[key] == current {
+		return nil
+	}
 	text := "# " + title + "\n\n" + markdown.ConvertBlocks(blocks)
 	return emit([]byte(text), sources.Metadata{
 		Notion: &sources.NotionMeta{
@@ -182,8 +283,74 @@ func emitNotionPage(ctx context.Context, cli *notionClient, item notionSearchIte
 	})
 }
 
-func emitNotionDatabaseRows(ctx context.Context, cli *notionClient, item notionSearchItem, emit Emit) error {
-	path := fmt.Sprintf("/databases/%s/query", item.ID)
+func emitNotionDatabaseRows(ctx context.Context, cli *notionClient, item notionSearchItem, state *notionScanState, emit Emit) error {
+	return forEachNotionDatabaseRow(ctx, cli, item.ID, func(row json.RawMessage) error {
+		var pageObj struct {
+			ID  string `json:"id"`
+			URL string `json:"url"`
+		}
+		_ = json.Unmarshal(row, &pageObj)
+		key := notionObjectKey("database_row", item.ID+":"+pageObj.ID)
+		current := notionStateForRaw(row)
+		if state != nil && state.next != nil {
+			state.next.Objects[key] = current
+		}
+		if state != nil && state.previous != nil && state.previous.Objects[key] == current {
+			return nil
+		}
+		text := notionExtractRowText(row)
+		if err := emit([]byte(text), sources.Metadata{
+			Notion: &sources.NotionMeta{
+				PageID:   pageObj.ID,
+				Database: item.ID,
+				URL:      pageObj.URL,
+				Part:     "database_row:" + pageObj.ID,
+			},
+		}); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func forEachNotionSearchItem(ctx context.Context, cli *notionClient, query string, visit func(notionSearchItem) error) error {
+	nextCursor := ""
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		body := map[string]any{"page_size": 100}
+		if query != "" {
+			body["query"] = query
+		}
+		if nextCursor != "" {
+			body["start_cursor"] = nextCursor
+		}
+		bodyJSON, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("notion: marshal search body: %w", err)
+		}
+		var sr notionSearchResult
+		if err := cli.postJSON(ctx, "/search", bodyJSON, &sr); err != nil {
+			return fmt.Errorf("notion: search: %w", err)
+		}
+		for _, item := range sr.Results {
+			if err := visit(item); err != nil {
+				return err
+			}
+		}
+		if !sr.HasMore || sr.Next == "" {
+			break
+		}
+		nextCursor = sr.Next
+	}
+	return nil
+}
+
+func forEachNotionDatabaseRow(ctx context.Context, cli *notionClient, databaseID string, visit func(json.RawMessage) error) error {
+	path := fmt.Sprintf("/databases/%s/query", databaseID)
 	nextCursor := ""
 	for {
 		if err := ctx.Err(); err != nil {
@@ -196,28 +363,12 @@ func emitNotionDatabaseRows(ctx context.Context, cli *notionClient, item notionS
 		bodyJSON, _ := json.Marshal(body)
 		var qr notionDBQueryResult
 		if err := cli.postJSON(ctx, path, bodyJSON, &qr); err != nil {
-			return fmt.Errorf("notion: query database %s: %w", item.ID, err)
+			return fmt.Errorf("notion: query database %s: %w", databaseID, err)
 		}
 
 		for _, row := range qr.Results {
-			var pageObj struct {
-				ID  string `json:"id"`
-				URL string `json:"url"`
-			}
-			_ = json.Unmarshal(row, &pageObj)
-			text := notionExtractRowText(row)
-			if err := emit([]byte(text), sources.Metadata{
-				Notion: &sources.NotionMeta{
-					PageID:   pageObj.ID,
-					Database: item.ID,
-					URL:      pageObj.URL,
-					Part:     "database_row:" + pageObj.ID,
-				},
-			}); err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return err
-				}
-				continue
+			if err := visit(row); err != nil {
+				return err
 			}
 		}
 
@@ -227,6 +378,23 @@ func emitNotionDatabaseRows(ctx context.Context, cli *notionClient, item notionS
 		nextCursor = qr.Next
 	}
 	return nil
+}
+
+func notionObjectKey(kind, id string) string {
+	return kind + ":" + id
+}
+
+func notionStateForRaw(raw json.RawMessage) notionObjectIncrementalState {
+	sum := sha256.Sum256(raw)
+	return notionObjectIncrementalState{Hash: hex.EncodeToString(sum[:])}
+}
+
+func notionMarshalRawArray(values []json.RawMessage) json.RawMessage {
+	data, err := json.Marshal(values)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 func notionFetchAllBlocks(ctx context.Context, cli *notionClient, parentID string) ([]json.RawMessage, error) {

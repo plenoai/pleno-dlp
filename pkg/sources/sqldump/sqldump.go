@@ -47,6 +47,20 @@ type Source struct {
 	verify      bool
 	concurrency int
 	cfg         Config
+
+	hasPreviousState bool
+	previousState    *incrementalState
+	nextState        *incrementalState
+}
+
+type incrementalState struct {
+	Version int                             `json:"version"`
+	Files   map[string]fileIncrementalState `json:"files"`
+}
+
+type fileIncrementalState struct {
+	Size    int64 `json:"size"`
+	ModTime int64 `json:"mod_time"`
 }
 
 func (s *Source) Type() sources.SourceType { return sources.SourceSQLDump }
@@ -101,9 +115,17 @@ func (s *Source) Init(_ context.Context, name string, jobID, sourceID int64, ver
 func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	g, gctx := errgroup.WithContext(ctx)
 	sem := make(chan struct{}, s.concurrency)
+	s.nextState = &incrementalState{Version: 1, Files: map[string]fileIncrementalState{}}
 
 	for _, path := range s.cfg.Paths {
 		path := path
+		abs, state, ok := s.fileState(path)
+		if ok {
+			s.nextState.Files[abs] = state
+			if s.fileUnchanged(abs, state) {
+				continue
+			}
+		}
 		sem <- struct{}{}
 		g.Go(func() error {
 			defer func() { <-sem }()
@@ -111,6 +133,44 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 		})
 	}
 	return g.Wait()
+}
+
+func (s *Source) SetIncrementalState(previous json.RawMessage) error {
+	s.hasPreviousState = false
+	s.previousState = nil
+	s.nextState = nil
+	if len(previous) == 0 || string(previous) == "null" {
+		return nil
+	}
+	var state incrementalState
+	if err := json.Unmarshal(previous, &state); err != nil {
+		return err
+	}
+	if state.Files == nil {
+		state.Files = map[string]fileIncrementalState{}
+	}
+	s.hasPreviousState = true
+	s.previousState = &state
+	return nil
+}
+
+func (s *Source) IncrementalState() json.RawMessage {
+	if s.nextState == nil {
+		return nil
+	}
+	data, err := json.Marshal(s.nextState)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+func (s *Source) fileUnchanged(path string, current fileIncrementalState) bool {
+	if !s.hasPreviousState || s.previousState == nil {
+		return false
+	}
+	prev, ok := s.previousState.Files[path]
+	return ok && prev == current
 }
 
 func (s *Source) ResourceFingerprint(_ context.Context) (string, error) {
@@ -480,3 +540,19 @@ func writeHash(h hash.Hash, s string) {
 
 var _ sources.Source = (*Source)(nil)
 var _ sources.ResourceFingerprinter = (*Source)(nil)
+var _ sources.IncrementalStateSource = (*Source)(nil)
+
+func (s *Source) fileState(path string) (string, fileIncrementalState, bool) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() || info.Size() > s.cfg.MaxSizeBytes {
+		return abs, fileIncrementalState{}, false
+	}
+	return abs, fileIncrementalState{
+		Size:    info.Size(),
+		ModTime: info.ModTime().UnixNano(),
+	}, true
+}

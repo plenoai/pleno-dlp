@@ -43,6 +43,21 @@ type Source struct {
 	concurrency int
 	cfg         Config
 	excludes    []string
+
+	hasPreviousState bool
+	previousState    *incrementalState
+	nextState        *incrementalState
+}
+
+type incrementalState struct {
+	Version int                             `json:"version"`
+	Files   map[string]fileIncrementalState `json:"files"`
+}
+
+type fileIncrementalState struct {
+	Size    int64  `json:"size"`
+	Mode    uint32 `json:"mode"`
+	ModTime int64  `json:"mod_time"`
 }
 
 // commonExcludes are skipped unless DisableDefaultExcludes is set.
@@ -119,6 +134,7 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, v
 func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	g, gctx := errgroup.WithContext(ctx)
 	sem := make(chan struct{}, s.concurrency)
+	s.nextState = &incrementalState{Version: 1, Files: map[string]fileIncrementalState{}}
 
 	for _, root := range s.cfg.Paths {
 		root := root
@@ -173,6 +189,11 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 			if err != nil {
 				absPath = path
 			}
+			fileState := stateForFile(info)
+			s.nextState.Files[absPath] = fileState
+			if s.fileUnchanged(absPath, fileState) {
+				return nil
+			}
 
 			sem <- struct{}{}
 			g.Go(func() error {
@@ -190,6 +211,44 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 		}
 	}
 	return g.Wait()
+}
+
+func (s *Source) SetIncrementalState(previous json.RawMessage) error {
+	s.hasPreviousState = false
+	s.previousState = nil
+	s.nextState = nil
+	if len(previous) == 0 || string(previous) == "null" {
+		return nil
+	}
+	var state incrementalState
+	if err := json.Unmarshal(previous, &state); err != nil {
+		return err
+	}
+	if state.Files == nil {
+		state.Files = map[string]fileIncrementalState{}
+	}
+	s.hasPreviousState = true
+	s.previousState = &state
+	return nil
+}
+
+func (s *Source) IncrementalState() json.RawMessage {
+	if s.nextState == nil {
+		return nil
+	}
+	data, err := json.Marshal(s.nextState)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+func (s *Source) fileUnchanged(path string, current fileIncrementalState) bool {
+	if !s.hasPreviousState || s.previousState == nil {
+		return false
+	}
+	prev, ok := s.previousState.Files[path]
+	return ok && prev == current
 }
 
 // ResourceFingerprint hashes the resource set without rereading file bytes.
@@ -353,6 +412,15 @@ func isBinary(b []byte) bool {
 // compile-time interface check
 var _ sources.Source = (*Source)(nil)
 var _ sources.ResourceFingerprinter = (*Source)(nil)
+var _ sources.IncrementalStateSource = (*Source)(nil)
+
+func stateForFile(info fs.FileInfo) fileIncrementalState {
+	return fileIncrementalState{
+		Size:    info.Size(),
+		Mode:    uint32(info.Mode().Perm()),
+		ModTime: info.ModTime().UnixNano(),
+	}
+}
 
 func writeHash(h hash.Hash, s string) {
 	_, _ = h.Write([]byte(s))

@@ -12,6 +12,7 @@ package connectors
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,9 +33,10 @@ const (
 
 func init() {
 	Register("splunk", Connector{
-		SourceType: sources.SourceSplunk,
-		Scan:       scanSplunk,
-		Verify:     verifySplunk,
+		SourceType:  sources.SourceSplunk,
+		Scan:        scanSplunk,
+		Verify:      verifySplunk,
+		Fingerprint: fingerprintSplunk,
 	})
 }
 
@@ -46,6 +48,21 @@ func init() {
 //   - earliest    earliest time (default "-24h")
 //   - latest      latest time (default "now")
 func scanSplunk(ctx context.Context, cfg Config, emit Emit) error {
+	previousState, err := loadSIEMIncrementalState(cfg[configKeyIncrementalPreviousState], "splunk")
+	if err != nil {
+		return err
+	}
+	nextState := &siemIncrementalState{Version: 1, Events: map[string]siemEventIncrementalState{}}
+	if previousState == nil {
+		previousState = &siemIncrementalState{Version: 1, Events: map[string]siemEventIncrementalState{}}
+	}
+	state := &siemScanState{previous: previousState, next: nextState}
+	defer func() {
+		if data, err := json.Marshal(nextState); err == nil {
+			cfg[configKeyIncrementalNextState] = string(data)
+		}
+	}()
+
 	token := cfg["token"]
 	if token == "" {
 		return errors.New("splunk: token is required (set --token or SPLUNK_TOKEN)")
@@ -101,7 +118,7 @@ func scanSplunk(ctx context.Context, cfg Config, emit Emit) error {
 					Link:      fmt.Sprintf("%s/app/search/search?q=%s&sid=%s", host, url.QueryEscape(query), sid),
 				},
 			}
-			if err := emit([]byte(raw), meta); err != nil {
+			if err := emitSIEMIncremental(splunkEventKey(r), []byte(raw), r.Time, state, meta, emit); err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return err
 				}
@@ -114,6 +131,67 @@ func scanSplunk(ctx context.Context, cfg Config, emit Emit) error {
 		}
 	}
 	return nil
+}
+
+func fingerprintSplunk(ctx context.Context, cfg Config) (string, error) {
+	token := cfg["token"]
+	if token == "" {
+		return "", errors.New("splunk: token is required (set --token or SPLUNK_TOKEN)")
+	}
+	host := cfg["host"]
+	if host == "" {
+		return "", errors.New("splunk: host is required (set --host)")
+	}
+	host = strings.TrimRight(host, "/")
+	query := cfg.Get("query", "search index=* | head 1000")
+	earliest := cfg.Get("earliest", "-24h")
+	latest := cfg.Get("latest", "now")
+	cli := &splunkClient{
+		host:  host,
+		token: token,
+		http:  &http.Client{Timeout: splunkRequestTimeout},
+	}
+	sid, err := cli.createJob(ctx, query, earliest, latest)
+	if err != nil {
+		return "", fmt.Errorf("splunk: create search job: %w", err)
+	}
+	if err := cli.waitForJob(ctx, sid); err != nil {
+		return "", fmt.Errorf("splunk: wait for search job %s: %w", sid, err)
+	}
+	h := sha256.New()
+	writeFingerprint(h, "splunk-v1")
+	writeFingerprint(h, host)
+	writeFingerprint(h, query)
+	writeFingerprint(h, earliest)
+	writeFingerprint(h, latest)
+	offset := 0
+	for {
+		results, err := cli.getResults(ctx, sid, offset, splunkPageCount)
+		if err != nil {
+			return "", err
+		}
+		if len(results) == 0 {
+			break
+		}
+		for _, r := range results {
+			if r.Raw == "" {
+				continue
+			}
+			writeSIEMFingerprintEvent(h, splunkEventKey(r), []byte(r.Raw), r.Time)
+		}
+		offset += len(results)
+		if len(results) < splunkPageCount {
+			break
+		}
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+func splunkEventKey(r splunkResult) string {
+	if r.CD != "" {
+		return r.CD
+	}
+	return siemContentKey("splunk", []byte(r.Time+"\x00"+r.Raw))
 }
 
 func verifySplunk(ctx context.Context, cfg Config, secret string) (bool, error) {

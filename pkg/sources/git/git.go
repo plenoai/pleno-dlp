@@ -53,6 +53,15 @@ type Source struct {
 	since    time.Time
 	include  []string
 	exclude  []string
+
+	hasPreviousState bool
+	previousState    *incrementalState
+	nextState        *incrementalState
+}
+
+type incrementalState struct {
+	Version int    `json:"version"`
+	Head    string `json:"head"`
 }
 
 func (s *Source) Type() sources.SourceType { return sources.SourceGit }
@@ -111,8 +120,10 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	if err != nil {
 		return err
 	}
+	s.nextState = &incrementalState{Version: 1, Head: startHash.String()}
 
-	commits, err := s.collectCommits(repo, startHash)
+	stopHash, hasStop := s.previousHead()
+	commits, err := s.collectCommits(repo, startHash, stopHash, hasStop)
 	if err != nil {
 		return err
 	}
@@ -126,6 +137,33 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 		}
 	}
 	return nil
+}
+
+func (s *Source) SetIncrementalState(previous json.RawMessage) error {
+	s.hasPreviousState = false
+	s.previousState = nil
+	s.nextState = nil
+	if len(previous) == 0 || string(previous) == "null" {
+		return nil
+	}
+	var state incrementalState
+	if err := json.Unmarshal(previous, &state); err != nil {
+		return err
+	}
+	s.hasPreviousState = true
+	s.previousState = &state
+	return nil
+}
+
+func (s *Source) IncrementalState() json.RawMessage {
+	if s.nextState == nil {
+		return nil
+	}
+	data, err := json.Marshal(s.nextState)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 // ResourceFingerprint identifies the scanned git resource set.
@@ -165,7 +203,7 @@ func (s *Source) resolveStart(repo *git.Repository) (plumbing.Hash, error) {
 }
 
 // collectCommits returns commits in oldest-first order.
-func (s *Source) collectCommits(repo *git.Repository, start plumbing.Hash) ([]*object.Commit, error) {
+func (s *Source) collectCommits(repo *git.Repository, start, stop plumbing.Hash, hasStop bool) ([]*object.Commit, error) {
 	iter, err := repo.Log(&git.LogOptions{From: start})
 	if err != nil {
 		return nil, fmt.Errorf("git: log: %w", err)
@@ -174,6 +212,9 @@ func (s *Source) collectCommits(repo *git.Repository, start plumbing.Hash) ([]*o
 
 	var commits []*object.Commit
 	err = iter.ForEach(func(c *object.Commit) error {
+		if hasStop && c.Hash == stop {
+			return errStorerStop
+		}
 		if !s.since.IsZero() && c.Committer.When.Before(s.since) {
 			return nil
 		}
@@ -362,6 +403,18 @@ func isBinary(b []byte) bool {
 // compile-time interface check
 var _ sources.Source = (*Source)(nil)
 var _ sources.ResourceFingerprinter = (*Source)(nil)
+var _ sources.IncrementalStateSource = (*Source)(nil)
+
+func (s *Source) previousHead() (plumbing.Hash, bool) {
+	if !s.hasPreviousState || s.previousState == nil || s.previousState.Head == "" {
+		return plumbing.ZeroHash, false
+	}
+	hash := plumbing.NewHash(s.previousState.Head)
+	if hash == plumbing.ZeroHash {
+		return plumbing.ZeroHash, false
+	}
+	return hash, true
+}
 
 func writeHash(h hash.Hash, s string) {
 	_, _ = h.Write([]byte(s))
