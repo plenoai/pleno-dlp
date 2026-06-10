@@ -49,25 +49,25 @@ publishing, archives, SLSA provenance, and SBOM generation.
 - Made verification the default scan behavior.
 - Added incremental scanning for changed source objects.
 
-## [0.50.0] - 2026-06-09
+## [0.50.0] - 2026-06-08
 
 ### Added
 
 - Added incremental scanning for changed S3 objects.
 
-## [0.49.0] - 2026-06-09
+## [0.49.0] - 2026-06-08
 
 ### Added
 
 - Added incremental scanning for changed GitHub resources.
 
-## [0.48.0] - 2026-06-09
+## [0.48.0] - 2026-06-08
 
 ### Fixed
 
 - Emitted GitHub source links in JSON output.
 
-## [0.47.0] - 2026-06-09
+## [0.47.0] - 2026-06-08
 
 ### Added
 
