@@ -2,17 +2,20 @@
 
 Measured functional-gap comparison. Every number in this document was
 produced by running the three tools side by side on 2026-06-10 — none
-is quoted from vendor documentation. Performance (wall-clock) numbers
-live separately in [`benchmarks.md`](benchmarks.md); this document
-covers what each tool *finds* and what each tool *can do*.
+is quoted from vendor documentation. Coverage spans a controlled
+synthetic recall corpus (§2), real-world labeled corpora and
+popular-OSS noise sweeps (§3–§6), and capability probes (§7–§8).
+Performance (wall-clock) numbers live separately in
+[`benchmarks.md`](benchmarks.md); this document covers what each tool
+*finds* and what each tool *can do*.
 
 ## Versions and environment
 
 | Component | Value |
 |-----------|-------|
-| pleno-dlp  | `dev` build of `main` (post-`00c339b`, including the PII-engine wheel fix shipped with this document) |
-| trufflehog | 3.95.5 (Homebrew; binary self-reported version) |
-| gitleaks   | 8.30.1 |
+| pleno-dlp  | v0.53.0 (released binary; every number in this document reproduced against it) |
+| trufflehog | 3.95.5 (Homebrew; upstream latest as of 2026-06-10) |
+| gitleaks   | 8.30.1 (upstream latest as of 2026-06-10) |
 | Hardware/OS | Apple M3, 24 GiB, macOS 26.3 — same host as `benchmarks.md` |
 
 Canonical invocations (verification disabled where the tool supports
@@ -50,7 +53,7 @@ Detector count alone says little — trufflehog has the largest set yet
 the lowest recall on the corpus below. Breadth, recall, and noise have
 to be read together.
 
-## 2. Detection recall — 50-type labeled corpus
+## 2. Detection recall — 50-type synthetic corpus
 
 Corpus: 50 files, one per credential type, each containing exactly one
 synthetic but **format-valid** credential (correct prefix, length,
@@ -63,6 +66,11 @@ off; all three tools saw byte-identical input.
 | | pleno-dlp | gitleaks | trufflehog |
 |---|---:|---:|---:|
 | **Detected (of 50)** | **46 (92%)** | **45 (90%)** | **34 (68%)** |
+
+These are best-case numbers: well-formed tokens with cooperative
+keyword context. Section 3 measures the same tools on real-world
+placements, where every tool's recall drops sharply — read the two
+together.
 
 Misses per tool:
 
@@ -158,7 +166,147 @@ and 4 gitleaks "misses" did not (fixture artifacts, corrected).
 
 </details>
 
-## 3. False positives — clean real-world corpus
+## 3. Real-world recall — labeled corpora
+
+Three public corpora with realistically-placed (not synthetic)
+credentials, scanned in dir mode (`.git` removed for trufflehog
+fairness).
+
+### leaky-repo (Plazmaz/leaky-repo @ `2e95135`)
+
+The community-standard scanner benchmark: 44 ground-truth files
+(README secrets table, cross-checked against `.leaky-meta/secrets.csv`
+and the tree) holding credentials in their natural homes — dotfiles,
+`wp-config.php`, `.pgpass`, FTP-client XML, IDE configs.
+
+| | pleno-dlp | gitleaks | trufflehog | union of all 3 |
+|---|---:|---:|---:|---:|
+| Ground-truth files hit (of 44) | **13 (30%)** | **13 (30%)** | 8 (18%) | 19 (43%) |
+
+The headline is the last column: **25 of 44 real-world secret files are
+missed by every tool tested** — `.pgpass`, `.netrc`, `.git-credentials`,
+`wp-config.php`, Django `SECRET_KEY`, Rails `master.key`, FileZilla/
+SFTP-client configs, `/etc/shadow`. Structured config-file passwords
+and low-entropy secrets are an industry-wide blind spot, not a
+two-tool race. The three tools are also complementary: pleno-dlp hits
+3 files nobody else does (Laravel `.env`, `db/dump.sql`, Firefox
+`logins.json`), gitleaks 4 (`.tugboat`, `heroku.json`, `hub`,
+`secrets.yml`), trufflehog 1 (PuTTY `.ppk`).
+
+Every miss was double-checked by single-file re-scan with a working
+positive control, so these are detection misses, not directory-walker
+skips.
+
+<details>
+<summary>Per-file matrix (44 ground-truth files)</summary>
+
+| File | Secret kind | pleno | TH | GL |
+|------|-------------|:--:|:--:|:--:|
+| `.npmrc` | NPM registry auth token | — | ✓ | ✓ |
+| `.docker/.dockercfg` | Docker registry auth (base64) | ✓ | — | ✓ |
+| `misc-keys/cert-key.pem` | PEM private key | ✓ | ✓ | ✓ |
+| `misc-keys/putty-example.ppk` | PuTTY private key | — | ✓ | — |
+| `.ssh/id_rsa` | SSH private key | ✓ | ✓ | ✓ |
+| `.ssh/id_rsa.pub` | SSH public key (informative-only, 0 risk) | — | — | — |
+| `db/dump.sql` | MySQL dump with bcrypt hashes | ✓ | — | — |
+| `cloud/.credentials` | AWS/S3 credentials file | ✓ | — | ✓ |
+| `cloud/.s3cfg` | s3cmd S3 credentials | ✓ | — | ✓ |
+| `cloud/.tugboat` | DigitalOcean tugboat API key | — | — | ✓ |
+| `cloud/heroku.json` | Heroku API key | — | — | ✓ |
+| `web/var/www/public_html/wp-config.php` | WordPress DB password + auth keys/salts | — | — | — |
+| `web/var/www/public_html/.htpasswd` | htpasswd password hash | — | — | — |
+| `web/var/www/public_html/config.php` | PHP app config DB password | — | — | — |
+| `web/var/www/.env` | Laravel .env APP_KEY + passwords | ✓ | — | — |
+| `.git-credentials` | git credential store (URL-embedded password) | — | — | — |
+| `.bashrc` | env-var secrets (Mailchimp key etc.) | ✓ | ✓ | ✓ |
+| `.bash_profile` | env-var secrets (GitHub token, Slack token etc.) | ✓ | ✓ | ✓ |
+| `db/robomongo.json` | Mongolab/robomongo MongoDB + SSH creds | — | — | — |
+| `db/mongoid.yml` | MongoDB connection URI credentials | ✓ | ✓ | — |
+| `web/js/salesforce.js` | Salesforce credentials in Node.js code | — | — | — |
+| `.netrc` | netrc SMTP credentials | — | — | — |
+| `hub` | GitHub OAuth token (hub config) | — | — | ✓ |
+| `filezilla/filezilla.xml` | FileZilla FTP password (base64) | — | — | — |
+| `filezilla/recentservers.xml` | FileZilla recent-server FTP passwords | — | — | — |
+| `.docker/config.json` | Docker registry auth (base64) | ✓ | — | ✓ |
+| `config` | IRC NickServ password | — | — | — |
+| `db/.pgpass` | PostgreSQL .pgpass password | — | — | — |
+| `proftpdpasswd` | proftpd/cpanel crypt password hash | — | — | — |
+| `ventrilo_srv.ini` | Ventrilo server passwords | — | — | — |
+| `etc/shadow` | /etc/shadow password hash | — | — | — |
+| `db/dbeaver-data-sources.xml` | DBeaver MySQL JDBC credentials | ✓ | ✓ | — |
+| `.esmtprc` | esmtp SMTP password | — | — | — |
+| `.mozilla/firefox/logins.json` | Firefox saved-login encrypted blobs | ✓ | — | — |
+| `web/django/settings.py` | Django SECRET_KEY | — | — | — |
+| `web/ruby/secrets.yml` | Rails secrets.yml secret_key_base | — | — | ✓ |
+| `web/ruby/config/master.key` | Rails master key | — | — | — |
+| `deployment-config.json` | sftp-deployment (Atom) server creds | — | — | — |
+| `.ftpconfig` | remote-ssh (Atom) SFTP/SSH creds + passphrase | — | — | — |
+| `.remote-sync.json` | remote-sync (Atom) FTP/SFTP creds | — | — | — |
+| `.vscode/sftp.json` | vscode-sftp SFTP creds | — | — | — |
+| `sftp-config.json` | Sublime SFTP FTP/SFTP creds | — | — | — |
+| `.idea/WebServers.xml` | JetBrains webserver password (encoded, not encrypted) | — | — | — |
+| `high-entropy-misc.txt` | misc high-entropy strings (informative-only, 0 risk) | — | — | — |
+
+</details>
+
+### terragoat (bridgecrewio/terragoat @ `729f8da`)
+
+Intentionally vulnerable Terraform; ground truth built by manual sweep
+(6 files with hardcoded credentials). On the classic IaC leak shape —
+low-entropy hardcoded DB passwords (`Aa1234321Bb` style) — pleno-dlp
+and trufflehog catch **0 of 3** password files; gitleaks catches 1 via
+its dedicated `hashicorp-tf-password` rule. All three tools skip the
+AWS keypair because terragoat uses AWS's documented example key
+(`AKIAIOSFODNN7EXAMPLE`), which all three correctly allowlist
+(confirmed by controlled probe with a non-example key).
+
+### OWASP Juice Shop (juice-shop/juice-shop @ `160f306`)
+
+A real Node.js application tree (~25 MB) with 9 ground-truth files /
+33 planted credential instances (JWT RSA signing key, HMAC secret,
+TOTP secret, 23 seeded user passwords, key files, an Ethereum
+mnemonic).
+
+| | pleno-dlp | gitleaks | trufflehog |
+|---|---:|---:|---:|
+| Ground-truth files hit (of 9) | **6** | 5 | 1 |
+| Instances detected (of 33) | **10** | 6 | 1 |
+| Total findings emitted | 103 | 59 | 5 |
+
+pleno-dlp leads recall but at the highest noise (103 findings for 10
+true instances); trufflehog detects essentially only the RSA private
+key. Universally missed: standalone key files without PEM armor
+(`ctf.key`, `premium.key`), the BIP39 mnemonic, and most low-entropy
+seeded passwords.
+
+## 4. Real-world noise — popular OSS and clean corpora
+
+### Popular-OSS sweep (8 repos, default branches @ 2026-06-10)
+
+express, flask, gin, sinatra, laravel/framework, spring-petclinic,
+axios, serilog — maintained repos with no known live leaks. Every
+finding was read in context and adjudicated (live-risk / test-fixture
+/ doc-placeholder / non-credential); adjudication capped at 30
+findings per tool per repo.
+
+| | pleno-dlp | trufflehog | gitleaks |
+|---|---:|---:|---:|
+| Total findings (8 repos) | 70 | 44 | 31 |
+| → live-risk credentials | 0 | 0 | 0 |
+| → test fixtures (real-format keys in tests) | 6 | 8 | 21 |
+| → doc placeholders | 3 | 17 | 7 |
+| → non-credential (hashes, IDs) | 50 | 10 | 3 |
+
+Zero live credentials anywhere (expected for maintained OSS) — so all
+volume is triage noise, and the composition matters: gitleaks' noise
+is mostly genuine test keys (defensible alerts); pleno-dlp's is
+dominated by `GenericHighEntropy` firing on hashes and random IDs in
+hash-dense ecosystems (41 findings in laravel/framework alone, 23 in
+axios). The Go-module corpus below shows the opposite ranking —
+noise profiles are ecosystem-dependent, and pleno-dlp's FP hardening
+(tuned on Go corpora) has not yet caught up on PHP/JS trees.
+
+### Clean Go-module corpus (Workload D)
 
 Workload D from [`benchmarks.md`](benchmarks.md): go-git v5.19.0 +
 cobra v1.8.1 + aws-sdk-go-v2 v1.41.7 (754 files, 7.9 MiB, zero live
@@ -176,7 +324,49 @@ overlap is one genuine-looking test TLS key
 (`plumbing/transport/http/testdata/certs/server.key`) flagged by all
 three; the rest are entropy hits on changelogs and test fixtures.
 
-## 4. Capability probes
+## 5. Git-history scans on real repos
+
+Full clones, git-mode invocations, single timed run (informational):
+
+| Repo (commits) | pleno-dlp | trufflehog | gitleaks |
+|---|---|---|---|
+| flask (5,539) | 0 findings, 14.0 s | 0 findings, 2.1 s | 12 findings / 2 unique, 0.7 s |
+| express (6,146) | 93 findings / 2 unique, 16.5 s | 1 finding, 2.1 s | 0 findings, 0.9 s |
+| gin (1,996) | 37 findings / 6 unique, 11.5 s | 3 findings / 2 unique, 2.0 s | 6 findings / 5 unique, 0.5 s |
+
+The findings/unique ratio exposes duplicate handling: pleno-dlp emits
+one finding per (commit, file, line) occurrence with **no cross-commit
+dedup** — in express one entropy hit produced 73 findings across 70
+commits. Every pleno-dlp finding carries a stable `secret_hash`, so
+client-side dedup is a one-liner, but the raw alert volume is the
+worst of the three. trufflehog reports a secret once at its
+introducing diff; gitleaks reports per commit-touch but its volumes
+stay small. gitleaks is also 15–25× faster than pleno-dlp on history
+scans of this size.
+
+## 6. Verification as a triage filter
+
+Live verification (pleno-dlp and trufflehog only; gitleaks has none)
+re-checks each candidate against the issuing provider. On leaky-repo +
+terragoat + express + flask:
+
+| Operator view | Alerts to read (4 repos) |
+|---|---:|
+| gitleaks, all findings | 32 |
+| pleno-dlp, default (all findings, verified flag annotated) | 31 |
+| trufflehog `--results=verified` | **0** |
+| pleno-dlp `--only-verified` | **0** |
+
+Every detected credential in these public corpora is dead (leaky-repo
+secrets are published-and-revoked by design), so verification-gated CI
+reduces 30+ must-read alerts to zero with no live credential missed.
+This is the strongest real-world argument for verification-capable
+scanners — and it is exactly the gate gitleaks cannot offer. The
+flip side: a verification-gated pipeline reports nothing for dead-but-
+sensitive material (the leaky-repo corpus would sail through), so
+`--only-verified` is a triage policy, not a hygiene policy.
+
+## 7. Capability probes
 
 Each row was exercised with a purpose-built fixture; "yes/no" reflects
 observed behavior, not documentation.
@@ -208,7 +398,7 @@ Two behaviors worth flagging:
   this probe) and findings carry no author/date — tracked as a known
   gap below.
 
-## 5. PII detection — capability only pleno-dlp has
+## 8. PII detection — capability only pleno-dlp has
 
 Fixtures: a Japanese customer-support record with 8 labeled PII items
 (name, furigana, phone, email, postal address, birth date, My Number,
@@ -236,50 +426,78 @@ bugs: stale model-wheel URLs after the upstream `ja_ner_ja` →
 warm starts). Both were fixed in the same change that added this
 document; the numbers above are from the fixed binary.
 
-## 6. Known gaps (pleno-dlp roadmap candidates)
+## 9. Known gaps (pleno-dlp roadmap candidates)
 
-Where the competition is measurably ahead:
+Where the competition — or the whole industry — is measurably ahead:
 
-1. **Archive scanning** — trufflehog finds secrets inside `.zip` /
+1. **Real-world config-file recall** (§3) — 25/44 leaky-repo files
+   missed by every tool. The biggest wins available to any scanner:
+   structured-config password extraction (`wp-config.php`, `.pgpass`,
+   `.netrc`, `.git-credentials`, framework secret keys, SFTP/IDE
+   client configs) and low-entropy hardcoded passwords in IaC (§3
+   terragoat: 0/3 for pleno-dlp; gitleaks has a dedicated rule).
+2. **GenericHighEntropy noise on hash-dense ecosystems** (§4) — 50 of
+   70 sweep findings were non-credentials (laravel 41, axios 23). FP
+   hardening was tuned on Go corpora and doesn't transfer to PHP/JS
+   trees yet.
+3. **Git-mode duplicate findings** (§5) — no cross-commit dedup (93
+   findings for 2 secrets in express); `secret_hash` exists, so
+   engine-side dedup is straightforward. Also: line numbers
+   mis-reported (always 1) and no author/date attribution where
+   gitleaks reports author/email/date/message.
+4. **Archive scanning** — trufflehog finds secrets inside `.zip` /
    `.tar.gz`; pleno-dlp and gitleaks scan only raw bytes.
-2. **UTF-16 decoding** — trufflehog only.
-3. **Recall misses** — `slack-webhook-url`, `azure-storage-account-key`
-   (AccountKey= connection strings), `asana-pat`, PGP `PRIVATE KEY
-   BLOCK` armor headers.
-4. **Detector breadth** — trufflehog ships 870 detector packages vs
+5. **UTF-16 decoding** — trufflehog only.
+6. **Synthetic-corpus recall misses** (§2) — `slack-webhook-url`,
+   `azure-storage-account-key` (AccountKey= connection strings),
+   `asana-pat`, PGP `PRIVATE KEY BLOCK` armor headers.
+7. **Detector breadth** — trufflehog ships 870 detector packages vs
    600 (long tail of niche SaaS providers).
-5. **Source breadth vs trufflehog** — docker images, postman, jenkins,
+8. **Source breadth vs trufflehog** — docker images, postman, jenkins,
    elasticsearch, GCS, syslog, CircleCI/TravisCI have no pleno-dlp
    equivalent (pleno-dlp's 24 sources lead on SaaS-document surfaces:
    confluence, jira, notion, slack, splunk, datadog, redash, bigquery,
    sqldump, forge-API comments).
-6. **Git-mode attribution** — gitleaks reports author/email/date/
-   message per finding; pleno-dlp reports commit + file only and
-   currently mis-reports line numbers in git mode.
 
 ## Limitations
 
-- Recall corpus is synthetic with cooperative context (env-var style
-  keyword lines); real-world recall is lower for every tool.
-- File-level hit matching: a finding anywhere in the type's file
-  counts. One credential per file makes this exact, but it credits
-  generic entropy rules equally with provider-specific ones (see the
-  specificity caveat).
-- Fixture validity was format-audited for every miss; hits were
-  spot-checked (8 random) but not exhaustively re-validated.
-- Single host, single run for the capability probes; recall and FP
-  scans are deterministic (verification off) so run-to-run variance is
-  nil for those tables.
-- pleno-dlp was a `dev` build of `main`; the released binaries may
-  differ. trufflehog/gitleaks were stock Homebrew/nix builds.
+- §2's corpus is synthetic with cooperative context (env-var style
+  keyword lines); §3 shows real-world recall is far lower for every
+  tool. Neither number alone characterizes a scanner.
+- File-level hit matching throughout: a finding anywhere in the
+  ground-truth file counts, which credits generic entropy rules
+  equally with provider-specific ones (see the specificity caveats).
+- Ground truth for terragoat and juice-shop was built by manual review
+  (method recorded in each section); leaky-repo ground truth comes
+  from the benchmark's own documented inventory.
+- Sweep adjudications were capped at 30 findings per tool per repo
+  (laravel pleno-dlp and axios trufflehog hit the cap); the audit
+  spot-checked classifications but not all of them.
+- All claimed misses were re-verified by single-file re-scan with a
+  positive control; an independent adversarial audit re-ran sampled
+  scans and reproduced every headline number
+  (verdict: holds-with-corrections — two derived union counts fixed).
+- Single host, single run for the capability probes and history
+  timings; recall and FP dir-scans are deterministic so run-to-run
+  variance is nil for those tables.
+- pleno-dlp numbers are from the released v0.53.0 binary;
+  trufflehog/gitleaks were stock Homebrew/nix builds at the upstream
+  latest releases as of 2026-06-10.
 
 ## Reproducing
 
-Corpus generators and raw outputs are not committed (the fixtures are
-format-valid fake credentials — committing them would trip push
-protection and every scanner in CI, by design). To rebuild: generate
-one file per type listed in the matrix above with a fresh random
-format-valid token embedded in 3–6 lines of env-style context, then
-run the three canonical invocations at the top of this document and
-count per-file hits. The FP corpus is reproducible exactly via the
-`benchmarks.md` Workload D recipe.
+Synthetic corpus (§2): generators and raw outputs are not committed
+(the fixtures are format-valid fake credentials — committing them
+would trip push protection and every scanner in CI, by design). To
+rebuild: generate one file per type listed in the matrix above with a
+fresh random format-valid token embedded in 3–6 lines of env-style
+context, then run the three canonical invocations at the top of this
+document and count per-file hits.
+
+Real-world corpora (§3–§6) are all public and pinned by commit:
+`Plazmaz/leaky-repo@2e95135`, `bridgecrewio/terragoat@729f8da`,
+`juice-shop/juice-shop@160f306`, plus the 8 sweep repos and 3
+history repos at their 2026-06-10 default branches. Clone, strip
+`.git` for dir-mode runs, and apply the canonical invocations. The
+Workload D FP corpus is reproducible exactly via the `benchmarks.md`
+recipe.
