@@ -4,7 +4,7 @@ This page classifies each registered detector as verifier-backed or
 unverified-by-design. The machine block is parsed by
 `pkg/detectors/verifycoverage_test.go`.
 
-Counts are pinned in the machine block. Total = 600: 598 secret
+Counts are pinned in the machine block. Total = 601: 599 secret
 detectors, `PIIAnonymize`, and `PIIOpenAIPF`. The retired regex PII
 detector constants remain reserved for wire compatibility but are not
 listed because they are no longer registered.
@@ -25,7 +25,7 @@ because the leak surface is destructive even before verification. Those
 are not enumerated here — `DefaultSeverity` is the floor; per-detector
 overrides only raise it.
 
-## (a) Verify implemented — 550 detectors
+## (a) Verify implemented — 551 detectors
 
 Detector type satisfies `detectors.Verifier`. The detector calls the
 upstream provider and returns `(true, nil)` on success, `(false, nil)`
@@ -161,8 +161,8 @@ The `coverage-machine` block pins counts and per-detector class.
 - `class=b` → Unverified-by-design (no Verify, deliberate)
 
 ```coverage-machine
-total=600
-a=550
+total=601
+a=551
 b=50
 type=APNs class=b
 type=AWSS3PresignedURL class=b

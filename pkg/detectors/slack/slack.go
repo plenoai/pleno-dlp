@@ -1,4 +1,5 @@
-// Package slack detects Slack bot tokens, verifies them, and supports revoke.
+// Package slack detects Slack bot tokens and incoming webhook URLs. Bot tokens
+// also support revocation.
 package slack
 
 import (
