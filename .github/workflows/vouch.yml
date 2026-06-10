@@ -7,74 +7,27 @@ on:
   issue_comment:
     types: [created]
 
+# Vouch manages the trust list only. PR quality checks, content security
+# scans, and contributor reports are handled by the metsuke GitHub App
+# (external to this repo, tamper-proof).
+
 permissions:
   contents: write
   issues: write
   pull-requests: write
 
 jobs:
-  # Layer 1: trust gate — unvouched/denounced users are auto-closed
   check-pr:
     if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
-    outputs:
-      status: ${{ steps.vouch.outputs.status }}
     steps:
-      - id: vouch
-        uses: mitchellh/vouch/action/check-pr@c6d80ead49839655b61b422700b7a3bc9d0804a9 # v1.4.2
+      - uses: mitchellh/vouch/action/check-pr@c6d80ead49839655b61b422700b7a3bc9d0804a9 # v1.4.2
         with:
           pr-number: ${{ github.event.pull_request.number }}
           auto-close: true
           template-file: .github/vouch-unvouched.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Layer 2: PR quality — catches AI slop, oversized diffs, bad commits
-  anti-slop:
-    if: github.event_name == 'pull_request_target' && needs.check-pr.outputs.status != 'closed'
-    needs: check-pr
-    runs-on: ubuntu-latest
-    steps:
-      - uses: peakoss/anti-slop@57858eead489d08b255fab2af45a506c2ca6eab2 # v0.3.0
-        with:
-          max-failures: "4"
-          min-account-age: "30"
-          min-global-merge-ratio: "30"
-          require-description: "true"
-          max-changed-files: "50"
-          max-changed-lines: "10000"
-          require-commit-author-match: "true"
-          blocked-paths: |
-            .github/workflows/
-            .github/VOUCHED.td
-            .goreleaser.yaml
-          close-pr: "true"
-          lock-pr: "false"
-          failure-pr-message: >-
-            This PR was automatically closed because it did not pass our
-            quality checks. Please review the check output above and
-            resubmit with the issues addressed.
-
-  # Layer 3: contributor reputation — informational report as PR comment
-  contributor-report:
-    if: >-
-      github.event_name == 'pull_request_target'
-      && needs.check-pr.outputs.status != 'closed'
-      && github.event.pull_request.author_association != 'OWNER'
-      && github.event.pull_request.author_association != 'MEMBER'
-      && github.event.pull_request.author_association != 'COLLABORATOR'
-    needs: check-pr
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: jdiegosierra/contributor-report@e92e3ab844443019fbe7a2d51e07773ddacc6269 # v1.3.3
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          threshold-account-age: "30"
-          threshold-pr-merge-rate: "0.3"
-          enable-spam-detection: "true"
-          on-fail: comment
-          new-account-action: require-review
 
   check-issue:
     if: github.event_name == 'issues'
