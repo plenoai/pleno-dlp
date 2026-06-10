@@ -94,6 +94,18 @@ func jsonSourceOf(c *sources.Chunk) jsonSource {
 		md["commit"] = g.Commit
 		md["file"] = g.File
 		md["line"] = g.Line
+		if g.Author != "" {
+			md["author"] = g.Author
+		}
+		if g.Email != "" {
+			md["email"] = g.Email
+		}
+		if g.AuthoredDate != "" {
+			md["authored_date"] = g.AuthoredDate
+		}
+		if g.Message != "" {
+			md["message"] = g.Message
+		}
 	case c.SourceMetadata.GitHub != nil:
 		gh := c.SourceMetadata.GitHub
 		md["repository"] = gh.Repository

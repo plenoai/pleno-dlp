@@ -67,11 +67,14 @@ type FilesystemMeta struct {
 }
 
 type GitMeta struct {
-	Repository string
-	Commit     string
-	File       string
-	Line       int
-	Email      string
+	Repository   string
+	Commit       string
+	File         string
+	Line         int
+	Email        string
+	Author       string
+	AuthoredDate string // RFC3339
+	Message      string // first line of commit message
 }
 
 // GitHubMeta is populated by the GitHub source / SaaS connector. The legacy
