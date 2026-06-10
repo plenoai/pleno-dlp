@@ -234,3 +234,45 @@ func TestFromData_VerifyNoMatch_NoVerifiedFlag(t *testing.T) {
 		t.Errorf("blast_radius_domains must be absent on no-match")
 	}
 }
+
+func TestFromData_PGPPrivateKeyBlock(t *testing.T) {
+	// PGP keys are armored as "PGP PRIVATE KEY BLOCK", not "PGP PRIVATE KEY"
+	const pgpBlock = `-----BEGIN PGP PRIVATE KEY BLOCK-----
+
+lQdGBGcI7xIBEACx8fHy8vP09fb3+Pn6+/z9/v8AAQIDBAUGBwgJCgsMDQ4PEBES
+ExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4/QEFC
+Q0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl9gYWJjZGVmZ2hpamtsbW5vcHFy
+c3R1dnd4eXp7fH1+f4CBgoOEhYaHiImKi4yNjo+QkZKTlJWWl5iZmpucnZ6foKG=
+=ABCD
+-----END PGP PRIVATE KEY BLOCK-----`
+
+	res, err := Scanner{}.FromData(context.Background(), false, []byte(pgpBlock))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected 1, got %d", len(res))
+	}
+	if res[0].ExtraData["algorithm"] != "PGP" {
+		t.Errorf("algorithm = %q, want PGP", res[0].ExtraData["algorithm"])
+	}
+}
+
+func TestFromData_PGPPrivateKeyBlockWithPreamble(t *testing.T) {
+	const pgpBlock = `some text before
+-----BEGIN PGP PRIVATE KEY BLOCK-----
+
+lQdGBGcI7xIBEACx8fHy8vP09fb3+Pn6+/z9/v8AAQIDBAUGBwgJCgsMDQ4PEBES
+ExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4/QEFC
+=ABCD
+-----END PGP PRIVATE KEY BLOCK-----
+some text after`
+
+	res, err := Scanner{}.FromData(context.Background(), false, []byte(pgpBlock))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected 1, got %d", len(res))
+	}
+}
