@@ -42,32 +42,6 @@ and no apiBase fallback is wired, the detector lives in (b) instead.
 
 The full enumeration lives in the machine block.
 
-> **Newly verified (batch 2026-06).** The following 10 detectors were
-> previously class (b) (unverified-by-design) and have been promoted to
-> class (a) after `Verify` implementations were added:
->
-> - **AzureAD** — OAuth2 client_credentials grant; tenant_id extracted
->   from surrounding chunk context.
-> - **AzureApp** — OAuth2 client_credentials grant; tenant_id extracted
->   from surrounding chunk context.
-> - **AzureContainerRegistry** — `GET /v2/` (access tokens) and
->   `POST /oauth2/token` (refresh tokens); registry host extracted from
->   JWT payload.
-> - **AzureSQLConnString** — TDS LOGIN7 wire-protocol handshake over TLS
->   against `*.database.windows.net` host extracted from the connection
->   string.
-> - **GCPIDToken** — token validation via Google's tokeninfo endpoint.
-> - **Kubeconfig** — `GET <server>/version` probe with the bearer token
->   or mTLS client cert extracted from the kubeconfig YAML.
-> - **MongoDB** — `OP_MSG isMaster` connectivity probe against the host
->   in the connection URI.
-> - **MySQL** — `mysql_native_password` wire-protocol handshake against
->   the host in the connection string.
-> - **Postgres** — PostgreSQL wire-protocol `StartupMessage` +
->   cleartext / MD5 password authentication.
-> - **Redis** — RESP-protocol `AUTH` probe against the host in the
->   connection URI.
-
 ### Context-extraction Verify
 
 Azure AD and Azure App detectors extract `tenant_id` from surrounding
