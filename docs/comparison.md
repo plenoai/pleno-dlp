@@ -420,12 +420,6 @@ Engine cost on this host: ~6.4 s end-to-end warm scan (engine spawn
 included), ~25 s after an upstream ref change (wheel reinstall); the
 very first bootstrap clones ~550 MiB of model data.
 
-Benchmarking found the anonymize engine entirely broken at HEAD (two
-bugs: stale model-wheel URLs after the upstream `ja_ner_ja` →
-`pleno_anonymize_ja` rename, and `uv sync` pruning the model wheels on
-warm starts). Both were fixed in the same change that added this
-document; the numbers above are from the fixed binary.
-
 ## 9. Known gaps (pleno-dlp roadmap candidates)
 
 Where the competition — or the whole industry — is measurably ahead:
