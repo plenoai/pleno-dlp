@@ -21,8 +21,6 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Added
 
-- Added GitHub App authentication for GitHub scans and verification,
-  including automatic installation token refresh for long-running scans.
 - Added `docs/comparison.md`: measured recall, false-positive, and
   capability comparison against trufflehog 3.95.5 and gitleaks 8.30.1.
 
@@ -36,6 +34,54 @@ publishing, archives, SLSA provenance, and SBOM generation.
   `--source`: `uv sync` prunes the NER wheels (outside `uv.lock`) on
   every run, but reinstall only happened on fresh checkouts. Wheels
   are now reinstalled unconditionally (idempotent).
+
+## [0.52.0] - 2026-06-09
+
+### Added
+
+- Added GitHub App authentication for GitHub scans and verification,
+  including automatic installation token refresh for long-running scans.
+
+## [0.51.0] - 2026-06-09
+
+### Added
+
+- Made verification the default scan behavior.
+- Added incremental scanning for changed source objects.
+
+## [0.50.0] - 2026-06-08
+
+### Added
+
+- Added incremental scanning for changed S3 objects.
+
+## [0.49.0] - 2026-06-08
+
+### Added
+
+- Added incremental scanning for changed GitHub resources.
+
+## [0.48.0] - 2026-06-08
+
+### Fixed
+
+- Emitted GitHub source links in JSON output.
+
+## [0.47.0] - 2026-06-08
+
+### Added
+
+- Added migration-friendly verified scans, including verified-only scan output
+  and GitHub scan fingerprinting.
+- Added GitHub PAT revocation support.
+- Added S3 and SQL dump source connectors.
+- Added SIEM connectors for Datadog, Splunk, BigQuery, and Redash.
+- Added PIIDB cross-finding candidate detection and severity escalation.
+- Added context-extraction verification to 10 Shai-Hulud-targeted detectors.
+
+### Changed
+
+- Enabled required status checks and build-provenance attestation.
 
 ## [0.46.0] - 2026-06-07
 
@@ -199,7 +245,14 @@ releases. Their durable references are:
 - Initial CLI with filesystem scanning, core secret detectors, and JSON
   output.
 
-[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.46.0...HEAD
+[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.53.0...HEAD
+[0.53.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.53.0
+[0.52.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.52.0
+[0.51.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.51.0
+[0.50.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.50.0
+[0.49.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.49.0
+[0.48.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.48.0
+[0.47.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.47.0
 [0.46.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.46.0
 [0.45.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.45.0
 [0.44.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.44.0
