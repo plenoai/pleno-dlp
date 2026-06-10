@@ -9,6 +9,14 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Added
+
+- Expanded `docs/comparison.md` with real-world evaluation: labeled
+  corpora (leaky-repo, terragoat, OWASP Juice Shop), an adjudicated
+  popular-OSS noise sweep, git-history behavior, and verification
+  triage value. All numbers re-pinned to the released v0.53.0 binary
+  and current upstream trufflehog 3.95.5 / gitleaks 8.30.1.
+
 ## [0.53.0] - 2026-06-10
 
 ### Added

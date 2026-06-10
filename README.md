@@ -62,8 +62,9 @@ pleno-dlp scan filesystem ./repo --format sarif > findings.sarif
 
 More output and CI detail: [`docs/output-and-gating.md`](docs/output-and-gating.md)
 
-Measured comparison against trufflehog and gitleaks (recall, false
-positives, capability probes): [`docs/comparison.md`](docs/comparison.md)
+Measured comparison against trufflehog and gitleaks (synthetic and
+real-world recall, noise, verification value, capability probes):
+[`docs/comparison.md`](docs/comparison.md)
 
 ## Verification support
 
