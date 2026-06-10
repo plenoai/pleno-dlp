@@ -13,6 +13,7 @@ import (
 	"io"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -286,6 +287,10 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 		}
 
 		line := firstChangedLine(change)
+		commitMsg := c.Message
+		if nl := strings.IndexByte(commitMsg, '\n'); nl >= 0 {
+			commitMsg = commitMsg[:nl]
+		}
 		chunk := &sources.Chunk{
 			SourceID:   s.sourceID,
 			SourceType: sources.SourceGit,
@@ -293,11 +298,14 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 			Data:       data,
 			SourceMetadata: sources.Metadata{
 				Git: &sources.GitMeta{
-					Repository: s.repoAbs,
-					Commit:     c.Hash.String(),
-					File:       path,
-					Line:       line,
-					Email:      c.Committer.Email,
+					Repository:   s.repoAbs,
+					Commit:       c.Hash.String(),
+					File:         path,
+					Line:         line,
+					Email:        c.Author.Email,
+					Author:       c.Author.Name,
+					AuthoredDate: c.Author.When.UTC().Format(time.RFC3339),
+					Message:      commitMsg,
 				},
 			},
 			Verify: s.verify,
