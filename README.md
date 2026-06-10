@@ -50,7 +50,7 @@ More connector detail: [`docs/source-forge-api-comments.md`](docs/source-forge-a
 
 ## Detect coverage
 
-- 600 built-in detector types
+- 601 built-in detector types
 - table / JSON / SARIF output
 - custom allowlists and org-specific rules supported
 
