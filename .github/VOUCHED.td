@@ -10,3 +10,4 @@
 #  - Prefix with minus to denounce: -username or -platform:username.
 #  - Optional reason after a space following the handle.
 HikaruEgashira
+Photon101
