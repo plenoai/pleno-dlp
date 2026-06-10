@@ -48,11 +48,12 @@ import (
 
 // Match the begin marker, the body, and the end marker in one go. Use [\s\S]
 // (any char including newline) since Go regexp's `.` excludes \n by default.
-var blockRe = regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY-----[\s\S]*?-----END (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY-----`)
+// The optional ` BLOCK` suffix covers PGP armor: `-----BEGIN PGP PRIVATE KEY BLOCK-----`.
+var blockRe = regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----`)
 
 // Used to pull the algorithm token out of the BEGIN line as a fallback when
 // the PEM body fails to parse (corrupted block, truncated paste).
-var algRe = regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY-----`)
+var algRe = regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----`)
 
 // Scanner is the privatekey detector. The struct carries a CT client and
 // passphrase wordlist that are wired up lazily — the zero value works

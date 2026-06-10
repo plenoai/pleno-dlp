@@ -29,6 +29,13 @@ const pkcs8Block = `-----BEGIN PRIVATE KEY-----
 MIICdwIBADANBgkqhkiG9w0BAQEFAASCAmEwggJdAgEAAoGBAKj3xMwwxxxxxxxx
 -----END PRIVATE KEY-----`
 
+// Minimal PGP armor fixture (valid structure; body is intentionally synthetic).
+const pgpBlock = `-----BEGIN PGP PRIVATE KEY BLOCK-----
+
+lQVYBGRkZGQBDAC5example+base64+content+here==
+=ABCD
+-----END PGP PRIVATE KEY BLOCK-----`
+
 func TestFromData_RSA(t *testing.T) {
 	res, err := Scanner{}.FromData(context.Background(), false, []byte("preamble\n"+rsaBlock+"\nepilogue"))
 	if err != nil {
@@ -49,6 +56,19 @@ func TestFromData_OpenSSH(t *testing.T) {
 	}
 	if res[0].ExtraData["algorithm"] != "OPENSSH" {
 		t.Fatalf("algorithm wrong: %+v", res[0].ExtraData)
+	}
+}
+
+func TestFromData_PGP(t *testing.T) {
+	res, err := Scanner{}.FromData(context.Background(), false, []byte(pgpBlock))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected 1, got %d: PGP PRIVATE KEY BLOCK not detected", len(res))
+	}
+	if res[0].ExtraData["algorithm"] != "PGP" {
+		t.Fatalf("algorithm wrong, want PGP: %+v", res[0].ExtraData)
 	}
 }
 
