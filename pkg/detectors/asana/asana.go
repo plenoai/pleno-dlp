@@ -15,10 +15,13 @@ var apiBase = "https://app.asana.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Asana PATs: <version>/<gid>/<hex>, where version is 1 (current) or 2
-// (forward-compatible), gid is the user's 16-digit numeric id, and the
-// trailing 32 hex is the token body.
-var tokenRe = regexp.MustCompile(`\b([12]/[0-9]{16}/[a-f0-9]{32})\b`)
+// Asana PATs come in two observed formats:
+//   - Legacy: 1/<16-digit gid>/<32 hex>   (slash-separated)
+//   - Current: 1/<numeric gid>:<32 hex>   (colon-separated; gid ≥16 digits)
+//
+// Both use "1" (or "2" for forward-compat) as the version prefix.
+// GID minimum length is 16 to exclude short numeric path segments.
+var tokenRe = regexp.MustCompile(`\b([12]/[0-9]{16,}[/:]([a-f0-9]{32}))\b`)
 
 type Scanner struct{}
 
