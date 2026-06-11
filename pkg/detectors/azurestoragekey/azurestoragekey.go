@@ -121,8 +121,7 @@ func verifyStorageKey(ctx context.Context, account, key string) (bool, error) {
 	url := fmt.Sprintf("https://%s.blob.core.windows.net/?comp=list", account)
 
 	// Shared Key Lite string-to-sign: Date\n + CanonicalizedResource
-	canonicalized := fmt.Sprintf("/%s/\ncomp:list", account)
-	stringToSign := now + "\n" + canonicalized
+	stringToSign := canonicalizedStringToSign(account, now)
 
 	mac := hmac.New(sha256.New, keyBytes)
 	mac.Write([]byte(stringToSign))
