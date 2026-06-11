@@ -77,12 +77,10 @@ func (a supervisorAdapter) Analyze(ctx context.Context, text, language string) (
 }
 
 // detectorLanguage is the language hint passed to the supervisor.
-// Hardcoded to "ja" today because the upstream engine routes via
-// language config; the CLI flag --pii-engine-language already lives
-// at the supervisor layer and we read no per-chunk language signal.
-// When per-chunk detection lands this becomes a function of the chunk
-// metadata, not the detector.
-const detectorLanguage = "ja"
+// Empty string defers to the supervisor's configured language
+// (set by --pii-engine-language), which respects the user's intent
+// and avoids forcing Japanese NER on English-language scans.
+const detectorLanguage = ""
 
 // Scanner satisfies detectors.Detector. It deliberately does NOT
 // implement detectors.Verifier — PII is not a credential; there is no

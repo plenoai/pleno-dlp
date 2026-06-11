@@ -161,8 +161,8 @@ The `coverage-machine` block pins counts and per-detector class.
 - `class=b` → Unverified-by-design (no Verify, deliberate)
 
 ```coverage-machine
-total=601
-a=551
+total=602
+a=552
 b=50
 type=APNs class=b
 type=AWSS3PresignedURL class=b
