@@ -798,4 +798,6 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/riskified"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/socure"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/swimlane"
+	// batch 41 — wire-stable order, never reorder. Cloud storage (azurestoragekey).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/azurestoragekey"
 )
