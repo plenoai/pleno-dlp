@@ -181,8 +181,8 @@ func TestFromData_PassesLanguageHint(t *testing.T) {
 	withAnalyzer(t, f)
 
 	_, _ = Scanner{}.FromData(context.Background(), false, []byte("payload"))
-	if f.lastLang != "ja" {
-		t.Errorf("language hint: want %q, got %q", "ja", f.lastLang)
+	if f.lastLang != "" {
+		t.Errorf("language hint: want %q (defer to supervisor config), got %q", "", f.lastLang)
 	}
 	if f.lastText != "payload" {
 		t.Errorf("text passthrough: want %q, got %q", "payload", f.lastText)
