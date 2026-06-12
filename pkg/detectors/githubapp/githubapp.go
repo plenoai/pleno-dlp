@@ -87,10 +87,10 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 }
 
 func redact(t string) string {
-	if len(t) <= 4 {
+	if len(t) <= 8 {
 		return t
 	}
-	return t[:4] + "..."
+	return t[:8] + "..."
 }
 
 func init() {

@@ -382,10 +382,10 @@ func revokeOAuthApp(ctx context.Context, secret, clientID, clientSecret string) 
 }
 
 func redact(t string) string {
-	if len(t) <= 4 {
+	if len(t) <= 8 {
 		return t
 	}
-	return t[:4] + "..."
+	return t[:8] + "..."
 }
 
 // Compile-time interface checks.
