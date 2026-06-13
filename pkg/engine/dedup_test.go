@@ -191,3 +191,99 @@ func TestDedupConcurrent(t *testing.T) {
 		t.Fatalf("concurrent identical emits should dedup to 1: got %d", got)
 	}
 }
+
+// helpers for GitCrossCommitDedup tests
+
+func mkGitFinding(raw, file, commit string) Finding {
+	return Finding{
+		Detector: detectors.AWS,
+		Result:   detectors.Result{DetectorType: detectors.AWS, Raw: []byte(raw)},
+		Chunk: &sources.Chunk{
+			SourceType: sources.SourceGit,
+			SourceMetadata: sources.Metadata{
+				Git: &sources.GitMeta{
+					Repository: "repo",
+					Commit:     commit,
+					File:       file,
+				},
+			},
+		},
+	}
+}
+
+func TestGitCrossCommitDedup_CollapsesMultipleCommits(t *testing.T) {
+	rec := &recordingSink{}
+	s := NewGitCrossCommitDedup(rec)
+
+	s.Emit(mkGitFinding("AKIA0000000000000000", "config.js", "abc1"))
+	s.Emit(mkGitFinding("AKIA0000000000000000", "config.js", "abc2"))
+	s.Emit(mkGitFinding("AKIA0000000000000000", "config.js", "abc3"))
+	_ = s.Close()
+
+	if got := len(rec.findings); got != 1 {
+		t.Fatalf("want 1 finding (introducing commit), got %d", got)
+	}
+	if got := rec.findings[0].Chunk.SourceMetadata.Git.Commit; got != "abc1" {
+		t.Errorf("want introducing commit abc1, got %s", got)
+	}
+	if got := rec.findings[0].Result.ExtraData["occurrence_count"]; got != "3" {
+		t.Errorf("want occurrence_count=3, got %q", got)
+	}
+}
+
+func TestGitCrossCommitDedup_KeepsDistinctFiles(t *testing.T) {
+	rec := &recordingSink{}
+	s := NewGitCrossCommitDedup(rec)
+
+	s.Emit(mkGitFinding("AKIA0000000000000000", "a.js", "abc1"))
+	s.Emit(mkGitFinding("AKIA0000000000000000", "b.js", "abc1"))
+	_ = s.Close()
+
+	if got := len(rec.findings); got != 2 {
+		t.Fatalf("same secret in different files should not collapse: got %d", got)
+	}
+}
+
+func TestGitCrossCommitDedup_KeepsDistinctSecrets(t *testing.T) {
+	rec := &recordingSink{}
+	s := NewGitCrossCommitDedup(rec)
+
+	s.Emit(mkGitFinding("AKIA0000000000000000", "cfg.js", "abc1"))
+	s.Emit(mkGitFinding("AKIA1111111111111111", "cfg.js", "abc1"))
+	_ = s.Close()
+
+	if got := len(rec.findings); got != 2 {
+		t.Fatalf("distinct secrets should not collapse: got %d", got)
+	}
+}
+
+func TestGitCrossCommitDedup_NoOccurrenceCountForSingle(t *testing.T) {
+	rec := &recordingSink{}
+	s := NewGitCrossCommitDedup(rec)
+
+	s.Emit(mkGitFinding("AKIA0000000000000000", "cfg.js", "abc1"))
+	_ = s.Close()
+
+	if got := len(rec.findings); got != 1 {
+		t.Fatalf("single finding must emit: got %d", got)
+	}
+	if _, ok := rec.findings[0].Result.ExtraData["occurrence_count"]; ok {
+		t.Errorf("single occurrence should not add occurrence_count to ExtraData")
+	}
+}
+
+func TestGitCrossCommitDedup_NonGitPassesThrough(t *testing.T) {
+	rec := &recordingSink{}
+	s := NewGitCrossCommitDedup(rec)
+
+	s.Emit(mkFinding(detectors.AWS, "AKIA0000000000000000", "/a.txt", 1))
+	s.Emit(mkFinding(detectors.AWS, "AKIA0000000000000000", "/a.txt", 1))
+	_ = s.Close()
+
+	// Non-git findings pass through immediately without cross-commit dedup;
+	// two identical filesystem findings should both reach the recording sink
+	// (upstream NewDedup would normally collapse them, but here we bypass it).
+	if got := len(rec.findings); got != 2 {
+		t.Fatalf("non-git findings should pass through unfiltered: got %d", got)
+	}
+}

@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"strconv"
 	"sync"
 )
@@ -103,6 +105,83 @@ func dedupKey(f Finding) string {
 func collisionKey(f Finding) string {
 	path, line := locationOf(f)
 	return string(f.Result.Raw) + "\x00" + path + "\x00" + strconv.Itoa(line)
+}
+
+// gitCrossCommitSink collapses findings that appear for the same secret+file
+// pair across multiple commits, keeping only the first (oldest, introducing)
+// occurrence and annotating it with extra_data.occurrence_count.
+//
+// Non-git findings are forwarded to the inner sink immediately. Git findings
+// are buffered during the scan and emitted on Close once occurrence counts are
+// final — this is the only sink in the chain that buffers, so Close must be
+// called for git findings to appear.
+//
+// The git source delivers commits in oldest-first order (collectCommits sorts
+// by committer date ascending), so the first buffered finding for a key is
+// always the introducing commit.
+type gitCrossCommitSink struct {
+	inner      Sink
+	mu         sync.Mutex
+	counts     map[string]int     // gitHashFileKey → occurrence count
+	first      map[string]Finding // gitHashFileKey → introducing-commit finding
+	insertOrder []string           // preserves emission order of first occurrences
+}
+
+// NewGitCrossCommitDedup wraps inner with cross-commit deduplication for git
+// findings. When the same secret appears in the same file across multiple
+// commits, only the introducing (earliest) commit is forwarded, annotated with
+// extra_data.occurrence_count. Non-git findings pass through immediately.
+func NewGitCrossCommitDedup(inner Sink) Sink {
+	return &gitCrossCommitSink{
+		inner:  inner,
+		counts: make(map[string]int),
+		first:  make(map[string]Finding),
+	}
+}
+
+func (g *gitCrossCommitSink) Emit(f Finding) {
+	if f.Chunk == nil || f.Chunk.SourceMetadata.Git == nil {
+		g.inner.Emit(f)
+		return
+	}
+	key := gitHashFileKey(f)
+	g.mu.Lock()
+	g.counts[key]++
+	if _, exists := g.first[key]; !exists {
+		g.first[key] = f
+		g.insertOrder = append(g.insertOrder, key)
+	}
+	g.mu.Unlock()
+}
+
+func (g *gitCrossCommitSink) Close() error {
+	g.mu.Lock()
+	order := g.insertOrder
+	counts := g.counts
+	first := g.first
+	g.mu.Unlock()
+
+	for _, key := range order {
+		f := first[key]
+		count := counts[key]
+		if count > 1 {
+			extra := make(map[string]string, len(f.Result.ExtraData)+1)
+			for k, v := range f.Result.ExtraData {
+				extra[k] = v
+			}
+			extra["occurrence_count"] = strconv.Itoa(count)
+			f.Result.ExtraData = extra
+		}
+		g.inner.Emit(f)
+	}
+	return g.inner.Close()
+}
+
+// gitHashFileKey produces a dedup key from the SHA-256 of the secret bytes
+// and the file path, ignoring which commit the finding came from.
+func gitHashFileKey(f Finding) string {
+	h := sha256.Sum256(f.Result.Raw)
+	return hex.EncodeToString(h[:]) + "\x00" + f.Chunk.SourceMetadata.Git.File
 }
 
 // locationOf renders a stable (path, line) pair from any SourceMetadata
