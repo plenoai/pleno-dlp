@@ -139,3 +139,83 @@ func containsBytes(variants []Variant, needle []byte) bool {
 	}
 	return false
 }
+
+func makeUTF16LE(s string, bom bool) []byte {
+	var buf bytes.Buffer
+	if bom {
+		buf.WriteByte(0xFF)
+		buf.WriteByte(0xFE)
+	}
+	for _, r := range s {
+		lo := byte(uint16(r) & 0xFF)
+		hi := byte(uint16(r) >> 8)
+		buf.WriteByte(lo)
+		buf.WriteByte(hi)
+	}
+	return buf.Bytes()
+}
+
+func makeUTF16BE(s string, bom bool) []byte {
+	var buf bytes.Buffer
+	if bom {
+		buf.WriteByte(0xFE)
+		buf.WriteByte(0xFF)
+	}
+	for _, r := range s {
+		hi := byte(uint16(r) >> 8)
+		lo := byte(uint16(r) & 0xFF)
+		buf.WriteByte(hi)
+		buf.WriteByte(lo)
+	}
+	return buf.Bytes()
+}
+
+func TestUTF16LE_BOM_DetectedAndDecoded(t *testing.T) {
+	secret := "CONFIG_CREDENTIAL=pleno-dlp-utf16-fixture-roundtrip-test-0000000000a"
+	data := makeUTF16LE(secret, true)
+	variants := Variants(data)
+
+	if !containsBytes(variants, []byte(secret)) {
+		t.Fatalf("UTF-16LE with BOM: expected decoded secret in variants; got %d variants", len(variants))
+	}
+	for _, v := range variants {
+		if containsBytes([]Variant{v}, []byte(secret)) && v.Source != "utf16le" {
+			t.Errorf("expected Source=utf16le, got %q", v.Source)
+		}
+	}
+}
+
+func TestUTF16BE_BOM_DetectedAndDecoded(t *testing.T) {
+	secret := "CONFIG_CREDENTIAL=pleno-dlp-utf16-fixture-roundtrip-test-0000000000a"
+	data := makeUTF16BE(secret, true)
+	variants := Variants(data)
+
+	if !containsBytes(variants, []byte(secret)) {
+		t.Fatalf("UTF-16BE with BOM: expected decoded secret in variants; got %d variants", len(variants))
+	}
+	for _, v := range variants {
+		if containsBytes([]Variant{v}, []byte(secret)) && v.Source != "utf16be" {
+			t.Errorf("expected Source=utf16be, got %q", v.Source)
+		}
+	}
+}
+
+func TestUTF16LE_NoBOM_Heuristic(t *testing.T) {
+	secret := "CONFIG_CREDENTIAL=pleno-dlp-utf16-fixture-roundtrip-test-0000000000a"
+	data := makeUTF16LE(secret, false)
+	variants := Variants(data)
+
+	if !containsBytes(variants, []byte(secret)) {
+		t.Fatalf("UTF-16LE without BOM heuristic: expected decoded secret in variants; got %d", len(variants))
+	}
+}
+
+func TestUTF16_ShortDataSkipped(t *testing.T) {
+	data := []byte{0xFF, 0xFE} // BOM but no content
+	variants := Variants(data)
+	for _, v := range variants {
+		if v.Source == "utf16le" || v.Source == "utf16be" {
+			t.Errorf("short UTF-16 data should not produce a variant; got Source=%q", v.Source)
+		}
+	}
+}

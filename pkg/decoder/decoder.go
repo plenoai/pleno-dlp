@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"net/url"
 	"regexp"
+	"unicode/utf16"
+	"unicode/utf8"
 )
 
 const minBase64Run = 32
@@ -43,7 +45,126 @@ func Variants(data []byte) []Variant {
 			out = append(out, Variant{Source: "hex", Data: v})
 		}
 	}
+	if src, v := tryUTF16(data); v != nil {
+		out = append(out, Variant{Source: src, Data: v})
+	}
 	return out
+}
+
+// tryUTF16 returns a ("utf16le"|"utf16be", UTF-8 bytes) pair when data looks
+// like a UTF-16 encoded file (BOM-sniff first, then heuristic alternating-NUL
+// detection). Returns ("", nil) when the data is not UTF-16 or the decoded
+// result is not useful.
+func tryUTF16(data []byte) (string, []byte) {
+	if len(data) < 4 {
+		return "", nil
+	}
+	isLE, detected := utf16Encoding(data)
+	if !detected {
+		return "", nil
+	}
+	decoded := decodeUTF16(data, isLE)
+	if decoded == nil || !mostlyPrintable(decoded) {
+		return "", nil
+	}
+	if isLE {
+		return "utf16le", decoded
+	}
+	return "utf16be", decoded
+}
+
+// utf16Encoding returns (isLE, true) when data begins with a UTF-16 BOM or
+// shows an alternating-NUL pattern characteristic of ASCII-dominant UTF-16
+// text. Returns (false, false) when no UTF-16 signature is found.
+func utf16Encoding(data []byte) (isLE bool, ok bool) {
+	// Definitive BOM check.
+	if data[0] == 0xFF && data[1] == 0xFE {
+		return true, true
+	}
+	if data[0] == 0xFE && data[1] == 0xFF {
+		return false, true
+	}
+
+	// Heuristic: if most odd bytes are NUL it is likely UTF-16LE ASCII text;
+	// if most even bytes are NUL it is likely UTF-16BE ASCII text.
+	// Sample the first 128 bytes (or less) for speed; require even length.
+	sample := data
+	if len(sample) > 128 {
+		sample = sample[:128]
+	}
+	if len(sample)%2 != 0 {
+		sample = sample[:len(sample)-1]
+	}
+	if len(sample) < 8 {
+		return false, false
+	}
+	half := len(sample) / 2
+
+	var evenNUL, oddNUL int
+	for i, b := range sample {
+		if b == 0 {
+			if i%2 == 0 {
+				evenNUL++
+			} else {
+				oddNUL++
+			}
+		}
+	}
+	const threshold = 0.75
+	if float64(oddNUL)/float64(half) >= threshold {
+		return true, true // odd positions are NUL → LE
+	}
+	if float64(evenNUL)/float64(half) >= threshold {
+		return false, true // even positions are NUL → BE
+	}
+	return false, false
+}
+
+// decodeUTF16 transcodes a UTF-16 byte slice (with or without BOM) to UTF-8.
+// If isLE is true the input is treated as little-endian; otherwise big-endian.
+// The BOM codepoint (U+FEFF) is stripped from the output.
+func decodeUTF16(data []byte, isLE bool) []byte {
+	// Strip BOM if present.
+	if len(data) >= 2 {
+		if (isLE && data[0] == 0xFF && data[1] == 0xFE) ||
+			(!isLE && data[0] == 0xFE && data[1] == 0xFF) {
+			data = data[2:]
+		}
+	}
+	if len(data)%2 != 0 {
+		data = data[:len(data)-1]
+	}
+	if len(data) == 0 {
+		return nil
+	}
+
+	// Decode pairs into runes, handling surrogate pairs.
+	u16 := make([]uint16, len(data)/2)
+	for i := range u16 {
+		lo, hi := data[i*2], data[i*2+1]
+		if isLE {
+			u16[i] = uint16(lo) | uint16(hi)<<8
+		} else {
+			u16[i] = uint16(hi) | uint16(lo)<<8
+		}
+	}
+	runes := utf16.Decode(u16)
+
+	// Encode runes to UTF-8.
+	var buf bytes.Buffer
+	buf.Grow(len(runes) * 3 / 2)
+	tmp := make([]byte, utf8.UTFMax)
+	for _, r := range runes {
+		if r == '\uFEFF' { // skip BOM rune
+			continue
+		}
+		n := utf8.EncodeRune(tmp, r)
+		buf.Write(tmp[:n])
+	}
+	if buf.Len() == 0 {
+		return nil
+	}
+	return buf.Bytes()
 }
 
 // hasBase64Run reports whether data contains a plausible base64 run.
