@@ -120,10 +120,10 @@ func collisionKey(f Finding) string {
 // by committer date ascending), so the first buffered finding for a key is
 // always the introducing commit.
 type gitCrossCommitSink struct {
-	inner      Sink
-	mu         sync.Mutex
-	counts     map[string]int     // gitHashFileKey → occurrence count
-	first      map[string]Finding // gitHashFileKey → introducing-commit finding
+	inner       Sink
+	mu          sync.Mutex
+	counts      map[string]int     // gitHashFileKey → occurrence count
+	first       map[string]Finding // gitHashFileKey → introducing-commit finding
 	insertOrder []string           // preserves emission order of first occurrences
 }
 
