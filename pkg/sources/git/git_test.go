@@ -11,10 +11,15 @@ import (
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
+
+func plumbingBranch(name string) plumbing.ReferenceName {
+	return plumbing.NewBranchReferenceName(name)
+}
 
 // fixture builds a fresh repo with a deterministic commit graph and returns
 // its absolute path along with the SHAs of the commits in chronological order.
@@ -369,6 +374,230 @@ func TestChunks_ContextCancel(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Chunks did not return after cancel")
+	}
+}
+
+// commitOn commits the given files onto the repo's current worktree state and
+// returns the new commit hash. The branch must already be checked out.
+func commitOn(t *testing.T, repo *gogit.Repository, files map[string]string, msg string, when time.Time) string {
+	t.Helper()
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	root := wt.Filesystem.Root()
+	for path, content := range files {
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if _, err := wt.Add(path); err != nil {
+			t.Fatalf("add %q: %v", path, err)
+		}
+	}
+	h, err := wt.Commit(msg, &gogit.CommitOptions{
+		Author:    &object.Signature{Name: "Test", Email: "test@example.com", When: when},
+		Committer: &object.Signature{Name: "Test", Email: "test@example.com", When: when},
+	})
+	if err != nil {
+		t.Fatalf("commit %q: %v", msg, err)
+	}
+	return h.String()
+}
+
+func checkoutNewBranch(t *testing.T, repo *gogit.Repository, name string) {
+	t.Helper()
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	if err := wt.Checkout(&gogit.CheckoutOptions{
+		Branch: plumbingBranch(name),
+		Create: true,
+	}); err != nil {
+		t.Fatalf("checkout -b %s: %v", name, err)
+	}
+}
+
+func filesOf(chunks []*sources.Chunk) map[string]bool {
+	out := map[string]bool{}
+	for _, c := range chunks {
+		if c.SourceMetadata.Git != nil {
+			out[c.SourceMetadata.Git.File] = true
+		}
+	}
+	return out
+}
+
+func TestChunks_AllBranchesEmitsSideBranchCommit(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	commitOn(t, repo, map[string]string{"main.txt": "on-main"}, "c1", base)
+	// Side branch carries a file reachable only from it.
+	checkoutNewBranch(t, repo, "feature")
+	commitOn(t, repo, map[string]string{"side.txt": "side-only"}, "c2-side", base.Add(time.Minute))
+
+	// AllBranches=false (HEAD is now feature, but default contract walks HEAD
+	// only). Switch back to a state where the side file is NOT on HEAD: check
+	// out main so HEAD no longer reaches side.txt.
+	wt, _ := repo.Worktree()
+	if err := wt.Checkout(&gogit.CheckoutOptions{Branch: plumbingBranch("master")}); err != nil {
+		// go-git's default init branch may be "master" or "main"; try main.
+		if err2 := wt.Checkout(&gogit.CheckoutOptions{Branch: plumbingBranch("main")}); err2 != nil {
+			t.Fatalf("checkout default branch: %v / %v", err, err2)
+		}
+	}
+
+	// Default (single-branch) walk: side.txt must NOT appear.
+	single := &Source{}
+	mustInit(t, single, Config{Repo: dir})
+	got, err := drain(t, single, 10*time.Second)
+	if err != nil {
+		t.Fatalf("single Chunks: %v", err)
+	}
+	if filesOf(got)["side.txt"] {
+		t.Fatalf("single-branch walk leaked side-branch file; files=%v", filesOf(got))
+	}
+	if !filesOf(got)["main.txt"] {
+		t.Fatalf("single-branch walk missing main.txt; files=%v", filesOf(got))
+	}
+
+	// AllBranches walk: side.txt MUST appear.
+	all := &Source{}
+	mustInit(t, all, Config{Repo: dir, AllBranches: true})
+	got, err = drain(t, all, 10*time.Second)
+	if err != nil {
+		t.Fatalf("all-branches Chunks: %v", err)
+	}
+	files := filesOf(got)
+	if !files["side.txt"] {
+		t.Fatalf("all-branches walk missing side-branch file; files=%v", files)
+	}
+	if !files["main.txt"] {
+		t.Fatalf("all-branches walk missing main.txt; files=%v", files)
+	}
+}
+
+func TestChunks_AllBranchesEmitsSharedCommitOnce(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	// Shared base commit reachable from both branches.
+	commitOn(t, repo, map[string]string{"shared.txt": "shared"}, "base", base)
+	checkoutNewBranch(t, repo, "feature")
+	commitOn(t, repo, map[string]string{"feat.txt": "feat"}, "feat", base.Add(time.Minute))
+
+	all := &Source{}
+	mustInit(t, all, Config{Repo: dir, AllBranches: true})
+	got, err := drain(t, all, 10*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks: %v", err)
+	}
+	var sharedCount int
+	for _, c := range got {
+		if c.SourceMetadata.Git != nil && c.SourceMetadata.Git.File == "shared.txt" {
+			sharedCount++
+		}
+	}
+	if sharedCount != 1 {
+		t.Fatalf("shared commit emitted %d times, want exactly 1", sharedCount)
+	}
+}
+
+func TestChunks_AllBranchesIncremental(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	commitOn(t, repo, map[string]string{"a.txt": "a"}, "c1", base)
+	checkoutNewBranch(t, repo, "feature")
+	commitOn(t, repo, map[string]string{"b.txt": "b"}, "c2", base.Add(time.Minute))
+
+	first := &Source{}
+	mustInit(t, first, Config{Repo: dir, AllBranches: true})
+	got, err := drain(t, first, 10*time.Second)
+	if err != nil {
+		t.Fatalf("first Chunks: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("first run chunks=%d want 2; files=%v", len(got), filesOf(got))
+	}
+	state := first.IncrementalState()
+	if len(state) == 0 {
+		t.Fatal("first run produced no incremental state")
+	}
+
+	// Extend the side branch (reachable only from feature) and also add a
+	// commit on feature whose parent is the recorded feature head.
+	newHash := commitOn(t, repo, map[string]string{"c.txt": "c"}, "c3", base.Add(2*time.Minute))
+
+	second := &Source{}
+	mustInit(t, second, Config{Repo: dir, AllBranches: true})
+	if err := second.SetIncrementalState(state); err != nil {
+		t.Fatalf("SetIncrementalState: %v", err)
+	}
+	got, err = drain(t, second, 10*time.Second)
+	if err != nil {
+		t.Fatalf("second Chunks: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("second run chunks=%d want 1 (only new commit); files=%v", len(got), filesOf(got))
+	}
+	if got[0].SourceMetadata.Git.Commit != newHash {
+		t.Fatalf("second run commit=%q want %q", got[0].SourceMetadata.Git.Commit, newHash)
+	}
+	if got[0].SourceMetadata.Git.File != "c.txt" {
+		t.Fatalf("second run file=%q want c.txt", got[0].SourceMetadata.Git.File)
+	}
+}
+
+func TestChunks_AllBranchesIncrementalSharedNotReemitted(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	// Base on default branch; record it as a prior head.
+	commitOn(t, repo, map[string]string{"a.txt": "a"}, "c1", base)
+	first := &Source{}
+	mustInit(t, first, Config{Repo: dir, AllBranches: true})
+	if _, err := drain(t, first, 10*time.Second); err != nil {
+		t.Fatalf("first Chunks: %v", err)
+	}
+	state := first.IncrementalState()
+
+	// New branch built ON TOP of the recorded head: its first commit's parent
+	// is the old head (shared, must NOT re-emit), plus one genuinely new tip.
+	checkoutNewBranch(t, repo, "feature")
+	newHash := commitOn(t, repo, map[string]string{"b.txt": "b"}, "c2", base.Add(time.Minute))
+
+	second := &Source{}
+	mustInit(t, second, Config{Repo: dir, AllBranches: true})
+	if err := second.SetIncrementalState(state); err != nil {
+		t.Fatalf("SetIncrementalState: %v", err)
+	}
+	got, err := drain(t, second, 10*time.Second)
+	if err != nil {
+		t.Fatalf("second Chunks: %v", err)
+	}
+	if files := filesOf(got); files["a.txt"] {
+		t.Fatalf("incremental re-emitted commit reachable from old head; files=%v", files)
+	}
+	if len(got) != 1 || got[0].SourceMetadata.Git.Commit != newHash {
+		t.Fatalf("second run = %d chunks (want 1 new); files=%v", len(got), filesOf(got))
 	}
 }
 

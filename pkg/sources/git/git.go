@@ -39,6 +39,11 @@ type Config struct {
 	Since    string   `json:"since,omitempty"`
 	Include  []string `json:"include,omitempty"`
 	Exclude  []string `json:"exclude,omitempty"`
+	// AllBranches walks every reachable commit on every ref (HEAD plus all
+	// refs/heads/ and refs/remotes/), not just the single resolved start.
+	// This is trufflehog-parity full-history mode. Off by default so the
+	// existing single-branch contract is byte-identical.
+	AllBranches bool `json:"all_branches,omitempty"`
 }
 
 type Source struct {
@@ -48,12 +53,13 @@ type Source struct {
 	verify      bool
 	concurrency int
 
-	repoAbs  string
-	branch   string
-	maxDepth int
-	since    time.Time
-	include  []string
-	exclude  []string
+	repoAbs     string
+	branch      string
+	allBranches bool
+	maxDepth    int
+	since       time.Time
+	include     []string
+	exclude     []string
 
 	hasPreviousState bool
 	previousState    *incrementalState
@@ -63,6 +69,12 @@ type Source struct {
 type incrementalState struct {
 	Version int    `json:"version"`
 	Head    string `json:"head"`
+	// Heads records the head hash of every start ref from the previous run
+	// (multi-branch mode). Legacy single-branch state only populated Head;
+	// readers must honour both. On rerun, the union of Head and Heads forms
+	// the stop-set: any commit reachable from a previously recorded head
+	// terminates that lineage so already-scanned history is not re-emitted.
+	Heads []string `json:"heads,omitempty"`
 }
 
 func (s *Source) Type() sources.SourceType { return sources.SourceGit }
@@ -106,6 +118,7 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, v
 	s.concurrency = concurrency
 	s.repoAbs = abs
 	s.branch = cfg.Branch
+	s.allBranches = cfg.AllBranches
 	s.maxDepth = cfg.MaxDepth
 	s.include = cfg.Include
 	s.exclude = cfg.Exclude
@@ -117,14 +130,14 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	if err != nil {
 		return fmt.Errorf("git: reopen repo: %w", err)
 	}
-	startHash, err := s.resolveStart(repo)
+	starts, err := s.resolveStarts(repo)
 	if err != nil {
 		return err
 	}
-	s.nextState = &incrementalState{Version: 1, Head: startHash.String()}
+	s.nextState = newIncrementalState(starts)
 
-	stopHash, hasStop := s.previousHead()
-	commits, err := s.collectCommits(repo, startHash, stopHash, hasStop)
+	stops := s.previousHeads()
+	commits, err := s.collectCommits(repo, starts, stops)
 	if err != nil {
 		return err
 	}
@@ -176,18 +189,29 @@ func (s *Source) ResourceFingerprint(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("git: reopen repo: %w", err)
 	}
-	startHash, err := s.resolveStart(repo)
+	starts, err := s.resolveStarts(repo)
 	if err != nil {
 		return "", err
 	}
 	h := sha256.New()
 	writeHash(h, "git-v1")
 	writeHash(h, s.repoAbs)
-	writeHash(h, startHash.String())
+	// Sort start hashes so the fingerprint is independent of ref iteration
+	// order. In single-start mode this is a one-element set and the digest is
+	// byte-identical to the legacy output.
+	hashStrs := make([]string, 0, len(starts))
+	for _, sh := range starts {
+		hashStrs = append(hashStrs, sh.String())
+	}
+	sort.Strings(hashStrs)
+	for _, sh := range hashStrs {
+		writeHash(h, sh)
+	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// resolveStart picks the commit hash to start the walk from.
+// resolveStart picks the single commit hash to start the walk from. Retained
+// for the single-branch contract: branch override, else HEAD.
 func (s *Source) resolveStart(repo *git.Repository) (plumbing.Hash, error) {
 	if s.branch != "" {
 		ref, err := repo.Reference(plumbing.NewBranchReferenceName(s.branch), true)
@@ -203,36 +227,161 @@ func (s *Source) resolveStart(repo *git.Repository) (plumbing.Hash, error) {
 	return head.Hash(), nil
 }
 
-// collectCommits returns commits in oldest-first order.
-func (s *Source) collectCommits(repo *git.Repository, start, stop plumbing.Hash, hasStop bool) ([]*object.Commit, error) {
-	iter, err := repo.Log(&git.LogOptions{From: start})
-	if err != nil {
-		return nil, fmt.Errorf("git: log: %w", err)
-	}
-	defer iter.Close()
-
-	var commits []*object.Commit
-	err = iter.ForEach(func(c *object.Commit) error {
-		if hasStop && c.Hash == stop {
-			return errStorerStop
+// resolveStarts returns the ordered, de-duplicated set of commit hashes the
+// walk begins from. With AllBranches=false (and no branch override) this is
+// exactly [HEAD] — byte-identical to the legacy single-start behaviour. With
+// AllBranches=true it is HEAD plus every ref under refs/heads/ and
+// refs/remotes/, identical hashes collapsed. A branch override always pins to
+// that one branch regardless of AllBranches.
+func (s *Source) resolveStarts(repo *git.Repository) ([]plumbing.Hash, error) {
+	if s.branch != "" || !s.allBranches {
+		h, err := s.resolveStart(repo)
+		if err != nil {
+			return nil, err
 		}
-		if !s.since.IsZero() && c.Committer.When.Before(s.since) {
+		return []plumbing.Hash{h}, nil
+	}
+
+	var starts []plumbing.Hash
+	seen := map[plumbing.Hash]struct{}{}
+	add := func(h plumbing.Hash) {
+		if h == plumbing.ZeroHash {
+			return
+		}
+		if _, ok := seen[h]; ok {
+			return
+		}
+		seen[h] = struct{}{}
+		starts = append(starts, h)
+	}
+
+	// HEAD first (preserves "default branch leads" ordering when present).
+	if head, err := repo.Head(); err == nil {
+		add(head.Hash())
+	}
+
+	refs, err := repo.References()
+	if err != nil {
+		return nil, fmt.Errorf("git: list references: %w", err)
+	}
+	defer refs.Close()
+	err = refs.ForEach(func(ref *plumbing.Reference) error {
+		if ref.Type() != plumbing.HashReference {
+			return nil // skip symbolic refs (e.g. HEAD -> refs/heads/main)
+		}
+		name := ref.Name().String()
+		if !strings.HasPrefix(name, "refs/heads/") && !strings.HasPrefix(name, "refs/remotes/") {
 			return nil
 		}
-		commits = append(commits, c)
-		if s.maxDepth > 0 && len(commits) >= s.maxDepth {
-			return errStorerStop
-		}
+		add(ref.Hash())
 		return nil
 	})
-	if err != nil && !errors.Is(err, errStorerStop) {
-		return nil, fmt.Errorf("git: iterate commits: %w", err)
+	if err != nil {
+		return nil, fmt.Errorf("git: iterate references: %w", err)
+	}
+	if len(starts) == 0 {
+		return nil, errors.New("git: no branch heads to walk")
+	}
+	return starts, nil
+}
+
+// collectCommits walks every lineage reachable from the start hashes and
+// returns the union of commits in oldest-first order. A shared visited set
+// guarantees each commit is collected at most once even when reachable from
+// several branches. The stop-set is the union of all commits reachable from
+// the previously recorded heads (bounded BFS, computed once); reaching any of
+// them terminates that lineage so already-scanned history is never re-emitted.
+func (s *Source) collectCommits(repo *git.Repository, starts []plumbing.Hash, stops []plumbing.Hash) ([]*object.Commit, error) {
+	excluded, err := reachableSet(repo, stops)
+	if err != nil {
+		return nil, err
+	}
+
+	visited := map[plumbing.Hash]struct{}{}
+	var commits []*object.Commit
+
+	for _, start := range starts {
+		if _, ok := excluded[start]; ok {
+			continue
+		}
+		iter, err := repo.Log(&git.LogOptions{From: start})
+		if err != nil {
+			return nil, fmt.Errorf("git: log: %w", err)
+		}
+		err = iter.ForEach(func(c *object.Commit) error {
+			// go-git's preorder ForEach aborts the WHOLE walk on any returned
+			// error, so the only error we may return is the terminal maxDepth
+			// stop. Excluded/visited commits are skipped with nil; reachableSet
+			// is transitive and go-git's per-iter seen map bounds the descent,
+			// so continuing to walk past them is correct, just not minimal.
+			if _, stop := excluded[c.Hash]; stop {
+				return nil
+			}
+			if _, done := visited[c.Hash]; done {
+				return nil
+			}
+			visited[c.Hash] = struct{}{}
+			if !s.since.IsZero() && c.Committer.When.Before(s.since) {
+				return nil
+			}
+			commits = append(commits, c)
+			if s.maxDepth > 0 && len(commits) >= s.maxDepth {
+				return errStorerStop
+			}
+			return nil
+		})
+		iter.Close()
+		if err != nil && !errors.Is(err, errStorerStop) {
+			return nil, fmt.Errorf("git: iterate commits: %w", err)
+		}
+		if s.maxDepth > 0 && len(commits) >= s.maxDepth {
+			break
+		}
 	}
 
 	sort.SliceStable(commits, func(i, j int) bool {
 		return commits[i].Committer.When.Before(commits[j].Committer.When)
 	})
 	return commits, nil
+}
+
+// reachableSet returns every commit hash reachable from any of the given roots
+// (the roots themselves included). Used to build the incremental stop-set. A
+// missing or unreadable root is skipped rather than fatal: a head recorded in
+// a previous run may have been rewritten or pruned, and that must degrade to a
+// fuller scan, never an abort.
+func reachableSet(repo *git.Repository, roots []plumbing.Hash) (map[plumbing.Hash]struct{}, error) {
+	set := map[plumbing.Hash]struct{}{}
+	if len(roots) == 0 {
+		return set, nil
+	}
+	queue := make([]plumbing.Hash, 0, len(roots))
+	for _, r := range roots {
+		if r == plumbing.ZeroHash {
+			continue
+		}
+		if _, ok := set[r]; ok {
+			continue
+		}
+		set[r] = struct{}{}
+		queue = append(queue, r)
+	}
+	for len(queue) > 0 {
+		h := queue[0]
+		queue = queue[1:]
+		c, err := repo.CommitObject(h)
+		if err != nil {
+			continue // pruned/rewritten head — tolerate, scan more rather than less
+		}
+		for _, p := range c.ParentHashes {
+			if _, ok := set[p]; ok {
+				continue
+			}
+			set[p] = struct{}{}
+			queue = append(queue, p)
+		}
+	}
+	return set, nil
 }
 
 var errStorerStop = errors.New("git: stop iteration")
@@ -413,15 +562,48 @@ var _ sources.Source = (*Source)(nil)
 var _ sources.ResourceFingerprinter = (*Source)(nil)
 var _ sources.IncrementalStateSource = (*Source)(nil)
 
-func (s *Source) previousHead() (plumbing.Hash, bool) {
-	if !s.hasPreviousState || s.previousState == nil || s.previousState.Head == "" {
-		return plumbing.ZeroHash, false
+// previousHeads returns every head hash recorded by the previous run — the
+// union of the legacy single Head field and the multi-branch Heads slice —
+// de-duplicated. Empty when there is no previous state (full scan).
+func (s *Source) previousHeads() []plumbing.Hash {
+	if !s.hasPreviousState || s.previousState == nil {
+		return nil
 	}
-	hash := plumbing.NewHash(s.previousState.Head)
-	if hash == plumbing.ZeroHash {
-		return plumbing.ZeroHash, false
+	seen := map[plumbing.Hash]struct{}{}
+	var out []plumbing.Hash
+	add := func(str string) {
+		if str == "" {
+			return
+		}
+		h := plumbing.NewHash(str)
+		if h == plumbing.ZeroHash {
+			return
+		}
+		if _, ok := seen[h]; ok {
+			return
+		}
+		seen[h] = struct{}{}
+		out = append(out, h)
 	}
-	return hash, true
+	add(s.previousState.Head)
+	for _, h := range s.previousState.Heads {
+		add(h)
+	}
+	return out
+}
+
+// newIncrementalState records the current head hash of every start ref so the
+// next run can seed its stop-set. Head holds the first start (legacy single-
+// branch readers stay compatible); Heads holds the full set.
+func newIncrementalState(starts []plumbing.Hash) *incrementalState {
+	st := &incrementalState{Version: 1}
+	if len(starts) > 0 {
+		st.Head = starts[0].String()
+	}
+	for _, h := range starts {
+		st.Heads = append(st.Heads, h.String())
+	}
+	return st
 }
 
 func writeHash(h hash.Hash, s string) {
