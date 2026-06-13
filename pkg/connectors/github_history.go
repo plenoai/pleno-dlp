@@ -61,7 +61,7 @@ func deriveCloneURL(apiBase, owner, repo, template string) (string, error) {
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return "", fmt.Errorf("github: cannot derive clone url from api_base %q", apiBase)
 	}
-	// Strip the GHE REST suffix "/api/v3" (and "/api/uploads" defensively).
+	// Strip the GHE REST suffix "/api/v3".
 	u.Path = strings.TrimSuffix(u.Path, "/api/v3")
 	u.Path = strings.TrimRight(u.Path, "/")
 	u.Path = u.Path + "/" + owner + "/" + repo + ".git"

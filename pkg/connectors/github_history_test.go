@@ -115,7 +115,7 @@ func TestGitHubHostAndBlobLink(t *testing.T) {
 // buildFixtureRepo creates a repo with a main branch and a side branch whose
 // tip commit is reachable only from the side branch. Returns the repo dir and
 // the side-only file name.
-func buildFixtureRepo(t *testing.T) (dir string, sideFile string, headSHAs map[string]string) {
+func buildFixtureRepo(t *testing.T) (dir string, sideFile string) {
 	t.Helper()
 	dir = t.TempDir()
 	repo, err := gogit.PlainInit(dir, false)
@@ -148,11 +148,11 @@ func buildFixtureRepo(t *testing.T) (dir string, sideFile string, headSHAs map[s
 		t.Fatalf("checkout -b feature: %v", err)
 	}
 	commit(map[string]string{"side.txt": "AKIAIOSFODNN7SIDEKEY"}, "c2-side", base.Add(time.Minute))
-	return dir, "side.txt", nil
+	return dir, "side.txt"
 }
 
 func TestGitHubHistoryScanEmitsAllBranches(t *testing.T) {
-	fixture, sideFile, _ := buildFixtureRepo(t)
+	fixture, sideFile := buildFixtureRepo(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

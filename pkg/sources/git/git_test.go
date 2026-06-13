@@ -17,10 +17,6 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
-func plumbingBranch(name string) plumbing.ReferenceName {
-	return plumbing.NewBranchReferenceName(name)
-}
-
 // fixture builds a fresh repo with a deterministic commit graph and returns
 // its absolute path along with the SHAs of the commits in chronological order.
 // We do not rely on the surrounding environment's git config — every test
@@ -415,7 +411,7 @@ func checkoutNewBranch(t *testing.T, repo *gogit.Repository, name string) {
 		t.Fatalf("Worktree: %v", err)
 	}
 	if err := wt.Checkout(&gogit.CheckoutOptions{
-		Branch: plumbingBranch(name),
+		Branch: plumbing.NewBranchReferenceName(name),
 		Create: true,
 	}); err != nil {
 		t.Fatalf("checkout -b %s: %v", name, err)
@@ -448,9 +444,9 @@ func TestChunks_AllBranchesEmitsSideBranchCommit(t *testing.T) {
 	// only). Switch back to a state where the side file is NOT on HEAD: check
 	// out main so HEAD no longer reaches side.txt.
 	wt, _ := repo.Worktree()
-	if err := wt.Checkout(&gogit.CheckoutOptions{Branch: plumbingBranch("master")}); err != nil {
+	if err := wt.Checkout(&gogit.CheckoutOptions{Branch: plumbing.NewBranchReferenceName("master")}); err != nil {
 		// go-git's default init branch may be "master" or "main"; try main.
-		if err2 := wt.Checkout(&gogit.CheckoutOptions{Branch: plumbingBranch("main")}); err2 != nil {
+		if err2 := wt.Checkout(&gogit.CheckoutOptions{Branch: plumbing.NewBranchReferenceName("main")}); err2 != nil {
 			t.Fatalf("checkout default branch: %v / %v", err, err2)
 		}
 	}
