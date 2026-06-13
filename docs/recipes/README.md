@@ -11,5 +11,9 @@ Practical patterns for adopting pleno-dlp:
   reports.
 - [`allowlist-patterns.md`](allowlist-patterns.md) — common false-
   positive shapes and the matching allowlist entries.
+- [`github-scan-modes.md`](github-scan-modes.md) — `history` (full
+  commit history, clone-based, zero per-repo REST cost) vs `tree`
+  (default-branch REST snapshot), auth, GHE clone-URL derivation, and
+  API-call accounting.
 
 Have a recipe to share? PRs welcome.

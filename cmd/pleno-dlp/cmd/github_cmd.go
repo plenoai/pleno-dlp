@@ -24,6 +24,7 @@ type githubFlags struct {
 	appPrivateKey     string
 	appPrivateKeyFile string
 	includeComments   bool
+	scanMode          string
 }
 
 var (
@@ -33,9 +34,11 @@ var (
 
 var scanGitHubCmd = &cobra.Command{
 	Use:   "github",
-	Short: "Scan a GitHub org or single repo (default-branch blobs)",
+	Short: "Scan a GitHub org or single repo (full commit history by default)",
 	Long: "Scan a GitHub org or single repo. Reads --token, falling back to the GITHUB_TOKEN env var.\n" +
-		"--org and --repo are mutually exclusive; one is required. Use --api-base for GitHub Enterprise.",
+		"--org and --repo are mutually exclusive; one is required. Use --api-base for GitHub Enterprise.\n" +
+		"--scan-mode history (default) clones each repo and scans every commit on every branch with\n" +
+		"zero REST cost per repo; --scan-mode tree scans only default-branch blobs via the REST API.",
 	Args: cobra.NoArgs,
 	RunE: runScanGitHub,
 }
@@ -63,6 +66,7 @@ func init() {
 	scanGitHubCmd.Flags().StringVar(&scanGitHubOpts.appInstallationID, "app-installation-id", "", "GitHub App installation ID (falls back to the GITHUB_APP_INSTALLATION_ID env var)")
 	scanGitHubCmd.Flags().StringVar(&scanGitHubOpts.appPrivateKeyFile, "app-private-key-file", "", "path to GitHub App PEM private key (falls back to the GITHUB_APP_PRIVATE_KEY_FILE env var)")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeComments, "include-comments", false, "also scan issue comments and pull request review comments")
+	scanGitHubCmd.Flags().StringVar(&scanGitHubOpts.scanMode, "scan-mode", "history", "scan mode: history (full commit history, clone-based) or tree (default-branch blobs via REST)")
 	scanCmd.AddCommand(scanGitHubCmd)
 
 	verifyGitHubCmd.Flags().StringVar(&verifyGitHubOpts.token, "token", "", "GitHub PAT (falls back to the GITHUB_TOKEN env var)")
@@ -125,6 +129,7 @@ func scanGitHubConfig(opts githubFlags) (connectors.Config, error) {
 		"org":              opts.org,
 		"repo":             opts.repo,
 		"api_base":         opts.apiBase,
+		"scan_mode":        opts.scanMode,
 		"include_comments": fmt.Sprintf("%t", opts.includeComments),
 	}
 	token := resolveGitHubToken(opts.token)
