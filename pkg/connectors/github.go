@@ -1,31 +1,22 @@
 // GitHub connector. Single-file Lambda-handler shape: auth, fetch, emit.
 //
-// Scan modes (cfg key `scan_mode`):
-//
-//   - history (DEFAULT): trufflehog parity. Per repo, perform ONE bare git
-//     clone over smart HTTP and walk every reachable commit on every ref
-//     locally, diffing each commit against its first parent. Git smart-HTTP
-//     does NOT consume the GitHub REST rate limit, so the per-repo REST cost
-//     of history scanning is ZERO. REST is used only for repo enumeration and
-//     (optionally) the comments surface.
-//   - tree: the original behaviour. Org or single-repo default-branch blobs
-//     fetched via the REST git-trees + git-blobs API. Kept verbatim for users
-//     who want a cheap default-branch-only snapshot.
+// Scanning is always full-history: per repo, perform ONE bare git clone over
+// smart HTTP and walk every reachable commit on every ref locally, diffing
+// each commit against its first parent (trufflehog parity). Git smart-HTTP
+// does NOT consume the GitHub REST rate limit, so the per-repo REST cost of a
+// scan is ZERO. REST is used only for repo enumeration and (optionally) the
+// comments surface. The history walk itself lives in github_history.go.
 //
 // API-call accounting:
 //   - Repo enumeration: 1 REST call (single repo) or N paginated REST calls
-//     (org listing) — both modes.
-//   - history mode, per repo: 0 REST calls for code (1 smart-HTTP clone, then
-//     local walk). Fingerprint uses 1 smart-HTTP ref advertisement, 0 REST.
-//   - tree mode, per repo: 1 REST tree call + 1 REST blob call per changed
-//     blob.
-//   - include_comments (both modes): REST issue-comment + pull-review-comment
-//     pagination, unchanged.
+//     (org listing).
+//   - Per repo: 0 REST calls for code (1 smart-HTTP clone, then local walk).
+//     Fingerprint uses 1 smart-HTTP ref advertisement, 0 REST.
+//   - include_comments: REST issue-comment + pull-review-comment pagination.
 //
-// Surface (tree mode): org or single-repo default-branch blobs, plus optional
-// issue / pull-request comments. GitHub models pull requests as issues, so
-// issue comments cover PR conversation comments; pull review comments cover
-// inline code-review comments. Comments are REST-based in both modes.
+// Comments: GitHub models pull requests as issues, so issue comments cover PR
+// conversation comments; pull review comments cover inline code-review
+// comments. Comments are REST-based.
 //
 // Auth: Personal Access Token or GitHub App installation token. REST requests
 // send `Authorization: Bearer <token>`; git smart-HTTP clones authenticate as
@@ -61,34 +52,21 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
 const (
-	githubDefaultAPIBase      = "https://api.github.com"
-	githubDefaultMaxBlobBytes = int64(5 * 1024 * 1024)
-	githubRequestTimeout      = 60 * time.Second
-	githubAppJWTLifetime      = 9 * time.Minute
-	githubAppRefreshSkew      = 5 * time.Minute
+	githubDefaultAPIBase = "https://api.github.com"
+	githubRequestTimeout = 60 * time.Second
+	githubAppJWTLifetime = 9 * time.Minute
+	githubAppRefreshSkew = 5 * time.Minute
 
+	// githubScanModeHistory is the value stamped into persisted incremental
+	// state (Mode field). It is the only scan mode; the constant survives the
+	// removal of tree mode solely to tag state so legacy non-history state is
+	// recognised and ignored on load. See githubRepoIncrementalState.Mode.
 	githubScanModeHistory = "history"
-	githubScanModeTree    = "tree"
 )
-
-// githubScanMode reads and validates the scan_mode cfg key. Default is
-// "history" (trufflehog parity). An unknown value is a hard error so typos do
-// not silently fall back to a cheaper, less-complete scan.
-func githubScanMode(cfg Config) (string, error) {
-	mode := cfg.Get("scan_mode", githubScanModeHistory)
-	switch mode {
-	case githubScanModeHistory, githubScanModeTree:
-		return mode, nil
-	default:
-		return "", fmt.Errorf("github: invalid scan_mode %q (want %q or %q)", mode, githubScanModeHistory, githubScanModeTree)
-	}
-}
 
 func init() {
 	Register("github", Connector{
@@ -99,7 +77,8 @@ func init() {
 	})
 }
 
-// scanGitHub is the Lambda handler. cfg keys:
+// scanGitHub is the Lambda handler. Scanning is always full-history; the walk
+// lives in scanGitHubHistory (github_history.go). cfg keys:
 //   - token         PAT, sent as Bearer (REST) / x-access-token (clone)
 //   - app_id        GitHub App ID, used with app_installation_id + private key
 //   - app_installation_id GitHub App installation ID
@@ -108,18 +87,11 @@ func init() {
 //   - org           org login (mutually exclusive with repo)
 //   - repo          owner/name single-repo scope
 //   - api_base      override https://api.github.com
-//   - scan_mode     "history" (default, full-history clone) | "tree" (REST)
-//   - max_blob_bytes per-blob size cap (tree mode only)
-//   - concurrency   per-repo blob fanout (tree mode only)
 //   - include_comments scan issue comments and pull review comments
 //   - clone_url_template advanced/test-only override for the clone URL; see
 //     deriveCloneURL. Use "{owner}" and "{repo}" placeholders, or a bare local
 //     path for tests injecting a fixture repo.
 func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
-	mode, err := githubScanMode(cfg)
-	if err != nil {
-		return err
-	}
 	auth, err := newGitHubAuthProvider(cfg)
 	if err != nil {
 		return err
@@ -141,63 +113,7 @@ func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
 	if u, err := url.Parse(apiBase); err != nil || u.Scheme == "" || u.Host == "" {
 		return fmt.Errorf("github: invalid api_base %q", apiBase)
 	}
-	if mode == githubScanModeHistory {
-		return scanGitHubHistory(ctx, cfg, auth, apiBase, org, repo, emit)
-	}
-	maxBytes := githubDefaultMaxBlobBytes
-	if v := cfg["max_blob_bytes"]; v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-			maxBytes = n
-		}
-	}
-	concurrency := 4
-	if v := cfg["concurrency"]; v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			concurrency = n
-		}
-	}
-
-	cli := newGitHubClient(apiBase, auth)
-	repos, err := githubListRepos(ctx, cli, org, repo)
-	if err != nil {
-		return err
-	}
-	previousState, err := loadGitHubIncrementalState(cfg[configKeyIncrementalPreviousState])
-	if err != nil {
-		return err
-	}
-	nextState := &githubIncrementalState{Version: 1, Repos: map[string]githubRepoIncrementalState{}}
-	if previousState == nil {
-		previousState = &githubIncrementalState{Version: 1, Repos: map[string]githubRepoIncrementalState{}}
-	}
-	for _, r := range repos {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		repoKey := r.Owner.Login + "/" + r.Name
-		prevRepo, hasPrevRepo := previousState.Repos[repoKey]
-		nextRepo, err := scanGitHubRepoIncremental(ctx, cli, r, prevRepo, hasPrevRepo, maxBytes, concurrency, emit)
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return err
-			}
-			// per-repo failures are tolerated — keep walking the org.
-			continue
-		}
-		if parseBool(cfg["include_comments"]) {
-			if err := scanGitHubCommentsIncremental(ctx, cli, r, prevRepo, hasPrevRepo, &nextRepo, emit); err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return err
-				}
-				continue
-			}
-		}
-		nextState.Repos[repoKey] = nextRepo
-	}
-	if data, err := json.Marshal(nextState); err == nil {
-		cfg[configKeyIncrementalNextState] = string(data)
-	}
-	return nil
+	return scanGitHubHistory(ctx, cfg, auth, apiBase, org, repo, emit)
 }
 
 // verifyGitHub hits GET /user for PATs and GET /installation/repositories for
@@ -244,26 +160,6 @@ type githubRepoRef struct {
 	Visibility    string `json:"visibility"`
 }
 
-type githubTreeResp struct {
-	SHA       string           `json:"sha"`
-	Tree      []githubTreeNode `json:"tree"`
-	Truncated bool             `json:"truncated"`
-}
-
-type githubTreeNode struct {
-	Path string `json:"path"`
-	Type string `json:"type"`
-	SHA  string `json:"sha"`
-	Size int64  `json:"size"`
-}
-
-type githubBlobResp struct {
-	SHA      string `json:"sha"`
-	Encoding string `json:"encoding"`
-	Content  string `json:"content"`
-	Size     int64  `json:"size"`
-}
-
 type githubIssueComment struct {
 	ID        int64  `json:"id"`
 	Body      string `json:"body"`
@@ -288,26 +184,21 @@ type githubIncrementalState struct {
 }
 
 type githubRepoIncrementalState struct {
-	// Mode distinguishes the state shape. Empty/"tree" → legacy tree-mode
-	// fields below. "history" → RefHeads carries the per-ref head shas from
-	// the previous full-history walk. A history-mode run that encounters
-	// tree-mode state (Mode != "history") ignores it and does a full scan
-	// once, then writes history state; tree mode ignores history state the
-	// same way.
+	// Mode tags the state shape so legacy tree-mode state (written by builds
+	// from before tree mode was removed: Mode empty or "tree", carrying a
+	// blobs map and no RefHeads) is recognised and ignored. Current state is
+	// always Mode == "history": RefHeads carries the per-ref head shas from
+	// the previous full-history walk, used to seed the next walk's stop-set.
+	// A run that loads non-history state ignores it, performs one full rescan,
+	// and rewrites the repo entry as history state — so old states migrate
+	// transparently on the next scan. Mode is retained (rather than dropped)
+	// precisely to make that one-time migration detectable; once all persisted
+	// state has been rewritten it is always "history".
 	Mode               string                                   `json:"mode,omitempty"`
-	DefaultBranch      string                                   `json:"default_branch,omitempty"`
 	Visibility         string                                   `json:"visibility,omitempty"`
-	TreeSHA            string                                   `json:"tree_sha,omitempty"`
-	TreeTruncated      bool                                     `json:"tree_truncated,omitempty"`
-	Blobs              map[string]githubBlobIncrementalState    `json:"blobs,omitempty"`
 	RefHeads           map[string]string                        `json:"ref_heads,omitempty"`
 	IssueComments      map[string]githubCommentIncrementalState `json:"issue_comments,omitempty"`
 	PullReviewComments map[string]githubCommentIncrementalState `json:"pull_review_comments,omitempty"`
-}
-
-type githubBlobIncrementalState struct {
-	SHA  string `json:"sha"`
-	Size int64  `json:"size"`
 }
 
 type githubCommentIncrementalState struct {
@@ -316,6 +207,14 @@ type githubCommentIncrementalState struct {
 	Position  int    `json:"position,omitempty"`
 }
 
+// loadGitHubIncrementalState parses persisted per-repo incremental state.
+// Migration: state written by builds from before tree mode was removed has
+// per-repo entries with Mode empty or "tree" and a now-deleted blobs map but
+// no RefHeads. Those entries unmarshal cleanly here (unknown JSON fields are
+// dropped, the blobs map simply has no destination field). The history walk
+// then treats any entry whose Mode != "history" as absent: it performs one
+// full rescan for that repo and rewrites the entry as history state, so old
+// states migrate transparently on the next scan without erroring.
 func loadGitHubIncrementalState(raw string) (*githubIncrementalState, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil
@@ -358,58 +257,6 @@ func githubListRepos(ctx context.Context, cli *githubClient, org, repo string) (
 		next = parseLinkHeader(resp.Header.Get("Link"))
 	}
 	return repos, nil
-}
-
-func scanGitHubRepoIncremental(ctx context.Context, cli *githubClient, repo githubRepoRef, prev githubRepoIncrementalState, hasPrev bool, maxBytes int64, concurrency int, emit Emit) (githubRepoIncrementalState, error) {
-	if repo.DefaultBranch == "" {
-		path := fmt.Sprintf("/repos/%s/%s", repo.Owner.Login, repo.Name)
-		if _, err := cli.getJSON(ctx, path, &repo); err != nil {
-			return githubRepoIncrementalState{}, fmt.Errorf("github: resolve default branch for %s/%s: %w", repo.Owner.Login, repo.Name, err)
-		}
-	}
-	next := githubRepoIncrementalState{
-		DefaultBranch: repo.DefaultBranch,
-		Visibility:    repo.Visibility,
-		Blobs:         map[string]githubBlobIncrementalState{},
-	}
-	if repo.DefaultBranch == "" {
-		return next, nil
-	}
-	var tree githubTreeResp
-	treePath := fmt.Sprintf("/repos/%s/%s/git/trees/%s?recursive=1", repo.Owner.Login, repo.Name, repo.DefaultBranch)
-	if _, err := cli.getJSON(ctx, treePath, &tree); err != nil {
-		return githubRepoIncrementalState{}, fmt.Errorf("github: tree %s/%s@%s: %w", repo.Owner.Login, repo.Name, repo.DefaultBranch, err)
-	}
-	next.TreeSHA = tree.SHA
-	next.TreeTruncated = tree.Truncated
-
-	g, gctx := errgroup.WithContext(ctx)
-	sem := make(chan struct{}, concurrency)
-	for _, node := range tree.Tree {
-		node := node
-		if node.Type != "blob" {
-			continue
-		}
-		next.Blobs[node.Path] = githubBlobIncrementalState{SHA: node.SHA, Size: node.Size}
-		if node.Size > maxBytes {
-			continue
-		}
-		if hasPrev && !tree.Truncated && !prev.TreeTruncated && prev.DefaultBranch == repo.DefaultBranch {
-			if old, ok := prev.Blobs[node.Path]; ok && old.SHA == node.SHA && old.Size == node.Size {
-				continue
-			}
-		}
-		select {
-		case sem <- struct{}{}:
-		case <-gctx.Done():
-			return githubRepoIncrementalState{}, gctx.Err()
-		}
-		g.Go(func() error {
-			defer func() { <-sem }()
-			return emitGitHubBlob(gctx, cli, repo, node, emit)
-		})
-	}
-	return next, g.Wait()
 }
 
 func scanGitHubCommentsIncremental(ctx context.Context, cli *githubClient, repo githubRepoRef, prev githubRepoIncrementalState, hasPrev bool, next *githubRepoIncrementalState, emit Emit) error {
@@ -511,10 +358,6 @@ func scanGitHubPullReviewCommentsIncremental(ctx context.Context, cli *githubCli
 }
 
 func fingerprintGitHub(ctx context.Context, cfg Config) (string, error) {
-	mode, err := githubScanMode(cfg)
-	if err != nil {
-		return "", err
-	}
 	auth, err := newGitHubAuthProvider(cfg)
 	if err != nil {
 		return "", err
@@ -538,71 +381,24 @@ func fingerprintGitHub(ctx context.Context, cfg Config) (string, error) {
 
 	h := sha256.New()
 	writeFingerprint(h, "github-v1")
-	writeFingerprint(h, mode)
 	writeFingerprint(h, apiBase)
 	writeFingerprint(h, org)
 	writeFingerprint(h, repo)
 	writeFingerprint(h, cfg.Get("include_comments", "false"))
-	if mode == githubScanModeHistory {
-		for _, r := range repos {
-			if err := fingerprintGitHubRepoHistory(ctx, cfg, auth, apiBase, h, r); err != nil {
+	for _, r := range repos {
+		if err := fingerprintGitHubRepoHistory(ctx, cfg, auth, apiBase, h, r); err != nil {
+			return "", err
+		}
+		if parseBool(cfg["include_comments"]) {
+			if err := fingerprintGitHubIssueComments(ctx, cli, h, r); err != nil {
 				return "", err
 			}
-			if parseBool(cfg["include_comments"]) {
-				if err := fingerprintGitHubIssueComments(ctx, cli, h, r); err != nil {
-					return "", err
-				}
-				if err := fingerprintGitHubPullReviewComments(ctx, cli, h, r); err != nil {
-					return "", err
-				}
+			if err := fingerprintGitHubPullReviewComments(ctx, cli, h, r); err != nil {
+				return "", err
 			}
-		}
-		return hex.EncodeToString(h.Sum(nil)), nil
-	}
-	for _, r := range repos {
-		if err := fingerprintGitHubRepo(ctx, cli, h, r, parseBool(cfg["include_comments"])); err != nil {
-			return "", err
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func fingerprintGitHubRepo(ctx context.Context, cli *githubClient, h hash.Hash, repo githubRepoRef, includeComments bool) error {
-	if repo.DefaultBranch == "" {
-		path := fmt.Sprintf("/repos/%s/%s", repo.Owner.Login, repo.Name)
-		if _, err := cli.getJSON(ctx, path, &repo); err != nil {
-			return fmt.Errorf("github: resolve default branch for %s/%s: %w", repo.Owner.Login, repo.Name, err)
-		}
-	}
-	writeFingerprint(h, repo.Owner.Login+"/"+repo.Name)
-	writeFingerprint(h, repo.DefaultBranch)
-	writeFingerprint(h, repo.Visibility)
-	if repo.DefaultBranch != "" {
-		var tree githubTreeResp
-		treePath := fmt.Sprintf("/repos/%s/%s/git/trees/%s?recursive=1", repo.Owner.Login, repo.Name, repo.DefaultBranch)
-		if _, err := cli.getJSON(ctx, treePath, &tree); err != nil {
-			return fmt.Errorf("github: fingerprint tree %s/%s@%s: %w", repo.Owner.Login, repo.Name, repo.DefaultBranch, err)
-		}
-		writeFingerprint(h, tree.SHA)
-		writeFingerprint(h, strconv.FormatBool(tree.Truncated))
-		for _, node := range tree.Tree {
-			if node.Type != "blob" {
-				continue
-			}
-			writeFingerprint(h, node.Path)
-			writeFingerprint(h, node.SHA)
-			writeFingerprint(h, strconv.FormatInt(node.Size, 10))
-		}
-	}
-	if includeComments {
-		if err := fingerprintGitHubIssueComments(ctx, cli, h, repo); err != nil {
-			return err
-		}
-		if err := fingerprintGitHubPullReviewComments(ctx, cli, h, repo); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func fingerprintGitHubIssueComments(ctx context.Context, cli *githubClient, h hash.Hash, repo githubRepoRef) error {
@@ -646,53 +442,6 @@ func fingerprintGitHubPullReviewComments(ctx context.Context, cli *githubClient,
 func writeFingerprint(h hash.Hash, s string) {
 	_, _ = h.Write([]byte(s))
 	_, _ = h.Write([]byte{0})
-}
-
-func emitGitHubBlob(ctx context.Context, cli *githubClient, repo githubRepoRef, node githubTreeNode, emit Emit) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	var blob githubBlobResp
-	path := fmt.Sprintf("/repos/%s/%s/git/blobs/%s", repo.Owner.Login, repo.Name, node.SHA)
-	if _, err := cli.getJSON(ctx, path, &blob); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return err
-		}
-		return nil
-	}
-	var data []byte
-	switch blob.Encoding {
-	case "base64", "":
-		// GitHub wraps base64 with newlines; std encoder rejects whitespace.
-		cleaned := strings.NewReplacer("\n", "", "\r", "", " ", "").Replace(blob.Content)
-		decoded, err := base64.StdEncoding.DecodeString(cleaned)
-		if err != nil {
-			return nil
-		}
-		data = decoded
-	case "utf-8":
-		data = []byte(blob.Content)
-	default:
-		return nil
-	}
-	visibility := "public"
-	if repo.Private {
-		visibility = "private"
-	} else if repo.Visibility != "" {
-		visibility = repo.Visibility
-	}
-	return emit(data, sources.Metadata{
-		GitHub: &sources.GitHubMeta{
-			Repository: repo.Owner.Login + "/" + repo.Name,
-			File:       node.Path,
-			Visibility: visibility,
-			Owner:      repo.Owner.Login,
-			Repo:       repo.Name,
-			Path:       node.Path,
-			Sha:        node.SHA,
-			Branch:     repo.DefaultBranch,
-		},
-	})
 }
 
 // --- rate-limit-aware HTTP client ---
