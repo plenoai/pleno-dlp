@@ -166,6 +166,95 @@ func TestLooksLikePath(t *testing.T) {
 	}
 }
 
+func TestLooksLikeSRIHash(t *testing.T) {
+	cases := []struct {
+		s    string
+		want bool
+	}{
+		{"sha256-RFWPLDbv2BY+rCkDzsE+0fr8ylQr2a", true},
+		{"sha384-H8BRh8j48O9oYatfu5AZzq9to9wNipiB", true},
+		{"sha512-oqVuAfXRKap7fdgcCY5uykM6+R9GqQ8K", true},
+		{"SHA256-uppercaseprefix", true},
+		{"Hf83KdjL9qZ8xVnB2Wm7TpRcJyXuAbCdEfGhIjKlMnOp01", false},
+		{"AKIAIOSFODNN7EXAMPLE0000000000000", false},
+	}
+	for _, c := range cases {
+		if got := looksLikeSRIHash(c.s); got != c.want {
+			t.Errorf("looksLikeSRIHash(%q) = %v, want %v", c.s, got, c.want)
+		}
+	}
+}
+
+func TestLooksLikeHexDigest(t *testing.T) {
+	cases := []struct {
+		s    string
+		want bool
+	}{
+		{"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4", true},                                                             // MD5 (32)
+		{"da39a3ee5e6b4b0d3255bfef95601890afd80709", true},                                                      // SHA-1 (40)
+		{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", true},                              // SHA-256 (64)
+		{"Hf83KdjL9qZ8xVnB2Wm7TpRcJyXuAbCdEfGhIjKlMnOp01", false},                                             // non-hex chars
+		{"a1b2c3d4e5f6a1b2c3d4", false},                                                                         // 20 chars, not a standard digest length
+		{"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1", false},                             // 63 chars, not standard
+		{"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5", false},                                                          // 35 chars
+		{"DEADBEEFDEADBEEFDEADBEEFDEADBEEF", true},                                                               // uppercase hex, MD5 length
+	}
+	for _, c := range cases {
+		if got := looksLikeHexDigest(c.s); got != c.want {
+			t.Errorf("looksLikeHexDigest(%q) = %v, want %v", c.s, got, c.want)
+		}
+	}
+}
+
+func TestFromData_RejectsSRIHash(t *testing.T) {
+	// npm package-lock.json integrity field: should not fire even though
+	// "integrity" is near "password" from an unrelated section.
+	chunk := []byte(`{
+  "password": "exampleSensitiveNear",
+  "integrity": "sha512-oqVuAfXRKap7fdgcCY5uykM6+R9GqQ8K/eO0EQ3HjgL1WxQvGKYfh8hqQRk="
+}`)
+	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	for _, r := range res {
+		raw := string(r.Raw)
+		if strings.HasPrefix(strings.ToLower(raw), "sha") {
+			t.Errorf("SRI hash must NOT fire; got %q", raw)
+		}
+	}
+}
+
+func TestFromData_RejectsHexDigestInLockfile(t *testing.T) {
+	// composer.lock-style hash near a keyword; the hex digest should be suppressed.
+	chunk := []byte(`{
+  "auth": "token",
+  "hash": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+}`)
+	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	for _, r := range res {
+		if string(r.Raw) == "da39a3ee5e6b4b0d3255bfef95601890afd80709" {
+			t.Errorf("hex digest in hash context must NOT fire; got %q", r.Raw)
+		}
+	}
+}
+
+func TestFromData_StillFiresOnRealSecret(t *testing.T) {
+	// A real-looking API key near a keyword must still be detected even when
+	// an SRI hash appears elsewhere in the chunk.
+	chunk := []byte(`{
+  "integrity": "sha256-abc123",
+  "api_key": "Hf83KdjL9qZ8xVnB2Wm7TpRcJyXuAbCdEfGhIjKlMnOp01"
+}`)
+	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	found := false
+	for _, r := range res {
+		if strings.Contains(string(r.Raw), "Hf83KdjL9qZ8") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("real API key must still fire even when SRI hash is in the same chunk")
+	}
+}
+
 func TestShannonEntropy_CalibratesAtFour(t *testing.T) {
 	// Sanity-check the threshold: random-looking strings score above 4.0,
 	// repetitive strings score well below.

@@ -100,6 +100,9 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		if looksLikeIdentifier(secret) || looksLikePath(secret) {
 			continue
 		}
+		if looksLikeSRIHash(secret) || looksLikeHexDigest(secret) {
+			continue
+		}
 		if !nearKeyword(m[0], m[1], keywordSpans) {
 			continue
 		}
@@ -212,6 +215,40 @@ func looksLikePath(s string) bool {
 		}
 	}
 	return false
+}
+
+// looksLikeSRIHash reports whether s is a Subresource Integrity (SRI) hash.
+// SRI hashes begin with sha256-, sha384-, or sha512- followed by base64;
+// they appear in HTML integrity attributes and npm/yarn lock files and are
+// never API secrets.
+func looksLikeSRIHash(s string) bool {
+	lower := strings.ToLower(s)
+	for _, prefix := range []string{"sha256-", "sha384-", "sha512-"} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// hexDigestLengths are the byte lengths of standard cryptographic digests
+// (MD5=32, SHA-1=40, SHA-224=56, SHA-256=64, SHA-512=128).
+var hexDigestLengths = map[int]bool{32: true, 40: true, 56: true, 64: true, 128: true}
+
+// looksLikeHexDigest reports whether s is a lowercase/uppercase hex string of
+// a standard hash length. Such strings appear as checksums in lock files
+// (composer.lock, package-lock.json) and git object IDs; they are not secrets.
+func looksLikeHexDigest(s string) bool {
+	if !hexDigestLengths[len(s)] {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 // shannonEntropy in bits-per-byte. Same shape as
