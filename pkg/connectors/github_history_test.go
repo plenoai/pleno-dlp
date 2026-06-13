@@ -168,7 +168,6 @@ func TestGitHubHistoryScanEmitsAllBranches(t *testing.T) {
 		"token":              "ghp_test",
 		"repo":               "acme/widget",
 		"api_base":           srv.URL,
-		"scan_mode":          "history",
 		"clone_url_template": fixture,
 	}
 
@@ -276,7 +275,6 @@ func TestGitHubHistoryIncrementalEmitsOnlyNewCommits(t *testing.T) {
 		"token":              "ghp_test",
 		"repo":               "acme/widget",
 		"api_base":           srv.URL,
-		"scan_mode":          "history",
 		"clone_url_template": dir,
 	}
 
@@ -357,7 +355,6 @@ func TestGitHubHistoryFingerprintTracksRefs(t *testing.T) {
 		"token":              "ghp_test",
 		"repo":               "acme/widget",
 		"api_base":           srv.URL,
-		"scan_mode":          "history",
 		"clone_url_template": dir,
 	}
 	first, err := fingerprintGitHub(context.Background(), cfg)
@@ -371,6 +368,95 @@ func TestGitHubHistoryFingerprintTracksRefs(t *testing.T) {
 	}
 	if first == second {
 		t.Fatalf("fingerprint did not change after a new commit moved the ref head: %s", first)
+	}
+}
+
+// TestGitHubHistoryScanComments exercises the REST comments surface
+// (--include-comments) through the history scan path: comments are emitted on
+// the first run and the incremental rerun emits only the comment whose
+// updated_at changed. Code chunks come from the local clone fixture; comments
+// come from the httptest REST server.
+func TestGitHubHistoryScanComments(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("code-secret"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := wt.Add("a.txt"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := wt.Commit("c1", &gogit.CommitOptions{
+		Author:    &object.Signature{Name: "T", Email: "t@e.com", When: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)},
+		Committer: &object.Signature{Name: "T", Email: "t@e.com", When: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)},
+	}); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	issueUpdated := "2026-06-09T00:00:00Z"
+	pullUpdated := "2026-06-09T00:00:00Z"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/acme/widget":
+			writeJSON(t, w, githubRepoRef{Name: "widget", DefaultBranch: "master", Visibility: "public"})
+		case "/repos/acme/widget/issues/comments":
+			writeJSON(t, w, []githubIssueComment{{ID: 101, Body: "issue-secret", UpdatedAt: issueUpdated}})
+		case "/repos/acme/widget/pulls/comments":
+			writeJSON(t, w, []githubPullReviewComment{{ID: 202, Body: "pull-secret", Path: "a.txt", Position: 7, UpdatedAt: pullUpdated}})
+		default:
+			t.Fatalf("unexpected REST path: %s", r.URL.String())
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := Config{
+		"token":              "ghp_test",
+		"repo":               "acme/widget",
+		"api_base":           srv.URL,
+		"include_comments":   "true",
+		"clone_url_template": dir,
+	}
+
+	collect := func() []string {
+		var got []string
+		var mu sync.Mutex
+		if err := scanGitHub(context.Background(), cfg, func(data []byte, _ sources.Metadata) error {
+			mu.Lock()
+			defer mu.Unlock()
+			got = append(got, string(data))
+			return nil
+		}); err != nil {
+			t.Fatalf("scanGitHub: %v", err)
+		}
+		sort.Strings(got)
+		return got
+	}
+
+	first := collect()
+	if got, want := strings.Join(first, ","), "code-secret,issue-secret,pull-secret"; got != want {
+		t.Fatalf("first emitted %q, want %q", got, want)
+	}
+	state := cfg[configKeyIncrementalNextState]
+	if state == "" {
+		t.Fatal("first run produced no incremental state")
+	}
+
+	// Rerun seeded with prior state: code is unchanged (ref head identical) and
+	// the issue comment is unchanged, so only the pull comment (new updated_at)
+	// is re-emitted.
+	pullUpdated = "2026-06-09T01:00:00Z"
+	cfg[configKeyIncrementalPreviousState] = state
+	delete(cfg, configKeyIncrementalNextState)
+
+	second := collect()
+	if got, want := strings.Join(second, ","), "pull-secret"; got != want {
+		t.Fatalf("second emitted %q, want only changed comment %q", got, want)
 	}
 }
 

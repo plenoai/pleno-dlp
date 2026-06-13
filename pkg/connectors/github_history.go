@@ -1,4 +1,4 @@
-// GitHub history scan mode. Per repo: one bare git clone over smart HTTP, then
+// GitHub full-history scan. Per repo: one bare git clone over smart HTTP, then
 // a full-history walk of every ref via the git source (AllBranches=true). The
 // git source owns the diff walk; this file only clones, bridges its Chunk
 // channel into the connector Emit (rewriting GitMeta provenance into the
@@ -70,7 +70,7 @@ func deriveCloneURL(apiBase, owner, repo, template string) (string, error) {
 
 // scanGitHubHistory clones every enumerated repo and walks its full history.
 // Per-repo failures (clone error, walk error) are tolerated so the org walk
-// continues; context cancellation/deadline is terminal, matching tree mode.
+// continues; context cancellation/deadline is terminal.
 func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider, apiBase, org, repo string, emit Emit) error {
 	cli := newGitHubClient(apiBase, auth)
 	repos, err := githubListRepos(ctx, cli, org, repo)
@@ -104,11 +104,10 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 			continue
 		}
 		if parseBool(cfg["include_comments"]) {
-			// Comments stay REST-based in both modes; reuse the tree-mode path.
-			// History repo state never carries tree-mode comment cursors, so a
-			// history run always rescans comments (Mode-gated below). To keep
-			// comment incrementality, carry the previous comment cursors only
-			// when the previous state was itself history mode.
+			// Comments are REST-based. To keep comment incrementality, carry the
+			// previous comment cursors only when the previous state was history
+			// mode; legacy tree-mode state never carried history comment cursors,
+			// so loading it triggers a one-time full comment rescan.
 			commentPrev := githubRepoIncrementalState{}
 			hasCommentPrev := false
 			if prevRepo.Mode == githubScanModeHistory {
@@ -170,8 +169,8 @@ func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProv
 	if err := src.Init(ctx, "github", 0, 0, false, raw, 1); err != nil {
 		return githubRepoIncrementalState{}, fmt.Errorf("github: init git walk for %s/%s: %w", repo.Owner.Login, repo.Name, err)
 	}
-	// Seed the git walk's stop-set from the previous history run's ref heads.
-	// Legacy/tree-mode state is ignored (Mode guard) → one full scan.
+	// Seed the git walk's stop-set from the previous run's ref heads.
+	// Legacy tree-mode state is ignored (Mode guard) → one full scan.
 	if prev.Mode == githubScanModeHistory && len(prev.RefHeads) > 0 {
 		if seed := gitIncrementalSeed(prev.RefHeads); seed != nil {
 			if err := src.SetIncrementalState(seed); err != nil {
