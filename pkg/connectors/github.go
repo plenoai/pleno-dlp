@@ -1,14 +1,38 @@
 // GitHub connector. Single-file Lambda-handler shape: auth, fetch, emit.
 //
-// Surface: org or single-repo default-branch blobs, plus optional issue /
-// pull-request comments. GitHub models pull requests as issues, so issue
-// comments cover PR conversation comments; pull review comments cover inline
-// code-review comments.
+// Scan modes (cfg key `scan_mode`):
 //
-// Auth: Personal Access Token or GitHub App installation token via
-// `Authorization: Bearer <token>` against the public REST API
-// (`https://api.github.com`). GitHub Enterprise installs override the base
-// via `api_base`.
+//   - history (DEFAULT): trufflehog parity. Per repo, perform ONE bare git
+//     clone over smart HTTP and walk every reachable commit on every ref
+//     locally, diffing each commit against its first parent. Git smart-HTTP
+//     does NOT consume the GitHub REST rate limit, so the per-repo REST cost
+//     of history scanning is ZERO. REST is used only for repo enumeration and
+//     (optionally) the comments surface.
+//   - tree: the original behaviour. Org or single-repo default-branch blobs
+//     fetched via the REST git-trees + git-blobs API. Kept verbatim for users
+//     who want a cheap default-branch-only snapshot.
+//
+// API-call accounting:
+//   - Repo enumeration: 1 REST call (single repo) or N paginated REST calls
+//     (org listing) — both modes.
+//   - history mode, per repo: 0 REST calls for code (1 smart-HTTP clone, then
+//     local walk). Fingerprint uses 1 smart-HTTP ref advertisement, 0 REST.
+//   - tree mode, per repo: 1 REST tree call + 1 REST blob call per changed
+//     blob.
+//   - include_comments (both modes): REST issue-comment + pull-review-comment
+//     pagination, unchanged.
+//
+// Surface (tree mode): org or single-repo default-branch blobs, plus optional
+// issue / pull-request comments. GitHub models pull requests as issues, so
+// issue comments cover PR conversation comments; pull review comments cover
+// inline code-review comments. Comments are REST-based in both modes.
+//
+// Auth: Personal Access Token or GitHub App installation token. REST requests
+// send `Authorization: Bearer <token>`; git smart-HTTP clones authenticate as
+// `x-access-token:<token>` HTTP Basic (works for PATs and App installation
+// tokens alike). The public REST API base is `https://api.github.com`; GitHub
+// Enterprise installs override it via `api_base` (e.g.
+// `https://ghe.example/api/v3`), from which the clone host is derived.
 
 package connectors
 
@@ -48,7 +72,23 @@ const (
 	githubRequestTimeout      = 60 * time.Second
 	githubAppJWTLifetime      = 9 * time.Minute
 	githubAppRefreshSkew      = 5 * time.Minute
+
+	githubScanModeHistory = "history"
+	githubScanModeTree    = "tree"
 )
+
+// githubScanMode reads and validates the scan_mode cfg key. Default is
+// "history" (trufflehog parity). An unknown value is a hard error so typos do
+// not silently fall back to a cheaper, less-complete scan.
+func githubScanMode(cfg Config) (string, error) {
+	mode := cfg.Get("scan_mode", githubScanModeHistory)
+	switch mode {
+	case githubScanModeHistory, githubScanModeTree:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("github: invalid scan_mode %q (want %q or %q)", mode, githubScanModeHistory, githubScanModeTree)
+	}
+}
 
 func init() {
 	Register("github", Connector{
@@ -60,7 +100,7 @@ func init() {
 }
 
 // scanGitHub is the Lambda handler. cfg keys:
-//   - token         PAT, sent as Bearer
+//   - token         PAT, sent as Bearer (REST) / x-access-token (clone)
 //   - app_id        GitHub App ID, used with app_installation_id + private key
 //   - app_installation_id GitHub App installation ID
 //   - app_private_key GitHub App PEM private key
@@ -68,10 +108,18 @@ func init() {
 //   - org           org login (mutually exclusive with repo)
 //   - repo          owner/name single-repo scope
 //   - api_base      override https://api.github.com
-//   - max_blob_bytes per-blob size cap
-//   - concurrency   per-repo blob fanout
+//   - scan_mode     "history" (default, full-history clone) | "tree" (REST)
+//   - max_blob_bytes per-blob size cap (tree mode only)
+//   - concurrency   per-repo blob fanout (tree mode only)
 //   - include_comments scan issue comments and pull review comments
+//   - clone_url_template advanced/test-only override for the clone URL; see
+//     deriveCloneURL. Use "{owner}" and "{repo}" placeholders, or a bare local
+//     path for tests injecting a fixture repo.
 func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
+	mode, err := githubScanMode(cfg)
+	if err != nil {
+		return err
+	}
 	auth, err := newGitHubAuthProvider(cfg)
 	if err != nil {
 		return err
@@ -92,6 +140,9 @@ func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
 	apiBase := cfg.Get("api_base", githubDefaultAPIBase)
 	if u, err := url.Parse(apiBase); err != nil || u.Scheme == "" || u.Host == "" {
 		return fmt.Errorf("github: invalid api_base %q", apiBase)
+	}
+	if mode == githubScanModeHistory {
+		return scanGitHubHistory(ctx, cfg, auth, apiBase, org, repo, emit)
 	}
 	maxBytes := githubDefaultMaxBlobBytes
 	if v := cfg["max_blob_bytes"]; v != "" {
@@ -237,11 +288,19 @@ type githubIncrementalState struct {
 }
 
 type githubRepoIncrementalState struct {
+	// Mode distinguishes the state shape. Empty/"tree" → legacy tree-mode
+	// fields below. "history" → RefHeads carries the per-ref head shas from
+	// the previous full-history walk. A history-mode run that encounters
+	// tree-mode state (Mode != "history") ignores it and does a full scan
+	// once, then writes history state; tree mode ignores history state the
+	// same way.
+	Mode               string                                   `json:"mode,omitempty"`
 	DefaultBranch      string                                   `json:"default_branch,omitempty"`
 	Visibility         string                                   `json:"visibility,omitempty"`
 	TreeSHA            string                                   `json:"tree_sha,omitempty"`
 	TreeTruncated      bool                                     `json:"tree_truncated,omitempty"`
 	Blobs              map[string]githubBlobIncrementalState    `json:"blobs,omitempty"`
+	RefHeads           map[string]string                        `json:"ref_heads,omitempty"`
 	IssueComments      map[string]githubCommentIncrementalState `json:"issue_comments,omitempty"`
 	PullReviewComments map[string]githubCommentIncrementalState `json:"pull_review_comments,omitempty"`
 }
@@ -452,6 +511,10 @@ func scanGitHubPullReviewCommentsIncremental(ctx context.Context, cli *githubCli
 }
 
 func fingerprintGitHub(ctx context.Context, cfg Config) (string, error) {
+	mode, err := githubScanMode(cfg)
+	if err != nil {
+		return "", err
+	}
 	auth, err := newGitHubAuthProvider(cfg)
 	if err != nil {
 		return "", err
@@ -475,10 +538,27 @@ func fingerprintGitHub(ctx context.Context, cfg Config) (string, error) {
 
 	h := sha256.New()
 	writeFingerprint(h, "github-v1")
+	writeFingerprint(h, mode)
 	writeFingerprint(h, apiBase)
 	writeFingerprint(h, org)
 	writeFingerprint(h, repo)
 	writeFingerprint(h, cfg.Get("include_comments", "false"))
+	if mode == githubScanModeHistory {
+		for _, r := range repos {
+			if err := fingerprintGitHubRepoHistory(ctx, cfg, auth, apiBase, h, r); err != nil {
+				return "", err
+			}
+			if parseBool(cfg["include_comments"]) {
+				if err := fingerprintGitHubIssueComments(ctx, cli, h, r); err != nil {
+					return "", err
+				}
+				if err := fingerprintGitHubPullReviewComments(ctx, cli, h, r); err != nil {
+					return "", err
+				}
+			}
+		}
+		return hex.EncodeToString(h.Sum(nil)), nil
+	}
 	for _, r := range repos {
 		if err := fingerprintGitHubRepo(ctx, cli, h, r, parseBool(cfg["include_comments"])); err != nil {
 			return "", err

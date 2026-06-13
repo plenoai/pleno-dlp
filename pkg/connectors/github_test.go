@@ -52,6 +52,7 @@ func TestGitHubFingerprintUsesMetadataWithoutFetchingBlobs(t *testing.T) {
 		"token":            "ghp_test",
 		"repo":             "acme/widget",
 		"api_base":         srv.URL,
+		"scan_mode":        "tree",
 		"include_comments": "true",
 	})
 	if err != nil {
@@ -82,7 +83,7 @@ func TestGitHubFingerprintChangesWhenTreeChanges(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	cfg := Config{"token": "ghp_test", "repo": "acme/widget", "api_base": srv.URL}
+	cfg := Config{"token": "ghp_test", "repo": "acme/widget", "api_base": srv.URL, "scan_mode": "tree"}
 	first, err := fingerprintGitHub(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("first fingerprintGitHub: %v", err)
@@ -131,6 +132,7 @@ func TestGitHubIncrementalScanEmitsOnlyChangedResources(t *testing.T) {
 		"token":            "ghp_test",
 		"repo":             "acme/widget",
 		"api_base":         srv.URL,
+		"scan_mode":        "tree",
 		"include_comments": "true",
 	}
 	var first []string
