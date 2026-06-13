@@ -104,12 +104,13 @@ type fsFlags struct {
 var fsOpts fsFlags
 
 type gitFlags struct {
-	repo     string
-	branch   string
-	since    string
-	maxDepth int
-	include  []string
-	exclude  []string
+	repo           string
+	branch         string
+	since          string
+	maxDepth       int
+	include        []string
+	exclude        []string
+	allOccurrences bool
 }
 
 var gitOpts gitFlags
@@ -210,6 +211,7 @@ func init() {
 	scanGitCmd.Flags().IntVar(&gitOpts.maxDepth, "max-depth", 0, "cap on commits walked (0 = unbounded)")
 	scanGitCmd.Flags().StringSliceVar(&gitOpts.include, "include", nil, "glob(s) to include (matched against repo-relative paths)")
 	scanGitCmd.Flags().StringSliceVar(&gitOpts.exclude, "exclude", nil, "glob(s) to exclude")
+	scanGitCmd.Flags().BoolVar(&gitOpts.allOccurrences, "all-occurrences", false, "report every commit a secret appears in; default collapses to the introducing commit with extra_data.occurrence_count")
 	_ = scanGitCmd.MarkFlagRequired("repo")
 
 	scanStdinCmd.Flags().StringVar(&stdinOpts.label, "label", "", "label for the stdin input (rendered in output; default \"<stdin>\")")
@@ -441,6 +443,13 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	allowed := engine.NewAllowlist(allowlist, topSink)
 	placeheld := engine.NewPlaceholderFilter(allowed)
 	deduped := engine.NewDedup(placeheld)
+	// Git-mode cross-commit dedup: collapse the same secret+file across many
+	// commits to a single introducing-commit finding (with occurrence_count).
+	// Wraps the per-location dedup so the counter only sees unique secrets.
+	var scanSink engine.Sink = deduped
+	if kind == "git" && !gitOpts.allOccurrences {
+		scanSink = engine.NewGitCrossCommitDedup(deduped)
+	}
 	defer func() { _ = sink.Close() }()
 	defer func() {
 		if n := engine.SuppressedCounter(allowed); n > 0 {
@@ -454,7 +463,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	eng := engine.NewWithDetectors(dets, engine.Options{
 		Verify:      scanOpts.verify,
 		Concurrency: scanOpts.concurrency,
-	}, deduped)
+	}, scanSink)
 
 	stats, err := eng.RunWithStats(ctx, src)
 	if err != nil {
