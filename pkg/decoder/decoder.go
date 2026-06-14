@@ -20,6 +20,9 @@ const printableThreshold = 0.8
 // percentEncoded matches a substring containing at least two %xx escapes.
 var percentEncoded = regexp.MustCompile(`(?:%[0-9A-Fa-f]{2}){2,}`)
 
+// unicodeEscaped matches a substring containing at least two \uXXXX sequences.
+var unicodeEscaped = regexp.MustCompile(`(?:\\u[0-9A-Fa-f]{4}){2,}`)
+
 // Variant pairs a decoded byte slice with the decoder that produced it.
 type Variant struct {
 	Source string
@@ -48,7 +51,74 @@ func Variants(data []byte) []Variant {
 	if src, v := tryUTF16(data); v != nil {
 		out = append(out, Variant{Source: src, Data: v})
 	}
+	if unicodeEscaped.Match(data) {
+		if v := decodeUnicodeEscape(data); v != nil {
+			out = append(out, Variant{Source: "unicode-escape", Data: v})
+		}
+	}
 	return out
+}
+
+// decodeUnicodeEscape replaces \uXXXX sequences with their UTF-8 equivalents.
+// Surrogate pairs (\uD800–\uDBFF followed by \uDC00–\uDFFF) are combined
+// before encoding. Returns nil when the decoded form is not mostly printable
+// or is identical to the input.
+func decodeUnicodeEscape(data []byte) []byte {
+	s := string(data)
+	out := make([]byte, 0, len(data))
+	i := 0
+	for i < len(s) {
+		if i+5 < len(s) && s[i] == '\\' && s[i+1] == 'u' {
+			hi, ok := parseHex4(s[i+2 : i+6])
+			if !ok {
+				out = append(out, s[i])
+				i++
+				continue
+			}
+			r := rune(hi)
+			consumed := 6
+			// Surrogate pair handling.
+			if r >= 0xD800 && r <= 0xDBFF && i+11 < len(s) && s[i+6] == '\\' && s[i+7] == 'u' {
+				lo, ok2 := parseHex4(s[i+8 : i+12])
+				if ok2 && lo >= 0xDC00 && lo <= 0xDFFF {
+					r = utf16.DecodeRune(r, rune(lo))
+					consumed = 12
+				}
+			}
+			var buf [utf8.UTFMax]byte
+			n := utf8.EncodeRune(buf[:], r)
+			out = append(out, buf[:n]...)
+			i += consumed
+		} else {
+			out = append(out, s[i])
+			i++
+		}
+	}
+	if bytes.Equal(out, data) || !mostlyPrintable(out) {
+		return nil
+	}
+	return out
+}
+
+func parseHex4(s string) (uint16, bool) {
+	if len(s) != 4 {
+		return 0, false
+	}
+	var v uint16
+	for _, c := range []byte(s) {
+		v <<= 4
+		switch {
+		case c >= '0' && c <= '9':
+			v |= uint16(c - '0')
+		case c >= 'a' && c <= 'f':
+			v |= uint16(c-'a') + 10
+		case c >= 'A' && c <= 'F':
+			v |= uint16(c-'A') + 10
+		default:
+			return 0, false
+		}
+	}
+	return v, true
 }
 
 // tryUTF16 returns a ("utf16le"|"utf16be", UTF-8 bytes) pair when data looks
