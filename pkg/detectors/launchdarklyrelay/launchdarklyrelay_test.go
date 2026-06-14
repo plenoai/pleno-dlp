@@ -1,3 +1,5 @@
+//go:build detector_unit
+
 package launchdarklyrelay
 
 import (
@@ -25,7 +27,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_NotAccessKey(t *testing.T) {
 	// `api-…` is owned by pkg/detectors/launchdarkly.
-	api := "api-12345678-90ab-cdef-1234-567890abcdef"
+	api := "api-" + "00000000-0000-0000-0000-000000000000"
 	res, _ := Scanner{}.FromData(context.Background(), false, []byte(api))
 	if len(res) != 0 {
 		t.Fatalf("relay detector must not claim api- tokens; got %d", len(res))

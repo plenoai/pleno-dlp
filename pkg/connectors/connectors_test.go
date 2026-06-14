@@ -137,9 +137,6 @@ func TestAsSourceChunksHappyPath(t *testing.T) {
 		if c.SourceName != sourceName {
 			t.Errorf("chunk SourceName = %q, want %q", c.SourceName, sourceName)
 		}
-		if !c.Verify {
-			t.Errorf("chunk Verify = false, want true (Init verify=true)")
-		}
 		if c.SourceMetadata.Filesystem == nil {
 			t.Fatalf("chunk Metadata.Filesystem = nil, want stamped meta")
 		}

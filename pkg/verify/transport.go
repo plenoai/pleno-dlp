@@ -8,9 +8,20 @@ import (
 	"time"
 )
 
+type clock interface {
+	Now() time.Time
+	NewTimer(d time.Duration) *time.Timer
+}
+
+type realClock struct{}
+
+func (realClock) Now() time.Time                       { return time.Now() }
+func (realClock) NewTimer(d time.Duration) *time.Timer { return time.NewTimer(d) }
+
 // HostLimiter enforces a per-host RPS cap.
 type HostLimiter struct {
-	rps int
+	rps   int
+	clock clock
 
 	mu      sync.Mutex
 	buckets map[string]*bucket
@@ -21,7 +32,7 @@ type bucket struct {
 }
 
 func NewHostLimiter(rps int) *HostLimiter {
-	return &HostLimiter{rps: rps, buckets: map[string]*bucket{}}
+	return &HostLimiter{rps: rps, clock: realClock{}, buckets: map[string]*bucket{}}
 }
 
 func (h *HostLimiter) Wait(host string) time.Time {
@@ -31,7 +42,7 @@ func (h *HostLimiter) Wait(host string) time.Time {
 
 func (h *HostLimiter) WaitCtx(ctx context.Context, host string) (time.Time, error) {
 	if h == nil || h.rps <= 0 {
-		return time.Now(), nil
+		return h.now(), nil
 	}
 	h.mu.Lock()
 	b, ok := h.buckets[host]
@@ -39,14 +50,14 @@ func (h *HostLimiter) WaitCtx(ctx context.Context, host string) (time.Time, erro
 		b = &bucket{}
 		h.buckets[host] = b
 	}
-	now := time.Now()
+	now := h.now()
 	if now.Before(b.next) {
 		sleep := b.next.Sub(now)
 		interval := time.Second / time.Duration(h.rps)
 		b.next = b.next.Add(interval)
 		started := b.next.Add(-interval)
 		h.mu.Unlock()
-		timer := time.NewTimer(sleep)
+		timer := h.clock.NewTimer(sleep)
 		defer timer.Stop()
 		select {
 		case <-timer.C:
@@ -59,6 +70,13 @@ func (h *HostLimiter) WaitCtx(ctx context.Context, host string) (time.Time, erro
 	b.next = now.Add(interval)
 	h.mu.Unlock()
 	return now, nil
+}
+
+func (h *HostLimiter) now() time.Time {
+	if h == nil || h.clock == nil {
+		return time.Now()
+	}
+	return h.clock.Now()
 }
 
 // RateLimitedTransport wraps an inner RoundTripper with a HostLimiter.

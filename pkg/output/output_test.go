@@ -30,7 +30,6 @@ func sample() engine.Finding {
 		Chunk: &sources.Chunk{
 			SourceType: sources.SourceFilesystem,
 			SourceName: "cli",
-			Verify:     true,
 			SourceMetadata: sources.Metadata{
 				Filesystem: &sources.FilesystemMeta{
 					Path: "/tmp/leak.txt",
@@ -300,19 +299,16 @@ func TestTableSinkColumns(t *testing.T) {
 
 func TestTableSinkUnverifiedGlyph(t *testing.T) {
 	tests := []struct {
-		name   string
-		verify bool
-		ok     bool
-		want   string
+		name string
+		ok   bool
+		want string
 	}{
-		{"verify-off", false, false, "?"},
-		{"verify-on-fail", true, false, "✗"},
-		{"verify-on-pass", true, true, "✓"},
+		{"verified", true, "✓"},
+		{"unverified", false, "✗"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f := sample()
-			f.Chunk.Verify = tc.verify
 			f.Result.Verified = tc.ok
 			var buf bytes.Buffer
 			s, _ := NewSink("table", &buf, "test")

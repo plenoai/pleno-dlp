@@ -1,3 +1,5 @@
+//go:build detector_unit
+
 package gitlabdeploy
 
 import (

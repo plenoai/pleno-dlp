@@ -50,7 +50,6 @@ type Source struct {
 	name        string
 	jobID       int64
 	sourceID    int64
-	verify      bool
 	concurrency int
 
 	repoAbs     string
@@ -79,7 +78,7 @@ type incrementalState struct {
 
 func (s *Source) Type() sources.SourceType { return sources.SourceGit }
 
-func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, verify bool, config []byte, concurrency int) error {
+func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, _ bool, config []byte, concurrency int) error {
 	var cfg Config
 	if len(config) > 0 {
 		if err := json.Unmarshal(config, &cfg); err != nil {
@@ -114,7 +113,6 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, v
 	s.name = name
 	s.jobID = jobID
 	s.sourceID = sourceID
-	s.verify = verify
 	s.concurrency = concurrency
 	s.repoAbs = abs
 	s.branch = cfg.Branch
@@ -457,7 +455,6 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 					Message:      commitMsg,
 				},
 			},
-			Verify: s.verify,
 		}
 		select {
 		case ch <- chunk:

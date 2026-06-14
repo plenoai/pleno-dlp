@@ -46,16 +46,11 @@ func (s *tableSink) Close() error {
 	return s.tw.Flush()
 }
 
-// verifiedSymbol picks one of three glyphs:
-//   - "?" when the user did not request verification (we have no signal)
-//   - check / cross when verification ran and produced a definite answer
-//
-// We use the chunk's Verify flag as the proxy for "did verify run", because
-// the engine forwards that bit straight from --verify.
+// verifiedSymbol renders the verification result: verification is
+// unconditional (verify-by-default since #165), so every finding has a
+// definite answer — check when the provider confirmed the secret is live,
+// cross otherwise.
 func verifiedSymbol(f engine.Finding) string {
-	if f.Chunk == nil || !f.Chunk.Verify {
-		return "?"
-	}
 	if f.Result.Verified {
 		return "✓"
 	}

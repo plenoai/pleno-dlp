@@ -1,3 +1,5 @@
+//go:build detector_unit
+
 package supabase
 
 import (

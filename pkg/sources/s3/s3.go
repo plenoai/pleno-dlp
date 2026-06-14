@@ -301,7 +301,6 @@ func (s *Source) emitObject(ctx context.Context, client *s3.Client, key string, 
 				ETag:      aws.ToString(out.ETag),
 			},
 		},
-		Verify: s.verify,
 	}
 	select {
 	case ch <- chunk:

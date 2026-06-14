@@ -210,7 +210,6 @@ type Chunk struct {
 	SourceName     string
 	Data           []byte
 	SourceMetadata Metadata
-	Verify         bool
 }
 
 // Source is the trufflehog-compatible source contract. Init parses config and
