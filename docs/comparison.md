@@ -334,15 +334,15 @@ Full clones, git-mode invocations, single timed run (informational):
 | express (6,146) | 93 findings / 2 unique, 16.5 s | 1 finding, 2.1 s | 0 findings, 0.9 s |
 | gin (1,996) | 37 findings / 6 unique, 11.5 s | 3 findings / 2 unique, 2.0 s | 6 findings / 5 unique, 0.5 s |
 
-The findings/unique ratio exposes duplicate handling: pleno-dlp emits
-one finding per (commit, file, line) occurrence with **no cross-commit
-dedup** — in express one entropy hit produced 73 findings across 70
-commits. Every pleno-dlp finding carries a stable `secret_hash`, so
-client-side dedup is a one-liner, but the raw alert volume is the
-worst of the three. trufflehog reports a secret once at its
-introducing diff; gitleaks reports per commit-touch but its volumes
-stay small. gitleaks is also 15–25× faster than pleno-dlp on history
-scans of this size.
+The findings/unique ratio exposes duplicate handling: by default
+pleno-dlp now applies cross-commit dedup (`NewGitCrossCommitDedup`,
+`cmd/scan.go`) so the same secret+file pair across many commits collapses
+to a single introducing-commit finding annotated with
+`extra_data.occurrence_count`. The numbers above were measured against
+v0.53.0 before this was added; opt-out via `--all-occurrences`.
+trufflehog reports a secret once at its introducing diff; gitleaks
+reports per commit-touch but its volumes stay small. gitleaks is also
+15–25× faster than pleno-dlp on history scans of this size.
 
 ## 6. Verification as a triage filter
 
@@ -432,10 +432,9 @@ Where the competition — or the whole industry — is measurably ahead:
    70 sweep findings were non-credentials (laravel 41, axios 23). FP
    hardening was tuned on Go corpora and doesn't transfer to PHP/JS
    trees yet.
-3. **Git-mode duplicate findings** (§5) — no cross-commit dedup (93
-   findings for 2 secrets in express); `secret_hash` exists, so
-   engine-side dedup is straightforward. *(git attribution — author /
-   email / date / message / computed line — closed in PR #199.)*
+3. **Git-mode duplicate findings** (§5) — *(closed: cross-commit dedup
+   landed in `pkg/engine/dedup.go:NewGitCrossCommitDedup`, wired in
+   `cmd/scan.go`. git attribution also closed in PR #199.)*
 4. **Archive scanning** — trufflehog finds secrets inside `.zip` /
    `.tar.gz`; pleno-dlp and gitleaks scan only raw bytes. The
    pleno-dlp archive walker exists and is wired at the engine layer
