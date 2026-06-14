@@ -190,14 +190,14 @@ func TestLooksLikeHexDigest(t *testing.T) {
 		s    string
 		want bool
 	}{
-		{"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4", true},                                                             // MD5 (32)
-		{"da39a3ee5e6b4b0d3255bfef95601890afd80709", true},                                                      // SHA-1 (40)
-		{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", true},                              // SHA-256 (64)
-		{"Hf83KdjL9qZ8xVnB2Wm7TpRcJyXuAbCdEfGhIjKlMnOp01", false},                                             // non-hex chars
-		{"a1b2c3d4e5f6a1b2c3d4", false},                                                                         // 20 chars, not a standard digest length
-		{"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1", false},                             // 63 chars, not standard
-		{"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5", false},                                                          // 35 chars
-		{"DEADBEEFDEADBEEFDEADBEEFDEADBEEF", true},                                                               // uppercase hex, MD5 length
+		{"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4", true},                                 // MD5 (32)
+		{"da39a3ee5e6b4b0d3255bfef95601890afd80709", true},                         // SHA-1 (40)
+		{"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", true}, // SHA-256 (64)
+		{"Hf83KdjL9qZ8xVnB2Wm7TpRcJyXuAbCdEfGhIjKlMnOp01", false},                  // non-hex chars
+		{"a1b2c3d4e5f6a1b2c3d4", false},                                            // 20 chars, not a standard digest length
+		{"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1", false},  // 63 chars, not standard
+		{"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5", false},                              // 35 chars
+		{"DEADBEEFDEADBEEFDEADBEEFDEADBEEF", true},                                 // uppercase hex, MD5 length
 	}
 	for _, c := range cases {
 		if got := looksLikeHexDigest(c.s); got != c.want {
