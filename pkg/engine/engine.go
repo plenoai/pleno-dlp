@@ -31,7 +31,6 @@ type Sink interface {
 }
 
 type Options struct {
-	Verify      bool
 	Concurrency int
 }
 
@@ -455,7 +454,10 @@ func mergeSpans(spans []vicinitySpan) []vicinitySpan {
 // stays a flat read.
 func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte) {
 	d := e.dets[di]
-	results, err := d.FromData(ctx, e.opts.Verify, data)
+	// Verification is unconditional (verify-by-default since #165): there
+	// is no engine-level toggle. The bool is the trufflehog Detector
+	// contract, not a configurable option, so we always pass true here.
+	results, err := d.FromData(ctx, true, data)
 	if err != nil {
 		// Cancellation is the expected shutdown path, not a fault:
 		// stay silent so a Ctrl-C / deadline doesn't spam stderr.

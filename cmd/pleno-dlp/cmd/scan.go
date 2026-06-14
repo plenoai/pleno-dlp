@@ -45,7 +45,6 @@ func SetVersion(version, commit string) {
 // scanFlags holds flags shared by every source kind.
 type scanFlags struct {
 	format            string
-	verify            bool
 	onlyVerified      bool
 	verifyRPS         int
 	concurrency       int
@@ -318,14 +317,15 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	scanOpts.verify = true
 	if scanOpts.revokeOnVerified {
 		if !scanOpts.revokeDryRun && os.Getenv(EnvAllowRevoke) != "1" {
 			return fmt.Errorf("--revoke-on-verified refuses to run without %s=1 (irreversible operation; set the env var to opt in or pass --revoke-dry-run)", EnvAllowRevoke)
 		}
 	}
 
-	if err := src.Init(ctx, "cli", 0, 0, scanOpts.verify, cfg, scanOpts.concurrency); err != nil {
+	// The verify arg is the trufflehog Source contract, not a CLI option:
+	// verification is unconditional (verify-by-default since #165).
+	if err := src.Init(ctx, "cli", 0, 0, true, cfg, scanOpts.concurrency); err != nil {
 		return fmt.Errorf("init %s source: %w", kind, err)
 	}
 
@@ -373,15 +373,14 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		return nil
 	}
 
-	// Install the per-host verify rate limiter when verification is on.
-	// Detectors all share http.DefaultTransport, so wrapping it here
-	// — once, before any detector runs — covers the entire scan
-	// without per-detector refactoring. We restore on exit so unit
-	// tests in the same process aren't affected by leftover state.
-	if scanOpts.verify {
-		prev := verify.Install(scanOpts.verifyRPS)
-		defer verify.Restore(prev)
-	}
+	// Install the per-host verify rate limiter. Verification always runs
+	// (verify-by-default since #165), so this is unconditional. Detectors
+	// all share http.DefaultTransport, so wrapping it here — once, before
+	// any detector runs — covers the entire scan without per-detector
+	// refactoring. We restore on exit so unit tests in the same process
+	// aren't affected by leftover state.
+	prev := verify.Install(scanOpts.verifyRPS)
+	defer verify.Restore(prev)
 
 	// PII engine lifecycle. When --pii-engine=anonymize is set, spawn
 	// the pleno-anonymize HTTP server and publish it via the
@@ -461,7 +460,6 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	}()
 
 	eng := engine.NewWithDetectors(dets, engine.Options{
-		Verify:      scanOpts.verify,
 		Concurrency: scanOpts.concurrency,
 	}, scanSink)
 
@@ -741,7 +739,6 @@ func scannerFingerprint(kind string, cfg []byte) (string, error) {
 		"tool_version":        toolVersion,
 		"kind":                kind,
 		"source_config":       json.RawMessage(cfg),
-		"verify":              scanOpts.verify,
 		"only_verified":       scanOpts.onlyVerified,
 		"verify_rps":          scanOpts.verifyRPS,
 		"rules_path":          scanOpts.rulesPath,
