@@ -113,7 +113,6 @@ func (s *sourceAdapter) Chunks(ctx context.Context, ch chan<- *sources.Chunk) er
 			SourceName:     s.sourceName,
 			Data:           data,
 			SourceMetadata: meta,
-			Verify:         s.verify,
 		}
 		select {
 		case ch <- chunk:

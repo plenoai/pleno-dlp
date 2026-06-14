@@ -31,7 +31,6 @@ type Source struct {
 	name             string
 	jobID            int64
 	sourceID         int64
-	verify           bool
 	cfg              Config
 	reader           io.Reader
 	cached           bool
@@ -52,7 +51,7 @@ func (s *Source) SetReader(r io.Reader) {
 	s.cachedTruncated = false
 }
 
-func (s *Source) Init(_ context.Context, name string, jobID, sourceID int64, verify bool, config []byte, _ int) error {
+func (s *Source) Init(_ context.Context, name string, jobID, sourceID int64, _ bool, config []byte, _ int) error {
 	var cfg Config
 	if len(config) > 0 {
 		if err := json.Unmarshal(config, &cfg); err != nil {
@@ -68,7 +67,6 @@ func (s *Source) Init(_ context.Context, name string, jobID, sourceID int64, ver
 	s.name = name
 	s.jobID = jobID
 	s.sourceID = sourceID
-	s.verify = verify
 	s.cfg = cfg
 	s.cached = false
 	s.cachedData = nil
@@ -108,7 +106,6 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 		SourceMetadata: sources.Metadata{
 			Stdin: &sources.StdinMeta{Label: s.cfg.Label},
 		},
-		Verify: s.verify,
 	}
 	select {
 	case ch <- chunk:

@@ -343,7 +343,6 @@ func (s *Source) emitFile(ctx context.Context, absPath string, ch chan<- *source
 		SourceMetadata: sources.Metadata{
 			Filesystem: &sources.FilesystemMeta{Path: absPath, Line: 1},
 		},
-		Verify: s.verify,
 	}
 	select {
 	case ch <- chunk:

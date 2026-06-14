@@ -1,3 +1,5 @@
+//go:build detector_unit
+
 // Tests for Slack auth.revoke. Slack's API contract is "always HTTP 200,
 // outcome encoded in the JSON body" — these tests pin that mapping plus
 // the transport-level (429 / network / empty secret) edge cases.

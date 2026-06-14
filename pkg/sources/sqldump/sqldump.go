@@ -296,7 +296,6 @@ func (s *Source) emitChunk(ctx context.Context, ch chan<- *sources.Chunk, file s
 				Format:   format,
 			},
 		},
-		Verify: s.verify,
 	}
 	select {
 	case ch <- chunk:

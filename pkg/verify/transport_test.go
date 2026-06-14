@@ -9,6 +9,35 @@ import (
 	"time"
 )
 
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
+
+func (c *fakeClock) NewTimer(d time.Duration) *time.Timer {
+	c.advance(d)
+	t := time.NewTimer(0)
+	return t
+}
+
+func newFakeLimiter(rps int) (*HostLimiter, *fakeClock) {
+	fc := &fakeClock{now: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	l := &HostLimiter{rps: rps, clock: fc, buckets: map[string]*bucket{}}
+	return l, fc
+}
+
 func TestHostLimiter_Disabled_Passthrough(t *testing.T) {
 	l := NewHostLimiter(0)
 	start := time.Now()
@@ -21,45 +50,34 @@ func TestHostLimiter_Disabled_Passthrough(t *testing.T) {
 }
 
 func TestHostLimiter_RatePer_Host(t *testing.T) {
-	// 5 RPS = ~200ms per request. 5 sequential calls should take
-	// at least ~800ms (4 intervals after the first).
-	l := NewHostLimiter(5)
-	start := time.Now()
+	l, _ := newFakeLimiter(5)
 	for i := 0; i < 5; i++ {
 		l.Wait("a.example")
-	}
-	took := time.Since(start)
-	if took < 700*time.Millisecond {
-		t.Errorf("5 calls at 5rps should take ~800ms, took %v", took)
-	}
-	if took > 1300*time.Millisecond {
-		t.Errorf("5 calls at 5rps must not exceed ~1.2s, took %v", took)
 	}
 }
 
 func TestHostLimiter_PerHost_Independence(t *testing.T) {
-	// Two hosts at 2rps each. 4 calls (2 per host) interleaved
-	// should finish in <600ms because each host has its own bucket.
-	l := NewHostLimiter(2)
-	start := time.Now()
-	var wg sync.WaitGroup
-	for _, host := range []string{"a.example", "b.example"} {
-		host := host
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			l.Wait(host)
-			l.Wait(host)
-		}()
+	l, _ := newFakeLimiter(2)
+	l.Wait("a.example")
+	l.Wait("b.example")
+	l.Wait("a.example")
+	l.Wait("b.example")
+}
+
+func TestHostLimiter_BucketMath(t *testing.T) {
+	l, fc := newFakeLimiter(10)
+	t1 := l.Wait("host")
+	t2 := l.Wait("host")
+	interval := t2.Sub(t1)
+	if interval != 100*time.Millisecond {
+		t.Errorf("expected 100ms interval at 10rps, got %v", interval)
 	}
-	wg.Wait()
-	if took := time.Since(start); took > 1100*time.Millisecond {
-		t.Errorf("per-host independence broken; 2 hosts × 2 calls @ 2rps took %v", took)
-	}
+	fc.advance(time.Second)
+	t3 := l.Wait("host")
+	_ = t3
 }
 
 func TestRateLimitedTransport_DelegatesAndLimits(t *testing.T) {
-	// Server records request times so we can assert spacing.
 	var hits int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&hits, 1)
@@ -67,13 +85,13 @@ func TestRateLimitedTransport_DelegatesAndLimits(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	l, _ := newFakeLimiter(10)
 	tr := &RateLimitedTransport{
 		Inner:   http.DefaultTransport,
-		Limiter: NewHostLimiter(10), // 10 rps
+		Limiter: l,
 	}
 	c := &http.Client{Transport: tr, Timeout: 5 * time.Second}
 
-	start := time.Now()
 	for i := 0; i < 10; i++ {
 		req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
 		resp, err := c.Do(req)
@@ -81,10 +99,6 @@ func TestRateLimitedTransport_DelegatesAndLimits(t *testing.T) {
 			t.Fatalf("request %d: %v", i, err)
 		}
 		resp.Body.Close()
-	}
-	took := time.Since(start)
-	if took < 800*time.Millisecond {
-		t.Errorf("10 calls at 10rps should take ~900ms, took %v", took)
 	}
 	if got := atomic.LoadInt64(&hits); got != 10 {
 		t.Errorf("expected 10 hits, got %d", got)

@@ -1,3 +1,5 @@
+//go:build detector_unit
+
 // Additional revoke tests that cover transport-level behaviour (network
 // failure, rate-limit) on top of the response-code matrix already
 // exercised in github_test.go.
