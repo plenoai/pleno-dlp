@@ -374,10 +374,10 @@ observed behavior, not documentation.
 | Capability | pleno-dlp | trufflehog | gitleaks |
 |------------|-----------|------------|----------|
 | Git history (secret only in a deleted past commit) | ✓ detected | ✓ detected | ✓ detected |
-| Commit attribution on history findings | commit + file only | email + timestamp | author + email + date + message (fullest) |
+| Commit attribution on history findings | commit + file + author + email + date + message + computed line (fullest) | email + timestamp | author + email + date + message (fullest) |
 | stdin source | ✓ | ✓ (`stdin` subcommand) | ✓ |
-| Secrets inside `.zip` | ✗ | ✓ | ✗ |
-| Secrets inside `.tar.gz` | ✗ | ✓ | ✗ |
+| Secrets inside `.zip` | ✗ (archive walker exists but blocked by `isBinary` gate — see #208) | ✓ | ✗ |
+| Secrets inside `.tar.gz` | ✗ (archive walker exists but blocked by `isBinary` gate — see #208) | ✓ | ✗ |
 | Base64-encoded secret (decode-then-detect) | ✓ (`extra_data.decoded_from=base64`) | ✗ (decoder exists; generic AWS-secret line not re-detected) | ✓ (`decoded:base64` tag) |
 | UTF-16 encoded secret | ✗ | ✓ (UTF16 decoder) | ✗ |
 | SARIF output | ✓ valid 2.1.0 | ✗ (no SARIF format) | ✓ valid 2.1.0 |
@@ -394,9 +394,7 @@ Two behaviors worth flagging:
   worktree-only (0 findings). Neither behavior is wrong, but
   cross-tool finding counts on repos that include `.git` are not
   comparable.
-- **pleno-dlp git-mode line numbers are unreliable** (always `1` in
-  this probe) and findings carry no author/date — tracked as a known
-  gap below.
+- **pleno-dlp git-mode attribution** — commit, file, author, email, date, message, and computed line numbers are all now emitted (landed in PR #199). This behavior is now on par with gitleaks.
 
 ## 8. PII detection — capability only pleno-dlp has
 
@@ -436,11 +434,14 @@ Where the competition — or the whole industry — is measurably ahead:
    trees yet.
 3. **Git-mode duplicate findings** (§5) — no cross-commit dedup (93
    findings for 2 secrets in express); `secret_hash` exists, so
-   engine-side dedup is straightforward. Also: line numbers
-   mis-reported (always 1) and no author/date attribution where
-   gitleaks reports author/email/date/message.
+   engine-side dedup is straightforward. *(git attribution — author /
+   email / date / message / computed line — closed in PR #199.)*
 4. **Archive scanning** — trufflehog finds secrets inside `.zip` /
-   `.tar.gz`; pleno-dlp and gitleaks scan only raw bytes.
+   `.tar.gz`; pleno-dlp and gitleaks scan only raw bytes. The
+   pleno-dlp archive walker exists and is wired at the engine layer
+   (`pkg/engine/engine.go:173`) but is unreachable from the filesystem
+   source because the `isBinary` gate drops archives before they reach
+   the engine (tracked in #208).
 5. **UTF-16 decoding** — trufflehog only.
 6. **Synthetic-corpus recall misses** (§2) — `slack-webhook-url`,
    `azure-storage-account-key` (AccountKey= connection strings),

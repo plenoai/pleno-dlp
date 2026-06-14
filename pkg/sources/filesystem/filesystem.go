@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 	"golang.org/x/sync/errgroup"
 )
@@ -331,7 +332,7 @@ func (s *Source) emitFile(ctx context.Context, absPath string, ch chan<- *source
 	if err != nil {
 		return nil
 	}
-	if isBinary(data) {
+	if isBinary(data) && !archive.LooksLikeArchive(data) {
 		return nil
 	}
 
