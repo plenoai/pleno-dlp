@@ -334,15 +334,15 @@ Full clones, git-mode invocations, single timed run (informational):
 | express (6,146) | 93 findings / 2 unique, 16.5 s | 1 finding, 2.1 s | 0 findings, 0.9 s |
 | gin (1,996) | 37 findings / 6 unique, 11.5 s | 3 findings / 2 unique, 2.0 s | 6 findings / 5 unique, 0.5 s |
 
-The findings/unique ratio exposes duplicate handling: pleno-dlp emits
-one finding per (commit, file, line) occurrence with **no cross-commit
-dedup** — in express one entropy hit produced 73 findings across 70
-commits. Every pleno-dlp finding carries a stable `secret_hash`, so
-client-side dedup is a one-liner, but the raw alert volume is the
-worst of the three. trufflehog reports a secret once at its
-introducing diff; gitleaks reports per commit-touch but its volumes
-stay small. gitleaks is also 15–25× faster than pleno-dlp on history
-scans of this size.
+The findings/unique ratio exposes duplicate handling: by default
+pleno-dlp now applies cross-commit dedup (`NewGitCrossCommitDedup`,
+`cmd/scan.go`) so the same secret+file pair across many commits collapses
+to a single introducing-commit finding annotated with
+`extra_data.occurrence_count`. The numbers above were measured against
+v0.53.0 before this was added; opt-out via `--all-occurrences`.
+trufflehog reports a secret once at its introducing diff; gitleaks
+reports per commit-touch but its volumes stay small. gitleaks is also
+15–25× faster than pleno-dlp on history scans of this size.
 
 ## 6. Verification as a triage filter
 
@@ -374,10 +374,10 @@ observed behavior, not documentation.
 | Capability | pleno-dlp | trufflehog | gitleaks |
 |------------|-----------|------------|----------|
 | Git history (secret only in a deleted past commit) | ✓ detected | ✓ detected | ✓ detected |
-| Commit attribution on history findings | commit + file only | email + timestamp | author + email + date + message (fullest) |
+| Commit attribution on history findings | commit + file + author + email + date + message + computed line (fullest) | email + timestamp | author + email + date + message (fullest) |
 | stdin source | ✓ | ✓ (`stdin` subcommand) | ✓ |
-| Secrets inside `.zip` | ✗ | ✓ | ✗ |
-| Secrets inside `.tar.gz` | ✗ | ✓ | ✗ |
+| Secrets inside `.zip` | ✗ (archive walker exists but blocked by `isBinary` gate — see #208) | ✓ | ✗ |
+| Secrets inside `.tar.gz` | ✗ (archive walker exists but blocked by `isBinary` gate — see #208) | ✓ | ✗ |
 | Base64-encoded secret (decode-then-detect) | ✓ (`extra_data.decoded_from=base64`) | ✗ (decoder exists; generic AWS-secret line not re-detected) | ✓ (`decoded:base64` tag) |
 | UTF-16 encoded secret | ✗ | ✓ (UTF16 decoder) | ✗ |
 | SARIF output | ✓ valid 2.1.0 | ✗ (no SARIF format) | ✓ valid 2.1.0 |
@@ -394,9 +394,7 @@ Two behaviors worth flagging:
   worktree-only (0 findings). Neither behavior is wrong, but
   cross-tool finding counts on repos that include `.git` are not
   comparable.
-- **pleno-dlp git-mode line numbers are unreliable** (always `1` in
-  this probe) and findings carry no author/date — tracked as a known
-  gap below.
+- **pleno-dlp git-mode attribution** — commit, file, author, email, date, message, and computed line numbers are all now emitted (landed in PR #199). This behavior is now on par with gitleaks.
 
 ## 8. PII detection — capability only pleno-dlp has
 
@@ -434,13 +432,15 @@ Where the competition — or the whole industry — is measurably ahead:
    70 sweep findings were non-credentials (laravel 41, axios 23). FP
    hardening was tuned on Go corpora and doesn't transfer to PHP/JS
    trees yet.
-3. **Git-mode duplicate findings** (§5) — no cross-commit dedup (93
-   findings for 2 secrets in express); `secret_hash` exists, so
-   engine-side dedup is straightforward. Also: line numbers
-   mis-reported (always 1) and no author/date attribution where
-   gitleaks reports author/email/date/message.
+3. **Git-mode duplicate findings** (§5) — *(closed: cross-commit dedup
+   landed in `pkg/engine/dedup.go:NewGitCrossCommitDedup`, wired in
+   `cmd/scan.go`. git attribution also closed in PR #199.)*
 4. **Archive scanning** — trufflehog finds secrets inside `.zip` /
-   `.tar.gz`; pleno-dlp and gitleaks scan only raw bytes.
+   `.tar.gz`; pleno-dlp and gitleaks scan only raw bytes. The
+   pleno-dlp archive walker exists and is wired at the engine layer
+   (`pkg/engine/engine.go:173`) but is unreachable from the filesystem
+   source because the `isBinary` gate drops archives before they reach
+   the engine (tracked in #208).
 5. **UTF-16 decoding** — trufflehog only.
 6. **Synthetic-corpus recall misses** (§2) — `slack-webhook-url`,
    `azure-storage-account-key` (AccountKey= connection strings),

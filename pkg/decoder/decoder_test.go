@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -218,4 +219,59 @@ func TestUTF16_ShortDataSkipped(t *testing.T) {
 			t.Errorf("short UTF-16 data should not produce a variant; got Source=%q", v.Source)
 		}
 	}
+}
+
+func TestUnicodeEscape_DecodesEscapedSecret(t *testing.T) {
+	// Build the chunk programmatically so the editor cannot collapse \uXXXX.
+	// "secret" as \u-escaped ASCII: each char → \uXXXX.
+	escaped := unicodeEscapeASCII("secret")
+	chunk := []byte(`{"api_key":"` + escaped + `"}`)
+	variants := Variants(chunk)
+
+	if !containsBytes(variants, []byte("secret")) {
+		t.Fatalf("expected unicode-escape variant to contain decoded value; got %d variants", len(variants))
+	}
+	var sawSource bool
+	for _, v := range variants {
+		if v.Source == "unicode-escape" {
+			sawSource = true
+		}
+	}
+	if !sawSource {
+		t.Fatal("expected a variant with Source=unicode-escape")
+	}
+}
+
+func TestUnicodeEscape_SurrogatePair(t *testing.T) {
+	// U+1F600 (😀) as surrogate pair repeated twice.
+	// Surround with enough ASCII so mostlyPrintable passes after decode.
+	prefix := "this is a long config comment that makes the decoded form mostly printable "
+	pair := "\\uD83D\\uDE00"
+	chunk := []byte(prefix + pair + " " + prefix + pair)
+	variants := Variants(chunk)
+	decoded := "\U0001F600"
+	if !containsBytes(variants, []byte(decoded)) {
+		t.Fatalf("expected surrogate pair to decode to U+1F600; got %d variants", len(variants))
+	}
+}
+
+func TestUnicodeEscape_NoVariantWhenNoEscapes(t *testing.T) {
+	chunk := []byte("plain text without any unicode escapes at all here")
+	variants := Variants(chunk)
+	for _, v := range variants {
+		if v.Source == "unicode-escape" {
+			t.Errorf("unexpected unicode-escape variant for plain text")
+		}
+	}
+}
+
+// unicodeEscapeASCII encodes each character of s as a \uXXXX sequence.
+// Used in tests to construct chunks with literal escape sequences without
+// relying on the editor to keep them as-is.
+func unicodeEscapeASCII(s string) string {
+	var b strings.Builder
+	for _, c := range []byte(s) {
+		fmt.Fprintf(&b, "\\u%04X", c)
+	}
+	return b.String()
 }

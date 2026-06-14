@@ -1,10 +1,11 @@
-// Package archive expands zip, tar, and gzip payloads into leaf entries.
+// Package archive expands zip, tar, gzip, and bzip2 payloads into leaf entries.
 package archive
 
 import (
 	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/bzip2"
 	"compress/gzip"
 	"errors"
 	"fmt"
@@ -40,7 +41,7 @@ func (l *Limits) withDefaults() {
 
 func LooksLikeArchive(data []byte) bool {
 	switch detect(data) {
-	case kindZip, kindTar, kindGzip:
+	case kindZip, kindTar, kindGzip, kindBzip2:
 		return true
 	}
 	return false
@@ -79,6 +80,8 @@ func (s *walkState) walk(name string, data []byte, depth int) error {
 		return s.walkTar(name, data, depth)
 	case kindGzip:
 		return s.walkGzip(name, data, depth)
+	case kindBzip2:
+		return s.walkBzip2(name, data, depth)
 	default:
 		s.appendEntry(name, data)
 		return nil
@@ -188,6 +191,7 @@ const (
 	kindZip
 	kindTar
 	kindGzip
+	kindBzip2
 )
 
 // detect inspects magic bytes to classify the chunk. Returns kindNone
@@ -204,6 +208,24 @@ func detect(data []byte) kind {
 	case len(data) > 262 && bytes.Equal(data[257:262], []byte("ustar")):
 		// POSIX tar magic at offset 257.
 		return kindTar
+	case len(data) >= 3 && bytes.HasPrefix(data, []byte{0x42, 0x5a, 0x68}):
+		// bzip2: "BZh" header.
+		return kindBzip2
 	}
 	return kindNone
+}
+
+func (s *walkState) walkBzip2(name string, data []byte, depth int) error {
+	body, err := io.ReadAll(io.LimitReader(bzip2.NewReader(bytes.NewReader(data)), s.limits.MaxEntryBytes+1))
+	if err != nil {
+		return fmt.Errorf("bzip2(%s): %w", name, err)
+	}
+	if int64(len(body)) > s.limits.MaxEntryBytes {
+		return errors.New("bzip2: entry exceeds MaxEntryBytes")
+	}
+	innerName := strings.TrimSuffix(name, ".bz2")
+	if innerName == name {
+		innerName = name + "!bz2"
+	}
+	return s.walk(innerName, body, depth+1)
 }

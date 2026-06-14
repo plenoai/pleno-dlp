@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -20,6 +21,7 @@ func TestLooksLikeArchive_DetectsKnownMagic(t *testing.T) {
 		{"empty zip", []byte{0x50, 0x4b, 0x05, 0x06, 0x00}, true},
 		{"gzip", []byte{0x1f, 0x8b, 0x00}, true},
 		{"tar", append(bytes.Repeat([]byte{0}, 257), []byte("ustar\x00")...), true},
+		{"bzip2", []byte{0x42, 0x5a, 0x68, 0x39}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -118,6 +120,20 @@ func TestWalk_SizeLimitTrips(t *testing.T) {
 	}
 }
 
+func TestWalk_TarBz2ExpandsThroughBzip2ThenTar(t *testing.T) {
+	akia := "AKIAIOSFODNN7EXAMPLE"
+	tarBuf := buildTar(t, map[string]string{"leak.txt": akia})
+	bz2Buf := buildBzip2(t, tarBuf)
+
+	entries, err := Walk("payload.tar.bz2", bz2Buf, Limits{})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if !containsAKIA(entries, akia) {
+		t.Fatalf("AKIA not found through tar.bz2 pipeline: %+v", entries)
+	}
+}
+
 func TestWalk_NotAnArchiveReturnsEmpty(t *testing.T) {
 	entries, err := Walk("plain.txt", []byte("just some text"), Limits{})
 	if err != nil {
@@ -173,6 +189,22 @@ func buildTar(t *testing.T, files map[string]string) []byte {
 		t.Fatalf("tar close: %v", err)
 	}
 	return buf.Bytes()
+}
+
+// buildBzip2 compresses data using the system bzip2 binary.
+// Go stdlib has no bzip2 writer; the test is skipped when bzip2 is absent.
+func buildBzip2(t *testing.T, data []byte) []byte {
+	t.Helper()
+	if _, err := exec.LookPath("bzip2"); err != nil {
+		t.Skip("bzip2 binary not found; skipping bzip2 round-trip test")
+	}
+	cmd := exec.Command("bzip2", "-c")
+	cmd.Stdin = bytes.NewReader(data)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("bzip2 compress: %v", err)
+	}
+	return out
 }
 
 func containsAKIA(entries []Entry, akia string) bool {
