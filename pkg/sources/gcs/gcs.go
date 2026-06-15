@@ -117,7 +117,7 @@ func (s *Source) Init(_ context.Context, name string, jobID, sourceID int64, ver
 
 func (s *Source) newClient(ctx context.Context) (*storage.Client, error) {
 	if s.serviceAccountJSON != "" {
-		creds, err := google.CredentialsFromJSON(ctx, []byte(s.serviceAccountJSON), storage.ScopeReadOnly)
+		creds, err := google.CredentialsFromJSONWithType(ctx, []byte(s.serviceAccountJSON), google.ServiceAccount, storage.ScopeReadOnly)
 		if err != nil {
 			return nil, fmt.Errorf("gcs: parse service account JSON: %w", err)
 		}
