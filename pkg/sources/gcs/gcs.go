@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"cloud.google.com/go/storage"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
@@ -116,9 +117,11 @@ func (s *Source) Init(_ context.Context, name string, jobID, sourceID int64, ver
 
 func (s *Source) newClient(ctx context.Context) (*storage.Client, error) {
 	if s.serviceAccountJSON != "" {
-		return storage.NewClient(ctx,
-			option.WithCredentialsJSON([]byte(s.serviceAccountJSON)),
-		)
+		creds, err := google.CredentialsFromJSON(ctx, []byte(s.serviceAccountJSON), storage.ScopeReadOnly)
+		if err != nil {
+			return nil, fmt.Errorf("gcs: parse service account JSON: %w", err)
+		}
+		return storage.NewClient(ctx, option.WithCredentials(creds))
 	}
 	return storage.NewClient(ctx)
 }
