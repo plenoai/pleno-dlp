@@ -224,6 +224,7 @@ func init() {
 	scanSQLDumpCmd.Flags().IntVar(&sqldumpOpts.chunkLineCount, "chunk-lines", 0, "number of data lines per chunk (0 = default 50)")
 
 	scanCmd.AddCommand(scanFilesystemCmd)
+	scanCmd.AddCommand(scanGCSCmd)
 	scanCmd.AddCommand(scanGitCmd)
 	scanCmd.AddCommand(scanS3Cmd)
 	scanCmd.AddCommand(scanStdinCmd)

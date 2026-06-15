@@ -8,7 +8,7 @@ import (
 
 // TestAllRegistersRealSources asserts that blank-importing the aggregator
 // package wires exactly the source types that self-register against
-// sources.Register via init(): filesystem, git, s3, stdin, sqldump.
+// sources.Register via init(): filesystem, gcs, git, s3, stdin, sqldump.
 //
 // SaaS types deliberately route through pkg/connectors and do NOT register
 // against sources.Register, so sources.New must return nil for them. Asserting
@@ -16,6 +16,7 @@ import (
 func TestAllRegistersRealSources(t *testing.T) {
 	registered := []sources.SourceType{
 		sources.SourceFilesystem,
+		sources.SourceGCS,
 		sources.SourceGit,
 		sources.SourceS3,
 		sources.SourceStdin,
@@ -36,6 +37,7 @@ func TestAllRegistersRealSources(t *testing.T) {
 func TestAllRegisteredSourcesSupportIncremental(t *testing.T) {
 	registered := []sources.SourceType{
 		sources.SourceFilesystem,
+		sources.SourceGCS,
 		sources.SourceGit,
 		sources.SourceS3,
 		sources.SourceStdin,
@@ -63,7 +65,6 @@ func TestAllDoesNotRegisterSaaS(t *testing.T) {
 	saas := []sources.SourceType{
 		sources.SourceGitHub,
 		sources.SourceGitLab,
-		sources.SourceGCS,
 		sources.SourceSlack,
 		sources.SourceJira,
 		sources.SourceConfluence,
