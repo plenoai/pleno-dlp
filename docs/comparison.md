@@ -447,11 +447,23 @@ Where the competition — or the whole industry — is measurably ahead:
    `asana-pat`, PGP `PRIVATE KEY BLOCK` armor headers.
 7. **Detector breadth** — trufflehog ships 870 detector packages vs
    600 (long tail of niche SaaS providers).
-8. **Source breadth vs trufflehog** — docker images, postman, jenkins,
-   elasticsearch, GCS, syslog, CircleCI/TravisCI have no pleno-dlp
-   equivalent (pleno-dlp's 24 sources lead on SaaS-document surfaces:
-   confluence, jira, notion, slack, splunk, datadog, redash, bigquery,
-   sqldump, forge-API comments).
+8. **Source breadth vs trufflehog** — several trufflehog sources have no
+   pleno-dlp equivalent. They fall into two categories:
+
+   *Planned (tracked in #188)*: docker image layers (#215), GCS (#216),
+   Elasticsearch (#217), Jenkins (#218), Postman (#219), HuggingFace
+   (#220), CircleCI (#221).
+
+   *Not supported — accepted gap by design* (#222): `syslog` (long-running
+   listener daemon; architectural mismatch with pleno-dlp's batch model),
+   `travisci` (platform in decline; low and shrinking demand),
+   `github-experimental` (explicitly experimental upstream; not a stable
+   parity target). These will not be implemented unless concrete user demand
+   is reported.
+
+   pleno-dlp's 24 sources lead on SaaS-document surfaces: confluence, jira,
+   notion, slack, splunk, datadog, redash, bigquery, sqldump, forge-API
+   comments.
 
 ## Limitations
 
