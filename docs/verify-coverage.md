@@ -4,7 +4,7 @@ This page classifies each registered detector as verifier-backed or
 unverified-by-design. The machine block is parsed by
 `pkg/detectors/verifycoverage_test.go`.
 
-Counts are pinned in the machine block. Total = 601: 599 secret
+Counts are pinned in the machine block. Total = 603: 601 secret
 detectors, `PIIAnonymize`, and `PIIOpenAIPF`. The retired regex PII
 detector constants remain reserved for wire compatibility but are not
 listed because they are no longer registered.
@@ -57,7 +57,7 @@ returned as `(false, err)` per the standard Verifier contract. This
 host endpoint is not self-contained in the secret itself but is
 recoverable from neighbouring text.
 
-## (b) Unverified-by-design — 50 detectors
+## (b) Unverified-by-design — 51 detectors
 
 These detectors deliberately do not implement `Verify`. The rationale
 is one of:
@@ -123,6 +123,7 @@ absent, so the finding acknowledges the token shape without implying live access
 | GetStream               | secret   | HMAC/JWT signing, no mirrorable reference impl; hardened: credential-context anchor + entropy + char-class gate |
 | GitLabPipeline          | secret   | trigger-token verify is destructive, no read-only endpoint; hardened: assignment anchor + entropy + commit-SHA exclusion |
 | GoCD                    | secret   | self-hosted CI, host not in chunk |
+| HardcodedPassword       | secret   | offline config password, host not in chunk; no provider endpoint to verify against |
 | Jenkins                 | secret   | self-hosted CI, host not in chunk |
 | Jira                    | secret   | token-only probe always 401 (needs email pair), host not in chunk; hardened: entropy + assignment vicinity + hex exclusion |
 | JWT                     | secret   | generic shape, issuer-dependent verification not centralizable |
@@ -161,9 +162,9 @@ The `coverage-machine` block pins counts and per-detector class.
 - `class=b` → Unverified-by-design (no Verify, deliberate)
 
 ```coverage-machine
-total=602
+total=603
 a=552
-b=50
+b=51
 type=APNs class=b
 type=AWSS3PresignedURL class=b
 type=AgoraIO class=b
@@ -185,6 +186,7 @@ type=GenericHighEntropy class=b
 type=GetStream class=b
 type=GitLabPipeline class=b
 type=GoCD class=b
+type=HardcodedPassword class=b
 type=JWT class=b
 type=Jenkins class=b
 type=Jira class=b

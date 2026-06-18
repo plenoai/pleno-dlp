@@ -1240,6 +1240,8 @@ func (t DetectorType) String() string {
 		return "PIIAnonymize"
 	case PIIOpenAIPF:
 		return "PIIOpenAIPF"
+	case HardcodedPassword:
+		return "HardcodedPassword"
 	default:
 		return "Unknown"
 	}

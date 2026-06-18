@@ -800,4 +800,6 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/swimlane"
 	// batch 41 — wire-stable order, never reorder. Cloud storage (azurestoragekey).
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/azurestoragekey"
+	// batch 43 — IaC/config-file hardcoded credential detectors.
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/hardcodedpassword"
 )
