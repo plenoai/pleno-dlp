@@ -946,6 +946,11 @@ const (
 	// ExtraData["engine"]="openai-pf" disambiguates from anonymize when
 	// downstream consumers route by engine.
 	PIIOpenAIPF
+
+	// batch 43 — appended in wire-stable order, never reorder. IaC and
+	// config-file context-keyed assignment detectors (class b:
+	// unverified-by-design, host not in chunk).
+	HardcodedPassword
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

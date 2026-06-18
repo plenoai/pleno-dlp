@@ -30,7 +30,7 @@ func Lookup(detectorType string) (Class, bool) {
 }
 
 var Classes = map[string]Class{
-	// (b) Unverified-by-design — 50 detectors
+	// (b) Unverified-by-design — 51 detectors
 	"APNs":              ClassUnverifiedByDesign,
 	"AWSS3PresignedURL": ClassUnverifiedByDesign,
 	"AgoraIO":           ClassUnverifiedByDesign,
@@ -63,6 +63,7 @@ var Classes = map[string]Class{
 	"GitLabPipeline":     ClassUnverifiedByDesign,
 	"GoCD":               ClassUnverifiedByDesign,
 	"JWT":                ClassUnverifiedByDesign,
+	"HardcodedPassword":  ClassUnverifiedByDesign,
 	"Jenkins":            ClassUnverifiedByDesign,
 	"Jira":               ClassUnverifiedByDesign,
 	"Kafka":              ClassUnverifiedByDesign,
