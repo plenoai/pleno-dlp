@@ -203,9 +203,7 @@ func (s *Source) emitConfig(ctx context.Context, img v1.Image, ref, digest strin
 	}
 
 	var lines []string
-	for _, env := range cf.Config.Env {
-		lines = append(lines, env)
-	}
+	lines = append(lines, cf.Config.Env...)
 	for k, v := range cf.Config.Labels {
 		lines = append(lines, k+"="+v)
 	}

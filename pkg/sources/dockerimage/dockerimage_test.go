@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"io"
 	"testing"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -183,7 +184,10 @@ func buildTestImage(t *testing.T, files map[string]string) v1.Image {
 		t.Fatal(err)
 	}
 
-	layer, err := tarball.LayerFromReader(&buf)
+	data := buf.Bytes()
+	layer, err := tarball.LayerFromOpener(func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(data)), nil
+	})
 	if err != nil {
 		t.Fatalf("create layer: %v", err)
 	}
