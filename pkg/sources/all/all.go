@@ -9,6 +9,7 @@ import (
 	// every stub.
 	_ "github.com/plenoai/pleno-dlp/pkg/connectors"
 
+	_ "github.com/plenoai/pleno-dlp/pkg/sources/dockerimage"
 	_ "github.com/plenoai/pleno-dlp/pkg/sources/filesystem"
 	_ "github.com/plenoai/pleno-dlp/pkg/sources/gcs"
 	_ "github.com/plenoai/pleno-dlp/pkg/sources/git"

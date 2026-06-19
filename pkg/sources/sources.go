@@ -38,6 +38,7 @@ const (
 	SourceBigQuery
 	SourceRedash
 	SourceSQLDump
+	SourceDockerImage
 )
 
 // Metadata is a discriminated union of source-specific location info. Each
@@ -58,7 +59,8 @@ type Metadata struct {
 	Stdin      *StdinMeta
 	Forge      *ForgeMeta
 	SIEM       *SIEMMeta
-	SQLDump    *SQLDumpMeta
+	SQLDump     *SQLDumpMeta
+	DockerImage *DockerImageMeta
 }
 
 type FilesystemMeta struct {
@@ -210,6 +212,18 @@ type Chunk struct {
 	SourceName     string
 	Data           []byte
 	SourceMetadata Metadata
+}
+
+// DockerImageMeta is populated by the docker-image source. It captures
+// the image reference, layer digest, and file path within the layer so
+// output formatters can render where the secret was found without
+// re-fetching the image.
+type DockerImageMeta struct {
+	Image  string // full image reference (e.g., "docker.io/library/alpine:3.20")
+	Digest string // image manifest digest (sha256:...)
+	Layer  string // layer digest (sha256:...) or "config" for the image config blob
+	File   string // path within the layer (empty for the config blob)
+	Line   int    // 1-based line number within the file (0 if unknown)
 }
 
 // Source is the trufflehog-compatible source contract. Init parses config and
