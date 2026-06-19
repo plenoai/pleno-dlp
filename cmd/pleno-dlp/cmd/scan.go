@@ -223,6 +223,7 @@ func init() {
 	scanSQLDumpCmd.Flags().IntVar(&sqldumpOpts.maxLineBytes, "max-line-bytes", 0, "max bytes per line (0 = default 4 MiB); longer lines are skipped")
 	scanSQLDumpCmd.Flags().IntVar(&sqldumpOpts.chunkLineCount, "chunk-lines", 0, "number of data lines per chunk (0 = default 50)")
 
+	scanCmd.AddCommand(scanDockerCmd)
 	scanCmd.AddCommand(scanFilesystemCmd)
 	scanCmd.AddCommand(scanGCSCmd)
 	scanCmd.AddCommand(scanGitCmd)

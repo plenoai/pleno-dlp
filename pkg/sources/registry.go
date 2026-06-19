@@ -81,6 +81,8 @@ func (t SourceType) String() string {
 		return "redash"
 	case SourceSQLDump:
 		return "sqldump"
+	case SourceDockerImage:
+		return "docker-image"
 	default:
 		return "unknown"
 	}
