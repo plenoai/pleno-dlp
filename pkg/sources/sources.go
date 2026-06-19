@@ -45,20 +45,20 @@ const (
 // source populates exactly one field. Output formatters dispatch on the
 // non-nil field to render "where the secret was found".
 type Metadata struct {
-	Filesystem *FilesystemMeta
-	Git        *GitMeta
-	GitHub     *GitHubMeta
-	GitLab     *GitLabMeta
-	S3         *S3Meta
-	GCS        *GCSMeta
-	Slack      *SlackMeta
-	Confluence *ConfluenceMeta
-	Jira       *JiraMeta
-	Notion     *NotionMeta
-	Bitbucket  *BitbucketMeta
-	Stdin      *StdinMeta
-	Forge      *ForgeMeta
-	SIEM       *SIEMMeta
+	Filesystem  *FilesystemMeta
+	Git         *GitMeta
+	GitHub      *GitHubMeta
+	GitLab      *GitLabMeta
+	S3          *S3Meta
+	GCS         *GCSMeta
+	Slack       *SlackMeta
+	Confluence  *ConfluenceMeta
+	Jira        *JiraMeta
+	Notion      *NotionMeta
+	Bitbucket   *BitbucketMeta
+	Stdin       *StdinMeta
+	Forge       *ForgeMeta
+	SIEM        *SIEMMeta
 	SQLDump     *SQLDumpMeta
 	DockerImage *DockerImageMeta
 }
