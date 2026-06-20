@@ -30,6 +30,46 @@ Revoke is irreversible. The CLI applies three gates:
 
 `Revoker.Revoke` implementations do not enforce local policy. The caller owns gating.
 
+## Deferred revoke via spool
+
+For workflows that want scan and revoke decoupled — separate trust
+boundaries, replayable revokes, or a human review gate between
+detection and revocation — use the spool path:
+
+```sh
+PLENO_DLP_ALLOW_RAW_EXPORT=1 \
+  pleno-dlp scan github --org acme --revoke-spool revoke.jsonl
+
+# Inspect revoke.jsonl, decide to proceed, then:
+PLENO_DLP_ALLOW_REVOKE=1 \
+  pleno-dlp revoke --confirm --revoke-from-spool revoke.jsonl
+```
+
+The spool file is JSONL, one record per verified finding whose
+detector implements `Revoker`. The file is created with mode `0600`
+and **contains raw secret bytes** — `PLENO_DLP_ALLOW_RAW_EXPORT=1` is
+required to opt in to serializing live credentials to disk.
+
+`--revoke-spool` is mutually exclusive with `--revoke-on-verified`.
+Pick one trust model: inline revoke happens during scan, deferred
+spool lets a second invocation own the irreversible step.
+
+Spool record shape (v1):
+
+```json
+{"version":1,"detector":"GitHub","secret_b64":"...","redacted":"ghp_***","source_link":"https://github.com/...","ts":"2026-06-19T..."}
+```
+
+`pleno-dlp revoke --revoke-from-spool` iterates the file and dispatches
+each line to the matching `Revoker`. Lines whose detector lacks a
+Revoker are counted as skipped, not failed. The same gating rules
+apply once for the batch: `--confirm`/`--dry-run` and
+`PLENO_DLP_ALLOW_REVOKE=1` in non-interactive contexts.
+
+After a successful revoke pass, delete the spool file —
+`PLENO_DLP_ALLOW_RAW_EXPORT` does not protect against an operator
+leaving raw secrets at rest indefinitely.
+
 ## Idempotency contract
 
 `Revoke(ctx, secret)` MUST be idempotent. A second call against an

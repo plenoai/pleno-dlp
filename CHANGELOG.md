@@ -11,6 +11,12 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Added
 
+- **scan `--revoke-spool` / revoke `--revoke-from-spool`**: decouple
+  detection from revocation. Scan writes verified findings to a JSONL
+  spool file (mode 0600) gated by `PLENO_DLP_ALLOW_RAW_EXPORT=1`; a
+  later `revoke --revoke-from-spool` consumes the file and dispatches
+  each line to the per-detector Revoker. Mutually exclusive with
+  `--revoke-on-verified`. See `docs/revoke-support.md`.
 - Expanded `docs/comparison.md` with real-world evaluation: labeled
   corpora (leaky-repo, terragoat, OWASP Juice Shop), an adjudicated
   popular-OSS noise sweep, git-history behavior, and verification
