@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -143,6 +144,70 @@ func TestGitHubClientDoesNotRetry5xxOnPost(t *testing.T) {
 		t.Fatalf("POST should not retry on 5xx; calls = %d, want 1", calls)
 	}
 }
+
+// HTTP/2 stream CANCEL / GOAWAY / connection reset 等で body 読み込みが
+// 途中で切れた場合、 同じ page を retry すれば多くは復活する。 fingerprint
+// walk 中の 1 page を投げ捨てて scan 全体を捨てるのが惜しいケース。
+func TestGitHubClientGetJSONRetriesOnTransientBodyReadErr(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		if calls < 3 {
+			// Content-Length を実際より長く宣言してから途中で切ると、
+			// client 側で unexpected EOF が起きる (= transient body read err)。
+			w.Header().Set("Content-Length", "1000")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ok":`))
+			if hj, ok := w.(http.Hijacker); ok {
+				if conn, _, err := hj.Hijack(); err == nil {
+					_ = conn.Close()
+				}
+			}
+			return
+		}
+		writeJSON(t, w, map[string]any{"ok": true})
+	}))
+	t.Cleanup(srv.Close)
+
+	cli := newGitHubClient(srv.URL, nil)
+	cli.testSleep = func(time.Duration) {}
+	var out map[string]any
+	if _, err := cli.getJSON(context.Background(), "/anything", &out); err != nil {
+		t.Fatalf("expected success after retries, got %v", err)
+	}
+	if calls != 3 {
+		t.Fatalf("calls = %d, want 3 (two truncated body then 200)", calls)
+	}
+	if v, _ := out["ok"].(bool); !v {
+		t.Fatalf("decoded payload missing or false: %#v", out)
+	}
+}
+
+func TestIsTransientHTTPReadErrCoversObservedSignatures(t *testing.T) {
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{nil, false},
+		{io.ErrUnexpectedEOF, true},
+		{io.EOF, true},
+		{errString("stream error: stream ID 705; CANCEL; received from peer"), true},
+		{errString("http2: server sent GOAWAY and closed the connection"), true},
+		{errString("read tcp: connection reset by peer"), true},
+		{errString("write tcp: broken pipe"), true},
+		{errString("invalid character 'a' looking for beginning of value"), false},
+	}
+	for _, tc := range cases {
+		if got := isTransientHTTPReadErr(tc.err); got != tc.want {
+			t.Errorf("isTransientHTTPReadErr(%v) = %v, want %v", tc.err, got, tc.want)
+		}
+	}
+}
+
+type errString string
+
+func (e errString) Error() string { return string(e) }
 
 func writeJSON(t *testing.T, w http.ResponseWriter, v any) {
 	t.Helper()
