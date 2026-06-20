@@ -20,6 +20,7 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/storage/memory"
 
@@ -368,6 +369,12 @@ func fingerprintGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTo
 	}
 	refs, err := remote.ListContext(ctx, listOpts)
 	if err != nil {
+		// 空 repo (init 直後で commit 0 件) は go-git が
+		// transport.ErrEmptyRemoteRepository を返す。 fingerprint に寄与する
+		// ref が無いだけなので、 org scan 全体を止めずに skip する。
+		if errors.Is(err, transport.ErrEmptyRemoteRepository) {
+			return nil
+		}
 		return fmt.Errorf("github: list remote refs for %s/%s: %w", repo.Owner.Login, repo.Name, err)
 	}
 	pairs := make([]string, 0, len(refs))

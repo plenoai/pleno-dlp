@@ -9,6 +9,14 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Fixed
+
+- **incremental GitHub fingerprint**: skip empty repos (0 commits) instead
+  of failing the whole org scan. go-git's `transport.ErrEmptyRemoteRepository`
+  is now treated as "no refs to fingerprint" and the loop continues to the
+  next repo, fixing
+  `incremental: fingerprint github source: github: list remote refs for …: remote repository is empty`.
+
 ### Added
 
 - **scan `--revoke-spool` / revoke `--revoke-from-spool`**: decouple
