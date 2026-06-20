@@ -56,6 +56,7 @@ type scanFlags struct {
 	quiet             bool
 	revokeOnVerified  bool
 	revokeDryRun      bool
+	revokeSpool       string
 	blastRadiusOnly   bool
 	incremental       bool
 	incrementalState  string
@@ -174,6 +175,12 @@ func init() {
 			"Refuses to run unless "+EnvAllowRevoke+"=1 is set in the environment so a misconfigured CI cannot accidentally revoke live credentials. Detectors without a Revoker implementation are skipped.")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.revokeDryRun, "revoke-dry-run", false,
 		"when used with --revoke-on-verified, log what would be revoked without contacting the provider")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.revokeSpool, "revoke-spool", "",
+		"path to a JSONL spool file that captures verified findings whose detector supports revoke. "+
+			"Decouples scan from revoke: replay later with `pleno-dlp revoke --revoke-from-spool <path>`. "+
+			"The file holds raw secrets and is created mode 0600. "+
+			"Requires "+EnvAllowRawExport+"=1 so a misconfigured CI cannot accidentally serialize live credentials. "+
+			"Mutually exclusive with --revoke-on-verified.")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.blastRadiusOnly, "blast-radius-only", false,
 		"emit and count only findings the engine has tagged blast_radius=true "+
 			"(driftwood-pattern flags: any *_privileged, *_high_value, or *_high_risk). "+
@@ -324,6 +331,14 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 			return fmt.Errorf("--revoke-on-verified refuses to run without %s=1 (irreversible operation; set the env var to opt in or pass --revoke-dry-run)", EnvAllowRevoke)
 		}
 	}
+	if scanOpts.revokeSpool != "" {
+		if scanOpts.revokeOnVerified {
+			return fmt.Errorf("--revoke-spool is mutually exclusive with --revoke-on-verified (pick one trust model: inline revoke or deferred spool)")
+		}
+		if os.Getenv(EnvAllowRawExport) != "1" {
+			return fmt.Errorf("--revoke-spool refuses to run without %s=1 (the spool file persists raw secrets to disk; set the env var to opt in)", EnvAllowRawExport)
+		}
+	}
 
 	// The verify arg is the trufflehog Source contract, not a CLI option:
 	// verification is unconditional (verify-by-default since #165).
@@ -425,9 +440,17 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// the PIIDB buffer (which ignores non-PII anyway).
 	var topSink engine.Sink = piidbSink
 	var revoker *revokingSink
+	var spool *spoolSink
 	if scanOpts.revokeOnVerified {
 		revoker = newRevokingSink(piidbSink, dets, scanOpts.revokeDryRun, cmd.ErrOrStderr())
 		topSink = revoker
+	}
+	if scanOpts.revokeSpool != "" {
+		spool, err = newSpoolSink(piidbSink, dets, scanOpts.revokeSpool, cmd.ErrOrStderr())
+		if err != nil {
+			return err
+		}
+		topSink = spool
 	}
 	if scanOpts.onlyVerified {
 		topSink = &verifiedOnlySink{inner: topSink}
@@ -500,6 +523,12 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 				"revoke: attempted=%d revoked=%d failed=%d skipped-no-revoker=%d dry-run=%t\n",
 				revoker.attempted.Load(), revoker.revoked.Load(), revoker.failed.Load(),
 				revoker.skipped.Load(), scanOpts.revokeDryRun,
+			)
+		}
+		if spool != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"revoke-spool: queued=%d skipped-no-revoker=%d write-errors=%d path=%s\n",
+				spool.queued.Load(), spool.skippedNoRv.Load(), spool.writeErrs.Load(), scanOpts.revokeSpool,
 			)
 		}
 	}

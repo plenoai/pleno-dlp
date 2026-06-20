@@ -27,6 +27,7 @@ import (
 type revokeFlags struct {
 	detector     string
 	secret       string
+	fromSpool    string
 	clientID     string
 	clientSecret string
 	githubMode   string
@@ -47,7 +48,7 @@ var revokeOpts revokeFlags
 const EnvAllowRevoke = "PLENO_DLP_ALLOW_REVOKE"
 
 var revokeCmd = &cobra.Command{
-	Use:   "revoke --detector <name> --secret <value|->",
+	Use:   "revoke (--detector <name> --secret <value|-> | --revoke-from-spool <path>)",
 	Short: "Revoke a leaked credential against the issuing provider",
 	Long: "Revoke a leaked credential against the issuing provider. Irreversible.\n\n" +
 		"Pass `--secret -` to read the leaked credential from stdin (recommended:\n" +
@@ -55,6 +56,10 @@ var revokeCmd = &cobra.Command{
 		"OAuth-app credentials use DELETE /applications/{client_id}/token;\n" +
 		"otherwise PATs are revoked via POST /credentials/revoke. Override with\n" +
 		"--github-revoke-mode or " + githubdet.EnvRevokeMode + ".\n\n" +
+		"Batch mode: `--revoke-from-spool <path>` consumes a JSONL spool file\n" +
+		"emitted by `pleno-dlp scan --revoke-spool`. Each line carries its own\n" +
+		"detector and raw secret so --detector/--secret become optional in batch\n" +
+		"mode. Gating still applies once for the whole batch.\n\n" +
 		"Gating (ADR-0001 D6): one of --confirm or --dry-run is mandatory.\n" +
 		"Non-interactive contexts (CI, pipes) MUST also set " + EnvAllowRevoke + "=1.",
 	Args: cobra.NoArgs,
@@ -76,7 +81,9 @@ func init() {
 	revokeCmd.Flags().BoolVar(&revokeOpts.dryRun, "dry-run", false, "print the planned revoke without contacting the provider")
 	revokeCmd.Flags().StringVar(&revokeOpts.format, "format", "table", "output format: table, json")
 	revokeCmd.Flags().IntVar(&revokeOpts.rateLimitRPS, "rate-limit-rps", 0, "per-host requests-per-second cap during revoke (0 = disabled). Useful when revoking many secrets in a loop to avoid provider rate limits.")
-	_ = revokeCmd.MarkFlagRequired("detector")
+	revokeCmd.Flags().StringVar(&revokeOpts.fromSpool, "revoke-from-spool", "",
+		"path to a JSONL spool file produced by `pleno-dlp scan --revoke-spool`. "+
+			"Each line is dispatched to the per-detector Revoker. --detector/--secret are ignored in this mode.")
 
 	Root.AddCommand(revokeCmd)
 }
@@ -92,8 +99,8 @@ func IsRevokeRefused(err error) bool { return errors.Is(err, errRevokeRefused) }
 func IsRevokeFailed(err error) bool { return errors.Is(err, errRevokeFailed) }
 
 func runRevoke(cmd *cobra.Command, _ []string) error {
-	if revokeOpts.detector == "" {
-		return errors.New("--detector is required")
+	if revokeOpts.fromSpool == "" && revokeOpts.detector == "" {
+		return errors.New("--detector is required (or use --revoke-from-spool)")
 	}
 	if !revokeOpts.confirm && !revokeOpts.dryRun {
 		fmt.Fprintln(cmd.ErrOrStderr(), "revoke: refusing to proceed without --confirm or --dry-run (irreversible operation)")
@@ -105,6 +112,10 @@ func runRevoke(cmd *cobra.Command, _ []string) error {
 				"revoke: refusing to proceed in a non-interactive context without %s=1\n", EnvAllowRevoke)
 			return errRevokeRefused
 		}
+	}
+
+	if revokeOpts.fromSpool != "" {
+		return runRevokeFromSpool(cmd, revokeOpts.fromSpool)
 	}
 
 	secret, err := resolveSecret(cmd, revokeOpts.secret)
