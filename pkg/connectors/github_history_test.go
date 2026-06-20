@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"context"
+	"crypto/sha256"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -467,4 +468,30 @@ func keys(m map[string]sources.GitHubMeta) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// 空 repo (commit 0 件) は go-git の ListContext が
+// transport.ErrEmptyRemoteRepository を返す。 fingerprint 経路がこれを
+// 受けて nil に丸めないと、 org 全体の incremental scan が止まる。
+func TestFingerprintGitHubRepoHistorySkipsEmptyRepo(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := gogit.PlainInit(dir, false); err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+
+	cfg := Config{"clone_url_template": dir}
+	repo := githubRepoRef{Name: "empty"}
+	repo.Owner.Login = "acme"
+
+	h := sha256.New()
+	if err := fingerprintGitHubRepoHistory(
+		context.Background(),
+		cfg,
+		nil,
+		"https://api.github.com",
+		h,
+		repo,
+	); err != nil {
+		t.Fatalf("want nil for empty repo, got %v", err)
+	}
 }
