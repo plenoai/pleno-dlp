@@ -747,21 +747,67 @@ func (c *githubClient) do(ctx context.Context, method, path string, body io.Read
 }
 
 func (c *githubClient) getJSON(ctx context.Context, path string, out any) (*http.Response, error) {
-	resp, err := c.do(ctx, http.MethodGet, path, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return resp, fmt.Errorf("github: GET %s -> %s: %s", path, resp.Status, strings.TrimSpace(string(body)))
-	}
-	if out != nil {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return resp, fmt.Errorf("github: decode %s: %w", path, err)
+	const maxAttempts = 5
+	var lastResp *http.Response
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		resp, err := c.do(ctx, http.MethodGet, path, nil)
+		if err != nil {
+			return nil, err
+		}
+		lastResp = resp
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			_ = resp.Body.Close()
+			// c.do は 5xx GET なら既に retry 済み。 ここに来た 5xx は
+			// retry-exhausted なので上位に返す。
+			return resp, fmt.Errorf("github: GET %s -> %s: %s", path, resp.Status, strings.TrimSpace(string(body)))
+		}
+		if out == nil {
+			return resp, nil
+		}
+		decErr := json.NewDecoder(resp.Body).Decode(out)
+		_ = resp.Body.Close()
+		if decErr == nil {
+			return resp, nil
+		}
+		lastErr = fmt.Errorf("github: decode %s: %w", path, decErr)
+		// body 読み込み中に peer 側が stream を切るケース (HTTP/2 GOAWAY,
+		// stream CANCEL、 connection reset、 unexpected EOF) は transient。
+		// 数時間 scan で 1 page を投げ捨てる価値が無いので、 exponential
+		// backoff で同じ page を再取得する。
+		if !isTransientHTTPReadErr(decErr) {
+			return resp, lastErr
+		}
+		wait := time.Duration(1<<attempt) * time.Second
+		if wait > time.Minute {
+			wait = time.Minute
+		}
+		if c.testSleep != nil {
+			c.testSleep(wait)
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(wait):
 		}
 	}
-	return resp, nil
+	return lastResp, lastErr
+}
+
+func isTransientHTTPReadErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "stream error") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "GOAWAY")
 }
 
 func (c *githubClient) url(p string) string {

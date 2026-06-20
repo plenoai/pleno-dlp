@@ -11,6 +11,13 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Fixed
 
+- **GitHub REST client: retry transient body-read errors in `getJSON`**.
+  After `c.do()` returns 200, body reading can still fail with HTTP/2
+  `stream error: ... CANCEL`, `GOAWAY`, unexpected EOF, or connection
+  reset — typically from intermediate proxies under load on multi-hour
+  scans. The decoded page is now retried with exponential backoff (up to
+  5 attempts, 1 min cap). Non-transient JSON syntax errors are surfaced
+  immediately as before.
 - **GitHub REST client: retry transient 5xx on GET**. `c.do()` now retries
   HTTP 502/503/504 for idempotent GETs with the same exponential backoff
   used for rate-limit waits (up to 5 attempts, max 1 min between). This
