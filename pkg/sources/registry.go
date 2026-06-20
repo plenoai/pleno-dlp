@@ -83,6 +83,12 @@ func (t SourceType) String() string {
 		return "sqldump"
 	case SourceDockerImage:
 		return "docker-image"
+	case SourceElasticsearch:
+		return "elasticsearch"
+	case SourceJenkins:
+		return "jenkins"
+	case SourcePostman:
+		return "postman"
 	default:
 		return "unknown"
 	}
