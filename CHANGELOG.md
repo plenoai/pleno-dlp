@@ -11,6 +11,11 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Fixed
 
+- **GitHub REST client: retry transient 5xx on GET**. `c.do()` now retries
+  HTTP 502/503/504 for idempotent GETs with the same exponential backoff
+  used for rate-limit waits (up to 5 attempts, max 1 min between). This
+  prevents a single Bad Gateway during a multi-hour org fingerprint walk
+  from aborting the entire scan. POST/PATCH/DELETE are unaffected.
 - **incremental GitHub fingerprint**: skip empty repos (0 commits) instead
   of failing the whole org scan. go-git's `transport.ErrEmptyRemoteRepository`
   is now treated as "no refs to fingerprint" and the loop continues to the

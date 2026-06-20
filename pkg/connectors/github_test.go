@@ -93,6 +93,57 @@ func TestNormalizePEMNewlines(t *testing.T) {
 	}
 }
 
+// GitHub の listing API は巨大 org の数時間 scan 中に 502/503/504 を返すことが
+// あり、 1 回の transient で fingerprint まるごと投げ捨てると無駄が大きい。
+// GET だけは GitHub 側の transient を吸収する。
+func TestGitHubClientRetriesTransient5xxOnGet(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls < 3 {
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"message":"Server Error"}`))
+			return
+		}
+		writeJSON(t, w, map[string]any{"ok": true})
+	}))
+	t.Cleanup(srv.Close)
+
+	cli := newGitHubClient(srv.URL, nil)
+	cli.testSleep = func(time.Duration) {}
+	resp, err := cli.do(context.Background(), http.MethodGet, "/rate_limit", nil)
+	if err != nil {
+		t.Fatalf("expected success after retries, got %v", err)
+	}
+	_ = resp.Body.Close()
+	if calls != 3 {
+		t.Fatalf("calls = %d, want 3 (two 502s then 200)", calls)
+	}
+}
+
+// 副作用ありの POST は同じ idempotency 保証が無いので 5xx でも retry せず、
+// 上位に resp をそのまま戻す。 上位の getJSON 等が status を見て err 化する。
+func TestGitHubClientDoesNotRetry5xxOnPost(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"message":"nope"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	cli := newGitHubClient(srv.URL, nil)
+	cli.testSleep = func(time.Duration) {}
+	resp, err := cli.do(context.Background(), http.MethodPost, "/whatever", nil)
+	if err != nil {
+		t.Fatalf("c.do should not error on 5xx for non-GET, got %v", err)
+	}
+	_ = resp.Body.Close()
+	if calls != 1 {
+		t.Fatalf("POST should not retry on 5xx; calls = %d, want 1", calls)
+	}
+}
+
 func writeJSON(t *testing.T, w http.ResponseWriter, v any) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
