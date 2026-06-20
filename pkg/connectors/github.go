@@ -698,6 +698,28 @@ func (c *githubClient) do(ctx context.Context, method, path string, body io.Read
 			continue
 		}
 		c.observeRateLimit(resp)
+		// idempotent な GET に対する 5xx (502/503/504 など) は GitHub 側の
+		// 一時的な障害が大半で、 巨大 org の数時間 scan を 1 回の Bad Gateway
+		// で投げ捨てる損が大きすぎる。 rate-limit と同じ backoff で retry する。
+		// POST/PATCH 等の副作用ありは重複生成リスクがあるので GET に限定。
+		if method == http.MethodGet && resp.StatusCode >= 500 && resp.StatusCode < 600 {
+			wait := githubBackoff(resp, attempt)
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			if c.testSleep != nil {
+				c.testSleep(wait)
+				continue
+			}
+			if wait <= 0 {
+				wait = time.Second
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(wait):
+			}
+			continue
+		}
 		if githubRateLimited(resp) {
 			wait := githubBackoff(resp, attempt)
 			_, _ = io.Copy(io.Discard, resp.Body)
