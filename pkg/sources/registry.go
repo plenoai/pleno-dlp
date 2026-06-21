@@ -89,6 +89,8 @@ func (t SourceType) String() string {
 		return "jenkins"
 	case SourcePostman:
 		return "postman"
+	case SourceHuggingFace:
+		return "huggingface"
 	default:
 		return "unknown"
 	}

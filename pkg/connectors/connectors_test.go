@@ -278,6 +278,7 @@ func TestProductionConnectorsSupportIncremental(t *testing.T) {
 		"gitbucket",
 		"github",
 		"gitlab",
+		"huggingface",
 		"gogs",
 		"jenkins",
 		"jira",
