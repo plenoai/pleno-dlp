@@ -42,6 +42,7 @@ const (
 	SourceElasticsearch
 	SourceJenkins
 	SourcePostman
+	SourceHuggingFace
 )
 
 // Metadata is a discriminated union of source-specific location info. Each
@@ -64,6 +65,7 @@ type Metadata struct {
 	SIEM        *SIEMMeta
 	SQLDump     *SQLDumpMeta
 	DockerImage *DockerImageMeta
+	HuggingFace *HuggingFaceMeta
 }
 
 type FilesystemMeta struct {
@@ -227,6 +229,17 @@ type DockerImageMeta struct {
 	Layer  string // layer digest (sha256:...) or "config" for the image config blob
 	File   string // path within the layer (empty for the config blob)
 	Line   int    // 1-based line number within the file (0 if unknown)
+}
+
+// HuggingFaceMeta is populated by the HuggingFace connector. It tracks
+// provenance to the organization, repository, and file path within the repo
+// so output formatters can render where the secret was found.
+type HuggingFaceMeta struct {
+	Organization string `json:"organization"`
+	Repository   string `json:"repository"`
+	RepoType     string `json:"repo_type"`
+	Path         string `json:"path"`
+	Commit       string `json:"commit"`
 }
 
 // Source is the trufflehog-compatible source contract. Init parses config and
