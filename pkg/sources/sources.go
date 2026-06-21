@@ -60,12 +60,12 @@ type Metadata struct {
 	Jira        *JiraMeta
 	Notion      *NotionMeta
 	Bitbucket   *BitbucketMeta
-	Stdin        *StdinMeta
-	Forge        *ForgeMeta
-	SIEM         *SIEMMeta
-	SQLDump      *SQLDumpMeta
-	DockerImage  *DockerImageMeta
-	HuggingFace  *HuggingFaceMeta
+	Stdin       *StdinMeta
+	Forge       *ForgeMeta
+	SIEM        *SIEMMeta
+	SQLDump     *SQLDumpMeta
+	DockerImage *DockerImageMeta
+	HuggingFace *HuggingFaceMeta
 }
 
 type FilesystemMeta struct {

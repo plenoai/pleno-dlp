@@ -44,10 +44,10 @@ import (
 )
 
 const (
-	hfDefaultAPIBase      = "https://huggingface.co"
-	hfRequestTimeout      = 60 * time.Second
-	hfPageSize            = 100
-	hfDefaultRepoTypes    = "model,dataset,space"
+	hfDefaultAPIBase   = "https://huggingface.co"
+	hfRequestTimeout   = 60 * time.Second
+	hfPageSize         = 100
+	hfDefaultRepoTypes = "model,dataset,space"
 )
 
 func init() {
