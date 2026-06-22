@@ -11,6 +11,13 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Fixed
 
+- **incremental GitHub fingerprint: skip per-repo failure, treat as changed**.
+  When a single repo's fingerprint walk exhausts retries (rate-limit
+  exhaustion, persistent 5xx, body read err) the org loop no longer aborts
+  the whole scan. A `fingerprint-failed` seed is mixed into the running
+  hash so the failed repo's fingerprint guarantees diff from the previous
+  scan — incremental skips disabled for it, full scan on next run (safe
+  side). A `WARN` line is logged to stderr per skipped repo.
 - **GitHub REST client: retry transient body-read errors in `getJSON`**.
   After `c.do()` returns 200, body reading can still fail with HTTP/2
   `stream error: ... CANCEL`, `GOAWAY`, unexpected EOF, or connection
