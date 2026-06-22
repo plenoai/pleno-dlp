@@ -9,6 +9,18 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Added
+
+- **incremental scan: streaming per-unit state flush**. New optional
+  `sources.IncrementalFlushSource` interface lets a connector hand the
+  cmd layer a partial state snapshot after each processed unit (per-repo
+  for GitHub). The cmd `scan` command wires a flush closure that
+  persists the state file via temp-file + atomic rename, so a scan that
+  crashes, is OOM-killed, or exits non-zero mid-org keeps the work done
+  so far. The next run resumes from the last flushed repo. The GitHub
+  connector flushes inside `scanGitHubHistory` after each
+  `nextState.Repos[repoKey] = nextRepo`.
+
 ### Fixed
 
 - **incremental GitHub fingerprint: skip per-repo failure, treat as changed**.

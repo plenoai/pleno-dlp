@@ -266,3 +266,18 @@ type IncrementalStateSource interface {
 	SetIncrementalState(previous json.RawMessage) error
 	IncrementalState() json.RawMessage
 }
+
+// IncrementalFlushFunc は partial に処理が進んだ時点の source state を
+// 呼び出し元 (cmd 層) に流すための callback。 cmd 層は受け取った
+// sourceState を incremental state file に wrap して atomic に persist
+// する想定。 callback 自体は nil 安全。
+type IncrementalFlushFunc func(sourceState json.RawMessage) error
+
+// IncrementalFlushSource は IncrementalStateSource の opt-in 拡張。
+// 大量 resource を順番に処理する source が、 unit (例: per-repo) 完了の
+// たびに最新 state を flush できるようにする。 中断後の resume と、
+// scan が exit 非 0 で死んだ場合の partial state 永続化のための仕組み。
+type IncrementalFlushSource interface {
+	IncrementalStateSource
+	SetIncrementalFlush(IncrementalFlushFunc)
+}

@@ -91,6 +91,20 @@ type sourceAdapter struct {
 	sourceName string
 	sourceID   int64
 	verify     bool
+	flush      sources.IncrementalFlushFunc
+}
+
+// incrementalFlushCtxKey は connector が ctx 経由で flush callback を
+// 取り出すための key。 sourceAdapter.Chunks が inject、 connector 側は
+// IncrementalFlushFromContext で取り出す。
+type incrementalFlushCtxKey struct{}
+
+// IncrementalFlushFromContext は sourceAdapter が ctx に inject した flush
+// callback を返す。 connector が per-unit (per-repo / per-page) 完了の
+// たびに呼び、 引数に最新の source state を渡す。 callback が無ければ nil。
+func IncrementalFlushFromContext(ctx context.Context) sources.IncrementalFlushFunc {
+	v, _ := ctx.Value(incrementalFlushCtxKey{}).(sources.IncrementalFlushFunc)
+	return v
 }
 
 func (s *sourceAdapter) Type() sources.SourceType { return s.conn.SourceType }
@@ -120,6 +134,9 @@ func (s *sourceAdapter) Chunks(ctx context.Context, ch chan<- *sources.Chunk) er
 		case <-ctx.Done():
 			return ctx.Err()
 		}
+	}
+	if s.flush != nil {
+		ctx = context.WithValue(ctx, incrementalFlushCtxKey{}, s.flush)
 	}
 	return s.conn.Scan(ctx, s.cfg, emit)
 }
@@ -156,3 +173,13 @@ func (s *sourceAdapter) IncrementalState() json.RawMessage {
 }
 
 var _ sources.IncrementalStateSource = (*sourceAdapter)(nil)
+
+// SetIncrementalFlush は cmd 層が「per-unit 完了時に partial state を
+// 受け取りたい」ときに closure を渡す setter。 sourceAdapter は受け取った
+// closure を Chunks(ctx) で ctx に inject し、 connector がそれを取り出
+// して呼ぶ (connectors.IncrementalFlushFromContext)。
+func (s *sourceAdapter) SetIncrementalFlush(f sources.IncrementalFlushFunc) {
+	s.flush = f
+}
+
+var _ sources.IncrementalFlushSource = (*sourceAdapter)(nil)

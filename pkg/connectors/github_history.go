@@ -123,6 +123,17 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 			}
 		}
 		nextState.Repos[repoKey] = nextRepo
+		// per-repo flush。 cmd 層が「ここまで進んだ」状態を atomic に persist
+		// するので、 scan が次の repo で死んでも次回 run が前回までを resume できる。
+		// flush err は scan を倒すほどではない (= 次の flush または final
+		// marshal で recover する) ので WARN だけ。
+		if flush := IncrementalFlushFromContext(ctx); flush != nil {
+			if data, err := json.Marshal(nextState); err == nil {
+				if ferr := flush(data); ferr != nil {
+					fmt.Fprintf(os.Stderr, "WARN: github incremental flush failed after %s: %v\n", repoKey, ferr)
+				}
+			}
+		}
 	}
 	if data, err := json.Marshal(nextState); err == nil {
 		cfg[configKeyIncrementalNextState] = string(data)

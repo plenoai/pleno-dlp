@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -313,5 +314,74 @@ func TestProductionConnectorsSupportIncremental(t *testing.T) {
 		if _, ok := src.(sources.IncrementalStateSource); !ok {
 			t.Errorf("%s source adapter does not implement IncrementalStateSource", name)
 		}
+	}
+}
+
+// sourceAdapter は IncrementalFlushSource を実装し、 SetIncrementalFlush
+// で受け取った callback を Chunks 中の ctx に注入する。 connector は
+// IncrementalFlushFromContext で取り出して呼び、 partial state を流す。
+// この test は経路全体 (cmd → adapter → ctx → connector → callback) が
+// 繋がっているかを最小単位で assert する。
+func TestSourceAdapterPropagatesIncrementalFlushCallback(t *testing.T) {
+	name := uniqueName("test-flush")
+	Register(name, Connector{
+		SourceType: sources.SourceFilesystem,
+		Scan: func(ctx context.Context, cfg Config, emit Emit) error {
+			f := IncrementalFlushFromContext(ctx)
+			if f == nil {
+				t.Errorf("flush callback missing from connector ctx")
+				return nil
+			}
+			return f(json.RawMessage(`{"progress":"halfway"}`))
+		},
+	})
+
+	src, err := AsSource(name, Config{})
+	if err != nil {
+		t.Fatalf("AsSource: %v", err)
+	}
+	fs, ok := src.(sources.IncrementalFlushSource)
+	if !ok {
+		t.Fatal("source adapter does not implement IncrementalFlushSource")
+	}
+	var seen json.RawMessage
+	fs.SetIncrementalFlush(func(s json.RawMessage) error {
+		seen = s
+		return nil
+	})
+
+	adapter := src.(*sourceAdapter)
+	ch := make(chan *sources.Chunk, 1)
+	if err := adapter.Chunks(context.Background(), ch); err != nil {
+		t.Fatalf("Chunks: %v", err)
+	}
+	if string(seen) != `{"progress":"halfway"}` {
+		t.Fatalf("flush callback was not invoked with connector payload; seen=%s", string(seen))
+	}
+}
+
+// flush callback を渡していない sourceAdapter は ctx に nil を inject せず、
+// connector 側の IncrementalFlushFromContext は nil を返す。 既存 connector
+// (flush 未対応) が default で no-op になる契約。
+func TestSourceAdapterWithoutFlushKeepsCtxClean(t *testing.T) {
+	name := uniqueName("test-flush-absent")
+	Register(name, Connector{
+		SourceType: sources.SourceFilesystem,
+		Scan: func(ctx context.Context, cfg Config, emit Emit) error {
+			if f := IncrementalFlushFromContext(ctx); f != nil {
+				t.Errorf("expected nil flush callback in connector ctx, got %T", f)
+			}
+			return nil
+		},
+	})
+
+	src, err := AsSource(name, Config{})
+	if err != nil {
+		t.Fatalf("AsSource: %v", err)
+	}
+	adapter := src.(*sourceAdapter)
+	ch := make(chan *sources.Chunk, 1)
+	if err := adapter.Chunks(context.Background(), ch); err != nil {
+		t.Fatalf("Chunks: %v", err)
 	}
 }
