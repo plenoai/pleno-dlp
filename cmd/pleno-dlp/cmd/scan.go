@@ -390,6 +390,26 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		return nil
 	}
 
+	// per-repo / per-unit の partial flush。 source が IncrementalFlushSource
+	// を実装していれば、 connector が unit 完了ごとにこの callback を呼ぶ。
+	// callback の中で incremental state file を atomic に書き戻す。
+	// scan が exit 非 0 で死んでも前回到達点までの state が残るので、 次回
+	// 起動が resume できる。
+	if incrementalKey != "" && incrementalState != nil {
+		flush := sources.IncrementalFlushFunc(func(sourceState json.RawMessage) error {
+			incrementalState.Entries[incrementalKey] = incrementalStateEntry{
+				ResourceFingerprint: incrementalState.PendingResourceFingerprint,
+				ScannerFingerprint:  incrementalState.PendingScannerFingerprint,
+				SourceState:         sourceState,
+				UpdatedAt:           time.Now().UTC().Format(time.RFC3339),
+			}
+			return saveIncrementalState(scanOpts.incrementalState, incrementalState)
+		})
+		if fs, ok := src.(sources.IncrementalFlushSource); ok {
+			fs.SetIncrementalFlush(flush)
+		}
+	}
+
 	// Install the per-host verify rate limiter. Verification always runs
 	// (verify-by-default since #165), so this is unconditional. Detectors
 	// all share http.DefaultTransport, so wrapping it here — once, before
@@ -842,8 +862,16 @@ func saveIncrementalState(path string, state *incrementalStateFile) error {
 		return fmt.Errorf("incremental: encode state: %w", err)
 	}
 	data = append(data, '\n')
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return fmt.Errorf("incremental: write state: %w", err)
+	// per-repo の partial flush が頻繁に走るため、 reader が中途半端な
+	// JSON を見ないように temp file → rename で atomic 化する。 同一
+	// FS なら rename は POSIX で atomic。
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("incremental: write state tmp: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("incremental: rename state: %w", err)
 	}
 	return nil
 }
