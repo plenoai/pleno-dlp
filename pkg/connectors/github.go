@@ -386,17 +386,37 @@ func fingerprintGitHub(ctx context.Context, cfg Config) (string, error) {
 	writeFingerprint(h, repo)
 	writeFingerprint(h, cfg.Get("include_comments", "false"))
 	for _, r := range repos {
-		if err := fingerprintGitHubRepoHistory(ctx, cfg, auth, apiBase, h, r); err != nil {
+		err := func() error {
+			if err := fingerprintGitHubRepoHistory(ctx, cfg, auth, apiBase, h, r); err != nil {
+				return err
+			}
+			if parseBool(cfg["include_comments"]) {
+				if err := fingerprintGitHubIssueComments(ctx, cli, h, r); err != nil {
+					return err
+				}
+				if err := fingerprintGitHubPullReviewComments(ctx, cli, h, r); err != nil {
+					return err
+				}
+			}
+			return nil
+		}()
+		if err == nil {
+			continue
+		}
+		// ctx cancel / deadline は terminal なので即時 abort。
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return "", err
 		}
-		if parseBool(cfg["include_comments"]) {
-			if err := fingerprintGitHubIssueComments(ctx, cli, h, r); err != nil {
-				return "", err
-			}
-			if err := fingerprintGitHubPullReviewComments(ctx, cli, h, r); err != nil {
-				return "", err
-			}
-		}
+		// 個別 repo の transient (rate-limit exhaustion, 5xx, body read err 等)
+		// で org 全体の incremental scan を捨てる loss が大きすぎる。 失敗した
+		// repo は「fingerprint が前回と必ず変わる」シードを書いて、
+		// incremental skip を効かせず full scan に倒す (correctness 側に安全)。
+		fmt.Fprintf(os.Stderr,
+			"WARN: github fingerprint failed for %s/%s, treating as changed: %v\n",
+			r.Owner.Login, r.Name, err)
+		writeFingerprint(h, "fingerprint-failed")
+		writeFingerprint(h, r.Owner.Login+"/"+r.Name)
+		writeFingerprint(h, err.Error())
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
