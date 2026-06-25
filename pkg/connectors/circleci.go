@@ -30,10 +30,10 @@ import (
 )
 
 const (
-	circleciDefaultBaseURL     = "https://circleci.com"
-	circleciRequestTimeout     = 60 * time.Second
-	circleciDefaultMaxPipelines = 5
-	circleciMaxConfigBytes     = 2 << 20 // 2 MiB
+	circleciBaseURL      = "https://circleci.com"
+	circleciTimeout      = 60 * time.Second
+	circleciMaxPipelines = 5
+	circleciMaxConfig    = 2 << 20 // 2 MiB
 )
 
 func init() {
@@ -133,7 +133,7 @@ func fingerprintCircleCI(ctx context.Context, cfg Config) (string, error) {
 }
 
 func verifyCircleCI(ctx context.Context, cfg Config, secret string) (bool, error) {
-	baseURL := cfg.Get("base_url", circleciDefaultBaseURL)
+	baseURL := cfg.Get("base_url", circleciBaseURL)
 	tmpCfg := Config{"token": secret, "base_url": baseURL}
 	cli, err := newCircleCIClient(tmpCfg)
 	if err != nil {
@@ -163,8 +163,8 @@ type circleciClient struct {
 }
 
 type circleciProject struct {
-	Slug string `json:"slug"`
-	Name string `json:"name"`
+	Slug string
+	Name string
 }
 
 type circleciPipeline struct {
@@ -177,13 +177,12 @@ func newCircleCIClient(cfg Config) (*circleciClient, error) {
 	if token == "" {
 		return nil, errors.New("circleci: token is required (set --token or CIRCLE_TOKEN)")
 	}
-	baseURL := strings.TrimRight(cfg.Get("base_url", circleciDefaultBaseURL), "/")
-	maxPipelines := circleciDefaultMaxPipelines
+	baseURL := strings.TrimRight(cfg.Get("base_url", circleciBaseURL), "/")
 	return &circleciClient{
 		baseURL:      baseURL,
 		token:        token,
-		maxPipelines: maxPipelines,
-		http:         &http.Client{Timeout: circleciRequestTimeout},
+		maxPipelines: circleciMaxPipelines,
+		http:         &http.Client{Timeout: circleciTimeout},
 	}, nil
 }
 
@@ -221,8 +220,10 @@ func (c *circleciClient) listProjects(ctx context.Context) ([]circleciProject, e
 		if r.VCSType == "" || r.Username == "" || r.Reponame == "" {
 			continue
 		}
-		slug := r.VCSType + "/" + r.Username + "/" + r.Reponame
-		projects = append(projects, circleciProject{Slug: slug, Name: r.Reponame})
+		projects = append(projects, circleciProject{
+			Slug: r.VCSType + "/" + r.Username + "/" + r.Reponame,
+			Name: r.Reponame,
+		})
 	}
 	return projects, nil
 }
@@ -260,7 +261,7 @@ func (c *circleciClient) getPipelineConfig(ctx context.Context, pipelineID strin
 	var result struct {
 		Source string `json:"source"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, circleciMaxConfigBytes)).Decode(&result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, circleciMaxConfig)).Decode(&result); err != nil {
 		return nil, fmt.Errorf("circleci: decode pipeline config: %w", err)
 	}
 	return []byte(result.Source), nil
