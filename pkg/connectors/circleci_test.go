@@ -37,7 +37,7 @@ func TestScanCircleCI(t *testing.T) {
 			})
 		case r.URL.Path == "/api/v2/pipeline/pipe-1/config":
 			json.NewEncoder(w).Encode(map[string]any{
-				"source": "version: 2.1\njobs:\n  build:\n    docker:\n      - image: cimg/go:1.21\n    steps:\n      - run: echo SECRET_KEY=hunter2\n",
+				"source": "version: 2.1\njobs:\n  build:\n    steps:\n      - run: echo SECRET_KEY=hunter2\n",
 			})
 		default:
 			http.NotFound(w, r)
