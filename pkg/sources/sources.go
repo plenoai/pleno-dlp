@@ -43,6 +43,7 @@ const (
 	SourceJenkins
 	SourcePostman
 	SourceHuggingFace
+	SourceCircleCI
 )
 
 // Metadata is a discriminated union of source-specific location info. Each
