@@ -10,9 +10,8 @@ import (
 )
 
 type circleciFlags struct {
-	token      string
-	baseURL    string
-	maxPipelines int
+	token   string
+	baseURL string
 }
 
 var (
