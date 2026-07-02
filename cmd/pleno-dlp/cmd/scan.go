@@ -745,6 +745,9 @@ func prepareIncremental(ctx context.Context, kind string, cfg []byte, src source
 	if !ok {
 		return "", nil, nil, fmt.Errorf("--incremental is not supported for %s source", kind)
 	}
+	if !scanOpts.quiet {
+		fmt.Fprintf(os.Stderr, "incremental: fingerprinting %s resources\n", kind)
+	}
 	resourceFP, err := fp.ResourceFingerprint(ctx)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("incremental: fingerprint %s source: %w", kind, err)
@@ -759,7 +762,11 @@ func prepareIncremental(ctx context.Context, kind string, cfg []byte, src source
 	}
 	key := kind + ":" + scannerFP
 	entry, ok := state.Entries[key]
-	if ok && entry.ResourceFingerprint == resourceFP && entry.ScannerFingerprint == scannerFP {
+	// 空 fingerprint は「安価な全体 fingerprint が存在しない」という
+	// source からの opt-out (sources.ResourceFingerprinter 参照)。 skip
+	// fast-path だけを諦め、 per-unit incremental は SourceState 経由で
+	// そのまま効かせる。
+	if ok && resourceFP != "" && entry.ResourceFingerprint == resourceFP && entry.ScannerFingerprint == scannerFP {
 		return key, &entry, state, nil
 	}
 	if iss, supportsIncrementalState := src.(sources.IncrementalStateSource); supportsIncrementalState {

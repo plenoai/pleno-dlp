@@ -11,18 +11,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash"
 	"net/url"
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
-	"github.com/go-git/go-git/v5/storage/memory"
 
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 	gitsource "github.com/plenoai/pleno-dlp/pkg/sources/git"
@@ -90,18 +87,26 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 	template := cfg["clone_url_template"]
 	host := githubHostFromAPIBase(apiBase)
 
-	for _, r := range repos {
+	var lastFlush time.Time
+	for i, r := range repos {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		repoKey := r.Owner.Login + "/" + r.Name
+		fmt.Fprintf(os.Stderr, "github: scan [%d/%d] %s\n", i+1, len(repos), repoKey)
 		prevRepo := previousState.Repos[repoKey]
 		nextRepo, err := scanGitHubRepoHistory(ctx, cfg, auth, apiBase, host, template, r, prevRepo, emit)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
-			// Per-repo failures are tolerated — keep walking the org.
+			// Per-repo failures are tolerated — keep walking the org. The repo
+			// is still scanned up to the previous run's heads, so carry that
+			// state forward; dropping it would force a full rescan next run.
+			fmt.Fprintf(os.Stderr, "WARN: github: scan failed for %s, skipping: %v\n", repoKey, err)
+			if prevRepo.Mode == githubScanModeHistory {
+				nextState.Repos[repoKey] = prevRepo
+			}
 			continue
 		}
 		if parseBool(cfg["include_comments"]) {
@@ -119,19 +124,32 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return err
 				}
+				// Code walked to the new heads but comments didn't finish:
+				// keep the new RefHeads and the previous comment cursors so
+				// neither side full-rescans next run. A partially emitted
+				// comment page may re-emit then; dedup downstream absorbs it.
+				fmt.Fprintf(os.Stderr, "WARN: github: comment scan failed for %s, skipping: %v\n", repoKey, err)
+				merged := nextRepo
+				merged.IssueComments = commentPrev.IssueComments
+				merged.PullReviewComments = commentPrev.PullReviewComments
+				nextState.Repos[repoKey] = merged
 				continue
 			}
 		}
 		nextState.Repos[repoKey] = nextRepo
 		// per-repo flush。 cmd 層が「ここまで進んだ」状態を atomic に persist
-		// するので、 scan が次の repo で死んでも次回 run が前回までを resume できる。
-		// flush err は scan を倒すほどではない (= 次の flush または final
-		// marshal で recover する) ので WARN だけ。
-		if flush := IncrementalFlushFromContext(ctx); flush != nil {
+		// するので、 scan が途中の repo で死んでも次回 run が resume できる。
+		// nextState は org 全体を丸ごと marshal するため repo 数に対して
+		// O(N^2) のアロケーションになる。 毎 repo ではなく時間で間引き、
+		// クラッシュ時のロスを interval 分に抑えつつ GC 圧力を repo 数から
+		// 切り離す。 flush err は次の flush か final marshal で recover
+		// できるので WARN だけ。
+		if flush := IncrementalFlushFromContext(ctx); flush != nil && time.Since(lastFlush) >= githubIncrementalFlushInterval {
 			if data, err := json.Marshal(nextState); err == nil {
 				if ferr := flush(data); ferr != nil {
 					fmt.Fprintf(os.Stderr, "WARN: github incremental flush failed after %s: %v\n", repoKey, ferr)
 				}
+				lastFlush = time.Now()
 			}
 		}
 	}
@@ -358,46 +376,7 @@ func githubVisibility(repo githubRepoRef) string {
 	return "public"
 }
 
-// fingerprintGitHubRepoHistory advertises the repo's refs over smart HTTP
-// (one ref advertisement, zero REST) and folds the sorted "ref\x00sha" pairs
-// into the running fingerprint hash.
-func fingerprintGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProvider, apiBase string, h hash.Hash, repo githubRepoRef) error {
-	cloneURL, err := deriveCloneURL(apiBase, repo.Owner.Login, repo.Name, cfg["clone_url_template"])
-	if err != nil {
-		return err
-	}
-	writeFingerprint(h, repo.Owner.Login+"/"+repo.Name)
-
-	remote := gogit.NewRemote(memory.NewStorage(), &config.RemoteConfig{
-		Name: "origin",
-		URLs: []string{cloneURL},
-	})
-	listOpts := &gogit.ListOptions{}
-	if basic, err := githubCloneAuth(ctx, auth, cloneURL); err != nil {
-		return err
-	} else if basic != nil {
-		listOpts.Auth = basic
-	}
-	refs, err := remote.ListContext(ctx, listOpts)
-	if err != nil {
-		// 空 repo (init 直後で commit 0 件) は go-git が
-		// transport.ErrEmptyRemoteRepository を返す。 fingerprint に寄与する
-		// ref が無いだけなので、 org scan 全体を止めずに skip する。
-		if errors.Is(err, transport.ErrEmptyRemoteRepository) {
-			return nil
-		}
-		return fmt.Errorf("github: list remote refs for %s/%s: %w", repo.Owner.Login, repo.Name, err)
-	}
-	pairs := make([]string, 0, len(refs))
-	for _, ref := range refs {
-		if ref.Type() != plumbing.HashReference {
-			continue
-		}
-		pairs = append(pairs, ref.Name().String()+"\x00"+ref.Hash().String())
-	}
-	sort.Strings(pairs)
-	for _, p := range pairs {
-		writeFingerprint(h, p)
-	}
-	return nil
-}
+// githubIncrementalFlushInterval throttles per-repo state flushes. Each flush
+// marshals the whole org's state, so flushing every repo costs O(N^2) over a
+// long run; a crash loses at most this much progress instead.
+const githubIncrementalFlushInterval = 30 * time.Second
