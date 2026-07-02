@@ -257,6 +257,10 @@ type Source interface {
 // incremental mode. Implementations return a stable digest for the resources
 // this initialized source would scan. It must be computed after Init, because
 // source config such as include/exclude/max-size changes the resource set.
+//
+// Returning ("", nil) means no cheap fingerprint exists for the configured
+// resource set. The caller must then never treat the resource as unchanged
+// (the skip fast-path is disabled); per-unit incremental state still applies.
 type ResourceFingerprinter interface {
 	ResourceFingerprint(ctx context.Context) (string, error)
 }

@@ -2,7 +2,6 @@ package connectors
 
 import (
 	"context"
-	"crypto/sha256"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -316,59 +315,64 @@ func TestGitHubHistoryIncrementalEmitsOnlyNewCommits(t *testing.T) {
 	}
 }
 
-func TestGitHubHistoryFingerprintTracksRefs(t *testing.T) {
-	dir := t.TempDir()
-	repo, err := gogit.PlainInit(dir, false)
-	if err != nil {
-		t.Fatalf("PlainInit: %v", err)
-	}
-	wt, err := repo.Worktree()
-	if err != nil {
-		t.Fatalf("Worktree: %v", err)
-	}
-	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
-	mk := func(p, c string, when time.Time) {
-		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o600); err != nil {
-			t.Fatalf("write: %v", err)
-		}
-		if _, err := wt.Add(p); err != nil {
-			t.Fatalf("add: %v", err)
-		}
-		if _, err := wt.Commit("m", &gogit.CommitOptions{
-			Author:    &object.Signature{Name: "T", Email: "t@e.com", When: when},
-			Committer: &object.Signature{Name: "T", Email: "t@e.com", When: when},
-		}); err != nil {
-			t.Fatalf("commit: %v", err)
-		}
-	}
-	mk("a.txt", "a", base)
-
+// fingerprint は repo list のメタデータ (pushed_at / updated_at) だけで
+// 決まる。 push が pushed_at を動かせば fingerprint が変わり、 skip
+// fast-path が外れて scan 本体が走る。 per-repo の git / comment アクセスは
+// fingerprint 段階では発生しない (unexpected REST path を Fatalf で防ぐ)。
+func TestGitHubHistoryFingerprintTracksPushedAt(t *testing.T) {
+	pushedAt := "2026-05-01T00:00:00Z"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/repos/acme/widget" {
-			writeJSON(t, w, githubRepoRef{Name: "widget", DefaultBranch: "master"})
+			writeJSON(t, w, githubRepoRef{Name: "widget", DefaultBranch: "master", PushedAt: pushedAt})
 			return
 		}
-		t.Fatalf("history fingerprint must not hit unexpected REST path: %s", r.URL.String())
+		t.Fatalf("fingerprint must not hit unexpected REST path: %s", r.URL.String())
 	}))
 	t.Cleanup(srv.Close)
 
 	cfg := Config{
-		"token":              "ghp_test",
-		"repo":               "acme/widget",
-		"api_base":           srv.URL,
-		"clone_url_template": dir,
+		"token":    "ghp_test",
+		"repo":     "acme/widget",
+		"api_base": srv.URL,
 	}
 	first, err := fingerprintGitHub(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("first fingerprint: %v", err)
 	}
-	mk("b.txt", "b", base.Add(time.Minute))
+	if first == "" {
+		t.Fatal("fingerprint must be non-empty without include_comments")
+	}
+	pushedAt = "2026-05-01T01:00:00Z"
 	second, err := fingerprintGitHub(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("second fingerprint: %v", err)
 	}
 	if first == second {
-		t.Fatalf("fingerprint did not change after a new commit moved the ref head: %s", first)
+		t.Fatalf("fingerprint did not change after pushed_at moved: %s", first)
+	}
+}
+
+// include_comments ではコメント編集が repo メタデータに現れないため、 安価な
+// 全体 fingerprint が存在しない。 ("", nil) の opt-out (sources.
+// ResourceFingerprinter 参照) を返し、 REST には一切触れないこと。
+func TestGitHubHistoryFingerprintIncludeCommentsOptsOut(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("include_comments fingerprint must not call the API, got %s", r.URL.String())
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := Config{
+		"token":            "ghp_test",
+		"repo":             "acme/widget",
+		"api_base":         srv.URL,
+		"include_comments": "true",
+	}
+	fp, err := fingerprintGitHub(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("fingerprintGitHub: %v", err)
+	}
+	if fp != "" {
+		t.Fatalf("include_comments fingerprint must opt out with empty string, got %q", fp)
 	}
 }
 
@@ -470,75 +474,16 @@ func keys(m map[string]sources.GitHubMeta) []string {
 	return out
 }
 
-// 空 repo (commit 0 件) は go-git の ListContext が
-// transport.ErrEmptyRemoteRepository を返す。 fingerprint 経路がこれを
-// 受けて nil に丸めないと、 org 全体の incremental scan が止まる。
-func TestFingerprintGitHubRepoHistorySkipsEmptyRepo(t *testing.T) {
-	dir := t.TempDir()
-	if _, err := gogit.PlainInit(dir, false); err != nil {
-		t.Fatalf("PlainInit: %v", err)
+// repo list の増減は fingerprint を変える (= repo の追加/削除で skip
+// fast-path が外れる)。
+func TestGitHubHistoryFingerprintTracksRepoSet(t *testing.T) {
+	repos := []githubRepoRef{
+		{Name: "repo1", Visibility: "public", PushedAt: "2026-05-01T00:00:00Z"},
+		{Name: "repo2", Visibility: "public", PushedAt: "2026-05-01T00:00:00Z"},
 	}
-
-	cfg := Config{"clone_url_template": dir}
-	repo := githubRepoRef{Name: "empty"}
-	repo.Owner.Login = "acme"
-
-	h := sha256.New()
-	if err := fingerprintGitHubRepoHistory(
-		context.Background(),
-		cfg,
-		nil,
-		"https://api.github.com",
-		h,
-		repo,
-	); err != nil {
-		t.Fatalf("want nil for empty repo, got %v", err)
-	}
-}
-
-// 個別 repo の transient (rate-limit exhaustion, 5xx 連発, body read err 等)
-// が org 全体の incremental scan を倒すと運用上のコストが大きすぎる。
-// 1 repo 目を history fingerprint で失敗させ、 2 repo 目は通過する状況で、
-// fingerprintGitHub が err なく fingerprint を返すことを assert する。
-func TestFingerprintGitHubSkipsFailedRepoAndContinues(t *testing.T) {
-	fixture := t.TempDir()
-	// repo2 だけ実在の (1 commit ある) git ディレクトリ。 repo1 は不在 path
-	// → fingerprintGitHubRepoHistory が go-git transport err で落ちる。
-	repo2 := filepath.Join(fixture, "repo2")
-	if err := os.MkdirAll(repo2, 0o700); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	r2, err := gogit.PlainInit(repo2, false)
-	if err != nil {
-		t.Fatalf("PlainInit repo2: %v", err)
-	}
-	wt, err := r2.Worktree()
-	if err != nil {
-		t.Fatalf("Worktree: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(repo2, "a.txt"), []byte("hello"), 0o600); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if _, err := wt.Add("a.txt"); err != nil {
-		t.Fatalf("add: %v", err)
-	}
-	if _, err := wt.Commit("c1", &gogit.CommitOptions{
-		Author:    &object.Signature{Name: "T", Email: "t@e.com", When: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)},
-		Committer: &object.Signature{Name: "T", Email: "t@e.com", When: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)},
-	}); err != nil {
-		t.Fatalf("commit: %v", err)
-	}
-
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/orgs/test-org/repos" {
-			writeJSON(t, w, []githubRepoRef{
-				{Name: "repo1", Visibility: "public"},
-				{Name: "repo2", Visibility: "public"},
-			})
-			// Owner.Login は anonymous struct なので直接 JSON encode は不可。
-			// 上の writeJSON は型ベース marshal なので Owner.Login は空のまま
-			// 出るが、 fingerprintGitHub は r.Owner.Login が空でも処理を進める
-			// (deriveCloneURL は template の {owner}/{repo} 置換に使う)。
+			writeJSON(t, w, repos)
 			return
 		}
 		t.Errorf("unexpected REST path: %s", r.URL.String())
@@ -546,45 +491,20 @@ func TestFingerprintGitHubSkipsFailedRepoAndContinues(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	cfg := Config{
-		"org":                "test-org",
-		"token":              "ghp_test",
-		"api_base":           srv.URL,
-		"clone_url_template": fixture + "/{repo}",
-		"include_comments":   "false",
+		"org":      "test-org",
+		"token":    "ghp_test",
+		"api_base": srv.URL,
 	}
-
-	fp, err := fingerprintGitHub(context.Background(), cfg)
+	both, err := fingerprintGitHub(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("fingerprintGitHub should swallow per-repo failure, got %v", err)
+		t.Fatalf("fingerprintGitHub (2 repos): %v", err)
 	}
-	if fp == "" {
-		t.Fatalf("fingerprint hex must be non-empty even when one repo fails")
-	}
-
-	// 失敗 repo の identity / err message を fingerprint に書き込むので、
-	// repo1 を取り除いた場合と fingerprint が一致しないこと (= incremental
-	// が必ず変わり、 次回 full scan に倒れる) を確認する。
-	cfgOnlyRepo2 := Config{
-		"org":                "test-org",
-		"token":              "ghp_test",
-		"api_base":           srv.URL,
-		"clone_url_template": fixture + "/{repo}",
-		"include_comments":   "false",
-	}
-	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/orgs/test-org/repos" {
-			writeJSON(t, w, []githubRepoRef{{Name: "repo2", Visibility: "public"}})
-			return
-		}
-		t.Errorf("unexpected REST path: %s", r.URL.String())
-	}))
-	t.Cleanup(srv2.Close)
-	cfgOnlyRepo2["api_base"] = srv2.URL
-	fp2, err := fingerprintGitHub(context.Background(), cfgOnlyRepo2)
+	repos = repos[:1]
+	one, err := fingerprintGitHub(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("fingerprintGitHub (only repo2): %v", err)
+		t.Fatalf("fingerprintGitHub (1 repo): %v", err)
 	}
-	if fp == fp2 {
-		t.Fatalf("fingerprint must differ between (repo1-failed, repo2-ok) and (only repo2-ok); got identical %q", fp)
+	if both == one {
+		t.Fatalf("fingerprint must differ when the repo set changes; got identical %q", both)
 	}
 }

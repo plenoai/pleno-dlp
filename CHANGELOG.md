@@ -9,6 +9,43 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Changed
+
+- **GitHub incremental fingerprint is now repo-list metadata only**. The
+  whole-resource fingerprint used for the "nothing changed, skip the
+  scan" fast-path now digests the repo list (name, default branch,
+  `pushed_at`, `updated_at`) instead of advertising every repo's refs
+  and paging through every issue/PR comment. On large orgs the old
+  fingerprint pass duplicated the scan's entire REST cost and could
+  spend hours against an exhausted rate limit before the scan started.
+  With `--include-comments` no cheap whole-org fingerprint exists
+  (comment edits don't surface in repo metadata), so the source now
+  opts out of the skip fast-path entirely (`ResourceFingerprint`
+  returns `""`); per-repo incremental state still keeps reruns cheap.
+- **JSON output streams findings**. `--format json` used to buffer every
+  finding in memory and encode one array at `Close`; each finding is now
+  written as it is emitted (same JSON array shape on the wire), keeping
+  the sink O(1) in memory on long org scans.
+- **GitHub rate-limit waits are logged and capped**. Retry sleeps
+  (rate-limit backoff, GET 5xx backoff, shared-bucket reset waits over
+  30s) now emit a stderr line with the wait duration and attempt count —
+  multi-hour scans previously slept in total silence and were
+  indistinguishable from a hang. A single backoff sleep is capped at 65
+  minutes (an honest `Retry-After`/`X-RateLimit-Reset` never legitimately
+  exceeds the hourly reset window; anything larger is clock skew or a
+  bogus header).
+- **GitHub org scan logs per-repo progress**. `scanGitHubHistory` prints
+  `github: scan [i/N] owner/repo` per repo and a `WARN` line when a
+  repo's code or comment pass is skipped after errors.
+- **Per-repo scan failures keep the previous incremental state**. A repo
+  whose clone/walk fails carries its previous state forward (instead of
+  dropping it and forcing a full rescan next run); a repo whose comment
+  pass fails keeps the new ref heads plus the previous comment cursors.
+- **Incremental state flushes are throttled to one per 30s**. Each flush
+  marshals the whole org state, so flushing after every repo cost
+  O(N²) allocations over a long run; a crash now loses at most 30s of
+  progress instead.
+
 ### Added
 
 - **incremental scan: streaming per-unit state flush**. New optional

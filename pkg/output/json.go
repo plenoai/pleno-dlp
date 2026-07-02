@@ -28,29 +28,62 @@ type jsonSource struct {
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
-// jsonSink buffers findings and writes a single JSON array on Close.
+// jsonSink streams findings as one JSON array: each Emit writes its element
+// immediately instead of buffering the whole result set. Long org scans emit
+// enough findings that a buffered array contributes to OOM; streaming keeps
+// the sink O(1) in memory. Emit cannot return an error, so the first write
+// failure is latched and surfaced from Close.
 type jsonSink struct {
 	w   io.Writer
 	mu  sync.Mutex
-	buf []jsonRecord
+	n   int
+	err error
 }
 
 func newJSONSink(w io.Writer) *jsonSink {
-	return &jsonSink{w: w, buf: make([]jsonRecord, 0, 64)}
+	return &jsonSink{w: w}
 }
 
 func (s *jsonSink) Emit(f engine.Finding) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.buf = append(s.buf, toJSONRecord(f))
+	data, err := json.MarshalIndent(toJSONRecord(f), "  ", "  ")
+	if err != nil {
+		if s.err == nil {
+			s.err = err
+		}
+		return
+	}
+	sep := "[\n  "
+	if s.n > 0 {
+		sep = ",\n  "
+	}
+	if _, err := io.WriteString(s.w, sep); err != nil {
+		if s.err == nil {
+			s.err = err
+		}
+		return
+	}
+	if _, err := s.w.Write(data); err != nil {
+		if s.err == nil {
+			s.err = err
+		}
+		return
+	}
+	s.n++
 }
 
 func (s *jsonSink) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	enc := json.NewEncoder(s.w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(s.buf)
+	tail := "[]\n"
+	if s.n > 0 {
+		tail = "\n]\n"
+	}
+	if _, err := io.WriteString(s.w, tail); err != nil && s.err == nil {
+		s.err = err
+	}
+	return s.err
 }
 
 func toJSONRecord(f engine.Finding) jsonRecord {

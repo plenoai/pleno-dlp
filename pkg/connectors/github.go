@@ -158,6 +158,8 @@ type githubRepoRef struct {
 	DefaultBranch string `json:"default_branch"`
 	Private       bool   `json:"private"`
 	Visibility    string `json:"visibility"`
+	PushedAt      string `json:"pushed_at"`
+	UpdatedAt     string `json:"updated_at"`
 }
 
 type githubIssueComment struct {
@@ -357,6 +359,18 @@ func scanGitHubPullReviewCommentsIncremental(ctx context.Context, cli *githubCli
 	return nil
 }
 
+// fingerprintGitHub digests the repo list (name, default branch, pushed_at,
+// updated_at) as the whole-resource fingerprint. Earlier versions advertised
+// every repo's refs and paged through every issue/PR comment here, which
+// doubled the scan's API cost and could spend hours against a rate-limited
+// org before the actual scan even started — for a fast-path whose only effect
+// is skipping the scan when nothing at all changed. Per-repo change detection
+// does not live here; the scan itself diffs per-repo state incrementally.
+//
+// With include_comments the repo list cannot see comment edits, so no cheap
+// whole-org fingerprint exists. Returning "" opts out of the skip fast-path
+// (correctness over the optimization); the per-repo incremental scan still
+// keeps the rerun cheap.
 func fingerprintGitHub(ctx context.Context, cfg Config) (string, error) {
 	auth, err := newGitHubAuthProvider(cfg)
 	if err != nil {
@@ -369,6 +383,9 @@ func fingerprintGitHub(ctx context.Context, cfg Config) (string, error) {
 	if org != "" && repo != "" {
 		return "", errors.New("github: org and repo are mutually exclusive")
 	}
+	if parseBool(cfg["include_comments"]) {
+		return "", nil
+	}
 	apiBase := cfg.Get("api_base", githubDefaultAPIBase)
 	cli := newGitHubClient(apiBase, auth)
 	repos, err := githubListRepos(ctx, cli, org, repo)
@@ -380,83 +397,17 @@ func fingerprintGitHub(ctx context.Context, cfg Config) (string, error) {
 	})
 
 	h := sha256.New()
-	writeFingerprint(h, "github-v1")
+	writeFingerprint(h, "github-v2")
 	writeFingerprint(h, apiBase)
 	writeFingerprint(h, org)
 	writeFingerprint(h, repo)
-	writeFingerprint(h, cfg.Get("include_comments", "false"))
 	for _, r := range repos {
-		err := func() error {
-			if err := fingerprintGitHubRepoHistory(ctx, cfg, auth, apiBase, h, r); err != nil {
-				return err
-			}
-			if parseBool(cfg["include_comments"]) {
-				if err := fingerprintGitHubIssueComments(ctx, cli, h, r); err != nil {
-					return err
-				}
-				if err := fingerprintGitHubPullReviewComments(ctx, cli, h, r); err != nil {
-					return err
-				}
-			}
-			return nil
-		}()
-		if err == nil {
-			continue
-		}
-		// ctx cancel / deadline は terminal なので即時 abort。
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return "", err
-		}
-		// 個別 repo の transient (rate-limit exhaustion, 5xx, body read err 等)
-		// で org 全体の incremental scan を捨てる loss が大きすぎる。 失敗した
-		// repo は「fingerprint が前回と必ず変わる」シードを書いて、
-		// incremental skip を効かせず full scan に倒す (correctness 側に安全)。
-		fmt.Fprintf(os.Stderr,
-			"WARN: github fingerprint failed for %s/%s, treating as changed: %v\n",
-			r.Owner.Login, r.Name, err)
-		writeFingerprint(h, "fingerprint-failed")
 		writeFingerprint(h, r.Owner.Login+"/"+r.Name)
-		writeFingerprint(h, err.Error())
+		writeFingerprint(h, r.DefaultBranch)
+		writeFingerprint(h, r.PushedAt)
+		writeFingerprint(h, r.UpdatedAt)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func fingerprintGitHubIssueComments(ctx context.Context, cli *githubClient, h hash.Hash, repo githubRepoRef) error {
-	next := fmt.Sprintf("/repos/%s/%s/issues/comments?per_page=100", repo.Owner.Login, repo.Name)
-	for next != "" {
-		var page []githubIssueComment
-		resp, err := cli.getJSON(ctx, next, &page)
-		if err != nil {
-			return fmt.Errorf("github: fingerprint issue comments for %s/%s: %w", repo.Owner.Login, repo.Name, err)
-		}
-		for _, c := range page {
-			writeFingerprint(h, "issue-comment")
-			writeFingerprint(h, strconv.FormatInt(c.ID, 10))
-			writeFingerprint(h, c.UpdatedAt)
-		}
-		next = parseLinkHeader(resp.Header.Get("Link"))
-	}
-	return nil
-}
-
-func fingerprintGitHubPullReviewComments(ctx context.Context, cli *githubClient, h hash.Hash, repo githubRepoRef) error {
-	next := fmt.Sprintf("/repos/%s/%s/pulls/comments?per_page=100", repo.Owner.Login, repo.Name)
-	for next != "" {
-		var page []githubPullReviewComment
-		resp, err := cli.getJSON(ctx, next, &page)
-		if err != nil {
-			return fmt.Errorf("github: fingerprint pull review comments for %s/%s: %w", repo.Owner.Login, repo.Name, err)
-		}
-		for _, c := range page {
-			writeFingerprint(h, "pull-review-comment")
-			writeFingerprint(h, strconv.FormatInt(c.ID, 10))
-			writeFingerprint(h, c.UpdatedAt)
-			writeFingerprint(h, c.Path)
-			writeFingerprint(h, strconv.Itoa(c.Position))
-		}
-		next = parseLinkHeader(resp.Header.Get("Link"))
-	}
-	return nil
 }
 
 func writeFingerprint(h hash.Hash, s string) {
@@ -733,6 +684,7 @@ func (c *githubClient) do(ctx context.Context, method, path string, body io.Read
 			if wait <= 0 {
 				wait = time.Second
 			}
+			logGitHubWait(fmt.Sprintf("%d from GET %s", resp.StatusCode, path), wait, attempt+1, maxAttempts)
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -751,6 +703,7 @@ func (c *githubClient) do(ctx context.Context, method, path string, body io.Read
 			if wait <= 0 {
 				wait = time.Second
 			}
+			logGitHubWait(fmt.Sprintf("rate limited on %s %s", method, path), wait, attempt+1, maxAttempts)
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -855,12 +808,25 @@ func (c *githubClient) waitForBucket(ctx context.Context) error {
 		c.testSleep(delay)
 		return nil
 	}
+	// この待ちは quota 全消費後の reset 待ちで、 数十分に及び得る。
+	// サイレントに寝ると外部からはハングと区別できないので必ず残す。
+	if delay > 30*time.Second {
+		fmt.Fprintf(os.Stderr, "pleno-dlp: github rate limit exhausted, sleeping %s until reset\n", delay.Round(time.Second))
+	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-time.After(delay):
 		return nil
 	}
+}
+
+// logGitHubWait surfaces retry sleeps on stderr. Multi-hour scans have died
+// silently here before; the ECS runbook decides liveness from log output, so
+// every sleep longer than a heartbeat must leave a trace.
+func logGitHubWait(cause string, wait time.Duration, attempt, maxAttempts int) {
+	fmt.Fprintf(os.Stderr, "pleno-dlp: github %s, waiting %s before retry (attempt %d/%d)\n",
+		cause, wait.Round(time.Second), attempt, maxAttempts)
 }
 
 func (c *githubClient) observeRateLimit(resp *http.Response) {
@@ -893,21 +859,27 @@ func githubRateLimited(resp *http.Response) bool {
 	return false
 }
 
+// githubBackoffCap bounds a single retry sleep. GitHub's primary rate limit
+// resets within the hour, so an honest Retry-After / X-RateLimit-Reset never
+// legitimately exceeds this; anything larger is a clock skew or a bogus
+// header, and sleeping on it would wedge the scan for hours.
+const githubBackoffCap = 65 * time.Minute
+
 func githubBackoff(resp *http.Response, attempt int) time.Duration {
 	if v := resp.Header.Get("Retry-After"); v != "" {
 		if secs, err := strconv.Atoi(v); err == nil && secs >= 0 {
-			return time.Duration(secs) * time.Second
+			return minDuration(time.Duration(secs)*time.Second, githubBackoffCap)
 		}
 		if t, err := http.ParseTime(v); err == nil {
 			if d := time.Until(t); d > 0 {
-				return d
+				return minDuration(d, githubBackoffCap)
 			}
 		}
 	}
 	if v := resp.Header.Get("X-RateLimit-Reset"); v != "" {
 		if ts, err := strconv.ParseInt(v, 10, 64); err == nil {
 			if d := time.Until(time.Unix(ts, 0)); d > 0 {
-				return d
+				return minDuration(d, githubBackoffCap)
 			}
 		}
 	}
@@ -916,6 +888,13 @@ func githubBackoff(resp *http.Response, attempt int) time.Duration {
 		d = time.Minute
 	}
 	return d
+}
+
+func minDuration(a, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // parseLinkHeader extracts the rel="next" cursor URL from a GitHub /
