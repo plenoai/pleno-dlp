@@ -160,6 +160,7 @@ type githubRepoRef struct {
 	Visibility    string `json:"visibility"`
 	PushedAt      string `json:"pushed_at"`
 	UpdatedAt     string `json:"updated_at"`
+	Size          int64  `json:"size"`
 }
 
 type githubIssueComment struct {

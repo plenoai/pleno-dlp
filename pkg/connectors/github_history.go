@@ -87,13 +87,20 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 	template := cfg["clone_url_template"]
 	host := githubHostFromAPIBase(apiBase)
 
+	orgStart := time.Now()
+	failed := 0
 	var lastFlush time.Time
 	for i, r := range repos {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		repoKey := r.Owner.Login + "/" + r.Name
-		fmt.Fprintf(os.Stderr, "github: scan [%d/%d] %s\n", i+1, len(repos), repoKey)
+		sizeNote := ""
+		if r.Size > 0 {
+			sizeNote = " (" + formatBytes(uint64(r.Size)*1024) + ")"
+		}
+		fmt.Fprintf(os.Stderr, "github: scan [%d/%d] %s%s\n", i+1, len(repos), repoKey, sizeNote)
+		repoStart := time.Now()
 		prevRepo := previousState.Repos[repoKey]
 		nextRepo, err := scanGitHubRepoHistory(ctx, cfg, auth, apiBase, host, template, r, prevRepo, emit)
 		if err != nil {
@@ -103,7 +110,8 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 			// Per-repo failures are tolerated — keep walking the org. The repo
 			// is still scanned up to the previous run's heads, so carry that
 			// state forward; dropping it would force a full rescan next run.
-			fmt.Fprintf(os.Stderr, "WARN: github: scan failed for %s, skipping: %v\n", repoKey, err)
+			failed++
+			fmt.Fprintf(os.Stderr, "WARN: github: scan failed for %s after %s, skipping: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
 			if prevRepo.Mode == githubScanModeHistory {
 				nextState.Repos[repoKey] = prevRepo
 			}
@@ -137,6 +145,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 			}
 		}
 		nextState.Repos[repoKey] = nextRepo
+		fmt.Fprintf(os.Stderr, "github: scan [%d/%d] %s done in %s\n", i+1, len(repos), repoKey, time.Since(repoStart).Round(time.Second))
 		// per-repo flush。 cmd 層が「ここまで進んだ」状態を atomic に persist
 		// するので、 scan が途中の repo で死んでも次回 run が resume できる。
 		// nextState は org 全体を丸ごと marshal するため repo 数に対して
@@ -156,6 +165,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 	if data, err := json.Marshal(nextState); err == nil {
 		cfg[configKeyIncrementalNextState] = string(data)
 	}
+	fmt.Fprintf(os.Stderr, "github: org scan complete: %d repos, %d failed, took %s\n", len(repos), failed, time.Since(orgStart).Round(time.Second))
 	return nil
 }
 
@@ -173,7 +183,15 @@ func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProv
 	}
 	defer os.RemoveAll(dir)
 
-	cloneOpts := &gogit.CloneOptions{URL: cloneURL}
+	repoKey := repo.Owner.Login + "/" + repo.Name
+	hb := startRepoHeartbeat(repoKey, githubHeartbeatInterval)
+	defer hb.end()
+
+	cloneStart := time.Now()
+	cloneOpts := &gogit.CloneOptions{
+		URL:      cloneURL,
+		Progress: &cloneProgressWriter{repoKey: repoKey, interval: githubHeartbeatInterval},
+	}
 	if basic, err := githubCloneAuth(ctx, auth, cloneURL); err != nil {
 		return githubRepoIncrementalState{}, err
 	} else if basic != nil {
@@ -185,6 +203,9 @@ func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProv
 		}
 		return githubRepoIncrementalState{}, fmt.Errorf("github: clone %s/%s: %w", repo.Owner.Login, repo.Name, err)
 	}
+	fmt.Fprintf(os.Stderr, "github: clone %s done in %s\n", repoKey, time.Since(cloneStart).Round(time.Second))
+	hb.setPhase("walk")
+	walkStart := time.Now()
 
 	visibility := githubVisibility(repo)
 	src := &gitsource.Source{}
@@ -223,6 +244,7 @@ func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProv
 	}
 	var emitErr error
 	for c := range ch {
+		hb.addChunk()
 		if emitErr != nil {
 			continue // drain to let the producer finish; report first error
 		}
@@ -253,6 +275,7 @@ func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProv
 	if emitErr != nil {
 		return githubRepoIncrementalState{}, emitErr
 	}
+	fmt.Fprintf(os.Stderr, "github: walk %s done: %d chunks in %s\n", repoKey, hb.chunks.Load(), time.Since(walkStart).Round(time.Second))
 
 	next := githubRepoIncrementalState{
 		Mode:       githubScanModeHistory,

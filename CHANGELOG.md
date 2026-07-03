@@ -11,6 +11,15 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Changed
 
+- **GitHub history scans emit a per-repo heartbeat**. While one repo is
+  being cloned or walked, a stderr line
+  (`github: heartbeat owner/repo phase=… chunks=… heap=… sys=… elapsed=…`)
+  fires every 60s, so a multi-hour walk of a huge monorepo is
+  distinguishable from a hang and memory pressure is visible before an
+  OOM kill. Clone transfer progress is logged at the same cadence, and
+  clone/walk/repo/org completion each log a duration. The per-repo scan
+  line now includes the repo's on-disk size from the repo listing.
+
 - **GitHub incremental fingerprint is now repo-list metadata only**. The
   whole-resource fingerprint used for the "nothing changed, skip the
   scan" fast-path now digests the repo list (name, default branch,
