@@ -11,6 +11,15 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Changed
 
+- **GitHub history scans skip repos with no pushes since the last run**.
+  Per-repo incremental state now records `pushed_at` as observed at
+  enumeration time; a rerun whose enumeration reports the same value
+  skips the clone and walk outright and carries the state forward
+  (`--include-comments` still runs for skipped repos — comments move
+  without touching `pushed_at`). On a large org scanned daily this
+  removes the clone traffic for the majority of repos, which typically
+  saw no pushes. (#252)
+
 - **GitHub history scans emit a per-repo heartbeat**. While one repo is
   being cloned or walked, a stderr line
   (`github: heartbeat owner/repo phase=… chunks=… heap=… sys=… elapsed=…`)

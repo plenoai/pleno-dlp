@@ -315,6 +315,109 @@ func TestGitHubHistoryIncrementalEmitsOnlyNewCommits(t *testing.T) {
 	}
 }
 
+// pushed_at が前回 walk 時から動いていない repo は clone/walk ごと skip され、
+// state はそのまま carry される。 pushed_at が動けば skip が外れ、 carry され
+// ていた RefHeads を seed に incremental walk が新規 commit だけを emit する。
+func TestGitHubHistoryPushedAtSkipsUnchangedRepo(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	commit := func(p, c, msg string, when time.Time) {
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if _, err := wt.Add(p); err != nil {
+			t.Fatalf("add: %v", err)
+		}
+		if _, err := wt.Commit(msg, &gogit.CommitOptions{
+			Author:    &object.Signature{Name: "T", Email: "t@e.com", When: when},
+			Committer: &object.Signature{Name: "T", Email: "t@e.com", When: when},
+		}); err != nil {
+			t.Fatalf("commit: %v", err)
+		}
+	}
+	commit("a.txt", "secret-a", "c1", base)
+
+	pushedAt := "2026-05-01T00:00:00Z"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/repos/acme/widget" {
+			writeJSON(t, w, githubRepoRef{Name: "widget", DefaultBranch: "master", Visibility: "public", PushedAt: pushedAt})
+			return
+		}
+		t.Fatalf("unexpected REST path: %s", r.URL.String())
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := Config{
+		"token":              "ghp_test",
+		"repo":               "acme/widget",
+		"api_base":           srv.URL,
+		"clone_url_template": dir,
+	}
+
+	collect := func() []string {
+		var files []string
+		var mu sync.Mutex
+		if err := scanGitHub(context.Background(), cfg, func(_ []byte, meta sources.Metadata) error {
+			mu.Lock()
+			defer mu.Unlock()
+			if meta.GitHub != nil {
+				files = append(files, meta.GitHub.File)
+			}
+			return nil
+		}); err != nil {
+			t.Fatalf("scanGitHub: %v", err)
+		}
+		sort.Strings(files)
+		return files
+	}
+
+	first := collect()
+	if strings.Join(first, ",") != "a.txt" {
+		t.Fatalf("first run files = %v, want [a.txt]", first)
+	}
+	state := cfg[configKeyIncrementalNextState]
+	if !strings.Contains(state, `"pushed_at":"`+pushedAt+`"`) {
+		t.Fatalf("first run state missing pushed_at %s: %s", pushedAt, state)
+	}
+
+	// pushed_at 不変のまま fixture に commit を足す。 clone が skip されて
+	// いれば新 commit は見えない — emit ゼロが skip 発動の観測点。
+	commit("b.txt", "secret-b", "c2", base.Add(time.Minute))
+	cfg[configKeyIncrementalPreviousState] = state
+	delete(cfg, configKeyIncrementalNextState)
+
+	second := collect()
+	if len(second) != 0 {
+		t.Fatalf("second run files = %v, want none (clone skipped)", second)
+	}
+	carried := cfg[configKeyIncrementalNextState]
+	if !strings.Contains(carried, `"ref_heads"`) || !strings.Contains(carried, `"pushed_at":"`+pushedAt+`"`) {
+		t.Fatalf("skip did not carry state forward: %s", carried)
+	}
+
+	// pushed_at が動くと skip が外れ、 carry されていた RefHeads を seed に
+	// 新規 commit だけが emit される。
+	pushedAt = "2026-05-01T01:00:00Z"
+	cfg[configKeyIncrementalPreviousState] = carried
+	delete(cfg, configKeyIncrementalNextState)
+
+	third := collect()
+	if strings.Join(third, ",") != "b.txt" {
+		t.Fatalf("third run files = %v, want only [b.txt]", third)
+	}
+	if !strings.Contains(cfg[configKeyIncrementalNextState], `"pushed_at":"`+pushedAt+`"`) {
+		t.Fatalf("third run state did not record new pushed_at: %s", cfg[configKeyIncrementalNextState])
+	}
+}
+
 // fingerprint は repo list のメタデータ (pushed_at / updated_at) だけで
 // 決まる。 push が pushed_at を動かせば fingerprint が変わり、 skip
 // fast-path が外れて scan 本体が走る。 per-repo の git / comment アクセスは

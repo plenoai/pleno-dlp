@@ -197,9 +197,18 @@ type githubRepoIncrementalState struct {
 	// transparently on the next scan. Mode is retained (rather than dropped)
 	// precisely to make that one-time migration detectable; once all persisted
 	// state has been rewritten it is always "history".
-	Mode               string                                   `json:"mode,omitempty"`
-	Visibility         string                                   `json:"visibility,omitempty"`
-	RefHeads           map[string]string                        `json:"ref_heads,omitempty"`
+	Mode       string            `json:"mode,omitempty"`
+	Visibility string            `json:"visibility,omitempty"`
+	RefHeads   map[string]string `json:"ref_heads,omitempty"`
+	// PushedAt is the repo's pushed_at as observed in the enumeration that
+	// drove the walk which produced RefHeads. A later run whose enumeration
+	// reports the same pushed_at skips the clone+walk entirely (see
+	// githubRepoUnchanged). Recording the enumeration-time value is what makes
+	// the skip safe: a push racing the walk lands after this timestamp, so the
+	// next enumeration reports a newer pushed_at and forces a re-walk — races
+	// cause harmless re-walks, never misses. Empty for state written by builds
+	// predating this field, which disables the skip until one walk records it.
+	PushedAt           string                                   `json:"pushed_at,omitempty"`
 	IssueComments      map[string]githubCommentIncrementalState `json:"issue_comments,omitempty"`
 	PullReviewComments map[string]githubCommentIncrementalState `json:"pull_review_comments,omitempty"`
 }
