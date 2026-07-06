@@ -71,3 +71,12 @@ since the last scan are emitted (a commit reachable from a previously recorded
 head is never re-emitted, even across branches). Legacy tree-mode state written
 by pre-removal builds is ignored once (one full rescan), then replaced with
 history state.
+
+The state also records the repo's `pushed_at` as observed at enumeration time.
+When a rerun's enumeration reports the same `pushed_at`, the clone and walk are
+skipped outright and the previous state is carried forward — on a large org
+where most repos see no pushes between daily runs, this removes most of the
+clone traffic. The `--include-comments` pass still runs for skipped repos,
+since issue/PR comments move without touching `pushed_at`. A push racing the
+scan lands after the recorded timestamp, so it forces a re-walk on the next
+run rather than being missed.

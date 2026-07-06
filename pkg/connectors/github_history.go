@@ -89,6 +89,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 
 	orgStart := time.Now()
 	failed := 0
+	skipped := 0
 	var lastFlush time.Time
 	for i, r := range repos {
 		if err := ctx.Err(); err != nil {
@@ -102,20 +103,33 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 		fmt.Fprintf(os.Stderr, "github: scan [%d/%d] %s%s\n", i+1, len(repos), repoKey, sizeNote)
 		repoStart := time.Now()
 		prevRepo := previousState.Repos[repoKey]
-		nextRepo, err := scanGitHubRepoHistory(ctx, cfg, auth, apiBase, host, template, r, prevRepo, emit)
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return err
+		var nextRepo githubRepoIncrementalState
+		if githubRepoUnchanged(prevRepo, r) {
+			// No push since the walk that produced prevRepo.RefHeads: cloning
+			// would fetch the same refs and the seeded walk would emit nothing.
+			// Carry the state; only Visibility can have moved without a push
+			// (comments can too — their scan below still runs on this path).
+			skipped++
+			nextRepo = prevRepo
+			nextRepo.Visibility = githubVisibility(r)
+			fmt.Fprintf(os.Stderr, "github: scan [%d/%d] %s unchanged since last run (pushed_at %s), clone skipped\n", i+1, len(repos), repoKey, r.PushedAt)
+		} else {
+			var err error
+			nextRepo, err = scanGitHubRepoHistory(ctx, cfg, auth, apiBase, host, template, r, prevRepo, emit)
+			if err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return err
+				}
+				// Per-repo failures are tolerated — keep walking the org. The repo
+				// is still scanned up to the previous run's heads, so carry that
+				// state forward; dropping it would force a full rescan next run.
+				failed++
+				fmt.Fprintf(os.Stderr, "WARN: github: scan failed for %s after %s, skipping: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
+				if prevRepo.Mode == githubScanModeHistory {
+					nextState.Repos[repoKey] = prevRepo
+				}
+				continue
 			}
-			// Per-repo failures are tolerated — keep walking the org. The repo
-			// is still scanned up to the previous run's heads, so carry that
-			// state forward; dropping it would force a full rescan next run.
-			failed++
-			fmt.Fprintf(os.Stderr, "WARN: github: scan failed for %s after %s, skipping: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
-			if prevRepo.Mode == githubScanModeHistory {
-				nextState.Repos[repoKey] = prevRepo
-			}
-			continue
 		}
 		if parseBool(cfg["include_comments"]) {
 			// Comments are REST-based. To keep comment incrementality, carry the
@@ -165,8 +179,21 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 	if data, err := json.Marshal(nextState); err == nil {
 		cfg[configKeyIncrementalNextState] = string(data)
 	}
-	fmt.Fprintf(os.Stderr, "github: org scan complete: %d repos, %d failed, took %s\n", len(repos), failed, time.Since(orgStart).Round(time.Second))
+	fmt.Fprintf(os.Stderr, "github: org scan complete: %d repos, %d unchanged (clone skipped), %d failed, took %s\n", len(repos), skipped, failed, time.Since(orgStart).Round(time.Second))
 	return nil
+}
+
+// githubRepoUnchanged reports whether the repo received no push since the
+// previous history walk, so the clone+walk can be skipped and prev carried
+// forward. It demands history-mode state with RefHeads (legacy tree-mode state
+// must take the one-time full rescan) and a non-empty pushed_at on both sides:
+// the enumeration reports pushed_at as null for never-pushed repos, and state
+// written by builds predating PushedAt carries none — neither proves anything.
+func githubRepoUnchanged(prev githubRepoIncrementalState, r githubRepoRef) bool {
+	return prev.Mode == githubScanModeHistory &&
+		len(prev.RefHeads) > 0 &&
+		prev.PushedAt != "" &&
+		prev.PushedAt == r.PushedAt
 }
 
 // scanGitHubRepoHistory clones one repo bare and walks it. It returns the
@@ -280,6 +307,7 @@ func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProv
 	next := githubRepoIncrementalState{
 		Mode:       githubScanModeHistory,
 		Visibility: visibility,
+		PushedAt:   repo.PushedAt,
 	}
 	heads, err := gitRefHeads(dir)
 	if err != nil {
