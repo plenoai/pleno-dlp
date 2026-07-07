@@ -11,6 +11,23 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Changed
 
+- **BREAKING: `--fail-on` now defaults to `high`, not `any`** (`scan`
+  and `protect`). Previously the default gated CI on *any* finding of
+  any severity, so a single Medium-or-below hit (generic high-entropy
+  string, JWT, PEM blob, PII) broke a first-time adopter's pipeline
+  before they had a chance to triage anything. The new default still
+  fails the build on every named-secret detector hit and every
+  verified/critical finding — it only stops treating Medium-and-below
+  noise as a hard gate. Findings below the gate still print and still
+  count; the end-of-scan summary now says so explicitly and names the
+  escape hatch:
+  `exit gate: --fail-on=high (N low/medium finding(s) did not affect exit code; use --fail-on=any to block on all)`.
+  Pipelines that relied on the old enforce-everything behavior should
+  add `--fail-on any` explicitly. See
+  [`docs/output-and-gating.md`](docs/output-and-gating.md) and the new
+  [`docs/recipes/staged-rollout.md`](docs/recipes/staged-rollout.md)
+  for the recommended audit → gate → ratchet sequence. (#250)
+
 - **GitHub history scans skip repos with no pushes since the last run**.
   Per-repo incremental state now records `pushed_at` as observed at
   enumeration time; a rerun whose enumeration reports the same value

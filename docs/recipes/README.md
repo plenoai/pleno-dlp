@@ -14,5 +14,9 @@ Practical patterns for adopting pleno-dlp:
 - [`github-history-scan.md`](github-history-scan.md) — full commit
   history scanning (clone-based, zero per-repo REST cost), comments,
   auth, GHE clone-URL derivation, and API-call accounting.
+- [`staged-rollout.md`](staged-rollout.md) — adopting pleno-dlp on an
+  existing repo without either drowning in false-positive triage or
+  silently ignoring findings: audit → gate the default → ratchet to
+  `--fail-on any`.
 
 Have a recipe to share? PRs welcome.

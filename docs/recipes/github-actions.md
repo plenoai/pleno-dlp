@@ -62,14 +62,23 @@ Use the merge-base diff instead of the full filesystem:
 
 | `--fail-on`  | Exit 1 when … |
 |--------------|---------------|
-| `any`        | any finding emitted (default) |
+| `any`        | any finding emitted (strictest — see `staged-rollout.md` before turning this on for a brand-new repo) |
 | `info`       | severity ≥ Info |
 | `low`        | severity ≥ Low |
 | `medium`     | severity ≥ Medium (PII trips) |
-| `high`       | severity ≥ High (unverified secrets trip) |
+| `high`       | severity ≥ High (unverified named-secret detectors trip) — **default** |
 | `critical`   | severity ≥ Critical (verified secrets only) |
 
-Use the default verification path for the strictest mode: only
+The default (`high`) is an audit-first choice (#250): generic
+high-entropy strings, JWTs, PEM blobs, and PII default to Medium and
+don't fail a first-time scan on their own, but a hit from any specific
+provider detector (AWS, GitHub PAT, …) or a verified live credential
+still does. See [`../output-and-gating.md`](../output-and-gating.md)
+for the full severity table and
+[`staged-rollout.md`](staged-rollout.md) for ratcheting to `any` once
+the repo has an allowlist.
+
+Use `critical` for the strictest *verification-only* mode: only
 confirmed-active secrets fail the build.
 
 ```yaml
