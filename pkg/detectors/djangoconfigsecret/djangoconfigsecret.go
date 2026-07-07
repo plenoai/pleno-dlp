@@ -6,6 +6,7 @@
 //     .get_random_secret_key()'s alphabet includes `!@#$%^&*(-_=+)`, so
 //     the captured value is intentionally not restricted to a "safe"
 //     character class the way some other assignment detectors are).
+//
 //   - the `'PASSWORD': '...'` quoted-dict-key entry inside a DATABASES
 //     block, e.g.:
 //
