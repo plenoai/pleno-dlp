@@ -34,8 +34,8 @@ tree at the exact released tag.
 
 | Metric | pleno-dlp | trufflehog 3.95.5 | gitleaks 8.30.1 |
 |--------|----------:|------------------:|----------------:|
-| Detectors / rules | 603 | 870 | 222 |
-| Live-verification capable | 552 (+51 unverified-by-design, see [`verify-coverage.md`](verify-coverage.md)) | most detectors (core design) | 0 — no verification subsystem |
+| Detectors / rules | 608 | 870 | 222 |
+| Live-verification capable | 552 (+56 unverified-by-design, see [`verify-coverage.md`](verify-coverage.md)) | most detectors (core design) | 0 — no verification subsystem |
 | Revocation support | 4 providers + 1 context-required (AWS) | 0 | 0 |
 | Scan sources | 28 | 18 (16 excluding `multi-scan` / `json-enumerator` meta-inputs) | 3 (`git`, `dir`, `stdin`) |
 | Output formats | json, sarif, table | json, json-legacy, github-actions | json, csv, junit, sarif, template |
@@ -491,7 +491,7 @@ Where the competition — or the whole industry — is measurably ahead:
    `azure-storage-account-key` (AccountKey= connection strings),
    `asana-pat`, PGP `PRIVATE KEY BLOCK` armor headers.
 7. **Detector breadth** — trufflehog ships 870 detector packages vs
-   603 (long tail of niche SaaS providers).
+   608 (long tail of niche SaaS providers).
 8. **Source breadth vs trufflehog** — several trufflehog sources have no
    pleno-dlp equivalent. They fall into two categories:
 

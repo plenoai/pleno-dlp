@@ -802,4 +802,12 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/azurestoragekey"
 	// batch 43 — IaC/config-file hardcoded credential detectors.
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/hardcodedpassword"
+	// batch 44 — issue #175 batch 1: structured config-file,
+	// filename/schema-keyed extractors (pgpass, netrc, git-credentials
+	// URL userinfo, unix crypt password hashes, PHP config secrets).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/gitcredentialsurl"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/netrc"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pgpass"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/phpconfigsecret"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/unixcrypthash"
 )
