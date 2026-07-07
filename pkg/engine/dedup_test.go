@@ -272,6 +272,53 @@ func TestGitCrossCommitDedup_NoOccurrenceCountForSingle(t *testing.T) {
 	}
 }
 
+// TestGitCrossCommitDedup_FlushForwardsWithoutClosingInner guards against
+// #273: the CLI must be able to flush buffered git findings to inner
+// (so counters and downstream sinks see them) without closing inner,
+// because the CLI still needs inner alive to print the summary and flush
+// PIIDB. Regressing Flush back into calling inner.Close() would silently
+// drop every finding whenever the CLI relies on Flush + a later, separate
+// Close (as runScanCommon does).
+func TestGitCrossCommitDedup_FlushForwardsWithoutClosingInner(t *testing.T) {
+	rec := &recordingSink{}
+	s := NewGitCrossCommitDedup(rec).(*gitCrossCommitSink)
+
+	s.Emit(mkGitFinding("AKIA0000000000000000", "config.js", "abc1"))
+	if err := s.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+
+	if got := len(rec.findings); got != 1 {
+		t.Fatalf("want 1 finding forwarded by Flush, got %d", got)
+	}
+	if rec.closed.Load() {
+		t.Error("Flush must not close inner — the CLI still needs it for the summary and PIIDB flush")
+	}
+}
+
+// TestGitCrossCommitDedup_FlushThenCloseDoesNotDuplicate guards the buffer
+// reset in Flush: a later Close (deferred by callers that don't already
+// flush) must not re-emit findings Flush already forwarded.
+func TestGitCrossCommitDedup_FlushThenCloseDoesNotDuplicate(t *testing.T) {
+	rec := &recordingSink{}
+	s := NewGitCrossCommitDedup(rec).(*gitCrossCommitSink)
+
+	s.Emit(mkGitFinding("AKIA0000000000000000", "config.js", "abc1"))
+	if err := s.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	if got := len(rec.findings); got != 1 {
+		t.Fatalf("want exactly 1 finding across Flush+Close, got %d", got)
+	}
+	if !rec.closed.Load() {
+		t.Error("Close must still close inner")
+	}
+}
+
 func TestGitCrossCommitDedup_NonGitPassesThrough(t *testing.T) {
 	rec := &recordingSink{}
 	s := NewGitCrossCommitDedup(rec)

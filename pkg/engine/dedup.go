@@ -151,11 +151,19 @@ func (g *gitCrossCommitSink) Emit(f Finding) {
 	g.mu.Unlock()
 }
 
-func (g *gitCrossCommitSink) Close() error {
+// Flush forwards every buffered introducing-commit finding to inner and
+// resets the buffers. Exported so callers that need the buffered findings
+// to reach inner before end-of-scan counting (e.g. the CLI's summary line
+// and --fail-on gate) can do so without also closing inner — mirrors
+// piidb.Sink's Flush/Close split for the same reason.
+func (g *gitCrossCommitSink) Flush() error {
 	g.mu.Lock()
 	order := g.insertOrder
 	counts := g.counts
 	first := g.first
+	g.insertOrder = nil
+	g.counts = make(map[string]int)
+	g.first = make(map[string]Finding)
 	g.mu.Unlock()
 
 	for _, key := range order {
@@ -170,6 +178,13 @@ func (g *gitCrossCommitSink) Close() error {
 			f.Result.ExtraData = extra
 		}
 		g.inner.Emit(f)
+	}
+	return nil
+}
+
+func (g *gitCrossCommitSink) Close() error {
+	if err := g.Flush(); err != nil {
+		return err
 	}
 	return g.inner.Close()
 }
