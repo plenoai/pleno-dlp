@@ -16,11 +16,15 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -76,6 +80,18 @@ type Source struct {
 	verify      bool
 	concurrency int
 	cfg         Config
+
+	hasPreviousState bool
+	previousState    *incrementalState
+	nextState        *incrementalState
+}
+
+// incrementalState records which layer diffIDs a previous scan already
+// covered. Layers are content-addressed and immutable, so membership alone
+// (no size/mtime comparison) is a sufficient and exact skip condition.
+type incrementalState struct {
+	Version int             `json:"version"`
+	Layers  map[string]bool `json:"layers,omitempty"`
 }
 
 func (s *Source) Type() sources.SourceType { return sources.SourceDockerImage }
@@ -115,7 +131,12 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	if err != nil {
 		return fmt.Errorf("docker-image: load image %q: %w", s.cfg.Image, err)
 	}
+	return s.chunksFromImage(ctx, img, ref, digest, ch)
+}
 
+// chunksFromImage runs the scan against an already-resolved v1.Image, so
+// tests can exercise it against a synthetic image without a registry/daemon.
+func (s *Source) chunksFromImage(ctx context.Context, img v1.Image, ref, digest string, ch chan<- *sources.Chunk) error {
 	if err := s.emitConfig(ctx, img, ref, digest, ch); err != nil {
 		return err
 	}
@@ -124,15 +145,106 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	if err != nil {
 		return fmt.Errorf("docker-image: get layers: %w", err)
 	}
+	s.nextState = &incrementalState{Version: 1, Layers: map[string]bool{}}
 	for _, layer := range layers {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := s.emitLayer(ctx, layer, ref, digest, ch); err != nil {
+		diffID, err := layer.DiffID()
+		if err != nil {
+			return fmt.Errorf("docker-image: layer diffid: %w", err)
+		}
+		layerDigestStr := diffID.String()
+		s.nextState.Layers[layerDigestStr] = true
+		if s.layerScanned(layerDigestStr) {
+			continue
+		}
+		if err := s.emitLayer(ctx, layer, layerDigestStr, ref, digest, ch); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (s *Source) layerScanned(diffID string) bool {
+	return s.hasPreviousState && s.previousState != nil && s.previousState.Layers[diffID]
+}
+
+func (s *Source) SetIncrementalState(previous json.RawMessage) error {
+	s.hasPreviousState = false
+	s.previousState = nil
+	s.nextState = nil
+	if len(previous) == 0 || string(previous) == "null" {
+		return nil
+	}
+	var state incrementalState
+	if err := json.Unmarshal(previous, &state); err != nil {
+		return err
+	}
+	if state.Layers == nil {
+		state.Layers = map[string]bool{}
+	}
+	s.hasPreviousState = true
+	s.previousState = &state
+	return nil
+}
+
+func (s *Source) IncrementalState() json.RawMessage {
+	if s.nextState == nil {
+		return nil
+	}
+	data, err := json.Marshal(s.nextState)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+// ResourceFingerprint hashes the source config plus the image's config
+// digest and per-layer diffIDs, so an unchanged image (by content, not just
+// by tag) short-circuits the scan.
+func (s *Source) ResourceFingerprint(ctx context.Context) (string, error) {
+	img, digest, ref, err := s.loadImage(ctx)
+	if err != nil {
+		return "", fmt.Errorf("docker-image: load image for fingerprint: %w", err)
+	}
+	return s.fingerprintFromImage(img, ref, digest)
+}
+
+// fingerprintFromImage computes the fingerprint from an already-resolved
+// v1.Image, so tests can exercise it against a synthetic image.
+func (s *Source) fingerprintFromImage(img v1.Image, ref, digest string) (string, error) {
+	cfgHash, err := img.ConfigName()
+	if err != nil {
+		return "", fmt.Errorf("docker-image: config digest: %w", err)
+	}
+	layers, err := img.Layers()
+	if err != nil {
+		return "", fmt.Errorf("docker-image: layers for fingerprint: %w", err)
+	}
+
+	h := sha256.New()
+	writeHash(h, "docker-image-v1")
+	writeHash(h, ref)
+	writeHash(h, s.cfg.Platform)
+	writeHash(h, strconv.FormatInt(s.cfg.MaxLayerSize, 10))
+	writeHash(h, strings.Join(s.cfg.Include, ","))
+	writeHash(h, strings.Join(s.cfg.Exclude, ","))
+	writeHash(h, digest)
+	writeHash(h, cfgHash.String())
+	for _, layer := range layers {
+		diffID, err := layer.DiffID()
+		if err != nil {
+			return "", fmt.Errorf("docker-image: layer diffid for fingerprint: %w", err)
+		}
+		writeHash(h, diffID.String())
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func writeHash(h hash.Hash, s string) {
+	_, _ = h.Write([]byte(s))
+	_, _ = h.Write([]byte{0})
 }
 
 // loadImage fetches the image from registry or daemon and returns the v1.Image,
@@ -231,13 +343,7 @@ func (s *Source) emitConfig(ctx context.Context, img v1.Image, ref, digest strin
 
 // emitLayer streams files from one OCI layer (a compressed tar) and emits
 // text files as individual chunks.
-func (s *Source) emitLayer(ctx context.Context, layer v1.Layer, ref, imageDigest string, ch chan<- *sources.Chunk) error {
-	layerDigest, err := layer.DiffID()
-	if err != nil {
-		return fmt.Errorf("docker-image: layer diffid: %w", err)
-	}
-	layerDigestStr := layerDigest.String()
-
+func (s *Source) emitLayer(ctx context.Context, layer v1.Layer, layerDigestStr, ref, imageDigest string, ch chan<- *sources.Chunk) error {
 	rc, err := layer.Uncompressed()
 	if err != nil {
 		return fmt.Errorf("docker-image: open layer %s: %w", layerDigestStr, err)
@@ -357,3 +463,5 @@ func parsePlatform(s string) (*v1.Platform, error) {
 }
 
 var _ sources.Source = (*Source)(nil)
+var _ sources.ResourceFingerprinter = (*Source)(nil)
+var _ sources.IncrementalStateSource = (*Source)(nil)
