@@ -10,7 +10,6 @@ import (
 	"testing"
 )
 
-// hcaik_ (6) + 58 base62 chars = 64 chars total.
 const dummyModern = "hcaik_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV"
 const dummyLegacy = "0123456789abcdef0123456789abcdef"
 

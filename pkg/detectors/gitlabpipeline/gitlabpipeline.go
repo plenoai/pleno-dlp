@@ -45,8 +45,8 @@ var assignRe = regexp.MustCompile(
 // than a trigger token. Only consulted on the hex branch.
 var gitContextWords = []string{"git", "commit", "sha", "checksum", "revision", "sha1", "sha1sum"}
 
-// minEntropy drops low-entropy / patterned hex (repeated or sequential SHAs,
-// placeholder-looking strings) per the harden plan.
+// minEntropy drops low-entropy / patterned hex, e.g. repeated or sequential
+// SHAs and placeholder-looking strings.
 const minEntropy = 3.0
 
 type Scanner struct{}
@@ -56,8 +56,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GitLabPipeline }
 func (Scanner) Keywords() []string { return []string{"pipeline_trigger", "trigger_token"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	// Cheap prefilter: bail before regex unless an assignment-form anchor can
-	// possibly exist. (Keywords() already gates at the engine level.)
+	// Cheap prefilter: bail before regex unless an assignment-form anchor
+	// can possibly exist.
 	hits := assignRe.FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
@@ -71,7 +71,6 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		// Entropy gate: reject patterned / placeholder hex.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}

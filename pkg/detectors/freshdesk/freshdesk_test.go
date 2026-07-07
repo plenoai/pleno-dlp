@@ -55,10 +55,10 @@ func TestFromData_BareKeywordNoAnchor(t *testing.T) {
 	}
 }
 
-// Regression: a 40-char git SHA-1 sitting near the word "freshdesk" (a common
-// CHANGELOG / commit-log shape) must NOT be reported. This is the headline
-// false positive: the old tokenRe upper bound of 40 matched the SHA, and its
-// entropy (~3.74) clears the 3.5 floor, so only the dropped 40-bound stops it.
+// Regression: a 40-char git SHA-1 sitting near the word "freshdesk" must NOT
+// be reported. This is the headline false positive: the old tokenRe upper
+// bound of 40 matched the SHA, and its entropy (~3.74) clears the 3.5 floor,
+// so only the dropped 40-bound stops it.
 func TestFromData_GitSHANearKeyword_Negative(t *testing.T) {
 	const sha = "da39a3ee5e6b4b0d3255bfef95601890afd80709" // 40-char SHA-1
 	body := "freshdesk connector bump to " + sha + " (see PR #42)"
@@ -110,8 +110,8 @@ func rawList(res []detectors.Result) []string {
 	return out
 }
 
-// verifyServer returns an httptest.Server that asserts the Freshdesk Basic-auth
-// convention (apikey as username, "X" as password) and responds with status.
+// verifyServer returns an httptest.Server that asserts the Freshdesk
+// Basic-auth convention and responds with status.
 func verifyServer(t *testing.T, status int) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -224,8 +224,6 @@ func TestVerify_NoHostNoOverride(t *testing.T) {
 	}
 }
 
-// FromData with verify=true derives the host from the chunk and verifies the
-// key against it.
 func TestFromData_VerifyUsesChunkHost(t *testing.T) {
 	srv := verifyServer(t, http.StatusOK)
 	defer srv.Close()

@@ -230,8 +230,8 @@ func resolveSecret(cmd *cobra.Command, raw string) (string, error) {
 }
 
 // isInteractiveStdin reports whether the command's stdin is a terminal.
-// Returns false for any non-*os.File reader (cobra test buffer, piped
-// fd, redirected file) so CI is treated as non-interactive by default.
+// Returns false for any non-*os.File reader so CI is treated as
+// non-interactive by default.
 func isInteractiveStdin(r io.Reader) bool {
 	f, ok := r.(*os.File)
 	if !ok {
@@ -255,8 +255,7 @@ func redactSecret(s string) string {
 }
 
 // revokeRecord is the structured shape rendered by --format json. Keep
-// fields stable across releases — downstream callers (audit pipelines,
-// SOAR runbooks) parse this output.
+// fields stable across releases — downstream callers parse this output.
 type revokeRecord struct {
 	Detector       string `json:"detector"`
 	RedactedSecret string `json:"redacted_secret"`

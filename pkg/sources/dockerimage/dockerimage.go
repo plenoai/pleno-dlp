@@ -69,7 +69,6 @@ type Config struct {
 	Exclude []string `json:"exclude,omitempty"`
 }
 
-// Source implements sources.Source for Docker/OCI images.
 type Source struct {
 	name        string
 	jobID       int64
@@ -117,12 +116,10 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 		return fmt.Errorf("docker-image: load image %q: %w", s.cfg.Image, err)
 	}
 
-	// Emit the image config blob (ENV, labels, cmd, entrypoint).
 	if err := s.emitConfig(ctx, img, ref, digest, ch); err != nil {
 		return err
 	}
 
-	// Emit text files from each layer.
 	layers, err := img.Layers()
 	if err != nil {
 		return fmt.Errorf("docker-image: get layers: %w", err)
@@ -164,7 +161,6 @@ func (s *Source) loadImage(ctx context.Context) (v1.Image, string, string, error
 	if err != nil {
 		return nil, "", "", fmt.Errorf("pull from registry: %w", err)
 	}
-	// Resolve the canonical reference with digest.
 	r, err := name.ParseReference(ref)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("parse image ref: %w", err)

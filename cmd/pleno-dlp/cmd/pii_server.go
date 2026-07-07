@@ -58,7 +58,7 @@ const defaultPIIServerSource = "git+https://github.com/plenoai/pleno-anonymize.g
 // instead of tracking the mutable default branch (issue #248). Bump
 // deliberately, in lockstep with the nerWheels hashes below when the
 // upstream server workspace or its model deps change. Operators can
-// still opt out (e.g. to track main) with an explicit `--git-ref ""`
+// still opt out with an explicit `--git-ref ""`
 // or `--git-ref main`; that is a conscious per-invocation choice, not
 // the shipped default.
 //
@@ -78,8 +78,8 @@ type nerWheel struct {
 
 // nerWheels are installed after `uv sync` because they live outside
 // PyPI and would otherwise be pruned as untracked. Swapping any entry
-// (new version, relocated host) requires recomputing sha256 for the
-// new artifact — there is no way to "just bump the URL".
+// requires recomputing sha256 for the new artifact — there is no way
+// to "just bump the URL".
 var nerWheels = []nerWheel{
 	{
 		url:    "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
@@ -98,7 +98,7 @@ var nerWheels = []nerWheel{
 // nerWheelHTTPClient performs the download half of the download-verify-
 // install pipeline. A generous timeout accommodates the largest wheel
 // (~35MB) over a slow link without hanging pii-server setup forever;
-// ctx cancellation (Ctrl-C, test contexts) still wins first.
+// ctx cancellation still wins first.
 var nerWheelHTTPClient = &http.Client{Timeout: 10 * time.Minute}
 
 var piiServerCmd = &cobra.Command{

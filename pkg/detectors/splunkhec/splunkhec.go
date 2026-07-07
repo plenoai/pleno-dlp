@@ -24,8 +24,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// apiBase is the operator-supplied Splunk HEC host (e.g.
-// https://http-inputs-acme.splunkcloud.com:8088). Empty by default so the
+// apiBase is the operator-supplied Splunk HEC host. Empty by default so the
 // detector never invents a host; tests override it with an httptest server.
 var apiBase = ""
 
@@ -34,9 +33,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var (
 	verifyAcceptCodes = []int{http.StatusOK}
 	verifyRejectCodes = []int{
-		http.StatusUnauthorized, // 401
-		http.StatusForbidden,    // 403
-		http.StatusBadRequest,   // 400 — HEC "Invalid token" (code 4)
+		http.StatusUnauthorized,
+		http.StatusForbidden,
+		http.StatusBadRequest, // HEC "Invalid token" (code 4)
 	}
 )
 

@@ -1,8 +1,6 @@
-// Package gigya detects SAP Customer Data Cloud (Gigya) API key + secret
-// pairs near the `gigya` keyword. Unverified by design — Gigya routes per
-// data center (`<region>.gigya.com`) and the apikey alone won't auth a
-// privileged probe; verification fires only when an apiBase override is
-// supplied.
+// Unverified by design: Gigya routes per data center and the apikey alone
+// won't auth a privileged probe; verification fires only when an apiBase
+// override is supplied.
 package gigya
 
 import (
@@ -20,7 +18,6 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Gigya API keys are `_` prefixed plus 28 base64url chars.
 var keyRe = regexp.MustCompile(`(_[A-Za-z0-9_\-]{28,40})`)
 var secretRe = regexp.MustCompile(`([A-Za-z0-9+/]{27}=)`)
 

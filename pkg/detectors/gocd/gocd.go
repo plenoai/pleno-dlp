@@ -84,17 +84,12 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		// Reject git/content hex digests — these are not GoCD tokens.
 		if hexDigestRe.MatchString(token) {
 			continue
 		}
-		// Reject low-entropy / repetitive runs that pad to 40+ chars.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
-		// Gate on proximity: an explicit credential anchor gates within
-		// strongRadius; a bare prose `gocd` mention only gates when it
-		// is immediately adjacent (weakRadius).
 		if !nearKeyword(strongSpans, h[2], h[3], strongRadius) &&
 			!nearKeyword(weakSpans, h[2], h[3], weakRadius) {
 			continue

@@ -1,5 +1,5 @@
-// Package square detects Square access tokens (production `EAAA…` and
-// sandbox `sq0atp-…`) and verifies them via /v2/locations.
+// Package square detects Square access tokens and verifies them via
+// /v2/locations.
 //
 // Square production access tokens are 64 chars total starting with `EAAA`.
 // Sandbox tokens use the `sq0atp-` prefix followed by 22 base64url chars.

@@ -42,8 +42,8 @@ func (s *Sink) Emit(f engine.Finding) {
 
 // Flush classifies buffered PII findings and forwards them to the
 // inner sink. Safe to call multiple times; subsequent calls are no-ops.
-// Must be called before reading counter state (e.g. for summary output)
-// because PII findings only reach the counter after flush.
+// Must be called before reading counter state, because PII findings
+// only reach the counter after flush.
 func (s *Sink) Flush() error {
 	s.mu.Lock()
 	pii := s.pii

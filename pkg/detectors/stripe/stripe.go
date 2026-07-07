@@ -154,7 +154,6 @@ func accountMetadata(body []byte) map[string]string {
 	return meta
 }
 
-// keyMode maps a key prefix to its semantic class.
 func keyMode(token string) string {
 	switch {
 	case strings.HasPrefix(token, "rk_live_"):
@@ -170,9 +169,8 @@ func keyMode(token string) string {
 	}
 }
 
-// firstNonEmpty returns the first non-empty string from its arguments.
-// Used to coalesce the two "name" surfaces /v1/account exposes
-// (business_profile.name, display_name) without nested if-blocks.
+// firstNonEmpty coalesces the two "name" surfaces /v1/account exposes
+// without nested if-blocks.
 func firstNonEmpty(s ...string) string {
 	for _, v := range s {
 		if v != "" {
@@ -260,7 +258,6 @@ func stripeProviderID(secret string) string {
 	return ""
 }
 
-// Compile-time interface checks.
 var (
 	_ detectors.Detector = Scanner{}
 	_ detectors.Verifier = Scanner{}

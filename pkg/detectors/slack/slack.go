@@ -268,7 +268,6 @@ func redact(t string) string {
 	return t[:5] + "..."
 }
 
-// Compile-time interface checks.
 var (
 	_ detectors.Detector = Scanner{}
 	_ detectors.Verifier = Scanner{}

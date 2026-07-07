@@ -87,7 +87,7 @@ type GitMeta struct {
 
 // GitHubMeta is populated by the GitHub source / SaaS connector. The legacy
 // fields (Repository, Link, Commit, File, Line, Visibility) are preserved so
-// existing output formatters keep rendering. The connector port (#74) added
+// existing output formatters keep rendering. The connector port added
 // the typed fields below — Owner, Repo, Path, Sha, Branch — so downstream
 // code can address blob coordinates without re-parsing "owner/name" strings
 // or guessing whether Commit holds a commit-sha or a blob-sha.
@@ -171,8 +171,8 @@ type BitbucketMeta struct {
 }
 
 // StdinMeta describes a chunk read from standard input. Label defaults to
-// "<stdin>" but callers can override it (e.g. `--label "git diff"`) so the
-// output formatters render something more useful than a generic placeholder.
+// "<stdin>" but callers can override it so the output formatters render
+// something more useful than a generic placeholder.
 type StdinMeta struct {
 	Label string
 }

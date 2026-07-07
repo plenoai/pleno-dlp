@@ -1,7 +1,3 @@
-// Package hotjar detects Hotjar API tokens — `hjar_<base64url>{40+}` strings
-// near the `hotjar` keyword. Hotjar authenticates via the
-// `Authorization: Bearer <token>` header. Verified via /v1/sites on
-// api.hotjar.com.
 package hotjar
 
 import (
@@ -18,7 +14,6 @@ var apiBase = "https://api.hotjar.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Hotjar API tokens use the `hjar_` prefix followed by 40+ base64url chars.
 var tokenRe = regexp.MustCompile(`\b(hjar_[A-Za-z0-9_-]{40,128})\b`)
 
 var contextKeywords = []string{"hotjar", "hjar_", "hotjar_api", "hotjar_token"}

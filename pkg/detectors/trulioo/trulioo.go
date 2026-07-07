@@ -29,9 +29,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
 // minEntropy is the conservative floor for the recall-safe fallback: it culls
-// repetitive / structured 32-64 char runs (e.g. `AAAA...`, padded constants)
-// without over-culling real credentials. 3.0 — not 3.5 — because no source
-// documents the charset, so we must not assume base62-grade variety.
+// repetitive / structured 32-64 char runs without over-culling real
+// credentials. 3.0 — not 3.5 — because no source documents the charset, so
+// we must not assume base62-grade variety.
 const minEntropy = 3.0
 
 // armRe is the assignment-anchor keyword gate. It replaces a bare

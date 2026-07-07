@@ -43,10 +43,9 @@ func TestFromData_NoKeyword(t *testing.T) {
 }
 
 // TestFromData_BareKeywordNoArm guards the FP shape the hardening rejects: two
-// generic high-entropy alnum runs sitting near a bare "signifyd" mention (a doc
-// link / host reference) but with no assignment-style key/token/secret anchor.
-// The old radius-256 strings.Contains gate matched this; the armRe gate must
-// not.
+// generic high-entropy alnum runs sitting near a bare "signifyd" mention but
+// with no assignment-style key/token/secret anchor. The old radius-256
+// strings.Contains gate matched this; the armRe gate must not.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("// see https://api.signifyd.com for details\nVALUE_A=" + dummyID + "\nVALUE_B=" + dummyKey)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)

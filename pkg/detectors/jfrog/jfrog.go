@@ -53,9 +53,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		// The cmVmdGtuO prefix is the literal base64 of "reftkn:01:" —
-		// distinctive enough that a context keyword isn't required to
-		// avoid false positives.
 		seen[token] = struct{}{}
 		res := detectors.Result{
 			DetectorType: detectors.JFrog,

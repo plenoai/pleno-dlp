@@ -1,6 +1,3 @@
-// Package hootsuite detects Hootsuite OAuth access tokens near the
-// `hootsuite` keyword. Verified via /v1/me on platform.hootsuite.com with
-// an Authorization Bearer header.
 package hootsuite
 
 import (
@@ -17,8 +14,6 @@ var apiBase = "https://platform.hootsuite.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Hootsuite OAuth tokens are 32-64 hex chars (UUID-without-dashes shape +
-// extension); we accept the conservative hex range.
 var tokenRe = regexp.MustCompile(`\b([A-Fa-f0-9]{32,64})\b`)
 
 var contextKeywords = []string{"hootsuite"}

@@ -1,7 +1,3 @@
-// Package fullstory detects FullStory API keys — long base64url tokens near
-// the `fullstory` keyword. FullStory authenticates via the
-// `Authorization: Basic <key>` header (key already encoded). Verified via
-// /operations/v1 on api.fullstory.com.
 package fullstory
 
 import (
@@ -18,7 +14,6 @@ var apiBase = "https://api.fullstory.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// FullStory API keys are documented as 40+ char base64url alphabet.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9/+=_-]{40,128})\b`)
 
 var contextKeywords = []string{"fullstory", "full_story", "fullstory_api"}

@@ -1,4 +1,3 @@
-// Package generic detects high-entropy strings near credential keywords.
 package generic
 
 import (
@@ -12,16 +11,12 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// secretShape captures candidate secrets for entropy evaluation.
 var secretShape = regexp.MustCompile(`[A-Za-z0-9+/_\-]{20,128}`)
 
-// keywordRadius bounds the distance between keyword and secret.
 const keywordRadius = 256
 
-// minEntropy is the Shannon entropy floor.
 const minEntropy = 4.0
 
-// keywords gate generic detection to credential-shaped contexts.
 var keywords = []string{
 	"api_key",
 	"apikey",
@@ -143,7 +138,6 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	return out, nil
 }
 
-// keywordPositions returns the start offsets of every keyword hit.
 func keywordPositions(lower string) []int {
 	var spans []int
 	for _, kw := range keywords {
@@ -160,7 +154,6 @@ func keywordPositions(lower string) []int {
 	return spans
 }
 
-// nearKeyword reports whether the candidate lies within keywordRadius.
 func nearKeyword(secretStart, secretEnd int, keywordStarts []int) bool {
 	for _, k := range keywordStarts {
 		// Distance is the gap between the closer pair of endpoints.
@@ -176,7 +169,6 @@ func nearKeyword(secretStart, secretEnd int, keywordStarts []int) bool {
 	return false
 }
 
-// hasSecretShapeRun reports whether data contains a plausible candidate run.
 func hasSecretShapeRun(data []byte) bool {
 	const minLen = 20
 	run := 0
@@ -224,10 +216,9 @@ func looksLikeIdentifier(s string) bool {
 }
 
 // looksLikePath reports whether s contains ≥ 2 forward-slash
-// separators, which on real codebases mark an embedded URL or
-// import path (e.g. `com/aws/aws-sdk-go-v2/aws`) rather than a
-// base64-encoded secret. A base64 token may carry at most one `/`
-// in practice; two or more is overwhelmingly path-shaped.
+// separators, which on real codebases mark an embedded URL or import path
+// rather than a base64-encoded secret. A base64 token may carry at most
+// one `/` in practice; two or more is overwhelmingly path-shaped.
 func looksLikePath(s string) bool {
 	slashes := 0
 	for i := 0; i < len(s); i++ {
@@ -442,9 +433,8 @@ func shannonEntropy(s string) float64 {
 	return h
 }
 
-// redact preserves the first 4 chars and trims the rest. Generic hits
-// don't have a known prefix structure (it's by definition unknown), so
-// the simplest possible redaction is also the safest.
+// Generic hits don't have a known prefix structure, so the simplest
+// possible redaction is also the safest.
 func redact(s string) string {
 	if len(s) <= 4 {
 		return s

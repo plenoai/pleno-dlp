@@ -349,7 +349,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	}
 
 	// The verify arg is the trufflehog Source contract, not a CLI option:
-	// verification is unconditional (verify-by-default since #165).
+	// verification is unconditional.
 	if err := src.Init(ctx, "cli", 0, 0, true, cfg, scanOpts.concurrency); err != nil {
 		return fmt.Errorf("init %s source: %w", kind, err)
 	}
@@ -418,8 +418,8 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		}
 	}
 
-	// Install the per-host verify rate limiter. Verification always runs
-	// (verify-by-default since #165), so this is unconditional. Detectors
+	// Install the per-host verify rate limiter. Verification always runs,
+	// so this is unconditional. Detectors
 	// all share http.DefaultTransport, so wrapping it here — once, before
 	// any detector runs — covers the entire scan without per-detector
 	// refactoring. We restore on exit so unit tests in the same process
@@ -449,10 +449,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	//   - dedup is outermost so the counter only sees unique findings,
 	//     which makes the exit code reflect what the user actually saw.
 	//   - placeholder filter sits between dedup and allowlist so the
-	//     well-known doc literals (AKIAIOSFODNN7EXAMPLE, YOUR_TOKEN,
-	//     XXXXXXXX, …) are gone before any user-curated allowlist
-	//     entries are consulted. Users shouldn't have to enumerate
-	//     vendor-docs placeholders in their own config.
+	//     well-known doc literals are gone before any user-curated
+	//     allowlist entries are consulted. Users shouldn't have to
+	//     enumerate vendor-docs placeholders in their own config.
 	//   - allowlist sits inside placeholder so suppressed entries
 	//     don't poison the dedup map (a different finding nearby
 	//     should still emit).
@@ -465,7 +464,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// revokingSink wraps piidbSink when --revoke-on-verified is set.
 	// PII findings are never verified so they pass through revoker
 	// untouched; secrets that are verified get revoked before reaching
-	// the PIIDB buffer (which ignores non-PII anyway).
+	// the PIIDB buffer.
 	var topSink engine.Sink = piidbSink
 	var revoker *revokingSink
 	var spool *spoolSink
@@ -569,9 +568,8 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		// gate, say so explicitly and name the escape hatch. Without
 		// this, "exit 0 despite findings" reads as the scan silently
 		// missing something rather than a deliberate, tunable policy.
-		// In --fail-on=any mode every finding meets the gate (see
-		// parseFailOn), so below is always 0 there and this never
-		// fires.
+		// In --fail-on=any mode every finding meets the gate, so below
+		// is always 0 there and this never fires.
 		if below := counter.count.Load() - counter.failing.Load(); below > 0 {
 			fmt.Fprintf(cmd.ErrOrStderr(),
 				"exit gate: --fail-on=%s (%d %s finding(s) did not affect exit code; use --fail-on=any to block on all)\n",
@@ -621,8 +619,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 // filterDetectors narrows a detector slice by include / exclude name lists.
 // Names are matched case-insensitively against DetectorType.String(). Both
 // lists may contain comma-separated entries from cobra's StringSlice
-// behaviour (the user typed `--include-detectors aws,github`) — those are
-// already split for us.
+// behaviour — those are already split for us.
 //
 // Validation: an unknown name returns an error rather than silently doing
 // nothing. Typos in CI configs would otherwise emit zero findings without
@@ -729,8 +726,8 @@ func gateBelowLabel(threshold detectors.Severity) string {
 
 // isTerminalReader reports whether r is the process's terminal stdin.
 // True only when r is *os.File AND that file is a character device — any
-// other reader (test buffer, piped file, redirected fd) returns false so
-// we don't accidentally block scripted callers.
+// other reader returns false so we don't accidentally block scripted
+// callers.
 func isTerminalReader(r io.Reader) bool {
 	f, ok := r.(*os.File)
 	if !ok {
@@ -825,7 +822,7 @@ func prepareIncremental(ctx context.Context, kind string, cfg []byte, src source
 	key := kind + ":" + scannerFP
 	entry, ok := state.Entries[key]
 	// 空 fingerprint は「安価な全体 fingerprint が存在しない」という
-	// source からの opt-out (sources.ResourceFingerprinter 参照)。 skip
+	// source からの opt-out。 skip
 	// fast-path だけを諦め、 per-unit incremental は SourceState 経由で
 	// そのまま効かせる。
 	if ok && resourceFP != "" && entry.ResourceFingerprint == resourceFP && entry.ScannerFingerprint == scannerFP {

@@ -63,7 +63,6 @@ func ConvertBlocks(blocks []json.RawMessage) string {
 	return sb.String()
 }
 
-// renderBlock dispatches to the appropriate renderer for a Notion block type.
 func renderBlock(b block) string {
 	switch b.Type {
 	case "paragraph":
@@ -141,7 +140,6 @@ func renderRichTexts(raw json.RawMessage, key string) string {
 	return sb.String()
 }
 
-// renderAnnotated wraps plain text in Markdown markers for annotations.
 func renderAnnotated(rt richText) string {
 	t := rt.PlainText
 	if rt.Annotations.Code {
@@ -337,9 +335,9 @@ func renderTableRows(rows []json.RawMessage) string {
 	return sb.String()
 }
 
-// renderImage renders an image block. The Notion API nests image content
-// under a top-level "image" key: {"type":"image", "image":{"type":"external",
-// "external":{"url":"..."}, "caption":[...]}}.
+// The Notion API nests image content under a top-level "image" key:
+// {"type":"image", "image":{"type":"external", "external":{"url":"..."},
+// "caption":[...]}}.
 func renderImage(b block) string {
 	var obj map[string]json.RawMessage
 	_ = json.Unmarshal(b.Raw, &obj)
@@ -359,7 +357,7 @@ func renderImage(b block) string {
 	return fmt.Sprintf("![](%s)\n", url)
 }
 
-// renderFile renders a file block. Same nesting pattern as image.
+// renderFile uses the same nesting pattern as renderImage.
 func renderFile(b block) string {
 	var obj map[string]json.RawMessage
 	_ = json.Unmarshal(b.Raw, &obj)
@@ -486,7 +484,6 @@ func renderNestedChildren(b block) string {
 	return ConvertBlocks(children)
 }
 
-// indentBlock prefixes every line in s with the given indent string.
 func indentBlock(s, indent string) string {
 	lines := strings.Split(s, "\n")
 	var sb strings.Builder

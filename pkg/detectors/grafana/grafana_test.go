@@ -10,7 +10,6 @@ import (
 	"testing"
 )
 
-// glsa_ + 32 base62 + _ + 8 lowercase hex.
 const dummy = "glsa_AbCdEfGhIjKlMnOpQrStUvWxYz012345_0a1b2c3d"
 
 func TestFromData_Positive(t *testing.T) {
@@ -46,7 +45,6 @@ func TestRedact(t *testing.T) {
 	}
 }
 
-// setAPIBase points the verify path at a test server for the duration of t.
 func setAPIBase(t *testing.T, url string) {
 	t.Helper()
 	prev := apiBase
@@ -55,7 +53,6 @@ func setAPIBase(t *testing.T, url string) {
 }
 
 func TestVerify_NoApiBase(t *testing.T) {
-	// Default empty apiBase disables verify entirely.
 	v, err := Scanner{}.Verify(context.Background(), dummy)
 	if err != nil {
 		t.Fatalf("err: %v", err)

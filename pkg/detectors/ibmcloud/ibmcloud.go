@@ -1,6 +1,3 @@
-// Package ibmcloud detects IBM Cloud IAM API keys — long alphanumerics near
-// the `ibmcloud` / `ibm_cloud` keyword. Verified via /identity/token on
-// iam.cloud.ibm.com using the IAM apikey grant_type.
 package ibmcloud
 
 import (

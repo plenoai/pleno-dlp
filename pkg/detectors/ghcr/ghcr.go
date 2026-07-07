@@ -1,14 +1,12 @@
-// Package ghcr detects GitHub Container Registry tokens — the same shape
-// as a GitHub PAT (ghp_/gho_/ghu_/ghs_/ghr_) but co-occurring with a
-// `ghcr.io` reference. We surface it as a separate detector because the
-// scope (registry pull/push vs API) and rotation surface differs from a
-// generic GitHub token, and operators triage them separately.
+// Same shape as a GitHub PAT (ghp_/gho_/ghu_/ghs_/ghr_) but co-occurring
+// with a `ghcr.io` reference. Surfaced as a separate detector because the
+// scope (registry pull/push vs API) and rotation surface differ from a
+// generic GitHub token.
 //
 // Verify performs an unauthenticated bearer-token GET against
-// https://ghcr.io/v2/ — a valid token returns 200; an invalid one
-// returns 401 with WWW-Authenticate. We rely on the prefix-shape regex
-// for the token; the keyword gate is `ghcr.io` so we don't compete with
-// the generic github detector on every PAT.
+// https://ghcr.io/v2/: 200 = valid, 401 = invalid. The keyword gate is
+// `ghcr.io` so this detector doesn't compete with the generic github
+// detector on every PAT.
 package ghcr
 
 import (
@@ -25,8 +23,6 @@ var apiBase = "https://ghcr.io"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Same prefixes as the github PAT detector — the differentiator is the
-// `ghcr.io` co-occurrence keyword and the verify endpoint.
 var tokenRe = regexp.MustCompile(`\b(gh[posru]_[A-Za-z0-9_]{36,255})\b`)
 
 var contextKeywords = []string{"ghcr.io", "ghcr_token", "ghcr_pat", "container_registry"}
@@ -51,8 +47,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		// Co-occurrence is mandatory — this detector only owns the GHCR
-		// scope. The generic github detector handles bare PATs.
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
@@ -79,8 +73,6 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	// Registry v2 base — auth-aware. A valid bearer token returns 200; an
-	// invalid one returns 401.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/v2/", nil)
 	if err != nil {
 		return false, err

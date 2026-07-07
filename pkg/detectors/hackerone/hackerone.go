@@ -1,7 +1,3 @@
-// Package hackerone detects HackerOne identifier + API-token pairs
-// near the `hackerone` keyword. Paired credential per the trufflehog
-// convention — Raw=identifier, RawV2=identifier+":"+token. Verified
-// via /v1/users/me on api.hackerone.com with HTTP Basic auth.
 package hackerone
 
 import (

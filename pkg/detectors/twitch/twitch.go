@@ -40,8 +40,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // twitchdev/twitch-cli#4 (exactly-30 validation).
 var tokenRe = regexp.MustCompile(`\b([0-9a-z]{30})\b`)
 
-// minEntropy rejects low-information 30-char lowercase runs (padded
-// placeholders, repeated characters, dictionary-ish strings) that clear the
+// minEntropy rejects low-information 30-char lowercase runs that clear the
 // charset+length regex but lack secret-grade randomness. Base36 entropy caps
 // near log2(36)=5.17 bits/char and real 30-char secrets sit ~4.5-5.0, so a
 // 3.5 floor is well clear of recall risk (the documented example is ~4.1 at 28
@@ -76,8 +75,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			continue
 		}
 		// Entropy gate: structured/low-information 30-char lowercase runs
-		// (repeated characters, padded placeholders) clear the charset+length
-		// regex but are not random secrets — reject them even when armed.
+		// clear the charset+length regex but are not random secrets — reject
+		// them even when armed.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
@@ -135,8 +134,8 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 
 // nearKeyword reports whether an assignment-style Twitch reference (armRe)
 // appears within a tight window on either side of the candidate. The window
-// spans both directions (not strict immediate precedence) so a secret defined
-// alongside a nearby TWITCH_CLIENT_SECRET reference still arms.
+// spans both directions so a secret defined alongside a nearby
+// TWITCH_CLIENT_SECRET reference still arms.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius

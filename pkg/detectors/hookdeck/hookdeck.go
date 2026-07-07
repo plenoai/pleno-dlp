@@ -1,8 +1,3 @@
-// Package hookdeck detects Hookdeck.com API keys (`hookdeck_test_` /
-// `hookdeck_live_` prefix followed by base62). Live keys grant production
-// scope so verified `hookdeck_live_` matches surface SeverityCritical
-// (handled by DefaultSeverity on Verified=true). Verified via /sources on
-// api.hookdeck.com using Bearer auth — read-only.
 package hookdeck
 
 import (

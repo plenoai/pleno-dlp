@@ -1,7 +1,3 @@
-// Package heap detects Heap analytics server-side keys — `heap_<base62>{32+}`
-// strings near the `heap` keyword. Heap authenticates via the
-// `Authorization: Bearer <key>` header. Verified via /api/public/v0/auth_token
-// on heapanalytics.com.
 package heap
 
 import (
@@ -18,7 +14,6 @@ var apiBase = "https://heapanalytics.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Heap server-side keys are documented as `heap_<base62>{32+}`.
 var tokenRe = regexp.MustCompile(`\b(heap_[A-Za-z0-9]{32,80})\b`)
 
 var contextKeywords = []string{"heap", "heapanalytics", "heap_api", "heap_token"}

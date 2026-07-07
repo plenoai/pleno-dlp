@@ -36,9 +36,8 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`)
 var armRe = regexp.MustCompile(`(?i)trustpilot[_\-]?(api[_\-]?)?(token|key|secret)`)
 
 // minEntropy rejects low-entropy 32-128 char runs that clear the alnum regex
-// but are not random tokens (e.g. padded placeholders, repeated characters).
-// Held at 3.0 (conservative) because the true charset is undocumented; a
-// higher floor would risk culling legitimate keys.
+// but are not random tokens. Held at 3.0 (conservative) because the true
+// charset is undocumented; a higher floor would risk culling legitimate keys.
 const minEntropy = 3.0
 
 type Scanner struct{}
@@ -63,8 +62,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		// Entropy gate: structured/low-information 32-128 char runs (e.g. a
-		// padded placeholder or a long run of repeated characters) clear the
+		// Entropy gate: structured/low-information 32-128 char runs clear the
 		// alnum regex but are not random tokens — reject them even when armed.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
@@ -91,8 +89,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 // nearKeyword reports whether a
 // `trustpilot[_-]?(api[_-]?)?(token|key|secret)` reference appears within a
 // tight window on either side of the candidate. The window spans both
-// directions (not strict immediate precedence) so a credential defined
-// alongside a nearby TRUSTPILOT_API_KEY reference still arms.
+// directions so a credential defined alongside a nearby TRUSTPILOT_API_KEY
+// reference still arms.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius

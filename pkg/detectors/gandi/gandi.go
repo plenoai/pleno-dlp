@@ -1,10 +1,6 @@
-// Package gandi detects Gandi (domain registrar) API credentials — a generic
-// 24-80 char alphanumeric run gated by an assignment-style `gandi_(api_)?key`
-// reference within a 64-char window plus a 3.0 entropy floor. Gandi publishes
-// no authoritative prefix/length/charset for either the deprecated `Apikey` or
-// the current PAT `Bearer` credential, so no length is pinned. Verified via
-// /v5/organization/organizations on api.gandi.net using the documented
-// `Authorization: Apikey <key>` header.
+// Gandi publishes no authoritative prefix/length/charset for either the
+// deprecated `Apikey` or the current PAT `Bearer` credential, so no length
+// is pinned.
 package gandi
 
 import (
@@ -21,27 +17,19 @@ var apiBase = "https://api.gandi.net"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Gandi credentials (deprecated `Apikey` and current PAT `Bearer`) have no
-// authoritatively documented prefix, length, or charset — the official auth
-// doc shows only illustrative placeholders (`Apikey 0123456`, `Bearer abc`)
-// and there is no upstream trufflehog detector to mirror. So the shape stays a
-// generic alphanumeric run and the false-positive load is carried entirely by
-// the assignment-anchor arm regex, a tight proximity window, and an entropy
-// floor — no length is pinned, to avoid silently destroying recall.
+// The shape stays a generic alphanumeric run; the false-positive load is
+// carried entirely by the assignment-anchor arm regex, a tight proximity
+// window, and an entropy floor.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24,80})\b`)
 
 // armRe is the assignment-style Gandi reference that must appear within the
 // proximity window. A bare "gandi" substring (package names, docs URLs,
-// comments) is too weak; `gandi[_-]?(api[_-]?)?(token|key|secret)` is the shape
-// a real credential assignment or config key takes (gandi_api_key, gandi-token,
-// gandiapikey, gandi_secret, ...). The bare "gandi" keyword still serves as the
-// engine prefilter via Keywords().
+// comments) is too weak; the bare "gandi" keyword still serves as the engine
+// prefilter via Keywords().
 var armRe = regexp.MustCompile(`(?i)gandi[_\-]?(api[_\-]?)?(token|key|secret)`)
 
-// minEntropy rejects low-information alphanumeric runs that clear the regex but
-// are not random credentials (structured identifiers, padded names, slugs).
-// Conservative 3.0 floor: no documented charset to justify the 3.5 high-variety
-// threshold, and 3.0 still admits hex-shaped values (hex caps ~3.6).
+// Conservative 3.0 floor: no documented charset to justify the 3.5
+// high-variety threshold, and 3.0 still admits hex-shaped values.
 const minEntropy = 3.0
 
 type Scanner struct{}
@@ -66,8 +54,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		// Entropy gate: reject structured/low-information runs that arm on a
-		// nearby reference but are not random credentials.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
@@ -90,9 +76,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-// nearKeyword arms only when an assignment-style Gandi credential reference
-// (armRe) appears within a tight window around the candidate. Radius is 64
-// (down from 256): a real `gandi_api_key = <value>` puts the reference adjacent
+// Radius is 64: a real `gandi_api_key = <value>` puts the reference adjacent
 // to the token, while a wider window readmits unrelated "gandi" mentions.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64

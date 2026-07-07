@@ -76,7 +76,6 @@ func scanJenkins(ctx context.Context, cfg Config, emit Emit) error {
 }
 
 func jenkinsEmitJob(ctx context.Context, cli *jenkinsClient, job jenkinsJob, emit Emit) error {
-	// Emit job config.xml
 	config, err := cli.getJobConfig(ctx, job.Name)
 	if err == nil && len(config) > 0 {
 		meta := sources.Metadata{
@@ -95,7 +94,6 @@ func jenkinsEmitJob(ctx context.Context, cli *jenkinsClient, job jenkinsJob, emi
 		}
 	}
 
-	// Emit recent build console logs
 	builds, err := cli.listBuilds(ctx, job.Name)
 	if err != nil {
 		return nil // non-fatal: job may have no builds

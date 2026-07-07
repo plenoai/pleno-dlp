@@ -32,8 +32,7 @@ var (
 	keyRe = regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`)
 )
 
-// keyMinEntropy rejects low-information 64-char runs (padded placeholders,
-// repeated-character fillers, hex-shaped digests sized to 64) that clear the
+// keyMinEntropy rejects low-information 64-char runs that clear the
 // alnum regex but lack key-grade randomness. 3.5 bits/char suits the
 // high-variety base62 access-key charset per docs/detector-key-formats.md.
 const keyMinEntropy = 3.5

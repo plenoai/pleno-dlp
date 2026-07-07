@@ -20,21 +20,20 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// SignalWire credentials are a two-part pair (Project ID + API token).
+// SignalWire credentials are a two-part pair: Project ID + API token.
 // Documented shapes (upstream trufflehog pkg/detectors/signalwire):
 //   - Project ID: a UUID — [0-9a-z]{8}-{4}-{4}-{4}-{12}
 //   - API token : exactly 50 alphanumeric chars — [0-9A-Za-z]{50}
 //
 // We keep a single token regex covering the high-variety credential shape so
 // the id and token can both be harvested from the chunk, then disambiguate
-// with the keyword arm regex + an entropy floor. The token half (the actual
-// secret, carried in RawV2) is the value the entropy gate protects.
+// with the keyword arm regex + an entropy floor. The token half, carried in
+// RawV2, is the value the entropy gate protects.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24,128})\b`)
 
-// minEntropy rejects low-information runs (repeated chars, padded zeros,
-// dictionary-ish strings) that clear the alphanumeric regex but are not
-// real key material. The token charset is high-variety base62, so the
-// 3.5 bits/char floor from the FP-hardening rubric applies without
+// minEntropy rejects low-information runs that clear the alphanumeric regex
+// but are not real key material. The token charset is high-variety base62,
+// so the 3.5 bits/char floor from the FP-hardening rubric applies without
 // over-culling genuine 50-char base62 tokens.
 const minEntropy = 3.5
 
@@ -66,9 +65,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[v]; dup {
 			continue
 		}
-		// Entropy floor: a high-variety base62 token (and a real UUID id)
-		// clears 3.5 bits/char; padded/dictionary/low-information runs that
-		// satisfy the bare alphanumeric regex are dropped here.
+		// Entropy floor: a high-variety base62 token clears 3.5 bits/char;
+		// padded/dictionary/low-information runs that satisfy the bare
+		// alphanumeric regex are dropped here.
 		if !detectors.HasMinEntropy(v, minEntropy) {
 			continue
 		}

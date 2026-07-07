@@ -14,7 +14,7 @@
 //   - the bare strings.Contains keyword gate replaced by an assignment-anchor
 //     arm regex (the bare keyword stays in Keywords() as the prefilter),
 //   - a conservative HasMinEntropy(token, 3.0) floor to drop low-information
-//     runs (all-zeros, repeated patterns) that clear the loose alnum regex.
+//     runs that clear the loose alnum regex.
 package smartsheet
 
 import (
@@ -35,10 +35,10 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // the keyword gate + entropy floor to disambiguate.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24,64})\b`)
 
-// minEntropy rejects low-information runs (all-zeros, repeated patterns, short
-// dictionary fragments) that clear the loose alnum regex but are not tokens.
-// 3.0 is the conservative hex-grade floor — high enough to drop garbage, low
-// enough not to cull real alnum tokens (which sit well above 4.0 bits/char).
+// minEntropy rejects low-information runs that clear the loose alnum regex
+// but are not tokens. 3.0 is the conservative hex-grade floor — high enough
+// to drop garbage, low enough not to cull real alnum tokens (which sit well
+// above 4.0 bits/char).
 const minEntropy = 3.0
 
 // contextRe is the windowed keyword gate. It replaces a bare

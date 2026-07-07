@@ -1,11 +1,8 @@
-// Package gcpapikey detects Google Cloud / Firebase API keys (`AIza` + 35).
-//
 // AIza-prefixed keys gate access to public Google APIs (Maps, Translate,
-// YouTube Data, Firebase) — not service-account level, but still a leak that
+// YouTube Data, Firebase), not service-account level, but still a leak that
 // can drive billing abuse on the owner's project. We verify by hitting the
 // public API discovery endpoint with the key as a query parameter; a 200
-// confirms the key is currently active and not revoked. 400 indicates a
-// malformed key; 403 indicates revoked / restricted-by-referrer.
+// confirms the key is currently active and not revoked.
 package gcpapikey
 
 import (

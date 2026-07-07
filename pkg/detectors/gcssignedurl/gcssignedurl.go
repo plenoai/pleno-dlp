@@ -1,4 +1,3 @@
-// Package gcssignedurl detects Google Cloud Storage signed URLs (V4).
 // A V4 signed URL embeds GOOG4-RSA-SHA256 in X-Goog-Algorithm, the
 // service-account email in X-Goog-Credential, and an expiry. Anyone
 // holding the URL can perform the underlying GCS operation until expiry.

@@ -1,4 +1,3 @@
-// Package gitlab detects GitLab PATs, verifies them, and supports revoke.
 package gitlab
 
 import (
@@ -75,7 +74,6 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	}
 }
 
-// Revoke resolves the PAT id via /self, then revokes by id.
 func (Scanner) Revoke(ctx context.Context, secret string) (detectors.RevokeResult, error) {
 	if secret == "" {
 		return detectors.RevokeResult{}, errors.New("gitlab: revoke: empty secret")
@@ -179,7 +177,6 @@ func redact(t string) string {
 	return t[:10] + "..."
 }
 
-// Compile-time interface checks.
 var (
 	_ detectors.Detector = Scanner{}
 	_ detectors.Verifier = Scanner{}

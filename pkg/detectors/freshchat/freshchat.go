@@ -1,6 +1,3 @@
-// Package freshchat detects Freshchat API tokens — long alphanumerics near
-// the `freshchat` keyword. Verified via /v2/agents on api.freshchat.com
-// with Bearer auth.
 package freshchat
 
 import (

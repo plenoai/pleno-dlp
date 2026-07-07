@@ -41,10 +41,8 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
-// Regression: a high-entropy 40-char token sitting near a bare "idnow"
-// mention in prose (no assignment context) used to match under the old
-// radius-128 strings.Contains gate. The arm regex now requires an
-// idnow_(api_)?(token|key|secret) anchor, so this no longer fires.
+// Regression: a high-entropy token near a bare "idnow" prose mention with no
+// assignment anchor must not fire under the arm regex.
 func TestFromData_KeywordInProseNoAnchor(t *testing.T) {
 	body := []byte("We integrated idnow last quarter; the build hash was " + dummy + " by the way.")
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
@@ -53,8 +51,8 @@ func TestFromData_KeywordInProseNoAnchor(t *testing.T) {
 	}
 }
 
-// Regression: a low-entropy 32-char run (all the same byte) near a valid
-// assignment anchor clears the regex but must be culled by the entropy floor.
+// Regression: a low-entropy run near a valid assignment anchor clears the regex
+// but must be culled by the entropy floor.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("idnow_api_key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 	res, _ := Scanner{}.FromData(context.Background(), false, body)

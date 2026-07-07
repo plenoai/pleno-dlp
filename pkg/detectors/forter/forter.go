@@ -1,6 +1,3 @@
-// Package forter detects Forter fraud-prevention API keys — long
-// hex/base64 strings near a `forter` keyword. Verified via /v2/orders
-// on api.forter.com with HTTP Basic auth (key as username).
 package forter
 
 import (
@@ -18,27 +15,19 @@ var apiBase = "https://api.forter.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// tokenRe stays at the original {40,80} alphanumeric shape: Forter's official
-// docs (Basic auth, "use the api key as the username, leave the password
-// empty") and the Descope/PaymentsOS integration guides all confirm the
-// credential is a Site ID + Secret Key pair, but none publish a length,
-// charset, or prefix, and trufflehog ships no forter detector. With no
-// authoritative format to anchor on, pinning a length/charset would risk
-// silently destroying recall, so the regex is left as-is and only the
+// No authoritative length/charset/prefix is published for Forter Site
+// ID + Secret Key credentials, so pinning either would risk destroying
+// recall; the regex is left as a generic 40-80 char run and only the
 // recall-safe gates below are tightened.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
 
-// armRe is the assignment-style Forter reference that must appear within the
-// proximity window. A bare "forter" substring (script-src URLs to
-// *.api.forter-secure.com, doc links, the portal host) is too weak a gate
-// against a generic 40-80 alphanumeric run; `forter[_-]?(api[_-]?)?(token|
-// key|secret)` is the shape a real credential assignment or config key takes.
+// armRe requires an assignment-style Forter reference in the proximity
+// window; a bare "forter" substring (script-src URLs, doc links, the portal
+// host) is too weak a gate against a generic 40-80 alphanumeric run.
 var armRe = regexp.MustCompile(`(?i)forter[_\-]?(api[_\-]?)?(token|key|secret)`)
 
-// minEntropy rejects low-information 40-80 char runs (padded placeholders,
-// repeated characters, structured IDs) that clear the alnum regex but lack
-// key-grade randomness. 3.0 is the conservative floor used when the real
-// charset is undocumented — 3.5 would over-cull a possibly hex/low-variety key.
+// 3.0 is a conservative floor for an undocumented charset; 3.5 would
+// over-cull a possibly hex/low-variety key.
 const minEntropy = 3.0
 
 type Scanner struct{}
@@ -60,8 +49,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		// Entropy gate: structured/low-information 40-80 char runs clear the
-		// alnum regex but are not random tokens — reject them even when armed.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}

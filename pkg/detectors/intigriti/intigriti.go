@@ -1,7 +1,3 @@
-// Package intigriti detects Intigriti researcher / company API tokens
-// (URL-safe base64, 40-128 chars). Surface only when an `intigriti`
-// keyword is in the same chunk. Verified via /external/researcher/v1/me
-// on api.intigriti.com with the Authorization Bearer header.
 package intigriti
 
 import (

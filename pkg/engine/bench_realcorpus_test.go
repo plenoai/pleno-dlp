@@ -1,6 +1,6 @@
 // Real-corpus benchmark wired against /tmp/dlp-bench/corpus-d so we can
 // pprof the workload that drove the trufflehog parity push. Skips
-// silently when the corpus is absent (CI machines, fresh clones).
+// silently when the corpus is absent.
 //
 // Invoke:
 //

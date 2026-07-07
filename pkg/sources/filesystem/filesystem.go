@@ -409,7 +409,6 @@ func isBinary(b []byte) bool {
 	return bytes.IndexByte(b[:n], 0x00) >= 0
 }
 
-// compile-time interface check
 var _ sources.Source = (*Source)(nil)
 var _ sources.ResourceFingerprinter = (*Source)(nil)
 var _ sources.IncrementalStateSource = (*Source)(nil)

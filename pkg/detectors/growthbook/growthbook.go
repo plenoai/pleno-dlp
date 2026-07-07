@@ -1,7 +1,3 @@
-// Package growthbook detects GrowthBook secret API keys —
-// `secret_admin_` / `secret_user_` prefix + alnum near the
-// `growthbook` keyword. Verified via /api/v1/features on
-// api.growthbook.io with Authorization Bearer header.
 package growthbook
 
 import (

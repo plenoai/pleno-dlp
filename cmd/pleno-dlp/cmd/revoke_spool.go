@@ -28,8 +28,8 @@ import (
 )
 
 // spoolSourceLink extracts a stable URL for the finding's source when
-// the underlying source kind carries one (GitHub blob link, SIEM event
-// link). Empty otherwise — the spool doesn't fabricate URLs.
+// the underlying source kind carries one. Empty otherwise — the spool
+// doesn't fabricate URLs.
 func spoolSourceLink(c *sources.Chunk) string {
 	if c == nil {
 		return ""
@@ -56,7 +56,7 @@ const spoolRecordVersion = 1
 // deliberately minimal: only what `pleno-dlp revoke --revoke-from-spool`
 // needs to dispatch to the per-detector Revoker. `secret_b64` keeps
 // the raw payload binary-safe across any pipe that may touch the file
-// (cp, tar, etc.) without depending on UTF-8 validity.
+// without depending on UTF-8 validity.
 type spoolRecord struct {
 	Version    int    `json:"version"`
 	Detector   string `json:"detector"`

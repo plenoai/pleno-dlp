@@ -158,7 +158,6 @@ func TestMatchInto_ReusesBuffers(t *testing.T) {
 	if len(out) != 1 || out[0] != 0 {
 		t.Fatalf("first match got %v", out)
 	}
-	// Caller resets buffers and re-uses them.
 	for i := range seen {
 		seen[i] = false
 	}

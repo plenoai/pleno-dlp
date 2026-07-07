@@ -1,7 +1,3 @@
-// Package getresponse detects GetResponse API keys — 32-hex strings near the
-// `getresponse` keyword. GetResponse authenticates via the
-// `X-Auth-Token: api-key <key>` request header. Verified via /v3/accounts on
-// api.getresponse.com.
 package getresponse
 
 import (
@@ -18,7 +14,6 @@ var apiBase = "https://api.getresponse.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// GetResponse API keys are documented as 32-char lowercase hex.
 var tokenRe = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
 
 var contextKeywords = []string{"getresponse", "get_response", "getresponse_api"}

@@ -1,7 +1,6 @@
-// Package instana detects IBM Instana API tokens (40+ alphanumeric near the
-// `instana` keyword). The verify endpoint lives on the per-tenant
+// Package instana: the verify endpoint lives on the per-tenant
 // `<unit>-<tenant>.instana.io` host which isn't carried in the chunk, so this
-// is unverified-by-default with apiBase override for tests.
+// is unverified-by-default with an apiBase override for tests.
 package instana
 
 import (

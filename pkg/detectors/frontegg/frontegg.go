@@ -1,8 +1,6 @@
-// Package frontegg detects FrontEgg client secrets. FrontEgg vendor secrets
-// are UUIDs paired with a vendor client_id. Gated on `frontegg` keyword
-// window because UUID alone has too many false positives. Verified via
-// /auth/vendor on api.frontegg.com using a paired client_id+secret JSON
-// body — read-only.
+// FrontEgg vendor secrets are UUIDs paired with a vendor client_id; gated on
+// the `frontegg` keyword window because a bare UUID has too many false
+// positives.
 package frontegg
 
 import (

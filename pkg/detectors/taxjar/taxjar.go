@@ -62,9 +62,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		// Entropy gate: structured/low-information 32-char runs (e.g. a
-		// zero-padded id or repeated-character filler) are rejected even if
-		// armed.
+		// Entropy gate: structured/low-information 32-char runs are rejected
+		// even if armed.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
@@ -89,8 +88,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 
 // nearKeyword reports whether a `taxjar[_-]?(api[_-]?)?(token|key|secret)`
 // reference appears within a tight window on either side of the token. The
-// window spans both directions (not strict immediate precedence) so a token
-// defined alongside a nearby TAXJAR_API_TOKEN reference still arms.
+// window spans both directions so a token defined alongside a nearby
+// TAXJAR_API_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius

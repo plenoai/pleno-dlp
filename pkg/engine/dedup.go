@@ -7,9 +7,6 @@ import (
 	"sync"
 )
 
-// _ = sources.SourceUnknown // reserved for future use; the field accesses on
-// f.Chunk.SourceMetadata travel through the type already declared in engine.go.
-
 // dedupSink wraps a downstream Sink and suppresses duplicate findings.
 //
 // Two distinct keys are tracked:
@@ -31,7 +28,7 @@ import (
 // suppression — so neither layer alone is load-bearing: even if a future
 // caller bypasses the engine and emits findings in arbitrary order, the
 // "first to arrive wins" rule still does the right thing when only
-// generic appeared (it gets emitted alone), and "Verifier first +
+// generic appeared, and "Verifier first +
 // generic suppressed" still holds when both appear because engine order
 // guarantees Verifier-backed arrives first.
 type dedupSink struct {
@@ -67,8 +64,8 @@ func (d *dedupSink) Emit(f Finding) {
 	}
 	// Cross-detector collision suppression. If a Verifier-backed
 	// finding has already been emitted for this raw+location, drop the
-	// arriving non-Verifier finding. The reverse direction (generic
-	// arrived first, then Verifier) is uncommon because engine.NewWith-
+	// arriving non-Verifier finding. The reverse direction is uncommon
+	// because engine.NewWith-
 	// Detectors orders Verifier-backed detectors ahead of non-Verifier
 	// ones; when it does happen, we accept the streaming-cost of
 	// emitting both rather than buffering all output until scan end.
@@ -94,8 +91,8 @@ func (d *dedupSink) Close() error {
 func dedupKey(f Finding) string {
 	path, line := locationOf(f)
 	// Detector type is encoded as int to keep the key compact and to avoid
-	// the (admittedly unlikely) risk of a future detector name colliding
-	// with an embedded separator.
+	// the risk of a future detector name colliding with an embedded
+	// separator.
 	return strconv.Itoa(int(f.Detector)) + "\x00" + string(f.Result.Raw) + "\x00" + path + "\x00" + strconv.Itoa(line)
 }
 

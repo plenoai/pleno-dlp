@@ -159,7 +159,6 @@ func (s *Source) chunksFromImage(ctx context.Context, img v1.Image, ref, digest 
 func buildTestImage(t *testing.T, files map[string]string) v1.Image {
 	t.Helper()
 
-	// Build a tar of the files.
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)

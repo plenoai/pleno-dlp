@@ -828,11 +828,10 @@ func toSARIFResult(f engine.Finding) sarifResult {
 }
 
 // levelFor maps a finding to a SARIF level. Critical and High findings
-// surface as "error" so CI gates can fail on them; Medium is "warning"
-// (noisy regex hits surface but don't block); Low/Info is "note".
+// surface as "error" so CI gates can fail on them; Medium is "warning";
+// Low/Info is "note".
 // The mapping uses Severity rather than Verified directly so detectors
-// that override severity (e.g. a custom rule marking a hit Critical
-// even when unverified) propagate cleanly.
+// that override severity propagate cleanly.
 func levelFor(f engine.Finding) string {
 	switch f.Result.Severity {
 	case detectors.SeverityCritical, detectors.SeverityHigh:
@@ -888,7 +887,7 @@ func itoa(n int) string {
 }
 
 // sarifLocationOf extracts a (uri, line) pair from chunk metadata. Sources
-// that don't have a file-shaped origin (S3, Slack) return their best-effort
+// that don't have a file-shaped origin return their best-effort
 // URI and zero line.
 func sarifLocationOf(f engine.Finding) (string, int) {
 	if f.Chunk == nil {

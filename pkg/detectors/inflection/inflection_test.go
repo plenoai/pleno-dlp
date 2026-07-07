@@ -41,10 +41,8 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
-// TestFromData_ProseKeywordNoMatch is the FP regression: a high-entropy
-// 40-char run sitting near a prose mention of "inflection" (not an assignment
-// like inflection_api_key=). The old bare strings.Contains gate matched this;
-// the assignment-anchor arm regex must now reject it.
+// FP regression: a high-entropy run near a prose mention of "inflection" (no
+// assignment) must be rejected by the assignment-anchor gate.
 func TestFromData_ProseKeywordNoMatch(t *testing.T) {
 	body := []byte("The inflection point in the graph is here: " + dummy)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
@@ -53,11 +51,10 @@ func TestFromData_ProseKeywordNoMatch(t *testing.T) {
 	}
 }
 
-// TestFromData_LowEntropyRejected confirms the conservative entropy floor culls
-// a 40-char run that clears the regex but lacks key-grade randomness, even when
-// it sits in a real assignment context.
+// TestFromData_LowEntropyRejected confirms the entropy floor culls a run that
+// clears the regex but lacks key-grade randomness.
 func TestFromData_LowEntropyRejected(t *testing.T) {
-	const lowEntropy = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 40x 'a'
+	const lowEntropy = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	body := []byte("INFLECTION_API_KEY=" + lowEntropy)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {

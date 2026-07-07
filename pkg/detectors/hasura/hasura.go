@@ -24,27 +24,23 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// apiBase overrides the verify host. Default empty disables verify.
 var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Hasura Cloud admin secret: exactly 64 alphanumeric characters, no prefix.
-// Pinned per upstream trufflehog (`[a-zA-Z0-9]{64}`).
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`)
 
 // armRe is the assignment-style Hasura admin-secret reference that must appear
-// within the proximity window. A bare "hasura" substring (package names,
-// GraphQL doc URLs, comments) is too weak; the shape a real secret assignment
-// or env var takes is HASURA_GRAPHQL_ADMIN_SECRET / hasura-admin-secret /
-// x-hasura-admin-secret. The `(graphql[_-]?)?(admin[_-]?)?secret` tail keeps
-// the bare keyword in Keywords() as the prefilter while arming on the
-// assignment context only.
+// within the proximity window. A bare "hasura" substring is too weak; the
+// shape a real secret assignment or env var takes is
+// HASURA_GRAPHQL_ADMIN_SECRET / hasura-admin-secret / x-hasura-admin-secret.
+// The `(graphql[_-]?)?(admin[_-]?)?secret` tail keeps the bare keyword in
+// Keywords() as the prefilter while arming on the assignment context only.
 var armRe = regexp.MustCompile(`(?i)hasura[_\-]?(graphql[_\-]?)?(admin[_\-]?)?secret`)
 
 // minEntropy rejects low-entropy 64-char runs that clear the alnum regex but
-// are not random secrets (e.g. repeated padding, structured identifiers). The
-// charset is high-variety (62 symbols) so 3.5 bits/char is safe headroom.
+// are not random secrets. The charset is high-variety so 3.5 bits/char is
+// safe headroom.
 const minEntropy = 3.5
 
 type Scanner struct{}
@@ -69,8 +65,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		// Entropy gate: a 64-char alphanumeric run with low information
-		// (padding, structured ids) is not a random admin secret.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
@@ -94,9 +88,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 // nearKeyword reports whether a `hasura...secret` assignment reference appears
-// within a tight window on either side of the candidate. The window spans both
-// directions (not strict immediate precedence) so a secret defined alongside a
-// nearby HASURA_GRAPHQL_ADMIN_SECRET reference still arms.
+// within a tight window on either side of the candidate, so a secret defined
+// alongside a nearby HASURA_GRAPHQL_ADMIN_SECRET reference still arms.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius

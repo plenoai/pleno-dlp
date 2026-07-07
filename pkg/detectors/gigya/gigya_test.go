@@ -11,10 +11,8 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// `_` prefix + exactly 28 word chars = 29 total.
 const dummyKey = "_abcdef0123456789ABCDEF01234567"
 
-// 27 base64 chars + `=` padding.
 const dummySecret = "abcdefghijklmnopqrstuvwxy12="
 
 func TestType(t *testing.T) {

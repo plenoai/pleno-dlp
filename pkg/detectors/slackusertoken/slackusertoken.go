@@ -1,8 +1,7 @@
 // Package slackusertoken detects Slack user OAuth tokens (xoxp-) — distinct
 // from xoxb- bot tokens already handled by pkg/detectors/slack. xoxp- grants
-// user-level scope (acting on behalf of a real Slack user) which is broader
-// than bot tokens and warrants its own detector. Verified via auth.test on
-// slack.com.
+// user-level scope, which is broader than bot tokens and warrants its own
+// detector. Verified via auth.test on slack.com.
 package slackusertoken
 
 import (

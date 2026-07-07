@@ -49,14 +49,12 @@ func TestFromData_Dedup(t *testing.T) {
 	}
 }
 
-// lowEntropyToken is a 64-char alphanumeric run that clears the length regex
-// but is structured (two repeated halves) — not key-grade randomness.
+// lowEntropyToken clears the length regex but is structured, not key-grade random.
 const lowEntropyToken = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
-// TestFromData_BareKeywordNoArm guards the FP shape the hardening now rejects:
-// a high-entropy 64-char string sitting within the proximity window of a bare
-// "hetzner" mention that is NOT an assignment-style credential reference (e.g.
-// prose or a doc URL). The arm regex requires a token/key/secret suffix.
+// Guards the FP shape: a high-entropy token within the window of a bare
+// "hetzner" mention that is not an assignment-style reference must not arm;
+// the arm regex requires a token/key/secret suffix.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("see the hetzner docs for details: " + dummyToken)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
@@ -65,8 +63,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 	}
 }
 
-// TestFromData_LowEntropyRejected guards the entropy floor: a structured
-// 64-char run armed by an assignment reference must still be culled.
+// Guards the entropy floor: a structured run armed by an assignment must still be culled.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("hcloud_token=" + lowEntropyToken)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)

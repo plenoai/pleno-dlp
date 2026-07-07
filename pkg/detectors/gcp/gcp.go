@@ -40,7 +40,6 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GCPServiceAccoun
 
 func (Scanner) Keywords() []string { return []string{"service_account"} }
 
-// serviceAccount is the subset of fields we need to verify the credential.
 type serviceAccount struct {
 	Type        string `json:"type"`
 	ClientEmail string `json:"client_email"`

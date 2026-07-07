@@ -32,8 +32,8 @@ var tokenRe = regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 
 // keywordRe is the anchored, assignment-style Sinch credential marker. The
 // bare brand word `sinch` co-occurs within 256 bytes of an unrelated UUID far
-// too often (trace ids, batch ids, the project_id, SDK-doc GUIDs), so we
-// require the UUID to be adjacent to a key/token assignment context:
+// too often, so we require the UUID to be adjacent to a key/token assignment
+// context:
 //
 //	sinch_api_key / sinch_key / sinch_token (any separator/case), or
 //	`sinch` immediately followed by key|token|secret or an `=` assignment.
@@ -101,8 +101,8 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 }
 
 // isLookalike rejects placeholder UUIDs that match the shape but cannot be
-// credentials: all-zero, a single repeated nibble (00..., ffff...), or an
-// obviously sequential leading run (12345678..., 0123456789abcdef...).
+// credentials: all-zero, a single repeated nibble, or an obviously sequential
+// leading run.
 func isLookalike(hex string) bool {
 	if hex == "" {
 		return true
@@ -121,7 +121,7 @@ func isLookalike(hex string) bool {
 	if sequentialHex.MatchString(hex) {
 		return true
 	}
-	// Leading ascending decimal run such as 12345678 (the classic doc GUID).
+	// Leading ascending decimal run such as 12345678.
 	if strings.HasPrefix(hex, "12345678") {
 		return true
 	}

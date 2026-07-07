@@ -41,13 +41,11 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
-// genericHigh is a 40-char base62 run with high Shannon entropy (~5.1).
+// genericHigh is a 40-char high-entropy run.
 const genericHigh = "Xq7Lm2Zp9Rt4Wv6Yb3Nc8Df1Gh5Jk0Sl2Aq4Bz1V"
 
-// TestFromData_BareKeywordNoAnchor is the FP-hardening regression: a generic
-// high-entropy 40-char string that merely sits near a bare "jellyfish" prose
-// mention (no assignment anchor). Under the old radius-256 bare strings.Contains
-// gate this matched; the armRe assignment anchor must now reject it.
+// FP-hardening regression: a generic high-entropy run near a bare "jellyfish"
+// prose mention (no assignment anchor) must be rejected by armRe.
 func TestFromData_BareKeywordNoAnchor(t *testing.T) {
 	body := []byte("We use jellyfish for analytics. build hash " + genericHigh + " shipped.")
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
@@ -56,8 +54,8 @@ func TestFromData_BareKeywordNoAnchor(t *testing.T) {
 	}
 }
 
-// TestFromData_AnchoredHighEntropy confirms recall: the same high-entropy run
-// IS reported when a real assignment-style Jellyfish reference is present.
+// Recall: the same high-entropy run IS reported with a real assignment-style
+// Jellyfish reference present.
 func TestFromData_AnchoredHighEntropy(t *testing.T) {
 	body := []byte("jellyfish_api_token = " + genericHigh)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
@@ -66,10 +64,10 @@ func TestFromData_AnchoredHighEntropy(t *testing.T) {
 	}
 }
 
-// TestFromData_LowEntropyRejected confirms the conservative entropy floor
-// rejects a structured low-information run even with the assignment anchor.
+// TestFromData_LowEntropyRejected confirms the entropy floor rejects a
+// structured low-information run even with the assignment anchor.
 func TestFromData_LowEntropyRejected(t *testing.T) {
-	lowEntropy := "aaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbb" // ent ~1.0
+	lowEntropy := "aaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbb"
 	body := []byte("jellyfish_api_token = " + lowEntropy)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {

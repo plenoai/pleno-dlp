@@ -12,7 +12,6 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// 82 base62/underscore characters after github_pat_
 var dummyPAT = "github_pat_" + strings.Repeat("A", 22) + "_" + strings.Repeat("b", 59)
 
 func TestType(t *testing.T) {

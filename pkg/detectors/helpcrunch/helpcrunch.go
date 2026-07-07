@@ -1,6 +1,3 @@
-// Package helpcrunch detects HelpCrunch (helpcrunch.com) API tokens
-// (JWT shape) near the helpcrunch keyword. Verified via /v1/agents on
-// api.helpcrunch.com with Authorization Bearer header.
 package helpcrunch
 
 import (

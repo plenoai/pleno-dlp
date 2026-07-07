@@ -1,6 +1,3 @@
-// Package hyperbolic detects Hyperbolic AI inference API tokens — JWT-shaped
-// or long alnum strings near the `hyperbolic` keyword. Verified via
-// /v1/models on api.hyperbolic.xyz with Bearer auth.
 package hyperbolic
 
 import (
@@ -17,7 +14,6 @@ var apiBase = "https://api.hyperbolic.xyz"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// JWT-shaped (eyJ...eyJ...sig) or long alnum token.
 var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,})\b`)
 
 var contextKeywords = []string{"hyperbolic"}

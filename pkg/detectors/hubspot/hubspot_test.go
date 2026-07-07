@@ -26,7 +26,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_Positive_NoRegion(t *testing.T) {
-	noRegion := "pat-0123456789abcdef0123456789abcdef0123" // 36 chars body
+	noRegion := "pat-0123456789abcdef0123456789abcdef0123"
 	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+noRegion))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))

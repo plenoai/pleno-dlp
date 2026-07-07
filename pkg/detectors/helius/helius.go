@@ -1,6 +1,3 @@
-// Package helius detects Helius Solana RPC API keys — UUID-shaped strings
-// near the `helius` keyword. Verified via JSON-RPC getHealth on
-// mainnet.helius-rpc.com/?api-key=<key>.
 package helius
 
 import (

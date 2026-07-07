@@ -1,14 +1,9 @@
-// Package grafana detects Grafana service-account tokens (`glsa_<32>_<8 hex>`).
-//
 // A Grafana service-account token is itself a Bearer credential the Grafana
-// HTTP API accepts directly — `GET /api/user` with `Authorization: Bearer
-// <token>` returns 200 for a valid token and 401/403 for an invalid one, so a
-// live verify cannot yield a false positive. The only obstacle is the
-// per-instance host (self-hosted, Grafana Cloud, regional stacks), which isn't
-// carried in the token shape. We solve it with the established apiBase-override
-// pattern (see dynatrace, onetrust, qdrant): Verify no-ops when apiBase is
-// empty, so the detector ships verified-capable but defaults to surfacing
-// tokens unverified until an operator supplies the host.
+// HTTP API accepts directly, so a live verify cannot yield a false positive.
+// The only obstacle is the per-instance host, which isn't carried in the
+// token shape: Verify no-ops when apiBase is empty, so the detector ships
+// verified-capable but defaults to surfacing tokens unverified until an
+// operator supplies the host.
 package grafana
 
 import (
@@ -21,18 +16,15 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// apiBase overrides the verify endpoint host. Default empty disables verify.
 var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// verify response classification.
 var (
 	acceptCodes = []int{http.StatusOK}
 	rejectCodes = []int{http.StatusUnauthorized, http.StatusForbidden}
 )
 
-// Documented shape: `glsa_` + 32 base62 + `_` + 8 lowercase hex.
 var tokenRe = regexp.MustCompile(`\b(glsa_[A-Za-z0-9]{32}_[a-f0-9]{8})\b`)
 
 type Scanner struct{}

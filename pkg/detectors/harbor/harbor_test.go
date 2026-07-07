@@ -42,10 +42,10 @@ func TestFromData_NoKeyword(t *testing.T) {
 }
 
 // TestFromData_LowEntropyRejected is the FP-hardening regression: a 32-char
-// alnum run that clears the length-pinned regex but is low-information
-// (repeated characters) must NOT be reported even when armed by the Harbor
-// keyword. Harbor's real secrets are 32 random base62 chars; this padded
-// placeholder is exactly the noise shape the entropy floor exists to drop.
+// alnum run that clears the length-pinned regex but is low-information must
+// NOT be reported even when armed by the Harbor keyword. Harbor's real
+// secrets are 32 random base62 chars; this padded placeholder is exactly the
+// noise shape the entropy floor exists to drop.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 'a's, entropy 0
 	if len(lowEntropy) != 32 {

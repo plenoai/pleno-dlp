@@ -43,7 +43,6 @@ func ToText(xhtml string) string {
 	return strings.TrimSpace(buf.String())
 }
 
-// walk recursively walks the HTML node tree, writing text to buf.
 func walk(n *html.Node, buf *strings.Builder) {
 	if n == nil {
 		return

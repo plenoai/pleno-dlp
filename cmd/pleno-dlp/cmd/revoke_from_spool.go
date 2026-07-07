@@ -38,8 +38,8 @@ func runRevokeFromSpool(cmd *cobra.Command, path string) error {
 		defer verify.Restore(prev)
 	}
 
-	// Buffered scan tolerates large per-line records (e.g. private keys
-	// up to a few KB). 1 MiB is well above any plausible single secret.
+	// Buffered scan tolerates large per-line records. 1 MiB is well
+	// above any plausible single secret.
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 

@@ -10,7 +10,6 @@ import (
 	"testing"
 )
 
-// 34 base62 chars after "hf_".
 const dummyTok = "hf_abcdefghijklmnopqrstuvwxyz01234567"
 
 func TestFromData_Positive(t *testing.T) {

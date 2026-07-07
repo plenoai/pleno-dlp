@@ -84,8 +84,8 @@ func TestFromData_FP_SecretFarFromKeyword(t *testing.T) {
 }
 
 // TestFromData_FP_LowEntropySecret rejects a 32+ char alnum run that clears the
-// regex and sits next to the keyword but is structured/low-entropy (a padded
-// identifier), not a random secret.
+// regex and sits next to the keyword but is structured/low-entropy, not a
+// random secret.
 func TestFromData_FP_LowEntropySecret(t *testing.T) {
 	lowEnt := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 'a', entropy 0
 	body := []byte("SUMSUB_APP_TOKEN=" + dummyKey + " SUMSUB_SECRET_KEY=" + lowEnt)

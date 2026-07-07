@@ -73,7 +73,6 @@ func scanPostman(ctx context.Context, cfg Config, emit Emit) error {
 }
 
 func postmanEmitWorkspace(ctx context.Context, cli *postmanClient, ws postmanWorkspace, emit Emit) error {
-	// Collections
 	colls, err := cli.listCollections(ctx, ws.ID)
 	if err == nil {
 		for _, coll := range colls {
@@ -105,7 +104,6 @@ func postmanEmitWorkspace(ctx context.Context, cli *postmanClient, ws postmanWor
 		}
 	}
 
-	// Environments
 	envs, err := cli.listEnvironments(ctx, ws.ID)
 	if err == nil {
 		for _, env := range envs {

@@ -1,9 +1,6 @@
-// Package groq detects Groq Cloud API keys (`gsk_…`) and verifies them
-// against /openai/v1/models.
-//
-// The `gsk_` prefix is shared with Snyk Group keys but Groq's payload length
-// (52 chars after the prefix) differs from Snyk's 40-char payload — we lock
-// the regex to Groq's length so cross-detector noise stays low.
+// The `gsk_` prefix is shared with Snyk Group keys, but Groq's payload length
+// (52 chars after the prefix) differs from Snyk's 40-char payload, so the
+// regex is locked to Groq's length to keep cross-detector noise low.
 package groq
 
 import (
@@ -19,7 +16,6 @@ var apiBase = "https://api.groq.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// `gsk_` followed by 52 base62 chars.
 var keyRe = regexp.MustCompile(`\b(gsk_[A-Za-z0-9]{52})\b`)
 
 type Scanner struct{}

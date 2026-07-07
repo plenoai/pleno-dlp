@@ -79,8 +79,7 @@ func (n *nullSink) Close() error { return nil }
 // BenchmarkScan_ColdPath measures throughput on chunks with no
 // matches — every detector runs the keyword prefilter, finds
 // nothing, and returns. The number reported is bytes per second per
-// worker; that's the dominant cost on real codebases (most files
-// have no secrets).
+// worker; that's the dominant cost on real codebases.
 func BenchmarkScan_ColdPath(b *testing.B) {
 	for _, conc := range []int{1, 4, 8, 16} {
 		b.Run(fmt.Sprintf("conc=%d", conc), func(b *testing.B) {

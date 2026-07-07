@@ -1,6 +1,3 @@
-// Package honeybadger detects Honeybadger personal API tokens (`hbp_<base62>`
-// near `honeybadger`) and verifies them against /v2/projects using Basic auth
-// (token as username, empty password).
 package honeybadger
 
 import (

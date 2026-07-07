@@ -1,5 +1,5 @@
-// Package snyk detects Snyk API tokens (UUIDv4-shaped) gated on the "snyk"
-// keyword window, verifying via /api/v1/user/me with `Authorization: token`.
+// Package snyk detects Snyk API tokens gated on the "snyk" keyword window,
+// verifying via /api/v1/user/me with `Authorization: token`.
 package snyk
 
 import (

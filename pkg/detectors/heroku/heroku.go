@@ -1,10 +1,7 @@
 // Package heroku detects Heroku API tokens (UUIDs) and verifies them against
-// /account. On a verified hit the detector decodes the account to surface
-// what the token controls — driftwood pattern: a Heroku token whose owner
-// has no 2FA configured is account takeover; a federated/SSO account
-// requires the IdP for re-login. UUID alone is far too generic to surface,
-// so we require a "heroku" / "HEROKU_API_KEY" keyword within 256 bytes of
-// the candidate.
+// /account, decoding the account to surface blast radius: a token with no 2FA
+// is account takeover; a federated/SSO account requires the IdP. UUID alone is
+// too generic, so a "heroku" keyword must appear within 256 bytes.
 package heroku
 
 import (
@@ -23,9 +20,8 @@ var apiBase = "https://api.heroku.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// UUID v4-shaped 8-4-4-4-12 lowercase hex. Heroku doesn't actually require
-// v4 — they use whatever uuid the platform mints — so we accept any hex
-// UUID and lean on the keyword gate for precision.
+// Heroku doesn't require UUID v4, so we accept any hex UUID and lean on the
+// keyword gate for precision.
 var tokenRe = regexp.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
 
 var contextKeywords = []string{"heroku", "heroku_api_key"}
@@ -49,7 +45,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		// Co-occurrence is mandatory — UUID alone is everywhere.
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
@@ -119,7 +114,6 @@ func (Scanner) verifyWithMetadata(ctx context.Context, secret string) (bool, map
 	defer resp.Body.Close()
 	switch resp.StatusCode {
 	case http.StatusOK:
-		// fall through to decode
 	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
 		return false, nil, nil
 	default:
@@ -158,9 +152,7 @@ func (Scanner) verifyWithMetadata(ctx context.Context, secret string) (bool, map
 			meta["heroku_account_suspended"] = "true"
 		}
 		// High risk: token alone is full account access (no 2FA, no SSO
-		// gate) and the account is alive (not suspended). This is the
-		// dominant blast-radius signal — it's the difference between
-		// "rotate the token" and "incident response".
+		// gate) and the account is alive (not suspended).
 		if !body.TwoFactorAuthentication &&
 			!body.Federated &&
 			(body.SSOTargetURL == nil || *body.SSOTargetURL == "") &&
