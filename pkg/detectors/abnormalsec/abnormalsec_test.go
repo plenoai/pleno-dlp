@@ -43,8 +43,8 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 // TestFromData_BareKeywordRejected guards the FP shape the hardening removed:
 // a high-entropy 64-char run whose only nearby "abnormal" is the bare English
-// word (prose), not an assignment-style ABNORMAL_*_TOKEN reference. Under the
-// old radius-256 strings.Contains("abnormal") gate this matched; the arm regex
+// word, not an assignment-style ABNORMAL_*_TOKEN reference. Under the old
+// radius-256 strings.Contains("abnormal") gate this matched; the arm regex
 // + radius-64 window must now reject it.
 func TestFromData_BareKeywordRejected(t *testing.T) {
 	body := []byte("the abnormal traffic spike correlated with " + dummy)

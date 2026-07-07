@@ -7,9 +7,9 @@
 // accepts — there is no key+secret pairing. The TEST host is fixed and public
 // (https://checkout-test.adyen.com) and the regex matches test keys (AQF
 // prefix); the merchant account is a request-BODY field, not part of the auth,
-// so its absence yields 400/403/422 (request reached past auth) rather than
-// 401. We therefore POST /v71/paymentMethods with a minimal body and treat a
-// non-401 response as "key valid". Live keys (AQE prefix) require a
+// so its absence yields 400/403/422 rather than 401. We therefore POST
+// /v71/paymentMethods with a minimal body and treat a non-401 response as
+// "key valid". Live keys (AQE prefix) require a
 // merchant-specific live URL prefix that is not token-derivable; operators may
 // supply it via the apiBase override. Probing a live key against the fixed
 // test host fails closed to 401 (Verified=false), never a false positive.
@@ -26,8 +26,7 @@ import (
 )
 
 // apiBase is the Checkout API host used for verification. Defaults to the
-// fixed public TEST host; tests (and operators with a live merchant prefix)
-// override it.
+// fixed public TEST host; tests override it.
 var apiBase = "https://checkout-test.adyen.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}

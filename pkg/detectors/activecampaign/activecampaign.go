@@ -29,17 +29,16 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{60,80})\b`)
 // length/charset (the only documented example, `123abc-def-ghi`, is an
 // illustrative placeholder), so the token regex is left untouched and the
 // false-positive risk is carried entirely by this gate. A bare "activecampaign"
-// / "api-us1" substring (doc links, the per-account `<account>.api-us1.com`
-// host) is too weak against a generic 60-80 alphanumeric run; the
-// `activecampaign…(api…)?(token|key|secret)` shape is what a real credential
-// assignment or config key takes. The bare keyword stays in Keywords() as the
-// engine prefilter.
+// / "api-us1" substring is too weak against a generic 60-80 alphanumeric run;
+// the `activecampaign…(api…)?(token|key|secret)` shape is what a real
+// credential assignment or config key takes. The bare keyword stays in
+// Keywords() as the engine prefilter.
 var armRe = regexp.MustCompile(`(?i)(activecampaign|active_campaign|ac)[_\-]?(api[_\-]?)?(token|key|secret)`)
 
-// minEntropy rejects low-information 60-80 char runs (padded placeholders,
-// repeated characters, structured non-secrets) that clear the alnum regex but
-// lack key-grade randomness. Conservative 3.0 floor — no length/charset source
-// exists, so a higher floor would silently destroy recall on real keys.
+// minEntropy rejects low-information 60-80 char runs that clear the alnum
+// regex but lack key-grade randomness. Conservative 3.0 floor — no
+// length/charset source exists, so a higher floor would silently destroy
+// recall on real keys.
 const minEntropy = 3.0
 
 type Scanner struct{}
@@ -76,7 +75,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			Redacted:     redact(token),
 		}
 		// Verify only fires when an apiBase override supplies the per-account
-		// host; otherwise it no-ops (the host is not derivable from the chunk).
+		// host; otherwise it no-ops.
 		if verify && apiBase != "" {
 			v, err := s.Verify(ctx, token)
 			res.Verified = v

@@ -30,17 +30,17 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`)
 
 // armRe is the assignment-style Airbrake reference that must appear within the
-// proximity window. A bare "airbrake" substring (dependency names, comments,
-// dashboard URLs) is too weak; the shape a real key assignment or config key
+// proximity window. A bare "airbrake" substring is too weak; the shape a real
+// key assignment or config key
 // takes is `airbrake`, `airbrake_token`, `airbrake-api-key`, `airbrake_project`,
 // etc. The token/key/project/id suffix is optional so a bare `airbrake=<key>`
 // assignment still arms.
 var armRe = regexp.MustCompile(`(?i)airbrake[_-]?(api[_-]?)?(token|key|secret|project|id)?`)
 
 // minEntropy rejects low-information 40-char runs that clear the alnum regex
-// but are not random keys (e.g. padded identifiers, repeated chars). 40-char
-// alphanumeric is a high-variety charset, so 3.5 is the appropriate floor
-// (per docs/detector-key-formats.md: no-prefix, fixed-length, high-variety).
+// but are not random keys. 40-char alphanumeric is a high-variety charset, so
+// 3.5 is the appropriate floor (per docs/detector-key-formats.md: no-prefix,
+// fixed-length, high-variety).
 const minEntropy = 3.5
 
 type Scanner struct{}
@@ -65,8 +65,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		// Entropy gate: structured/low-information 40-char runs (padded
-		// identifiers, repeated chars) are rejected even if armed.
+		// Entropy gate: structured/low-information 40-char runs are rejected
+		// even if armed.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}

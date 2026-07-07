@@ -50,10 +50,10 @@ func TestFromData_Dedup(t *testing.T) {
 }
 
 // TestFromData_BareKeywordNoArm asserts the FP shape now rejected: a generic
-// high-entropy 60-80 char run sitting near a bare "activecampaign" mention
-// (e.g. a doc link or the per-account api-us1 host) but with no assignment-style
-// `activecampaign…(token|key|secret)` anchor must not match. Before the arm
-// regex, the radius-256 bare-keyword Contains gate matched this.
+// high-entropy 60-80 char run sitting near a bare "activecampaign" mention but
+// with no assignment-style `activecampaign…(token|key|secret)` anchor must not
+// match. Before the arm regex, the radius-256 bare-keyword Contains gate
+// matched this.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	// High-entropy token (not the hex dummy) near only a bare keyword.
 	highEntropy := "Zk9pQ3rT7wXa2bN8mLcV5dF1gH4jKsR6uYeW0iO3pAqZxCvBnMdFgHjKlPoIuYt"

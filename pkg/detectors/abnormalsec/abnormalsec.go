@@ -18,24 +18,21 @@ var apiBase = "https://api.abnormalplatform.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Abnormal Security tokens are alphanumeric. No authoritative source
-// documents a prefix or an exact length (the provider's docs and every
-// third-party integration guide call it only "a unique API access token"),
-// so we keep the original 32-64 alnum range rather than pin a length we
-// cannot cite — over-pinning would silently destroy recall.
+// documents a prefix or an exact length, so we keep the original 32-64
+// alnum range rather than pin a length we cannot cite — over-pinning would
+// silently destroy recall.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
 // minEntropy is a conservative floor. A bare `[A-Za-z0-9]{32,64}` run with no
 // documented prefix collides with commit SHAs, base32/hex blobs, and padded
 // identifiers; 3.0 culls the most obviously structured runs without trimming
-// genuine high-variety tokens (a 3.5 floor risks over-culling, and no source
-// pins the charset tightly enough to justify it).
+// genuine high-variety tokens.
 const minEntropy = 3.0
 
 // armRe is the assignment-style Abnormal reference that must appear within a
-// tight proximity window. A bare "abnormal" substring (prose, the word
-// "abnormal", unrelated domains) is too weak a gate; the assignment shapes
-// abnormal[_-]?(api[_-]?)?(token|key|secret) and the product host words are
-// what a real credential reference looks like.
+// tight proximity window. A bare "abnormal" substring is too weak a gate; the
+// assignment shapes abnormal[_-]?(api[_-]?)?(token|key|secret) and the
+// product host words are what a real credential reference looks like.
 var armRe = regexp.MustCompile(`(?i)abnormal(security|platform)?[_\-]?(api[_\-]?)?(token|key|secret)`)
 
 type Scanner struct{}
@@ -58,8 +55,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			continue
 		}
 		// Conservative entropy gate: rejects low-information 32-64 char runs
-		// (structured identifiers, padded names) that clear the regex but are
-		// not random tokens.
+		// that clear the regex but are not random tokens.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}

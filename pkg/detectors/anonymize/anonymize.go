@@ -113,8 +113,8 @@ func (Scanner) Keywords() []string { return keywords }
 //   - Empty findings: return (nil, nil).
 //   - Non-empty findings: emit one Result per finding. We do not dedup
 //     here because the same surface text at different offsets in the
-//     same chunk can legitimately be distinct PII (e.g. two people with
-//     the same first name); engine-level dedup keys on Raw if needed.
+//     same chunk can legitimately be distinct PII; engine-level dedup
+//     keys on Raw if needed.
 //
 // The verify flag is ignored — Scanner is not a Verifier.
 func (Scanner) FromData(ctx context.Context, _ bool, data []byte) ([]detectors.Result, error) {
