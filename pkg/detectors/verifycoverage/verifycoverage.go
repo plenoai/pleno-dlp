@@ -139,4 +139,17 @@ var Classes = map[string]Class{
 	"GitCredentialsURL": ClassUnverifiedByDesign,
 	"UnixCryptHash":     ClassUnverifiedByDesign,
 	"PHPConfigSecret":   ClassUnverifiedByDesign,
+
+	// Issue #175 batch 2 — SFTP-client / deploy JSON+XML config cluster.
+	// All six are offline config credentials whose host, when present
+	// at all in the matched chunk, is data-controlled and arbitrary
+	// (an SFTP/FTP/deploy/SMTP/registry target the user configured),
+	// not a fixed provider endpoint. See docs/verify-coverage.md for
+	// the per-detector rationale.
+	"JSONConfigSecret":    ClassUnverifiedByDesign,
+	"FileZillaXML":        ClassUnverifiedByDesign,
+	"JetBrainsWebServers": ClassUnverifiedByDesign,
+	"Esmtprc":             ClassUnverifiedByDesign,
+	"APIKeyAssignment":    ClassUnverifiedByDesign,
+	"NpmrcAuth":           ClassUnverifiedByDesign,
 }
