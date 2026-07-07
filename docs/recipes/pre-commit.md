@@ -13,10 +13,14 @@ repos:
 ```
 
 The hook runs `pleno-dlp scan filesystem` against the
-pre-commit-staged paths only with `--fail-on high` so unverified
-secrets and PII block the commit but lower-severity findings (like
-high-entropy strings near keywords) surface as warnings without
-blocking.
+pre-commit-staged paths only with `--fail-on high` (pleno-dlp's
+default since #250 — this flag is now redundant but kept explicit for
+clarity) so unverified named-secret detector hits and verified/critical
+findings block the commit, while Medium-and-below noise (generic
+high-entropy strings, JWTs, PEM blobs, PII) surfaces as a warning
+without blocking. Pass `--fail-on any` to also block on that noise
+once the repo has an allowlist tuned — see
+[`staged-rollout.md`](staged-rollout.md).
 
 ## Bypass for an emergency
 
