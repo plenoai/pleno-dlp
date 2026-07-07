@@ -335,11 +335,16 @@ type commitRef struct {
 // already in seen when a later start's walk reaches it was returned by a
 // walk that has already visited that hash's own ancestors too, so pruning
 // there loses nothing.
+//
+// seen is seeded from boundarySet(stops), which holds only the previous
+// run's head hashes themselves, not their full ancestry (see boundarySet).
+// This is sufficient: any commit the previous run scanned is an ancestor of
+// one of those heads, and on append-only history every walk path from a
+// current start down to that commit passes through the recorded head first
+// — go-git's iterator prunes there (see boundarySet) before ever reaching
+// the older commit, so its ancestry never needs to be enumerated up front.
 func (s *Source) collectCommits(repo *git.Repository, starts []plumbing.Hash, stops []plumbing.Hash) ([]commitRef, error) {
-	seen, err := reachableSet(repo, stops)
-	if err != nil {
-		return nil, err
-	}
+	seen := boundarySet(stops)
 
 	var refs []commitRef
 
@@ -381,52 +386,40 @@ func (s *Source) collectCommits(repo *git.Repository, starts []plumbing.Hash, st
 	return refs, nil
 }
 
-// reachableSet returns every commit hash reachable from any of the given
-// roots (the roots themselves included), as the seenExternal set consumed by
-// object.NewCommitPreorderIter in collectCommits. Used to build the
-// incremental stop-set. A missing or unreadable root is skipped rather than
-// fatal: a head recorded in a previous run may have been rewritten or
-// pruned, and that must degrade to a fuller scan, never an abort.
+// boundarySet returns the given previous-run head hashes as a lookup set
+// (deduplicated, ZeroHash dropped) for use as the seenExternal argument to
+// object.NewCommitPreorderIter in collectCommits.
 //
-// This is still a full, eagerly-materialized BFS over previously-scanned
-// history — unbounded for repos with very long previous-run lineages. A
-// fully bounded version would need either a persisted per-commit
-// already-scanned frontier from the prior run or commit-graph generation
-// numbers (which go-git does not expose) to answer "is X reachable from
-// stop head H" without walking all of H's ancestry; neither is available
-// here, so this is scoped out of this change (see PR description).
-func reachableSet(repo *git.Repository, roots []plumbing.Hash) (map[plumbing.Hash]bool, error) {
-	set := map[plumbing.Hash]bool{}
-	if len(roots) == 0 {
-		return set, nil
-	}
-	queue := make([]plumbing.Hash, 0, len(roots))
+// This used to instead be reachableSet: a BFS that walked every commit's
+// full ancestry back from each stop head and materialized the whole result
+// into a map before the incremental walk even started — O(total previously
+// scanned history) memory and time, GiB-scale on a million-commit repo
+// (#270). It does not need to be: go-git's preorder iterator, given a
+// hash in seenExternal, stops there and never pushes that commit's parents
+// (see commitPreIterator.Next in go-git's commit_walker.go) — so the walk
+// itself already halts a lineage the moment it reaches a previous head,
+// without seenExternal needing to contain that head's ancestors too. So the
+// boundary only needs the heads themselves: seeding seen with just those is
+// enough for collectCommits' forward walk to stay within the previously
+// scanned region, and it costs O(number of heads) instead of O(history).
+//
+// This is exactly as correct as the BFS it replaces on append-only history:
+// a commit X scanned by the previous run is (by construction) an ancestor
+// of one of these heads, and every path from a current start to X passes
+// through that head first. If history was rewritten (rebase/force-push)
+// such that a stop head is no longer an ancestor of any current start, both
+// this version and the BFS it replaces degrade to scanning more than
+// strictly necessary rather than missing anything — never an abort, and
+// never a false "already scanned."
+func boundarySet(roots []plumbing.Hash) map[plumbing.Hash]bool {
+	set := make(map[plumbing.Hash]bool, len(roots))
 	for _, r := range roots {
 		if r == plumbing.ZeroHash {
 			continue
 		}
-		if set[r] {
-			continue
-		}
 		set[r] = true
-		queue = append(queue, r)
 	}
-	for len(queue) > 0 {
-		h := queue[0]
-		queue = queue[1:]
-		c, err := repo.CommitObject(h)
-		if err != nil {
-			continue // pruned/rewritten head — tolerate, scan more rather than less
-		}
-		for _, p := range c.ParentHashes {
-			if set[p] {
-				continue
-			}
-			set[p] = true
-			queue = append(queue, p)
-		}
-	}
-	return set, nil
+	return set
 }
 
 var errStorerStop = errors.New("git: stop iteration")
