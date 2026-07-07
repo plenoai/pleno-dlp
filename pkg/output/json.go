@@ -28,6 +28,13 @@ type jsonRecord struct {
 	SecretHashV2      string            `json:"secret_hash_v2,omitempty"`
 	Source            jsonSource        `json:"source"`
 	ExtraData         map[string]string `json:"extra_data,omitempty"`
+	// SuppressedBy is present only under --show-suppressed: it names the
+	// filter that would otherwise have silently dropped this finding
+	// ("placeholder" today; "allowlist" once a CLI flag wires that
+	// sink's own audit extension point). Additive field — omitted
+	// entirely for every finding that reached this sink normally, so
+	// existing consumers parsing the schema are unaffected (issue #290).
+	SuppressedBy string `json:"suppressed_by,omitempty"`
 }
 
 type jsonSource struct {
@@ -95,12 +102,13 @@ func (s *jsonSink) Close() error {
 
 func toJSONRecord(f engine.Finding) jsonRecord {
 	rec := jsonRecord{
-		Detector:   f.Detector.String(),
-		Verified:   f.Result.Verified,
-		Verdict:    f.Result.Verdict().String(),
-		Redacted:   f.Result.Redacted,
-		SecretHash: hashSecret(f.Result.Raw),
-		ExtraData:  f.Result.ExtraData,
+		Detector:     f.Detector.String(),
+		Verified:     f.Result.Verified,
+		Verdict:      f.Result.Verdict().String(),
+		Redacted:     f.Result.Redacted,
+		SecretHash:   hashSecret(f.Result.Raw),
+		ExtraData:    f.Result.ExtraData,
+		SuppressedBy: f.SuppressedBy,
 	}
 	rec.SecretHashV2 = hashSecret(f.Result.RawV2)
 	if f.Result.VerificationErr != nil {
