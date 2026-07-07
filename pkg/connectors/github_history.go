@@ -8,6 +8,7 @@ package connectors
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -411,31 +412,26 @@ func cloneWithGoGit(ctx context.Context, cloneURL, dir, token string, progress i
 
 // cloneWithNativeGit execs `git clone --bare --filter=blob:limit=<N>`.
 //
-// The token is embedded in the clone URL's userinfo (matching the
-// x-access-token convention the go-git path uses via BasicAuth) rather than
-// passed some other way, because that is the one mechanism every git
-// version handles uniformly over smart HTTP without extra plumbing
-// (credential helpers, askpass scripts) that would need its own
-// cross-platform handling. This does mean the token is briefly present in
-// this process's argv, so any future hardening pass that wants to close that
-// exposure (e.g. GIT_ASKPASS) should start here. What this function does
-// guarantee: the token and the authenticated URL never survive into a
-// returned error — redactCloneError scrubs both before the error leaves this
-// function, and git's own fatal/remote messages already omit credentials
-// (verified against real git output).
+// The token never touches argv: it is handed to git as an Authorization
+// header through GIT_CONFIG_* environment variables (nativeGitAuthEnv, the
+// same mechanism actions/checkout uses), because argv is world-readable via
+// process listings while a child's environment is owner-readable only.
+// redactCloneError additionally scrubs the token from any returned error as
+// defense-in-depth, though git's own fatal/remote messages already omit
+// credentials.
 func cloneWithNativeGit(ctx context.Context, gitBin, cloneURL, dir, token string, progress io.Writer) error {
-	authURL := githubEmbedCloneToken(cloneURL, token)
-	cmd := exec.CommandContext(ctx, gitBin, nativeGitCloneArgs(authURL, dir)...)
+	cmd := exec.CommandContext(ctx, gitBin, nativeGitCloneArgs(cloneURL, dir)...)
 	cmd.Stderr = progress
 	// Never prompt interactively: a hung terminal prompt on a bad/expired
 	// token would look identical to a stalled clone from the heartbeat's
 	// point of view. Fail fast instead.
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.Env = append(cmd.Env, nativeGitAuthEnv(cloneURL, token)...)
 	if err := cmd.Run(); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
-		return redactCloneError(err, token, authURL, cloneURL)
+		return redactCloneError(err, token)
 	}
 	return nil
 }
@@ -455,43 +451,37 @@ func nativeGitCloneArgs(cloneURL, dir string) []string {
 	}
 }
 
-// githubEmbedCloneToken returns cloneURL with the token embedded as HTTP
-// Basic userinfo (x-access-token:<token>@host), or cloneURL unchanged when
-// there's no token or the URL is a local path (no scheme/host — the shape
-// tests use to inject a fixture repo, which needs no auth).
-func githubEmbedCloneToken(cloneURL, token string) string {
+// nativeGitAuthEnv returns the GIT_CONFIG_* environment entries that hand
+// the token to native git as an Authorization header — never via argv or the
+// clone URL, so it cannot appear in process listings. Empty when there is no
+// token or the URL is a local path (no scheme/host — the shape tests use to
+// inject a fixture repo, which needs no auth). The Basic credentials mirror
+// the x-access-token convention the go-git path uses via BasicAuth.
+func nativeGitAuthEnv(cloneURL, token string) []string {
 	if token == "" {
-		return cloneURL
+		return nil
 	}
 	u, err := url.Parse(cloneURL)
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return cloneURL
+		return nil
 	}
-	u.User = url.UserPassword("x-access-token", token)
-	return u.String()
+	basic := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+	return []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.extraheader",
+		"GIT_CONFIG_VALUE_0=Authorization: Basic " + basic,
+	}
 }
 
-// redactCloneError scrubs the raw token and the token-embedded URL out of a
-// native-clone error before it can propagate into logs or returned errors.
-// Belt-and-suspenders on top of git's own credential-free fatal messages:
-// git's error text already omits the password in the common "auth failed" /
-// "repository not found" cases, but this covers any error path (malformed
-// URL, transport-level failure) that might echo the raw argv instead.
-func redactCloneError(err error, token, authURL, safeURL string) error {
-	msg := err.Error()
-	// Replace the whole authenticated URL first (order matters: doing the
-	// bare-token pass first would turn "...token@host..." into
-	// "...REDACTED@host...", which no longer matches authURL for the
-	// second pass, leaving the host/path fragment un-scrubbed-to-safeURL).
-	if authURL != safeURL {
-		msg = strings.ReplaceAll(msg, authURL, safeURL)
+// redactCloneError scrubs the raw token out of a native-clone error before
+// it can propagate into logs or returned errors. Belt-and-suspenders on top
+// of the token never being in argv (see nativeGitAuthEnv) and git's own
+// credential-free fatal messages.
+func redactCloneError(err error, token string) error {
+	if token == "" {
+		return err
 	}
-	// Belt-and-suspenders: scrub any standalone occurrence of the bare token
-	// too (e.g. if it leaked into the message outside the URL form).
-	if token != "" {
-		msg = strings.ReplaceAll(msg, token, "REDACTED")
-	}
-	return errors.New(msg)
+	return errors.New(strings.ReplaceAll(err.Error(), token, "REDACTED"))
 }
 
 // gitRefHeads reads the ref → sha map (branches and remotes) from an already

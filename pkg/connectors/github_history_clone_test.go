@@ -9,6 +9,7 @@ package connectors
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"os"
@@ -22,67 +23,76 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
-// TestGithubEmbedCloneToken covers the native-clone URL-building helper:
-// token embedded as userinfo for a real HTTP(S) URL, and left untouched for
-// the local-path shape the fixture tests use (no scheme/host) or when there
-// is no token at all.
-func TestGithubEmbedCloneToken(t *testing.T) {
+// TestNativeGitAuthEnv covers the native-clone auth-env helper: the token is
+// handed to git as an http.extraheader Authorization value through
+// GIT_CONFIG_* environment variables — never argv, never the URL — for a
+// real HTTP(S) URL, and omitted entirely for the local-path shape the
+// fixture tests use (no scheme/host) or when there is no token at all.
+func TestNativeGitAuthEnv(t *testing.T) {
+	token := "ghp_secret123"
+	basic := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+
 	tests := []struct {
 		name     string
 		cloneURL string
 		token    string
-		want     string
+		want     []string
 	}{
 		{
-			name:     "https url gets token embedded",
+			name:     "https url gets extraheader auth env",
 			cloneURL: "https://github.com/acme/widget.git",
-			token:    "ghp_secret123",
-			want:     "https://x-access-token:ghp_secret123@github.com/acme/widget.git",
+			token:    token,
+			want: []string{
+				"GIT_CONFIG_COUNT=1",
+				"GIT_CONFIG_KEY_0=http.extraheader",
+				"GIT_CONFIG_VALUE_0=Authorization: Basic " + basic,
+			},
 		},
 		{
-			name:     "no token leaves url untouched",
+			name:     "no token yields no auth env",
 			cloneURL: "https://github.com/acme/widget.git",
 			token:    "",
-			want:     "https://github.com/acme/widget.git",
+			want:     nil,
 		},
 		{
-			name:     "local path untouched even with a token",
+			name:     "local path yields no auth env even with a token",
 			cloneURL: "/tmp/fixtures/acme/widget",
-			token:    "ghp_secret123",
-			want:     "/tmp/fixtures/acme/widget",
+			token:    token,
+			want:     nil,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := githubEmbedCloneToken(tc.cloneURL, tc.token)
-			if got != tc.want {
-				t.Errorf("githubEmbedCloneToken(%q, %q) = %q, want %q", tc.cloneURL, tc.token, got, tc.want)
+			got := nativeGitAuthEnv(tc.cloneURL, tc.token)
+			if len(got) != len(tc.want) {
+				t.Fatalf("nativeGitAuthEnv(%q, %q) = %v, want %v", tc.cloneURL, tc.token, got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Errorf("nativeGitAuthEnv[%d] = %q, want %q", i, got[i], tc.want[i])
+				}
 			}
 		})
 	}
 }
 
-// TestRedactCloneError verifies that neither the raw token nor the
-// token-embedded URL survive into an error returned from a failed native
-// clone — required because the token is passed to the native git subprocess
-// via that URL (see cloneWithNativeGit), so any error path that happens to
-// echo argv back could otherwise leak it.
+// TestRedactCloneError verifies the raw token never survives into an error
+// returned from a failed native clone — defense-in-depth on top of the token
+// only ever being passed via the child environment (see nativeGitAuthEnv).
 func TestRedactCloneError(t *testing.T) {
 	token := "ghp_verysecret"
-	authURL := "https://x-access-token:ghp_verysecret@github.com/acme/widget.git"
-	safeURL := "https://github.com/acme/widget.git"
-	raw := errors.New("exit status 128: fatal: could not read from " + authURL)
+	raw := errors.New("exit status 128: fatal: unable to access repo: header 'Authorization: Basic " + token + "' rejected")
 
-	got := redactCloneError(raw, token, authURL, safeURL)
+	got := redactCloneError(raw, token)
 
 	if strings.Contains(got.Error(), token) {
 		t.Errorf("redacted error still contains the raw token: %q", got.Error())
 	}
-	if strings.Contains(got.Error(), authURL) {
-		t.Errorf("redacted error still contains the token-embedded URL: %q", got.Error())
+	if !strings.Contains(got.Error(), "REDACTED") {
+		t.Errorf("redacted error lost the redaction marker: %q", got.Error())
 	}
-	if !strings.Contains(got.Error(), safeURL) {
-		t.Errorf("redacted error dropped the safe URL entirely: %q", got.Error())
+	if same := redactCloneError(raw, ""); same != raw {
+		t.Errorf("empty token must return the original error unchanged")
 	}
 }
 
@@ -170,19 +180,19 @@ func TestCloneRepoBareNativeAppliesBlobFilter(t *testing.T) {
 }
 
 // TestNativeGitCloneArgs pins the native clone's argv (issue #265's
-// --filter=blob:limit=<N>, --bare, and the "--" separator that keeps a
-// URL-embedded userinfo from ever being parsed as a flag) without executing
-// git — the "add a small test for the git-arg construction" ask, done
-// without any network or subprocess dependency.
+// --filter=blob:limit=<N>, --bare, and the "--" separator that keeps the
+// URL from ever being parsed as a flag) without executing git. The URL in
+// argv is always the clean one — auth travels via the child environment
+// (see nativeGitAuthEnv), never argv.
 func TestNativeGitCloneArgs(t *testing.T) {
-	got := nativeGitCloneArgs("https://x-access-token:secret@github.com/acme/widget.git", "/tmp/clone-dir")
+	got := nativeGitCloneArgs("https://github.com/acme/widget.git", "/tmp/clone-dir")
 	want := []string{
 		"clone",
 		"--bare",
 		"--filter=blob:limit=52428800", // githubCloneBlobFilterLimit, 50 MiB
 		"--progress",
 		"--",
-		"https://x-access-token:secret@github.com/acme/widget.git",
+		"https://github.com/acme/widget.git",
 		"/tmp/clone-dir",
 	}
 	if len(got) != len(want) {
