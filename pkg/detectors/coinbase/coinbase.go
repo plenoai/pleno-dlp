@@ -37,9 +37,9 @@ var keyRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
 var secretRe = regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`)
 
 // armRe is the assignment-style Coinbase reference that must appear within
-// the proximity window. A bare "coinbase" substring (doc links, support
-// URLs, blog text) is too weak a gate against generic 32/64-char alnum
-// runs; `coinbase[_-]?(api[_-]?)?(token|key|secret)` is the shape a real
+// the proximity window. A bare "coinbase" substring is too weak a gate
+// against generic 32/64-char alnum runs;
+// `coinbase[_-]?(api[_-]?)?(token|key|secret)` is the shape a real
 // credential assignment or config key takes. The bare keyword stays in
 // Keywords() as the cheap engine prefilter.
 var armRe = regexp.MustCompile(`(?i)coinbase[_\-]?(api[_\-]?)?(token|key|secret)`)

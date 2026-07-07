@@ -45,10 +45,9 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,50})\b`)
 const minEntropy = 3.0
 
 // keywordRe is the anchored Buffer.com marker. The bare substring
-// `buffer` is ubiquitous in source code (byte buffer, ring buffer,
-// strings.Builder docs); paired with a 40-char alnum token shape it
-// matches every git SHA-1 in a repo. The regex demands a Buffer-app
-// anchor so unrelated buffers in code don't pull the trigger.
+// `buffer` is ubiquitous in source code; paired with a 40-char alnum
+// token shape it matches every git SHA-1 in a repo. The regex demands a
+// Buffer-app anchor so unrelated buffers in code don't pull the trigger.
 var keywordRe = regexp.MustCompile(`(?i)` +
 	`(?:` +
 	`\bbufferapp\b` +

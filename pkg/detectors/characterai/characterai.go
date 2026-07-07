@@ -20,9 +20,8 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var tokenRe = regexp.MustCompile(`\b([a-f0-9]{40,80})\b`)
 
 // keywordRe is the anchored Character.AI marker. The bare `character`
-// substring shows up in any code that mentions characters (encoding
-// docs, runes, string handling) and pairs with adjacent SHA-1
-// hashes. Require a Character.AI credential anchor.
+// substring shows up in any code that mentions characters and pairs
+// with adjacent SHA-1 hashes. Require a Character.AI credential anchor.
 var keywordRe = regexp.MustCompile(`(?i)` +
 	`(?:` +
 	`\bcharacter[_\-]ai(?:[_\-](?:api|token|key|secret))?` +

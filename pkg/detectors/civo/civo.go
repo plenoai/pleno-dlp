@@ -27,9 +27,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{50})\b`)
 
 // armRe is the assignment-style Civo reference that must appear within the
-// proximity window. A bare "civo" substring (dependency names, civo CLI prose,
-// hostnames like civo.com) is too weak; "civo_api_key" / "civo-token" /
-// "civosecret" is the shape a real token assignment or config key takes.
+// proximity window. A bare "civo" substring is too weak; "civo_api_key" /
+// "civo-token" / "civosecret" is the shape a real token assignment or config
+// key takes.
 var armRe = regexp.MustCompile(`(?i)civo[_\-]?(api[_\-]?)?(token|key|secret)`)
 
 // minEntropy rejects low-information 50-char runs that clear the alnum regex
