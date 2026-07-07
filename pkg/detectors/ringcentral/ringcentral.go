@@ -19,7 +19,7 @@
 //     would silently destroy recall. The candidate window stays 22..128 over
 //     the same charset and the pair is disambiguated by proximity + entropy.
 //   - A `ringcentral`-assignment arm regex must appear within a tight 64-byte
-//     window (was a bare `strings.Contains` over radius 256).
+//     window.
 //   - Both halves must clear a Shannon-entropy floor of 3.5 bits/char
 //     (high-variety alnum tokens; the 22-char ceiling is ~4.46), which culls
 //     low-information runs that clear the regex but are not credentials.

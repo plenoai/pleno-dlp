@@ -18,7 +18,6 @@ func TestFromData_Positive(t *testing.T) {
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
-	// Verify must always be false — we never call out to Sentry.
 	if res[0].Verified {
 		t.Fatal("Sentry DSNs are unverified-by-design; got Verified=true")
 	}
