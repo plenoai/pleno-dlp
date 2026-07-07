@@ -42,7 +42,13 @@ tree at the exact released tag.
 | PII detection | yes (`--pii-engine`) | no | no |
 
 Evidence: pleno-dlp counts from `pleno-dlp detectors list
-[--verify-status|--revoke-support]` and `pleno-dlp scan --help`;
+[--verify-status|--revoke-support]` and `pleno-dlp sources list` — the
+latter enumerates `pkg/sources/catalog.All()` (the union of the core-source
+and SaaS-connector registries) with a `CLI-WIRED` column; the "28" here is
+the wired count, matching `pleno-dlp scan --help`'s subcommand list, and is
+CI-pinned against `pkg/connectors`/`cmd/pleno-dlp/cmd` drift by
+`cmd/pleno-dlp/cmd/sources_sync_test.go` so it cannot go stale like this
+row previously did (#259);
 trufflehog detector count = detector package directories in
 `pkg/detectors` at tag `v3.95.5` (GitHub API), sources/formats from
 `trufflehog --help`; gitleaks rule count = `[[rules]]` entries in
@@ -495,7 +501,11 @@ Where the competition — or the whole industry — is measurably ahead:
    Docker image layers (#215), GCS (#216), HuggingFace (#220), and
    CircleCI (#221) were previously listed here but are implemented and
    CLI-reachable (`pleno-dlp scan docker-image|gcs|huggingface|circleci`);
-   counted in the 28 below (recounted in #259).
+   counted in the 28 below (recounted in #259). Run `pleno-dlp sources
+   list` to see the live split — every row it prints comes from
+   `pkg/sources/catalog.All()` (`pkg/sources.Registered()` plus
+   `pkg/connectors.Names()`), and its `CLI-WIRED` column is exactly this
+   planned/implemented boundary, computed rather than hand-tracked (#259).
 
    *Not supported — accepted gap by design* (#222): `syslog` (long-running
    listener daemon; architectural mismatch with pleno-dlp's batch model),

@@ -1,6 +1,9 @@
 package sources
 
-import "sync"
+import (
+	"sort"
+	"sync"
+)
 
 type Factory func() Source
 
@@ -25,6 +28,21 @@ func New(t SourceType) Source {
 		return f()
 	}
 	return nil
+}
+
+// Registered returns every SourceType with a self-registered core Source
+// factory, sorted by type value — the detectors.All() analogue for core
+// sources. pkg/sources/catalog.All() layers pkg/connectors' SaaS registry
+// on top to cover the full CLI surface.
+func Registered() []SourceType {
+	mu.RLock()
+	defer mu.RUnlock()
+	out := make([]SourceType, 0, len(registry))
+	for t := range registry {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 func (t SourceType) String() string {
