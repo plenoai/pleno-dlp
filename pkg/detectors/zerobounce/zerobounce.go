@@ -18,7 +18,6 @@ var apiBase = "https://api.zerobounce.net"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// ZeroBounce keys are 32 hex chars; anchored on `zerobounce`.
 var tokenRe = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
 
 var contextKeywords = []string{"zerobounce", "zero-bounce"}

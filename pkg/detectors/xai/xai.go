@@ -1,4 +1,4 @@
-// Package xai detects xAI (Grok) API keys (`xai-<base62>`). Verified via
+// Package xai detects xAI API keys (`xai-<base62>`). Verified via
 // /v1/api-key on api.x.ai using Bearer auth.
 package xai
 

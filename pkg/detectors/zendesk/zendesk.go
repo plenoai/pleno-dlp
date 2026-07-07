@@ -36,10 +36,8 @@ var (
 	verifyRejectCodes = []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound}
 )
 
-// Zendesk API tokens are documented as 40 base62 chars. The official
-// Zendesk developer docs (security-and-auth) show the token portion of the
-// Basic-auth credential `<email>/token:<api_token>` as a 40-char [A-Za-z0-9]
-// run (example token: 40 base62 chars). The length is anchored to that.
+// Zendesk API tokens are documented as 40 base62 chars — the token portion
+// of the Basic-auth credential `<email>/token:<api_token>`.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`)
 
 // minEntropy rejects low-information 40-char base62 runs that satisfy the
@@ -68,7 +66,6 @@ var armRe = regexp.MustCompile(`(?i)(zendesk[_\-]?(api[_\-]?)?(token|key|secret)
 // addresses. We pair the operator email with the token via Basic auth.
 var emailRe = regexp.MustCompile(`\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b`)
 
-// Optional subdomain capture for ExtraData.
 var hostRe = regexp.MustCompile(`\b([a-z0-9-]+\.zendesk\.com)\b`)
 
 type Scanner struct{}

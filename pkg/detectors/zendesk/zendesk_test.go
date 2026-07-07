@@ -33,8 +33,8 @@ func TestFromData_Pair(t *testing.T) {
 // TestFromData_DocumentedTokenScheme locks in recall for Zendesk's canonical
 // documented credential `<email>/token:<api_token>`. The literal `/token:`
 // scheme separator is the arm anchor here — there is no `zendesk_token=` style
-// reference, so this exercises the second arm branch. Missing this shape (the
-// exact form from the Zendesk dev docs) would be a major recall gap.
+// reference, so this exercises the second arm branch. Missing this shape
+// would be a major recall gap.
 func TestFromData_DocumentedTokenScheme(t *testing.T) {
 	body := dummyEmail + "/token:" + dummyTok
 	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
@@ -91,8 +91,6 @@ func TestFromData_ArmedLowEntropyRejected(t *testing.T) {
 	}
 }
 
-// setAPIBase points the verifier at a test server and restores the original
-// after the test.
 func setAPIBase(t *testing.T, url string) {
 	t.Helper()
 	orig := apiBase
