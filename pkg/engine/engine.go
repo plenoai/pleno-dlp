@@ -23,6 +23,15 @@ type Finding struct {
 	Chunk          *sources.Chunk
 	Detector       detectors.DetectorType
 	VerifierBacked bool
+	// SuppressedBy names the filter that suppressed this finding when it
+	// is still being forwarded for audit purposes (e.g. --show-suppressed
+	// routing a placeholder-filtered finding straight to the output
+	// sink instead of only tallying it). Empty for every finding that
+	// reaches a sink through the normal chain — a suppression sink sets
+	// this immediately before its one audit Emit call, so it never
+	// appears on a finding read back out of dedup or the engine's own
+	// emission path.
+	SuppressedBy string
 }
 
 type Sink interface {

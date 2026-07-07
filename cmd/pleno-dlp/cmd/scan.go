@@ -59,6 +59,7 @@ type scanFlags struct {
 	revokeDryRun      bool
 	revokeSpool       string
 	blastRadiusOnly   bool
+	showSuppressed    bool
 	incremental       bool
 	incrementalState  string
 	piiEngine         string
@@ -193,6 +194,10 @@ func init() {
 		"emit and count only findings the engine has tagged blast_radius=true "+
 			"(driftwood-pattern flags: any *_privileged, *_high_value, or *_high_risk). "+
 			"Combine with --fail-on to gate CI on high-impact leaks only.")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.showSuppressed, "show-suppressed", false,
+		"also emit findings the placeholder filter suppressed (tagged suppressed_by=\"placeholder\" in --format json/sarif, "+
+			"a SUPPRESSED column in --format table), so a false-drop is falsifiable instead of silent (issue #290). "+
+			"Suppressed findings never affect --fail-on / exit code or dedup — they bypass the counting chain entirely.")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.incremental, "incremental", false,
 		"skip the scan when source resources and scan configuration match the previous successful baseline")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.incrementalState, "incremental-state", ".pleno-dlp-incremental.json",
@@ -451,6 +456,19 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	chain := engine.NewSinkChain()
 	chain.Track(sink)
 
+	// suppressedAudit is the --show-suppressed extension point (#290):
+	// when set, placeholder-suppressed findings are forwarded directly
+	// to the raw output sink (tagged via Finding.SuppressedBy) instead
+	// of only being tallied. Pointing it at sink rather than at
+	// counter/piidbSink/etc. is deliberate — a suppressed finding must
+	// still be visible for audit, but must not re-enter dedup, PII
+	// classification, --only-verified, --blast-radius-only, or the
+	// --fail-on gate the way a normal finding does.
+	var suppressedAudit engine.Sink
+	if scanOpts.showSuppressed {
+		suppressedAudit = sink
+	}
+
 	// Wrap with the counting+dedup+placeholder+allowlist chain. Order
 	// matters:
 	//   - dedup is outermost so the counter only sees unique findings,
@@ -503,7 +521,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		topSink = chain.Track(&blastRadiusFilterSink{inner: topSink})
 	}
 	allowed := chain.Track(engine.NewAllowlist(allowlist, topSink))
-	placeheld := chain.Track(engine.NewPlaceholderFilter(allowed))
+	placeheld := chain.Track(engine.NewPlaceholderFilter(allowed, suppressedAudit))
 	deduped := chain.Track(engine.NewDedup(placeheld))
 	// Git-mode cross-commit dedup: collapse the same secret+file across many
 	// commits to a single introducing-commit finding (with occurrence_count).

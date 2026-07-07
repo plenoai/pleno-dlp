@@ -97,16 +97,28 @@ func (a *Allowlist) Match(f Finding) bool {
 type allowlistSink struct {
 	inner     Sink
 	allowlist *Allowlist
+	audit     Sink
 	mu        sync.Mutex
 	suppCount int64
 }
 
 // NewAllowlist wraps inner and passes through when no rules are configured.
 func NewAllowlist(allowlist *Allowlist, inner Sink) Sink {
+	return NewAllowlistWithAudit(allowlist, inner, nil)
+}
+
+// NewAllowlistWithAudit is the audit-capable constructor: when audit is
+// non-nil, every finding the allowlist matches is also forwarded to
+// audit with SuppressedBy set to "allowlist" instead of only tallying
+// it, the same mechanism placeholderSink uses for --show-suppressed
+// (issue #290). No CLI flag wires audit through for the allowlist yet —
+// this constructor exists purely as the extension point issue #290
+// asks for; NewAllowlist's default (audit=nil) behaviour is unchanged.
+func NewAllowlistWithAudit(allowlist *Allowlist, inner Sink, audit Sink) Sink {
 	if allowlist == nil || len(allowlist.Entries) == 0 {
 		return inner
 	}
-	return &allowlistSink{inner: inner, allowlist: allowlist}
+	return &allowlistSink{inner: inner, allowlist: allowlist, audit: audit}
 }
 
 func (a *allowlistSink) Emit(f Finding) {
@@ -114,6 +126,10 @@ func (a *allowlistSink) Emit(f Finding) {
 		a.mu.Lock()
 		a.suppCount++
 		a.mu.Unlock()
+		if a.audit != nil {
+			f.SuppressedBy = "allowlist"
+			a.audit.Emit(f)
+		}
 		return
 	}
 	a.inner.Emit(f)

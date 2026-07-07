@@ -30,14 +30,21 @@ func (s *tableSink) Emit(f engine.Finding) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.headered {
-		fmt.Fprintln(s.tw, "DETECTOR\tVERDICT\tLOCATION\tREDACTED")
+		fmt.Fprintln(s.tw, "DETECTOR\tVERDICT\tLOCATION\tREDACTED\tSUPPRESSED")
 		s.headered = true
 	}
-	fmt.Fprintf(s.tw, "%s\t%s\t%s\t%s\n",
+	// SUPPRESSED is blank for every ordinary row; it's populated only
+	// under --show-suppressed, where a suppression sink's audit fan-out
+	// forwards a finding here with SuppressedBy set instead of dropping
+	// it — see engine.Finding.SuppressedBy (issue #290). Additive
+	// column: existing table-format consumers that grep/awk fixed
+	// column positions still find DETECTOR..REDACTED unchanged.
+	fmt.Fprintf(s.tw, "%s\t%s\t%s\t%s\t%s\n",
 		f.Detector.String(),
 		verdictSymbol(f),
 		tableLocationOf(f),
 		f.Result.Redacted,
+		f.SuppressedBy,
 	)
 }
 

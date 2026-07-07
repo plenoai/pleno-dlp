@@ -823,6 +823,12 @@ func toSARIFResult(f engine.Finding) sarifResult {
 	if f.Result.ExtraData["blast_radius"] == "true" {
 		props["security-severity"] = "9.5"
 	}
+	// suppressed_by is present only under --show-suppressed (issue #290)
+	// — see engine.Finding.SuppressedBy. Additive property key; absent
+	// entirely for every finding emitted through the normal chain.
+	if f.SuppressedBy != "" {
+		props["suppressed_by"] = f.SuppressedBy
+	}
 	r.Properties = props
 	return r
 }
