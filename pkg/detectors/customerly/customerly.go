@@ -24,8 +24,7 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
 // by an authoritative source (the official help-centre article describes only
 // where to find the token, not its prefix/length/charset; trufflehog has no
 // customerly detector), so the regex cannot be anchored on a prefix. A bare
-// `customerly` substring (widget script-src URLs, doc links, the
-// app.customerly.io host) is too weak a gate against a generic 40-80 char
+// `customerly` substring is too weak a gate against a generic 40-80 char
 // alphanumeric run; `customerly[_-]?(api[_-]?)?(token|key|secret)` is the
 // shape a real credential assignment or config key takes.
 var armRe = regexp.MustCompile(`(?i)customerly[_\-]?(api[_\-]?)?(token|key|secret)`)

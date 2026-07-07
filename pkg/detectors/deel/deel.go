@@ -30,9 +30,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`)
 
 // armRe is the assignment-style Deel reference that must appear within the
-// proximity window. A bare "deel" / "letsdeel" substring (e.g. the api.letsdeel.com
-// host, dependency names, comments) is too weak; "deel_api_token" / "deel-key" /
-// "letsdeel_secret" is the shape a real token assignment or config key takes.
+// proximity window. A bare "deel" / "letsdeel" substring is too weak;
+// "deel_api_token" / "deel-key" / "letsdeel_secret" is the shape a real
+// token assignment or config key takes.
 var armRe = regexp.MustCompile(`(?i)(?:lets)?deel[_\-]?(?:api[_\-]?)?(?:token|key|secret)`)
 
 // minEntropy rejects low-entropy 40+ alnum runs that clear the regex but are not

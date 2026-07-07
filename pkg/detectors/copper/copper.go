@@ -30,10 +30,9 @@ var emailRe = regexp.MustCompile(`\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z
 var tokenRe = regexp.MustCompile(`\b([a-z0-9]{32})\b`)
 
 // armRe is the assignment-style Copper reference that must appear within
-// the proximity window of the token. A bare "copper" substring (the CSS
-// color, the metal, dependency names, comments) is far too weak;
-// "copper_api_token" / "copper-key" / "coppersecret" is the shape a real
-// credential assignment or config key takes. The bare "copper" keyword
+// the proximity window of the token. A bare "copper" substring is far too
+// weak; "copper_api_token" / "copper-key" / "coppersecret" is the shape a
+// real credential assignment or config key takes. The bare "copper" keyword
 // stays in Keywords() as the engine prefilter.
 var armRe = regexp.MustCompile(`(?i)copper[_\-]?(api[_\-]?)?(token|key|secret)`)
 
