@@ -96,8 +96,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 
 // nearKeyword reports whether an assignment-style Intacct credential reference
 // (armRe) appears within a tight window on either side of the candidate. The
-// window spans both directions (not strict immediate precedence) so a value
-// defined alongside a nearby INTACCT_SENDER_PASSWORD reference still arms.
+// window spans both directions, so a value defined alongside a nearby
+// INTACCT_SENDER_PASSWORD reference still arms.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius
