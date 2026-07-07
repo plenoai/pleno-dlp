@@ -37,9 +37,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var tokenRe = regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b`)
 
 // armRe is the assignment-style Buddy reference that must appear within the
-// proximity window. A bare "buddy" substring (dependency names, comments,
-// URLs) is too weak; "buddy_token" / "buddy-api-key" / "buddysecret" is the
-// shape a real credential assignment or config key takes.
+// proximity window. A bare "buddy" substring is too weak; "buddy_token" /
+// "buddy-api-key" / "buddysecret" is the shape a real credential assignment
+// or config key takes.
 var armRe = regexp.MustCompile(`(?i)buddy[_\-]?(api[_\-]?)?(token|key|secret)`)
 
 // minEntropy rejects degenerate UUIDs (all-zero, repeated nibbles) that clear
