@@ -819,4 +819,12 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/jetbrainswebservers"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/jsonconfigsecret"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/npmrcauth"
+	// batch 46 — issue #175 batch 3 (final): the language-config
+	// cluster (djangoconfigsecret, railsmasterkey, railssecretkeybase,
+	// jslogincallsecret, puttyprivatekey).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/djangoconfigsecret"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/jslogincallsecret"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/puttyprivatekey"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/railsmasterkey"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/railssecretkeybase"
 )

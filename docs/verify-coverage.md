@@ -4,7 +4,7 @@ This page classifies each registered detector as verifier-backed or
 unverified-by-design. The machine block is parsed by
 `pkg/detectors/verifycoverage_test.go`.
 
-Counts are pinned in the machine block. Total = 614: 612 secret
+Counts are pinned in the machine block. Total = 619: 617 secret
 detectors, `PIIAnonymize`, and `PIIOpenAIPF`. The retired regex PII
 detector constants remain reserved for wire compatibility but are not
 listed because they are no longer registered. See
@@ -60,7 +60,7 @@ returned as `(false, err)` per the standard Verifier contract. This
 host endpoint is not self-contained in the secret itself but is
 recoverable from neighbouring text.
 
-## (b) Unverified-by-design — 62 detectors
+## (b) Unverified-by-design — 67 detectors
 
 These detectors deliberately do not implement `Verify`. The rationale
 is one of:
@@ -120,6 +120,7 @@ absent, so the finding acknowledges the token shape without implying live access
 | Confluence              | secret   | token is half of Basic-auth, workspace host not in chunk; hardened: ATATT3 prefix anchor + entropy |
 | CrispChat               | secret   | paired credential — Identifier half not co-located |
 | DatadogAppKey           | secret   | a lone App key cannot be authenticated (needs API-key pair); hardened: assignment/header anchor + SHA exclusion + entropy |
+| DjangoConfigSecret      | secret   | offline Django settings.py credential (SECRET_KEY constant / DATABASES quoted-key password), no provider endpoint to verify against |
 | DroneCI                 | secret   | self-hosted, host not in chunk; hardened: drone-prefixed assignment anchor + entropy + SHA exclusion |
 | Esmtprc                 | secret   | credential authenticates against the `hostname` directive elsewhere in the same file, an arbitrary user-configured SMTP relay |
 | Exoscale                | secret   | HMAC signing required |
@@ -134,6 +135,7 @@ absent, so the finding acknowledges the token shape without implying live access
 | Jenkins                 | secret   | self-hosted CI, host not in chunk |
 | JetBrainsWebServers     | secret   | host is data-controlled and arbitrary (any SFTP/FTP/deploy target a developer configured); no fixed provider to probe |
 | Jira                    | secret   | token-only probe always 401 (needs email pair), host not in chunk; hardened: entropy + assignment vicinity + hex exclusion |
+| JSLoginCallSecret       | secret   | credential authenticates against whatever host the SDK client object was configured against elsewhere in the codebase, not present in this chunk |
 | JSONConfigSecret        | secret   | offline SFTP/deploy JSON config credential, host — when present at all — is data-controlled and arbitrary, not a fixed provider endpoint |
 | JWT                     | secret   | generic shape, issuer-dependent verification not centralizable |
 | Kafka                   | secret   | connection string, broker host not in chunk |
@@ -149,8 +151,11 @@ absent, so the finding acknowledges the token shape without implying live access
 | PIIOpenAIPF             | pii      | PII finding class — MoE classifier (openai/privacy-filter), no provider-side verify path |
 | Pgpass                  | secret   | host is data-controlled and arbitrary (any Postgres instance a user configured); a live connection attempt would be a blind probe |
 | PingIdentity            | secret   | per-region host (`api.pingone.{com,eu,asia,ca}`) not in chunk |
+| PuTTYPrivateKey         | secret   | PPK-format private key; no PPK-to-DER conversion implemented yet to correlate against Certificate Transparency the way PrivateKeyPEM does |
 | PusherBeams             | secret   | instance_id host/path uncapturable; hardened: narrowed vicinity + digest exclusion + entropy |
 | RabbitMQ                | secret   | connection string, host not in chunk |
+| RailsMasterKey          | secret   | local AES key for config/credentials.yml.enc; the paired ciphertext is not present in this chunk, so there is no way to confirm it decrypts anything real |
+| RailsSecretKeyBase      | secret   | signs/encrypts this specific Rails app's session cookies; no provider endpoint, only meaningful against that one running instance |
 | RequestBin              | secret   | per-bin endpoint not in chunk |
 | SalesforceRefresh       | secret   | paired credential — instance URL + client_id + client_secret not co-located; Severity=Medium (explicit override, see severity recap above) |
 | Segment                 | secret   | ingest returns 200 for invalid keys and a probe mints billed events; hardened: entropy floor + pure-hex exclusion |
@@ -176,9 +181,9 @@ The `coverage-machine` block pins counts and per-detector class.
 - `class=b` → Unverified-by-design (no Verify, deliberate)
 
 ```coverage-machine
-total=614
+total=619
 a=552
-b=62
+b=67
 type=APIKeyAssignment class=b
 type=APNs class=b
 type=AWSS3PresignedURL class=b
@@ -194,6 +199,7 @@ type=ConcourseCI class=b
 type=Confluence class=b
 type=CrispChat class=b
 type=DatadogAppKey class=b
+type=DjangoConfigSecret class=b
 type=DroneCI class=b
 type=Esmtprc class=b
 type=Exoscale class=b
@@ -205,6 +211,7 @@ type=GitCredentialsURL class=b
 type=GitLabPipeline class=b
 type=GoCD class=b
 type=HardcodedPassword class=b
+type=JSLoginCallSecret class=b
 type=JSONConfigSecret class=b
 type=JWT class=b
 type=Jenkins class=b
@@ -223,8 +230,11 @@ type=PIIAnonymize class=b
 type=PIIOpenAIPF class=b
 type=Pgpass class=b
 type=PingIdentity class=b
+type=PuTTYPrivateKey class=b
 type=PusherBeams class=b
 type=RabbitMQ class=b
+type=RailsMasterKey class=b
+type=RailsSecretKeyBase class=b
 type=RequestBin class=b
 type=SMTP class=b
 type=SalesforceRefresh class=b

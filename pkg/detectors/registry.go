@@ -1264,6 +1264,16 @@ func (t DetectorType) String() string {
 		return "APIKeyAssignment"
 	case NpmrcAuth:
 		return "NpmrcAuth"
+	case DjangoConfigSecret:
+		return "DjangoConfigSecret"
+	case RailsMasterKey:
+		return "RailsMasterKey"
+	case RailsSecretKeyBase:
+		return "RailsSecretKeyBase"
+	case JSLoginCallSecret:
+		return "JSLoginCallSecret"
+	case PuTTYPrivateKey:
+		return "PuTTYPrivateKey"
 	default:
 		return "Unknown"
 	}
