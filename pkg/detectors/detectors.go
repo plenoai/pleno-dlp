@@ -951,6 +951,19 @@ const (
 	// config-file context-keyed assignment detectors (class b:
 	// unverified-by-design, host not in chunk).
 	HardcodedPassword
+
+	// batch 44 — appended in wire-stable order, never reorder. Issue
+	// #175 batch 1: structured config-file, filename/schema-keyed
+	// credential extractors for five shapes with no keyword/entropy
+	// signal of their own (pgpass field position, netrc token grammar,
+	// URL userinfo, crypt-hash format tag, PHP define/variable name).
+	// All five are class b (unverified-by-design, host not in chunk /
+	// no provider endpoint for a password hash).
+	Pgpass
+	Netrc
+	GitCredentialsURL
+	UnixCryptHash
+	PHPConfigSecret
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

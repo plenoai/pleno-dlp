@@ -1242,6 +1242,16 @@ func (t DetectorType) String() string {
 		return "PIIOpenAIPF"
 	case HardcodedPassword:
 		return "HardcodedPassword"
+	case Pgpass:
+		return "Pgpass"
+	case Netrc:
+		return "Netrc"
+	case GitCredentialsURL:
+		return "GitCredentialsURL"
+	case UnixCryptHash:
+		return "UnixCryptHash"
+	case PHPConfigSecret:
+		return "PHPConfigSecret"
 	default:
 		return "Unknown"
 	}

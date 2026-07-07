@@ -4,7 +4,7 @@ This page classifies each registered detector as verifier-backed or
 unverified-by-design. The machine block is parsed by
 `pkg/detectors/verifycoverage_test.go`.
 
-Counts are pinned in the machine block. Total = 603: 601 secret
+Counts are pinned in the machine block. Total = 608: 606 secret
 detectors, `PIIAnonymize`, and `PIIOpenAIPF`. The retired regex PII
 detector constants remain reserved for wire compatibility but are not
 listed because they are no longer registered. See
@@ -60,7 +60,7 @@ returned as `(false, err)` per the standard Verifier contract. This
 host endpoint is not self-contained in the secret itself but is
 recoverable from neighbouring text.
 
-## (b) Unverified-by-design — 51 detectors
+## (b) Unverified-by-design — 56 detectors
 
 These detectors deliberately do not implement `Verify`. The rationale
 is one of:
@@ -124,6 +124,7 @@ absent, so the finding acknowledges the token shape without implying live access
 | GCSSignedURL            | secret   | signed URL, signed-time-bound, no verify endpoint |
 | GenericHighEntropy      | secret   | entropy-only shape, no fixed upstream provider |
 | GetStream               | secret   | HMAC/JWT signing, no mirrorable reference impl; hardened: credential-context anchor + entropy + char-class gate |
+| GitCredentialsURL       | secret   | host is data-controlled and arbitrary (any `scheme://user:pass@host` a user configured); no fixed provider to probe |
 | GitLabPipeline          | secret   | trigger-token verify is destructive, no read-only endpoint; hardened: assignment anchor + entropy + commit-SHA exclusion |
 | GoCD                    | secret   | self-hosted CI, host not in chunk |
 | HardcodedPassword       | secret   | offline config password, host not in chunk; no provider endpoint to verify against |
@@ -135,9 +136,12 @@ absent, so the finding acknowledges the token shape without implying live access
 | Looker                  | secret   | no per-instance host channel; hardened: client_id/secret/api3 anchor + entropy + lookalike exclusion |
 | Magento                 | secret   | per-store host not in chunk; hardened: hex-digest exclusion + entropy + two-tier proximity |
 | Modal                   | secret   | no documented REST endpoint for the (id,secret) pair; hardened: entropy/char-class looksRandom gate on the pair |
+| Netrc                   | secret   | host is data-controlled and arbitrary (mail/FTP/HTTP endpoint a user configured); no fixed provider to probe |
 | OVHCloud                | secret   | HMAC signing required |
+| PHPConfigSecret         | secret   | offline config secret (PHP `define()`/variable-assignment), host not in chunk; no provider endpoint to verify against |
 | PIIAnonymize            | pii      | PII finding class — NER + regex via pleno-anonymize, no provider API to verify |
 | PIIOpenAIPF             | pii      | PII finding class — MoE classifier (openai/privacy-filter), no provider-side verify path |
+| Pgpass                  | secret   | host is data-controlled and arbitrary (any Postgres instance a user configured); a live connection attempt would be a blind probe |
 | PingIdentity            | secret   | per-region host (`api.pingone.{com,eu,asia,ca}`) not in chunk |
 | PusherBeams             | secret   | instance_id host/path uncapturable; hardened: narrowed vicinity + digest exclusion + entropy |
 | RabbitMQ                | secret   | connection string, host not in chunk |
@@ -153,6 +157,7 @@ absent, so the finding acknowledges the token shape without implying live access
 | Spinnaker               | secret   | per-deploy Gate host, /auth/user returns anonymous 200; hardened: JWT structure validation + entropy + assignment anchor |
 | Stytch                  | secret   | environment-bound endpoints (test vs live) not in chunk |
 | TektonHub               | secret   | matched value is unverifiable base62, not a Tekton Hub JWT; hardened: token-specific assignment anchor + entropy + hex exclusion |
+| UnixCryptHash           | secret   | matched value is an offline password hash (crypt/apr1/bcrypt/Apache legacy tag), not a bearer credential against any endpoint |
 | UpstashRedis            | secret   | connection string with URL-embedded credential |
 | Wiz                     | secret   | tenant-specific host (`api.<tenant>.app.wiz.io`) not in chunk |
 | Zoho                    | secret   | region-specific accounts host (`accounts.zoho.<tld>`) not in chunk |
@@ -165,9 +170,9 @@ The `coverage-machine` block pins counts and per-detector class.
 - `class=b` → Unverified-by-design (no Verify, deliberate)
 
 ```coverage-machine
-total=603
+total=608
 a=552
-b=51
+b=56
 type=APNs class=b
 type=AWSS3PresignedURL class=b
 type=AgoraIO class=b
@@ -187,6 +192,7 @@ type=Exoscale class=b
 type=GCSSignedURL class=b
 type=GenericHighEntropy class=b
 type=GetStream class=b
+type=GitCredentialsURL class=b
 type=GitLabPipeline class=b
 type=GoCD class=b
 type=HardcodedPassword class=b
@@ -198,9 +204,12 @@ type=LaunchNotes class=b
 type=Looker class=b
 type=Magento class=b
 type=Modal class=b
+type=Netrc class=b
 type=OVHCloud class=b
+type=PHPConfigSecret class=b
 type=PIIAnonymize class=b
 type=PIIOpenAIPF class=b
+type=Pgpass class=b
 type=PingIdentity class=b
 type=PusherBeams class=b
 type=RabbitMQ class=b
@@ -216,6 +225,7 @@ type=SonatypeNexus class=b
 type=Spinnaker class=b
 type=Stytch class=b
 type=TektonHub class=b
+type=UnixCryptHash class=b
 type=UpstashRedis class=b
 type=Wiz class=b
 type=Zoho class=b

@@ -128,4 +128,15 @@ var Classes = map[string]Class{
 	"SalesforceRefresh": ClassUnverifiedByDesign,
 	"Sentry":            ClassUnverifiedByDesign,
 	"Snowflake":         ClassUnverifiedByDesign,
+
+	// Issue #175 batch 1 — structured config-file, filename/schema-keyed
+	// extractors. All five are offline config credentials (or, for
+	// UnixCryptHash, a password hash) with no provider endpoint in the
+	// matched chunk to verify against. See docs/verify-coverage.md for
+	// the per-detector rationale.
+	"Pgpass":            ClassUnverifiedByDesign,
+	"Netrc":             ClassUnverifiedByDesign,
+	"GitCredentialsURL": ClassUnverifiedByDesign,
+	"UnixCryptHash":     ClassUnverifiedByDesign,
+	"PHPConfigSecret":   ClassUnverifiedByDesign,
 }
