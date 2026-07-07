@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -252,6 +253,62 @@ func TestChunks_FirstChangedLine(t *testing.T) {
 	// Modified line is the 2nd one — the patch's first Add appears at new-side line 2.
 	if got[1].SourceMetadata.Git.Line != 2 {
 		t.Fatalf("c2 line: got %d (want 2)", got[1].SourceMetadata.Git.Line)
+	}
+}
+
+// TestChunks_ModificationEmitsAddedHunkOnly is the #264 mid-term-fix
+// regression test: a full-history walk must emit only the added hunk (plus
+// bounded context) for a modification, not the whole new file, or a large
+// frequently-touched file gets rescanned end to end on every commit that
+// changes it.
+func TestChunks_ModificationEmitsAddedHunkOnly(t *testing.T) {
+	var lines []string
+	for i := 1; i <= 40; i++ {
+		lines = append(lines, fmt.Sprintf("line-%02d unrelated code", i))
+	}
+	v1 := strings.Join(lines, "\n") + "\n"
+	secretLine := "AWS_SECRET = \"AKIAABCDEFGHIJKLMNOP\""
+	v2 := v1 + secretLine + "\n"
+
+	repo, _ := buildRepo(t, []commitSpec{
+		{files: map[string]string{"app.py": v1}, msg: "add file"},
+		{files: map[string]string{"app.py": v2}, msg: "append secret"},
+	})
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repo})
+
+	got, err := drain(t, s, 10*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 chunks, got %d", len(got))
+	}
+
+	add := got[1] // second commit: appends the secret line
+	if add.SourceMetadata.Git.Commit == got[0].SourceMetadata.Git.Commit {
+		t.Fatalf("expected two distinct commits")
+	}
+
+	// The secret must be present — this is the whole point of full-history
+	// mode (detect newly introduced secrets).
+	if !strings.Contains(string(add.Data), secretLine) {
+		t.Fatalf("added-hunk chunk missing the newly introduced secret line; data=%q", add.Data)
+	}
+	// The chunk must be far smaller than the full new file: only the added
+	// line plus a few lines of context, not all 41 lines.
+	if len(add.Data) >= len(v2) {
+		t.Fatalf("added-hunk chunk (%d bytes) not smaller than full file (%d bytes)", len(add.Data), len(v2))
+	}
+	// A line far from the change (well outside the context window) must be
+	// absent — proof this is a hunk, not the full file.
+	if strings.Contains(string(add.Data), "line-01 unrelated code") {
+		t.Fatalf("added-hunk chunk leaked far-away context; data=%q", add.Data)
+	}
+	// Line metadata must point at the secret line's actual position in the
+	// new file (41st line), not at the start of the emitted window.
+	if add.SourceMetadata.Git.Line != 41 {
+		t.Fatalf("Line: got %d, want 41", add.SourceMetadata.Git.Line)
 	}
 }
 
