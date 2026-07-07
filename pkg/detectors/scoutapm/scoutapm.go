@@ -118,10 +118,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 
 // nearKeyword reports whether a `scout…key/token/secret` assignment-style
 // reference appears within a tight window on either side of the candidate. The
-// window spans both directions (not strict immediate precedence) so a key
-// defined alongside a nearby SCOUT_KEY / scout_apm.yml `key:` reference still
-// arms. Radius is 64 (was 256): the prefixless alnum shape is far too common
-// to justify a wide window.
+// window spans both directions, so a key defined alongside a nearby SCOUT_KEY
+// / scout_apm.yml `key:` reference still arms. Radius is 64: the prefixless
+// alnum shape is far too common to justify a wide window.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius

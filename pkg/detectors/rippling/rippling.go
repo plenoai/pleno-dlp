@@ -97,8 +97,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 
 // nearKeyword reports whether a `rippling[_-]?(api[_-]?)?(token|key|secret)`
 // reference appears within a tight window on either side of the token. The
-// window spans both directions (not strict immediate precedence) so a token
-// defined alongside a nearby RIPPLING_API_TOKEN reference still arms.
+// window spans both directions, so a token defined alongside a nearby
+// RIPPLING_API_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius

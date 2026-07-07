@@ -18,7 +18,7 @@ var apiBase = "https://api.replicate.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// `r8_` followed by 37 base62 chars (40 chars total).
+// `r8_` followed by 37+ base62 chars.
 var keyRe = regexp.MustCompile(`\b(r8_[A-Za-z0-9]{37,})\b`)
 
 type Scanner struct{}

@@ -89,8 +89,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 // nearKeyword reports whether a
 // `sentinelone[_-]?(api[_-]?)?(token|key|secret)` reference appears within a
 // tight window on either side of the candidate. The window spans both
-// directions (not strict immediate precedence) so a credential defined
-// alongside a nearby SENTINELONE_API_TOKEN reference still arms.
+// directions, so a credential defined alongside a nearby SENTINELONE_API_TOKEN
+// reference still arms.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius
