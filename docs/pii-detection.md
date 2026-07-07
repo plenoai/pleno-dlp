@@ -110,26 +110,30 @@ The privacy-filter wrapper is documented separately:
 - Public bind targets such as `0.0.0.0` are refused
 - PII detection is mutually exclusive: choose one engine with `--pii-engine`
 
-## Trust chain (`pii-server` bootstrap)
+## Trust chain (server bootstrap)
 
-`pii-server` materializes a third-party Python server on first use via `git`
-clone + `uv`. Two artifact classes cross the trust boundary before any code
-from them executes, and each is handled differently:
+`pii-server` and `openai-pf-server` each materialize a Python component on
+first use via `git`/`uvx` fetch. Every checkout and artifact that crosses the
+trust boundary before any of that code executes is handled as follows:
 
 | Artifact | Pin | Verification | Failure mode |
 |---|---|---|---|
-| `pleno-anonymize` checkout (`--source`, default `git+https://github.com/plenoai/pleno-anonymize.git`) | `--git-ref` defaults to a release tag baked into the binary (`defaultPIIServerGitRef` in `cmd/pleno-dlp/cmd/pii_server.go`), not the mutable default branch | None beyond git's own transport integrity (HTTPS) — the ref itself is a fixed tag, so "what code runs" is reproducible across runs unless the operator opts out | Checking out the wrong ref surfaces as a `uv sync`/import failure, not a silent substitution |
+| `pleno-anonymize` checkout (`pii-server --source`, default `git+https://github.com/plenoai/pleno-anonymize.git`) | `--git-ref` defaults to a release tag baked into the binary (`defaultPIIServerGitRef` in `cmd/pleno-dlp/cmd/pii_server.go`), not the mutable default branch | None beyond git's own transport integrity (HTTPS) — the ref itself is a fixed tag, so "what code runs" is reproducible across runs unless the operator opts out | Checking out the wrong ref surfaces as a `uv sync`/import failure, not a silent substitution |
+| `python/openaipf-server` checkout (`openai-pf-server --source`, default `git+https://github.com/plenoai/pleno-dlp.git#subdirectory=python/openaipf-server`) | `--git-ref` defaults to a release tag baked into the binary (`defaultOpenAIPFGitRef` in `cmd/pleno-dlp/cmd/openai_pf_server.go`), not the mutable default branch | Same as above — HTTPS transport integrity plus a fixed tag | Same as above |
 | NER model wheels (spaCy `en_core_web_sm`, `pleno_anonymize_ja`, `pleno_anonymize_en`) | URL is a specific, versioned filename per wheel (`nerWheels` in `cmd/pleno-dlp/cmd/pii_server.go`) | pleno-dlp downloads each wheel itself (uv never fetches it directly), computes its sha256, and compares against a hash baked into the binary | **Fail closed**: a hash mismatch aborts `pii-server` setup with an explicit `sha256 mismatch ... aborting pii-server setup` error before `uv pip install` ever sees the file. Covered by `TestDownloadAndVerifyWheel_HashMismatch` and `TestRunUVPipInstallNERWheels_AbortsOnHashMismatch` in `cmd/pleno-dlp/cmd/pii_server_test.go`. |
 
 What this does **not** cover:
 
-- The pinned `pleno-anonymize` tag's *own* supply chain (its dependencies,
-  its CI) — pinning a ref bounds "which commit," not "is that commit's
-  content trustworthy." That trust is inherited from the `plenoai` org.
+- The pinned tags' *own* supply chain (their dependencies, their CI) —
+  pinning a ref bounds "which commit," not "is that commit's content
+  trustworthy." That trust is inherited from the `plenoai` org. For
+  `openai-pf-server` this is lower severity than the `pii-server` case
+  (issue #248): the pin points at pleno-dlp's own repo, not a third party.
 - Operators who explicitly pass `--git-ref ""` or `--git-ref main` (or any
-  other ref) are consciously opting out of the pin; this is intentionally
-  still possible for maintainers who need to test against tip, but it is
-  not the shipped default and should not be used unattended/in CI.
+  other ref) to either subcommand are consciously opting out of the pin;
+  this is intentionally still possible for maintainers who need to test
+  against tip, but it is not the shipped default and should not be used
+  unattended/in CI.
 The `pleno_anonymize_ja`/`pleno_anonymize_en` wheels are hosted on the
 org-controlled Hugging Face organization (`huggingface.co/plenoai/...`,
 relocated from a personal account on 2026-07-07, closing the #248

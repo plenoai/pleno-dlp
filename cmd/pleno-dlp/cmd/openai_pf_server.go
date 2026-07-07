@@ -50,6 +50,20 @@ var openAIPFServerOpts openAIPFServerFlags
 // local checkout override via --source pointing at the package root.
 const defaultOpenAIPFSource = "git+https://github.com/plenoai/pleno-dlp.git#subdirectory=python/openaipf-server"
 
+// defaultOpenAIPFGitRef pins the default checkout to a released tag
+// instead of tracking the mutable default branch (issue #256, same
+// unpinned-default class as #248 / PR #255). Bump deliberately when
+// python/openaipf-server changes in a way operators should pick up by
+// default. Operators can still opt out (e.g. to track main) with an
+// explicit `--git-ref ""` or `--git-ref main`; that is a conscious
+// per-invocation choice, not the shipped default.
+//
+// Pinned from: `git tag --sort=-v:refname` / `gh release list` on
+// plenoai/pleno-dlp — v0.58.0 -> commit 6587569cf7185ef91d5420d201782c54f3e8ca32
+// (2026-07-06, latest release at pin time), verified present upstream
+// via `git ls-remote --tags https://github.com/plenoai/pleno-dlp.git`.
+const defaultOpenAIPFGitRef = "v0.58.0"
+
 var openAIPFServerCmd = &cobra.Command{
 	Use:   "openai-pf-server",
 	Short: "Run the openai/privacy-filter HTTP wrapper (used by --pii-engine=openai-pf)",
@@ -65,6 +79,10 @@ var openAIPFServerCmd = &cobra.Command{
 		"The wrapper itself downloads opf checkpoints from HuggingFace on first\n" +
 		"use (multi-GB); /ready stays 503 until that completes.\n" +
 		"\n" +
+		"Supply-chain trust (see docs/pii-detection.md \"Trust chain\"):\n" +
+		"  - --git-ref defaults to a pinned release tag baked into this binary,\n" +
+		"    not the mutable default branch. Pass --git-ref explicitly to opt out.\n" +
+		"\n" +
 		"Typical usage is indirect — 'pleno-dlp scan --pii-engine=openai-pf'\n" +
 		"invokes this subcommand on an ephemeral loopback port and tears it\n" +
 		"down at scan end. Direct invocation is supported for ad-hoc local use:\n" +
@@ -72,7 +90,7 @@ var openAIPFServerCmd = &cobra.Command{
 		"  pleno-dlp openai-pf-server --port 8080\n" +
 		"  pleno-dlp openai-pf-server                       # ephemeral; resolved port printed\n" +
 		"  pleno-dlp openai-pf-server --device cuda         # force GPU\n" +
-		"  pleno-dlp openai-pf-server --git-ref v0.1.0      # pin to a tag\n" +
+		"  pleno-dlp openai-pf-server --git-ref v0.1.0      # pin to a different tag\n" +
 		"  pleno-dlp openai-pf-server --source /path/to/pleno-dlp/python/openaipf-server\n" +
 		"\n" +
 		"--host is restricted to loopback / RFC1918 / link-local addresses; binding\n" +
@@ -89,8 +107,10 @@ func init() {
 		"bind address (loopback / RFC1918 / link-local only; refuses 0.0.0.0 and any public address)")
 	openAIPFServerCmd.Flags().StringVar(&openAIPFServerOpts.device, "device", "auto",
 		"inference device hint passed to opf: auto | cpu | cuda | mps")
-	openAIPFServerCmd.Flags().StringVar(&openAIPFServerOpts.gitRef, "git-ref", "",
-		"git ref (tag/branch/sha) of pleno-dlp to fetch the wrapper from; empty = main")
+	openAIPFServerCmd.Flags().StringVar(&openAIPFServerOpts.gitRef, "git-ref", defaultOpenAIPFGitRef,
+		"git ref (tag/branch/sha) of pleno-dlp to fetch the wrapper from; defaults to the tag pinned in this binary "+
+			"(see defaultOpenAIPFGitRef / docs/pii-detection.md). Pass an explicit ref (including \"\" or \"main\") "+
+			"to knowingly track a mutable ref instead")
 	openAIPFServerCmd.Flags().StringVar(&openAIPFServerOpts.source, "source", defaultOpenAIPFSource,
 		"uvx --from spec. A `git+<URL>` value triggers uvx's remote fetch; an absolute filesystem path is treated as an existing wrapper checkout and used in-place.")
 	openAIPFServerCmd.Flags().StringVar(&openAIPFServerOpts.logLevel, "log-level", "info",
