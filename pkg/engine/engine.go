@@ -477,7 +477,7 @@ func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.
 			r.ExtraData["decoded_from"] = v.Source
 		}
 		if r.Severity == detectors.SeverityUnknown {
-			r.Severity = detectors.DefaultSeverity(d.Type(), r.Verified)
+			r.Severity = detectors.DefaultSeverityForVerdict(d.Type(), r.Verdict())
 		}
 		if archivePath != "" {
 			if r.ExtraData == nil {

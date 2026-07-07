@@ -808,6 +808,11 @@ func toSARIFResult(f engine.Finding) sarifResult {
 		props[k] = v
 	}
 	props["verified"] = f.Result.Verified
+	// verdict distinguishes "provider confirmed not live" (unverified) from
+	// "verification attempt failed" (indeterminate) — both collapse to
+	// verified=false, which is exactly what let --only-verified silently
+	// drop possibly-live secrets during an outage (#246).
+	props["verdict"] = f.Result.Verdict().String()
 	props["severity"] = f.Result.Severity.String()
 	// security-severity is GitHub Code Scanning's CVSS-shaped score used
 	// for sort/triage in the UI. The rule descriptor declares 9.0 for the

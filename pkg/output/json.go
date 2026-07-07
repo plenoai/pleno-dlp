@@ -13,8 +13,15 @@ import (
 
 // jsonRecord is the wire shape for one finding.
 type jsonRecord struct {
-	Detector          string            `json:"detector"`
-	Verified          bool              `json:"verified"`
+	Detector string `json:"detector"`
+	Verified bool   `json:"verified"`
+	// Verdict is the three-valued verification outcome ("verified",
+	// "unverified", "indeterminate"). Verified stays for backward
+	// compatibility — existing consumers keyed on the boolean keep
+	// working — but it cannot distinguish "provider said no" from
+	// "verification attempt failed", which is exactly the distinction
+	// --only-verified needs (#246). New consumers should read Verdict.
+	Verdict           string            `json:"verdict"`
 	VerificationError string            `json:"verification_error,omitempty"`
 	Redacted          string            `json:"redacted"`
 	SecretHash        string            `json:"secret_hash,omitempty"`
@@ -90,6 +97,7 @@ func toJSONRecord(f engine.Finding) jsonRecord {
 	rec := jsonRecord{
 		Detector:   f.Detector.String(),
 		Verified:   f.Result.Verified,
+		Verdict:    f.Result.Verdict().String(),
 		Redacted:   f.Result.Redacted,
 		SecretHash: hashSecret(f.Result.Raw),
 		ExtraData:  f.Result.ExtraData,

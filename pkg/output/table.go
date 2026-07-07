@@ -7,6 +7,7 @@ import (
 	"sync"
 	"text/tabwriter"
 
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 )
 
@@ -29,12 +30,12 @@ func (s *tableSink) Emit(f engine.Finding) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.headered {
-		fmt.Fprintln(s.tw, "DETECTOR\tVERIFIED\tLOCATION\tREDACTED")
+		fmt.Fprintln(s.tw, "DETECTOR\tVERDICT\tLOCATION\tREDACTED")
 		s.headered = true
 	}
 	fmt.Fprintf(s.tw, "%s\t%s\t%s\t%s\n",
 		f.Detector.String(),
-		verifiedSymbol(f),
+		verdictSymbol(f),
 		tableLocationOf(f),
 		f.Result.Redacted,
 	)
@@ -46,15 +47,20 @@ func (s *tableSink) Close() error {
 	return s.tw.Flush()
 }
 
-// verifiedSymbol renders the verification result: verification is
-// unconditional (verify-by-default since #165), so every finding has a
-// definite answer — check when the provider confirmed the secret is live,
-// cross otherwise.
-func verifiedSymbol(f engine.Finding) string {
-	if f.Result.Verified {
+// verdictSymbol renders the three-valued verification verdict. Collapsing
+// "provider confirmed dead" and "verification attempt failed" into the same
+// cross symbol is exactly what let --only-verified silently drop possibly-
+// live secrets during an outage (#246) — "?" keeps that case visually
+// distinct from a confirmed-dead credential.
+func verdictSymbol(f engine.Finding) string {
+	switch f.Result.Verdict() {
+	case detectors.VerdictVerified:
 		return "✓"
+	case detectors.VerdictIndeterminate:
+		return "?"
+	default:
+		return "✗"
 	}
-	return "✗"
 }
 
 func tableLocationOf(f engine.Finding) string {
