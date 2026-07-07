@@ -130,15 +130,10 @@ What this does **not** cover:
   other ref) are consciously opting out of the pin; this is intentionally
   still possible for maintainers who need to test against tip, but it is
   not the shipped default and should not be used unattended/in CI.
-- **Known follow-up**: the `pleno_anonymize_ja`/`pleno_anonymize_en` wheels
-  are currently hosted on a personal Hugging Face account
-  (`huggingface.co/0xhikae/...`) rather than an org-controlled one. Moving
-  them requires HF org credentials that are not available to this change;
-  the sha256 pin means a compromised or swapped file on that account still
-  gets rejected, but the account itself remains a single point of trust
-  until relocation. Tracked as a follow-up to issue #248 — the code is
-  structured so relocating a wheel is a two-field edit (`url`, `sha256`) in
-  the `nerWheels` table, not a redesign.
+The `pleno_anonymize_ja`/`pleno_anonymize_en` wheels are hosted on the
+org-controlled Hugging Face organization (`huggingface.co/plenoai/...`,
+relocated from a personal account on 2026-07-07, closing the #248
+follow-up). The sha256 pins were verified unchanged across the move.
 
 ## Related docs
 

@@ -70,9 +70,7 @@ const defaultPIIServerGitRef = "v0.1.0"
 // outside PyPI (GitHub Releases / Hugging Face) so uv.lock cannot pin
 // them by hash the way it does registry deps; sha256 is our substitute
 // supply-chain gate. See docs/pii-detection.md ("Trust chain") for the
-// verification flow and docs/pii-detection.md#wheel-relocation for the
-// tracked follow-up to move the pleno_anonymize_* wheels off the
-// 0xhikae personal Hugging Face account onto an org-controlled one.
+// verification flow.
 type nerWheel struct {
 	url    string
 	sha256 string // lowercase hex sha256 of the artifact at url, computed once and baked in
@@ -88,16 +86,11 @@ var nerWheels = []nerWheel{
 		sha256: "1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85",
 	},
 	{
-		// TODO(#248 follow-up): relocate off the 0xhikae personal HF
-		// account to an org-controlled one; requires HF org credentials
-		// this change does not have. URL+hash are a single pair here so
-		// that relocation is a two-field edit plus a recomputed hash.
-		url:    "https://huggingface.co/0xhikae/pleno_anonymize_ja/resolve/main/pleno_anonymize_ja-0.2.0-py3-none-any.whl",
+		url:    "https://huggingface.co/plenoai/pleno_anonymize_ja/resolve/main/pleno_anonymize_ja-0.2.0-py3-none-any.whl",
 		sha256: "9a4d1a92d3997257d149c78bd8bdace6cd33ba431dc85eca25e6834e2e3d36a7",
 	},
 	{
-		// TODO(#248 follow-up): same relocation note as the ja wheel above.
-		url:    "https://huggingface.co/0xhikae/pleno_anonymize_en/resolve/main/pleno_anonymize_en-0.2.1-py3-none-any.whl",
+		url:    "https://huggingface.co/plenoai/pleno_anonymize_en/resolve/main/pleno_anonymize_en-0.2.1-py3-none-any.whl",
 		sha256: "dbaf385818c91930588437953f9597a0f472feac556f3fa1407db7e9f03f8247",
 	},
 }
