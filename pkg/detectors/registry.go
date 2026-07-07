@@ -1252,6 +1252,18 @@ func (t DetectorType) String() string {
 		return "UnixCryptHash"
 	case PHPConfigSecret:
 		return "PHPConfigSecret"
+	case JSONConfigSecret:
+		return "JSONConfigSecret"
+	case FileZillaXML:
+		return "FileZillaXML"
+	case JetBrainsWebServers:
+		return "JetBrainsWebServers"
+	case Esmtprc:
+		return "Esmtprc"
+	case APIKeyAssignment:
+		return "APIKeyAssignment"
+	case NpmrcAuth:
+		return "NpmrcAuth"
 	default:
 		return "Unknown"
 	}

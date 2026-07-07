@@ -810,4 +810,13 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/pgpass"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/phpconfigsecret"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/unixcrypthash"
+	// batch 45 — issue #175 batch 2: SFTP-client / deploy JSON+XML
+	// config cluster (jsonconfigsecret, filezillaxml,
+	// jetbrainswebservers, esmtprc, apikeyassignment, npmrcauth).
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/apikeyassignment"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/esmtprc"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/filezillaxml"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/jetbrainswebservers"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/jsonconfigsecret"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/npmrcauth"
 )

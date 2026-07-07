@@ -964,6 +964,26 @@ const (
 	GitCredentialsURL
 	UnixCryptHash
 	PHPConfigSecret
+
+	// batch 45 — appended in wire-stable order, never reorder. Issue
+	// #175 batch 2: SFTP-client / deploy JSON+XML config cluster.
+	// JSONConfigSecret merges three JSON-with-known-credential-key
+	// shapes that share one regex-over-raw-bytes matcher (SFTP editor
+	// configs, deploy JSON, Robomongo's nested userPassword). The
+	// remaining four are distinct wire formats (FileZilla's XML <Pass>
+	// element with optional base64 wrapping, JetBrains' fileTransfer
+	// XML attribute, esmtprc's space-delimited key-value grammar, npm's
+	// .npmrc directive lines) plus APIKeyAssignment for bare
+	// `api_key:`/`api_key=` YAML/ini assignments (.tugboat and similar
+	// IaC files) that hardcodedpassword's password/passwd/pwd keyword
+	// set does not cover. All six are class b (unverified-by-design,
+	// host not in chunk / arbitrary data-controlled deploy target).
+	JSONConfigSecret
+	FileZillaXML
+	JetBrainsWebServers
+	Esmtprc
+	APIKeyAssignment
+	NpmrcAuth
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

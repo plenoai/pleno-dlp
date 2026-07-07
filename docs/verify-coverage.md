@@ -4,7 +4,7 @@ This page classifies each registered detector as verifier-backed or
 unverified-by-design. The machine block is parsed by
 `pkg/detectors/verifycoverage_test.go`.
 
-Counts are pinned in the machine block. Total = 608: 606 secret
+Counts are pinned in the machine block. Total = 614: 612 secret
 detectors, `PIIAnonymize`, and `PIIOpenAIPF`. The retired regex PII
 detector constants remain reserved for wire compatibility but are not
 listed because they are no longer registered. See
@@ -60,7 +60,7 @@ returned as `(false, err)` per the standard Verifier contract. This
 host endpoint is not self-contained in the secret itself but is
 recoverable from neighbouring text.
 
-## (b) Unverified-by-design — 56 detectors
+## (b) Unverified-by-design — 62 detectors
 
 These detectors deliberately do not implement `Verify`. The rationale
 is one of:
@@ -107,6 +107,7 @@ absent, so the finding acknowledges the token shape without implying live access
 |-------------------------|----------|---------------------------------------------------------------------------|
 | AgoraIO                 | secret   | per-app HMAC token signing required |
 | Akamai                  | secret   | EdgeGrid HMAC signing required, no bearer endpoint |
+| APIKeyAssignment        | secret   | offline config `api_key:`/`api_key=` assignment, host not in chunk; no provider endpoint to verify against |
 | APNs                    | secret   | only the .p8 PEM is in chunk; JWT issuance requires issuer + key_id |
 | AppStoreConnect         | secret   | only the .p8 PEM is in chunk; JWT requires issuer_id + key_id |
 | Atlassian               | secret   | token is half of a Basic-auth credential, `<workspace>.atlassian.net` not in chunk; hardened: ATATT3 prefix anchor + entropy gate |
@@ -120,7 +121,9 @@ absent, so the finding acknowledges the token shape without implying live access
 | CrispChat               | secret   | paired credential — Identifier half not co-located |
 | DatadogAppKey           | secret   | a lone App key cannot be authenticated (needs API-key pair); hardened: assignment/header anchor + SHA exclusion + entropy |
 | DroneCI                 | secret   | self-hosted, host not in chunk; hardened: drone-prefixed assignment anchor + entropy + SHA exclusion |
+| Esmtprc                 | secret   | credential authenticates against the `hostname` directive elsewhere in the same file, an arbitrary user-configured SMTP relay |
 | Exoscale                | secret   | HMAC signing required |
+| FileZillaXML            | secret   | credential authenticates against the arbitrary FTP/SFTP host stored elsewhere in the same `<Server>` block |
 | GCSSignedURL            | secret   | signed URL, signed-time-bound, no verify endpoint |
 | GenericHighEntropy      | secret   | entropy-only shape, no fixed upstream provider |
 | GetStream               | secret   | HMAC/JWT signing, no mirrorable reference impl; hardened: credential-context anchor + entropy + char-class gate |
@@ -129,7 +132,9 @@ absent, so the finding acknowledges the token shape without implying live access
 | GoCD                    | secret   | self-hosted CI, host not in chunk |
 | HardcodedPassword       | secret   | offline config password, host not in chunk; no provider endpoint to verify against |
 | Jenkins                 | secret   | self-hosted CI, host not in chunk |
+| JetBrainsWebServers     | secret   | host is data-controlled and arbitrary (any SFTP/FTP/deploy target a developer configured); no fixed provider to probe |
 | Jira                    | secret   | token-only probe always 401 (needs email pair), host not in chunk; hardened: entropy + assignment vicinity + hex exclusion |
+| JSONConfigSecret        | secret   | offline SFTP/deploy JSON config credential, host — when present at all — is data-controlled and arbitrary, not a fixed provider endpoint |
 | JWT                     | secret   | generic shape, issuer-dependent verification not centralizable |
 | Kafka                   | secret   | connection string, broker host not in chunk |
 | LaunchNotes             | secret   | ln_ shape isn't an authentic credential; hardened: delimiter+public_ regex + context + entropy |
@@ -137,6 +142,7 @@ absent, so the finding acknowledges the token shape without implying live access
 | Magento                 | secret   | per-store host not in chunk; hardened: hex-digest exclusion + entropy + two-tier proximity |
 | Modal                   | secret   | no documented REST endpoint for the (id,secret) pair; hardened: entropy/char-class looksRandom gate on the pair |
 | Netrc                   | secret   | host is data-controlled and arbitrary (mail/FTP/HTTP endpoint a user configured); no fixed provider to probe |
+| NpmrcAuth               | secret   | registry host (npmjs.org, a private mirror, ...) is data-controlled and arbitrary |
 | OVHCloud                | secret   | HMAC signing required |
 | PHPConfigSecret         | secret   | offline config secret (PHP `define()`/variable-assignment), host not in chunk; no provider endpoint to verify against |
 | PIIAnonymize            | pii      | PII finding class — NER + regex via pleno-anonymize, no provider API to verify |
@@ -170,9 +176,10 @@ The `coverage-machine` block pins counts and per-detector class.
 - `class=b` → Unverified-by-design (no Verify, deliberate)
 
 ```coverage-machine
-total=608
+total=614
 a=552
-b=56
+b=62
+type=APIKeyAssignment class=b
 type=APNs class=b
 type=AWSS3PresignedURL class=b
 type=AgoraIO class=b
@@ -188,7 +195,9 @@ type=Confluence class=b
 type=CrispChat class=b
 type=DatadogAppKey class=b
 type=DroneCI class=b
+type=Esmtprc class=b
 type=Exoscale class=b
+type=FileZillaXML class=b
 type=GCSSignedURL class=b
 type=GenericHighEntropy class=b
 type=GetStream class=b
@@ -196,8 +205,10 @@ type=GitCredentialsURL class=b
 type=GitLabPipeline class=b
 type=GoCD class=b
 type=HardcodedPassword class=b
+type=JSONConfigSecret class=b
 type=JWT class=b
 type=Jenkins class=b
+type=JetBrainsWebServers class=b
 type=Jira class=b
 type=Kafka class=b
 type=LaunchNotes class=b
@@ -205,6 +216,7 @@ type=Looker class=b
 type=Magento class=b
 type=Modal class=b
 type=Netrc class=b
+type=NpmrcAuth class=b
 type=OVHCloud class=b
 type=PHPConfigSecret class=b
 type=PIIAnonymize class=b
