@@ -28,6 +28,16 @@ const binarySniffLen = 512
 
 const maxBlobSize int64 = 50 * 1024 * 1024 // 50 MiB
 
+// maxDiffBlobSize bounds the blob size (either side) that firstChangedLine
+// will run a diff over. change.Patch() reads both blob sides fully into
+// strings with no cap of its own — maxBlobSize above does not protect this
+// path — and then hands them to a Myers diff that expands them roughly 4x
+// further as []rune. A single large text blob (SQL dump, lockfile,
+// generated code) can therefore spike memory by multiple GiB. Above this
+// bound the diff is skipped entirely; line attribution degrades to 0
+// (unknown) rather than risk that spike.
+const maxDiffBlobSize int64 = 1 << 20 // 1 MiB
+
 func init() {
 	sources.Register(sources.SourceGit, func() sources.Source { return &Source{} })
 }
@@ -135,14 +145,22 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	s.nextState = newIncrementalState(starts)
 
 	stops := s.previousHeads()
-	commits, err := s.collectCommits(repo, starts, stops)
+	refs, err := s.collectCommits(repo, starts, stops)
 	if err != nil {
 		return err
 	}
 
-	for _, c := range commits {
+	// refs holds only hash+timestamp (see collectCommits); re-fetch each
+	// *object.Commit here rather than holding the whole history's commit
+	// objects live at once. go-git's object storer caches recently decoded
+	// objects, so this re-fetch is cheap for commits we just walked.
+	for _, r := range refs {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		c, err := repo.CommitObject(r.hash)
+		if err != nil {
+			continue // pruned/rewritten between collect and emit — tolerate, don't abort
 		}
 		if err := s.emitCommit(ctx, c, ch); err != nil {
 			return err
@@ -283,47 +301,67 @@ func (s *Source) resolveStarts(repo *git.Repository) ([]plumbing.Hash, error) {
 	return starts, nil
 }
 
+// commitRef is the minimal record kept for a collected commit: enough to
+// sort by time and re-fetch the full *object.Commit later. Holding only this
+// (not the decoded commit, which carries message/author/tree references)
+// keeps the pre-walk collection's memory proportional to commit count, not
+// to full history size.
+type commitRef struct {
+	hash plumbing.Hash
+	when time.Time
+}
+
 // collectCommits walks every lineage reachable from the start hashes and
-// returns the union of commits in oldest-first order. A shared visited set
-// guarantees each commit is collected at most once even when reachable from
-// several branches. The stop-set is the union of all commits reachable from
-// the previously recorded heads (bounded BFS, computed once); reaching any of
-// them terminates that lineage so already-scanned history is never re-emitted.
-func (s *Source) collectCommits(repo *git.Repository, starts []plumbing.Hash, stops []plumbing.Hash) ([]*object.Commit, error) {
-	excluded, err := reachableSet(repo, stops)
+// returns commitRefs for the union of commits in oldest-first order.
+//
+// Memory: only hash+timestamp is retained per commit (see commitRef); the
+// caller re-fetches each *object.Commit from the repo (cheaply, via go-git's
+// object cache) when it actually emits chunks for it.
+//
+// Traversal: seen is a single map shared across every start's walk AND used
+// as the incremental stop-set seed. It is passed as the seenExternal
+// argument to object.NewCommitPreorderIter — the same construct
+// repo.Log's default order uses internally, just with cross-call sharing
+// enabled. seenExternal is checked as an OR alongside the iterator's own
+// internal seen set, and only ever suppresses returning that one already-
+// seen commit; it does not push that commit's parents, but sibling
+// branches already queued on the walk's stack are visited normally. So
+// once a lineage merges into anything already visited (by a prior start's
+// completed walk, or by the stop-set), that lineage's remaining ancestry is
+// pruned instead of being re-walked and merely discarded — turning the
+// previous O(starts × history) cost into O(total reachable commits).
+// This is only correct because each start's walk runs to completion (or to
+// the maxDepth cutoff) before the next start begins: by induction, any hash
+// already in seen when a later start's walk reaches it was returned by a
+// walk that has already visited that hash's own ancestors too, so pruning
+// there loses nothing.
+func (s *Source) collectCommits(repo *git.Repository, starts []plumbing.Hash, stops []plumbing.Hash) ([]commitRef, error) {
+	seen, err := reachableSet(repo, stops)
 	if err != nil {
 		return nil, err
 	}
 
-	visited := map[plumbing.Hash]struct{}{}
-	var commits []*object.Commit
+	var refs []commitRef
 
 	for _, start := range starts {
-		if _, ok := excluded[start]; ok {
+		if seen[start] {
 			continue
 		}
-		iter, err := repo.Log(&git.LogOptions{From: start})
+		startCommit, err := repo.CommitObject(start)
 		if err != nil {
-			return nil, fmt.Errorf("git: log: %w", err)
+			return nil, fmt.Errorf("git: resolve start %s: %w", start, err)
 		}
+		iter := object.NewCommitPreorderIter(startCommit, seen, nil)
 		err = iter.ForEach(func(c *object.Commit) error {
 			// go-git's preorder ForEach aborts the WHOLE walk on any returned
 			// error, so the only error we may return is the terminal maxDepth
-			// stop. Excluded/visited commits are skipped with nil; reachableSet
-			// is transitive and go-git's per-iter seen map bounds the descent,
-			// so continuing to walk past them is correct, just not minimal.
-			if _, stop := excluded[c.Hash]; stop {
-				return nil
-			}
-			if _, done := visited[c.Hash]; done {
-				return nil
-			}
-			visited[c.Hash] = struct{}{}
+			// stop.
+			seen[c.Hash] = true
 			if !s.since.IsZero() && c.Committer.When.Before(s.since) {
 				return nil
 			}
-			commits = append(commits, c)
-			if s.maxDepth > 0 && len(commits) >= s.maxDepth {
+			refs = append(refs, commitRef{hash: c.Hash, when: c.Committer.When})
+			if s.maxDepth > 0 && len(refs) >= s.maxDepth {
 				return errStorerStop
 			}
 			return nil
@@ -332,24 +370,33 @@ func (s *Source) collectCommits(repo *git.Repository, starts []plumbing.Hash, st
 		if err != nil && !errors.Is(err, errStorerStop) {
 			return nil, fmt.Errorf("git: iterate commits: %w", err)
 		}
-		if s.maxDepth > 0 && len(commits) >= s.maxDepth {
+		if s.maxDepth > 0 && len(refs) >= s.maxDepth {
 			break
 		}
 	}
 
-	sort.SliceStable(commits, func(i, j int) bool {
-		return commits[i].Committer.When.Before(commits[j].Committer.When)
+	sort.SliceStable(refs, func(i, j int) bool {
+		return refs[i].when.Before(refs[j].when)
 	})
-	return commits, nil
+	return refs, nil
 }
 
-// reachableSet returns every commit hash reachable from any of the given roots
-// (the roots themselves included). Used to build the incremental stop-set. A
-// missing or unreadable root is skipped rather than fatal: a head recorded in
-// a previous run may have been rewritten or pruned, and that must degrade to a
-// fuller scan, never an abort.
-func reachableSet(repo *git.Repository, roots []plumbing.Hash) (map[plumbing.Hash]struct{}, error) {
-	set := map[plumbing.Hash]struct{}{}
+// reachableSet returns every commit hash reachable from any of the given
+// roots (the roots themselves included), as the seenExternal set consumed by
+// object.NewCommitPreorderIter in collectCommits. Used to build the
+// incremental stop-set. A missing or unreadable root is skipped rather than
+// fatal: a head recorded in a previous run may have been rewritten or
+// pruned, and that must degrade to a fuller scan, never an abort.
+//
+// This is still a full, eagerly-materialized BFS over previously-scanned
+// history — unbounded for repos with very long previous-run lineages. A
+// fully bounded version would need either a persisted per-commit
+// already-scanned frontier from the prior run or commit-graph generation
+// numbers (which go-git does not expose) to answer "is X reachable from
+// stop head H" without walking all of H's ancestry; neither is available
+// here, so this is scoped out of this change (see PR description).
+func reachableSet(repo *git.Repository, roots []plumbing.Hash) (map[plumbing.Hash]bool, error) {
+	set := map[plumbing.Hash]bool{}
 	if len(roots) == 0 {
 		return set, nil
 	}
@@ -358,10 +405,10 @@ func reachableSet(repo *git.Repository, roots []plumbing.Hash) (map[plumbing.Has
 		if r == plumbing.ZeroHash {
 			continue
 		}
-		if _, ok := set[r]; ok {
+		if set[r] {
 			continue
 		}
-		set[r] = struct{}{}
+		set[r] = true
 		queue = append(queue, r)
 	}
 	for len(queue) > 0 {
@@ -372,10 +419,10 @@ func reachableSet(repo *git.Repository, roots []plumbing.Hash) (map[plumbing.Has
 			continue // pruned/rewritten head — tolerate, scan more rather than less
 		}
 		for _, p := range c.ParentHashes {
-			if _, ok := set[p]; ok {
+			if set[p] {
 				continue
 			}
-			set[p] = struct{}{}
+			set[p] = true
 			queue = append(queue, p)
 		}
 	}
@@ -408,7 +455,7 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		_, to, err := change.Files()
+		from, to, err := change.Files()
 		if err != nil || to == nil {
 			// Pure deletions have no `to` file — there is nothing to scan.
 			continue
@@ -433,7 +480,7 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 			continue
 		}
 
-		line := firstChangedLine(change)
+		line := firstChangedLine(change, from, to)
 		commitMsg := c.Message
 		if nl := strings.IndexByte(commitMsg, '\n'); nl >= 0 {
 			commitMsg = commitMsg[:nl]
@@ -502,9 +549,16 @@ func readBlob(f *object.File) ([]byte, bool) {
 
 // firstChangedLine walks the patch's chunks and returns the 1-based line
 // number on the new side where the first Add chunk begins. Returns 0 when
-// the commit added the file as a whole (no patch context) or when the patch
-// cannot be computed — callers treat 0 as "unknown".
-func firstChangedLine(change *object.Change) int {
+// the commit added the file as a whole (no patch context), when either blob
+// side exceeds maxDiffBlobSize, or when the patch cannot be computed —
+// callers treat 0 as "unknown".
+func firstChangedLine(change *object.Change, from, to *object.File) int {
+	if to != nil && to.Size > maxDiffBlobSize {
+		return 0
+	}
+	if from != nil && from.Size > maxDiffBlobSize {
+		return 0
+	}
 	patch, err := change.Patch()
 	if err != nil || patch == nil {
 		return 0
