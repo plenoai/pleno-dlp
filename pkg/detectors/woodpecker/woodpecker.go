@@ -14,11 +14,10 @@
 //	return token.SignedString([]byte(secret))
 //
 // The previous regex (`[A-Za-z0-9]{32,64}`) was wrong for this format — it
-// matched bare alphanumeric runs (and could never match a real dotted JWT as
-// a whole), producing pure false-positive noise. Anchoring on the JWT
-// structure is the distinguishing "prefix" per the hardening rubric, so no
-// entropy floor is needed: a base64url string with two dots and an `eyJ`
-// header is already a near-unique shape.
+// matched bare alphanumeric runs, producing pure false-positive noise.
+// Anchoring on the JWT structure is the distinguishing "prefix" per the
+// hardening rubric, so no entropy floor is needed: a base64url string with
+// two dots and an `eyJ` header is already a near-unique shape.
 package woodpecker
 
 import (

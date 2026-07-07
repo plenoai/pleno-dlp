@@ -1,7 +1,6 @@
-// Package wise detects Wise (formerly TransferWise) API tokens (UUIDs)
-// gated on the `wise` / `transferwise` keyword window. Verified via
-// /v2/profiles against api.wise.com with Bearer auth — that endpoint is a
-// safe read.
+// Package wise detects Wise API tokens (UUIDs) gated on the `wise` /
+// `transferwise` keyword window. Verified via /v2/profiles against
+// api.wise.com with Bearer auth — that endpoint is a safe read.
 package wise
 
 import (
