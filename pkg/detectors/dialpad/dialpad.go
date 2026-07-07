@@ -32,11 +32,10 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,128})\b`)
 
 // armRe is the assignment-style Dialpad reference that must appear within the
-// proximity window. A bare "dialpad" substring (doc links, the dialpad.com
-// host, marketing copy) is too weak a gate against a generic 40-128 char
-// alphanumeric run; `dialpad[_-]?(api[_-]?)?(token|key|secret)` is the shape a
-// real credential assignment or config key takes. The bare keyword stays in
-// Keywords() as the cheap Aho-Corasick prefilter.
+// proximity window. A bare "dialpad" substring is too weak a gate against a
+// generic 40-128 char alphanumeric run; `dialpad[_-]?(api[_-]?)?(token|key|secret)`
+// is the shape a real credential assignment or config key takes. The bare
+// keyword stays in Keywords() as the cheap Aho-Corasick prefilter.
 var armRe = regexp.MustCompile(`(?i)dialpad[_\-]?(api[_\-]?)?(token|key|secret)`)
 
 // minEntropy rejects low-information 40-128 char runs (padded placeholders,
