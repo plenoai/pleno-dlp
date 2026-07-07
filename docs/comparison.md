@@ -37,7 +37,7 @@ tree at the exact released tag.
 | Detectors / rules | 603 | 870 | 222 |
 | Live-verification capable | 552 (+51 unverified-by-design, see [`verify-coverage.md`](verify-coverage.md)) | most detectors (core design) | 0 — no verification subsystem |
 | Revocation support | 4 providers + 1 context-required (AWS) | 0 | 0 |
-| Scan sources | 24 | 18 (16 excluding `multi-scan` / `json-enumerator` meta-inputs) | 3 (`git`, `dir`, `stdin`) |
+| Scan sources | 28 | 18 (16 excluding `multi-scan` / `json-enumerator` meta-inputs) | 3 (`git`, `dir`, `stdin`) |
 | Output formats | json, sarif, table | json, json-legacy, github-actions | json, csv, junit, sarif, template |
 | PII detection | yes (`--pii-engine`) | no | no |
 
@@ -489,9 +489,13 @@ Where the competition — or the whole industry — is measurably ahead:
 8. **Source breadth vs trufflehog** — several trufflehog sources have no
    pleno-dlp equivalent. They fall into two categories:
 
-   *Planned (tracked in #188)*: docker image layers (#215), GCS (#216),
-   Elasticsearch (#217), Jenkins (#218), Postman (#219), HuggingFace
-   (#220), CircleCI (#221).
+   *Planned (tracked in #188)*: Elasticsearch (#217), Jenkins (#218),
+   Postman (#219) — connectors exist under `pkg/connectors/` but have no
+   CLI subcommand yet, so they are not reachable via `pleno-dlp scan`.
+   Docker image layers (#215), GCS (#216), HuggingFace (#220), and
+   CircleCI (#221) were previously listed here but are implemented and
+   CLI-reachable (`pleno-dlp scan docker-image|gcs|huggingface|circleci`);
+   counted in the 28 below (recounted in #259).
 
    *Not supported — accepted gap by design* (#222): `syslog` (long-running
    listener daemon; architectural mismatch with pleno-dlp's batch model),
@@ -500,7 +504,7 @@ Where the competition — or the whole industry — is measurably ahead:
    parity target). These will not be implemented unless concrete user demand
    is reported.
 
-   pleno-dlp's 24 sources lead on SaaS-document surfaces: confluence, jira,
+   pleno-dlp's 28 sources lead on SaaS-document surfaces: confluence, jira,
    notion, slack, splunk, datadog, redash, bigquery, sqldump, forge-API
    comments.
 
