@@ -44,7 +44,14 @@ pleno-dlp scan filesystem ./repo
 pleno-dlp scan git --repo ./repo --branch main --max-depth 500
 git diff | pleno-dlp scan stdin --label git-diff
 pleno-dlp scan github --org acme
+pleno-dlp sources list
 ```
+
+`sources list` enumerates every registered core source and SaaS connector
+from `pkg/sources/catalog.All()`, with a `CLI-WIRED` column marking whether
+a `scan` subcommand exists yet — see
+[`docs/comparison.md`](docs/comparison.md) §9 for the full
+implemented/planned breakdown.
 
 More connector detail: [`docs/source-forge-api-comments.md`](docs/source-forge-api-comments.md)
 
