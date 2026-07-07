@@ -984,6 +984,45 @@ const (
 	Esmtprc
 	APIKeyAssignment
 	NpmrcAuth
+
+	// batch 46 — appended in wire-stable order, never reorder. Issue
+	// #175 batch 3 (final): the language-config cluster remaining after
+	// batch 2. DjangoConfigSecret covers Django settings.py's
+	// `SECRET_KEY = '...'` module constant and the `'PASSWORD': '...'`
+	// quoted-dict-key form used inside a DATABASES block — two Python
+	// assignment grammars neither hardcodedpassword (`=`/`:` value
+	// matching keyed on password/passwd/pwd, but the quote immediately
+	// preceding a dict key like `'PASSWORD'` breaks its whitespace-
+	// anchored keyword match) nor JSONConfigSecret (JSON, not Python)
+	// covers. RailsMasterKey and RailsSecretKeyBase are two distinct
+	// wire shapes kept as separate types rather than merged: the
+	// former is a FullChunkDetector matching config/master.key's exact
+	// whole-file content (32 lowercase hex chars, no keyword at all —
+	// same "no fixed literal marker" situation as Pgpass), the latter a
+	// normal keyword-anchored `secret_key_base:` YAML line in
+	// secrets.yml. JSLoginCallSecret targets a shape distinct from the
+	// issue's original "known-key JS assignment" guess: leaky-repo's
+	// actual salesforce.js fixture has no password/token-named key at
+	// all — the credential is a bare positional argument to an SDK
+	// auth call (`conn.login('user@x.com', 'secret', cb)`). The
+	// password/passwd/pwd-keyed JS assignment shape the issue
+	// originally described is already covered by hardcodedpassword;
+	// extending it to bare `token`/`securityToken` keys was rejected as
+	// too broad (session/CSRF tokens are not secrets and share the same
+	// keyword). PuTTYPrivateKey is a FullChunkDetector for `.ppk`'s
+	// `PuTTY-User-Key-File-2:`/`-3:` header through `Private-MAC:`
+	// block; PrivateKeyPEM's blockRe never matches this format (no
+	// `-----BEGIN...PRIVATE KEY-----` armor), so there is no overlap.
+	// All five are class b (unverified-by-design: offline config
+	// secret / local encryption key / SDK-call credential with no
+	// provider endpoint in the matched chunk, or — for PuTTYPrivateKey
+	// — no PPK-to-DER conversion implemented yet to correlate against
+	// Certificate Transparency the way PrivateKeyPEM does).
+	DjangoConfigSecret
+	RailsMasterKey
+	RailsSecretKeyBase
+	JSLoginCallSecret
+	PuTTYPrivateKey
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

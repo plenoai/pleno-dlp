@@ -152,4 +152,20 @@ var Classes = map[string]Class{
 	"Esmtprc":             ClassUnverifiedByDesign,
 	"APIKeyAssignment":    ClassUnverifiedByDesign,
 	"NpmrcAuth":           ClassUnverifiedByDesign,
+
+	// Issue #175 batch 3 (final) — the language-config cluster.
+	// DjangoConfigSecret is an offline settings.py credential (no
+	// provider endpoint). RailsMasterKey is a local AES key whose
+	// paired ciphertext is not in the chunk; RailsSecretKeyBase only
+	// authenticates that one running Rails instance's session cookies.
+	// JSLoginCallSecret's target host lives elsewhere in the codebase,
+	// not in the matched chunk. PuTTYPrivateKey has no PPK-to-DER
+	// conversion yet to reuse PrivateKeyPEM's Certificate Transparency
+	// correlation. See docs/verify-coverage.md for the per-detector
+	// rationale.
+	"DjangoConfigSecret": ClassUnverifiedByDesign,
+	"RailsMasterKey":     ClassUnverifiedByDesign,
+	"RailsSecretKeyBase": ClassUnverifiedByDesign,
+	"JSLoginCallSecret":  ClassUnverifiedByDesign,
+	"PuTTYPrivateKey":    ClassUnverifiedByDesign,
 }
