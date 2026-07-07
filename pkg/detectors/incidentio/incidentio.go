@@ -1,6 +1,3 @@
-// Package incidentio detects incident.io API keys (`inc_` prefix +
-// base64url). Verified via /v2/identity on api.incident.io with the
-// Authorization Bearer header.
 package incidentio
 
 import (

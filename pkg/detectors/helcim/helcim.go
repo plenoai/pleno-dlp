@@ -1,10 +1,6 @@
-// Package helcim detects Helcim payment API tokens (32-hex co-occurring
-// with `helcim`) and verifies them against /v2/connect-test using the
-// documented `api-token` header.
-//
-// Helcim API tokens grant the issuing merchant's full payment-processing
-// scope (charge, refund, vault). The 32-hex shape collides with md5
-// digests, so a co-occurring `helcim` keyword is mandatory.
+// Package helcim detects Helcim payment API tokens. The 32-hex shape
+// collides with md5 digests, so a co-occurring `helcim` keyword is
+// mandatory.
 package helcim
 
 import (

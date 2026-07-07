@@ -45,8 +45,8 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 // TestFromData_LowEntropyKeyRejected asserts the post-hardening behaviour:
 // a valid-shaped access ID near the keyword but paired only with a
-// low-entropy 64-char run (a placeholder, not a real base62 key) yields no
-// key pairing. The ID alone still surfaces, but RawV2 stays empty.
+// low-entropy 64-char run yields no key pairing. The ID alone still
+// surfaces, but RawV2 stays empty.
 func TestFromData_LowEntropyKeyRejected(t *testing.T) {
 	// 64 chars but a single repeated character: entropy ~0, well under 3.5.
 	lowEntropyKey := strings.Repeat("a", 64)
@@ -65,7 +65,7 @@ func TestFromData_LowEntropyKeyRejected(t *testing.T) {
 
 // TestFromData_BareKeywordNoArm asserts the radius/arm-regex tightening: a
 // well-shaped ID + key sitting near a bare "sumo" mention that is NOT an
-// assignment-style reference (e.g. prose) no longer arms the detector.
+// assignment-style reference no longer arms the detector.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("we evaluated sumo and other vendors today\nX=" + dummyID + "\nY=" + dummyKey)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)

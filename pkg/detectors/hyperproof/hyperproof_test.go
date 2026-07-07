@@ -41,11 +41,8 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
-// TestFromData_BareKeywordNoArm guards the FP shape the radius-256
-// strings.Contains gate used to admit: a high-entropy 32-64 alnum run sitting
-// near a bare "hyperproof" prose/host mention but with no credential-assignment
-// arm (hyperproof_(api_)?(token|key|secret|id)). The tightened arm regex +
-// radius-64 window must reject it.
+// Regression: a high-entropy alnum run near a bare "hyperproof" mention with no
+// assignment arm must be rejected by the arm regex + radius-64 window.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("See the hyperproof onboarding guide. session_digest=" + dummy)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
@@ -54,11 +51,10 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 	}
 }
 
-// TestFromData_LowEntropyRejected guards the entropy floor: a 40-char run that
-// clears the alnum regex and sits in a real assignment context but is a long
-// repeated-character placeholder must be rejected by HasMinEntropy(3.0).
+// A repeated-character placeholder in a valid assignment context must be
+// rejected by the entropy floor.
 func TestFromData_LowEntropyRejected(t *testing.T) {
-	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 40x 'a'
+	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	body := []byte("HYPERPROOF_API_TOKEN=" + lowEntropy)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {
@@ -66,8 +62,6 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 	}
 }
 
-// TestFromData_ArmVariants keeps recall on the assignment shapes the arm regex
-// is meant to admit.
 func TestFromData_ArmVariants(t *testing.T) {
 	for _, prefix := range []string{
 		"hyperproof_api_token=",

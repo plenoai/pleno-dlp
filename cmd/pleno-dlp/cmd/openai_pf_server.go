@@ -163,8 +163,7 @@ func runOpenAIPFServer(cmd *cobra.Command, _ []string) error {
 // IPv6 ULA), and link-local are accepted. Logic is intentionally
 // identical to validatePIIServerHost — same hard rule, same audience,
 // same trust boundary — but kept as a separate function so a future
-// per-engine relaxation (e.g. unix socket support on one engine only)
-// doesn't have to fork mid-implementation.
+// per-engine relaxation doesn't have to fork mid-implementation.
 func validateOpenAIPFHost(host string) error {
 	host = strings.TrimSpace(host)
 	if host == "" {

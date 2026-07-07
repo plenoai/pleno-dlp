@@ -1,13 +1,11 @@
 // Package hardcodedpassword detects low-entropy hardcoded passwords in
-// IaC and config files. Unlike entropy-gated detectors, this detector is
-// explicitly designed to surface short, guessable passwords that appear in
-// Terraform variable defaults, Kubernetes env-var values, docker-compose
-// environment blocks, and INI/YAML key = value assignments.
+// IaC and config files. Unlike entropy-gated detectors, it deliberately
+// surfaces short, guessable passwords in Terraform defaults, Kubernetes
+// env vars, docker-compose blocks, and INI/YAML assignments.
 //
-// Because these passwords are valid against customer-controlled infrastructure
-// (database hosts, auth services) whose endpoints are not present in the
-// matched chunk, Verify is deliberately not implemented (class b).
-// Hardened: placeholder denylist, templating-marker gate, minimum-length gate.
+// Because these passwords authenticate against customer-controlled
+// infrastructure whose endpoints are not present in the matched chunk,
+// Verify is deliberately not implemented (class b).
 package hardcodedpassword
 
 import (
@@ -18,16 +16,9 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// Assignment patterns. We match `<password-keyword> <sep> <value>` where:
-//   - The keyword is password/passwd/pwd (case-insensitive) possibly as part of
-//     a larger name like DB_PASSWORD or app.password.
-//   - The separator is `=` (shell/tf/ini) or `:` followed by a space (YAML).
-//   - The value may be quoted with " or ' or unquoted.
-//
 // We intentionally do NOT gate on Shannon entropy — low-entropy hardcoded
-// passwords are exactly the target (e.g. "Aa1234321Bb", "root123", "P@ssw0rd").
+// passwords are exactly the target.
 var (
-	// Shell / INI / Terraform: DB_PASSWORD=value  or  password = "value"
 	// The keyword must be at the start of a word (word boundary or line
 	// start); the boundary only excludes a preceding letter, so keywords
 	// embedded in snake_case names like DB_PASSWORD still match.
@@ -36,19 +27,14 @@ var (
 			`\s*=\s*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
 	)
 
-	// YAML block: "  - name: DB_PASSWORD\n    value: foo" or "DB_PASSWORD: foo"
 	yamlValueRe = regexp.MustCompile(
 		`(?im)(?:^|\s)(?:[a-z0-9_]*(?:password|passwd|pwd)[a-z0-9_]*)\s*:\s*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
 	)
 
-	// Terraform variable block whose *name* contains the keyword, with the
-	// literal default on its own line inside the block:
-	//   variable "db_password" {
-	//     default = "Aa1234321Bb"
-	//   }
-	// The keyword and the `default =` assignment are not on the same line,
-	// so assignEqRe cannot see them together — this pattern captures the
-	// block body separately and re-scans it for the default line.
+	// The keyword lives in the variable name and the literal `default =`
+	// value on a different line, so assignEqRe cannot see them together;
+	// this pattern captures the block body separately and re-scans it for
+	// the default line.
 	tfVariableRe = regexp.MustCompile(
 		`(?i)variable\s*"[a-z0-9_]*(?:password|passwd|pwd)[a-z0-9_]*"\s*\{([^}]*)\}`,
 	)
@@ -57,8 +43,6 @@ var (
 	)
 )
 
-// placeholders lists values that are clearly documentation fillers,
-// template markers, or common weak passwords that should be excluded.
 var placeholders = func() map[string]struct{} {
 	words := []string{
 		"example", "changeme", "change_me", "changeit", "change-me",
@@ -85,8 +69,6 @@ var placeholders = func() map[string]struct{} {
 	return m
 }()
 
-// hasTemplatingMarker returns true when the value contains a template
-// variable marker — these are never literal credentials.
 func hasTemplatingMarker(v string) bool {
 	for _, marker := range []string{"${", "{{", "<%", "%{", "<", ">"} {
 		if strings.Contains(v, marker) {
@@ -149,8 +131,6 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		}
 	}
 
-	// Terraform variable blocks: the keyword lives in the variable name,
-	// the literal value in a `default = "..."` line elsewhere in the block.
 	for _, block := range tfVariableRe.FindAllStringSubmatch(str, -1) {
 		if len(block) < 2 {
 			continue

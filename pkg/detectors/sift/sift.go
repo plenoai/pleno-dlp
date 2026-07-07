@@ -3,13 +3,12 @@
 // — Raw=accountId, RawV2=accountId+":"+apiKey. Verified via HTTP Basic
 // auth on api.sift.com /v205/users/_test_user.
 //
-// "sift" is a short English word substring (sifted, sifting, sifter,
-// shift...). The previous detector did `strings.Contains(window,
-// "sift")` over a 256-byte window AND used a `[A-Za-z0-9]{20,80}`
-// token regex — together they fired on essentially any block of text
-// containing a 20+ char identifier within 256 bytes of any of those
-// words. The new detector requires an explicit Sift anchor
-// (`sift_api`, `sift_account`, `siftscience`, `sift.com`, `SIFT=`).
+// "sift" is a short English word substring. The previous detector did
+// `strings.Contains(window, "sift")` over a 256-byte window AND used a
+// `[A-Za-z0-9]{20,80}` token regex — together they fired on essentially
+// any block of text containing a 20+ char identifier within 256 bytes
+// of any of those words. The new detector requires an explicit Sift
+// anchor (`sift_api`, `sift_account`, `siftscience`, `sift.com`, `SIFT=`).
 package sift
 
 import (

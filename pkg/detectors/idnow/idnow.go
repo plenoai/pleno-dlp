@@ -1,18 +1,9 @@
-// Package idnow detects IDnow KYC API tokens (32-64 alphanumeric).
-// Surface only when an `idnow` keyword is in the same chunk to keep the
-// generic alphanumeric shape from triggering universally. Verified via
-// /api/v1/identifications on gateway.idnow.de with the X-API-KEY header.
+// Package idnow detects IDnow KYC API tokens.
 //
-// Credential format: IDnow does not publish the prefix/length/charset of
-// the apiKey value (sent as {"apiKey": "<TOKEN>"} to /api/v1/{customer}/login).
-// Every reachable reference is a placeholder ("1234api_key", "API-KEY-TOKEN");
-// the only documented length/charset constraints in the IDnow docs apply to
-// transaction identifiers (UUIDv4, [a-zA-Z0-9_-], max 255), not the apiKey.
-// Trufflehog ships no idnow detector to mirror. With no authoritative format,
-// the bare [A-Za-z0-9]{32,64} shape is left UNCHANGED (narrowing it would
-// guess at a length and silently destroy recall); FP risk is reduced only by
-// recall-safe gate-tightening: an assignment-anchor arm regex, a tightened
-// radius, and a conservative entropy floor.
+// IDnow does not publish the prefix/length/charset of the apiKey, so the bare
+// [A-Za-z0-9]{32,64} shape is left unchanged (narrowing it would guess a length
+// and destroy recall); FP risk is reduced only by recall-safe gate-tightening:
+// an assignment-anchor arm regex, a tightened radius, and an entropy floor.
 package idnow
 
 import (
@@ -29,20 +20,14 @@ var apiBase = "https://gateway.idnow.de"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Generic alphanumeric shape — no documented prefix/length, so the gate
-// (arm regex + entropy + radius) does the disambiguation, not the regex.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-// armRe replaces the bare strings.Contains(window,"idnow"): it requires an
-// assignment-style context (idnow_api_key / idnow-token / idnow secret) so a
-// stray "idnow" mention in prose no longer arms the detector. The bare
-// keyword stays in Keywords() as the engine prefilter.
+// armRe requires an assignment-style context so a stray "idnow" mention in
+// prose no longer arms the detector; the bare keyword stays the engine prefilter.
 var armRe = regexp.MustCompile(`(?i)idnow[_\-]?(api[_\-]?)?(token|key|secret)`)
 
-// minEntropy rejects low-information 32-64 char runs (repeated/structured
-// strings) that clear the regex but lack credential-grade randomness. Held
-// conservative at 3.0 because no source documents the charset; a higher floor
-// would risk culling real keys.
+// minEntropy rejects low-information 32-64 char runs that clear the regex. Held
+// at 3.0 because the charset is undocumented; a higher floor risks real keys.
 const minEntropy = 3.0
 
 type Scanner struct{}

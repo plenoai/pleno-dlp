@@ -1,8 +1,5 @@
-// Package fusionauth detects FusionAuth API keys — 32 hex (with
-// optional dashes, UUID-shaped) near the `fusionauth` keyword.
-// Unverified by design — FusionAuth deployments route per-tenant
-// (`<tenant>.fusionauth.io` or self-hosted); verification fires only
-// when an apiBase override is supplied.
+// Unverified by design: FusionAuth deployments route per-tenant, so
+// verification fires only when an apiBase override is supplied.
 package fusionauth
 
 import (
@@ -19,7 +16,6 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// FusionAuth API keys are 32 hex (raw) or UUID-shaped (8-4-4-4-12 hex).
 var tokenRe = regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b`)
 
 var contextKeywords = []string{"fusionauth"}

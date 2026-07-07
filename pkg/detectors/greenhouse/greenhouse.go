@@ -1,7 +1,6 @@
-// Package greenhouse detects Greenhouse Harvest API keys. The official
-// Harvest API docs document the token as a 32-character lowercase hex
-// string with no prefix (example <TOKEN> = a7183e1b…), so the regex is
-// anchored to the hex charset rather than a bare alphanumeric run.
+// The official Harvest API docs document the token as a 32-character
+// lowercase hex string with no prefix (example <TOKEN> = a7183e1b…), so the
+// regex is anchored to the hex charset rather than a bare alphanumeric run.
 // Verified via /v1/users on harvest.greenhouse.io with HTTP Basic auth
 // (key as username, blank password).
 //
@@ -72,9 +71,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		// Entropy gate: structured/low-information hex runs (padded
-		// placeholders, repeated nibbles) clear the hex regex but are not
-		// random tokens — reject them even when armed.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}

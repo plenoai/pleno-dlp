@@ -10,7 +10,6 @@ import (
 	"testing"
 )
 
-// AIza (4) + 35 base64url body = 39 chars total.
 const dummy = "AIzaSy0123456789abcdefghijklmnopqrstuvw"
 
 func TestFromData_Positive(t *testing.T) {

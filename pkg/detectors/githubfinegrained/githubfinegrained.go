@@ -1,8 +1,5 @@
-// Package githubfinegrained detects GitHub fine-grained personal access
-// tokens (`github_pat_<base62>{82}`). Distinct from the classic GitHub
-// detector (`ghp_/gho_/ghu_/ghs_/ghr_`) because the prefix and length are
-// structurally different. Verified via /user on api.github.com using
-// Bearer auth.
+// Distinct from the classic ghp_/gho_/ghu_/ghs_/ghr_ GitHub detector because
+// the prefix and length are structurally different.
 package githubfinegrained
 
 import (

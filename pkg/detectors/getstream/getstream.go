@@ -1,7 +1,3 @@
-// Package getstream detects Stream (getstream.io) chat / activity feed
-// credentials — a paired api_key + api_secret (each 12+ alphanumeric) near
-// a Stream credential-context keyword.
-//
 // Unverified-by-design: Stream's server-side REST auth does not accept the
 // raw api_secret. Every server call requires a JWT signed HMAC-SHA256 with
 // the api_secret, sent as `Authorization: <jwt>` + `Stream-Auth-Type: jwt`

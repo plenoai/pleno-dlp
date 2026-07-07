@@ -1,6 +1,3 @@
-// Package iterable detects Iterable API keys — long alphanumeric tokens
-// near the `iterable` keyword. Verified via /api/users/byEmail on
-// api.iterable.com with `Api-Key: <key>` header.
 package iterable
 
 import (
@@ -18,8 +15,6 @@ var apiBase = "https://api.iterable.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Iterable API keys are 40+ alphanumeric (sometimes with `_` separator for
-// org-prefixed keys).
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_]{40,128})\b`)
 
 var contextKeywords = []string{"iterable", "iterable_api", "iterable_key"}

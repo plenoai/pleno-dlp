@@ -2,7 +2,7 @@
 
 // Tests for Slack auth.revoke. Slack's API contract is "always HTTP 200,
 // outcome encoded in the JSON body" — these tests pin that mapping plus
-// the transport-level (429 / network / empty secret) edge cases.
+// the transport-level edge cases.
 package slack
 
 import (
@@ -176,7 +176,7 @@ func TestRevoke_EmptySecret(t *testing.T) {
 }
 
 // TestRevoke_AuthHeader verifies the bearer header is exactly
-// "Bearer <secret>" — Slack rejects other forms (token, basic, etc.).
+// "Bearer <secret>" — Slack rejects other forms.
 func TestRevoke_AuthHeader(t *testing.T) {
 	var seen string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

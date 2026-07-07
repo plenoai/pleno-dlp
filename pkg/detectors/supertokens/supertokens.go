@@ -40,15 +40,14 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var tokenRe = regexp.MustCompile(`([A-Za-z0-9=\-]{20,})`)
 
 // armRe is the assignment-style SuperTokens reference that must appear within
-// the proximity window. A bare "supertokens" substring (npm dependency names,
-// import paths, doc prose, script-src URLs) is too weak a gate for a
-// prefix-less operator-chosen key; "supertokens_api_key" / "super-tokens-key"
+// the proximity window. A bare "supertokens" substring is too weak a gate for
+// a prefix-less operator-chosen key; "supertokens_api_key" / "super-tokens-key"
 // / "supertokenstoken" is the shape a real key assignment or config entry
 // takes. The bare keyword stays in Keywords() as the engine prefilter.
 var armRe = regexp.MustCompile(`(?i)super[_\-]?tokens?[_\-]?(api[_\-]?)?(key|token|secret)`)
 
 // minEntropy rejects low-information runs that clear the charset regex but are
-// not random keys (padded identifiers, repeated chars). 3.0 is conservative:
+// not random keys. 3.0 is conservative:
 // keys may be as short as 20 chars (less entropy headroom) and the documented
 // example key clears 3.0 with margin, so a higher floor would risk culling
 // real keys. The charset is high-variety but the recall-safe choice for an
@@ -80,7 +79,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			continue
 		}
 		// Entropy gate: low-information runs that clear the charset regex
-		// (padded identifiers, repeated chars) are rejected even if armed.
+		// are rejected even if armed.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}

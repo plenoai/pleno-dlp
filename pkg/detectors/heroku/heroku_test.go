@@ -26,7 +26,6 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword_DoesNotMatch(t *testing.T) {
-	// UUID alone, no heroku keyword in the window → must skip.
 	res, _ := Scanner{}.FromData(context.Background(), false, []byte("uuid="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
@@ -34,7 +33,6 @@ func TestFromData_NoKeyword_DoesNotMatch(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	// Misshapen UUID near keyword.
 	res, _ := Scanner{}.FromData(context.Background(), false, []byte("heroku=not-a-uuid"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))

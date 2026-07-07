@@ -4,8 +4,8 @@
 // within a wide window is far too loose a gate. We instead require a
 // `vercel[_-]?token`-style reference within a tight 64-byte window of the
 // candidate AND gate on Shannon entropy before surfacing it. The window is
-// searched on both sides (not strict immediate precedence) so a token in a
-// `.vercel/` config file with a nearby VERCEL_TOKEN reference still arms.
+// searched on both sides so a token in a `.vercel/` config file with a
+// nearby VERCEL_TOKEN reference still arms.
 // Verify hits /v2/user with Bearer.
 package vercel
 
@@ -34,7 +34,7 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24})\b`)
 var armRe = regexp.MustCompile(`(?i)vercel[_\-]?token`)
 
 // minEntropy rejects low-entropy 24-char runs that clear the alnum regex but
-// are not random tokens (e.g. structured identifiers, padded names).
+// are not random tokens.
 const minEntropy = 3.5
 
 type Scanner struct{}
@@ -63,8 +63,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		// Entropy gate: structured/low-information 24-char runs (e.g. a
-		// dotted identifier or padded name) are rejected even if armed.
+		// Entropy gate: structured/low-information 24-char runs are rejected
+		// even if armed.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
@@ -86,8 +86,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 
 // nearKeyword reports whether a `vercel[_-]?token` reference appears within a
 // tight window on either side of the token. The window spans both directions
-// (not strict immediate precedence) so a token defined alongside a nearby
-// VERCEL_TOKEN reference — e.g. in a `.vercel/` config file — still arms.
+// so a token defined alongside a nearby VERCEL_TOKEN reference — e.g. in a
+// `.vercel/` config file — still arms.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius

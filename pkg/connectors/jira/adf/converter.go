@@ -111,7 +111,6 @@ func renderNode(b *strings.Builder, n *node, depth int) {
 		renderChildren(b, n, depth)
 		b.WriteByte('\n')
 	case "table":
-		// Render table rows; each row on a new line.
 		for _, row := range n.Content {
 			if row.Type == "tableRow" {
 				renderTableRow(b, &row)
@@ -224,7 +223,6 @@ func renderTableRow(b *strings.Builder, n *node) {
 	b.WriteByte('\n')
 }
 
-// renderNodeString renders a node and returns the resulting string.
 func renderNodeString(n *node, depth int) string {
 	var b strings.Builder
 	renderNode(&b, n, depth)

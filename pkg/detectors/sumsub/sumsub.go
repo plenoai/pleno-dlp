@@ -47,15 +47,14 @@ var secretRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
 // armRe is the assignment-style Sumsub reference that must appear within a
 // tight window of a candidate. A bare "sumsub" substring anywhere in the
-// chunk (a dependency name, a comment, an unrelated URL) is too weak a gate;
-// `sumsub` / `sum-sub` / `sumsub_secret` etc. is the shape a real credential
-// assignment or config key takes. The bare keyword stays in Keywords() as the
-// engine prefilter.
+// chunk is too weak a gate; `sumsub` / `sum-sub` / `sumsub_secret` etc. is
+// the shape a real credential assignment or config key takes. The bare
+// keyword stays in Keywords() as the engine prefilter.
 var armRe = regexp.MustCompile(`(?i)sum[_-]?sub`)
 
 // minEntropy rejects low-information 32-64 char runs that clear the alnum
-// regex but are not random secrets (padded identifiers, structured strings).
-// All known-good Sumsub secrets measure >=4.38 bits/char, so 3.5 is recall-safe.
+// regex but are not random secrets. All known-good Sumsub secrets measure
+// >=4.38 bits/char, so 3.5 is recall-safe.
 const minEntropy = 3.5
 
 // proximityRadius bounds how far (in bytes, both directions) the arm reference

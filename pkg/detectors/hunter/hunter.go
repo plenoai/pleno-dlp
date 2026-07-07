@@ -1,6 +1,3 @@
-// Package hunter detects Hunter.io email-finder API keys — 40-char
-// hex tokens near the `hunter` keyword. Verified via /v2/account on
-// api.hunter.io with the api_key query parameter.
 package hunter
 
 import (

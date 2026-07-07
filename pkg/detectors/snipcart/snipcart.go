@@ -28,13 +28,13 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var tokenRe = regexp.MustCompile(`\b([0-9A-Za-z_]{75})\b`)
 
 // armRe is the assignment-style Snipcart reference that must appear within the
-// proximity window. A bare "snipcart" substring (script-src URLs, package
-// names, comments) is too weak; the shape a real secret-key assignment or
-// config key takes is `snipcart_api_key` / `snipcart-secret` / "snipcart token".
+// proximity window. A bare "snipcart" substring is too weak; the shape a real
+// secret-key assignment or config key takes is `snipcart_api_key` /
+// `snipcart-secret` / "snipcart token".
 var armRe = regexp.MustCompile(`(?i)snipcart[_\-]?(api[_\-]?)?(token|key|secret)`)
 
-// minEntropy rejects low-entropy 75-char runs that clear the charset regex but
-// are not random keys (e.g. structured identifiers, repeated padding).
+// minEntropy rejects low-entropy 75-char runs that clear the charset regex
+// but are not random keys.
 const minEntropy = 3.5
 
 type Scanner struct{}
@@ -59,8 +59,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		// Entropy gate: structured/low-information 75-char runs (padded names,
-		// repeated identifiers) are rejected even if armed.
+		// Entropy gate: structured/low-information 75-char runs are rejected
+		// even if armed.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
@@ -85,8 +85,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 
 // nearKeyword reports whether a `snipcart[_-]?(api[_-]?)?(token|key|secret)`
 // reference appears within a tight window on either side of the token. The
-// window spans both directions (not strict immediate precedence) so a key
-// defined alongside a nearby SNIPCART_API_KEY reference still arms.
+// window spans both directions so a key defined alongside a nearby
+// SNIPCART_API_KEY reference still arms.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius

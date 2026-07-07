@@ -240,9 +240,8 @@ func TestEngine_StampsBlastRadiusOnEmit(t *testing.T) {
 
 // indeterminateDet emits a Result with Verified=false and a non-nil
 // VerificationErr (Severity left at the zero value) — the shape a real
-// detector produces when Verify's HTTP call fails outright (network error,
-// provider 5xx, rate limit) rather than the provider affirmatively
-// rejecting the secret.
+// detector produces when Verify's HTTP call fails outright rather than
+// the provider affirmatively rejecting the secret.
 type indeterminateDet struct{}
 
 func (indeterminateDet) Type() detectors.DetectorType { return detectors.AWS }

@@ -1,16 +1,8 @@
-// Package hetzner detects Hetzner Cloud API tokens (a bare 64-char
-// alphanumeric string, no prefix) near a `hcloud` / `hetzner` keyword.
+// Package hetzner detects Hetzner Cloud API tokens: a bare 64-char alphanumeric
+// string, no prefix. The length is authoritatively 64 (terraform-provider-hcloud
+// validates length only; charset undocumented, alnum kept), so the generic
+// 64-char shape is disambiguated with an entropy floor plus a keyword gate.
 // Verified via /v1/servers on api.hetzner.cloud using Bearer auth.
-//
-// Format: the length is authoritatively 64 — the official
-// terraform-provider-hcloud rejects any other length with
-// "entered token is invalid (must be exactly 64 characters long)"
-// (hcloud/provider.go ValidateFunc: `len(token) != 64`, mirrored in
-// issue #149). No prefix and no charset restriction is documented; the
-// provider's own validation is length-only. The detector keeps the
-// existing `[A-Za-z0-9]` charset assumption (no authoritative source
-// widens or narrows it) and disambiguates the otherwise-generic 64-char
-// shape with an entropy floor plus an assignment-style keyword gate.
 package hetzner
 
 import (
@@ -27,22 +19,15 @@ var apiBase = "https://api.hetzner.cloud"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Hetzner Cloud API tokens are authoritatively 64 chars (length-only
-// validation in terraform-provider-hcloud); charset undocumented, alnum kept.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`)
 
-// armRe is the assignment-style Hetzner reference that must appear within the
-// proximity window. A bare "hcloud"/"hetzner" substring (doc links, the
-// api.hetzner.cloud host, package names like `hcloud-go`) is too weak a gate
-// against a generic 64-char alphanumeric run; `(hcloud|hetzner)[_-]?...
-// (token|key|secret)` is the shape a real credential assignment takes. The
-// bare keywords stay in Keywords() as the cheap Aho-Corasick prefilter.
+// armRe requires an assignment-style Hetzner reference in the proximity window:
+// a bare "hcloud"/"hetzner" substring is too weak a gate for a generic 64-char
+// run. The bare keywords stay in Keywords() as the cheap prefilter.
 var armRe = regexp.MustCompile(`(?i)(hcloud|hetzner)[_\-]?(api[_\-]?)?(token|key|secret)`)
 
-// minEntropy rejects low-information 64-char runs (padded placeholders,
-// repeated characters, structured hashes) that clear the alnum regex but lack
-// key-grade randomness. A real 64-char base62 token sits well above 3.5; this
-// is the rubric's "no prefix, fixed length, high-variety charset" floor.
+// minEntropy rejects low-information 64-char runs that clear the alnum regex but
+// lack key-grade randomness. A real base62 token sits well above the 3.5 floor.
 const minEntropy = 3.5
 
 type Scanner struct{}
@@ -64,8 +49,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		// Entropy gate: structured/low-information 64-char runs clear the alnum
-		// regex but are not random tokens — reject them even when armed.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
@@ -91,8 +74,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-// nearKeyword reports whether a `(hcloud|hetzner)[_-]?(api[_-]?)?(token|key|secret)`
-// reference appears within a tight window on either side of the candidate.
+// nearKeyword reports whether an armRe reference appears within a tight window
+// on either side of the candidate.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius

@@ -1,5 +1,3 @@
-// Package hubspot detects HubSpot Private App access tokens (pat-...) and
-// verifies them against /integrations/v1/me.
 package hubspot
 
 import (
@@ -15,9 +13,8 @@ var apiBase = "https://api.hubapi.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// pat- prefix; an optional region tag like "na1-" sometimes precedes the
-// 36-char body. The body is hex with hyphens (UUID-shaped); we keep the
-// alphabet permissive so non-na1 regions still match.
+// An optional region tag like "na1-" may precede the 36-char body; the alphabet
+// stays permissive so non-na1 regions still match.
 var tokenRe = regexp.MustCompile(`\b(pat-(?:na1-)?[a-z0-9-]{36})\b`)
 
 type Scanner struct{}
@@ -80,7 +77,6 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 }
 
 func redact(t string) string {
-	// Keep "pat-" + 4 chars after.
 	if len(t) <= 8 {
 		return t
 	}

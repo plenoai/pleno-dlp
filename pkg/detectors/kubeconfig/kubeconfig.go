@@ -57,8 +57,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// Gate markers. We require kind: Config AND a kubeconfig-consistent
-// apiVersion. `v1` is the canonical kubeconfig apiVersion; the
+// `v1` is the canonical kubeconfig apiVersion; the
 // client.authentication.k8s.io group appears in exec-credential plugin
 // stanzas embedded in real kubeconfigs.
 var (
@@ -129,7 +128,6 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Kubeconfig }
 func (Scanner) Keywords() []string { return []string{"kind: Config", "kind:Config"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	// Gate: require both kind: Config AND a kubeconfig-consistent apiVersion.
 	if !kindRe.Match(data) || !apiVersionRe.Match(data) {
 		return nil, nil
 	}
@@ -155,12 +153,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		return false
 	}
 
-	// Extract all cluster server URLs from the chunk.
 	servers := extractServers(str)
 
-	// Build a map of cert/key pairs keyed by the extracted credential
-	// position for mTLS verification. We collect cert and key values by
-	// the user block they appear in, then pair them up after scanning.
 	certByPos := map[int]string{} // window-index -> base64 cert value
 	keyByPos := map[int]string{}  // window-index -> base64 key value
 
@@ -272,7 +266,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		return nil, nil
 	}
 
-	// Inline verification when requested.
 	if verify {
 		for i := range out {
 			r := &out[i]
@@ -483,7 +476,6 @@ func redact(t string) string {
 	return t[:12] + "..."
 }
 
-// Compile-time interface checks.
 var (
 	_ detectors.Detector = Scanner{}
 	_ detectors.Verifier = Scanner{}

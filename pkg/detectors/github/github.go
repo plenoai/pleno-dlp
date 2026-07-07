@@ -1,4 +1,3 @@
-// Package github detects GitHub PATs, verifies them, and supports revoke.
 package github
 
 import (
@@ -19,7 +18,6 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// apiBase is overridable from tests.
 var apiBase = "https://api.github.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
@@ -33,7 +31,6 @@ const (
 	RevokeModeOAuthApp    = "oauth-app"
 )
 
-// privilegedScopes mark high-blast-radius GitHub scopes.
 var privilegedScopes = map[string]bool{
 	"repo":             true,
 	"delete_repo":      true,
@@ -153,7 +150,6 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	return verified, err
 }
 
-// verifyWithMetadata calls GET /user and returns verification plus metadata.
 func verifyWithMetadata(ctx context.Context, secret string) (bool, map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -184,7 +180,6 @@ func verifyWithMetadata(ctx context.Context, secret string) (bool, map[string]st
 	}
 }
 
-// buildMetadata extracts blast-radius metadata from the GET /user response.
 func buildMetadata(h http.Header, body []byte) map[string]string {
 	meta := map[string]string{}
 	if scopes := strings.TrimSpace(h.Get("X-OAuth-Scopes")); scopes != "" {
@@ -388,7 +383,6 @@ func redact(t string) string {
 	return t[:8] + "..."
 }
 
-// Compile-time interface checks.
 var (
 	_ detectors.Detector = Scanner{}
 	_ detectors.Verifier = Scanner{}

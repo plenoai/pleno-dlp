@@ -14,8 +14,8 @@ import (
 )
 
 // protectFlags captures protect-specific options. Scan-wide flags
-// (format, verify, fail-on, …) are bound to scanOpts directly so
-// operators get the same knobs they already know from `scan`.
+// are bound to scanOpts directly so operators get the same knobs
+// they already know from `scan`.
 type protectFlags struct {
 	// staged selects git diff --cached (true) vs git diff (false).
 	staged bool
@@ -24,7 +24,7 @@ type protectFlags struct {
 	// it into staged in runProtect.
 	noStaged bool
 	// repo overrides the git repository root; empty means use cwd.
-	// Useful when invoked from outside the repository (e.g. wrapper scripts).
+	// Useful when invoked from outside the repository.
 	repo string
 }
 
@@ -147,7 +147,7 @@ func extractAddedLines(diff string) string {
 	var sb strings.Builder
 	for _, line := range strings.SplitAfter(diff, "\n") {
 		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
-			sb.WriteString(line[1:]) // strip leading '+'
+			sb.WriteString(line[1:])
 		}
 	}
 	return sb.String()

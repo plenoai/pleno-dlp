@@ -1,8 +1,5 @@
-// Package freshsales detects Freshsales / Freshworks CRM API tokens —
-// long alphanumerics near the `freshsales` or `freshworks` keyword.
-// Unverified-by-default; the per-domain host (`<domain>.myfreshworks.com`)
-// isn't in the chunk. Verify only fires when an apiBase override is
-// supplied.
+// Unverified-by-default: the per-domain host isn't in the chunk, so verify
+// only fires when an apiBase override is supplied.
 package freshsales
 
 import (

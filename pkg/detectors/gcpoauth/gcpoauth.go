@@ -1,6 +1,4 @@
-// Package gcpoauth detects Google OAuth 2.0 refresh tokens (`1//0e…`).
-//
-// Refresh tokens are long-lived bearer credentials that mint access tokens —
+// Refresh tokens are long-lived bearer credentials that mint access tokens;
 // rotating them is non-trivial because they're issued per (user, client). We
 // verify by POSTing to https://oauth2.googleapis.com/token with
 // `grant_type=refresh_token`. A 200 + access_token in the body means the

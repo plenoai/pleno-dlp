@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// blockJSON is a helper to build a Notion block JSON object.
 func blockJSON(blockType string, fields map[string]any) json.RawMessage {
 	obj := map[string]any{"type": blockType, "id": "test-id"}
 	for k, v := range fields {

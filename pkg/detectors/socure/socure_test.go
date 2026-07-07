@@ -50,8 +50,8 @@ func TestFromData_NoKeyword(t *testing.T) {
 }
 
 // TestFromData_BareKeywordNoArm guards the gate tightening: a bare "socure"
-// mention near a real UUID key (no assignment-style reference) must no longer
-// arm, since armRe requires socure[_-]?(api[_-]?)?(token|key|secret).
+// mention near a real UUID key must no longer arm, since armRe requires
+// socure[_-]?(api[_-]?)?(token|key|secret).
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("see https://developer.socure.com for docs; value " + dummy)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
@@ -61,8 +61,8 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 }
 
 // TestFromData_RejectsHighEntropyNonUUID is the FP regression: a generic
-// 40-char high-entropy run next to the keyword (matched by the old regex)
-// must no longer be detected — it is not the documented UUID v4 format.
+// 40-char high-entropy run next to the keyword must no longer be detected —
+// it is not the documented UUID v4 format.
 func TestFromData_RejectsHighEntropyNonUUID(t *testing.T) {
 	body := []byte("SOCURE_API_KEY=" + fpHighEntropy)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)

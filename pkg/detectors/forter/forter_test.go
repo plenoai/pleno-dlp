@@ -42,9 +42,9 @@ func TestFromData_NoKeyword(t *testing.T) {
 }
 
 // TestFromData_BareKeywordNoArm guards the radius/arm-regex tightening: a bare
-// "forter" word near a high-entropy run (e.g. a doc link or the portal host)
-// must no longer arm the detector — only an assignment-style
-// forter[_-]?(api[_-]?)?(token|key|secret) reference does.
+// "forter" word near a high-entropy run must no longer arm the detector —
+// only an assignment-style forter[_-]?(api[_-]?)?(token|key|secret) reference
+// does.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("// see https://portal.forter.com for details\nrandomId = " + dummy)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)

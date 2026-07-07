@@ -1,6 +1,3 @@
-// Package infura detects Infura project IDs — 32-char hex strings near
-// the `infura` keyword. Verified via JSON-RPC eth_blockNumber on
-// mainnet.infura.io/v3/<id>.
 package infura
 
 import (

@@ -59,7 +59,6 @@ func init() {
 	})
 }
 
-// scanHuggingFace is the connector entry point.
 func scanHuggingFace(ctx context.Context, cfg Config, emit Emit) error {
 	token := cfg["token"]
 	org := cfg["org"]
@@ -285,7 +284,6 @@ func hfResolveSingleRepo(ctx context.Context, cli *hfClient, singleRepo, repoTyp
 	return nil, fmt.Errorf("huggingface: repo %q not found in types %v", singleRepo, types)
 }
 
-// hfEnumerateByType lists all repos of a given type for an org.
 func hfEnumerateByType(ctx context.Context, cli *hfClient, org, repoType string) ([]hfRepoRef, error) {
 	pluralPath := map[string]string{
 		"model":   "/api/models",
@@ -338,8 +336,8 @@ func parseRepoTypes(s string) []string {
 }
 
 // hfBuildCloneURL resolves the clone URL for a repo, honouring the
-// clone_url_template config key (test-only override, same convention as the
-// GitHub connector). The template supports {owner} and {repo} placeholders.
+// clone_url_template config key (test-only override). The template supports
+// {owner} and {repo} placeholders.
 func hfBuildCloneURL(cfg Config, repo hfRepoRef) string {
 	if tmpl := cfg["clone_url_template"]; tmpl != "" {
 		name := repo.ID

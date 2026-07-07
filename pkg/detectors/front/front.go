@@ -1,6 +1,3 @@
-// Package front detects Front (frontapp.com) API tokens — JWT-shaped 3-segment
-// base64url tokens near `frontapp` / `front_api` keyword. Verified via /me on
-// api2.frontapp.com using `Authorization: Bearer <token>`.
 package front
 
 import (
@@ -17,7 +14,6 @@ var apiBase = "https://api2.frontapp.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Front API tokens are JWTs (3 base64url segments separated by '.').
 var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
 
 var contextKeywords = []string{"frontapp", "front_api", "fronthq", "front_token"}

@@ -1,8 +1,7 @@
 // Package storj detects Storj DCS access grants and API keys — long
 // alphanumerics near the `storj` keyword. Unverified-by-default; the
-// per-satellite host (us1.storj.io, eu1.storj.io, ap1.storj.io) and
-// project context aren't in the chunk. Verify only fires when an
-// apiBase override is supplied.
+// per-satellite host and project context aren't in the chunk. Verify
+// only fires when an apiBase override is supplied.
 package storj
 
 import (

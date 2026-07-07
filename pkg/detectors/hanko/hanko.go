@@ -1,8 +1,7 @@
-// Package hanko detects Hanko Cloud admin API keys — long base64url tokens
-// gated on the `hanko` keyword window. Hanko issues admin keys for a
-// specific tenant API URL; verification checks /webhooks against an
-// override apiBase. Without an override, Verify is a no-op (false, nil) so
-// the detector still surfaces under --unverified-results.
+// Package hanko detects Hanko Cloud admin API keys. Hanko issues admin keys
+// for a specific tenant API URL, so verification needs an apiBase override;
+// without one Verify is a no-op and the detector surfaces only under
+// --unverified-results.
 package hanko
 
 import (

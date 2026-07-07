@@ -9,7 +9,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// dummy is a high-entropy 11<32-hex> shape used as a realistic token.
+// dummy is a realistic 11<32-hex> token shape.
 const dummy = "11abcdef0123456789abcdef0123456789"
 
 func TestType(t *testing.T) {
@@ -24,7 +24,6 @@ func TestKeywords(t *testing.T) {
 	}
 }
 
-// TestFromData_Positive: a credential assignment is STILL detected.
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# jenkins\nJENKINS_API_TOKEN=" + dummy)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
@@ -33,7 +32,6 @@ func TestFromData_Positive(t *testing.T) {
 	}
 }
 
-// TestFromData_PositiveQuotedYAML: quoted key:value form still detected.
 func TestFromData_PositiveQuotedYAML(t *testing.T) {
 	body := []byte(`jenkins_token: "` + dummy + `"`)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
@@ -42,7 +40,6 @@ func TestFromData_PositiveQuotedYAML(t *testing.T) {
 	}
 }
 
-// TestFromData_NoKeyword: no jenkins context at all.
 func TestFromData_NoKeyword(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
@@ -65,11 +62,10 @@ func TestFromData_BadShape(t *testing.T) {
 	}
 }
 
-// --- FP suppression fixtures (now SUPPRESSED by the hardening) ---
+// --- FP suppression fixtures ---
 
-// FP1: an artifact/content checksum near the bare word `jenkins`. Under the
-// old 256-byte proximity gate this leaked; the assignment regex now
-// requires a credential key, so it is suppressed.
+// FP1: an artifact checksum near the bare word `jenkins` is suppressed by the
+// credential-key requirement.
 func TestFromData_FP_ArtifactChecksum(t *testing.T) {
 	body := []byte("jenkins build artifact sha: " + dummy + "\n")
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
@@ -87,9 +83,8 @@ func TestFromData_FP_CacheKey(t *testing.T) {
 	}
 }
 
-// FP3: the token shape embedded as a slice of a longer 40-char git SHA next
-// to a jenkins assignment-looking prefix — the closing \b fails, so no
-// match. Guards the negative-lookalike rule.
+// FP3: the token shape as a slice of a longer git SHA — the closing `\b`
+// fails, so no match.
 func TestFromData_FP_GitSHASlice(t *testing.T) {
 	body := []byte("jenkins git rev = " + dummy + "cafe00")
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
@@ -100,7 +95,7 @@ func TestFromData_FP_GitSHASlice(t *testing.T) {
 
 // FP4: low-entropy hex that satisfies 11<32-hex> but is not a real token.
 func TestFromData_FP_LowEntropy(t *testing.T) {
-	// 11 + 32 zeros = 34 chars: passes the shape regex but fails entropy.
+	// 11 + 32 zeros: passes the shape regex but fails entropy.
 	body := []byte("jenkins_api_token=1100000000000000000000000000000000")
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {

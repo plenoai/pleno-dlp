@@ -192,7 +192,6 @@ func hashData(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// compile-time interface check
 var _ sources.Source = (*Source)(nil)
 var _ sources.ResourceFingerprinter = (*Source)(nil)
 var _ sources.IncrementalStateSource = (*Source)(nil)

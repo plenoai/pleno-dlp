@@ -49,7 +49,6 @@ func buildHFFixtureRepo(t *testing.T) string {
 	return dir
 }
 
-// hfWriteJSON is a helper to write a JSON response in tests.
 func hfWriteJSON(t *testing.T, w http.ResponseWriter, v any) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")

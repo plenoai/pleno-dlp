@@ -1,9 +1,6 @@
-// Package intercom detects Intercom access tokens (`dG9rOg…` — base64 of
-// "tok:") and verifies them against /me.
-//
 // Intercom access tokens always begin with `dG9rOg`, the base64 of the literal
-// `"tok:"` prefix the platform stamps on every token. The remainder is base64
-// of the token body. We anchor on the prefix for low-noise matching.
+// `"tok:"` prefix the platform stamps on every token; we anchor on that prefix
+// for low-noise matching.
 package intercom
 
 import (
@@ -19,7 +16,6 @@ var apiBase = "https://api.intercom.io"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// `dG9rOg` then 50+ base64url chars (Intercom emits tokens 60+ chars total).
 var keyRe = regexp.MustCompile(`\b(dG9rOg[A-Za-z0-9_=+/-]{50,})\b`)
 
 type Scanner struct{}

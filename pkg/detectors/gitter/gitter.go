@@ -1,8 +1,5 @@
-// Package gitter detects Gitter personal access tokens (40-hex co-occurring
-// with `gitter`) and verifies them against /v1/user/me.
-//
 // Gitter tokens grant the issuing user's full chat scope. The 40-hex shape
-// collides with sha1 digests, so co-occurrence with `gitter` keyword is
+// collides with sha1 digests, so co-occurrence with the `gitter` keyword is
 // mandatory.
 package gitter
 

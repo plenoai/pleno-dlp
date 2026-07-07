@@ -1,6 +1,3 @@
-// Package honeycomb detects Honeycomb API keys (`hcaik_…` ingest keys, plus
-// the legacy 32-hex shape near the `honeycomb` keyword) and verifies them
-// against /1/auth using the documented `X-Honeycomb-Team` header.
 package honeycomb
 
 import (
@@ -18,11 +15,10 @@ var apiBase = "https://api.honeycomb.io"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
-	// Modern ingest key: `hcaik_` (Honeycomb All-purpose Ingest Key) plus
-	// 58 base62 chars. The prefix is unique enough to avoid keyword
-	// gating.
+	// Modern ingest key: hcaik_ plus 58 base62 chars; the prefix is unique
+	// enough to skip keyword gating.
 	modernRe = regexp.MustCompile(`\b(hcaik_[A-Za-z0-9]{58})\b`)
-	// Legacy: 32-hex; needs keyword gating.
+	// Legacy 32-hex needs keyword gating.
 	legacyRe = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
 )
 

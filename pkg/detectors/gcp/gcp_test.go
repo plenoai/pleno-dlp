@@ -15,7 +15,6 @@ import (
 	"testing"
 )
 
-// genKey returns a fresh RSA-2048 key in PEM (PKCS8) form.
 func genKey(t *testing.T) string {
 	t.Helper()
 	k, err := rsa.GenerateKey(rand.Reader, 2048)

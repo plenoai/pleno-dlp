@@ -68,7 +68,7 @@ func (r *revokingSink) Emit(f engine.Finding) {
 	// limit) means liveness is unknown, not confirmed — dispatching a
 	// revoke on that basis could invalidate a credential that was never
 	// actually verified live. Verified==false already excludes
-	// Indeterminate (see Result.Verdict), but the explicit comparison
+	// Indeterminate, but the explicit comparison
 	// pins the guarantee against future refactors. See issue #246.
 	if f.Result.Verdict() != detectors.VerdictVerified {
 		return

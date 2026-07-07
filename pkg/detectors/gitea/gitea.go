@@ -1,7 +1,6 @@
-// Package gitea detects Gitea personal access tokens (40-hex near the
-// `gitea` keyword). Gitea is self-hosted; the verify endpoint lives on the
-// per-installation host which isn't carried in the chunk, so this is
-// unverified-by-default with apiBase override for tests.
+// Gitea is self-hosted; the verify endpoint lives on a per-installation host
+// not carried in the chunk, so this is unverified-by-default with an apiBase
+// override for tests.
 package gitea
 
 import (

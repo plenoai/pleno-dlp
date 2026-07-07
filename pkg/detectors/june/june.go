@@ -43,10 +43,6 @@ var armRe = regexp.MustCompile(`(?i)june[_\-]?(write[_\-]?)?(api[_\-]?)?(token|k
 // floor risks culling real keys whose charset we cannot confirm.
 const minEntropy = 3.0
 
-// contextKeywords removed: the bare strings.Contains over radius 256 was
-// replaced by armRe over radius 64. The prefilter keywords live in
-// Keywords() below.
-
 type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.June }
@@ -120,13 +116,8 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 		return false, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusBadRequest {
-		// 400 with valid auth indicates the key authenticated but the
-		// (empty) payload was rejected — treat that as "verified".
-		if resp.StatusCode == http.StatusOK {
-			return true, nil
-		}
-		return false, nil
+	if resp.StatusCode == http.StatusOK {
+		return true, nil
 	}
 	return false, nil
 }

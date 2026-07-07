@@ -1,8 +1,6 @@
-// Package gladly detects Gladly customer support agent_email +
-// api_token pairs near the `gladly` keyword. Unverified-by-default;
-// the per-org host (`<org>.gladly.com`) isn't in the chunk. Verify
-// only fires when an apiBase override is supplied. Raw carries the
-// email, RawV2 the token.
+// Unverified-by-default: the per-org host isn't in the chunk, so verify
+// only fires when an apiBase override is supplied. Raw carries the email,
+// RawV2 the token.
 package gladly
 
 import (
@@ -30,8 +28,8 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`)
 // shape a real credential assignment or config key takes.
 var armRe = regexp.MustCompile(`(?i)gladly[_\-]?(api[_\-]?)?(token|key|email)`)
 
-// minEntropy rejects low-entropy 32-128 char runs that clear the alnum regex
-// but are not random tokens (e.g. padded placeholders, repeated characters).
+// minEntropy rejects low-entropy 32-128 char runs that clear the alnum
+// regex but are not random tokens.
 const minEntropy = 3.5
 
 type Scanner struct{}
@@ -67,9 +65,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if v == email {
 			continue
 		}
-		// Entropy gate: structured/low-information 32-128 char runs (e.g. a
-		// padded placeholder or a long run of repeated characters) clear the
-		// alnum regex but are not random tokens — reject them even when armed.
 		if !detectors.HasMinEntropy(v, minEntropy) {
 			continue
 		}

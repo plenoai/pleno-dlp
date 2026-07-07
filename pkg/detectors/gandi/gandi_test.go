@@ -42,10 +42,9 @@ func TestFromData_NoKeyword(t *testing.T) {
 }
 
 // TestFromData_BareKeywordNoArm is the false-positive regression: a bare
-// "gandi" mention (a docs sentence, package name, etc.) near a high-entropy
-// 24-char run must NOT match, because no assignment-style arm reference
-// (gandi_api_key / gandi-token / ...) is present. Before the arm-regex gate,
-// the radius-256 strings.Contains check would have flagged this.
+// "gandi" mention near a high-entropy 24-char run must NOT match, because no
+// assignment-style arm reference is present. Before the arm-regex gate, the
+// radius-256 strings.Contains check would have flagged this.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	// "gandi" appears, but only as prose — not an assignment anchor.
 	body := []byte("see the gandi provider notes; build id Xy7Kp2Lm9Qr4Ns6Tv8Wz1Bc")

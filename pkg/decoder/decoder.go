@@ -77,7 +77,6 @@ func decodeUnicodeEscape(data []byte) []byte {
 			}
 			r := rune(hi)
 			consumed := 6
-			// Surrogate pair handling.
 			if r >= 0xD800 && r <= 0xDBFF && i+11 < len(s) && s[i+6] == '\\' && s[i+7] == 'u' {
 				lo, ok2 := parseHex4(s[i+8 : i+12])
 				if ok2 && lo >= 0xDC00 && lo <= 0xDFFF {
@@ -147,7 +146,6 @@ func tryUTF16(data []byte) (string, []byte) {
 // shows an alternating-NUL pattern characteristic of ASCII-dominant UTF-16
 // text. Returns (false, false) when no UTF-16 signature is found.
 func utf16Encoding(data []byte) (isLE bool, ok bool) {
-	// Definitive BOM check.
 	if data[0] == 0xFF && data[1] == 0xFE {
 		return true, true
 	}
@@ -182,10 +180,10 @@ func utf16Encoding(data []byte) (isLE bool, ok bool) {
 	}
 	const threshold = 0.75
 	if float64(oddNUL)/float64(half) >= threshold {
-		return true, true // odd positions are NUL → LE
+		return true, true
 	}
 	if float64(evenNUL)/float64(half) >= threshold {
-		return false, true // even positions are NUL → BE
+		return false, true
 	}
 	return false, false
 }
@@ -194,7 +192,6 @@ func utf16Encoding(data []byte) (isLE bool, ok bool) {
 // If isLE is true the input is treated as little-endian; otherwise big-endian.
 // The BOM codepoint (U+FEFF) is stripped from the output.
 func decodeUTF16(data []byte, isLE bool) []byte {
-	// Strip BOM if present.
 	if len(data) >= 2 {
 		if (isLE && data[0] == 0xFF && data[1] == 0xFE) ||
 			(!isLE && data[0] == 0xFE && data[1] == 0xFF) {
@@ -220,12 +217,11 @@ func decodeUTF16(data []byte, isLE bool) []byte {
 	}
 	runes := utf16.Decode(u16)
 
-	// Encode runes to UTF-8.
 	var buf bytes.Buffer
 	buf.Grow(len(runes) * 3 / 2)
 	tmp := make([]byte, utf8.UTFMax)
 	for _, r := range runes {
-		if r == '\uFEFF' { // skip BOM rune
+		if r == '\uFEFF' {
 			continue
 		}
 		n := utf8.EncodeRune(tmp, r)

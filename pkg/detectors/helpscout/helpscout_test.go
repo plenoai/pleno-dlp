@@ -46,9 +46,8 @@ func TestFromData_NoKeyword(t *testing.T) {
 	}
 }
 
-// TestFromData_LowEntropyRejected is the FP-hardening regression: structured/
-// low-information 32-char runs sitting right next to the helpscout assignment
-// keywords used to match under the old bare-keyword radius-256 gate. The
+// FP-hardening regression: low-information 32-char runs next to the helpscout
+// assignment keywords used to match under the old bare-keyword gate; the
 // HasMinEntropy(3.0) floor now rejects them.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	const lowA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 'a's, entropy 0
@@ -60,10 +59,9 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 	}
 }
 
-// TestFromData_KeywordWithoutArm is the radius/arm regression: a bare mention of
-// the word "helpscout" far from any credential-shaped assignment no longer arms
-// the detector. The old gate fired on any "helpscout" substring within 256
-// chars; the arm regex requires an assignment shape within 64 chars.
+// Arm regression: a bare "helpscout" mention far from any credential-shaped
+// assignment no longer arms; the arm regex requires an assignment shape within
+// 64 chars.
 func TestFromData_KeywordWithoutArm(t *testing.T) {
 	body := []byte("we migrated from helpscout last year. CONFIG_A=" + dummyID + " CONFIG_B=" + dummySecret)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)

@@ -1,14 +1,8 @@
-// Package hyperline detects Hyperline (hyperline.co) billing API keys.
+// Package hyperline detects Hyperline billing API keys.
 //
-// Per Hyperline's API authentication docs, API keys are prefixed with `prod_`
-// or `test_` to distinguish environments and are passed as a Bearer token. The
-// docs do NOT publish the length or charset of the random tail, so we anchor on
-// the documented prefix (the strong distinguishing signal) rather than guessing
-// a length — pinning an undocumented length would silently destroy recall. The
-// prefix carries most of the FP load; we keep a conservative entropy floor and a
-// tight assignment-anchor keyword gate as belt-and-suspenders.
-// Source: https://docs.hyperline.co/llms-full.txt (auth section).
-// Verified via /v1/customers on api.hyperline.co with Bearer auth.
+// The docs do not publish the length or charset of the random tail, so the
+// regex anchors on the documented `prod_`/`test_` prefix rather than pinning an
+// undocumented length that would destroy recall.
 package hyperline
 
 import (
@@ -25,22 +19,15 @@ var apiBase = "https://api.hyperline.co"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// tokenRe anchors on the documented `prod_`/`test_` prefix. The random tail is
-// `[A-Za-z0-9]` of undocumented length; we require >=16 chars (a recall-safe
-// lower bound, not a pinned exact length) and let the prefix do the
-// distinguishing work. Charset/length of the tail is NOT authoritatively
-// documented — see package doc.
+// The >=16 tail is a recall-safe lower bound, not a documented exact length.
 var tokenRe = regexp.MustCompile(`\b((?:prod|test)_[A-Za-z0-9]{16,})\b`)
 
-// armRe is the assignment-style Hyperline reference that must appear within the
-// proximity window. A bare "hyperline" substring (package names, doc URLs,
-// comments) is too weak; `hyperline_api_token` / `hyperline-key` is the shape a
-// real key assignment or config key takes.
+// armRe requires an assignment-style reference in the proximity window; a bare
+// "hyperline" substring is too weak a gate.
 var armRe = regexp.MustCompile(`(?i)hyperline[_\-]?(api[_\-]?)?(token|key|secret)`)
 
-// minEntropy rejects low-entropy prefixed runs that clear the regex but are not
-// random tokens. Conservative 3.0 floor — base62 tokens sit well above this, so
-// it culls obvious structured strings without trimming real keys.
+// minEntropy culls low-entropy prefixed runs; 3.0 is conservative so base62
+// tokens clear it without trimming real keys.
 const minEntropy = 3.0
 
 type Scanner struct{}
@@ -87,10 +74,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-// nearKeyword reports whether a `hyperline[_-]?(api)?(token|key|secret)`
-// reference appears within a tight window on either side of the token. The
-// window spans both directions (not strict precedence) so a key defined
-// alongside a nearby HYPERLINE_API_KEY reference still arms.
+// nearKeyword arms if armRe appears within the window on either side of the
+// token (not strict precedence).
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius

@@ -92,8 +92,7 @@ func isToken(token string) bool {
 	if strings.HasPrefix(token, "eyJ") {
 		return isJWT(token)
 	}
-	// base62 branch: reject pure-hex (git SHA-1 / sha256 digest / md5) and
-	// low-entropy structured identifiers.
+	// base62 branch: reject pure-hex and low-entropy structured identifiers.
 	if pureHexRe.MatchString(token) {
 		return false
 	}

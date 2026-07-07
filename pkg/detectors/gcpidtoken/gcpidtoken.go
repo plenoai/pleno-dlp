@@ -1,19 +1,8 @@
-// Package gcpidtoken detects GCP ID tokens — JWT-shaped tokens issued by
-// google-issued OIDC, with `iss=https://accounts.google.com` (or the
-// service-account equivalent) and an `aud=` claim binding the token to a
-// specific resource.
-//
-// Verification uses the Google tokeninfo endpoint
-// (https://oauth2.googleapis.com/tokeninfo?id_token=<token>). A 200 with
-// valid JSON means the token is live and Google-accepted; 4xx means expired
-// or invalid. On success the response's "email_verified" and "azp" fields
-// are added to ExtraData for blast-radius context.
+// A GCP ID token has `iss=https://accounts.google.com` (or the
+// service-account equivalent), distinguishing it from other JWTs.
 //
 // Note: the tokeninfo endpoint is rate-limited by Google. The scanner
 // should not be run in a tight loop against thousands of tokens.
-//
-// We also decode the payload to surface `iss` / `aud` / `email` / `sub` in
-// ExtraData so reviewers can triage without re-decoding the token themselves.
 package gcpidtoken
 
 import (
@@ -28,8 +17,8 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// JWT shape (header.payload.signature, base64url). Same as pkg/detectors/jwt
-// but we filter on the `iss` claim to claim only Google-issued tokens here.
+// Same shape as pkg/detectors/jwt, but filtered on the `iss` claim to claim
+// only Google-issued tokens here.
 var jwtRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
@@ -56,8 +45,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			continue
 		}
 		claims := decodeClaims(token)
-		// Only claim google-issued tokens — defer to pkg/detectors/jwt for
-		// everything else.
 		iss := claims["iss"]
 		if !isGoogleIssuer(iss) {
 			continue
@@ -85,8 +72,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-// Verify satisfies detectors.Verifier. It probes Google's tokeninfo
-// endpoint to check whether the token is still live.
 func (s Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	v, _, err := s.verifyWithMetadata(ctx, secret)
 	return v, err
@@ -116,7 +101,6 @@ func (Scanner) verifyWithMetadata(ctx context.Context, token string) (bool, map[
 		return false, nil, nil
 	}
 
-	// Parse the tokeninfo response to extract blast-radius context.
 	var info struct {
 		EmailVerified string `json:"email_verified"`
 		Azp           string `json:"azp"`

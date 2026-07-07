@@ -43,9 +43,9 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
 var armRe = regexp.MustCompile(`(?i)typesense[_\-]?(api[_\-]?)?(key|token|secret)`)
 
 // minEntropy rejects low-entropy 32-char runs that clear the alnum regex
-// but are not random keys (e.g. structured identifiers, padded names).
-// 3.5 is the documented threshold for no-prefix fixed-length high-variety
-// alnum credentials; the real 32-char Typesense examples sit at ~4.6.
+// but are not random keys. 3.5 is the documented threshold for no-prefix
+// fixed-length high-variety alnum credentials; the real 32-char Typesense
+// examples sit at ~4.6.
 const minEntropy = 3.5
 
 type Scanner struct{}
@@ -70,8 +70,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		// Entropy gate: structured/low-information 32-char runs (e.g. a
-		// dotted identifier or padded name) are rejected even if armed.
+		// Entropy gate: structured/low-information 32-char runs are rejected
+		// even if armed.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
@@ -96,8 +96,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 
 // nearKeyword reports whether a `typesense[_-]?(api[_-]?)?(key|token|secret)`
 // reference appears within a tight window on either side of the token. The
-// window spans both directions (not strict immediate precedence) so a key
-// defined alongside a nearby TYPESENSE_API_KEY reference still arms.
+// window spans both directions so a key defined alongside a nearby
+// TYPESENSE_API_KEY reference still arms.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius

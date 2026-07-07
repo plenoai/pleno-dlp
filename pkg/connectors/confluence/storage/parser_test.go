@@ -30,7 +30,6 @@ func TestHeadings(t *testing.T) {
 			t.Errorf("ToText(%q) = %q, want to contain heading prefix %q", input, got, wantPfx)
 		}
 	}
-	// Direct test.
 	tests := []struct {
 		tag   string
 		pfx   string

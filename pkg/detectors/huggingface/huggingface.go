@@ -1,5 +1,3 @@
-// Package huggingface detects HuggingFace user access tokens (hf_…) and
-// verifies them via /api/whoami-v2.
 package huggingface
 
 import (
@@ -15,7 +13,6 @@ var apiBase = "https://huggingface.co"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// hf_ + 34 base62 chars.
 var tokenRe = regexp.MustCompile(`\b(hf_[A-Za-z0-9]{34})\b`)
 
 type Scanner struct{}

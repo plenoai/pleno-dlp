@@ -51,14 +51,12 @@ func walkNode(b *strings.Builder, n *html.Node) {
 		}
 		return
 	case html.CommentNode:
-		// Skip comments.
 		return
 	case html.ErrorNode:
 		b.WriteString(n.Data)
 		return
 	}
 
-	// Element node.
 	switch n.Data {
 	case "p", "div":
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -200,8 +198,6 @@ func walkNode(b *strings.Builder, n *html.Node) {
 		return
 	default:
 		// Unknown element: emit children for content, don't drop.
-		// Also include a fallback indicator for truly unknown
-		// structural elements.
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			walkNode(b, c)
 		}

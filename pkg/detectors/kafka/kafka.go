@@ -92,7 +92,6 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	seen := map[string]struct{}{}
 	str := string(data)
 
-	// Property-style results.
 	for _, m := range propPasswordRe.FindAllStringSubmatch(str, -1) {
 		password := m[1]
 		if password == "" {

@@ -40,8 +40,8 @@ var armRe = regexp.MustCompile(`(?i)swimlane[_\-]?(api[_\-]?)?(token|key|secret)
 
 // minEntropy is a conservative floor: no source pins the charset, so 3.0 (well
 // below the 3.5 used for documented high-variety tokens) only rejects clearly
-// structured 40-80 char runs (padded placeholders, repeated characters) that
-// clear the alnum regex but are not random tokens.
+// structured 40-80 char runs that clear the alnum regex but are not random
+// tokens.
 const minEntropy = 3.0
 
 type Scanner struct{}
@@ -66,9 +66,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		// Entropy gate: structured/low-information 40-80 char runs (padded
-		// placeholders, long runs of repeated characters) clear the alnum regex
-		// but are not random tokens — reject them even when armed.
+		// Entropy gate: structured/low-information 40-80 char runs clear the
+		// alnum regex but are not random tokens — reject them even when armed.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
@@ -90,8 +89,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 
 // nearKeyword reports whether a `swimlane[_-]?(api[_-]?)?(token|key|secret)`
 // reference appears within a tight window on either side of the candidate. The
-// window spans both directions (not strict immediate precedence) so a
-// credential defined alongside a nearby SWIMLANE_TOKEN reference still arms.
+// window spans both directions so a credential defined alongside a nearby
+// SWIMLANE_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius

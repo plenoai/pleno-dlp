@@ -15,8 +15,8 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-const dummyClassic = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"                                                        // 36 chars body
-const dummyFine = "github_pat_" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_abcdefghijklmnopqrs" // 82 chars body
+const dummyClassic = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"
+const dummyFine = "github_pat_" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_abcdefghijklmnopqrs"
 
 func TestFromData_Positive(t *testing.T) {
 	body := "leak: " + dummyClassic + " and another " + dummyFine
@@ -80,8 +80,7 @@ const (
 	testClientSecret = "test_oauth_client_secret_value"
 )
 
-// revokeServer returns an httptest server that asserts the request shape
-// (path, method, basic auth, JSON body) matches the documented contract
+// revokeServer asserts the request shape matches the documented contract
 // and serves the requested status. Returns the captured request body.
 func revokeServer(t *testing.T, status int) (*httptest.Server, *string) {
 	t.Helper()

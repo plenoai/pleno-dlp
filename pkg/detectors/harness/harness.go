@@ -1,11 +1,3 @@
-// Package harness detects Harness CI/CD personal access tokens
-// (`pat.<account>.<id>.<secret>` 4-segment dotted shape) and verifies
-// them against /ng/api/users using the documented `x-api-key` header.
-//
-// Harness PATs grant the issuing user's full pipeline + secrets-manager
-// scope. The 4-segment `pat.` prefix is distinctive enough that no
-// keyword gate is required, but we still gate on `harness` to keep
-// platform agnostic `pat.…` shapes from surfacing here.
 package harness
 
 import (
@@ -21,8 +13,6 @@ var apiBase = "https://app.harness.io"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// pat.<account>.<id>.<secret>. Account/id segments are alnum with
-// hyphens; the secret tail is 24+ base62.
 var tokenRe = regexp.MustCompile(`\b(pat\.[A-Za-z0-9_-]{8,40}\.[A-Za-z0-9_-]{8,40}\.[A-Za-z0-9]{16,64})\b`)
 
 type Scanner struct{}

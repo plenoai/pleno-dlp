@@ -1,6 +1,3 @@
-// Package friendliai detects FriendliAI personal API tokens — `flp_<32+
-// alnum>` prefix-keyed strings. Verified via /v1/models on api.friendli.ai
-// with Bearer auth.
 package friendliai
 
 import (

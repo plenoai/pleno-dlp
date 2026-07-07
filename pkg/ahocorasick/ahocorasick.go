@@ -221,8 +221,6 @@ func (m *Matcher) MatchHitsInto(data []byte, out []Hit) []Hit {
 }
 
 // NumPatterns reports the upper bound on pattern IDs the matcher will emit.
-// Callers sizing reusable `seen` buffers should use this rather than the
-// original `len(patterns)` (the two differ if any empty patterns were
-// skipped — they aren't, but a future caller passing duplicates with high
-// IDs would care).
+// Callers sizing reusable `seen` buffers should use this rather than
+// `len(patterns)`, which can differ if patterns are skipped or IDs reused.
 func (m *Matcher) NumPatterns() int { return len(m.patternsAt) }

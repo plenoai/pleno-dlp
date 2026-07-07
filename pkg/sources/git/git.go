@@ -265,7 +265,7 @@ func (s *Source) resolveStarts(repo *git.Repository) ([]plumbing.Hash, error) {
 	defer refs.Close()
 	err = refs.ForEach(func(ref *plumbing.Reference) error {
 		if ref.Type() != plumbing.HashReference {
-			return nil // skip symbolic refs (e.g. HEAD -> refs/heads/main)
+			return nil // skip symbolic refs
 		}
 		name := ref.Name().String()
 		if !strings.HasPrefix(name, "refs/heads/") && !strings.HasPrefix(name, "refs/remotes/") {
@@ -554,7 +554,6 @@ func isBinary(b []byte) bool {
 	return bytes.IndexByte(b[:n], 0x00) >= 0
 }
 
-// compile-time interface check
 var _ sources.Source = (*Source)(nil)
 var _ sources.ResourceFingerprinter = (*Source)(nil)
 var _ sources.IncrementalStateSource = (*Source)(nil)

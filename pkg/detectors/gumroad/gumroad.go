@@ -1,6 +1,3 @@
-// Package gumroad detects Gumroad personal access tokens (32+ alphanumeric
-// near the `gumroad` keyword). Verified via /v2/user on api.gumroad.com using
-// `?access_token=` query parameter.
 package gumroad
 
 import (

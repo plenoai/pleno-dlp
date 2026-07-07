@@ -1,7 +1,5 @@
-// Package gocardless detects GoCardless access tokens — `live_<base64url>`
-// or `sandbox_<base64url>` (40+ chars). live_ verified hits surface
-// SeverityCritical via DefaultSeverity (verified=true). live_ verifies
-// against api.gocardless.com; sandbox_ verifies against api-sandbox.
+// live_ verified hits surface SeverityCritical via DefaultSeverity; live_
+// verifies against api.gocardless.com, sandbox_ against api-sandbox.
 package gocardless
 
 import (

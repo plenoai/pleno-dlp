@@ -1,6 +1,3 @@
-// Package gusto detects Gusto payroll API OAuth bearer tokens — 40+ char hex
-// strings near the `gusto` keyword. Verified via /v1/me on api.gusto.com with
-// Bearer auth.
 package gusto
 
 import (

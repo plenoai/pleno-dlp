@@ -1,7 +1,3 @@
-// Package helicone detects Helicone (helicone.ai) LLM-observability API
-// keys (`sk-helicone-` prefix + alnum) near the `helicone` keyword.
-// Verified via /v1/user/query on api.helicone.ai with Authorization
-// Bearer header.
 package helicone
 
 import (
@@ -18,7 +14,6 @@ var apiBase = "https://api.helicone.ai"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Helicone API keys: sk-helicone-(<env>-)?<8-block-uuid-shape>.
 var tokenRe = regexp.MustCompile(`\b(sk-helicone-[a-z0-9_-]{20,80})\b`)
 
 type Scanner struct{}

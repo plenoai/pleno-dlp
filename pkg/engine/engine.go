@@ -178,7 +178,7 @@ func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
 			log.Printf("engine: archive expansion error for %s: %v", c.SourceName, err)
 		}
 		for _, entry := range entries {
-			inner := *c // shallow copy preserves source metadata
+			inner := *c
 			inner.Data = entry.Data
 			// Embed the inner archive path into the finding's
 			// ExtraData via the dedup keying — the chunk metadata
@@ -249,8 +249,8 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 	seenPtr := e.seenBufPool.Get().(*[]bool)
 	defer e.seenBufPool.Put(seenPtr)
 
-	// FullChunkDetector opt-ins (e.g. PrivateKeyPEM) see the entire
-	// chunk independent of the windowing loop below. BEGIN/END
+	// FullChunkDetector opt-ins see the entire chunk independent of
+	// the windowing loop below. BEGIN/END
 	// anchored regexes don't survive being split across a 32 KiB
 	// window boundary even with overlap, so we pay the per-chunk
 	// regex cost once on the whole chunk for that small set.
@@ -263,8 +263,7 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 	}
 	for start := 0; start < len(data); start += windowStepSize {
 		// A cancelled scan stops sliding the window; remaining windows
-		// of this chunk go unscanned by design (forfeit completeness on
-		// cancel rather than keep dispatching detectors).
+		// of this chunk go unscanned by design.
 		if ctx.Err() != nil {
 			return
 		}
@@ -282,13 +281,13 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 // runFullChunkDetectors dispatches every detector that opted in via
 // FullChunkDetector against the whole chunk in one pass — bypassing
 // both the windowing loop and the vicinity-slice dispatch. The
-// scanWindow path then SKIPs these detectors (see dispatch), so each
+// scanWindow path then SKIPs these detectors, so each
 // FullChunk detector emits exactly once per chunk regardless of how
 // many windows the chunk is split into.
 func (e *Engine) runFullChunkDetectors(ctx context.Context, c *sources.Chunk, archivePath string) {
 	// Decode variants from the whole chunk so an encoded PEM inside a
 	// base64 blob still reaches the detector. Cheap when the chunk
-	// has no candidate runs (byte-scan gates short-circuit).
+	// has no candidate runs.
 	variants := decoder.Variants(c.Data)
 	for _, v := range variants {
 		// Stop dispatching full-chunk detectors once the scan is
@@ -307,8 +306,7 @@ func (e *Engine) runFullChunkDetectors(ctx context.Context, c *sources.Chunk, ar
 }
 
 // scanWindow runs the variant fan-out + dispatch for a single window of
-// chunk bytes. Split out of scanChunkLeaf so the windowing loop stays a
-// flat read.
+// chunk bytes.
 func (e *Engine) scanWindow(ctx context.Context, c *sources.Chunk, window []byte, archivePath string, lowerPtr *[]byte, seenPtr *[]bool) {
 	// Variants[0] is always window unchanged (Source=""). Subsequent
 	// entries are base64/percent/hex decode results, included only when
@@ -369,11 +367,9 @@ func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Varia
 		return 0
 	}
 	// Group hits by detector: each detector sees the union of its
-	// keyword-hit vicinities. We accumulate (start, end) byte ranges
-	// per detector, merge overlapping ranges, then run FromData once
-	// per merged range. The per-detector ranges array is small (most
-	// detectors fire once per window); allocating it inline keeps the
-	// code simple without showing up in the profile.
+	// keyword-hit vicinities. Accumulate start/end byte ranges per
+	// detector, merge overlapping ranges, then run FromData once per
+	// merged range.
 	dets := make(map[int][]vicinitySpan)
 	for _, h := range hits {
 		for _, di := range e.detectorIdxByPattern[h.PatternID] {
@@ -414,14 +410,14 @@ func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Varia
 
 type vicinitySpan struct{ start, end int }
 
-// mergeSpans collapses overlapping/adjacent (sorted-on-the-fly) spans
-// so each detector regex runs once per disjoint vicinity region. Sort
+// mergeSpans collapses overlapping/adjacent spans so each detector
+// regex runs once per disjoint vicinity region. Sort
 // by start, sweep, extend the active region until a gap appears.
 func mergeSpans(spans []vicinitySpan) []vicinitySpan {
 	if len(spans) <= 1 {
 		return spans
 	}
-	// Insertion sort: per-detector hit counts are typically small (1-5),
+	// Insertion sort: per-detector hit counts are typically small,
 	// where sort.Slice's setup cost dominates.
 	for i := 1; i < len(spans); i++ {
 		for j := i; j > 0 && spans[j-1].start > spans[j].start; j-- {
@@ -450,20 +446,19 @@ func mergeSpans(spans []vicinitySpan) []vicinitySpan {
 // from AC hits; detectors that needed the full variant before still
 // see a slice that covers every keyword hit + vicinityRadius bytes on
 // each side, which is the radius the credential regexes are written
-// against. Pulled out of scanChunkLeaf so the inner dispatch loop
-// stays a flat read.
+// against.
 func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte) {
 	d := e.dets[di]
-	// Verification is unconditional (verify-by-default since #165): there
-	// is no engine-level toggle. The bool is the trufflehog Detector
+	// Verification is unconditional: there is no engine-level toggle.
+	// The bool is the trufflehog Detector
 	// contract, not a configurable option, so we always pass true here.
 	results, err := d.FromData(ctx, true, data)
 	if err != nil {
 		// Cancellation is the expected shutdown path, not a fault:
 		// stay silent so a Ctrl-C / deadline doesn't spam stderr.
 		// Every other error means this detector failed to run on
-		// real data — surface it (mirrors the archive-expansion log)
-		// so silently-skipped detections are observable.
+		// real data — surface it so silently-skipped detections
+		// are observable.
 		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			log.Printf("engine: detector %s error on %s: %v", d.Type(), c.SourceName, err)
 		}
@@ -531,8 +526,8 @@ func tagBlastRadius(r *detectors.Result) {
 // resulting slice. ASCII-only because every detector keyword in pleno-dlp
 // is ASCII; we leave non-ASCII bytes untouched rather than paying for
 // unicode.ToLower on each byte. This is a hot path — one call per chunk
-// variant — and matches the (also-ASCII) lowercasing done at engine
-// construction over keyword sets.
+// variant — and matches the lowercasing done at engine construction
+// over keyword sets.
 func lowerCaseInto(dst, src []byte) []byte {
 	if cap(dst) < len(src) {
 		dst = make([]byte, len(src))

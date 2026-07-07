@@ -1,6 +1,3 @@
-// Package inflection detects Inflection AI Pi API tokens — long alnum
-// strings near the `inflection` keyword. Verified via /v1/chat on
-// api.inflection.ai with Bearer auth.
 package inflection
 
 import (
@@ -18,20 +15,18 @@ var apiBase = "https://api.inflection.ai"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // tokenRe stays a generic alnum run: no authoritative source documents the
-// Inflection key prefix/length/charset (developers.inflection.ai only shows a
-// YOUR_API_KEY placeholder, and there is no upstream trufflehog detector to
-// mirror). Pinning a length here would risk silently destroying recall, so the
-// shape stays open and the keyword gate + entropy floor do the disambiguation.
+// Inflection key prefix/length/charset. Pinning a length would risk silently
+// destroying recall, so the shape stays open and the keyword gate + entropy
+// floor do the disambiguation.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`)
 
-// minEntropy is a conservative floor (not the 3.5 high-variety value) because
-// the documented charset is unknown; 3.0 rejects obvious low-information runs
-// (repeated chars, structured IDs) without culling plausible key shapes.
+// minEntropy is a conservative floor because the documented charset is
+// unknown; 3.0 rejects obvious low-information runs without culling plausible
+// key shapes.
 const minEntropy = 3.0
 
-// contextRe is the windowed assignment-anchor gate. It replaces a bare
-// strings.Contains(window, "inflection") that matched any prose mentioning the
-// word. The bare keyword stays in Keywords() as the engine prefilter.
+// contextRe is the windowed assignment-anchor gate; the bare keyword stays in
+// Keywords() as the engine prefilter.
 var contextRe = regexp.MustCompile(`(?i)inflection[_-]?(api[_-]?)?(token|key|secret)`)
 
 type Scanner struct{}

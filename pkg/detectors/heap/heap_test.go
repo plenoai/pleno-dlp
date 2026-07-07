@@ -35,9 +35,8 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
-	// No "heap" keyword in context (the prefix does include "heap_" though,
-	// which is itself sufficient) — verify we actually require `heapanalytics`
-	// or `heap_api` etc. in context. The token prefix alone counts.
+	// The token's own `heap_` prefix satisfies the keyword window, so this
+	// input still matches — the positive case is covered elsewhere.
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) == 0 {
 		t.Skip("token prefix counts as keyword; positive case covered")

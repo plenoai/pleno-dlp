@@ -74,8 +74,6 @@ func withTestServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	srv := httptest.NewServer(handler)
 	orig := httpClient
 	httpClient = srv.Client()
-	// Rewrite the tokeninfo URL to point at our test server by using a
-	// custom transport that redirects to the test server.
 	httpClient.Transport = &rewriteTransport{
 		base: srv.Client().Transport,
 		dest: srv.URL,
@@ -126,7 +124,6 @@ func TestVerify_InvalidToken(t *testing.T) {
 		fmt.Fprintf(w, `{"error":"invalid_token","error_description":"Invalid Value"}`)
 	})
 
-	// Use a well-formed but bogus JWT.
 	tok := mintJWT(t, map[string]string{
 		"iss": "https://accounts.google.com",
 		"aud": "https://service.example.com",
@@ -185,7 +182,6 @@ func TestVerify_EnrichesExtraData(t *testing.T) {
 	if r.ExtraData["azp"] != "my-client.apps.googleusercontent.com" {
 		t.Errorf("azp not enriched: %v", r.ExtraData)
 	}
-	// Original claims must still be present.
 	if r.ExtraData["iss"] != "https://accounts.google.com" {
 		t.Errorf("iss claim lost: %v", r.ExtraData)
 	}

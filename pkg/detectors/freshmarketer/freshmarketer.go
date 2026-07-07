@@ -1,8 +1,5 @@
-// Package freshmarketer detects Freshmarketer (Freshworks marketing) API
-// keys near the `freshmarketer` keyword. Verified via /crm/sales/api/me on
-// the canonical Freshmarketer host with a Token token=<key> Authorization
-// header. Freshmarketer accounts have per-tenant hosts but the API key is
-// also accepted on the canonical `app.freshmarketer.com` for the OSS probe.
+// Freshmarketer accounts have per-tenant hosts, but the API key is also
+// accepted on the canonical `app.freshmarketer.com` for the verify probe.
 package freshmarketer
 
 import (
@@ -19,17 +16,13 @@ var apiBase = "https://app.freshmarketer.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Freshmarketer keys are alphanumeric with no distinguishing prefix
-// (Freshworks "Token token=<key>" platform shape). No authoritative source
-// pins the exact length or charset for a freshmarketer key, so the length
-// window is left wide and recall is protected by the entropy floor + arm
-// regex rather than a guessed length. See the research note in the PR.
+// No authoritative source pins the exact length or charset for a
+// freshmarketer key, so the length window is left wide and recall is
+// protected by the entropy floor + arm regex rather than a guessed length.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{16,40})\b`)
 
-// minEntropy rejects low-variety alnum strings (e.g. FRESHMARKETER_API_KEY
-// boilerplate, slugs, repeated chars) that satisfy tokenRe but are not random
-// secrets. 3.0 is conservative: no documented charset/length lets us claim a
-// higher floor without risking recall.
+// 3.0 is conservative: no documented charset/length lets us claim a higher
+// floor without risking recall.
 const minEntropy = 3.0
 
 // armRe is the assignment-style freshmarketer reference that must appear within
@@ -59,8 +52,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		// Reject low-entropy alnum strings (boilerplate, slugs) that arm on
-		// the nearby keyword but are not random secrets.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
@@ -83,10 +74,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-// nearKeyword reports whether a freshmarketer assignment-style reference
-// (matching armRe) appears within radius of the candidate. The bare keyword
-// "freshmarketer" stays in Keywords() as the cheap engine prefilter; this gate
-// is the precise arm.
+// The bare keyword "freshmarketer" stays in Keywords() as the cheap engine
+// prefilter; this gate is the precise arm.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius

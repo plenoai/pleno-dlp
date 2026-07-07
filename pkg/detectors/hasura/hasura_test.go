@@ -11,8 +11,8 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// dummy is a 64-char high-entropy alphanumeric matching the documented Hasura
-// admin-secret shape (`[a-zA-Z0-9]{64}`). Not a real secret.
+// dummy is a 64-char high-entropy alphanumeric matching the Hasura
+// admin-secret shape. Not a real secret.
 const dummy = "aZ7kQ2mP9xR4wL8nB6vT3yC1dH5gF0jKsE2uW4iO9pXqM7lN3bV6cZ8aS1dG4hJ0"
 
 // lowEntropyRun is a 64-char alphanumeric run with low Shannon entropy — the
@@ -48,8 +48,8 @@ func TestFromData_NoKeyword(t *testing.T) {
 }
 
 // TestFromData_LowEntropyRejected pins the new entropy floor: a 64-char
-// alphanumeric run that arms the keyword gate but is low-entropy (the classic
-// false-positive shape) must no longer be surfaced.
+// alphanumeric run that arms the keyword gate but is low-entropy must no
+// longer be surfaced.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("HASURA_ADMIN_SECRET=" + lowEntropyRun)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)

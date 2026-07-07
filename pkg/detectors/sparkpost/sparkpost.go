@@ -1,5 +1,5 @@
-// Package sparkpost detects SparkPost transactional email API keys
-// (40 hex). Surface only when the `sparkpost` keyword is in the same
+// Package sparkpost detects SparkPost transactional email API keys.
+// Surface only when the `sparkpost` keyword is in the same
 // chunk so the 40-hex shape doesn't collide with arbitrary SHA-1s.
 // Verified via /api/v1/account on api.sparkpost.com with the
 // Authorization header.

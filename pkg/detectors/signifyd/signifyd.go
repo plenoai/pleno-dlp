@@ -22,19 +22,18 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{20,80})\b`)
 
 // armRe is the assignment-style Signifyd reference that must appear within the
-// proximity window. A bare "signifyd" substring (doc links, the api.signifyd.com
-// host, SDK package names) is too weak a gate against a generic 20-80 char
-// alphanumeric run. No authoritative source documents the API key's length or
-// charset (Signifyd's own apiary blueprint only shows placeholder keys such as
-// `abcdefghijklmnopqrstuvwxyz`), so we do NOT pin a length and instead arm on
-// `signifyd[_-]?(api[_-]?)?(token|key|secret)` — the shape a real credential
-// assignment or config key takes.
+// proximity window. A bare "signifyd" substring is too weak a gate against a
+// generic 20-80 char alphanumeric run. No authoritative source documents the
+// API key's length or charset (Signifyd's own apiary blueprint only shows
+// placeholder keys such as `abcdefghijklmnopqrstuvwxyz`), so we do NOT pin a
+// length and instead arm on `signifyd[_-]?(api[_-]?)?(token|key|secret)` —
+// the shape a real credential assignment or config key takes.
 var armRe = regexp.MustCompile(`(?i)signifyd[_\-]?(api[_\-]?)?(token|key|secret)`)
 
 // minEntropy is a conservative floor that rejects low-entropy 20-80 char runs
-// which clear the alnum regex but are not random tokens (padded placeholders,
-// repeated characters). 3.0 (not 3.5) because the documented charset is
-// unknown; a tighter floor risks culling real keys.
+// which clear the alnum regex but are not random tokens. 3.0 (not 3.5)
+// because the documented charset is unknown; a tighter floor risks culling
+// real keys.
 const minEntropy = 3.0
 
 type Scanner struct{}
@@ -55,9 +54,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		// Entropy gate: structured/low-information 20-80 char runs (a padded
-		// placeholder or a long run of repeated characters) clear the alnum
-		// regex but are not random credentials — reject them even when armed.
+		// Entropy gate: structured/low-information 20-80 char runs clear the
+		// alnum regex but are not random credentials — reject them even when
+		// armed.
 		if !detectors.HasMinEntropy(v, minEntropy) {
 			continue
 		}
@@ -90,8 +89,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 
 // nearKeyword reports whether a `signifyd[_-]?(api[_-]?)?(token|key|secret)`
 // reference appears within a tight window on either side of the candidate. The
-// window spans both directions (not strict immediate precedence) so a key and
-// secret defined alongside a nearby SIGNIFYD_API_KEY reference still arm.
+// window spans both directions so a key and secret defined alongside a nearby
+// SIGNIFYD_API_KEY reference still arm.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius
