@@ -444,6 +444,13 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		return err
 	}
 
+	// chain owns Close/Flush for every sink tracked below, so wiring a
+	// new buffering sink into this chain can never again silently drop
+	// its output the way gitCrossCommitSink's did in #273 — see
+	// engine.SinkChain and issue #282.
+	chain := engine.NewSinkChain()
+	chain.Track(sink)
+
 	// Wrap with the counting+dedup+placeholder+allowlist chain. Order
 	// matters:
 	//   - dedup is outermost so the counter only sees unique findings,
@@ -456,11 +463,13 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	//     don't poison the dedup map (a different finding nearby
 	//     should still emit).
 	counter := &countingSink{inner: sink, threshold: threshold}
+	chain.Track(counter)
 	// PIIDB classification sits between counter and the upstream
 	// chain. PII findings are buffered, classified in batch at Close,
 	// then forwarded to counter with escalated severity so --fail-on
 	// reflects the escalated level.
 	piidbSink := piidb.NewSink(counter)
+	chain.Track(piidbSink)
 	// revokingSink wraps piidbSink when --revoke-on-verified is set.
 	// PII findings are never verified so they pass through revoker
 	// untouched; secrets that are verified get revoked before reaching
@@ -470,19 +479,19 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	var spool *spoolSink
 	if scanOpts.revokeOnVerified {
 		revoker = newRevokingSink(piidbSink, dets, scanOpts.revokeDryRun, cmd.ErrOrStderr())
-		topSink = revoker
+		topSink = chain.Track(revoker)
 	}
 	if scanOpts.revokeSpool != "" {
 		spool, err = newSpoolSink(piidbSink, dets, scanOpts.revokeSpool, cmd.ErrOrStderr())
 		if err != nil {
 			return err
 		}
-		topSink = spool
+		topSink = chain.Track(spool)
 	}
 	var onlyVerified *verifiedOnlySink
 	if scanOpts.onlyVerified {
 		onlyVerified = &verifiedOnlySink{inner: topSink, dropIndeterminate: scanOpts.dropIndeterminate}
-		topSink = onlyVerified
+		topSink = chain.Track(onlyVerified)
 	}
 	// --blast-radius-only sits OUTSIDE counter+revoker so the filter
 	// happens first: non-blast-radius findings never reach the counter
@@ -491,19 +500,19 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// CI gates on "is there a verified credential with elevated impact"
 	// instead of "any finding at all".
 	if scanOpts.blastRadiusOnly {
-		topSink = &blastRadiusFilterSink{inner: topSink}
+		topSink = chain.Track(&blastRadiusFilterSink{inner: topSink})
 	}
-	allowed := engine.NewAllowlist(allowlist, topSink)
-	placeheld := engine.NewPlaceholderFilter(allowed)
-	deduped := engine.NewDedup(placeheld)
+	allowed := chain.Track(engine.NewAllowlist(allowlist, topSink))
+	placeheld := chain.Track(engine.NewPlaceholderFilter(allowed))
+	deduped := chain.Track(engine.NewDedup(placeheld))
 	// Git-mode cross-commit dedup: collapse the same secret+file across many
 	// commits to a single introducing-commit finding (with occurrence_count).
 	// Wraps the per-location dedup so the counter only sees unique secrets.
-	var scanSink engine.Sink = deduped
+	scanSink := deduped
 	if kind == "git" && !gitOpts.allOccurrences {
-		scanSink = engine.NewGitCrossCommitDedup(deduped)
+		scanSink = chain.Track(engine.NewGitCrossCommitDedup(deduped))
 	}
-	defer func() { _ = sink.Close() }()
+	defer func() { _ = chain.Close() }()
 	defer func() {
 		if n := engine.SuppressedCounter(allowed); n > 0 {
 			fmt.Fprintf(cmd.ErrOrStderr(), "allowlist: suppressed %d finding(s)\n", n)
@@ -549,22 +558,14 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		}
 	}
 
-	// Git cross-commit dedup buffers every finding until Close and is
-	// never otherwise closed in this function (closing it here would
-	// cascade Close down the whole sink chain, including the output
-	// sink, before the summary line prints). Flush it explicitly so its
-	// buffered findings reach piidbSink/counter before we read their
-	// state below. No-op for every other scan kind. See issue #273.
-	if flusher, ok := scanSink.(interface{ Flush() error }); ok {
-		if err := flusher.Flush(); err != nil {
-			return fmt.Errorf("git cross-commit dedup: %w", err)
-		}
-	}
-
-	// Flush the PIIDB classification buffer so counter reflects
-	// escalated PII findings before the summary prints.
-	if err := piidbSink.Flush(); err != nil {
-		return fmt.Errorf("piidb: %w", err)
+	// Every buffering sink tracked into chain (git cross-commit dedup,
+	// PIIDB classification, and any future addition) forwards its
+	// buffered findings to counter here, before we read counter's state
+	// below — without this, chain.Close()'s deferred cascade would still
+	// reach them, but only after the summary line and exit code are
+	// already computed. See issue #282.
+	if err := chain.Flush(); err != nil {
+		return fmt.Errorf("sink chain flush: %w", err)
 	}
 
 	// End-of-scan summary on stderr so it doesn't pollute --format json /
