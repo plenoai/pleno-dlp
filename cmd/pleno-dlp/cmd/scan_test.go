@@ -8,9 +8,13 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
@@ -62,6 +66,13 @@ func TestScanFilesystemRequiresPath(t *testing.T) {
 }
 
 func TestScanGitHelp(t *testing.T) {
+	// cobra's "help" bool flag is a normal pflag value on scanGitCmd's own
+	// FlagSet: Parse only touches flags present in argv, so it survives
+	// across Execute() calls within one test binary. Reset it so a later
+	// test that actually runs `scan git` (no --help) isn't silently
+	// short-circuited into printing help again.
+	t.Cleanup(func() { _ = scanGitCmd.Flags().Set("help", "false") })
+
 	var out bytes.Buffer
 	Root.SetOut(&out)
 	Root.SetErr(&out)
@@ -637,6 +648,82 @@ func TestScan_OnlyVerifiedDropIndeterminateFlag(t *testing.T) {
 
 func writeFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o600)
+}
+
+// TestScanGit_DefaultReportsUnverifiedFinding is the issue #273 regression
+// test: `scan git` (default flags — no --only-verified, no
+// --all-occurrences) must report the same finding that `scan filesystem`
+// and `scan stdin` report for identical content. Before the fix,
+// engine.NewGitCrossCommitDedup buffered every finding until Close, but
+// runScanCommon only ever closed the raw output sink, not the sink chain
+// feeding it — so every git-mode finding was silently dropped regardless
+// of its verdict.
+//
+// The custom rule's verify_url points at an unreachable local port so the
+// verification outcome (indeterminate) is deterministic and offline,
+// mirroring TestScan_OnlyVerifiedKeepsIndeterminateFinding.
+func TestScanGit_DefaultReportsUnverifiedFinding(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+
+	port := unreachableLocalPort(t)
+
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	target := filepath.Join(dir, "leak.txt")
+	if err := writeFile(target, "config:\n  acme_token: ACME_QWERTYUIOPASDFGHJKLZ\n"); err != nil {
+		t.Fatalf("seed fixture: %v", err)
+	}
+	if _, err := wt.Add("leak.txt"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	sig := &object.Signature{Name: "Test", Email: "test@example.com", When: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)}
+	if _, err := wt.Commit("add-leak", &gogit.CommitOptions{Author: sig, Committer: sig}); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	rules := filepath.Join(dir, "rules.json")
+	rulesJSON := fmt.Sprintf(`[{
+		"name":"ACME Token",
+		"keywords":["ACME_"],
+		"regex":"ACME_[A-Z0-9]{20}",
+		"severity":"high",
+		"verify_url":"http://127.0.0.1:%d/verify"
+	}]`, port)
+	if err := writeFile(rules, rulesJSON); err != nil {
+		t.Fatalf("seed rules: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"scan", "--rules", rules, "--format", "json", "git", "--repo", dir})
+
+	execErr := Root.Execute()
+	if !IsFindingsError(execErr) {
+		t.Fatalf("expected findings error; got %v\nstdout:\n%s\nstderr:\n%s", execErr, out.String(), errBuf.String())
+	}
+
+	var records []map[string]any
+	if err := json.Unmarshal(out.Bytes(), &records); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\n%s", err, out.String())
+	}
+	if len(records) != 1 {
+		t.Fatalf("want 1 finding, got %d\nstdout:\n%s", len(records), out.String())
+	}
+	if records[0]["verdict"] != "indeterminate" {
+		t.Errorf("verdict = %v, want indeterminate", records[0]["verdict"])
+	}
+	if !strings.Contains(errBuf.String(), "scanned 1 chunk(s)") || strings.Contains(errBuf.String(), "0 finding(s)") {
+		t.Errorf("expected non-zero finding count in summary; stderr:\n%s", errBuf.String())
+	}
 }
 
 func TestScanStdin_FindsSecretFromPipe(t *testing.T) {

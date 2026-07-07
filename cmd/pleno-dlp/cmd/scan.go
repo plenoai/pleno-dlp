@@ -549,6 +549,18 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		}
 	}
 
+	// Git cross-commit dedup buffers every finding until Close and is
+	// never otherwise closed in this function (closing it here would
+	// cascade Close down the whole sink chain, including the output
+	// sink, before the summary line prints). Flush it explicitly so its
+	// buffered findings reach piidbSink/counter before we read their
+	// state below. No-op for every other scan kind. See issue #273.
+	if flusher, ok := scanSink.(interface{ Flush() error }); ok {
+		if err := flusher.Flush(); err != nil {
+			return fmt.Errorf("git cross-commit dedup: %w", err)
+		}
+	}
+
 	// Flush the PIIDB classification buffer so counter reflects
 	// escalated PII findings before the summary prints.
 	if err := piidbSink.Flush(); err != nil {
