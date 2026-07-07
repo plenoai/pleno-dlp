@@ -358,11 +358,44 @@ finding is a false positive by construction.
 | False positives | 6 | 6 | 5 |
 
 trufflehog (6) and gitleaks (5) exactly reproduce the 2026-05-12
-snapshot in `benchmarks.md`. pleno-dlp dropped from 484 to 6 — the
-snapshot predates the FP-hardening campaign completed 2026-06-01. The
-overlap is one genuine-looking test TLS key
+snapshot in `benchmarks.md` (not re-measured here). pleno-dlp's 6 is a
+fresh 2026-07-08 re-measurement, not the 2026-05-12 snapshot — see the
+dated update immediately below for why the snapshot could not simply
+be reused. The overlap is one genuine-looking test TLS key
 (`plumbing/transport/http/testdata/certs/server.key`) flagged by all
 three; the rest are entropy hits on changelogs and test fixtures.
+
+> **2026-07-08 update (#294):** the "484 → 6" figure above was captured
+> 2026-05-12, before both the 2026-06-01 FP-hardening campaign and PR
+> #228 (`HardcodedPassword` detector, landed after that campaign). Its
+> FPs were consequently never folded into this table — a regression
+> that shipped silently and sat undetected until issue #294 flagged it.
+> Re-running Workload D against pre-fix `main` found `HardcodedPassword`
+> alone contributing 9 false positives, all in go-git `_examples`/
+> `example_test.go`/test code, in two shapes: (a) the captured value is
+> a bare Go source-code reference the `password =` / `password:`
+> regexes were never meant to match (`password := os.Args[3]`,
+> `Password: token,`, the `username, password, ok = strings.Cut(cs,
+> ":")` multi-assignment) and (b) the value is placeholder-grade —
+> equal to the trigger keyword itself or a descriptive label
+> (`Password: password,`, `Password: "github_access_token"`). Fixed in
+> `pkg/detectors/hardcodedpassword/hardcodedpassword.go`: (1) trailing
+> Go statement punctuation (`,`/`;`) is now trimmed before the
+> placeholder check, so `password,` normalizes to the
+> already-suppressed `password`; (2) a new `looksLikeCodeReference`
+> check suppresses bare function-call and dotted-identifier-shaped
+> values (`os.Args`, `strings.Cut(...`), the same no-digits-means-
+> identifier reasoning `pkg/detectors/generic` already applies to
+> CamelCase identifiers; (3) the placeholder word list gained
+> `token`/`username`/`access_token`-style credential-descriptor labels.
+> Quoted literals containing digits or symbols are unaffected and still
+> fire (regression-tested in `TestFromData_RealSecretsStillFire`).
+> Re-running the full corpus after the fix: `HardcodedPassword`
+> 9 → 0; total pleno-dlp findings on Workload D 15 → 6 (4
+> `GenericHighEntropy` + 2 `PrivateKeyPEM`, both unchanged by this fix)
+> — the "6" reported in the table above, restoring parity with the
+> pre-#228 snapshot. trufflehog and gitleaks were not re-run for this
+> update; their columns still reflect the 2026-05-12 snapshot.
 
 ## 5. Git-history scans on real repos
 

@@ -61,6 +61,13 @@ var placeholders = func() map[string]struct{} {
 		"strong_password", "secure_password",
 		"notset", "not_set", "unset", "undefined", "empty",
 		"required", "missing", "must_be_set", "set_this",
+		// Credential-descriptor labels: doc/example code that names the
+		// *kind* of secret to supply rather than supplying one, e.g.
+		// `Password: "github_access_token"` in a "how to auth" snippet.
+		// Same rationale as the your_password-style entries above.
+		"token", "access_token", "api_token", "auth_token", "your_token",
+		"github_access_token", "personal_access_token", "your_access_token",
+		"username", "user", "your_username",
 	}
 	m := make(map[string]struct{}, len(words))
 	for _, w := range words {
@@ -86,6 +93,58 @@ func isPlaceholder(v string) bool {
 	return hasTemplatingMarker(v)
 }
 
+// trailingSeparators are statement/grouping punctuation that can trail an
+// unquoted capture when the keyword appears in general-purpose source
+// rather than IaC/config syntax — e.g. a Go struct-literal field
+// `Password: password,` or a multi-value assignment
+// `password, ok = f()`. A real config value never legitimately ends in
+// these, so trimming them is lossless for genuine hits and lets the
+// placeholder/code-reference checks below see the bare word underneath.
+const trailingSeparators = ",;"
+
+func normalizeValue(raw string) string {
+	v := strings.TrimSpace(raw)
+	return strings.TrimRight(v, trailingSeparators)
+}
+
+// looksLikeCodeReference reports whether v is a bare source-code
+// expression rather than a literal value: a function/method call
+// (contains "(") or a dotted package-style selector such as os.Args or
+// strings.Cut, where every dot-separated segment is pure letters/
+// underscore.
+//
+// assignEqRe and yamlValueRe key off `keyword = value` / `keyword :
+// value`, a shape Go also uses for `password := os.Args[3]` and
+// struct-literal fields like `Password: token,`. Those right-hand sides
+// are variable/expression references, never hardcoded literals. A
+// letters-only dotted segment (no digits, no other punctuation) is
+// definitionally a Go/Python/JS package or field selector — real
+// passwords overwhelmingly contain digits or symbols (see
+// looksLikeIdentifier in pkg/detectors/generic for the same
+// no-digits-means-identifier reasoning).
+func looksLikeCodeReference(v string) bool {
+	if strings.ContainsRune(v, '(') {
+		return true
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	for _, p := range parts {
+		if p == "" {
+			return false
+		}
+		for i := 0; i < len(p); i++ {
+			c := p[i]
+			isLetterOrUnderscore := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+			if !isLetterOrUnderscore {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.HardcodedPassword }
@@ -100,11 +159,11 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	var out []detectors.Result
 
 	add := func(raw string) {
-		val := strings.TrimSpace(raw)
+		val := normalizeValue(raw)
 		if len(val) < 4 {
 			return
 		}
-		if isPlaceholder(val) {
+		if isPlaceholder(val) || looksLikeCodeReference(val) {
 			return
 		}
 		if _, dup := seen[val]; dup {
