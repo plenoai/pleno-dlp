@@ -385,6 +385,93 @@ func TestChunks_IncrementalStateEmitsOnlyNewCommits(t *testing.T) {
 	}
 }
 
+// TestBoundarySet_OnlyHeadsNotHistory guards #270: boundarySet used to be
+// reachableSet, a BFS that walked and materialized every ancestor of each
+// stop head into the returned map before the incremental walk even began —
+// O(total previously-scanned history) instead of O(number of heads). Build
+// a chain deep enough that a full-ancestry walk would visibly differ, and
+// assert the result holds only the root itself.
+func TestBoundarySet_OnlyHeadsNotHistory(t *testing.T) {
+	specs := make([]commitSpec, 200)
+	for i := range specs {
+		specs[i] = commitSpec{files: map[string]string{"f.txt": strings.Repeat("x", i+1)}, msg: "c"}
+	}
+	repoPath, hashes := buildRepo(t, specs)
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		t.Fatalf("PlainOpen: %v", err)
+	}
+	tip := plumbing.NewHash(hashes[len(hashes)-1])
+	if _, err := repo.CommitObject(tip); err != nil {
+		t.Fatalf("CommitObject(tip): %v", err)
+	}
+
+	set := boundarySet([]plumbing.Hash{tip})
+	if len(set) != 1 {
+		t.Fatalf("boundarySet size = %d, want 1 (root only, not the %d-commit ancestry behind it)", len(set), len(hashes))
+	}
+	if !set[tip] {
+		t.Fatal("boundarySet missing the root hash")
+	}
+}
+
+// TestChunks_IncrementalMultipleNewCommitsAheadOfRecordedHead strengthens
+// TestChunks_IncrementalStateEmitsOnlyNewCommits: with boundarySet seeding
+// seen from only the recorded head hash (not its ancestry, see #270), the
+// forward walk from the new tip must still cross several new commits before
+// it reaches and stops at that one recorded hash. A single-new-commit case
+// cannot distinguish "correctly stopped at the boundary" from "got lucky."
+func TestChunks_IncrementalMultipleNewCommitsAheadOfRecordedHead(t *testing.T) {
+	repoPath, _ := buildRepo(t, []commitSpec{
+		{files: map[string]string{"a.txt": "alpha"}, msg: "c1"},
+		{files: map[string]string{"b.txt": "beta"}, msg: "c2"},
+	})
+	first := &Source{}
+	mustInit(t, first, Config{Repo: repoPath})
+	got, err := drain(t, first, 10*time.Second)
+	if err != nil {
+		t.Fatalf("first Chunks: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("first chunks = %d, want 2", len(got))
+	}
+	previous := first.IncrementalState()
+
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		t.Fatalf("PlainOpen: %v", err)
+	}
+	base := time.Date(2026, 5, 1, 0, 10, 0, 0, time.UTC)
+	var newHashes []string
+	for i, spec := range []struct{ file, msg string }{
+		{"c.txt", "c3"}, {"d.txt", "c4"}, {"e.txt", "c5"},
+	} {
+		h := commitOn(t, repo, map[string]string{spec.file: "new"}, spec.msg, base.Add(time.Duration(i)*time.Minute))
+		newHashes = append(newHashes, h)
+	}
+
+	second := &Source{}
+	mustInit(t, second, Config{Repo: repoPath})
+	if err := second.SetIncrementalState(previous); err != nil {
+		t.Fatalf("SetIncrementalState: %v", err)
+	}
+	got, err = drain(t, second, 10*time.Second)
+	if err != nil {
+		t.Fatalf("second Chunks: %v", err)
+	}
+	if len(got) != len(newHashes) {
+		t.Fatalf("second chunks = %d, want %d; files=%v", len(got), len(newHashes), filesOf(got))
+	}
+	for i, c := range got {
+		if c.SourceMetadata.Git.Commit != newHashes[i] {
+			t.Fatalf("chunk %d commit = %q, want %q (oldest-first across the 3 new commits)", i, c.SourceMetadata.Git.Commit, newHashes[i])
+		}
+	}
+	if files := filesOf(got); files["a.txt"] || files["b.txt"] {
+		t.Fatalf("incremental re-emitted a commit reachable from the recorded head; files=%v", files)
+	}
+}
+
 func TestInit_MissingRepo(t *testing.T) {
 	s := &Source{}
 	raw, _ := json.Marshal(Config{Repo: filepath.Join(t.TempDir(), "nope")})
