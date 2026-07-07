@@ -114,7 +114,4 @@ Advanced flags and engine setup:
 
 ## License
 
-[AGPL-3.0-only](LICENSE) — one standard license for the whole repository.
-Benchmark/rule data ships separately under Apache-2.0, and we make a public
-no-rug-pull pledge. See [`docs/LICENSING.md`](docs/LICENSING.md).
-Contributions require the [CLA](docs/CLA.md).
+[AGPL-3.0](LICENSE).
