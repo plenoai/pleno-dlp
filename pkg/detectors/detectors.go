@@ -1000,6 +1000,54 @@ type Result struct {
 	ExtraData map[string]string
 }
 
+// Verdict is the three-valued outcome of provider verification. Collapsing
+// this to a bool (issue #246) meant a transient verification failure —
+// network blip, provider 5xx, rate limit — was indistinguishable from the
+// provider affirmatively saying "not live". With --only-verified that
+// silently dropped a possibly-live credential during an outage.
+type Verdict int8
+
+const (
+	// VerdictUnverified means the provider was reached and confirmed the
+	// secret is not live (or no VerifyURL/Verifier applies).
+	VerdictUnverified Verdict = iota
+	// VerdictVerified means the provider confirmed the secret is live.
+	VerdictVerified
+	// VerdictIndeterminate means verification was attempted but did not
+	// complete — the secret's liveness is unknown, not disproven.
+	VerdictIndeterminate
+)
+
+func (v Verdict) String() string {
+	switch v {
+	case VerdictVerified:
+		return "verified"
+	case VerdictIndeterminate:
+		return "indeterminate"
+	default:
+		return "unverified"
+	}
+}
+
+// Verdict derives the three-valued verification state from Verified and
+// VerificationErr rather than storing a third field — the two existing
+// fields already carry enough information and keeping them as the single
+// source of truth rules out the pair drifting out of sync. A non-nil
+// VerificationErr with Verified==false means the verification attempt
+// itself failed; every Verify implementation in this repo returns
+// (false, err) on transport/provider failure and (false, nil) only when
+// the provider affirmatively rejected the secret, so this ordering is safe.
+func (r Result) Verdict() Verdict {
+	switch {
+	case r.Verified:
+		return VerdictVerified
+	case r.VerificationErr != nil:
+		return VerdictIndeterminate
+	default:
+		return VerdictUnverified
+	}
+}
+
 // DefaultSeverity assigns a severity when a detector hasn't picked one.
 // Verified findings are Critical (a real, working credential is the highest-
 // risk leak class). Unverified hits from explicit detectors are High.
@@ -1031,6 +1079,22 @@ func DefaultSeverity(t DetectorType, verified bool) Severity {
 	default:
 		return SeverityHigh
 	}
+}
+
+// DefaultSeverityForVerdict is the verdict-aware counterpart to
+// DefaultSeverity, used by the engine once a Result's Verdict is known.
+//
+// Indeterminate is deliberately mapped to the same severity as Verified
+// rather than Unverified: verification didn't complete, so the secret's
+// liveness is unknown, not disproven. A secrets scanner's job is to not
+// under-call a possibly-live credential — downgrading it to "confirmed
+// dead" severity on a network blip or provider 5xx is the wrong failure
+// mode to fail into. See issue #246.
+func DefaultSeverityForVerdict(t DetectorType, v Verdict) Severity {
+	if v == VerdictUnverified {
+		return DefaultSeverity(t, false)
+	}
+	return SeverityCritical // Verified or Indeterminate
 }
 
 // Detector is the trufflehog-compatible detector contract. Keywords gates the

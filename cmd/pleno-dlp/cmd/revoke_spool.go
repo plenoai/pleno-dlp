@@ -128,7 +128,11 @@ func newSpoolSink(inner engine.Sink, dets []detectors.Detector, path string, log
 // from the report's perspective.
 func (s *spoolSink) Emit(f engine.Finding) {
 	s.inner.Emit(f)
-	if !f.Result.Verified {
+	// Same guard as revokingSink: only a confirmed-live verdict is queued
+	// for revocation. Indeterminate (verification attempt failed) means
+	// liveness is unknown, not confirmed, so it must never reach the spool
+	// that a later `revoke --revoke-from-spool` replay will act on. See #246.
+	if f.Result.Verdict() != detectors.VerdictVerified {
 		return
 	}
 	if _, ok := s.revokerSet[f.Detector]; !ok {

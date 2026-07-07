@@ -46,6 +46,7 @@ func SetVersion(version, commit string) {
 type scanFlags struct {
 	format            string
 	onlyVerified      bool
+	dropIndeterminate bool
 	verifyRPS         int
 	concurrency       int
 	rulesPath         string
@@ -161,7 +162,11 @@ var scanSQLDumpCmd = &cobra.Command{
 
 func init() {
 	scanCmd.PersistentFlags().StringVar(&scanOpts.format, "format", "table", "output format: json, sarif, table")
-	scanCmd.PersistentFlags().BoolVar(&scanOpts.onlyVerified, "only-verified", false, "emit, count, and optionally revoke only provider-verified findings")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.onlyVerified, "only-verified", false, "emit, count, and optionally revoke only provider-verified findings; findings whose verification attempt failed (network error, provider 5xx, rate limit) are kept as indeterminate by default — see --drop-indeterminate")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.dropIndeterminate, "drop-indeterminate", false,
+		"with --only-verified, also drop findings whose verification attempt failed instead of keeping them as indeterminate. "+
+			"The default keeps them: a failed verification attempt means liveness is unknown, not disproven, so dropping by "+
+			"default would silently hide a possibly-live credential during a provider outage. Ignored without --only-verified.")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.verifyRPS, "verify-rps", 10, "per-host requests-per-second cap during verification (0 = disable rate limiting)")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
@@ -472,8 +477,10 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		}
 		topSink = spool
 	}
+	var onlyVerified *verifiedOnlySink
 	if scanOpts.onlyVerified {
-		topSink = &verifiedOnlySink{inner: topSink}
+		onlyVerified = &verifiedOnlySink{inner: topSink, dropIndeterminate: scanOpts.dropIndeterminate}
+		topSink = onlyVerified
 	}
 	// --blast-radius-only sits OUTSIDE counter+revoker so the filter
 	// happens first: non-blast-radius findings never reach the counter
@@ -501,6 +508,22 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		}
 		if n := engine.PlaceholderSuppressedCounter(placeheld); n > 0 {
 			fmt.Fprintf(cmd.ErrOrStderr(), "placeholder: suppressed %d finding(s)\n", n)
+		}
+		// Not gated by --quiet: this is a signal about output
+		// trustworthiness, not routine progress noise. A caller piping
+		// --only-verified into an auto-rotate script needs to know some
+		// results weren't actually confirmed dead — they just couldn't be
+		// confirmed at all. See issue #246.
+		if onlyVerified != nil {
+			if n := onlyVerified.indeterminate.Load(); n > 0 {
+				if scanOpts.dropIndeterminate {
+					fmt.Fprintf(cmd.ErrOrStderr(),
+						"only-verified: dropped %d indeterminate finding(s) (verification attempt failed) due to --drop-indeterminate\n", n)
+				} else {
+					fmt.Fprintf(cmd.ErrOrStderr(),
+						"only-verified: kept %d indeterminate finding(s) — verification attempt failed (network error, provider 5xx, rate limit), so liveness is unknown rather than disproven; pass --drop-indeterminate to exclude them\n", n)
+				}
+			}
 		}
 	}()
 
@@ -798,6 +821,7 @@ func scannerFingerprint(kind string, cfg []byte) (string, error) {
 		"kind":                kind,
 		"source_config":       json.RawMessage(cfg),
 		"only_verified":       scanOpts.onlyVerified,
+		"drop_indeterminate":  scanOpts.dropIndeterminate,
 		"verify_rps":          scanOpts.verifyRPS,
 		"rules_path":          scanOpts.rulesPath,
 		"rules_hash":          rulesHash,
@@ -947,20 +971,40 @@ func (b *blastRadiusFilterSink) Emit(f engine.Finding) {
 
 func (b *blastRadiusFilterSink) Close() error { return b.inner.Close() }
 
-// verifiedOnlySink drops findings that failed or skipped provider
-// verification. Verification runs by default, so --only-verified can
-// filter directly to provider-confirmed findings.
+// verifiedOnlySink filters to provider-confirmed findings, but treats the
+// three verification verdicts differently rather than collapsing to a
+// boolean (issue #246):
+//   - Verified: always forwarded — that's the whole point of the flag.
+//   - Indeterminate (verification attempt failed: network error, provider
+//     5xx, rate limit): forwarded by default. The provider never actually
+//     said "not live" — dropping it here would be indistinguishable from
+//     "no secret found" for a live credential caught in a transient
+//     outage. --drop-indeterminate opts back into the strict pre-#246
+//     behaviour for callers that would rather under-report than see an
+//     unconfirmed finding.
+//   - Unverified (provider confirmed the secret is not live): always
+//     dropped — this is the case --only-verified exists to filter out.
 type verifiedOnlySink struct {
-	inner   engine.Sink
-	dropped atomic.Int64
+	inner             engine.Sink
+	dropIndeterminate bool
+	dropped           atomic.Int64
+	indeterminate     atomic.Int64
 }
 
 func (v *verifiedOnlySink) Emit(f engine.Finding) {
-	if !f.Result.Verified {
+	switch f.Result.Verdict() {
+	case detectors.VerdictVerified:
+		v.inner.Emit(f)
+	case detectors.VerdictIndeterminate:
+		v.indeterminate.Add(1)
+		if v.dropIndeterminate {
+			v.dropped.Add(1)
+			return
+		}
+		v.inner.Emit(f)
+	default:
 		v.dropped.Add(1)
-		return
 	}
-	v.inner.Emit(f)
 }
 
 func (v *verifiedOnlySink) Close() error { return v.inner.Close() }

@@ -25,14 +25,34 @@ SARIF output is GitHub Code Scanning compatible:
     sarif_file: findings.sarif
 ```
 
+## Verification verdicts
+
+Verification is three-valued, not a boolean: a detector's `Verify` call can
+confirm the secret is live (`verified`), confirm it's dead (`unverified`),
+or fail to complete at all — network error, provider 5xx, rate limit
+(`indeterminate`). Every output format carries a `verdict` field alongside
+the legacy `verified` boolean (kept for backward compatibility, but it
+cannot distinguish "provider said no" from "we couldn't ask"):
+
+| Surface | Field |
+|---|---|
+| `--format json` | `verdict` (`"verified"` \| `"unverified"` \| `"indeterminate"`), plus legacy `verified` bool and `verification_error` |
+| `--format sarif` | `properties.verdict`, plus legacy `properties.verified` |
+| `--format table` | `VERDICT` column: `✓` verified, `✗` unverified, `?` indeterminate |
+
 ## Severity defaults
 
 | Finding | Severity |
 |---|---|
 | Verified secret | Critical |
+| Indeterminate secret (verification attempt failed) | Critical |
 | Unverified named secret detector | High |
 | Generic high entropy / JWT / PEM unverified | Medium |
 | PII | Medium |
+
+Indeterminate is deliberately as severe as Verified, not Unverified: a
+failed verification attempt doesn't disprove liveness, and under-classifying
+a possibly-live credential is the wrong failure mode for a secrets scanner.
 
 ## Exit-code gating
 
@@ -48,6 +68,22 @@ To preserve TruffleHog-style verified-only pipelines, use
 `--only-verified`. Verification runs by default, and the flag filters
 output, finding counts, exit-code gating, and `--revoke-on-verified`
 dispatch to provider-confirmed findings.
+
+`--only-verified` keeps `indeterminate` findings by default — a failed
+verification attempt (network error, provider 5xx, rate limit) is not the
+same as the provider confirming the secret is dead, so dropping it would
+silently hide a possibly-live credential caught in a transient outage. A
+stderr line reports how many indeterminate findings were kept:
+
+```
+only-verified: kept 3 indeterminate finding(s) — verification attempt failed ...
+```
+
+Pass `--drop-indeterminate` to restore the strict pre-#246 behaviour and
+exclude indeterminate findings too (the same stderr line then reports how
+many were dropped instead). `--revoke-on-verified` and `--revoke-spool`
+never act on an indeterminate finding regardless of this flag — only a
+confirmed-live verdict triggers revocation.
 
 ```sh
 pleno-dlp scan github --org acme --include-comments --only-verified --format json

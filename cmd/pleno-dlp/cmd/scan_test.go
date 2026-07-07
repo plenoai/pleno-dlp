@@ -3,6 +3,10 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -140,6 +144,7 @@ func TestScanFailOnGate(t *testing.T) {
 func resetScanOpts() {
 	scanOpts.format = "table"
 	scanOpts.onlyVerified = false
+	scanOpts.dropIndeterminate = false
 	scanOpts.verifyRPS = 10
 	scanOpts.concurrency = 8
 	scanOpts.rulesPath = ""
@@ -198,6 +203,111 @@ func TestVerifiedOnlySink_DropsUnverified(t *testing.T) {
 	}
 	if dropped := vo.dropped.Load(); dropped != 1 {
 		t.Fatalf("dropped = %d, want 1", dropped)
+	}
+}
+
+// engineFindingIndeterminate builds a Finding whose verification attempt
+// failed (VerificationErr set, Verified false) — the shape a real detector
+// produces on a network error / provider 5xx / rate limit rather than an
+// affirmative "not live" response.
+func engineFindingIndeterminate(t detectors.DetectorType, raw string) engine.Finding {
+	f := engineFinding(t, false, raw)
+	f.Result.VerificationErr = errors.New("dial tcp: connection refused")
+	return f
+}
+
+// TestVerifiedOnlySink_KeepsIndeterminateByDefault pins the core #246 fix:
+// --only-verified must not silently drop a finding whose verification
+// attempt failed outright, because that's indistinguishable from "provider
+// confirmed dead" once collapsed to a bool — exactly the bug this issue is
+// about. The default (no --drop-indeterminate) keeps it and counts it
+// separately from the confirmed-dead drops.
+func TestVerifiedOnlySink_KeepsIndeterminateByDefault(t *testing.T) {
+	captured := &captureSink{}
+	vo := &verifiedOnlySink{inner: captured}
+
+	vo.Emit(engineFinding(detectors.GitHub, false, "ghp_confirmed_dead"))
+	vo.Emit(engineFindingIndeterminate(detectors.GitHub, "ghp_network_blip"))
+	vo.Emit(engineFinding(detectors.GitHub, true, "ghp_verified"))
+
+	if got := len(captured.findings); got != 2 {
+		t.Fatalf("expected verified + indeterminate forwarded, got %d", got)
+	}
+	var sawIndeterminate, sawVerified bool
+	for _, f := range captured.findings {
+		switch f.Result.Verdict() {
+		case detectors.VerdictIndeterminate:
+			sawIndeterminate = true
+		case detectors.VerdictVerified:
+			sawVerified = true
+		case detectors.VerdictUnverified:
+			t.Errorf("confirmed-dead finding must not be forwarded: %v", f.Result.Raw)
+		}
+	}
+	if !sawIndeterminate || !sawVerified {
+		t.Fatalf("expected both indeterminate and verified forwarded; got %+v", captured.findings)
+	}
+	if got := vo.indeterminate.Load(); got != 1 {
+		t.Errorf("indeterminate counter = %d, want 1", got)
+	}
+	if got := vo.dropped.Load(); got != 1 {
+		t.Errorf("dropped counter = %d, want 1 (only the confirmed-dead finding)", got)
+	}
+}
+
+// TestVerifiedOnlySink_DropIndeterminateFlag pins the --drop-indeterminate
+// opt-out: when set, indeterminate findings are dropped like confirmed-dead
+// ones, restoring the pre-#246 strict behaviour for callers that would
+// rather under-report than see an unconfirmed finding.
+func TestVerifiedOnlySink_DropIndeterminateFlag(t *testing.T) {
+	captured := &captureSink{}
+	vo := &verifiedOnlySink{inner: captured, dropIndeterminate: true}
+
+	vo.Emit(engineFindingIndeterminate(detectors.GitHub, "ghp_network_blip"))
+	vo.Emit(engineFinding(detectors.GitHub, true, "ghp_verified"))
+
+	if got := len(captured.findings); got != 1 {
+		t.Fatalf("expected only verified finding forwarded, got %d", got)
+	}
+	if captured.findings[0].Result.Verdict() != detectors.VerdictVerified {
+		t.Fatalf("forwarded finding must be verified, got %v", captured.findings[0].Result.Verdict())
+	}
+	if got := vo.indeterminate.Load(); got != 1 {
+		t.Errorf("indeterminate counter = %d, want 1 (still counted even though dropped)", got)
+	}
+	if got := vo.dropped.Load(); got != 1 {
+		t.Errorf("dropped counter = %d, want 1", got)
+	}
+}
+
+// TestRevokingSink_NeverRevokesIndeterminate pins the acceptance criterion
+// from issue #246: revocation must never fire on an Indeterminate verdict.
+// A failed verification attempt means liveness is unknown, not confirmed —
+// dispatching Revoke on that basis could invalidate a credential that was
+// never actually shown to be live.
+func TestRevokingSink_NeverRevokesIndeterminate(t *testing.T) {
+	captured := &captureSink{}
+	rev := &fakeRevoker{}
+	det := fakeDetectorWithRevoker{Revoker: rev}
+
+	rs := newRevokingSink(captured, []detectors.Detector{det}, false, &bytes.Buffer{})
+	rs.Emit(engineFindingIndeterminate(detectors.GitHub, "ghp_network_blip"))
+
+	if rev.calls != 0 {
+		t.Errorf("expected 0 revoke calls for an indeterminate verdict, got %d", rev.calls)
+	}
+	if rs.attempted.Load() != 0 {
+		t.Errorf("attempted = %d, want 0", rs.attempted.Load())
+	}
+	// Same as an Unverified finding: revokingSink's "skipped" counter
+	// tracks "verified but no Revoker for this detector", a distinct
+	// reason from "not eligible for revoke at all". Neither Unverified
+	// nor Indeterminate findings reach that branch.
+	if rs.skipped.Load() != 0 {
+		t.Errorf("skipped = %d, want 0", rs.skipped.Load())
+	}
+	if got := len(captured.findings); got != 1 {
+		t.Errorf("finding must still be forwarded downstream, got %d", got)
 	}
 }
 
@@ -316,6 +426,136 @@ func TestScanFilesystemWithCustomRules(t *testing.T) {
 		!strings.Contains(out.String(), "ACME Token") &&
 		!strings.Contains(out.String(), "ACME") {
 		t.Errorf("output missing custom rule hit:\n%s", out.String())
+	}
+}
+
+// unreachableLocalPort binds an ephemeral loopback port and immediately
+// closes it, so nothing listens there. Dialing it fails fast with
+// "connection refused" — deterministic and independent of any external
+// network reachability, unlike a real DNS-resolved unreachable host.
+func unreachableLocalPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+	return port
+}
+
+// TestScan_OnlyVerifiedKeepsIndeterminateFinding is the issue #246 scenario
+// test: a custom rule's verify_url points at an unreachable local port, so
+// every verification attempt fails with a transport error rather than an
+// affirmative "not live" response. With --only-verified, the finding must
+// still be emitted (marked indeterminate, not silently dropped) and a
+// stderr warning must report the count — collapsing Verified=false here
+// would make a live credential caught in a provider outage indistinguishable
+// from "no secrets found".
+func TestScan_OnlyVerifiedKeepsIndeterminateFinding(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+
+	port := unreachableLocalPort(t)
+
+	dir := t.TempDir()
+	target := dir + "/leak.txt"
+	if err := writeFile(target, "config:\n  acme_token: ACME_QWERTYUIOPASDFGHJKLZ\n"); err != nil {
+		t.Fatalf("seed fixture: %v", err)
+	}
+	rules := dir + "/rules.json"
+	rulesJSON := fmt.Sprintf(`[{
+		"name":"ACME Token",
+		"keywords":["ACME_"],
+		"regex":"ACME_[A-Z0-9]{20}",
+		"severity":"high",
+		"verify_url":"http://127.0.0.1:%d/verify"
+	}]`, port)
+	if err := writeFile(rules, rulesJSON); err != nil {
+		t.Fatalf("seed rules: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"scan", "--rules", rules, "--only-verified", "--format", "json", "filesystem", target})
+
+	execErr := Root.Execute()
+	if !IsFindingsError(execErr) {
+		t.Fatalf("expected findings error (indeterminate finding kept); got %v\nstdout:\n%s\nstderr:\n%s", execErr, out.String(), errBuf.String())
+	}
+
+	var records []map[string]any
+	if err := json.Unmarshal(out.Bytes(), &records); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\n%s", err, out.String())
+	}
+	if len(records) != 1 {
+		t.Fatalf("want 1 finding kept, got %d\nstdout:\n%s", len(records), out.String())
+	}
+	if records[0]["verdict"] != "indeterminate" {
+		t.Errorf("verdict = %v, want indeterminate", records[0]["verdict"])
+	}
+	if records[0]["verified"] != false {
+		t.Errorf("verified = %v, want false", records[0]["verified"])
+	}
+	if records[0]["verification_error"] == nil || records[0]["verification_error"] == "" {
+		t.Errorf("verification_error must be populated, got %v", records[0]["verification_error"])
+	}
+
+	if !strings.Contains(errBuf.String(), "only-verified: kept 1 indeterminate finding") {
+		t.Errorf("expected stderr warning about the kept indeterminate finding; stderr:\n%s", errBuf.String())
+	}
+}
+
+// TestScan_OnlyVerifiedDropIndeterminateFlag exercises the --drop-indeterminate
+// opt-out against the same unreachable-verifier scenario: the finding must
+// be excluded entirely, and the scan must report success (no findings kept).
+func TestScan_OnlyVerifiedDropIndeterminateFlag(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+
+	port := unreachableLocalPort(t)
+
+	dir := t.TempDir()
+	target := dir + "/leak.txt"
+	if err := writeFile(target, "config:\n  acme_token: ACME_QWERTYUIOPASDFGHJKLZ\n"); err != nil {
+		t.Fatalf("seed fixture: %v", err)
+	}
+	rules := dir + "/rules.json"
+	rulesJSON := fmt.Sprintf(`[{
+		"name":"ACME Token",
+		"keywords":["ACME_"],
+		"regex":"ACME_[A-Z0-9]{20}",
+		"severity":"high",
+		"verify_url":"http://127.0.0.1:%d/verify"
+	}]`, port)
+	if err := writeFile(rules, rulesJSON); err != nil {
+		t.Fatalf("seed rules: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"scan", "--rules", rules, "--only-verified", "--drop-indeterminate", "--format", "json", "filesystem", target})
+
+	execErr := Root.Execute()
+	if IsFindingsError(execErr) {
+		t.Fatalf("expected no findings error (indeterminate finding dropped); got %v\nstdout:\n%s\nstderr:\n%s", execErr, out.String(), errBuf.String())
+	} else if execErr != nil {
+		t.Fatalf("unexpected error: %v", execErr)
+	}
+
+	var records []map[string]any
+	if err := json.Unmarshal(out.Bytes(), &records); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\n%s", err, out.String())
+	}
+	if len(records) != 0 {
+		t.Fatalf("want 0 findings kept, got %d\nstdout:\n%s", len(records), out.String())
+	}
+	if !strings.Contains(errBuf.String(), "only-verified: dropped 1 indeterminate finding") {
+		t.Errorf("expected stderr warning about the dropped indeterminate finding; stderr:\n%s", errBuf.String())
 	}
 }
 

@@ -63,7 +63,14 @@ func newRevokingSink(inner engine.Sink, dets []detectors.Detector, dryRun bool, 
 // drop findings the operator paid to scan.
 func (r *revokingSink) Emit(f engine.Finding) {
 	r.inner.Emit(f)
-	if !f.Result.Verified {
+	// Revoke only on a confirmed-live verdict. An Indeterminate verdict
+	// (verification attempt failed — network error, provider 5xx, rate
+	// limit) means liveness is unknown, not confirmed — dispatching a
+	// revoke on that basis could invalidate a credential that was never
+	// actually verified live. Verified==false already excludes
+	// Indeterminate (see Result.Verdict), but the explicit comparison
+	// pins the guarantee against future refactors. See issue #246.
+	if f.Result.Verdict() != detectors.VerdictVerified {
 		return
 	}
 	rev, ok := r.revokers[f.Detector]

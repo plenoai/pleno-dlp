@@ -178,6 +178,47 @@ func TestJSONSinkVerificationError(t *testing.T) {
 	if got[0]["verification_error"] != "network down" {
 		t.Errorf("verification_error not propagated: %v", got[0])
 	}
+	// A failed verification attempt (VerificationErr set, Verified false)
+	// must surface as "indeterminate", not collapse into the same shape as
+	// a confirmed-dead secret — that collapse is issue #246.
+	if got[0]["verdict"] != "indeterminate" {
+		t.Errorf("verdict = %v, want indeterminate", got[0]["verdict"])
+	}
+}
+
+// TestJSONSinkVerdictField pins the verdict/verified pair for the other two
+// states so a JSON consumer can rely on verdict without re-deriving it from
+// verified + verification_error.
+func TestJSONSinkVerdictField(t *testing.T) {
+	tests := []struct {
+		name        string
+		verified    bool
+		wantVerdict string
+	}{
+		{"verified", true, "verified"},
+		{"unverified", false, "unverified"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := sample()
+			f.Result.Verified = tc.verified
+			f.Result.VerificationErr = nil
+
+			var buf bytes.Buffer
+			s, _ := NewSink("json", &buf, "test")
+			s.Emit(f)
+			_ = s.Close()
+
+			var got []map[string]any
+			_ = json.Unmarshal(buf.Bytes(), &got)
+			if got[0]["verdict"] != tc.wantVerdict {
+				t.Errorf("verdict = %v, want %s", got[0]["verdict"], tc.wantVerdict)
+			}
+			if got[0]["verified"] != tc.verified {
+				t.Errorf("verified = %v, want %v (backward-compat field)", got[0]["verified"], tc.verified)
+			}
+		})
+	}
 }
 
 func TestSARIFSinkShape(t *testing.T) {
@@ -223,6 +264,38 @@ func TestSARIFSinkShape(t *testing.T) {
 	}
 	if pl["region"].(map[string]any)["startLine"].(float64) != 42 {
 		t.Errorf("startLine: %v", pl["region"])
+	}
+	if props, ok := r["properties"].(map[string]any); !ok || props["verdict"] != "verified" {
+		t.Errorf("properties.verdict = %v, want verified", r["properties"])
+	}
+}
+
+// TestSARIFSink_IndeterminateVerdict pins that a failed verification
+// attempt surfaces distinctly from a confirmed-dead secret in the SARIF
+// properties bag (#246) — GitHub Code Scanning and other SARIF consumers
+// would otherwise have no way to tell the two apart.
+func TestSARIFSink_IndeterminateVerdict(t *testing.T) {
+	f := sample()
+	f.Result.Verified = false
+	f.Result.VerificationErr = errors.New("dial tcp: connection refused")
+
+	var buf bytes.Buffer
+	s, _ := NewSink("sarif", &buf, "test")
+	s.Emit(f)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+		t.Fatalf("not valid JSON: %v", err)
+	}
+	results := doc["runs"].([]any)[0].(map[string]any)["results"].([]any)
+	props := results[0].(map[string]any)["properties"].(map[string]any)
+	if props["verdict"] != "indeterminate" {
+		t.Errorf("verdict = %v, want indeterminate", props["verdict"])
+	}
+	if props["verified"] != false {
+		t.Errorf("verified = %v, want false (backward-compat field)", props["verified"])
 	}
 }
 
@@ -282,7 +355,7 @@ func TestTableSinkColumns(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "DETECTOR") || !strings.Contains(out, "VERIFIED") ||
+	if !strings.Contains(out, "DETECTOR") || !strings.Contains(out, "VERDICT") ||
 		!strings.Contains(out, "LOCATION") || !strings.Contains(out, "REDACTED") {
 		t.Errorf("missing header: %q", out)
 	}
@@ -297,25 +370,43 @@ func TestTableSinkColumns(t *testing.T) {
 	}
 }
 
-func TestTableSinkUnverifiedGlyph(t *testing.T) {
+// TestTableSinkVerdictGlyph pins that the table renders three distinct
+// glyphs for the three verdicts (#246) — a confirmed-dead secret
+// (Verified=false, no VerificationErr) must not render identically to one
+// whose verification attempt merely failed to complete.
+func TestTableSinkVerdictGlyph(t *testing.T) {
 	tests := []struct {
-		name string
-		ok   bool
-		want string
+		name    string
+		verify  func(f *detectors.Result)
+		want    string
+		notWant string
 	}{
-		{"verified", true, "✓"},
-		{"unverified", false, "✗"},
+		{"verified", func(r *detectors.Result) { r.Verified = true }, "✓", ""},
+		{"unverified", func(r *detectors.Result) { r.Verified = false }, "✗", ""},
+		{
+			"indeterminate",
+			func(r *detectors.Result) {
+				r.Verified = false
+				r.VerificationErr = errors.New("network down")
+			},
+			"?", "✗",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f := sample()
-			f.Result.Verified = tc.ok
+			f.Result.VerificationErr = nil
+			tc.verify(&f.Result)
 			var buf bytes.Buffer
 			s, _ := NewSink("table", &buf, "test")
 			s.Emit(f)
 			_ = s.Close()
-			if !strings.Contains(buf.String(), tc.want) {
-				t.Errorf("want %q in %q", tc.want, buf.String())
+			out := buf.String()
+			if !strings.Contains(out, tc.want) {
+				t.Errorf("want %q in %q", tc.want, out)
+			}
+			if tc.notWant != "" && strings.Contains(out, tc.notWant) {
+				t.Errorf("did not want %q in %q", tc.notWant, out)
 			}
 		})
 	}

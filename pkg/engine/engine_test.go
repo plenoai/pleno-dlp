@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -234,5 +235,50 @@ func TestEngine_StampsBlastRadiusOnEmit(t *testing.T) {
 	}
 	if got[0].Result.ExtraData["blast_radius"] != "true" {
 		t.Errorf("expected blast_radius=true rolled up from aws_privileged, got %v", got[0].Result.ExtraData)
+	}
+}
+
+// indeterminateDet emits a Result with Verified=false and a non-nil
+// VerificationErr (Severity left at the zero value) — the shape a real
+// detector produces when Verify's HTTP call fails outright (network error,
+// provider 5xx, rate limit) rather than the provider affirmatively
+// rejecting the secret.
+type indeterminateDet struct{}
+
+func (indeterminateDet) Type() detectors.DetectorType { return detectors.AWS }
+func (indeterminateDet) Keywords() []string           { return []string{"trigger"} }
+func (indeterminateDet) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	return []detectors.Result{{
+		DetectorType:    detectors.AWS,
+		Raw:             data,
+		Verified:        false,
+		VerificationErr: errors.New("dial tcp: connection refused"),
+	}}, nil
+}
+
+// TestEngine_IndeterminateVerdictSeverity pins the severity-mapping choice
+// for issue #246: a Result whose verification attempt failed (rather than
+// the provider confirming it dead) must default to SeverityCritical, the
+// same as a confirmed-live secret — not SeverityHigh, the unverified-AWS
+// default. A failed verification attempt doesn't disprove liveness, so
+// under-classifying it is the wrong failure mode for a secrets scanner.
+func TestEngine_IndeterminateVerdictSeverity(t *testing.T) {
+	src := &stubSource{chunks: []*sources.Chunk{
+		{Data: []byte("trigger me"), SourceType: sources.SourceFilesystem},
+	}}
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{indeterminateDet{}}, Options{}, sink)
+	if _, err := eng.RunWithStats(context.Background(), src); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	got := sink.Findings()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(got))
+	}
+	if got[0].Result.Verdict() != detectors.VerdictIndeterminate {
+		t.Fatalf("expected VerdictIndeterminate, got %v", got[0].Result.Verdict())
+	}
+	if got[0].Result.Severity != detectors.SeverityCritical {
+		t.Errorf("severity = %v, want SeverityCritical for an indeterminate verdict", got[0].Result.Severity)
 	}
 }
