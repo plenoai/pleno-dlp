@@ -2,7 +2,9 @@
 package generic
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"math"
 	"regexp"
 	"strings"
@@ -101,6 +103,28 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			continue
 		}
 		if looksLikeSRIHash(secret) || looksLikeHexDigest(secret) {
+			continue
+		}
+		// Hash-dense PHP/JS context gating (#249): these five checks
+		// target the false-positive classes measured on laravel/framework
+		// and axios/axios — bcrypt/argon2 password-hash fixtures,
+		// algorithm-name test identifiers, bundler content-hash
+		// filenames, MIME-type strings, and base64-encoded doc examples.
+		// None of them touch the keyword-radius gate below; a candidate
+		// still needs a nearby credential keyword to reach this point.
+		if looksLikeCryptHashFragment(data, m[0], m[1]) {
+			continue
+		}
+		if looksLikeIdentifierWithAlgoName(secret) {
+			continue
+		}
+		if looksLikeBundlerAssetFilename(secret, data, m[1]) {
+			continue
+		}
+		if looksLikeMimeType(secret) {
+			continue
+		}
+		if decodesToPrintableText(secret) {
 			continue
 		}
 		if !nearKeyword(m[0], m[1], keywordSpans) {
@@ -245,6 +269,152 @@ func looksLikeHexDigest(s string) bool {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+// cryptHashMarkerRE matches the fixed algorithm markers used by PHP/Unix
+// crypt(3)-family password-hash formats: bcrypt ($2a$/$2b$/$2x$/$2y$),
+// Argon2 (i/d/id), classic crypt (md5=$1$, sha256=$5$, sha512=$6$), and
+// pbkdf2. Wherever one of these appears, the surrounding entropy run is
+// unmistakably a hash literal from a hashing-library test fixture — never
+// a live secret.
+var cryptHashMarkerRE = regexp.MustCompile(`\$(2[abxy]|argon2(?:id|i|d)|1|5|6|pbkdf2(?:-sha\d+)?)\$`)
+
+// cryptHashLookback bounds how far back from a candidate's start we scan
+// for a crypt-format marker. bcrypt/argon2 hash literals are at most
+// ~100 bytes end to end (cost/params + salt + hash), so a marker further
+// back belongs to unrelated text.
+const cryptHashLookback = 100
+
+// looksLikeCryptHashFragment reports whether data[start:end] is a fragment
+// of a known password-hash-function output rather than a raw secret. It
+// covers two shapes seen in real hashing test suites (laravel/framework's
+// EloquentModelHashedCastingTest.php and HasherTest.php, both firing 14+
+// GenericHighEntropy hits before this fix):
+//
+//  1. A recognized algorithm marker ($2y$, $argon2i$, ...) appears within
+//     cryptHashLookback bytes before the candidate. bcrypt/argon2 payloads
+//     contain `.` or `,` which the secret-shape regex doesn't span, so one
+//     hash literal is often split into 2-3 separate candidates — the
+//     lookback catches every piece, not just the one right after the
+//     marker.
+//  2. The candidate is sandwiched directly between two literal `$`
+//     characters (`$xxxx$`) — the generic shape of any crypt(3)-family
+//     salt/hash segment, independent of a recognized algorithm name. Real
+//     secrets are essentially never written wrapped bare in `$`.
+func looksLikeCryptHashFragment(data []byte, start, end int) bool {
+	lbStart := start - cryptHashLookback
+	if lbStart < 0 {
+		lbStart = 0
+	}
+	if cryptHashMarkerRE.Match(data[lbStart:start]) {
+		return true
+	}
+	if start > 0 && end < len(data) && data[start-1] == '$' && data[end] == '$' {
+		return true
+	}
+	return false
+}
+
+// algoNameTokenRE matches digit-bearing algorithm/encoding names that
+// commonly appear inside otherwise-alphabetic camelCase identifiers, e.g.
+// laravel/framework's HasherTest.php method names testBasicArgon2iHashing
+// and testBasicArgon2idHashing. looksLikeIdentifier already rejects
+// all-letter runs, but a single embedded digit (the "2" in Argon2)
+// deliberately defeats that check so real digit-bearing secrets keep
+// firing (see looksLikeIdentifier's doc comment) — this closes that gap
+// for the specific, bounded set of algorithm names rather than loosening
+// the digit tolerance generally, which would swallow real secrets like
+// AKIAIOSFODNN7EXAMPLE or ghp_aBcDeF123XYZ.
+var algoNameTokenRE = regexp.MustCompile(`(?i)sha512|sha384|sha256|sha224|sha1|md5|md4|base64|base58|base32|aes256|aes192|aes128|argon2id|argon2i|argon2d|pbkdf2|utf8|utf16|rsa2048|rsa4096|crc32|hmac256|hmac512`)
+
+// looksLikeIdentifierWithAlgoName strips known algorithm-name tokens from
+// s and re-checks looksLikeIdentifier on what's left. If s contains none
+// of the tokens, it returns false unconditionally — this function only
+// ever narrows an existing gap, never widens looksLikeIdentifier's own
+// behavior for strings that don't mention a known algorithm name.
+func looksLikeIdentifierWithAlgoName(s string) bool {
+	stripped := algoNameTokenRE.ReplaceAllString(s, "")
+	if stripped == s {
+		return false
+	}
+	return looksLikeIdentifier(stripped)
+}
+
+// staticAssetExtensions are the extensions bundler-emitted (Vite/webpack)
+// content-hashed filenames use: `<Name>-<8-10 char build hash>.<ext>`.
+// Build manifests (Vite's manifest.json) list dozens of these per file;
+// each hash suffix passes the entropy and keyword-radius gates on its own
+// (laravel/framework's tests/Foundation/fixtures/prefetching-manifest.json
+// fired 6 GenericHighEntropy hits before this fix, all this shape).
+var staticAssetExtensions = []string{
+	".js", ".mjs", ".cjs", ".css", ".vue", ".map", ".json",
+	".woff", ".woff2", ".png", ".svg", ".ts", ".tsx",
+}
+
+// looksLikeBundlerAssetFilename reports whether the candidate at
+// data[:end] is a bundler content-hash filename: it requires a hyphen
+// (the `<Name>-<hash>` separator — real secrets of this length rarely
+// contain one) AND a recognized static-asset extension immediately
+// following the match. Requiring both keeps this narrow: a hyphenated
+// token that ISN'T followed by a file extension (e.g. a real hyphenated
+// API key) is left alone.
+func looksLikeBundlerAssetFilename(secret string, data []byte, end int) bool {
+	if !strings.ContainsRune(secret, '-') {
+		return false
+	}
+	rest := data[end:]
+	for _, ext := range staticAssetExtensions {
+		if bytes.HasPrefix(rest, []byte(ext)) {
+			return true
+		}
+	}
+	return false
+}
+
+// mimeTypeRE matches MIME/media-type strings (`application/x-www-form-
+// urlencoded`, `multipart/form-data`, `text/plain`) — exactly one slash,
+// lowercase registry-style tokens on both sides, no uppercase. These show
+// up constantly in HTTP client code/docs (axios's README.md and
+// docs/*/config-defaults.md fired 5 hits on exactly this string) and sit
+// right next to Authorization/token keywords in request-header examples,
+// but a real secret is essentially never confined to this all-lowercase,
+// single-slash shape.
+var mimeTypeRE = regexp.MustCompile(`^[a-z][a-z0-9.+-]*/[a-z0-9.+-]*[a-z][a-z0-9.+-]*$`)
+
+func looksLikeMimeType(s string) bool {
+	return mimeTypeRE.MatchString(s)
+}
+
+// decodesToPrintableText reports whether s, interpreted as base64 (padded
+// out if needed, standard or URL-safe alphabet), decodes cleanly to bytes
+// that are all printable ASCII. A handful of doc/test fixtures embed a
+// base64-encoded human-readable string as a Basic-Auth or header example —
+// axios's tests/browser/basicAuth.browser.test.js uses RFC 7617's
+// canonical `QWxhZGRpbjpvcGVuIHNlc2FtZQ==`, which decodes to "Aladdin:open
+// sesame". Real random secrets essentially never decode to all-printable
+// text purely by chance: independently ~63% per byte, so well under 1e-9
+// for a 20+ byte run — this is a one-way filter, not a coin flip.
+func decodesToPrintableText(s string) bool {
+	padded := s
+	if m := len(s) % 4; m != 0 {
+		padded += strings.Repeat("=", 4-m)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(padded)
+	if err != nil {
+		decoded, err = base64.URLEncoding.DecodeString(padded)
+		if err != nil {
+			return false
+		}
+	}
+	if len(decoded) < 8 {
+		return false
+	}
+	for _, b := range decoded {
+		if b < 0x20 || b > 0x7e {
 			return false
 		}
 	}
