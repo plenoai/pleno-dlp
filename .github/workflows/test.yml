@@ -29,3 +29,20 @@ jobs:
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - run: go build ./...
       - run: go test ./... -race -timeout 5m
+
+  detector-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      # detector_unit-tagged tests are excluded from the plain `go test ./...`
+      # run above so they can carry heavier per-detector fixtures. They must
+      # still compile and pass on every push/PR — run them in their own
+      # parallel job with a longer timeout instead of folding them into the
+      # `test` job above.
+      - run: go test -tags=detector_unit ./pkg/detectors/... -race -count=1 -timeout 15m

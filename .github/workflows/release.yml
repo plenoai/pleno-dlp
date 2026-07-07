@@ -38,6 +38,10 @@ jobs:
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - run: go build ./...
       - run: go test ./... -race -count=1 -timeout 5m
+      # Same detector_unit-tagged suite the test workflow's detector-unit job
+      # runs, gated here too so a tag push can never publish a binary whose
+      # detector unit tests were never compiled/run.
+      - run: go test -tags=detector_unit ./pkg/detectors/... -race -count=1 -timeout 15m
 
       # syft drives goreleaser's SBOM step. Pinned via the official
       # anchore install action so a typo in the binary name doesn't slip
