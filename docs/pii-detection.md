@@ -110,6 +110,36 @@ The privacy-filter wrapper is documented separately:
 - Public bind targets such as `0.0.0.0` are refused
 - PII detection is mutually exclusive: choose one engine with `--pii-engine`
 
+## Trust chain (`pii-server` bootstrap)
+
+`pii-server` materializes a third-party Python server on first use via `git`
+clone + `uv`. Two artifact classes cross the trust boundary before any code
+from them executes, and each is handled differently:
+
+| Artifact | Pin | Verification | Failure mode |
+|---|---|---|---|
+| `pleno-anonymize` checkout (`--source`, default `git+https://github.com/plenoai/pleno-anonymize.git`) | `--git-ref` defaults to a release tag baked into the binary (`defaultPIIServerGitRef` in `cmd/pleno-dlp/cmd/pii_server.go`), not the mutable default branch | None beyond git's own transport integrity (HTTPS) — the ref itself is a fixed tag, so "what code runs" is reproducible across runs unless the operator opts out | Checking out the wrong ref surfaces as a `uv sync`/import failure, not a silent substitution |
+| NER model wheels (spaCy `en_core_web_sm`, `pleno_anonymize_ja`, `pleno_anonymize_en`) | URL is a specific, versioned filename per wheel (`nerWheels` in `cmd/pleno-dlp/cmd/pii_server.go`) | pleno-dlp downloads each wheel itself (uv never fetches it directly), computes its sha256, and compares against a hash baked into the binary | **Fail closed**: a hash mismatch aborts `pii-server` setup with an explicit `sha256 mismatch ... aborting pii-server setup` error before `uv pip install` ever sees the file. Covered by `TestDownloadAndVerifyWheel_HashMismatch` and `TestRunUVPipInstallNERWheels_AbortsOnHashMismatch` in `cmd/pleno-dlp/cmd/pii_server_test.go`. |
+
+What this does **not** cover:
+
+- The pinned `pleno-anonymize` tag's *own* supply chain (its dependencies,
+  its CI) — pinning a ref bounds "which commit," not "is that commit's
+  content trustworthy." That trust is inherited from the `plenoai` org.
+- Operators who explicitly pass `--git-ref ""` or `--git-ref main` (or any
+  other ref) are consciously opting out of the pin; this is intentionally
+  still possible for maintainers who need to test against tip, but it is
+  not the shipped default and should not be used unattended/in CI.
+- **Known follow-up**: the `pleno_anonymize_ja`/`pleno_anonymize_en` wheels
+  are currently hosted on a personal Hugging Face account
+  (`huggingface.co/0xhikae/...`) rather than an org-controlled one. Moving
+  them requires HF org credentials that are not available to this change;
+  the sha256 pin means a compromised or swapped file on that account still
+  gets rejected, but the account itself remains a single point of trust
+  until relocation. Tracked as a follow-up to issue #248 — the code is
+  structured so relocating a wheel is a two-field edit (`url`, `sha256`) in
+  the `nerWheels` table, not a redesign.
+
 ## Related docs
 
 - [`docs/output-and-gating.md`](output-and-gating.md)
