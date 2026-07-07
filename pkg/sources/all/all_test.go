@@ -33,23 +33,13 @@ func TestAllRegistersRealSources(t *testing.T) {
 	}
 }
 
-// incrementalCapableSources lists the core sources that implement
-// ResourceFingerprinter and IncrementalStateSource. This stays a hand list
-// (not sources.Registered()) because docker-image deliberately does not
-// implement incremental state yet — looping over every registered type
-// would false-fail on it. Extending docker-image's incremental support is
-// tracked separately from #259's registry work.
-var incrementalCapableSources = []sources.SourceType{
-	sources.SourceFilesystem,
-	sources.SourceGCS,
-	sources.SourceGit,
-	sources.SourceS3,
-	sources.SourceStdin,
-	sources.SourceSQLDump,
-}
-
+// TestAllRegisteredSourcesSupportIncremental asserts that every core source
+// self-registered against sources.Register implements both incremental
+// extensions. Derived from sources.Registered() (not a hand list) — #284
+// closed the last gap (docker-image), so every registered source is now
+// incremental-capable and a hand list would silently miss future additions.
 func TestAllRegisteredSourcesSupportIncremental(t *testing.T) {
-	for _, typ := range incrementalCapableSources {
+	for _, typ := range sources.Registered() {
 		s := sources.New(typ)
 		if s == nil {
 			t.Errorf("sources.New(%s) = nil, want registered source", typ)
