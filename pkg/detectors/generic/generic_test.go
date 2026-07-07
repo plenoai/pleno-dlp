@@ -3,6 +3,7 @@
 package generic
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
@@ -265,5 +266,240 @@ func TestShannonEntropy_CalibratesAtFour(t *testing.T) {
 	}
 	if e := shannonEntropy("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); e > 1.0 {
 		t.Errorf("all-same-char must score < 1.0, got %v", e)
+	}
+}
+
+// --- #249: hash-dense PHP/JS context gating -------------------------------
+//
+// The fixtures below are lifted (shape-for-shape, not byte-for-byte) from
+// what actually fired on laravel/framework and axios/axios during the
+// issue #249 repro. Each "Rejects" test is a measured false-positive
+// class; TestFromData_StillFiresOnLaravelAppKeyShapedSecret and
+// TestFromData_StillFiresOnRealSecret (above) are the recall controls —
+// real-format-looking secrets in the same kind of file that MUST keep
+// firing.
+
+func TestLooksLikeCryptHashFragment(t *testing.T) {
+	// bcrypt: $2y$13$<22-char-salt><31-char-hash>, split by `.` into two
+	// secretShape runs the way laravel/framework's
+	// EloquentModelHashedCastingTest.php does.
+	bcrypt := []byte(`'password' => '$2y$13$Hdxlvi7OZqK3/fKVNypJs.vJqQcmOo3HnnT6w7fec9FRTRYxAhuCO',`)
+	salt := "Hdxlvi7OZqK3/fKVNypJs"
+	saltStart := bytes.Index(bcrypt, []byte(salt))
+	if !looksLikeCryptHashFragment(bcrypt, saltStart, saltStart+len(salt)) {
+		t.Error("bcrypt salt segment must be recognized as a crypt-hash fragment")
+	}
+	hash := "vJqQcmOo3HnnT6w7fec9FRTRYxAhuCO"
+	hashStart := bytes.Index(bcrypt, []byte(hash))
+	if !looksLikeCryptHashFragment(bcrypt, hashStart, hashStart+len(hash)) {
+		t.Error("bcrypt hash segment must be recognized as a crypt-hash fragment")
+	}
+
+	// argon2i: $argon2i$v=19$m=...$<salt>$<hash>
+	argon := []byte(`'password' => '$argon2i$v=19$m=1024,t=2,p=2$OENON0I5bXo2WDQyQnM2bg$3ma8cKHITsmAjyIYKDLdSvtkMCiEz/s6qWnLAf+Ehek',`)
+	argonHash := "3ma8cKHITsmAjyIYKDLdSvtkMCiEz/s6qWnLAf+Ehek"
+	argonStart := bytes.Index(argon, []byte(argonHash))
+	if !looksLikeCryptHashFragment(argon, argonStart, argonStart+len(argonHash)) {
+		t.Error("argon2i hash segment must be recognized as a crypt-hash fragment")
+	}
+
+	// Not a hash: real secret near a keyword, no `$` markers anywhere.
+	real := []byte(`api_key = "Hf83KdjL9qZ8xVnB2Wm7TpRcJyXuAbCdEfGhIjKlMnOp01"`)
+	realStart := bytes.Index(real, []byte("Hf83"))
+	if looksLikeCryptHashFragment(real, realStart, realStart+46) {
+		t.Error("real secret must NOT be recognized as a crypt-hash fragment")
+	}
+}
+
+func TestFromData_RejectsBcryptHashFragment(t *testing.T) {
+	// Real shape from laravel/framework's EloquentModelHashedCastingTest.php.
+	chunk := []byte(`
+        HashedCast::create([
+            'password' => '$2y$13$Hdxlvi7OZqK3/fKVNypJs.vJqQcmOo3HnnT6w7fec9FRTRYxAhuCO',
+        ]);
+`)
+	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	if len(res) != 0 {
+		t.Errorf("bcrypt hash literal near 'password' must NOT fire, got %d: %v", len(res), res)
+	}
+}
+
+func TestFromData_RejectsArgon2HashFragment(t *testing.T) {
+	chunk := []byte(`
+        HashedCast::create([
+            'password' => '$argon2i$v=19$m=1024,t=2,p=2$OENON0I5bXo2WDQyQnM2bg$3ma8cKHITsmAjyIYKDLdSvtkMCiEz/s6qWnLAf+Ehek',
+        ]);
+`)
+	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	if len(res) != 0 {
+		t.Errorf("argon2i hash literal near 'password' must NOT fire, got %d: %v", len(res), res)
+	}
+}
+
+func TestLooksLikeIdentifierWithAlgoName(t *testing.T) {
+	cases := []struct {
+		s    string
+		want bool
+	}{
+		{"testBasicArgon2iHashing", true},
+		{"testBasicArgon2idHashing", true},
+		{"testBasicArgon2idVerification", true},
+		{"Hf83KdjL9qZ8xVnB2Wm7TpRcJyXuAbCdEfGhIjKlMnOp01", false}, // no algo token: untouched
+		{"AKIAIOSFODNN7EXAMPLE", false},                           // no algo token: untouched
+		{"ghp_aBcDeF123XYZ", false},                               // no algo token: untouched
+	}
+	for _, c := range cases {
+		if got := looksLikeIdentifierWithAlgoName(c.s); got != c.want {
+			t.Errorf("looksLikeIdentifierWithAlgoName(%q) = %v, want %v", c.s, got, c.want)
+		}
+	}
+}
+
+func TestFromData_RejectsAlgoNameTestIdentifier(t *testing.T) {
+	// Real shape from laravel/framework's tests/Hashing/HasherTest.php.
+	chunk := []byte(`
+    #[Depends('testBasicArgon2idHashing')]
+    public function testBasicArgon2idVerification()
+    {
+        $this->assertTrue(password_verify('password', $subject->password));
+    }
+`)
+	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	for _, r := range res {
+		if strings.Contains(strings.ToLower(string(r.Raw)), "argon") {
+			t.Errorf("camelCase test-method identifier must NOT fire; got %q", r.Raw)
+		}
+	}
+}
+
+func TestLooksLikeBundlerAssetFilename(t *testing.T) {
+	data := []byte(`"file": "assets/AuthenticatedLayout-DfWF52N1.js",`)
+	secret := "assets/AuthenticatedLayout-DfWF52N1"
+	end := bytes.Index(data, []byte(secret)) + len(secret)
+	if !looksLikeBundlerAssetFilename(secret, data, end) {
+		t.Error("Vite-style content-hash filename must be recognized as a bundler asset")
+	}
+	// No hyphen: not a bundler asset shape even if followed by ".js".
+	if looksLikeBundlerAssetFilename("nohyphenhere12345678", []byte("nohyphenhere12345678.js"), 20) {
+		t.Error("token without a hyphen must NOT be treated as a bundler asset")
+	}
+	// Hyphen present but no static-asset extension follows: leave alone.
+	if looksLikeBundlerAssetFilename("some-hyphenated-secret-value", []byte(`some-hyphenated-secret-value"`), 28) {
+		t.Error("hyphenated token without a trailing asset extension must NOT be treated as a bundler asset")
+	}
+}
+
+func TestFromData_RejectsBundlerAssetFilename(t *testing.T) {
+	// Real shape from laravel/framework's
+	// tests/Foundation/fixtures/prefetching-manifest.json (a Vite build
+	// manifest). "password" here stands in for the ResetPassword.vue /
+	// ConfirmPassword.vue entries that put a "password"-keyword hit
+	// within radius of these asset names in the real file.
+	chunk := []byte(`{
+  "_AuthenticatedLayout-DfWF52N1.js": {
+    "file": "assets/AuthenticatedLayout-DfWF52N1.js",
+    "name": "AuthenticatedLayout"
+  },
+  "resources/js/Pages/Auth/ResetPassword.vue": {
+    "file": "assets/ResetPassword-BNl7a4X1.js",
+    "name": "ResetPassword"
+  }
+}`)
+	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	for _, r := range res {
+		if strings.Contains(string(r.Raw), "AuthenticatedLayout") || strings.Contains(string(r.Raw), "ResetPassword") {
+			t.Errorf("bundler content-hash filename must NOT fire; got %q", r.Raw)
+		}
+	}
+}
+
+func TestLooksLikeMimeType(t *testing.T) {
+	cases := []struct {
+		s    string
+		want bool
+	}{
+		{"application/x-www-form-urlencoded", true},
+		{"multipart/form-data", true},
+		{"text/plain", true},
+		{"Hf83KdjL9qZ8xVnB2Wm7TpRcJyXuAbCdEfGhIjKlMnOp01", false}, // no slash
+		{"com/aws/aws-sdk-go-v2", false},                          // 2 slashes — not this shape either way
+		{"AKIAIOSFODNN7EXAMPLE", false},
+	}
+	for _, c := range cases {
+		if got := looksLikeMimeType(c.s); got != c.want {
+			t.Errorf("looksLikeMimeType(%q) = %v, want %v", c.s, got, c.want)
+		}
+	}
+}
+
+func TestFromData_RejectsMimeType(t *testing.T) {
+	// Real shape from axios's docs/pages/advanced/config-defaults.md.
+	chunk := []byte(`axios.defaults.headers.common["Authorization"] = AUTH_TOKEN;
+axios.defaults.headers.post["Content-Type"] =
+  "application/x-www-form-urlencoded";
+`)
+	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	for _, r := range res {
+		if strings.Contains(string(r.Raw), "application/x-www-form-urlencoded") {
+			t.Errorf("MIME-type string must NOT fire; got %q", r.Raw)
+		}
+	}
+}
+
+func TestDecodesToPrintableText(t *testing.T) {
+	cases := []struct {
+		s    string
+		want bool
+	}{
+		{"QWxhZGRpbjpvcGVuIHNlc2FtZQ==", true},                    // RFC 7617 "Aladdin:open sesame"
+		{"Hf83KdjL9qZ8xVnB2Wm7TpRcJyXuAbCdEfGhIjKlMnOp01", false}, // real-shaped random secret
+		{"AKIAIOSFODNN7EXAMPLE", false},
+	}
+	for _, c := range cases {
+		if got := decodesToPrintableText(c.s); got != c.want {
+			t.Errorf("decodesToPrintableText(%q) = %v, want %v", c.s, got, c.want)
+		}
+	}
+}
+
+func TestFromData_RejectsBase64PlaceholderText(t *testing.T) {
+	// Real shape from axios's tests/browser/basicAuth.browser.test.js —
+	// RFC 7617's canonical Basic-Auth example, base64-encoded.
+	chunk := []byte(`expect(request.requestHeaders.Authorization).toBe('Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==');`)
+	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	for _, r := range res {
+		if strings.Contains(string(r.Raw), "QWxhZGRpbjpvcGVu") {
+			t.Errorf("well-known base64 doc-example credential must NOT fire; got %q", r.Raw)
+		}
+	}
+}
+
+func TestFromData_StillFiresOnLaravelAppKeyShapedSecret(t *testing.T) {
+	// Recall control: a Laravel APP_KEY-shaped value (base64:<32
+	// random bytes>) must still fire even in a hash-dense test file,
+	// mirroring what actually fired (and must keep firing) in
+	// laravel/framework's RehashOnLogoutOtherDevicesTest.php. The value
+	// below is freshly generated random bytes, not copied from any real
+	// repo or corpus.
+	chunk := []byte(`#[WithConfig('app.key', 'base64:OQyMfXJHNCzYEA8vb3cNZdZw5Y4DUdiujk9urDQvwjE=')]
+class RehashOnLogoutOtherDevicesTest extends TestCase
+{
+    protected function defineRoutes($router)
+    {
+        $router->post('logout', function (Request $request) {
+            auth()->logoutOtherDevices($request->input('password'));
+        });
+    }
+}
+`)
+	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	found := false
+	for _, r := range res {
+		if strings.Contains(string(r.Raw), "OQyMfXJHNCzYEA8vb3cNZdZw5Y4DUdiujk9urDQvwjE") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("Laravel APP_KEY-shaped secret must still fire in a bcrypt/argon2-hash-dense test file")
 	}
 }
