@@ -3,7 +3,7 @@
 // — Walmart's marketplace gateway requires RSA-PKCS8 signing of a
 // per-request nonce, so a bearer probe always 401s without the
 // signed-header dance. Verify only fires when an apiBase override is
-// supplied (test fakes). RawV2 carries the secret half.
+// supplied for tests. RawV2 carries the secret half.
 package walmart
 
 import (

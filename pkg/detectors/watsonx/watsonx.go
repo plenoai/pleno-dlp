@@ -18,7 +18,6 @@ var apiBase = "https://api.dataplatform.cloud.ibm.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// IBM Cloud IAM keys are 44 base64url-ish chars.
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_\-]{44})\b`)
 
 var contextKeywords = []string{"watsonx", "watson-x", "watson_x", "ibmcloud_api_key"}

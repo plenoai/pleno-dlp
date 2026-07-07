@@ -20,8 +20,6 @@ import (
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// 64 chars from base62 + - _ . The Weaviate admin key is documented as a
-// generated 64-char string.
 var keyRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{64})\b`)
 
 var contextKeywords = []string{"weaviate", "weaviate_api", "weaviate_key", "weaviate_admin"}

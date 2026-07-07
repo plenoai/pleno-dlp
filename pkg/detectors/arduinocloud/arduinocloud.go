@@ -10,9 +10,8 @@
 // (pinning a length here would silently destroy recall) and instead tighten the
 // two recall-safe gates: (1) replace the radius-256 bare `strings.Contains(...,
 // "arduino")` with an assignment-style arm regex inside a tight 64-byte window,
-// and (2) add a CONSERVATIVE Shannon-entropy floor of 3.0 (not 3.5 — the
-// credential may be partly hex, whose entropy caps ~3.6 and would be over-culled
-// at 3.5). The bare keyword stays in Keywords() as the engine prefilter.
+// and (2) add a CONSERVATIVE Shannon-entropy floor of 3.0. The bare keyword
+// stays in Keywords() as the engine prefilter.
 package arduinocloud
 
 import (
@@ -32,19 +31,18 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,80})\b`)
 
 // armRe is the assignment-style Arduino credential reference that must appear
-// within the proximity window. A bare "arduino" substring (board docs, library
-// imports, comments, package names) is far too weak a gate for a 32-80 char
-// alnum run, which collides with hashes, base64 blobs, and object ids. The arm
+// within the proximity window. A bare "arduino" substring is far too weak a
+// gate for a 32-80 char alnum run, which collides with hashes, base64 blobs,
+// and object ids. The arm
 // matches `arduino[_-]?(api[_-]?)?(client[_-]?)?(secret|token|key|id)` — the
 // shape a real ARDUINO_API_CLIENT_SECRET / ARDUINO_CLIENT_SECRET assignment or
 // config key takes.
 var armRe = regexp.MustCompile(`(?i)arduino[_-]?(api[_-]?)?(client[_-]?)?(secret|token|key|id)`)
 
 // minEntropy rejects low-information 32-80 char runs that clear the alnum regex
-// but are not random credentials (padded identifiers, repeated structures). 3.0
-// is conservative on purpose: the Arduino secret format is undocumented and may
-// be partly hex (entropy caps ~3.6), so a 3.5 floor would risk culling real
-// secrets. See package doc.
+// but are not random credentials. 3.0 is conservative on purpose: the Arduino
+// secret format is undocumented and may be partly hex (entropy caps ~3.6), so
+// a 3.5 floor would risk culling real secrets. See package doc.
 const minEntropy = 3.0
 
 type Scanner struct{}
@@ -69,8 +67,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		// Conservative entropy gate: low-information 32-80 char runs (padded
-		// names, structured ids) are rejected even when armed.
+		// Conservative entropy gate: low-information 32-80 char runs are
+		// rejected even when armed.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}

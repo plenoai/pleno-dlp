@@ -41,9 +41,9 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9/+=]{32,400})\b`)
 // high-entropy blob no longer matches.
 var contextRe = regexp.MustCompile(`(?i)\baiven\b|aiven[_-]?(api[_-]?)?(token|key|secret)`)
 
-// minEntropy rejects low-information 372-or-shorter runs (long base64 of a
-// repeated/structured payload) that clear the regex but lack key-grade
-// randomness. Aiven tokens are high-variety base64, so 3.5 is safe.
+// minEntropy rejects low-information 372-or-shorter runs that clear the
+// regex but lack key-grade randomness. Aiven tokens are high-variety base64,
+// so 3.5 is safe.
 const minEntropy = 3.5
 
 type Scanner struct{}

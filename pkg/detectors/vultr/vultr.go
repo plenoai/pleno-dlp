@@ -19,7 +19,6 @@ var apiBase = "https://api.vultr.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Vultr API keys are 36 uppercase alphanumeric characters (A-Z0-9).
 var keyRe = regexp.MustCompile(`\b([A-Z0-9]{36})\b`)
 
 var contextKeywords = []string{"vultr", "vultr_api", "vultr_key", "vultr_token"}

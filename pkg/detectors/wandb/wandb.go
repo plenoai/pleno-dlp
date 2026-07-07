@@ -1,6 +1,6 @@
-// Package wandb detects Weights & Biases (wandb.ai) API keys (40-char
-// hex) near the wandb / weights-and-biases keyword. Verified via
-// /graphql on api.wandb.ai with HTTP Basic auth (username `api`).
+// Package wandb detects Weights & Biases API keys (40-char hex) near the
+// wandb / weights-and-biases keyword. Verified via /graphql on
+// api.wandb.ai with HTTP Basic auth (username `api`).
 package wandb
 
 import (

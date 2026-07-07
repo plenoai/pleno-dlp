@@ -1,14 +1,13 @@
-// Package writer detects Writer.com (writer.com) generative-AI Writer-Key
-// API tokens — long alphanumerics near the `writer` keyword. Verified via
-// /v1/models on api.writer.com with Bearer auth (Authorization: Bearer
-// <TOKEN>).
+// Package writer detects Writer.com generative-AI Writer-Key API tokens —
+// long alphanumerics near the `writer` keyword. Verified via /v1/models on
+// api.writer.com with Bearer auth.
 //
 // Writer.com does not publish an authoritative API-key format: dev.writer.com
-// (api-reference/api-keys, quickstart) and the official writer-python /
-// writer-node SDKs show only `<your-api-key>` placeholders, and trufflehog
-// has no upstream Writer detector to mirror. The token shape therefore stays
-// a generic 40-128 alnum run; FP defense leans on the conservative entropy
-// floor plus the assignment-anchored keyword gate rather than a prefix.
+// and the official writer-python / writer-node SDKs show only
+// `<your-api-key>` placeholders, and trufflehog has no upstream Writer
+// detector to mirror. The token shape therefore stays a generic 40-128 alnum
+// run; FP defense leans on the conservative entropy floor plus the
+// assignment-anchored keyword gate rather than a prefix.
 package writer
 
 import (

@@ -26,13 +26,12 @@
 // The Analyzer interface and Finding type are defined here rather than
 // imported from pkg/piiengine/anonymize so the detector and the
 // supervisor can be tested independently without an import cycle and
-// so future PII engines (presidio direct, cloud-DLP shim) can be
-// substituted by the engine wiring layer without touching this
-// package.
+// so future PII engines can be substituted by the engine wiring layer
+// without touching this package.
 //
 // Keywords: ["@", "〒", "電話", "住所", "氏名", "-"]. Permissive but
-// non-empty so pure-binary chunks (jpegs, gzip, …) are skipped by the
-// engine prefilter. Each prefix anchors a class of NER-relevant
+// non-empty so pure-binary chunks are skipped by the engine prefilter.
+// Each prefix anchors a class of NER-relevant
 // content the upstream engine routes on:
 //
 //   - "@"   — email addresses, social handles

@@ -42,8 +42,8 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 // TestFromData_BareKeywordRejected is the FP shape the radius-256 bare-Contains
 // gate used to accept: a generic high-entropy base62 run sitting near a bare
-// "aikido" mention (prose / dependency name) with NO `aikido_<token|key|secret>`
-// assignment. The armed regex gate must now reject it.
+// "aikido" mention with NO `aikido_<token|key|secret>` assignment. The armed
+// regex gate must now reject it.
 func TestFromData_BareKeywordRejected(t *testing.T) {
 	body := []byte("// installed via aikido cli\nSESSION_NONCE=" + dummy)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)

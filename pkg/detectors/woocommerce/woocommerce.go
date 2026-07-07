@@ -1,7 +1,7 @@
 // Package woocommerce detects WooCommerce REST API consumer key + secret
 // pairs (`ck_<40hex>` + `cs_<40hex>`). Unverified-by-design — every
 // WooCommerce install runs on a per-store host (`<store>.com/wp-json/wc/v3`),
-// so verify only fires when apiBase is overridden (test fakes). Raw=ck,
+// so verify only fires when apiBase is overridden. Raw=ck,
 // RawV2=ck:cs per the trufflehog convention.
 package woocommerce
 

@@ -25,8 +25,8 @@
 // assignment-style arm regex within a radius-64 window; the bare keywords
 // stay in Keywords() as the engine prefilter.
 //
-// Vonage credentials authorize SMS sends and voice calls (real money on the
-// hook), so verified hits surface SeverityCritical via engine default.
+// Vonage credentials authorize SMS sends and voice calls, so verified hits
+// surface SeverityCritical via engine default.
 //
 // Verification calls GET /account/get-balance on rest.nexmo.com with HTTP
 // Basic (key:secret). This is the documented Account API endpoint that the
@@ -126,10 +126,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-// Verify satisfies detectors.Verifier. The paired credential is packed as
-// "key:secret" (matching RawV2 and the jumio/qualys paired-detector
-// convention) so the single-string Verifier interface applies to a key+secret
-// pair.
+// The paired credential is packed as "key:secret" (matching RawV2 and the
+// jumio/qualys paired-detector convention) so the single-string Verifier
+// interface applies to a key+secret pair.
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	parts := strings.SplitN(secret, ":", 2)
 	if len(parts) != 2 {

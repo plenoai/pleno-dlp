@@ -20,13 +20,12 @@ var apiBase = "https://api.voyageai.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// pa- + 24+ base64url chars. Production keys are typically 35 chars total.
+// Production keys are typically 35 chars total.
 var keyRe = regexp.MustCompile(`\b(pa-[A-Za-z0-9_-]{24,})\b`)
 
 var contextKeywords = []string{"voyage", "voyageai", "voyage_api", "voyage_key"}
 
-// probeBody is the smallest legal /v1/embeddings request — single short
-// input, voyage-3-lite is the cheapest model.
+// voyage-3-lite is the cheapest model, used to minimize probe cost.
 var probeBody = []byte(`{"input":["x"],"model":"voyage-3-lite"}`)
 
 type Scanner struct{}

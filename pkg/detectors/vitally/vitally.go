@@ -58,8 +58,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		// Entropy gate: low-information 32-64 char runs (padded placeholders,
-		// long repeats) clear the alnum regex but are not random tokens.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}

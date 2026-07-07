@@ -82,9 +82,9 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	case http.StatusTooManyRequests:
 		return false, nil
 	default:
-		// Other errors (e.g. 400 due to model mismatch) shouldn't classify as
-		// verified, but they also imply the key was authenticated. Stay strict
-		// and only return true on 200 to avoid false positives.
+		// Other errors shouldn't classify as verified, but they also imply the
+		// key was authenticated. Stay strict and only return true on 200 to
+		// avoid false positives.
 		return false, nil
 	}
 }

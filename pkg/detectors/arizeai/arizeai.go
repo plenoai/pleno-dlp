@@ -29,18 +29,17 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
 
 // armRe is the assignment-style Arize reference that must appear within the
-// proximity window. A bare "arize" substring (doc links, the app.arize.com
-// host, OTel collector endpoints) is too weak a gate against a generic
-// 40-80 alphanumeric run; `arize[_-]?(api[_-]?)?(token|key|secret)` is the
-// shape a real credential assignment or config key takes. The bare "arize"
+// proximity window. A bare "arize" substring is too weak a gate against a
+// generic 40-80 alphanumeric run; `arize[_-]?(api[_-]?)?(token|key|secret)` is
+// the shape a real credential assignment or config key takes. The bare "arize"
 // keyword stays in Keywords() as the engine prefilter.
 var armRe = regexp.MustCompile(`(?i)arize[_\-]?(api[_\-]?)?(token|key|secret)`)
 
 // minEntropy is a conservative floor: Arize does not document the key's
 // prefix, length, or charset (see package note), so we cannot pin a length
 // or use the 3.5 high-variety floor without risking recall. 3.0 only rejects
-// the most structured low-information 40-80 char runs (repeated/padded
-// placeholders) while leaving real key-grade randomness untouched.
+// the most structured low-information 40-80 char runs while leaving real
+// key-grade randomness untouched.
 const minEntropy = 3.0
 
 type Scanner struct{}
@@ -62,9 +61,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		// Entropy gate: low-information 40-80 char runs (padded placeholders,
-		// long runs of repeated characters) clear the alnum regex but are not
-		// random tokens — reject them even when armed.
+		// Entropy gate: low-information 40-80 char runs clear the alnum
+		// regex but are not random tokens — reject them even when armed.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}

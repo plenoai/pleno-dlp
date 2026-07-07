@@ -19,11 +19,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 
-// minEntropy is a conservative floor. AI21 does not publish a key format
-// (no prefix, length, or charset is documented anywhere authoritative — not
-// in the auth docs, the dashboard, the Python SDK, nor any upstream
-// trufflehog detector), so per the inconclusive-research fallback we do NOT
-// pin a length and use the recall-safe 3.0 threshold rather than 3.5.
+// minEntropy is a conservative floor. AI21 does not publish an authoritative
+// key format, so per the inconclusive-research fallback we do NOT pin a
+// length and use the recall-safe 3.0 threshold rather than 3.5.
 const minEntropy = 3.0
 
 // armRe replaces the former bare strings.Contains(window,"ai21") gate. The

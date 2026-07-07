@@ -29,8 +29,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
 
 // armRe is the assignment-style Aikido reference that must appear within the
-// proximity window. A bare "aikido" substring (dependency names, doc prose,
-// the company name in comments) is too weak; an
+// proximity window. A bare "aikido" substring is too weak; an
 // `aikido[_-]?(api[_-]?)?(token|key|secret)` shape is what a real credential
 // assignment or config key looks like.
 var armRe = regexp.MustCompile(`(?i)aikido[_\-]?(api[_\-]?)?(token|key|secret)`)
@@ -64,8 +63,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		// Entropy gate: low-information 40-80 char runs (padded names,
-		// repeated fillers) are rejected even when the keyword arms.
+		// Entropy gate: low-information 40-80 char runs are rejected even
+		// when the keyword arms.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}

@@ -24,9 +24,8 @@ func TestContractType(t *testing.T) {
 
 // TestContractKeywords verifies that every detector provides at least one
 // non-empty keyword used for pre-filter matching. Keywords may be mixed-case
-// (e.g. token prefixes like "AKIA", env-var names like "DD_API_KEY", or
-// base64 fragments) — the scanner lowercases the haystack but keeps the
-// keyword as-is for literal match; therefore we only assert non-empty.
+// — the scanner lowercases the haystack but keeps the keyword as-is for
+// literal match; therefore we only assert non-empty.
 func TestContractKeywords(t *testing.T) {
 	t.Parallel()
 	for _, d := range detectors.All() {
