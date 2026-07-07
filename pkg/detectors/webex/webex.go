@@ -1,11 +1,10 @@
-// Package webex detects Cisco Webex (webex.com) API access tokens.
+// Package webex detects Cisco Webex API access tokens.
 //
 // Webex access tokens are 64-char lowercase hex strings — confirmed against
-// the upstream trufflehog detector (github.com/trufflesecurity/trufflehog,
-// pkg/detectors/webex), which anchors on `\b([a-f0-9]{64})\b`. A 64-char hex
-// run is a generic shape (it collides with SHA-256 digests, content hashes,
-// and other hex blobs), so a bare "webex" substring over a wide window is too
-// loose a gate. We instead require a `webex…token/key/secret`-style reference
+// the upstream trufflehog detector, which anchors on `\b([a-f0-9]{64})\b`. A
+// 64-char hex run is a generic shape that collides with SHA-256 digests,
+// content hashes, and other hex blobs, so a bare "webex" substring over a wide
+// window is too loose a gate. We instead require a `webex…token/key/secret`-style reference
 // within a tight 64-byte window AND apply a Shannon-entropy floor before
 // surfacing a candidate.
 //
@@ -32,31 +31,20 @@ var apiBase = "https://webexapis.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// 64-char lowercase hex. Format and length confirmed against the upstream
-// trufflehog webex detector (`\b([a-f0-9]{64})\b`). No public prefix exists to
-// anchor on, so the keyword arm regex plus the entropy floor carry the
-// false-positive load.
+// No public prefix exists to anchor on, so the keyword arm regex plus
+// the entropy floor carry the false-positive load.
 var tokenRe = regexp.MustCompile(`\b([a-f0-9]{64})\b`)
 
-// armRe is the assignment-style Webex reference that must appear within the
-// proximity window. A bare "webex" substring (docs URLs, dependency names,
-// comments, ciscospark mentions) is too weak; a "webex…token/key/secret" shape
-// is what a real credential assignment or config key takes. The optional
-// connector and `access` segment cover WEBEX_TOKEN, webex-access-token,
-// webexApiKey, ciscospark_token, etc.
+// armRe covers WEBEX_TOKEN, webex-access-token, webexApiKey,
+// ciscospark_token, and similar assignment-style references.
 var armRe = regexp.MustCompile(`(?i)(?:webex|ciscospark)[_\-]?(?:access[_\-]?)?(?:api[_\-]?)?(?:token|key|secret)`)
 
-// minEntropy rejects low-information 64-char hex runs (runs of zeros, repeated
-// nibbles) that clear the regex but are not random tokens. 3.0 is the sane
-// floor for hex; see pkg/detectors/entropy.go threshold guidance.
 const minEntropy = 3.0
 
 type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.Webex }
 
-// Keywords must include "webex" — without it the engine would have no
-// prefilter and would evaluate the hex regex against every chunk.
 func (Scanner) Keywords() []string { return []string{"webex"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
@@ -72,15 +60,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		// A `webex…token/key/secret` reference within a tight window is
-		// mandatory — 64-char hex runs are common (SHA-256 digests, content
-		// hashes) and a bare "webex" substring is too weak a gate.
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		// Entropy gate: low-information 64-char hex (zero runs, repeated
-		// nibbles) that clears the regex but lacks token-grade randomness is
-		// rejected even when armed.
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
@@ -103,10 +85,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	return out, nil
 }
 
-// nearKeyword reports whether a `webex…token/key/secret` reference appears
-// within a tight window on either side of the token. The window spans both
-// directions (not strict immediate precedence) so a token defined alongside a
-// nearby WEBEX_TOKEN reference still arms.
+// nearKeyword's window spans both directions so a token defined alongside
+// a nearby WEBEX_TOKEN reference still arms.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius

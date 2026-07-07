@@ -12,8 +12,8 @@
 // on, where the region-agnostic sts:GetCallerIdentity is verified against
 // a hardcoded us-east-1 endpoint.
 //
-// Because the host is fixed (not a guessed tenant host) there is no path
-// to a false Verified=true from a wrong endpoint: an invalid signature
+// Because the host is fixed there is no path to a false Verified=true
+// from a wrong endpoint: an invalid signature
 // yields 403 SignatureDoesNotMatch and an unknown key yields 403
 // InvalidAccessKeyId, neither of which is the 200 we accept.
 package wasabi
@@ -33,19 +33,14 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// apiBase is the fixed Wasabi S3 service endpoint. A package-level var so
-// tests can point it at an httptest.Server.
 var apiBase = "https://s3.wasabisys.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// signRegion is the region used for SigV4. us-east-1 is the canonical
-// default for the account-global GET Service call; Wasabi (like S3)
-// accepts it regardless of where the buckets actually live.
+// us-east-1 is the canonical default for the account-global GET Service
+// call; Wasabi accepts it regardless of where the buckets actually live.
 const signRegion = "us-east-1"
 
-// emptyPayloadHash is the SHA256 of the empty body sent by the GET Service
-// request, precomputed once.
 var emptyPayloadHash = func() string {
 	sum := sha256.Sum256(nil)
 	return hex.EncodeToString(sum[:])
