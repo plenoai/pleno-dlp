@@ -34,7 +34,6 @@ func TestFromData_Found(t *testing.T) {
 }
 
 func TestFromData_NoMatch(t *testing.T) {
-	// Without the sendoso_ prefix the regex must not match.
 	body := []byte("UNRELATED_VALUE=abcdef0123456789ABCDEF0123456789abcdef0123456789ABCDEF")
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
 	if len(res) != 0 {

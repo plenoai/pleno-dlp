@@ -12,8 +12,8 @@
 //
 // Because the token regex (`[a-zA-Z0-9_-]{32}`) is intentionally broad, the
 // detector applies an entropy floor and pure-hex exclusion as a second-pass
-// semantic gate (see FromData) so low-entropy lookalikes sitting near a
-// Segment anchor do not surface as findings.
+// semantic gate so low-entropy lookalikes sitting near a Segment anchor do
+// not surface as findings.
 package segment
 
 import (

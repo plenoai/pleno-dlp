@@ -48,9 +48,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 }
 
 func redact(dsn string) string {
-	// Keep "https://" + first 6 of the public key.
-	// Most DSNs start with "https://" (8 chars); first 6 hex is enough to
-	// distinguish without leaking the full ingest credential.
+	// Keep "https://" plus the first 6 hex chars of the public key — enough
+	// to distinguish without leaking the full ingest credential.
 	cut := 8 + 6
 	if len(dsn) <= cut {
 		return dsn

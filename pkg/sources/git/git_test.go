@@ -255,6 +255,72 @@ func TestChunks_FirstChangedLine(t *testing.T) {
 	}
 }
 
+func TestFirstChangedLine_OversizedBlobSkipsDiff(t *testing.T) {
+	// A single line changed near the start of an otherwise identical file
+	// well over maxDiffBlobSize. If firstChangedLine actually diffed this
+	// (like the small-file case in TestChunks_FirstChangedLine) it would
+	// report line 1. The size guard must intercept it before change.Patch()
+	// runs and report 0 instead.
+	const chunk = "xxxx\n" // 5 bytes/line
+	var b strings.Builder
+	for i := 0; i < 250000; i++ { // 1,250,000 bytes > maxDiffBlobSize (1 MiB)
+		b.WriteString(chunk)
+	}
+	v1 := b.String()
+	v2 := "CHANGED\n" + v1[len(chunk):]
+
+	repo, hashes := buildRepo(t, []commitSpec{
+		{files: map[string]string{"big.txt": v1}, msg: "c1"},
+		{files: map[string]string{"big.txt": v2}, msg: "c2"},
+	})
+
+	r, err := gogit.PlainOpen(repo)
+	if err != nil {
+		t.Fatalf("PlainOpen: %v", err)
+	}
+	c2, err := r.CommitObject(plumbing.NewHash(hashes[1]))
+	if err != nil {
+		t.Fatalf("CommitObject: %v", err)
+	}
+	newTree, err := c2.Tree()
+	if err != nil {
+		t.Fatalf("Tree: %v", err)
+	}
+	parent, err := c2.Parent(0)
+	if err != nil {
+		t.Fatalf("Parent: %v", err)
+	}
+	oldTree, err := parent.Tree()
+	if err != nil {
+		t.Fatalf("parent Tree: %v", err)
+	}
+	changes, err := object.DiffTreeWithOptions(context.Background(), oldTree, newTree, &object.DiffTreeOptions{DetectRenames: false})
+	if err != nil {
+		t.Fatalf("DiffTreeWithOptions: %v", err)
+	}
+	var change *object.Change
+	for _, c := range changes {
+		if c.To.Name == "big.txt" {
+			change = c
+			break
+		}
+	}
+	if change == nil {
+		t.Fatal("no change found for big.txt")
+	}
+	from, to, err := change.Files()
+	if err != nil {
+		t.Fatalf("Files: %v", err)
+	}
+	if to == nil || to.Size <= maxDiffBlobSize {
+		t.Fatalf("fixture blob not oversized: to=%v", to)
+	}
+
+	if got := firstChangedLine(change, from, to); got != 0 {
+		t.Fatalf("firstChangedLine on oversized blob = %d, want 0 (diff skipped)", got)
+	}
+}
+
 func TestChunks_IncrementalStateEmitsOnlyNewCommits(t *testing.T) {
 	repoPath, _ := buildRepo(t, []commitSpec{
 		{files: map[string]string{"a.txt": "alpha"}, msg: "c1"},
@@ -594,6 +660,107 @@ func TestChunks_AllBranchesIncrementalSharedNotReemitted(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].SourceMetadata.Git.Commit != newHash {
 		t.Fatalf("second run = %d chunks (want 1 new); files=%v", len(got), filesOf(got))
+	}
+}
+
+// commitMerge commits the current index as a merge commit with two explicit
+// parents. go-git's CommitOptions.Parents overrides the normal
+// single-HEAD-parent default, letting a test build a real multi-parent
+// commit without a full merge-conflict-resolution flow.
+func commitMerge(t *testing.T, repo *gogit.Repository, files map[string]string, msg string, when time.Time, parents ...plumbing.Hash) string {
+	t.Helper()
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	root := wt.Filesystem.Root()
+	for path, content := range files {
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if _, err := wt.Add(path); err != nil {
+			t.Fatalf("add %q: %v", path, err)
+		}
+	}
+	h, err := wt.Commit(msg, &gogit.CommitOptions{
+		Parents:   parents,
+		Author:    &object.Signature{Name: "Test", Email: "test@example.com", When: when},
+		Committer: &object.Signature{Name: "Test", Email: "test@example.com", When: when},
+	})
+	if err != nil {
+		t.Fatalf("commit merge %q: %v", msg, err)
+	}
+	return h.String()
+}
+
+// TestChunks_AllBranchesMergeCommitCollectsBothLineages guards the #263 fix's
+// cross-head pruning: collectCommits shares a single "seen" set (passed as
+// object.NewCommitPreorderIter's seenExternal) across every start's walk so a
+// lineage already covered by an earlier start's walk is not re-walked. A
+// merge commit gives that sharing a real chance to go wrong — one parent
+// lineage may already be externally visited while a sibling parent (or a
+// separate start processed afterward) is not, and go-git's iterator must
+// only skip the individually-seen commit, never abort the walk and drop the
+// rest. Here "feature" is processed as its own start AND is also reachable
+// as the second parent of a merge commit reached via "master"; every commit
+// in the DAG must still be collected exactly once, regardless of head order.
+func TestChunks_AllBranchesMergeCommitCollectsBothLineages(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	c0 := commitOn(t, repo, map[string]string{"base.txt": "base"}, "c0", base)
+	checkoutNewBranch(t, repo, "feature")
+	cFeat := commitOn(t, repo, map[string]string{"feature.txt": "feature"}, "c-feat", base.Add(time.Minute))
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	if err := wt.Checkout(&gogit.CheckoutOptions{Branch: plumbing.NewBranchReferenceName("master")}); err != nil {
+		if err2 := wt.Checkout(&gogit.CheckoutOptions{Branch: plumbing.NewBranchReferenceName("main")}); err2 != nil {
+			t.Fatalf("checkout default branch: %v / %v", err, err2)
+		}
+	}
+	cMain := commitOn(t, repo, map[string]string{"main.txt": "main"}, "c-main", base.Add(2*time.Minute))
+	cMerge := commitMerge(t, repo, map[string]string{"merge.txt": "merge"}, "c-merge", base.Add(3*time.Minute),
+		plumbing.NewHash(cMain), plumbing.NewHash(cFeat))
+	cAfter := commitOn(t, repo, map[string]string{"after.txt": "after"}, "c-after", base.Add(4*time.Minute))
+
+	// Check out feature last so HEAD (added first by resolveStarts) is the
+	// feature branch — forcing collectCommits to process "feature" before
+	// "master"/"main", the ordering that walks into the merge commit's
+	// second parent while it is already externally visited.
+	if err := wt.Checkout(&gogit.CheckoutOptions{Branch: plumbing.NewBranchReferenceName("feature")}); err != nil {
+		t.Fatalf("checkout feature: %v", err)
+	}
+
+	s := &Source{}
+	mustInit(t, s, Config{Repo: dir, AllBranches: true})
+	got, err := drain(t, s, 10*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks: %v", err)
+	}
+
+	wantCommits := []string{c0, cFeat, cMain, cMerge, cAfter}
+	if len(got) != len(wantCommits) {
+		t.Fatalf("chunks=%d want %d; files=%v", len(got), len(wantCommits), filesOf(got))
+	}
+	seen := map[string]int{}
+	for _, c := range got {
+		seen[c.SourceMetadata.Git.Commit]++
+	}
+	for _, want := range wantCommits {
+		if seen[want] != 1 {
+			t.Fatalf("commit %s emitted %d times, want exactly 1; all=%v", want, seen[want], seen)
+		}
 	}
 }
 
