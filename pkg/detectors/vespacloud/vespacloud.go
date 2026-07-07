@@ -1,4 +1,4 @@
-// Package vespacloud detects Vespa Cloud (search-engine PaaS) API tokens
+// Package vespacloud detects Vespa Cloud API tokens
 // near the `vespa` keyword. Unverified by design — Vespa Cloud uses
 // per-application hosts (`<tenant>.<app>.<env>.z.vespa-cloud.com`), so
 // verify only fires when an apiBase override is supplied (canonical probe
@@ -19,7 +19,6 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// Vespa Cloud API tokens are `vespa_cloud_` prefixed + alnum/_ characters.
 var tokenRe = regexp.MustCompile(`\b(vespa_cloud_[A-Za-z0-9_]{20,80})\b`)
 
 var contextKeywords = []string{"vespa", "vespa-cloud", "vespa_cloud", "vespacloud"}
