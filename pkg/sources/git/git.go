@@ -1,4 +1,4 @@
-// Package git walks local git history and emits changed blobs.
+// Package git walks local git history and emits added content per commit.
 package git
 
 import (
@@ -29,14 +29,22 @@ const binarySniffLen = 512
 const maxBlobSize int64 = 50 * 1024 * 1024 // 50 MiB
 
 // maxDiffBlobSize bounds the blob size (either side) that firstChangedLine
-// will run a diff over. change.Patch() reads both blob sides fully into
-// strings with no cap of its own — maxBlobSize above does not protect this
-// path — and then hands them to a Myers diff that expands them roughly 4x
-// further as []rune. A single large text blob (SQL dump, lockfile,
-// generated code) can therefore spike memory by multiple GiB. Above this
-// bound the diff is skipped entirely; line attribution degrades to 0
-// (unknown) rather than risk that spike.
+// and addedHunks will run a diff over. change.Patch() reads both blob sides
+// fully into strings with no cap of its own — maxBlobSize above does not
+// protect this path — and then hands them to a Myers diff that expands them
+// roughly 4x further as []rune. A single large text blob (SQL dump,
+// lockfile, generated code) can therefore spike memory by multiple GiB.
+// Above this bound the diff is skipped entirely: firstChangedLine degrades
+// to 0 (unknown) and addedHunks emits nothing for that change, rather than
+// fall back to full-blob emission — the #264 memory/scan-bytes blowup this
+// change exists to avoid reintroducing.
 const maxDiffBlobSize int64 = 1 << 20 // 1 MiB
+
+// diffContextLines is the number of unchanged lines kept on either side of
+// an added hunk, mirroring `git diff -U3`. It only bounds context: a run of
+// consecutively added lines (e.g. a pasted-in secret block) is a single
+// diff.Add chunk and is always emitted in full regardless of length.
+const diffContextLines = 3
 
 func init() {
 	sources.Register(sources.SourceGit, func() sources.Source { return &Source{} })
@@ -469,7 +477,20 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 		if err == nil && bin {
 			continue
 		}
-		data, ok := readBlob(to)
+		// A from==nil change (file added, or the insert half of a rename
+		// under DetectRenames:false above) has no prior version to diff
+		// against — the whole file IS the new content, so full-blob
+		// emission here is a one-time cost, not the repeated-rescan
+		// blowup #264 targets. A genuine modification instead emits only
+		// the added hunks (+ context): the full new blob would otherwise
+		// be re-emitted on every commit that touches the file.
+		var data []byte
+		var ok bool
+		if from == nil {
+			data, ok = readBlob(to)
+		} else {
+			data, ok = addedHunks(change, from, to)
+		}
 		if !ok {
 			continue
 		}
@@ -581,6 +602,132 @@ func firstChangedLine(change *object.Change, from, to *object.File) int {
 		}
 	}
 	return 0
+}
+
+// addedHunks extracts every added hunk from a modification's diff, each
+// bordered by up to diffContextLines lines of unchanged context, and returns
+// them concatenated as the chunk's scan content. This replaces full-blob
+// emission for modifications (#264): full-history previously emitted the
+// entire new file on every commit that touched it, so a large,
+// frequently-edited file was rescanned end to end on every touching commit.
+// Only the actually-added material, plus enough context for regexes that
+// span lines, is scanned now.
+//
+// ok=false means the diff was not computed (see maxDiffBlobSize) or the
+// change added no lines (pure deletion or a no-content-change rename/mode
+// change) — callers must skip the change, not fall back to full-file
+// content, or the problem this function exists to fix comes right back.
+func addedHunks(change *object.Change, from, to *object.File) ([]byte, bool) {
+	if to != nil && to.Size > maxDiffBlobSize {
+		return nil, false
+	}
+	if from != nil && from.Size > maxDiffBlobSize {
+		return nil, false
+	}
+	patch, err := change.Patch()
+	if err != nil || patch == nil {
+		return nil, false
+	}
+
+	var out bytes.Buffer
+	wrote := false
+	for _, fp := range patch.FilePatches() {
+		if fp.IsBinary() {
+			continue
+		}
+		chunks := fp.Chunks()
+		for i, c := range chunks {
+			if c.Type() != diff.Add {
+				continue
+			}
+			if out.Len() > 0 && out.Bytes()[out.Len()-1] != '\n' {
+				out.WriteByte('\n')
+			}
+			out.WriteString(trailingContext(chunks, i, diffContextLines))
+			out.WriteString(c.Content())
+			out.WriteString(leadingContext(chunks, i, diffContextLines))
+			wrote = true
+		}
+	}
+	if !wrote {
+		return nil, false
+	}
+	return out.Bytes(), true
+}
+
+// trailingContext returns up to n lines of context immediately preceding the
+// Add chunk at index addIdx, skipping over any intervening Delete chunk
+// (old-side-only text, not present in either the before or after common
+// context) to reach the nearest Equal chunk. Stops with no context if that
+// search hits the start of the file or another Add without finding one.
+func trailingContext(chunks []diff.Chunk, addIdx, n int) string {
+	for j := addIdx - 1; j >= 0; j-- {
+		switch chunks[j].Type() {
+		case diff.Equal:
+			return lastNLines(chunks[j].Content(), n)
+		case diff.Delete:
+			continue
+		default:
+			return ""
+		}
+	}
+	return ""
+}
+
+// leadingContext is trailingContext's mirror: up to n lines of context
+// immediately following the Add chunk at index addIdx.
+func leadingContext(chunks []diff.Chunk, addIdx, n int) string {
+	for j := addIdx + 1; j < len(chunks); j++ {
+		switch chunks[j].Type() {
+		case diff.Equal:
+			return firstNLines(chunks[j].Content(), n)
+		case diff.Delete:
+			continue
+		default:
+			return ""
+		}
+	}
+	return ""
+}
+
+// lastNLines returns the trailing up-to-n lines of s, newline-terminated so
+// it composes cleanly when a caller writes an Add chunk's content right
+// after it.
+func lastNLines(s string, n int) string {
+	lines := splitLines(s)
+	if len(lines) == 0 {
+		return ""
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// firstNLines returns the leading up-to-n lines of s, newline-terminated.
+func firstNLines(s string, n int) string {
+	lines := splitLines(s)
+	if len(lines) == 0 {
+		return ""
+	}
+	if len(lines) > n {
+		lines = lines[:n]
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// splitLines splits diff chunk content into lines, dropping the trailing
+// empty element strings.Split leaves behind when s ends in "\n" (every diff
+// chunk boundary does except possibly the file's final line).
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	lines := strings.Split(s, "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
 func countLines(s string) int {
