@@ -56,6 +56,8 @@ func TestExtractAddedLines_NoAdditions(t *testing.T) {
 }
 
 func TestProtectHelp(t *testing.T) {
+	resetCommandFlags(t)
+
 	var buf strings.Builder
 	Root.SetOut(&buf)
 	Root.SetErr(&buf)

@@ -24,6 +24,8 @@ import (
 )
 
 func TestScanHelp(t *testing.T) {
+	resetCommandFlags(t)
+
 	var out bytes.Buffer
 	Root.SetOut(&out)
 	Root.SetErr(&out)
@@ -42,8 +44,7 @@ func TestScanHelp(t *testing.T) {
 }
 
 func TestScanVerifyFlagRemoved(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
+	resetCommandFlags(t)
 
 	var out bytes.Buffer
 	Root.SetOut(&out)
@@ -66,12 +67,7 @@ func TestScanFilesystemRequiresPath(t *testing.T) {
 }
 
 func TestScanGitHelp(t *testing.T) {
-	// cobra's "help" bool flag is a normal pflag value on scanGitCmd's own
-	// FlagSet: Parse only touches flags present in argv, so it survives
-	// across Execute() calls within one test binary. Reset it so a later
-	// test that actually runs `scan git` (no --help) isn't silently
-	// short-circuited into printing help again.
-	t.Cleanup(func() { _ = scanGitCmd.Flags().Set("help", "false") })
+	resetCommandFlags(t)
 
 	var out bytes.Buffer
 	Root.SetOut(&out)
@@ -125,7 +121,7 @@ func TestParseFailOn(t *testing.T) {
 }
 
 func TestScanFailOnGate(t *testing.T) {
-	t.Cleanup(resetScanOpts) // global flag state is shared across tests
+	resetCommandFlags(t)
 	dir := t.TempDir()
 	target := dir + "/leak.txt"
 	if err := writeFile(target, "ACME_QWERTYUIOPASDFGHJKLZ\n"); err != nil {
@@ -183,8 +179,7 @@ func TestFailOnDefaultIsHigh(t *testing.T) {
 // and how to tighten the gate. Before #250 the default was "any" and
 // this same finding would have exited 1.
 func TestScanFailOnDefault_LowSeverityFindingExitsZero(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
+	resetCommandFlags(t)
 
 	dir := t.TempDir()
 	target := dir + "/notes.txt"
@@ -226,32 +221,6 @@ func TestScanFailOnDefault_LowSeverityFindingExitsZero(t *testing.T) {
 	if !strings.Contains(stderr, "--fail-on=any") {
 		t.Errorf("expected hint to name the escape hatch to block on all; stderr:\n%s", stderr)
 	}
-}
-
-func resetScanOpts() {
-	scanOpts.format = "table"
-	scanOpts.onlyVerified = false
-	scanOpts.dropIndeterminate = false
-	scanOpts.verifyRPS = 10
-	scanOpts.concurrency = 8
-	scanOpts.rulesPath = ""
-	scanOpts.failOn = "high"
-	scanOpts.allowlistPath = ""
-	scanOpts.includeDetectors = nil
-	scanOpts.excludeDetectors = nil
-	scanOpts.quiet = false
-	scanOpts.revokeOnVerified = false
-	scanOpts.revokeDryRun = false
-	scanOpts.blastRadiusOnly = false
-	scanOpts.incremental = false
-	scanOpts.incrementalState = ".pleno-dlp-incremental.json"
-	scanOpts.piiEngine = "off"
-	scanOpts.piiEngineCmd = "pleno-dlp pii-server --port {PORT}"
-	scanOpts.piiEnginePort = 0
-	scanOpts.piiEngineLanguage = "auto"
-	scanOpts.piiEngineReady = 0
-	scanOpts.piiEngineRequest = 10 * time.Second
-	scanOpts.piiEngineDevice = "auto"
 }
 
 func TestBlastRadiusFilterSink_DropsAndForwards(t *testing.T) {
@@ -399,8 +368,7 @@ func TestRevokingSink_NeverRevokesIndeterminate(t *testing.T) {
 }
 
 func TestScan_RevokeOnVerified_RefusesWithoutEnv(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
+	resetCommandFlags(t)
 	t.Setenv(EnvAllowRevoke, "")
 
 	dir := t.TempDir()
@@ -424,8 +392,7 @@ func TestScan_RevokeOnVerified_RefusesWithoutEnv(t *testing.T) {
 }
 
 func TestScan_RevokeOnVerified_DryRunBypassesEnv(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
+	resetCommandFlags(t)
 	t.Setenv(EnvAllowRevoke, "")
 
 	dir := t.TempDir()
@@ -485,6 +452,8 @@ func TestRevokingSink_DryRunDoesNotCallProvider(t *testing.T) {
 }
 
 func TestScanFilesystemWithCustomRules(t *testing.T) {
+	resetCommandFlags(t)
+
 	dir := t.TempDir()
 	target := dir + "/leak.txt"
 	if err := writeFile(target, "config:\n  acme_token: ACME_QWERTYUIOPASDFGHJKLZ\n"); err != nil {
@@ -542,8 +511,7 @@ func unreachableLocalPort(t *testing.T) int {
 // would make a live credential caught in a provider outage indistinguishable
 // from "no secrets found".
 func TestScan_OnlyVerifiedKeepsIndeterminateFinding(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
+	resetCommandFlags(t)
 
 	port := unreachableLocalPort(t)
 
@@ -600,8 +568,7 @@ func TestScan_OnlyVerifiedKeepsIndeterminateFinding(t *testing.T) {
 // opt-out against the same unreachable-verifier scenario: the finding must
 // be excluded entirely, and the scan must report success (no findings kept).
 func TestScan_OnlyVerifiedDropIndeterminateFlag(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
+	resetCommandFlags(t)
 
 	port := unreachableLocalPort(t)
 
@@ -663,8 +630,7 @@ func writeFile(path, content string) error {
 // verification outcome (indeterminate) is deterministic and offline,
 // mirroring TestScan_OnlyVerifiedKeepsIndeterminateFinding.
 func TestScanGit_DefaultReportsUnverifiedFinding(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
+	resetCommandFlags(t)
 
 	port := unreachableLocalPort(t)
 
@@ -727,12 +693,7 @@ func TestScanGit_DefaultReportsUnverifiedFinding(t *testing.T) {
 }
 
 func TestScanStdin_FindsSecretFromPipe(t *testing.T) {
-	resetScanOpts() // pre-emptive: cobra persistent flags retain prior --rules
-	t.Cleanup(resetScanOpts)
-	t.Cleanup(func() {
-		stdinOpts.label = ""
-		stdinOpts.maxBytes = 0
-	})
+	resetCommandFlags(t)
 
 	var out bytes.Buffer
 	Root.SetOut(&out)
@@ -750,8 +711,7 @@ func TestScanStdin_FindsSecretFromPipe(t *testing.T) {
 }
 
 func TestScanFilesystemWithAllowlist(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
+	resetCommandFlags(t)
 
 	dir := t.TempDir()
 	target := dir + "/leak.txt"
@@ -778,8 +738,7 @@ func TestScanFilesystemWithAllowlist(t *testing.T) {
 }
 
 func TestScanFilesystemIncrementalSkipsUnchangedCleanScan(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
+	resetCommandFlags(t)
 
 	dir := t.TempDir()
 	target := dir + "/clean.txt"
@@ -812,8 +771,7 @@ func TestScanFilesystemIncrementalSkipsUnchangedCleanScan(t *testing.T) {
 }
 
 func TestScanFilesystemIncrementalSkipPreservesFindingExit(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
+	resetCommandFlags(t)
 
 	dir := t.TempDir()
 	target := dir + "/leak.txt"
@@ -855,8 +813,7 @@ func TestScanFilesystemIncrementalSkipPreservesFindingExit(t *testing.T) {
 }
 
 func TestScanFilesystemIncrementalSkipsRevokeDryRunWhenUnchanged(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
+	resetCommandFlags(t)
 	t.Setenv(EnvAllowRevoke, "")
 
 	dir := t.TempDir()
@@ -893,12 +850,7 @@ func TestScanFilesystemIncrementalSkipsRevokeDryRunWhenUnchanged(t *testing.T) {
 }
 
 func TestScanStdin_TruncatedButFoundStillReportsFindings(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
-	t.Cleanup(func() {
-		stdinOpts.label = ""
-		stdinOpts.maxBytes = 0
-	})
+	resetCommandFlags(t)
 
 	var out, errBuf bytes.Buffer
 	Root.SetOut(&out)
@@ -920,12 +872,7 @@ func TestScanStdin_TruncatedButFoundStillReportsFindings(t *testing.T) {
 }
 
 func TestScanStdin_NoFindingsExitsZero(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
-	t.Cleanup(func() {
-		stdinOpts.label = ""
-		stdinOpts.maxBytes = 0
-	})
+	resetCommandFlags(t)
 
 	var out bytes.Buffer
 	Root.SetOut(&out)
@@ -998,8 +945,7 @@ func TestFilterDetectors_NoFlagsPassthrough(t *testing.T) {
 }
 
 func TestScanFilesystemFiltersDetectors(t *testing.T) {
-	resetScanOpts()
-	t.Cleanup(resetScanOpts)
+	resetCommandFlags(t)
 
 	dir := t.TempDir()
 	target := dir + "/leak.txt"

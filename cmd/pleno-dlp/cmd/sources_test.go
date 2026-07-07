@@ -10,7 +10,7 @@ import (
 )
 
 func TestSourcesList_Table(t *testing.T) {
-	t.Cleanup(func() { sourcesListOpts.format = "table" })
+	resetCommandFlags(t)
 
 	var out bytes.Buffer
 	Root.SetOut(&out)
@@ -28,7 +28,7 @@ func TestSourcesList_Table(t *testing.T) {
 }
 
 func TestSourcesList_JSON(t *testing.T) {
-	t.Cleanup(func() { sourcesListOpts.format = "table" })
+	resetCommandFlags(t)
 
 	var out bytes.Buffer
 	Root.SetOut(&out)
@@ -65,7 +65,7 @@ func TestSourcesList_JSON(t *testing.T) {
 }
 
 func TestSourcesList_Names(t *testing.T) {
-	t.Cleanup(func() { sourcesListOpts.format = "table" })
+	resetCommandFlags(t)
 
 	var out bytes.Buffer
 	Root.SetOut(&out)
@@ -80,7 +80,7 @@ func TestSourcesList_Names(t *testing.T) {
 }
 
 func TestSourcesList_RejectsBadFormat(t *testing.T) {
-	t.Cleanup(func() { sourcesListOpts.format = "table" })
+	resetCommandFlags(t)
 
 	var out bytes.Buffer
 	Root.SetOut(&out)
