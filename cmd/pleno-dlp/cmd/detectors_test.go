@@ -10,7 +10,7 @@ import (
 )
 
 func TestDetectorsList_Table(t *testing.T) {
-	t.Cleanup(func() { detectorsListOpts.format = "table" })
+	resetCommandFlags(t)
 
 	var out bytes.Buffer
 	Root.SetOut(&out)
@@ -28,7 +28,7 @@ func TestDetectorsList_Table(t *testing.T) {
 }
 
 func TestDetectorsList_JSON(t *testing.T) {
-	t.Cleanup(func() { detectorsListOpts.format = "table" })
+	resetCommandFlags(t)
 
 	var out bytes.Buffer
 	Root.SetOut(&out)
@@ -64,7 +64,7 @@ func TestDetectorsList_JSON(t *testing.T) {
 }
 
 func TestDetectorsList_Names(t *testing.T) {
-	t.Cleanup(func() { detectorsListOpts.format = "table" })
+	resetCommandFlags(t)
 
 	var out bytes.Buffer
 	Root.SetOut(&out)
@@ -80,7 +80,7 @@ func TestDetectorsList_Names(t *testing.T) {
 }
 
 func TestDetectorsList_RejectsBadFormat(t *testing.T) {
-	t.Cleanup(func() { detectorsListOpts.format = "table" })
+	resetCommandFlags(t)
 
 	var out bytes.Buffer
 	Root.SetOut(&out)
@@ -92,10 +92,7 @@ func TestDetectorsList_RejectsBadFormat(t *testing.T) {
 }
 
 func TestDetectorsList_RevokeSupport(t *testing.T) {
-	t.Cleanup(func() {
-		detectorsListOpts.format = "table"
-		detectorsListOpts.revokeSupport = false
-	})
+	resetCommandFlags(t)
 
 	var out bytes.Buffer
 	Root.SetOut(&out)
@@ -131,10 +128,7 @@ func TestDetectorsList_RevokeSupport(t *testing.T) {
 }
 
 func TestDetectorsList_RevokeSupportTable(t *testing.T) {
-	t.Cleanup(func() {
-		detectorsListOpts.format = "table"
-		detectorsListOpts.revokeSupport = false
-	})
+	resetCommandFlags(t)
 
 	var out bytes.Buffer
 	Root.SetOut(&out)

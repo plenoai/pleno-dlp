@@ -10,6 +10,8 @@ import (
 )
 
 func TestCompletion_Bash(t *testing.T) {
+	resetCommandFlags(t)
+
 	var out bytes.Buffer
 	Root.SetOut(&out)
 	Root.SetErr(&out)
@@ -26,6 +28,8 @@ func TestCompletion_Bash(t *testing.T) {
 }
 
 func TestCompletion_Zsh(t *testing.T) {
+	resetCommandFlags(t)
+
 	var out bytes.Buffer
 	Root.SetOut(&out)
 	Root.SetErr(&out)
@@ -40,6 +44,8 @@ func TestCompletion_Zsh(t *testing.T) {
 }
 
 func TestCompletion_Fish(t *testing.T) {
+	resetCommandFlags(t)
+
 	var out bytes.Buffer
 	Root.SetOut(&out)
 	Root.SetErr(&out)
@@ -53,6 +59,8 @@ func TestCompletion_Fish(t *testing.T) {
 }
 
 func TestCompletion_PowerShell(t *testing.T) {
+	resetCommandFlags(t)
+
 	var out bytes.Buffer
 	Root.SetOut(&out)
 	Root.SetErr(&out)
@@ -66,6 +74,8 @@ func TestCompletion_PowerShell(t *testing.T) {
 }
 
 func TestCompletion_RejectsBadShell(t *testing.T) {
+	resetCommandFlags(t)
+
 	var out bytes.Buffer
 	Root.SetOut(&out)
 	Root.SetErr(&out)
