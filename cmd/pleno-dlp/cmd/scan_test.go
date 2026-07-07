@@ -141,6 +141,82 @@ func TestScanFailOnGate(t *testing.T) {
 	}
 }
 
+// TestFailOnDefaultIsHigh pins the audit-first default (#250): a
+// first-time adopter who never passes --fail-on must get "high", not
+// the old "any". Checked against both commands that expose the flag —
+// scan (persistent) and protect (its own local copy of the same flag,
+// see protect.go) — since a mismatch between the two would silently
+// reintroduce enforce-first behaviour for one of them.
+func TestFailOnDefaultIsHigh(t *testing.T) {
+	f := scanCmd.PersistentFlags().Lookup("fail-on")
+	if f == nil {
+		t.Fatal("scan: --fail-on flag not registered")
+	}
+	if f.DefValue != "high" {
+		t.Errorf("scan --fail-on default = %q, want %q (audit-first rollout, #250)", f.DefValue, "high")
+	}
+
+	pf := protectCmd.Flags().Lookup("fail-on")
+	if pf == nil {
+		t.Fatal("protect: --fail-on flag not registered")
+	}
+	if pf.DefValue != "high" {
+		t.Errorf("protect --fail-on default = %q, want %q (audit-first rollout, #250)", pf.DefValue, "high")
+	}
+}
+
+// TestScanFailOnDefault_LowSeverityFindingExitsZero is the acceptance
+// scenario from #250: a fresh `scan filesystem` run against a target
+// with one low-severity finding must exit 0 by default (no --fail-on
+// passed) and must explain, on stderr, why nothing failed the build
+// and how to tighten the gate. Before #250 the default was "any" and
+// this same finding would have exited 1.
+func TestScanFailOnDefault_LowSeverityFindingExitsZero(t *testing.T) {
+	resetScanOpts()
+	t.Cleanup(resetScanOpts)
+
+	dir := t.TempDir()
+	target := dir + "/notes.txt"
+	if err := writeFile(target, "acme_ref: ACME_QWERTYUIOPASDFGHJKLZ\n"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	rules := dir + "/rules.json"
+	if err := writeFile(rules, `[{
+		"name":"ACME Reference",
+		"keywords":["ACME_"],
+		"regex":"ACME_[A-Z0-9]{20}",
+		"severity":"low"
+	}]`); err != nil {
+		t.Fatalf("seed rules: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	// Deliberately no --fail-on: exercise the default.
+	Root.SetArgs([]string{"scan", "--rules", rules, "--format", "json", "filesystem", target})
+
+	err := Root.Execute()
+	if err != nil {
+		t.Fatalf("default --fail-on=high must not trip on a Low finding; err=%v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
+	}
+	// Raw secret bytes are redacted in JSON output by design; assert on
+	// the custom-rule name that rides through in extra_data instead.
+	if !strings.Contains(out.String(), "ACME Reference") {
+		t.Errorf("finding must still be emitted (audit, don't hide); output:\n%s", out.String())
+	}
+	stderr := errBuf.String()
+	if !strings.Contains(stderr, "exit gate: --fail-on=high") {
+		t.Errorf("expected exit-gate hint naming the active gate; stderr:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "1 low") {
+		t.Errorf("expected hint to count the below-gate finding; stderr:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "--fail-on=any") {
+		t.Errorf("expected hint to name the escape hatch to block on all; stderr:\n%s", stderr)
+	}
+}
+
 func resetScanOpts() {
 	scanOpts.format = "table"
 	scanOpts.onlyVerified = false
@@ -148,7 +224,7 @@ func resetScanOpts() {
 	scanOpts.verifyRPS = 10
 	scanOpts.concurrency = 8
 	scanOpts.rulesPath = ""
-	scanOpts.failOn = "any"
+	scanOpts.failOn = "high"
 	scanOpts.allowlistPath = ""
 	scanOpts.includeDetectors = nil
 	scanOpts.excludeDetectors = nil

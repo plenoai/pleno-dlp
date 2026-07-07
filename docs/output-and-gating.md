@@ -64,6 +64,27 @@ pleno-dlp scan filesystem ./repo --fail-on high
 pleno-dlp scan filesystem ./repo --fail-on any
 ```
 
+**Default is `high` (audit-first).** A first scan of an unfamiliar repo
+routinely turns up noise — generic high-entropy strings, JWTs, PEM
+blocks, PII — that the severity table above already classifies as
+Medium. Gating on `any` (the pre-#250 default) meant a single one of
+those exited 1 and broke a brand-new CI pipeline before the operator
+had a chance to triage anything. `high` still fails the build on every
+named-secret detector hit and every verified/critical finding — it
+only stops treating Medium-and-below noise as a hard gate. Tighten
+with `--fail-on any` once the repo has an allowlist and a clean
+baseline; see [`docs/recipes/staged-rollout.md`](recipes/staged-rollout.md)
+for the recommended ratchet sequence.
+
+Findings still print and still count even when they don't meet the
+gate — nothing is hidden. Whenever a scan has findings that didn't
+trip the exit code, the summary says so and names the escape hatch:
+
+```
+scanned 12 chunk(s), 4096 byte(s), 3 finding(s) in 42ms
+exit gate: --fail-on=high (2 low/medium finding(s) did not affect exit code; use --fail-on=any to block on all)
+```
+
 To preserve TruffleHog-style verified-only pipelines, use
 `--only-verified`. Verification runs by default, and the flag filters
 output, finding counts, exit-code gating, and `--revoke-on-verified`

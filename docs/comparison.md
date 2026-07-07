@@ -34,8 +34,8 @@ tree at the exact released tag.
 
 | Metric | pleno-dlp | trufflehog 3.95.5 | gitleaks 8.30.1 |
 |--------|----------:|------------------:|----------------:|
-| Detectors / rules | 600 | 870 | 222 |
-| Live-verification capable | 550 (+50 unverified-by-design, see [`verify-coverage.md`](verify-coverage.md)) | most detectors (core design) | 0 — no verification subsystem |
+| Detectors / rules | 603 | 870 | 222 |
+| Live-verification capable | 552 (+51 unverified-by-design, see [`verify-coverage.md`](verify-coverage.md)) | most detectors (core design) | 0 — no verification subsystem |
 | Revocation support | 4 providers + 1 context-required (AWS) | 0 | 0 |
 | Scan sources | 24 | 18 (16 excluding `multi-scan` / `json-enumerator` meta-inputs) | 3 (`git`, `dir`, `stdin`) |
 | Output formats | json, sarif, table | json, json-legacy, github-actions | json, csv, junit, sarif, template |
@@ -306,6 +306,40 @@ axios). The Go-module corpus below shows the opposite ranking —
 noise profiles are ecosystem-dependent, and pleno-dlp's FP hardening
 (tuned on Go corpora) has not yet caught up on PHP/JS trees.
 
+> **2026-07-07 update (#249):** added hash-dense PHP/JS context gating
+> to `GenericHighEntropy` — crypt(3)-family hash-fragment detection
+> (bcrypt `$2y$`/`$2a$`/`$2b$`/`$2x$`, Argon2 `$argon2i$/$argon2d$/
+> $argon2id$`, classic crypt `$1$/$5$/$6$`, pbkdf2, and the generic
+> `$xxxx$` salt/hash-segment shape), a targeted fix for algorithm-name
+> test identifiers that defeated the existing CamelCase-identifier
+> filter (`testBasicArgon2iHashing`-style method names), bundler
+> content-hash filename recognition (`<Name>-<hash>.js` in Vite/webpack
+> manifests), MIME-type string recognition (`application/x-www-form-
+> urlencoded`), and a base64-decodes-to-printable-text check (catches
+> RFC 7617's canonical Basic-Auth doc example). Re-running the exact
+> two repos named above (fresh shallow clones, same
+> `pleno-dlp scan filesystem --quiet --format json` invocation, current
+> `main`) measured:
+>
+> | Repo | GenericHighEntropy before | GenericHighEntropy after |
+> |---|---:|---:|
+> | laravel/framework | 23 | 1 (the one retained is a real Laravel `APP_KEY`-shaped `base64:<32 random bytes>` value — correctly still flagged) |
+> | axios/axios | 7 | 1 (one non-ASCII Basic-Auth doc-example variant the printable-text check doesn't cover — known residual) |
+>
+> The 23/7 "before" counts are lower than the 41/23 quoted above because
+> they're measured against current `main` (which already includes the
+> SRI-hash and hex-digest hardening from PR #207, landed after the
+> 2026-06-10 sweep) rather than the original snapshot — this update
+> layers on top of that fix, it does not re-derive it. No other
+> detector's finding count changed on either repo (verified via
+> per-detector diff). All existing `pkg/detectors/generic` unit tests
+> plus new fixture-based regression tests for each new check pass, and
+> the project's synthetic recall fixtures for `GenericHighEntropy`
+> (`Hf83KdjL9qZ8...`-shaped tokens) and a Laravel `APP_KEY`-shaped
+> control both still fire. **Pending:** a full 8-repo re-adjudication
+> against this change is maintainer work and has not been done here —
+> the Total/bucket numbers in the table above are not yet updated.
+
 ### Clean Go-module corpus (Workload D)
 
 Workload D from [`benchmarks.md`](benchmarks.md): go-git v5.19.0 +
@@ -431,7 +465,12 @@ Where the competition — or the whole industry — is measurably ahead:
 2. **GenericHighEntropy noise on hash-dense ecosystems** (§4) — 50 of
    70 sweep findings were non-credentials (laravel 41, axios 23). FP
    hardening was tuned on Go corpora and doesn't transfer to PHP/JS
-   trees yet.
+   trees yet. *(partially addressed in #249: crypt-hash-fragment,
+   algorithm-name-identifier, bundler-asset-filename, MIME-type, and
+   base64-printable-text context gating added to
+   `pkg/detectors/generic`, measured 23→1 on laravel/framework and 7→1
+   on axios/axios — see the dated note in §4. A full 8-repo
+   re-adjudication against the new baseline is still pending.)*
 3. **Git-mode duplicate findings** (§5) — *(closed: cross-commit dedup
    landed in `pkg/engine/dedup.go:NewGitCrossCommitDedup`, wired in
    `cmd/scan.go`. git attribution also closed in PR #199.)*
@@ -446,7 +485,7 @@ Where the competition — or the whole industry — is measurably ahead:
    `azure-storage-account-key` (AccountKey= connection strings),
    `asana-pat`, PGP `PRIVATE KEY BLOCK` armor headers.
 7. **Detector breadth** — trufflehog ships 870 detector packages vs
-   600 (long tail of niche SaaS providers).
+   603 (long tail of niche SaaS providers).
 8. **Source breadth vs trufflehog** — several trufflehog sources have no
    pleno-dlp equivalent. They fall into two categories:
 

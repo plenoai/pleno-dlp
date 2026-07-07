@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>pleno-dlp — find, verify, and revoke leaked secrets</title>
-<meta name="description" content="pleno-dlp detects 600 types of leaked credentials and PII, verifies them against the issuing provider, and can revoke the ones that are real. One Go binary.">
+<meta name="description" content="pleno-dlp detects 603 types of leaked credentials and PII, verifies them against the issuing provider, and can revoke the ones that are real. One Go binary.">
 <link rel="canonical" href="https://plenoai.com/pleno-dlp/">
 <meta property="og:title" content="pleno-dlp — find, verify, and revoke leaked secrets">
-<meta property="og:description" content="600 detectors. Live verification by default. Revocation built in. One Go binary.">
+<meta property="og:description" content="603 detectors. Live verification by default. Revocation built in. One Go binary.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://plenoai.com/pleno-dlp/">
 <meta property="og:image" content="https://plenoai.com/pleno-dlp/banner.png">
@@ -242,7 +242,7 @@ footer .note { width: 100%; margin-top: 10px; font-size: 13px; }
     <h1>Find. <span class="v">Verify.</span> Revoke.</h1>
     <p class="sub">Most scanners hand you a list of regex matches.
     pleno-dlp confirms each leak with the issuing provider — and can kill it.
-    600 detector types, 10 sources, one static Go binary.</p>
+    603 detector types, 24 sources, one static Go binary.</p>
     <div class="install">
       <code><span class="c">$</span> go install github.com/plenoai/pleno-dlp/cmd/pleno-dlp@latest</code>
       <a href="https://github.com/plenoai/pleno-dlp/releases/latest">signed binaries →</a>
@@ -264,7 +264,7 @@ footer .note { width: 100%; margin-top: 10px; font-size: 13px; }
       <div class="loop-arrow">→</div>
       <div class="loop-step">
         <h3>02 verify</h3>
-        <p>550 of 600 detectors check the issuing provider's API. Confirmed = Critical.</p>
+        <p>552 of 603 detectors check the issuing provider's API. Confirmed = Critical.</p>
         <code>pleno-dlp detectors list
   --verify-status</code>
       </div>
@@ -303,25 +303,27 @@ GitHub    <span class="no">no</span>        scripts/old-deploy.sh:3        ghp_.
 <section id="bench">
   <div class="wrap">
     <h2>Fast enough for every commit</h2>
-    <p class="lede">Median wall-clock, 20 runs, 9.6 MiB clean corpus — the path every green CI run pays.</p>
+    <p class="lede">Median wall-clock, 20 runs, 9.6 MiB clean corpus — the path every green CI run pays. Snapshot measured 2026-05-12, not live.</p>
     <div class="bench">
       <div class="bench-row">
-        <span class="name">pleno-dlp<small>600 detectors</small></span>
+        <span class="name">pleno-dlp<small>603 detectors</small></span>
         <span class="bar me"><i></i></span>
         <span class="ms">118 ms</span>
       </div>
       <div class="bench-row dim">
-        <span class="name">trufflehog<small>~800 detectors</small></span>
+        <span class="name">trufflehog<small>870 detectors</small></span>
         <span class="bar th"><i></i></span>
         <span class="ms">1,042 ms</span>
       </div>
       <div class="bench-row dim">
-        <span class="name">gitleaks<small>~160 regex rules</small></span>
+        <span class="name">gitleaks<small>222 regex rules</small></span>
         <span class="bar gl"><i></i></span>
         <span class="ms">23 ms</span>
       </div>
     </div>
     <p class="fn">Yes, gitleaks wins this corpus — with no verification, no revocation, and a quarter of the rules.
+    Detector/rule counts measured 2026-06-10 against released tags — see
+    <a href="https://github.com/plenoai/pleno-dlp/blob/main/docs/comparison.md">docs/comparison.md</a>.
     Full methodology, raw samples, and threats to validity:
     <a href="https://github.com/plenoai/pleno-dlp/blob/main/docs/benchmarks.md">docs/benchmarks.md</a>.</p>
   </div>

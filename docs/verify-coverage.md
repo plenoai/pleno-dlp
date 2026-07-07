@@ -7,7 +7,10 @@ unverified-by-design. The machine block is parsed by
 Counts are pinned in the machine block. Total = 603: 601 secret
 detectors, `PIIAnonymize`, and `PIIOpenAIPF`. The retired regex PII
 detector constants remain reserved for wire compatibility but are not
-listed because they are no longer registered.
+listed because they are no longer registered. See
+[`docs/counts.md`](counts.md) for the repo-wide definition this total
+feeds (README, website, `docs/comparison.md`) and the drift test that
+enforces it.
 
 ## Severity model recap
 
@@ -25,7 +28,7 @@ because the leak surface is destructive even before verification. Those
 are not enumerated here — `DefaultSeverity` is the floor; per-detector
 overrides only raise it.
 
-## (a) Verify implemented — 551 detectors
+## (a) Verify implemented — 552 detectors
 
 Detector type satisfies `detectors.Verifier`. The detector calls the
 upstream provider and returns `(true, nil)` on success, `(false, nil)`

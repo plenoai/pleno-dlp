@@ -28,15 +28,32 @@ import (
 // passwords are exactly the target (e.g. "Aa1234321Bb", "root123", "P@ssw0rd").
 var (
 	// Shell / INI / Terraform: DB_PASSWORD=value  or  password = "value"
-	// The keyword must be at the start of a word (word boundary or line start).
+	// The keyword must be at the start of a word (word boundary or line
+	// start); the boundary only excludes a preceding letter, so keywords
+	// embedded in snake_case names like DB_PASSWORD still match.
 	assignEqRe = regexp.MustCompile(
-		`(?im)(?:^|[^a-z0-9_])(?:password|passwd|pwd)(?:[^a-z0-9_][^\n=]*)?` +
+		`(?im)(?:^|[^a-zA-Z])(?:password|passwd|pwd)(?:[^a-z0-9_][^\n=]*)?` +
 			`\s*=\s*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
 	)
 
 	// YAML block: "  - name: DB_PASSWORD\n    value: foo" or "DB_PASSWORD: foo"
 	yamlValueRe = regexp.MustCompile(
 		`(?im)(?:^|\s)(?:[a-z0-9_]*(?:password|passwd|pwd)[a-z0-9_]*)\s*:\s*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
+	)
+
+	// Terraform variable block whose *name* contains the keyword, with the
+	// literal default on its own line inside the block:
+	//   variable "db_password" {
+	//     default = "Aa1234321Bb"
+	//   }
+	// The keyword and the `default =` assignment are not on the same line,
+	// so assignEqRe cannot see them together — this pattern captures the
+	// block body separately and re-scans it for the default line.
+	tfVariableRe = regexp.MustCompile(
+		`(?i)variable\s*"[a-z0-9_]*(?:password|passwd|pwd)[a-z0-9_]*"\s*\{([^}]*)\}`,
+	)
+	tfDefaultRe = regexp.MustCompile(
+		`(?im)^\s*default\s*=\s*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
 	)
 )
 
@@ -100,33 +117,49 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
+	add := func(raw string) {
+		val := strings.TrimSpace(raw)
+		if len(val) < 4 {
+			return
+		}
+		if isPlaceholder(val) {
+			return
+		}
+		if _, dup := seen[val]; dup {
+			return
+		}
+		seen[val] = struct{}{}
+		out = append(out, detectors.Result{
+			DetectorType: detectors.HardcodedPassword,
+			Raw:          []byte(val),
+			Redacted:     redact(val),
+			ExtraData: map[string]string{
+				"finding_class": "credential",
+			},
+			Severity: detectors.SeverityHigh,
+		})
+	}
+
 	for _, re := range []*regexp.Regexp{assignEqRe, yamlValueRe} {
 		for _, m := range re.FindAllStringSubmatch(str, -1) {
 			if len(m) < 2 {
 				continue
 			}
-			val := strings.TrimSpace(m[1])
-			if len(val) < 4 {
-				continue
-			}
-			if isPlaceholder(val) {
-				continue
-			}
-			if _, dup := seen[val]; dup {
-				continue
-			}
-			seen[val] = struct{}{}
-			out = append(out, detectors.Result{
-				DetectorType: detectors.HardcodedPassword,
-				Raw:          []byte(val),
-				Redacted:     redact(val),
-				ExtraData: map[string]string{
-					"finding_class": "credential",
-				},
-				Severity: detectors.SeverityHigh,
-			})
+			add(m[1])
 		}
 	}
+
+	// Terraform variable blocks: the keyword lives in the variable name,
+	// the literal value in a `default = "..."` line elsewhere in the block.
+	for _, block := range tfVariableRe.FindAllStringSubmatch(str, -1) {
+		if len(block) < 2 {
+			continue
+		}
+		if m := tfDefaultRe.FindStringSubmatch(block[1]); len(m) >= 2 {
+			add(m[1])
+		}
+	}
+
 	return out, nil
 }
 

@@ -170,7 +170,10 @@ func init() {
 	scanCmd.PersistentFlags().IntVar(&scanOpts.verifyRPS, "verify-rps", 10, "per-host requests-per-second cap during verification (0 = disable rate limiting)")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
-	scanCmd.PersistentFlags().StringVar(&scanOpts.failOn, "fail-on", "any", "minimum severity that triggers exit 1: any|info|low|medium|high|critical")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.failOn, "fail-on", "high", "minimum severity that triggers exit 1: any|info|low|medium|high|critical "+
+		"(default high: audit-first rollout — verified/critical and named unverified-secret findings gate CI; "+
+		"generic-entropy, JWT, PEM, and PII findings default to medium and do not; pass any to gate on every finding, "+
+		"including that lower tier, once the repo's baseline is clean)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file that mutes known false positives (auto-discovers .pleno-allow.json from the repo root)")
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated, case-insensitive Type names; see `pleno-dlp detectors list`). Custom rules from --rules count as GenericHighEntropy.")
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.excludeDetectors, "exclude-detectors", nil, "skip these detectors (comma-separated, case-insensitive Type names). Applied after --include-detectors.")
@@ -561,6 +564,20 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 			"scanned %d chunk(s), %d byte(s), %d finding(s) in %s\n",
 			stats.Chunks, stats.Bytes, counter.count.Load(), stats.Duration.Round(time.Millisecond),
 		)
+		// Discoverability for the audit-first default (#250): when
+		// some findings were emitted but didn't meet the --fail-on
+		// gate, say so explicitly and name the escape hatch. Without
+		// this, "exit 0 despite findings" reads as the scan silently
+		// missing something rather than a deliberate, tunable policy.
+		// In --fail-on=any mode every finding meets the gate (see
+		// parseFailOn), so below is always 0 there and this never
+		// fires.
+		if below := counter.count.Load() - counter.failing.Load(); below > 0 {
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"exit gate: --fail-on=%s (%d %s finding(s) did not affect exit code; use --fail-on=any to block on all)\n",
+				scanOpts.failOn, below, gateBelowLabel(threshold),
+			)
+		}
 		if revoker != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(),
 				"revoke: attempted=%d revoked=%d failed=%d skipped-no-revoker=%d dry-run=%t\n",
@@ -686,6 +703,28 @@ func parseFailOn(s string) (detectors.Severity, error) {
 	default:
 		return 0, fmt.Errorf("--fail-on: unknown value %q (valid: any, info, low, medium, high, critical)", s)
 	}
+}
+
+// gateBelowLabel names the severities strictly below threshold, for the
+// end-of-scan "exit gate" hint (#250). SeverityInfo is left out: no
+// detector or built-in severity mapping currently emits it (DefaultSeverity
+// only ever returns medium/high/critical; custom rules default to info only
+// when a rule omits "severity" entirely), so listing it would name a
+// category that's realistically always empty and read as noise.
+func gateBelowLabel(threshold detectors.Severity) string {
+	ordered := []detectors.Severity{
+		detectors.SeverityLow, detectors.SeverityMedium, detectors.SeverityHigh, detectors.SeverityCritical,
+	}
+	var names []string
+	for _, s := range ordered {
+		if s < threshold {
+			names = append(names, s.String())
+		}
+	}
+	if len(names) == 0 {
+		return "lower-severity"
+	}
+	return strings.Join(names, "/")
 }
 
 // isTerminalReader reports whether r is the process's terminal stdin.

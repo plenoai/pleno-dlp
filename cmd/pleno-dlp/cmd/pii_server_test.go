@@ -3,6 +3,10 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -298,6 +302,15 @@ func TestRunPIIServer_FakeUv(t *testing.T) {
 	uvBin, gitBin = fakeUv, fakeGit
 	t.Cleanup(func() { uvBin, gitBin = prevUv, prevGit })
 
+	// This test exercises server wiring (argv assembly, workdir, signal
+	// plumbing), not NER wheel installation — nil out nerWheels so
+	// runPIIServer's wheel step performs zero real HTTP downloads.
+	// downloadAndVerifyWheel and runUVPipInstallNERWheels have their
+	// own dedicated tests below via httptest.
+	prevWheels := nerWheels
+	nerWheels = nil
+	t.Cleanup(func() { nerWheels = prevWheels })
+
 	cache := filepath.Join(dir, "cache")
 	prevOpts := piiServerOpts
 	piiServerOpts = piiServerFlags{
@@ -365,6 +378,163 @@ func TestRunPIIServer_MissingUv(t *testing.T) {
 	err := runPIIServer(cmd, nil)
 	if err == nil || !strings.Contains(err.Error(), "uv") {
 		t.Errorf("expected uv-missing error, got %v", err)
+	}
+}
+
+// TestDownloadAndVerifyWheel_Success serves known-good content over a
+// local httptest server (no real network) and checks that the sha256
+// gate accepts a matching hash, writes the file under the upstream
+// wheel's own filename, and that the on-disk content matches exactly.
+func TestDownloadAndVerifyWheel_Success(t *testing.T) {
+	t.Parallel()
+	content := []byte("fake-wheel-bytes-for-testing")
+	sum := sha256.Sum256(content)
+	wantHash := hex.EncodeToString(sum[:])
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(content)
+	}))
+	t.Cleanup(srv.Close)
+
+	dir := t.TempDir()
+	wheel := nerWheel{url: srv.URL + "/some_model-1.0.0-py3-none-any.whl", sha256: wantHash}
+
+	got, err := downloadAndVerifyWheel(context.Background(), wheel, dir)
+	if err != nil {
+		t.Fatalf("downloadAndVerifyWheel: %v", err)
+	}
+	if filepath.Base(got) != "some_model-1.0.0-py3-none-any.whl" {
+		t.Errorf("local path base = %q, want the upstream wheel filename", filepath.Base(got))
+	}
+	onDisk, err := os.ReadFile(got)
+	if err != nil {
+		t.Fatalf("read downloaded file: %v", err)
+	}
+	if !bytes.Equal(onDisk, content) {
+		t.Errorf("downloaded content mismatch: got %q want %q", onDisk, content)
+	}
+}
+
+// TestDownloadAndVerifyWheel_HashMismatch is the acceptance-criteria
+// test from issue #248: a tampered/wrong-hash artifact must cause a
+// clear abort error, and must not be left installable on disk. No
+// network — httptest serves the (deliberately mismatched) content.
+func TestDownloadAndVerifyWheel_HashMismatch(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("this is NOT what the hash below expects"))
+	}))
+	t.Cleanup(srv.Close)
+
+	dir := t.TempDir()
+	wrongHash := strings.Repeat("0", 64)
+	wheel := nerWheel{url: srv.URL + "/tampered-1.0.0-py3-none-any.whl", sha256: wrongHash}
+
+	_, err := downloadAndVerifyWheel(context.Background(), wheel, dir)
+	if err == nil {
+		t.Fatal("expected sha256 mismatch error, got nil")
+	}
+	if !strings.Contains(err.Error(), "sha256 mismatch") || !strings.Contains(err.Error(), "aborting pii-server setup") {
+		t.Errorf("error should clearly report a sha256 mismatch and abort, got: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "tampered-1.0.0-py3-none-any.whl")); !os.IsNotExist(statErr) {
+		t.Errorf("tampered artifact should not be left on disk, stat err = %v", statErr)
+	}
+}
+
+// TestRunUVPipInstallNERWheels_AbortsOnHashMismatch drives the full
+// wiring: nerWheels overridden to a single httptest-served, wrong-hash
+// entry, and a fake `uv` that would leave a marker file if invoked.
+// The mismatch must abort before uv is ever called, satisfying the
+// "fail closed" requirement — a tampered wheel never reaches
+// `uv pip install`.
+func TestRunUVPipInstallNERWheels_AbortsOnHashMismatch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake-script test relies on POSIX exec semantics")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("tampered-content"))
+	}))
+	t.Cleanup(srv.Close)
+
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "uv-was-invoked")
+	fakeUv := filepath.Join(dir, "uv")
+	uvBody := "#!/bin/sh\ntouch '" + marker + "'\nexit 0\n"
+	if err := os.WriteFile(fakeUv, []byte(uvBody), 0o755); err != nil {
+		t.Fatalf("write fake uv: %v", err)
+	}
+	prevUv := uvBin
+	uvBin = fakeUv
+	t.Cleanup(func() { uvBin = prevUv })
+
+	prevWheels := nerWheels
+	nerWheels = []nerWheel{
+		{url: srv.URL + "/tampered-1.0.0-py3-none-any.whl", sha256: strings.Repeat("0", 64)},
+	}
+	t.Cleanup(func() { nerWheels = prevWheels })
+
+	err := runUVPipInstallNERWheels(context.Background(), dir, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected error from hash mismatch, got nil")
+	}
+	if !strings.Contains(err.Error(), "sha256 mismatch") {
+		t.Errorf("expected sha256 mismatch error, got: %v", err)
+	}
+	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+		t.Errorf("uv must never be invoked on a hash mismatch, but marker file exists (stat err = %v)", statErr)
+	}
+}
+
+// TestRunUVPipInstallNERWheels_InstallsOnMatch is the mirror success
+// case: a correct hash must reach `uv pip install <local-file>` with a
+// real (verified) file on disk, not the remote URL.
+func TestRunUVPipInstallNERWheels_InstallsOnMatch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake-script test relies on POSIX exec semantics")
+	}
+	content := []byte("good-wheel-content")
+	sum := sha256.Sum256(content)
+	wantHash := hex.EncodeToString(sum[:])
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(content)
+	}))
+	t.Cleanup(srv.Close)
+
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "uv-args")
+	fakeUv := filepath.Join(dir, "uv")
+	uvBody := "#!/bin/sh\necho \"$*\" >> '" + argsFile + "'\nexit 0\n"
+	if err := os.WriteFile(fakeUv, []byte(uvBody), 0o755); err != nil {
+		t.Fatalf("write fake uv: %v", err)
+	}
+	prevUv := uvBin
+	uvBin = fakeUv
+	t.Cleanup(func() { uvBin = prevUv })
+
+	prevWheels := nerWheels
+	nerWheels = []nerWheel{
+		{url: srv.URL + "/good_model-1.0.0-py3-none-any.whl", sha256: wantHash},
+	}
+	t.Cleanup(func() { nerWheels = prevWheels })
+
+	if err := runUVPipInstallNERWheels(context.Background(), dir, &bytes.Buffer{}); err != nil {
+		t.Fatalf("runUVPipInstallNERWheels: %v", err)
+	}
+	got, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("read uv args log: %v", err)
+	}
+	if !strings.Contains(string(got), "pip install") || !strings.Contains(string(got), "good_model-1.0.0-py3-none-any.whl") {
+		t.Errorf("expected uv pip install invocation naming the local wheel file, got: %q", got)
+	}
+	if strings.Contains(string(got), srv.URL) {
+		t.Errorf("uv must be given the local verified file, not the remote URL; got: %q", got)
 	}
 }
 

@@ -2,14 +2,18 @@ package cmd
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -40,15 +44,69 @@ var (
 	gitBin = "git"
 )
 
-// defaultPIIServerSource is the canonical clone URL.
+// defaultPIIServerSource is the canonical clone URL. The URL alone is
+// not a pin — the mutable "git+..." form always resolves against
+// whatever the remote's default branch happens to be — so the actual
+// pin lives in defaultPIIServerGitRef below (--git-ref's default) and
+// is threaded through by runGitClone/runGitFetchCheckout. Keeping the
+// ref out of the URL string is deliberate: stripGitURLPrefix strips any
+// trailing "@ref" so `--git-ref` stays the single source of truth
+// instead of two ref surfaces silently disagreeing.
 const defaultPIIServerSource = "git+https://github.com/plenoai/pleno-anonymize.git"
 
-// nerWheelURLs are installed after sync because they live outside PyPI.
-var nerWheelURLs = []string{
-	"https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
-	"https://huggingface.co/0xhikae/pleno_anonymize_ja/resolve/main/pleno_anonymize_ja-0.2.0-py3-none-any.whl",
-	"https://huggingface.co/0xhikae/pleno_anonymize_en/resolve/main/pleno_anonymize_en-0.2.1-py3-none-any.whl",
+// defaultPIIServerGitRef pins the default checkout to a released tag
+// instead of tracking the mutable default branch (issue #248). Bump
+// deliberately, in lockstep with the nerWheels hashes below when the
+// upstream server workspace or its model deps change. Operators can
+// still opt out (e.g. to track main) with an explicit `--git-ref ""`
+// or `--git-ref main`; that is a conscious per-invocation choice, not
+// the shipped default.
+//
+// Pinned from: gh api repos/plenoai/pleno-anonymize/tags
+// v0.1.0 -> commit 3539ef6e3d82d01d90f6019a7af9d6b116d263eb (2026-03-27, latest release at pin time).
+const defaultPIIServerGitRef = "v0.1.0"
+
+// nerWheel is a hash-pinned third-party artifact. These wheels live
+// outside PyPI (GitHub Releases / Hugging Face) so uv.lock cannot pin
+// them by hash the way it does registry deps; sha256 is our substitute
+// supply-chain gate. See docs/pii-detection.md ("Trust chain") for the
+// verification flow and docs/pii-detection.md#wheel-relocation for the
+// tracked follow-up to move the pleno_anonymize_* wheels off the
+// 0xhikae personal Hugging Face account onto an org-controlled one.
+type nerWheel struct {
+	url    string
+	sha256 string // lowercase hex sha256 of the artifact at url, computed once and baked in
 }
+
+// nerWheels are installed after `uv sync` because they live outside
+// PyPI and would otherwise be pruned as untracked. Swapping any entry
+// (new version, relocated host) requires recomputing sha256 for the
+// new artifact — there is no way to "just bump the URL".
+var nerWheels = []nerWheel{
+	{
+		url:    "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+		sha256: "1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85",
+	},
+	{
+		// TODO(#248 follow-up): relocate off the 0xhikae personal HF
+		// account to an org-controlled one; requires HF org credentials
+		// this change does not have. URL+hash are a single pair here so
+		// that relocation is a two-field edit plus a recomputed hash.
+		url:    "https://huggingface.co/0xhikae/pleno_anonymize_ja/resolve/main/pleno_anonymize_ja-0.2.0-py3-none-any.whl",
+		sha256: "9a4d1a92d3997257d149c78bd8bdace6cd33ba431dc85eca25e6834e2e3d36a7",
+	},
+	{
+		// TODO(#248 follow-up): same relocation note as the ja wheel above.
+		url:    "https://huggingface.co/0xhikae/pleno_anonymize_en/resolve/main/pleno_anonymize_en-0.2.1-py3-none-any.whl",
+		sha256: "dbaf385818c91930588437953f9597a0f472feac556f3fa1407db7e9f03f8247",
+	},
+}
+
+// nerWheelHTTPClient performs the download half of the download-verify-
+// install pipeline. A generous timeout accommodates the largest wheel
+// (~35MB) over a slow link without hanging pii-server setup forever;
+// ctx cancellation (Ctrl-C, test contexts) still wins first.
+var nerWheelHTTPClient = &http.Client{Timeout: 10 * time.Minute}
 
 var piiServerCmd = &cobra.Command{
 	Use:   "pii-server",
@@ -61,11 +119,18 @@ var piiServerCmd = &cobra.Command{
 		"\n" +
 		"Strategy: clone the upstream repo into a cache directory, run\n" +
 		"`uv sync --package pleno-anonymize-server` to resolve the workspace,\n" +
-		"install the NER model wheels (which sync would otherwise prune), then\n" +
-		"`uv run --no-sync uvicorn server.src.app:app`. The cache directory\n" +
-		"defaults to <user-cache>/pleno-dlp/pleno-anonymize and is reused\n" +
-		"across invocations — only a `git fetch` runs on subsequent calls\n" +
-		"unless --no-fetch is set.\n" +
+		"download+verify+install the NER model wheels (which sync would\n" +
+		"otherwise prune), then `uv run --no-sync uvicorn server.src.app:app`.\n" +
+		"The cache directory defaults to <user-cache>/pleno-dlp/pleno-anonymize\n" +
+		"and is reused across invocations — only a `git fetch` runs on\n" +
+		"subsequent calls unless --no-fetch is set.\n" +
+		"\n" +
+		"Supply-chain trust (see docs/pii-detection.md \"Trust chain\"):\n" +
+		"  - --git-ref defaults to a pinned release tag baked into this binary,\n" +
+		"    not the mutable default branch. Pass --git-ref explicitly to opt out.\n" +
+		"  - NER model wheels are downloaded by pleno-dlp itself (not uv), sha256-\n" +
+		"    verified against hashes baked into this binary, and only handed to\n" +
+		"    `uv pip install` on a match. A mismatch aborts setup with an error.\n" +
 		"\n" +
 		"Typical usage is indirect — 'pleno-dlp scan --pii-engine=anonymize'\n" +
 		"invokes this subcommand on an ephemeral loopback port and tears it\n" +
@@ -73,7 +138,7 @@ var piiServerCmd = &cobra.Command{
 		"\n" +
 		"  pleno-dlp pii-server --port 8080\n" +
 		"  pleno-dlp pii-server                  # ephemeral; resolved port is printed\n" +
-		"  pleno-dlp pii-server --git-ref v0.5.0 # pin to a tag\n" +
+		"  pleno-dlp pii-server --git-ref v0.5.0 # pin to a different tag\n" +
 		"  pleno-dlp pii-server --no-fetch       # use the cached checkout as-is\n" +
 		"  pleno-dlp pii-server --source /path/to/checkout  # local workspace root\n" +
 		"\n" +
@@ -89,8 +154,10 @@ func init() {
 		"port to bind (0 = auto-allocate an ephemeral loopback port; the resolved port is printed to stdout)")
 	piiServerCmd.Flags().StringVar(&piiServerOpts.host, "host", "127.0.0.1",
 		"bind address (loopback / RFC1918 / link-local only; refuses 0.0.0.0 and any public address)")
-	piiServerCmd.Flags().StringVar(&piiServerOpts.gitRef, "git-ref", "",
-		"git ref (tag/branch/sha) of pleno-anonymize to check out; empty = main (clone) / leave checkout alone (fetch)")
+	piiServerCmd.Flags().StringVar(&piiServerOpts.gitRef, "git-ref", defaultPIIServerGitRef,
+		"git ref (tag/branch/sha) of pleno-anonymize to check out; defaults to the tag pinned in this binary "+
+			"(see defaultPIIServerGitRef / docs/pii-detection.md). Pass an explicit ref (including \"\" or \"main\") "+
+			"to knowingly track a mutable ref instead")
 	piiServerCmd.Flags().StringVar(&piiServerOpts.source, "source", defaultPIIServerSource,
 		"clone source. A `git+<URL>` value triggers cached clone+fetch; an absolute filesystem path is treated as an existing workspace root and used in-place.")
 	piiServerCmd.Flags().StringVar(&piiServerOpts.cacheDir, "cache-dir", "",
@@ -408,20 +475,94 @@ func runUVSync(ctx context.Context, dir string, stderr io.Writer) error {
 // runUVPipInstallNERWheels installs the spaCy + NER model wheels that
 // uv.lock cannot pin (they're hosted on GitHub Releases / Hugging
 // Face, not PyPI). Mirrors the upstream Dockerfile install lines —
-// keep these URLs in lockstep with the model names app.py loads
-// (spacy.load("pleno_anonymize_ja"/"pleno_anonymize_en")); a rename
-// upstream otherwise fails readiness with spaCy E050.
+// keep these URLs (and the nerWheels sha256 values) in lockstep with
+// the model names app.py loads (spacy.load("pleno_anonymize_ja"/
+// "pleno_anonymize_en")); a rename upstream otherwise fails readiness
+// with spaCy E050.
+//
+// Unlike letting `uv pip install <url>` fetch directly, WE download
+// each wheel first, verify its sha256 against the baked-in constant,
+// and only pass a local file path to uv — uv never sees, and cannot
+// be tricked into installing, an unverified remote artifact (#248).
 func runUVPipInstallNERWheels(ctx context.Context, dir string, stderr io.Writer) error {
-	for _, u := range nerWheelURLs {
-		c := exec.CommandContext(ctx, uvBin, "pip", "install", u)
+	tmpDir, err := os.MkdirTemp("", "pleno-dlp-ner-wheels-")
+	if err != nil {
+		return fmt.Errorf("create temp dir for NER wheel downloads: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	for _, w := range nerWheels {
+		localPath, err := downloadAndVerifyWheel(ctx, w, tmpDir)
+		if err != nil {
+			return err
+		}
+		c := exec.CommandContext(ctx, uvBin, "pip", "install", localPath)
 		c.Dir = dir
 		c.Stdout = stderr
 		c.Stderr = stderr
 		if err := c.Run(); err != nil {
-			return fmt.Errorf("uv pip install %s: %w", u, err)
+			return fmt.Errorf("uv pip install %s (downloaded from %s): %w", filepath.Base(localPath), w.url, err)
 		}
 	}
 	return nil
+}
+
+// downloadAndVerifyWheel downloads w.url into destDir, streaming the
+// response body to disk while simultaneously hashing it, then compares
+// the digest against w.sha256. On any mismatch (or transport error) it
+// removes the partial/tampered file and returns a descriptive error;
+// callers must treat a non-nil error as fail-closed — never install
+// the artifact. On success it returns the local file path, still named
+// after the upstream wheel (spaCy/pip resolve models by wheel filename).
+func downloadAndVerifyWheel(ctx context.Context, w nerWheel, destDir string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, w.url, nil)
+	if err != nil {
+		return "", fmt.Errorf("build request for %s: %w", w.url, err)
+	}
+	resp, err := nerWheelHTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("download %s: %w", w.url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download %s: unexpected HTTP status %s", w.url, resp.Status)
+	}
+
+	u, err := url.Parse(w.url)
+	if err != nil {
+		return "", fmt.Errorf("parse wheel URL %q: %w", w.url, err)
+	}
+	fname := path.Base(u.Path)
+	if fname == "" || fname == "." || fname == "/" {
+		return "", fmt.Errorf("wheel URL %q: cannot derive a filename", w.url)
+	}
+	dest := filepath.Join(destDir, fname)
+
+	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("create local file for %s: %w", fname, err)
+	}
+	h := sha256.New()
+	_, copyErr := io.Copy(io.MultiWriter(f, h), resp.Body)
+	closeErr := f.Close()
+	if copyErr != nil {
+		os.Remove(dest)
+		return "", fmt.Errorf("download %s: %w", w.url, copyErr)
+	}
+	if closeErr != nil {
+		os.Remove(dest)
+		return "", fmt.Errorf("write %s: %w", dest, closeErr)
+	}
+
+	got := hex.EncodeToString(h.Sum(nil))
+	if !strings.EqualFold(got, w.sha256) {
+		os.Remove(dest)
+		return "", fmt.Errorf(
+			"sha256 mismatch for %s: got %s, want %s — refusing to install a tampered or unexpected artifact; aborting pii-server setup",
+			w.url, got, w.sha256,
+		)
+	}
+	return dest, nil
 }
 
 // buildPIIServerArgv constructs the argv for `uv run`. Pure function
