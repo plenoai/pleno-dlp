@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // corpusReport is one corpus's (synthetic or leaky-repo) full result:
@@ -14,6 +15,17 @@ type corpusReport struct {
 	Corpus string    `json:"corpus"`
 	Tools  []recall  `json:"recall"`
 	Rows   []fileRow `json:"files"`
+}
+
+// resultsBundle is the full contents of results.json: the per-corpus
+// reports plus the run metadata (bench/docsync reads this — see issue
+// #299 — to regenerate docs/comparison.md's "Live re-measurement"
+// section without re-deriving tool versions or a timestamp
+// independently).
+type resultsBundle struct {
+	GeneratedAt string            `json:"generated_at"` // RFC3339, UTC
+	Versions    map[string]string `json:"versions"`     // tool name -> `--version` output
+	Corpora     []corpusReport    `json:"corpora"`
 }
 
 func renderMarkdown(reports []corpusReport, toolVersions map[string]string) string {
@@ -85,6 +97,11 @@ func renderMarkdown(reports []corpusReport, toolVersions map[string]string) stri
 	return b.String()
 }
 
-func marshalJSON(reports []corpusReport) ([]byte, error) {
-	return json.MarshalIndent(reports, "", "  ")
+func marshalJSON(reports []corpusReport, versions map[string]string) ([]byte, error) {
+	bundle := resultsBundle{
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		Versions:    versions,
+		Corpora:     reports,
+	}
+	return json.MarshalIndent(bundle, "", "  ")
 }

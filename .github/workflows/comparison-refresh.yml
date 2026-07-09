@@ -1,0 +1,161 @@
+name: comparison-refresh
+
+# Keeps docs/comparison.md's "Live re-measurement" box true without
+# manual work (issue #299). This workflow is distinct from bench.yml:
+# bench.yml is CI regression coverage for the bench/ harness itself
+# (does it still build and run); this workflow's job is to turn a fresh
+# `make bench` run into a reviewable docs/comparison.md update, on the
+# two events that make the published numbers stale — pleno-dlp released
+# a new version, or trufflehog/gitleaks did.
+on:
+  push:
+    tags: ["v*.*.*"]
+  schedule:
+    # Daily poll for a new trufflehog/gitleaks release. Cheap (two GitHub
+    # API reads) and only triggers `make bench` (job 2) when a pinned
+    # version is actually behind — see bench/scripts/check-competitor-drift.sh.
+    - cron: "17 5 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  detect-trigger:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.decide.outputs.should_run }}
+      reason: ${{ steps.decide.outputs.reason }}
+      branch: ${{ steps.decide.outputs.branch }}
+      trufflehog_drift: ${{ steps.drift.outputs.trufflehog_drift }}
+      trufflehog_latest: ${{ steps.drift.outputs.trufflehog_latest }}
+      gitleaks_drift: ${{ steps.drift.outputs.gitleaks_drift }}
+      gitleaks_latest: ${{ steps.drift.outputs.gitleaks_latest }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: check competitor releases
+        id: drift
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash bench/scripts/check-competitor-drift.sh
+      - name: decide whether to re-measure
+        id: decide
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          ANY_DRIFT: ${{ steps.drift.outputs.any_drift }}
+          TH_LATEST: ${{ steps.drift.outputs.trufflehog_latest }}
+          GL_LATEST: ${{ steps.drift.outputs.gitleaks_latest }}
+        run: |
+          if [ "$EVENT_NAME" = "push" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "reason=pleno-dlp tag push ${REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "branch=bench/refresh-${REF_NAME}" >> "$GITHUB_OUTPUT"
+          elif [ "$ANY_DRIFT" = "true" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "reason=competitor release detected (trufflehog ${TH_LATEST}, gitleaks ${GL_LATEST})" >> "$GITHUB_OUTPUT"
+            echo "branch=bench/refresh-competitor-${TH_LATEST}-${GL_LATEST}" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "reason=no drift detected" >> "$GITHUB_OUTPUT"
+            echo "branch=" >> "$GITHUB_OUTPUT"
+          fi
+
+  remeasure:
+    needs: detect-trigger
+    if: needs.detect-trigger.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Unlike every other checkout in this repo, this job does push
+          # a branch and open a PR — but per sisakulint's `artipacked`
+          # rule, that's not a reason to persist the token into
+          # .git/config where any later step could read it silently.
+          # persist-credentials stays false; the "open or update PR"
+          # step below injects $GITHUB_TOKEN into the remote URL for
+          # just the one `git push` that needs it.
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: bump competitor pin if drifted
+        env:
+          TH_DRIFT: ${{ needs.detect-trigger.outputs.trufflehog_drift }}
+          TH_LATEST: ${{ needs.detect-trigger.outputs.trufflehog_latest }}
+          GL_DRIFT: ${{ needs.detect-trigger.outputs.gitleaks_drift }}
+          GL_LATEST: ${{ needs.detect-trigger.outputs.gitleaks_latest }}
+        run: |
+          if [ "$TH_DRIFT" = "true" ]; then
+            bash bench/scripts/bump-competitor-pin.sh trufflehog "$TH_LATEST"
+          fi
+          if [ "$GL_DRIFT" = "true" ]; then
+            bash bench/scripts/bump-competitor-pin.sh gitleaks "$GL_LATEST"
+          fi
+
+      - name: make bench
+        run: make bench
+
+      - name: regenerate docs/comparison.md
+        env:
+          REASON: ${{ needs.detect-trigger.outputs.reason }}
+        run: go run ./bench/docsync -trigger "$REASON"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: dlp-bench-results-${{ github.run_id }}
+          path: bench/results/
+          retention-days: 90
+
+      - name: open or update PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ needs.detect-trigger.outputs.branch }}
+          REASON: ${{ needs.detect-trigger.outputs.reason }}
+        run: |
+          if git diff --quiet -- docs/comparison.md bench/scripts/fetch-tools.sh bench/harness/tools.go; then
+            echo "no measured change to publish"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add docs/comparison.md bench/scripts/fetch-tools.sh bench/harness/tools.go
+          git commit -m "docs(comparison): auto-refresh — ${REASON}"
+
+          # checkout ran with persist-credentials: false (see that
+          # step's comment) — inject the token into the remote URL for
+          # just this push instead of relying on an ambient credential
+          # helper. $GITHUB_TOKEN is a registered secret, so Actions
+          # masks it in logs even embedded in this URL.
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # Deterministic branch name per trigger (tag, or competitor
+          # version pair) — a re-run before the PR merges updates the
+          # same branch/PR instead of piling up duplicates.
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            git push --force-with-lease origin "HEAD:refs/heads/$BRANCH"
+          else
+            git push origin "HEAD:refs/heads/$BRANCH"
+          fi
+
+          existing_pr="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing_pr" ]; then
+            echo "updated existing PR #$existing_pr"
+          else
+            body_file="$(mktemp)"
+            printf 'Automated re-measurement (issue #299). Trigger: %s.\n\n' "$REASON" > "$body_file"
+            printf 'Regenerated by `make bench` + `go run ./bench/docsync` from this run'"'"'s `bench/results/results.json` (see the uploaded `dlp-bench-results-*` artifact). Only the delimited "Live re-measurement" box in docs/comparison.md changed - the hand-audited full historical snapshot below it is untouched by design (see bench/docsync package doc).\n\n' >> "$body_file"
+            printf 'If a competitor release was detected, bench/scripts/fetch-tools.sh and bench/harness/tools.go were bumped to match, with checksums sourced from that release'"'"'s own *_checksums.txt (see bench/CONTRIBUTING.md).\n' >> "$body_file"
+            gh pr create --base main --head "$BRANCH" \
+              --title "docs(comparison): auto-refresh — ${REASON}" \
+              --body-file "$body_file"
+          fi
