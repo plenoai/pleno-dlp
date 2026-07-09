@@ -1,0 +1,46 @@
+name: bench
+on:
+  pull_request:
+    paths:
+      - "bench/**"
+      - "Makefile"
+      - ".github/workflows/bench.yml"
+  workflow_dispatch: {}
+  # Weekly, not on every main push: pleno-dlp's own recall only moves
+  # when a detector changes (already covered by pull_request above), but
+  # trufflehog/gitleaks release new rule sets independently of this repo
+  # — a schedule catches upstream drift on the pinned real-world corpus
+  # (leaky-repo is pinned by commit, so this is about the *tools*, not
+  # the corpus, changing).
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          # cache: false (not true, unlike test.yml) — this workflow's
+          # schedule/workflow_dispatch triggers make it a cache-poisoning
+          # target (sisakulint flags exactly this); the bench job is
+          # infrequent enough that a cold module cache isn't worth that
+          # tradeoff.
+          cache: false
+      - name: make bench
+        run: make bench
+      - name: results summary
+        run: cat bench/results/results.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: dlp-bench-results
+          path: bench/results/
+          retention-days: 90
