@@ -41,9 +41,24 @@ matrices below, which no automated diff can safely rewrite without
 risking silent inconsistency with their own narrative.
 
 <!-- BENCH:AUTO:START -->
-Not yet run — this placeholder is replaced by `go run ./bench/docsync`
-on the first CI run of `.github/workflows/comparison-refresh.yml`, or
-locally via `make bench && go run ./bench/docsync`.
+**Generated:** 2026-07-09T17:49:44Z · **Trigger:** pleno-dlp tag push v0.60.0 · **Full run:** `bench/results/results.json` / `bench/results/results.md` (uploaded as a workflow artifact)
+
+| Tool | Version measured |
+|---|---|
+| pleno-dlp | pleno-dlp version dev (none) |
+| trufflehog | trufflehog 3.95.8 |
+| gitleaks | gitleaks version 8.30.1 |
+
+| Corpus | Tool | Detected | Total | Recall |
+|---|---|---:|---:|---:|
+| synthetic (docs/comparison.md §2 equivalent) | pleno-dlp | 46 | 48 | 96% |
+| synthetic (docs/comparison.md §2 equivalent) | trufflehog | 23 | 48 | 48% |
+| synthetic (docs/comparison.md §2 equivalent) | gitleaks | 39 | 48 | 81% |
+| leaky-repo@2e951359cac5 (docs/comparison.md §3 equivalent) | pleno-dlp | 11 | 44 | 25% |
+| leaky-repo@2e951359cac5 (docs/comparison.md §3 equivalent) | trufflehog | 3 | 44 | 7% |
+| leaky-repo@2e951359cac5 (docs/comparison.md §3 equivalent) | gitleaks | 4 | 44 | 9% |
+
+This block is regenerated mechanically by `go run ./bench/docsync` from the JSON above — it does not touch §1-§8's hand-audited prose below, which remains a dated snapshot (see "Reproducing").
 <!-- BENCH:AUTO:END -->
 
 ## 1. Coverage counts
