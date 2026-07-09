@@ -110,6 +110,21 @@ confirmed-live verdict triggers revocation.
 pleno-dlp scan github --org acme --include-comments --only-verified --format json
 ```
 
+For the opposite trade-off — speed and offline operation over
+confidence — `--no-verify` skips every detector's `Verify()` network
+round-trip entirely (not merely filtering it out afterward): every
+finding's verdict is `unverified` — never `indeterminate`, since that
+verdict means an attempt was made and failed, and `--no-verify` means no
+attempt is made at all. It is mutually exclusive with `--only-verified`,
+which would otherwise always report zero results once nothing is ever
+verified. This is what the latency-tolerant `pleno-dlp hooks install`
+agent hooks use — see [`docs/hooks.md`](hooks.md) — but it applies to
+any scan kind:
+
+```sh
+pleno-dlp scan stdin --no-verify --quiet --fail-on any --format json < diff.txt
+```
+
 GitHub scans accept either a PAT / installation token through `--token`
 or GitHub App credentials. App credentials are exchanged for short-lived
 installation tokens and refreshed before expiry during long scans.

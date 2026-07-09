@@ -46,6 +46,7 @@ func SetVersion(version, commit string) {
 type scanFlags struct {
 	format            string
 	onlyVerified      bool
+	noVerify          bool
 	dropIndeterminate bool
 	verifyRPS         int
 	concurrency       int
@@ -164,6 +165,13 @@ var scanSQLDumpCmd = &cobra.Command{
 func init() {
 	scanCmd.PersistentFlags().StringVar(&scanOpts.format, "format", "table", "output format: json, sarif, table")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.onlyVerified, "only-verified", false, "emit, count, and optionally revoke only provider-verified findings; findings whose verification attempt failed (network error, provider 5xx, rate limit) are kept as indeterminate by default — see --drop-indeterminate")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.noVerify, "no-verify", false,
+		"skip every detector's network Verify() round-trip so the scan runs fully offline and fast. "+
+			"Verification is never attempted, so every finding's verdict is unverified — not indeterminate; "+
+			"indeterminate specifically means an attempt was made and failed (see --only-verified), which cannot "+
+			"happen here. This trades confidence for latency, meant for latency-sensitive callers like "+
+			"pre-commit/agent hooks (see pleno-dlp hooks install, issue #303), not for CI gating. Mutually "+
+			"exclusive with --only-verified, which would otherwise always yield zero findings.")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.dropIndeterminate, "drop-indeterminate", false,
 		"with --only-verified, also drop findings whose verification attempt failed instead of keeping them as indeterminate. "+
 			"The default keeps them: a failed verification attempt means liveness is unknown, not disproven, so dropping by "+
@@ -339,6 +347,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if scanOpts.noVerify && scanOpts.onlyVerified {
+		return fmt.Errorf("--no-verify and --only-verified are mutually exclusive: with --no-verify no finding is ever verified, so --only-verified would always emit zero results")
+	}
 	if scanOpts.revokeOnVerified {
 		if !scanOpts.revokeDryRun && os.Getenv(EnvAllowRevoke) != "1" {
 			return fmt.Errorf("--revoke-on-verified refuses to run without %s=1 (irreversible operation; set the env var to opt in or pass --revoke-dry-run)", EnvAllowRevoke)
@@ -558,6 +569,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 
 	eng := engine.NewWithDetectors(dets, engine.Options{
 		Concurrency: scanOpts.concurrency,
+		NoVerify:    scanOpts.noVerify,
 	}, scanSink)
 
 	stats, err := eng.RunWithStats(ctx, src)
@@ -888,6 +900,7 @@ func scannerFingerprint(kind string, cfg []byte) (string, error) {
 		"kind":                kind,
 		"source_config":       json.RawMessage(cfg),
 		"only_verified":       scanOpts.onlyVerified,
+		"no_verify":           scanOpts.noVerify,
 		"drop_indeterminate":  scanOpts.dropIndeterminate,
 		"verify_rps":          scanOpts.verifyRPS,
 		"rules_path":          scanOpts.rulesPath,
