@@ -143,6 +143,21 @@ Advanced flags and engine setup:
 - `pleno-dlp pii-server --help`
 - [`docs/pii-detection.md`](docs/pii-detection.md)
 
+## Agent hooks
+
+`pleno-dlp hooks install claude-code|cursor` wires a fast, offline
+`scan stdin --no-verify` into the agent's own hook mechanism so a
+credential gets flagged before it's written (claude-code) or committed
+(cursor) — without waiting on CI.
+
+```sh
+pleno-dlp hooks install claude-code
+pleno-dlp hooks install cursor
+```
+
+Measured hook latency and what each target installs:
+[`docs/hooks.md`](docs/hooks.md)
+
 ## License
 
 [AGPL-3.0](LICENSE).

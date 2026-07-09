@@ -41,6 +41,17 @@ type Sink interface {
 
 type Options struct {
 	Concurrency int
+	// NoVerify skips the network round-trip in every Verifier detector's
+	// FromData call (the `verify bool` parameter of the trufflehog
+	// Detector contract is passed false instead of the unconditional
+	// true). Findings are still emitted — this only removes the outbound
+	// HTTP call, not the finding — with Verdict()==Unverified, since
+	// Verify() is never attempted at all rather than attempted and
+	// failing (that latter case is Verdict()==Indeterminate; see
+	// detectors.Result.Verdict). Exists for latency-sensitive callers
+	// (pre-commit / agent hooks, issue #303) that need an offline, fast
+	// scan and are willing to trade verified confidence for it.
+	NoVerify bool
 }
 
 type Engine struct {
@@ -458,10 +469,13 @@ func mergeSpans(spans []vicinitySpan) []vicinitySpan {
 // against.
 func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte) {
 	d := e.dets[di]
-	// Verification is unconditional: there is no engine-level toggle.
-	// The bool is the trufflehog Detector
-	// contract, not a configurable option, so we always pass true here.
-	results, err := d.FromData(ctx, true, data)
+	// Verification defaults to unconditional-true: the bool is the
+	// trufflehog Detector contract, not normally a configurable option.
+	// Options.NoVerify is the one deliberate escape hatch (issue #303) —
+	// set it and every Verifier detector's FromData skips its network
+	// round-trip, keeping the scan fully offline instead of only
+	// filtering verified findings out afterward at the sink layer.
+	results, err := d.FromData(ctx, !e.opts.NoVerify, data)
 	if err != nil {
 		// Cancellation is the expected shutdown path, not a fault:
 		// stay silent so a Ctrl-C / deadline doesn't spam stderr.

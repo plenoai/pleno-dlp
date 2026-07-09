@@ -7,9 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -777,6 +780,86 @@ func TestScanStdin_FindsSecretFromPipe(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "test-pipe") {
 		t.Errorf("expected --label to ride through to output:\n%s", out.String())
+	}
+}
+
+// TestScanStdin_NoVerifySkipsNetworkCall is the issue #303 CLI-level
+// contract test for the fast hook path: --no-verify must genuinely bypass
+// the detector's Verify() network round-trip, not merely post-filter a
+// verified finding out of the output. A custom rule's verify_url points at
+// a real local httptest server that would return 200 (i.e. "verified") if
+// ever hit; the assertion is that the server sees zero requests and the
+// emitted finding's verdict is unverified rather than verified.
+func TestScanStdin_NoVerifySkipsNetworkCall(t *testing.T) {
+	resetCommandFlags(t)
+
+	var requests atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	rules := dir + "/rules.json"
+	rulesJSON := fmt.Sprintf(`[{
+		"name":"ACME Token",
+		"keywords":["ACME_"],
+		"regex":"ACME_[A-Z0-9]{20}",
+		"severity":"high",
+		"verify_url":"%s"
+	}]`, srv.URL)
+	if err := writeFile(rules, rulesJSON); err != nil {
+		t.Fatalf("seed rules: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetIn(strings.NewReader("acme_token=ACME_QWERTYUIOPASDFGHJKLZ\n"))
+	Root.SetArgs([]string{"scan", "--rules", rules, "--no-verify", "--format", "json", "stdin"})
+
+	err := Root.Execute()
+	if !IsFindingsError(err) {
+		t.Fatalf("expected findings error; got %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
+	}
+
+	if n := requests.Load(); n != 0 {
+		t.Errorf("verify server must never be contacted under --no-verify, got %d request(s)", n)
+	}
+
+	var records []map[string]any
+	if err := json.Unmarshal(out.Bytes(), &records); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\n%s", err, out.String())
+	}
+	if len(records) != 1 {
+		t.Fatalf("want 1 finding, got %d\nstdout:\n%s", len(records), out.String())
+	}
+	if records[0]["verified"] != false {
+		t.Errorf("verified = %v, want false (network verify was skipped)", records[0]["verified"])
+	}
+}
+
+// TestScan_NoVerifyAndOnlyVerifiedRejected pins the mutual-exclusivity
+// guard: combining --no-verify with --only-verified would silently emit
+// zero findings every time (nothing is ever verified when verification
+// never runs), which reads as a false "clean scan" rather than a
+// configuration mistake. The CLI must reject the combination up front.
+func TestScan_NoVerifyAndOnlyVerifiedRejected(t *testing.T) {
+	resetCommandFlags(t)
+
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+	Root.SetIn(strings.NewReader("nothing interesting here\n"))
+	Root.SetArgs([]string{"scan", "--no-verify", "--only-verified", "stdin"})
+
+	err := Root.Execute()
+	if err == nil {
+		t.Fatal("expected --no-verify + --only-verified to be rejected")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("error should name the conflict; got %v", err)
 	}
 }
 

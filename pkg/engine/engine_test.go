@@ -281,3 +281,59 @@ func TestEngine_IndeterminateVerdictSeverity(t *testing.T) {
 		t.Errorf("severity = %v, want SeverityCritical for an indeterminate verdict", got[0].Result.Severity)
 	}
 }
+
+// verifyArgRecordingDet is a Verifier-implementing detector that records
+// the `verify` bool it was actually called with, so tests can assert on
+// the engine's dispatch decision directly instead of inferring it from a
+// side effect.
+type verifyArgRecordingDet struct {
+	calls []bool
+}
+
+func (d *verifyArgRecordingDet) Type() detectors.DetectorType { return detectors.AWS }
+func (d *verifyArgRecordingDet) Keywords() []string           { return []string{"trigger"} }
+func (d *verifyArgRecordingDet) FromData(_ context.Context, verify bool, data []byte) ([]detectors.Result, error) {
+	d.calls = append(d.calls, verify)
+	return []detectors.Result{{DetectorType: detectors.AWS, Raw: data}}, nil
+}
+func (d *verifyArgRecordingDet) Verify(_ context.Context, _ string) (bool, error) {
+	return true, nil
+}
+
+// TestEngine_NoVerifyOptionSuppressesVerifyArg is the issue #303 engine-level
+// contract test: Options.NoVerify must flip the `verify` bool the engine
+// passes into every detector's FromData from the historical unconditional
+// true to false. This is the mechanism a fast, offline hook scan relies on
+// — without it, --no-verify at the CLI layer would only be able to filter
+// verified findings out afterward, not skip the network call that produced
+// them.
+func TestEngine_NoVerifyOptionSuppressesVerifyArg(t *testing.T) {
+	src := &stubSource{chunks: []*sources.Chunk{
+		{Data: []byte("trigger me"), SourceType: sources.SourceFilesystem},
+	}}
+
+	det := &verifyArgRecordingDet{}
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{det}, Options{NoVerify: true}, sink)
+	if _, err := eng.RunWithStats(context.Background(), src); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(det.calls) != 1 {
+		t.Fatalf("expected exactly 1 FromData call, got %d", len(det.calls))
+	}
+	if det.calls[0] {
+		t.Errorf("NoVerify: true must call FromData with verify=false, got verify=true")
+	}
+
+	// Sanity check the default (NoVerify: false) still passes verify=true,
+	// so this test would fail loudly if the polarity were ever flipped.
+	det2 := &verifyArgRecordingDet{}
+	sink2 := &engineRecordingSink{}
+	eng2 := NewWithDetectors([]detectors.Detector{det2}, Options{}, sink2)
+	if _, err := eng2.RunWithStats(context.Background(), src); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(det2.calls) != 1 || !det2.calls[0] {
+		t.Errorf("default Options must call FromData with verify=true, got calls=%v", det2.calls)
+	}
+}
