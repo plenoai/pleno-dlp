@@ -3,6 +3,27 @@
 Use `pleno-dlp detectors list --revoke-support` for the runtime answer.
 This page keeps the static contract: gating, idempotency, provider requirements, and caveats.
 
+**Scope note:** as far as we have measured (`docs/comparison.md`
+benchmarks pleno-dlp against trufflehog and gitleaks, the two other OSS
+secret scanners in that comparison), pleno-dlp is currently the only
+OSS tool of the three with **headless revoke** — a non-interactive,
+CLI-only path from a detected leak to an invalidated credential,
+scriptable in CI without a human clicking through a provider's web
+console. That is a narrower, falsifiable claim, not "zero competition":
+it says nothing about commercial/SaaS DLP products, provider-native
+auto-revoke integrations (e.g. a provider's own secret-scanning partner
+program), or tools outside that three-way comparison. Framing it any
+more broadly than "only OSS headless revoke, among the tools we've
+benchmarked" would be an overclaim this repo does not stand behind.
+
+## Audit trail
+
+Every revoke attempt — through `--detector`/`--secret`,
+`--revoke-from-spool`, or `scan --revoke-on-verified` — emits one
+schema-versioned JSON Lines record via `--audit-trail <path>` (falls
+back to stderr if omitted, never silently dropped). Schema and field
+reference: [`docs/audit-trail-schema.md`](audit-trail-schema.md).
+
 ## Severity recap
 
 Revoke runs only against **verified** findings. Scan-mode verification runs by
@@ -215,7 +236,10 @@ stderr (`revoke OK:`, `revoke OK (idempotent):`, `revoke FAIL:`) so a
 post-mortem can reconstruct what happened. Structured callers should
 prefer `pleno-dlp revoke --format json`, which emits one record per
 invocation on stdout with `detector`, `redacted_secret`, `revoked`,
-`revoked_at`, `provider_id`, `dry_run`, and `error` fields.
+`revoked_at`, `provider_id`, `dry_run`, and `error` fields. For a
+durable, schema-versioned trail across many invocations (rather than
+one process's stdout), pass `--audit-trail <path>` — see
+[`docs/audit-trail-schema.md`](audit-trail-schema.md).
 
 Rate-limit responses (HTTP 429) surface as hard errors; the CLI does
 not retry. For batch revocations, set `--rate-limit-rps` on the

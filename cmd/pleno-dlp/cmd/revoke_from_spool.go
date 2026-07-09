@@ -23,10 +23,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/plenoai/pleno-dlp/pkg/audit"
 	"github.com/plenoai/pleno-dlp/pkg/verify"
 )
 
-func runRevokeFromSpool(cmd *cobra.Command, path string) error {
+func runRevokeFromSpool(cmd *cobra.Command, path string, auditW *audit.Writer) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("revoke-from-spool: open %q: %w", path, err)
@@ -91,6 +92,14 @@ func runRevokeFromSpool(cmd *cobra.Command, path string) error {
 				RedactedSecret: redacted,
 				DryRun:         true,
 			})
+			writeAuditRecord(cmd.ErrOrStderr(), auditW, audit.New(audit.Attempt{
+				Path:       audit.PathSpool,
+				Detector:   detectorType.String(),
+				Secret:     string(secret),
+				Redacted:   redacted,
+				DryRun:     true,
+				TargetLink: rec.SourceLink,
+			}))
 			continue
 		}
 
@@ -107,13 +116,27 @@ func runRevokeFromSpool(cmd *cobra.Command, path string) error {
 		if !res.RevokedAt.IsZero() {
 			out.RevokedAt = res.RevokedAt.UTC().Format(time.RFC3339)
 		}
+		var attemptErr error
 		switch {
 		case runErr != nil:
 			out.Error = runErr.Error()
+			attemptErr = runErr
 		case res.Err != nil:
 			out.Error = res.Err.Error()
+			attemptErr = res.Err
 		}
 		emitRevoke(cmd, revokeOpts.format, out)
+		writeAuditRecord(cmd.ErrOrStderr(), auditW, audit.New(audit.Attempt{
+			Path:       audit.PathSpool,
+			Detector:   detectorType.String(),
+			Secret:     string(secret),
+			Redacted:   redacted,
+			Revoked:    res.Revoked,
+			RevokedAt:  res.RevokedAt,
+			ProviderID: res.ProviderID,
+			Err:        attemptErr,
+			TargetLink: rec.SourceLink,
+		}))
 		if res.Revoked && runErr == nil {
 			revoked++
 		} else {

@@ -16,6 +16,7 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
+	"github.com/plenoai/pleno-dlp/pkg/audit"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 
@@ -346,7 +347,8 @@ func TestRevokingSink_NeverRevokesIndeterminate(t *testing.T) {
 	rev := &fakeRevoker{}
 	det := fakeDetectorWithRevoker{Revoker: rev}
 
-	rs := newRevokingSink(captured, []detectors.Detector{det}, false, &bytes.Buffer{})
+	var auditBuf bytes.Buffer
+	rs := newRevokingSink(captured, []detectors.Detector{det}, false, &bytes.Buffer{}, audit.NewWriter(&auditBuf))
 	rs.Emit(engineFindingIndeterminate(detectors.GitHub, "ghp_network_blip"))
 
 	if rev.calls != 0 {
@@ -364,6 +366,12 @@ func TestRevokingSink_NeverRevokesIndeterminate(t *testing.T) {
 	}
 	if got := len(captured.findings); got != 1 {
 		t.Errorf("finding must still be forwarded downstream, got %d", got)
+	}
+	if got := captured.findings[0].Result.ExtraData["audit_trail_id"]; got != "" {
+		t.Errorf("indeterminate finding must not be stamped with audit_trail_id, got %q", got)
+	}
+	if auditBuf.Len() != 0 {
+		t.Errorf("no revoke was attempted; audit trail must stay empty, got:\n%s", auditBuf.String())
 	}
 }
 
@@ -419,8 +427,9 @@ func TestRevokingSink_VerifiedFindingDispatches(t *testing.T) {
 	rev := &fakeRevoker{}
 	det := fakeDetectorWithRevoker{Revoker: rev}
 
-	rs := newRevokingSink(captured, []detectors.Detector{det}, false, &bytes.Buffer{})
-	rs.Emit(engineFinding(detectors.GitHub, true, "ghp_xxx"))
+	var auditBuf bytes.Buffer
+	rs := newRevokingSink(captured, []detectors.Detector{det}, false, &bytes.Buffer{}, audit.NewWriter(&auditBuf))
+	rs.Emit(engineFinding(detectors.GitHub, true, "ghp_verified_secret"))
 	rs.Emit(engineFinding(detectors.GitHub, false, "ghp_yyy"))
 
 	if got := len(captured.findings); got != 2 {
@@ -432,6 +441,41 @@ func TestRevokingSink_VerifiedFindingDispatches(t *testing.T) {
 	if rs.attempted.Load() != 1 || rs.revoked.Load() != 1 {
 		t.Errorf("counters: attempted=%d revoked=%d, want 1/1", rs.attempted.Load(), rs.revoked.Load())
 	}
+
+	// The verified finding forwarded downstream (and thus into any
+	// json/sarif output) must carry the same trail id as the audit
+	// trail record — that link is how a SARIF/json consumer correlates
+	// a finding to its revoke outcome (issue #304).
+	trailID := captured.findings[0].Result.ExtraData["audit_trail_id"]
+	if trailID == "" {
+		t.Fatal("verified+revoked finding must be stamped with a non-empty audit_trail_id")
+	}
+	if got := captured.findings[1].Result.ExtraData["audit_trail_id"]; got != "" {
+		t.Errorf("unverified finding must not be stamped with audit_trail_id, got %q", got)
+	}
+
+	rec := decodeSoleAuditRecord(t, auditBuf.Bytes())
+	if rec.SchemaVersion != audit.SchemaVersion {
+		t.Errorf("audit record schema_version = %q, want %q", rec.SchemaVersion, audit.SchemaVersion)
+	}
+	if rec.TrailID != trailID {
+		t.Errorf("audit record trail_id = %q, want %q (must match the stamped finding)", rec.TrailID, trailID)
+	}
+	if rec.Path != string(audit.PathOnVerified) {
+		t.Errorf("audit record path = %q, want %q", rec.Path, audit.PathOnVerified)
+	}
+	if rec.Detector != detectors.GitHub.String() {
+		t.Errorf("audit record detector = %q, want %q", rec.Detector, detectors.GitHub.String())
+	}
+	if !rec.Revoked {
+		t.Error("audit record revoked = false, want true (fakeRevoker always succeeds)")
+	}
+	if rec.SecretHash != audit.HashSecret("ghp_verified_secret") {
+		t.Errorf("audit record secret_hash = %q, want hash of the raw secret", rec.SecretHash)
+	}
+	if strings.Contains(auditBuf.String(), "ghp_verified_secret") {
+		t.Fatalf("audit trail leaked the raw secret: %s", auditBuf.String())
+	}
 }
 
 func TestRevokingSink_DryRunDoesNotCallProvider(t *testing.T) {
@@ -439,8 +483,8 @@ func TestRevokingSink_DryRunDoesNotCallProvider(t *testing.T) {
 	rev := &fakeRevoker{}
 	det := fakeDetectorWithRevoker{Revoker: rev}
 
-	var logBuf bytes.Buffer
-	rs := newRevokingSink(captured, []detectors.Detector{det}, true, &logBuf)
+	var logBuf, auditBuf bytes.Buffer
+	rs := newRevokingSink(captured, []detectors.Detector{det}, true, &logBuf, audit.NewWriter(&auditBuf))
 	rs.Emit(engineFinding(detectors.GitHub, true, "ghp_xxx"))
 
 	if rev.calls != 0 {
@@ -449,6 +493,32 @@ func TestRevokingSink_DryRunDoesNotCallProvider(t *testing.T) {
 	if !strings.Contains(logBuf.String(), "DRY-RUN") {
 		t.Errorf("dry-run must log preview line; got:\n%s", logBuf.String())
 	}
+
+	rec := decodeSoleAuditRecord(t, auditBuf.Bytes())
+	if !rec.DryRun {
+		t.Error("dry-run audit record must set dry_run=true")
+	}
+	if rec.Revoked {
+		t.Error("dry-run audit record must not claim revoked=true")
+	}
+	if rec.SchemaVersion != audit.SchemaVersion {
+		t.Errorf("audit record schema_version = %q, want %q", rec.SchemaVersion, audit.SchemaVersion)
+	}
+}
+
+// decodeSoleAuditRecord decodes exactly one JSON Lines audit.Record from
+// b, failing the test if there isn't exactly one well-formed line.
+func decodeSoleAuditRecord(t *testing.T, b []byte) audit.Record {
+	t.Helper()
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	if len(lines) != 1 || lines[0] == "" {
+		t.Fatalf("expected exactly one audit trail line, got %d: %q", len(lines), string(b))
+	}
+	var rec audit.Record
+	if err := json.Unmarshal([]byte(lines[0]), &rec); err != nil {
+		t.Fatalf("decode audit record: %v\nline: %s", err, lines[0])
+	}
+	return rec
 }
 
 func TestScanFilesystemWithCustomRules(t *testing.T) {

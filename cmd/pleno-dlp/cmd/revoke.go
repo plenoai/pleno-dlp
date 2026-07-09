@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/plenoai/pleno-dlp/pkg/audit"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	awsdet "github.com/plenoai/pleno-dlp/pkg/detectors/aws"
 	githubdet "github.com/plenoai/pleno-dlp/pkg/detectors/github"
@@ -35,6 +36,7 @@ type revokeFlags struct {
 	dryRun       bool
 	format       string
 	rateLimitRPS int
+	auditTrail   string
 
 	awsAdminAccessKeyID     string
 	awsAdminSecretAccessKey string
@@ -84,6 +86,7 @@ func init() {
 	revokeCmd.Flags().StringVar(&revokeOpts.fromSpool, "revoke-from-spool", "",
 		"path to a JSONL spool file produced by `pleno-dlp scan --revoke-spool`. "+
 			"Each line is dispatched to the per-detector Revoker. --detector/--secret are ignored in this mode.")
+	revokeCmd.Flags().StringVar(&revokeOpts.auditTrail, auditTrailFlagName, "", auditTrailFlagHelp)
 
 	Root.AddCommand(revokeCmd)
 }
@@ -114,8 +117,14 @@ func runRevoke(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	auditW, closeAudit, err := openAuditTrail(cmd, revokeOpts.auditTrail)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = closeAudit() }()
+
 	if revokeOpts.fromSpool != "" {
-		return runRevokeFromSpool(cmd, revokeOpts.fromSpool)
+		return runRevokeFromSpool(cmd, revokeOpts.fromSpool, auditW)
 	}
 
 	secret, err := resolveSecret(cmd, revokeOpts.secret)
@@ -140,6 +149,13 @@ func runRevoke(cmd *cobra.Command, _ []string) error {
 			Revoked:        false,
 			DryRun:         true,
 		})
+		writeAuditRecord(cmd.ErrOrStderr(), auditW, audit.New(audit.Attempt{
+			Path:     audit.PathSingle,
+			Detector: detectorType.String(),
+			Secret:   secret,
+			Redacted: redacted,
+			DryRun:   true,
+		}))
 		return nil
 	}
 
@@ -161,13 +177,26 @@ func runRevoke(cmd *cobra.Command, _ []string) error {
 	if !res.RevokedAt.IsZero() {
 		rec.RevokedAt = res.RevokedAt.UTC().Format(time.RFC3339)
 	}
+	var attemptErr error
 	switch {
 	case runErr != nil:
 		rec.Error = runErr.Error()
+		attemptErr = runErr
 	case res.Err != nil:
 		rec.Error = res.Err.Error()
+		attemptErr = res.Err
 	}
 	emitRevoke(cmd, revokeOpts.format, rec)
+	writeAuditRecord(cmd.ErrOrStderr(), auditW, audit.New(audit.Attempt{
+		Path:       audit.PathSingle,
+		Detector:   detectorType.String(),
+		Secret:     secret,
+		Redacted:   redacted,
+		Revoked:    res.Revoked,
+		RevokedAt:  res.RevokedAt,
+		ProviderID: res.ProviderID,
+		Err:        attemptErr,
+	}))
 
 	if runErr != nil {
 		return errRevokeFailed
