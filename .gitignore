@@ -32,3 +32,14 @@ coverage.html
 .agents/
 .codex/
 /AGENTS.md
+
+# dlp-bench (bench/, issue #298): generated fixtures, cloned corpora, and
+# results are all reproducible via `make bench` and never committed —
+# the fixtures are live format-valid fake credentials (would trip push
+# protection on sight; see bench/README.md), the clones are pinned
+# upstream repos, and the results are a point-in-time measurement.
+/bench/fixtures/synthetic/generated/
+/bench/fixtures/synthetic/labels.json
+/bench/.cache/
+/bench/results/*.json
+/bench/results/*.md
