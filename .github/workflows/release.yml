@@ -56,6 +56,11 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT with contents:write on plenoai/homebrew-tap; the default
+          # GITHUB_TOKEN is scoped to this repo only and cannot push the
+          # generated formula to a different repository. Deferred until the
+          # tap repo exists and the secret is created (see PR description).
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
       - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:

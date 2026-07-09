@@ -38,6 +38,26 @@ archives:
 checksum:
   name_template: 'checksums.txt'
 
+# Publishes a Homebrew formula to plenoai/homebrew-tap on every tag push.
+# The tap repo itself and the HOMEBREW_TAP_GITHUB_TOKEN secret are
+# release-time prerequisites created outside this repo (see PR description);
+# until both exist, GoReleaser's brew publish step fails the release.
+brews:
+  - name: pleno-dlp
+    repository:
+      owner: plenoai
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://plenoai.com/pleno-dlp/"
+    description: "Unified DLP scanner for secrets and PII across filesystem, git, stdin, and SaaS sources."
+    license: "AGPL-3.0-only"
+    install: |
+      bin.install "pleno-dlp"
+    test: |
+      system "#{bin}/pleno-dlp", "--version"
+
 signs:
   - cmd: cosign
     args:

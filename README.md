@@ -25,12 +25,20 @@
 
 ```sh
 go install github.com/plenoai/pleno-dlp/cmd/pleno-dlp@latest
+# or, on macOS/Linux with Homebrew:
+brew install plenoai/tap/pleno-dlp
 
 pleno-dlp protect
 pleno-dlp scan filesystem ./repo
 pleno-dlp scan git --repo ./repo --max-depth 200
 pleno-dlp scan filesystem ./repo --format sarif > findings.sarif
 ```
+
+The Homebrew formula (`plenoai/tap/pleno-dlp`) is published to the
+[`plenoai/homebrew-tap`](https://github.com/plenoai/homebrew-tap) repository
+by GoReleaser on every `vX.Y.Z` tag push; it always tracks the latest
+signed release and pins a specific binary rather than floating on `@latest`
+the way `go install` does.
 
 ## Target source
 
