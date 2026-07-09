@@ -598,6 +598,17 @@ Where the competition — or the whole industry — is measurably ahead:
 
 ## Reproducing
 
+`make bench` (see [`bench/README.md`](../bench/README.md)) automates
+most of this: it regenerates §2's synthetic corpus, clones §3's
+leaky-repo corpus at the pinned commit below, runs the three canonical
+invocations, and writes a machine-readable `bench/results/results.json`
+plus a rendered `bench/results/results.md`. Its numbers are expected to
+drift from the ones on this page over time — this page is a dated
+snapshot, `make bench` measures current `HEAD` — see that README for a
+concrete example (three of §2's four listed pleno-dlp misses are
+already fixed on `HEAD`). §4–§8 below remain manual; see
+`bench/README.md` for exactly what's automated and what isn't.
+
 Synthetic corpus (§2): generators and raw outputs are not committed
 (the fixtures are format-valid fake credentials — committing them
 would trip push protection and every scanner in CI, by design). To
