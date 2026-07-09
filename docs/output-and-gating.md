@@ -25,6 +25,61 @@ SARIF output is GitHub Code Scanning compatible:
     sarif_file: findings.sarif
 ```
 
+## GitHub Action
+
+The two steps above are also available as a single composite action —
+[`plenoai/pleno-dlp`](https://github.com/plenoai/pleno-dlp/blob/main/action.yml),
+usable via `uses: plenoai/pleno-dlp@vX.Y.Z`:
+
+```yaml
+name: pleno-dlp
+on: [push, pull_request]
+
+permissions:
+  contents: read
+  security-events: write   # required by upload-sarif
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: plenoai/pleno-dlp@v0.59.0
+        id: scan
+        with:
+          target: .              # default: "."
+          sarif-file: results.sarif
+          fail-on: high           # default: high (audit-first, see above)
+
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()             # upload even when --fail-on failed the step
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif-file }}
+```
+
+What the action does before running a scan:
+
+1. Resolves the pleno-dlp version to install — the `version` input if set,
+   otherwise the action's own tag ref (`github.action_ref`), so the action
+   revision and the binary it runs are always the same signed release.
+2. Downloads that release's archive for the runner's OS/arch, plus
+   `checksums.txt` and `checksums.txt.sigstore.json`.
+3. `cosign verify-blob`s `checksums.txt` against the release workflow's
+   Sigstore keyless (OIDC) identity — the same verification described in
+   every release's notes — then checks the archive's SHA-256 against the
+   now-verified `checksums.txt`.
+4. Extracts the verified binary and runs
+   `pleno-dlp scan filesystem <target> --format sarif --fail-on <fail-on>`.
+
+Inputs: `target` (default `.`), `version` (default: this action's tag),
+`args` (extra space-separated flags), `sarif-file` (default
+`pleno-dlp-results.sarif`), `fail-on` (default `high`). Output:
+`sarif-file`, the path written.
+
+Marketplace publishing is deferred (a release-time human step); until
+then, reference the action by tag as shown above.
+
 ## Verification verdicts
 
 Verification is three-valued, not a boolean: a detector's `Verify` call can

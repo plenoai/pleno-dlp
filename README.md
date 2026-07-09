@@ -70,6 +70,23 @@ pleno-dlp scan filesystem ./repo --format sarif > findings.sarif
 
 More output and CI detail: [`docs/output-and-gating.md`](docs/output-and-gating.md)
 
+## GitHub Action
+
+```yaml
+- uses: actions/checkout@v7
+- uses: plenoai/pleno-dlp@v0.59.0
+  with:
+    sarif-file: results.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: results.sarif
+```
+
+The action downloads the pinned release binary for the runner's OS/arch
+and cosign-verifies it (Sigstore keyless) before running anything. Details:
+[`docs/output-and-gating.md`](docs/output-and-gating.md#github-action).
+
 Measured comparison against trufflehog and gitleaks (synthetic and
 real-world recall, noise, verification value, capability probes):
 [`docs/comparison.md`](docs/comparison.md)

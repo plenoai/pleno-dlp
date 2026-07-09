@@ -1,0 +1,153 @@
+name: pleno-dlp scan
+description: >-
+  Scan a checked-out repo with pleno-dlp (600+ secret detectors + PII
+  detection) and emit a SARIF report for github/codeql-action/upload-sarif.
+  Downloads the pinned GoReleaser release binary for the runner's OS/arch
+  and cosign-verifies checksums.txt (Sigstore keyless) plus the archive
+  checksum before executing anything.
+author: plenoai
+branding:
+  icon: shield
+  color: red
+
+inputs:
+  target:
+    description: Path to scan (passed to `pleno-dlp scan filesystem`).
+    required: false
+    default: "."
+  version:
+    description: >-
+      pleno-dlp release tag to install, e.g. "v0.59.0". Defaults to this
+      action's own tag ref, so the action revision and the binary it runs
+      are always the same signed release. Required when invoked via a
+      local/branch ref (e.g. `uses: ./`) where no tag is resolvable.
+    required: false
+    default: ""
+  args:
+    description: Extra space-separated arguments appended to the scan command.
+    required: false
+    default: ""
+  sarif-file:
+    description: Path to write the SARIF report.
+    required: false
+    default: pleno-dlp-results.sarif
+  fail-on:
+    description: >-
+      Minimum severity that fails the step: any|info|low|medium|high|critical
+      (default high: audit-first — see `pleno-dlp scan --help`).
+    required: false
+    default: high
+
+outputs:
+  sarif-file:
+    description: Path to the generated SARIF report.
+    value: ${{ steps.scan.outputs.sarif-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve pleno-dlp version
+      id: resolve
+      shell: bash
+      env:
+        PLENO_DLP_INPUT_VERSION: ${{ inputs.version }}
+        PLENO_DLP_ACTION_REF: ${{ github.action_ref }}
+      run: |
+        set -euo pipefail
+        version="$PLENO_DLP_INPUT_VERSION"
+        if [ -z "$version" ]; then
+          version="$PLENO_DLP_ACTION_REF"
+        fi
+        if [ -z "$version" ]; then
+          echo "::error::could not resolve a pleno-dlp version — pass the 'version' input explicitly (e.g. version: v0.59.0). This happens when the action is invoked via a non-tag ref such as 'uses: ./' or a branch." >&2
+          exit 1
+        fi
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
+    - name: Resolve runner platform
+      id: platform
+      shell: bash
+      env:
+        PLENO_DLP_RUNNER_OS: ${{ runner.os }}
+        PLENO_DLP_RUNNER_ARCH: ${{ runner.arch }}
+      run: |
+        set -euo pipefail
+        case "$PLENO_DLP_RUNNER_OS" in
+          Linux) goos=linux; ext=tar.gz ;;
+          macOS) goos=darwin; ext=tar.gz ;;
+          Windows) goos=windows; ext=zip ;;
+          *) echo "::error::unsupported runner.os=$PLENO_DLP_RUNNER_OS" >&2; exit 1 ;;
+        esac
+        case "$PLENO_DLP_RUNNER_ARCH" in
+          X64) goarch=amd64 ;;
+          ARM64) goarch=arm64 ;;
+          *) echo "::error::unsupported runner.arch=$PLENO_DLP_RUNNER_ARCH (pleno-dlp releases amd64/arm64 only)" >&2; exit 1 ;;
+        esac
+        echo "goos=$goos" >> "$GITHUB_OUTPUT"
+        echo "goarch=$goarch" >> "$GITHUB_OUTPUT"
+        echo "ext=$ext" >> "$GITHUB_OUTPUT"
+
+    - name: Install cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+    - name: Download, cosign-verify, and install pleno-dlp
+      id: install
+      shell: bash
+      env:
+        PLENO_DLP_VERSION: ${{ steps.resolve.outputs.version }}
+        PLENO_DLP_GOOS: ${{ steps.platform.outputs.goos }}
+        PLENO_DLP_GOARCH: ${{ steps.platform.outputs.goarch }}
+        PLENO_DLP_EXT: ${{ steps.platform.outputs.ext }}
+      run: |
+        set -euo pipefail
+        base="https://github.com/plenoai/pleno-dlp/releases/download/${PLENO_DLP_VERSION}"
+        archive="pleno-dlp_${PLENO_DLP_GOOS}_${PLENO_DLP_GOARCH}.${PLENO_DLP_EXT}"
+        workdir="$(mktemp -d)"
+
+        curl -fsSL -o "$workdir/$archive" "$base/$archive"
+        curl -fsSL -o "$workdir/checksums.txt" "$base/checksums.txt"
+        curl -fsSL -o "$workdir/checksums.txt.sigstore.json" "$base/checksums.txt.sigstore.json"
+
+        # checksums.txt is Sigstore-signed by the release workflow's OIDC
+        # identity (keyless cosign, see .goreleaser.yaml `signs:`). Verifying
+        # it — then checking the downloaded archive's hash against it —
+        # transitively proves the archive came from that workflow run.
+        cosign verify-blob "$workdir/checksums.txt" \
+          --bundle "$workdir/checksums.txt.sigstore.json" \
+          --certificate-identity-regexp \
+            'https://github\.com/plenoai/pleno-dlp/\.github/workflows/release\.yml@refs/tags/.*' \
+          --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+        ( cd "$workdir" && grep " ${archive}\$" checksums.txt | sha256sum -c - )
+
+        mkdir "$workdir/bin"
+        if [ "$PLENO_DLP_EXT" = zip ]; then
+          unzip -q "$workdir/$archive" -d "$workdir/bin"
+        else
+          tar -xzf "$workdir/$archive" -C "$workdir/bin"
+        fi
+        chmod +x "$workdir/bin/pleno-dlp"
+        echo "bin-dir=$workdir/bin" >> "$GITHUB_OUTPUT"
+
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        PLENO_DLP_BIN_DIR: ${{ steps.install.outputs.bin-dir }}
+        PLENO_DLP_TARGET: ${{ inputs.target }}
+        PLENO_DLP_EXTRA_ARGS: ${{ inputs.args }}
+        PLENO_DLP_SARIF_FILE: ${{ inputs.sarif-file }}
+        PLENO_DLP_FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        set -uo pipefail
+        set +e
+        "$PLENO_DLP_BIN_DIR/pleno-dlp" scan filesystem "$PLENO_DLP_TARGET" \
+          --format sarif --fail-on "$PLENO_DLP_FAIL_ON" $PLENO_DLP_EXTRA_ARGS \
+          > "$PLENO_DLP_SARIF_FILE"
+        status=$?
+        set -e
+        # Always publish the output path, even on a --fail-on gate failure,
+        # so a caller's later `upload-sarif` step (guarded with `if: always()`)
+        # still finds the report.
+        echo "sarif-file=$PLENO_DLP_SARIF_FILE" >> "$GITHUB_OUTPUT"
+        exit $status
