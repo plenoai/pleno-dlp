@@ -83,6 +83,20 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Added
 
+- **Versioned audit trail (schema v1) for every revoke attempt**. New
+  `pkg/audit` package defines `audit.Record` (JSON Lines,
+  `schema_version: "1"`) and `Record.ToSARIFProperties()`, the matching
+  SARIF properties-bag representation. All three revoke code paths —
+  `revoke --detector/--secret`, `revoke --revoke-from-spool`, and
+  `scan --revoke-on-verified` — now emit one record per attempt via the
+  new `--audit-trail <path>` flag (falls back to stderr when omitted;
+  the trail is never silently dropped). Records never carry the raw
+  secret — only a sha256 hash and the existing prefix+ellipsis
+  redaction. `scan --revoke-on-verified` findings additionally carry an
+  `audit_trail_id` key in `extra_data`/SARIF `properties` that
+  correlates back to the full trail record. See
+  [`docs/audit-trail-schema.md`](docs/audit-trail-schema.md). (#304)
+
 - **incremental scan: streaming per-unit state flush**. New optional
   `sources.IncrementalFlushSource` interface lets a connector hand the
   cmd layer a partial state snapshot after each processed unit (per-repo

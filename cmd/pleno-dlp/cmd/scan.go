@@ -58,6 +58,7 @@ type scanFlags struct {
 	revokeOnVerified  bool
 	revokeDryRun      bool
 	revokeSpool       string
+	auditTrail        string
 	blastRadiusOnly   bool
 	showSuppressed    bool
 	incremental       bool
@@ -190,6 +191,7 @@ func init() {
 			"The file holds raw secrets and is created mode 0600. "+
 			"Requires "+EnvAllowRawExport+"=1 so a misconfigured CI cannot accidentally serialize live credentials. "+
 			"Mutually exclusive with --revoke-on-verified.")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.auditTrail, auditTrailFlagName, "", auditTrailFlagHelp+" Only applies with --revoke-on-verified.")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.blastRadiusOnly, "blast-radius-only", false,
 		"emit and count only findings the engine has tagged blast_radius=true "+
 			"(driftwood-pattern flags: any *_privileged, *_high_value, or *_high_risk). "+
@@ -496,7 +498,12 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	var revoker *revokingSink
 	var spool *spoolSink
 	if scanOpts.revokeOnVerified {
-		revoker = newRevokingSink(piidbSink, dets, scanOpts.revokeDryRun, cmd.ErrOrStderr())
+		auditW, closeAudit, err := openAuditTrail(cmd, scanOpts.auditTrail)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = closeAudit() }()
+		revoker = newRevokingSink(piidbSink, dets, scanOpts.revokeDryRun, cmd.ErrOrStderr(), auditW)
 		topSink = chain.Track(revoker)
 	}
 	if scanOpts.revokeSpool != "" {

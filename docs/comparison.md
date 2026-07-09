@@ -36,7 +36,7 @@ tree at the exact released tag.
 |--------|----------:|------------------:|----------------:|
 | Detectors / rules | 619 | 870 | 222 |
 | Live-verification capable | 552 (+67 unverified-by-design, see [`verify-coverage.md`](verify-coverage.md)) | most detectors (core design) | 0 — no verification subsystem |
-| Revocation support | 4 providers + 1 context-required (AWS) | 0 | 0 |
+| Revocation support¹ | 4 providers + 1 context-required (AWS) | 0 | 0 |
 | Scan sources | 28 | 18 (16 excluding `multi-scan` / `json-enumerator` meta-inputs) | 3 (`git`, `dir`, `stdin`) |
 | Output formats | json, sarif, table | json, json-legacy, github-actions | json, csv, junit, sarif, template |
 | PII detection | yes (`--pii-engine`) | no | no |
@@ -58,6 +58,15 @@ binary's help.
 Detector count alone says little — trufflehog has the largest set yet
 the lowest recall on the corpus below. Breadth, recall, and noise have
 to be read together.
+
+¹ This row is measured against exactly the two tools in this
+comparison, not the whole industry: pleno-dlp is, as far as we have
+tested, the only **OSS headless revoke** among trufflehog/gitleaks/
+pleno-dlp — a non-interactive, CLI-only path from a detected leak to an
+invalidated credential. It is not evidence about commercial DLP
+products or provider-native auto-revoke integrations, which this
+document does not benchmark. See the scope note in
+[`revoke-support.md`](revoke-support.md).
 
 ## 2. Detection recall — 50-type synthetic corpus
 

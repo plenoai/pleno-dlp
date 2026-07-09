@@ -88,13 +88,19 @@ Coverage and unverified classes: [`docs/verify-coverage.md`](docs/verify-coverag
 ## Revocation support
 
 `pleno-dlp revoke` can invalidate supported leaked credentials for GitHub,
-GitLab, Slack, AWS, and Stripe restricted keys.
+GitLab, Slack, AWS, and Stripe restricted keys — headlessly, from the CLI,
+with no provider web console step. Among the OSS scanners we benchmark in
+[`docs/comparison.md`](docs/comparison.md) (trufflehog, gitleaks), that is
+currently unique to pleno-dlp; it is not a claim about commercial tools.
 
 ```sh
 echo "$LEAKED_TOKEN" | pleno-dlp revoke --detector github --secret - --confirm
 pleno-dlp revoke --detector slack --secret xoxb-... --dry-run
 pleno-dlp detectors list --revoke-support
 ```
+
+Every revoke attempt emits a schema-versioned JSON Lines audit-trail
+record (`--audit-trail <path>`, falls back to stderr): [`docs/audit-trail-schema.md`](docs/audit-trail-schema.md)
 
 Details and safety constraints: [`docs/revoke-support.md`](docs/revoke-support.md)
 
