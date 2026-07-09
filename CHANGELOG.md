@@ -9,6 +9,8 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+## [v0.60.0] - 2026-07-10
+
 ### Changed
 
 - **BREAKING: `--fail-on` now defaults to `high`, not `any`** (`scan`
@@ -83,6 +85,27 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Added
 
+- **`pleno-dlp hooks install claude-code|cursor`**. One command wires the
+  scanner into an editor/agent's own hook mechanism: claude-code gets a
+  `PreToolUse` Edit|Write hook (blocks on a finding via exit 2), cursor a
+  `beforeShellExecution` hook gating `git commit`. Installs are idempotent
+  and reversible with `hooks uninstall`. Hooks use the new fast
+  `--no-verify` stdin path (below); measured hook latency ~23 ms median is
+  published in [`docs/hooks.md`](docs/hooks.md). (#303)
+- **`--no-verify` scan flag**. Skips every detector's network `Verify()`
+  round-trip at the engine level so a scan runs fully offline and fast,
+  meant for latency-sensitive callers like pre-commit/agent hooks. Every
+  finding's verdict is `unverified` (not `indeterminate`). Mutually
+  exclusive with `--only-verified`. (#303)
+- **Official cosign-verified GitHub Action**. A one-line
+  `uses: plenoai/pleno-dlp@vX.Y.Z` step downloads the release archive,
+  cosign-verifies `checksums.txt` against the release workflow's keyless
+  Sigstore identity, runs a scan, and exposes a `sarif-file` output for
+  `github/codeql-action/upload-sarif`. See
+  [`docs/output-and-gating.md`](docs/output-and-gating.md#github-action). (#301)
+- **Homebrew tap**. `brew install plenoai/tap/pleno-dlp` installs a pinned
+  binary; the formula is published to `plenoai/homebrew-tap` automatically
+  by GoReleaser on tag push. (#302)
 - **Versioned audit trail (schema v1) for every revoke attempt**. New
   `pkg/audit` package defines `audit.Record` (JSON Lines,
   `schema_version: "1"`) and `Record.ToSARIFProperties()`, the matching
