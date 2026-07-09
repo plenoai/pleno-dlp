@@ -203,6 +203,19 @@ Every miss was double-checked by single-file re-scan with a working
 positive control, so these are detection misses, not directory-walker
 skips.
 
+> **2026-07-10 update (#175, reported in
+> [`blind-spot-report.md`](blind-spot-report.md)):** issue #175 added 16
+> structured-config-file detectors targeting this 25-file set
+> specifically. Before/after on just those 25 files: pleno-dlp
+> 1/25 (4%) pre-#175 → 20/25 (80%) post-#175, cross-checked against
+> current `main`. trufflehog and gitleaks were re-run on the same 25
+> files at the versions pinned above and remain at 0/25 — the shared
+> blind spot itself is unchanged, only pleno-dlp's share of it moved.
+> Full per-file detail, the 5 remaining misses (2 out-of-scope by
+> design, 2 correct placeholder suppression, 1 genuine gap), and the
+> reproduce commands are in the linked report. This §3 table is not
+> re-derived — it stands as originally measured.
+
 <details>
 <summary>Per-file matrix (44 ground-truth files)</summary>
 
@@ -501,6 +514,13 @@ Where the competition — or the whole industry — is measurably ahead:
    `.netrc`, `.git-credentials`, framework secret keys, SFTP/IDE
    client configs) and low-entropy hardcoded passwords in IaC (§3
    terragoat: 0/3 for pleno-dlp; gitleaks has a dedicated rule).
+   *(largely addressed for pleno-dlp in #175: 16 new structured-config
+   detectors move pleno-dlp's share of this exact 25-file set from
+   1/25 to 20/25 — see the §3 update note and
+   [`blind-spot-report.md`](blind-spot-report.md) for the full
+   before/after. trufflehog and gitleaks remain at 0/25; the IaC
+   terragoat gap and 1 remaining leaky-repo file — bare `PASS`-keyword
+   configs — are still open.)*
 2. **GenericHighEntropy noise on hash-dense ecosystems** (§4) — 50 of
    70 sweep findings were non-credentials (laravel 41, axios 23). FP
    hardening was tuned on Go corpora and doesn't transfer to PHP/JS
