@@ -58,10 +58,41 @@ bench/
   gen/        synthetic-corpus generator (`go run ./bench/gen`)
   labels/     ground-truth manifest schema shared by gen and harness
   harness/    3-tool re-run + recall scoring (`go run ./bench/harness`)
-  scripts/    fetch-tools.sh — pinned, checksum-verified tool download
+  docsync/    regenerates docs/comparison.md's live box from results.json (`go run ./bench/docsync`)
+  scripts/    fetch-tools.sh (pinned, checksum-verified tool download),
+              check-competitor-drift.sh + bump-competitor-pin.sh (issue #299)
   fixtures/synthetic/   generated output lives here (gitignored)
   results/    results.json / results.md (gitignored)
 ```
+
+## Keeping docs/comparison.md current automatically (issue #299)
+
+`.github/workflows/comparison-refresh.yml` runs `make bench` and
+`go run ./bench/docsync` on two triggers: a pleno-dlp tag push
+(`v*.*.*`), and a daily scheduled check
+(`bench/scripts/check-competitor-drift.sh`) for a new trufflehog or
+gitleaks release that the pin in `bench/scripts/fetch-tools.sh` doesn't
+match yet. On either trigger it opens (or updates) a PR — never pushes
+to `main` directly, since a ruleset requires the `test` check and a
+review.
+
+`bench/docsync` only rewrites the `<!-- BENCH:AUTO:START -->` /
+`<!-- BENCH:AUTO:END -->` box near the top of `docs/comparison.md`:
+headline recall counts and tool versions, both mechanically derived
+from `results.json`. It never touches §1-§8's prose, audit trail, or
+per-file matrices — those came from an adversarial audit process (see
+"Reproducing" below) that can't be reconstructed from a boolean
+hit/miss JSON, and fabricating that narrative on every run would be
+worse than leaving it as the dated snapshot it already documents itself
+to be.
+
+When a competitor release is detected, the same run also bumps the pin:
+`bench/scripts/bump-competitor-pin.sh <tool> <version>` fetches that
+release's own `*_checksums.txt` and rewrites both
+`bench/scripts/fetch-tools.sh` and `bench/harness/tools.go` together
+(the pair `bench/CONTRIBUTING.md` already requires to move in lockstep
+for a manual bump) — no hand-computed checksums, same rule as the
+manual process.
 
 ## The synthetic corpus: how it avoids becoming what it's testing against
 

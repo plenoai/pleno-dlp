@@ -76,7 +76,7 @@ func run() error {
 	if err := os.MkdirAll(*outDir, 0o755); err != nil {
 		return err
 	}
-	jsonBuf, err := marshalJSON(reports)
+	jsonBuf, err := marshalJSON(reports, versions)
 	if err != nil {
 		return err
 	}
