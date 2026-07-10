@@ -5,6 +5,10 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
+	"errors"
+	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -99,8 +103,9 @@ func TestWalk_RecursionCap(t *testing.T) {
 	level1 := buildZipBytes(t, map[string][]byte{"l2.zip": level2})
 
 	entries, err := Walk("l1.zip", level1, Limits{MaxDepth: 2})
-	if err != nil {
-		t.Fatalf("Walk: %v", err)
+	var partial *PartialError
+	if !errors.As(err, &partial) || partial.Kind != "max-depth" {
+		t.Fatalf("Walk error=%v, want max-depth PartialError", err)
 	}
 	if containsAKIA(entries, akia) {
 		t.Fatalf("recursion cap should have dropped the leaf; got %+v", entries)
@@ -112,12 +117,86 @@ func TestWalk_SizeLimitTrips(t *testing.T) {
 	z := buildZip(t, map[string]string{"big.txt": big})
 
 	entries, err := Walk("big.zip", z, Limits{MaxEntryBytes: 1024})
-	if err != nil {
-		t.Fatalf("Walk: %v", err)
+	var partial *PartialError
+	if !errors.As(err, &partial) {
+		t.Fatalf("Walk error=%v, want PartialError", err)
 	}
 	if len(entries) != 0 {
 		t.Errorf("oversized entry must be dropped; got %d", len(entries))
 	}
+}
+
+func TestWalk_PartialBudgetsPathsCorruptionAndCancellation(t *testing.T) {
+	t.Run("expanded", func(t *testing.T) {
+		z := buildZip(t, map[string]string{"ok": "ok", "large": strings.Repeat("x", 20)})
+		entries, err := Walk("x.zip", z, Limits{MaxEntryBytes: 100, MaxExpandedBytes: 3})
+		if err == nil || len(entries) != 1 {
+			t.Fatalf("entries=%v err=%v", entries, err)
+		}
+	})
+	t.Run("files exact and breach", func(t *testing.T) {
+		z := buildZip(t, map[string]string{"a": "a", "b": "b"})
+		entries, err := Walk("x.zip", z, Limits{MaxFiles: 1})
+		if err == nil || len(entries) != 1 {
+			t.Fatalf("entries=%v err=%v", entries, err)
+		}
+		one := buildZip(t, map[string]string{"a": "a"})
+		if entries, err := Walk("x.zip", one, Limits{MaxFiles: 1}); err != nil || len(entries) != 1 {
+			t.Fatalf("exact boundary entries=%v err=%v", entries, err)
+		}
+	})
+	t.Run("traversal symlink corrupt", func(t *testing.T) {
+		var b bytes.Buffer
+		zw := zip.NewWriter(&b)
+		w, _ := zw.Create("../escape")
+		_, _ = w.Write([]byte("bad"))
+		w, _ = zw.Create(`..\windows-escape`)
+		_, _ = w.Write([]byte("bad"))
+		h := &zip.FileHeader{Name: "link"}
+		h.SetMode(os.ModeSymlink | 0o777)
+		w, _ = zw.CreateHeader(h)
+		_, _ = w.Write([]byte("target"))
+		_ = zw.Close()
+		entries, err := Walk("x.zip", b.Bytes(), Limits{})
+		if err == nil || len(entries) != 0 {
+			t.Fatalf("entries=%v err=%v", entries, err)
+		}
+		_, err = Walk("bad.zip", []byte{'P', 'K', 3, 4}, Limits{})
+		var partial *PartialError
+		if !errors.As(err, &partial) || partial.Kind != "corrupt-archive" {
+			t.Fatalf("corrupt err=%v", err)
+		}
+	})
+	t.Run("terminal file budget stops traversal and bounds errors", func(t *testing.T) {
+		var b bytes.Buffer
+		zw := zip.NewWriter(&b)
+		for i := 0; i < 5000; i++ {
+			w, err := zw.Create(fmt.Sprintf("%05d", i))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _ = w.Write([]byte("x"))
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		entries, err := Walk("many.zip", b.Bytes(), Limits{MaxFiles: 2})
+		if err == nil || len(entries) != 2 {
+			t.Fatalf("entries=%d err=%v", len(entries), err)
+		}
+		var joined interface{ Unwrap() []error }
+		if errors.As(err, &joined) && len(joined.Unwrap()) > 32 {
+			t.Fatalf("retained errors=%d, want <=32", len(joined.Unwrap()))
+		}
+	})
+	t.Run("timeout", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := WalkContext(ctx, "x.zip", buildZip(t, map[string]string{"a": strings.Repeat("x", 1000)}), Limits{})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err=%v", err)
+		}
+	})
 }
 
 func TestWalk_TarBz2ExpandsThroughBzip2ThenTar(t *testing.T) {

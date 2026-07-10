@@ -1,11 +1,14 @@
 package git
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +18,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
@@ -142,6 +146,41 @@ func TestChunks_LinearHistory(t *testing.T) {
 	}
 	if string(last.Data) != "alpha2" {
 		t.Fatalf("last data: got %q", last.Data)
+	}
+}
+
+func TestChunks_MissingTreeIsDegradedAndDoesNotAdvanceState(t *testing.T) {
+	repoPath, hashes := buildRepo(t, []commitSpec{
+		{files: map[string]string{"a.txt": "first"}, msg: "c1"},
+		{files: map[string]string{"b.txt": "second"}, msg: "c2"},
+	})
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit, err := repo.CommitObject(plumbing.NewHash(hashes[1]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	objectPath := filepath.Join(repoPath, ".git", "objects", commit.TreeHash.String()[:2], commit.TreeHash.String()[2:])
+	if err := os.Remove(objectPath); err != nil {
+		t.Fatal(err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath})
+	got, err := drain(t, s, 10*time.Second)
+	var degraded *engine.DegradedError
+	if !errors.As(err, &degraded) || degraded.Counts[engine.FailureSource] != 1 {
+		t.Fatalf("chunks=%d err=%v", len(got), err)
+	}
+	if len(got) == 0 || got[0].SourceMetadata.Git.Commit != hashes[0] {
+		t.Fatalf("earlier finding provenance lost: %#v", got)
+	}
+	if len(degraded.Failures) != 1 || !strings.Contains(degraded.Failures[0].Source, hashes[1]) || !strings.Contains(degraded.Failures[0].Source, "tree-diff") {
+		t.Fatalf("failure provenance=%+v", degraded.Failures)
+	}
+	if state := s.IncrementalState(); len(state) != 0 {
+		t.Fatalf("failed first run advanced state: %s", state)
 	}
 }
 
@@ -375,6 +414,333 @@ func TestFirstChangedLine_OversizedBlobSkipsDiff(t *testing.T) {
 
 	if got := firstChangedLine(change, from, to); got != 0 {
 		t.Fatalf("firstChangedLine on oversized blob = %d, want 0 (diff skipped)", got)
+	}
+}
+
+func TestChunks_OversizedModificationUsesBoundedNativeDiff(t *testing.T) {
+	const secret = "github_pat_11AAABBB_abcdefghijklmnopqrstuvwxyz0123456789"
+	var base strings.Builder
+	for i := 0; i < 220000; i++ {
+		fmt.Fprintf(&base, "line-%06d\n", i)
+	}
+	v1 := base.String()
+	v2 := v1 + secret + "\n"
+
+	repoPath, _ := buildRepo(t, []commitSpec{
+		{files: map[string]string{"big.txt": v1}, msg: "large base"},
+		{files: map[string]string{"big.txt": v2}, msg: "add secret"},
+	})
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath})
+	got, err := drain(t, s, 20*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks: %v", err)
+	}
+
+	found := false
+	for _, chunk := range got {
+		if chunk.SourceMetadata.Git.Message != "add secret" {
+			continue
+		}
+		if len(chunk.Data) > maxDiffChunkSize {
+			t.Fatalf("large-diff chunk size = %d, exceeds %d byte bound", len(chunk.Data), maxDiffChunkSize)
+		}
+		if strings.Contains(string(chunk.Data), secret) {
+			found = true
+			if chunk.SourceMetadata.Git.Line != 220001 {
+				t.Fatalf("secret chunk line = %d, want 220001", chunk.SourceMetadata.Git.Line)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("large modification did not emit the newly added secret")
+	}
+}
+
+func TestChunks_CommitMetadataAndNotesAreExplicitOptIn(t *testing.T) {
+	const messageSecret = "github_pat_11MESSAGE_abcdefghijklmnopqrstuvwxyz0123456789"
+	const noteSecret = "github_pat_11NOTES___abcdefghijklmnopqrstuvwxyz0123456789"
+	const secondNoteSecret = "github_pat_11NOTESREF_abcdefghijklmnopqrstuvwxyz0123456789"
+	repoPath, hashes := buildRepo(t, []commitSpec{{
+		files: map[string]string{"safe.txt": "safe\n"}, msg: "deploy " + messageSecret,
+	}})
+	if out, err := exec.Command("git", "-C", repoPath, "notes", "add", "-m", "incident "+noteSecret, hashes[0]).CombinedOutput(); err != nil {
+		t.Fatalf("git notes add: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoPath, "notes", "--ref=security", "add", "-m", secondNoteSecret, hashes[0]).CombinedOutput(); err != nil {
+		t.Fatalf("git security notes add: %v: %s", err, out)
+	}
+
+	without := &Source{}
+	mustInit(t, without, Config{Repo: repoPath})
+	got, err := drain(t, without, 10*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks default: %v", err)
+	}
+	for _, chunk := range got {
+		if strings.HasPrefix(chunk.SourceMetadata.Git.File, "commit:metadata/") {
+			t.Fatal("commit metadata emitted without explicit opt-in")
+		}
+	}
+
+	with := &Source{}
+	mustInit(t, with, Config{Repo: repoPath, IncludeCommitMetadata: true})
+	got, err = drain(t, with, 10*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks opted in: %v", err)
+	}
+	var metadata *sources.Chunk
+	for _, chunk := range got {
+		if strings.HasPrefix(chunk.SourceMetadata.Git.File, "commit:metadata/") {
+			metadata = chunk
+			break
+		}
+	}
+	if metadata == nil {
+		t.Fatal("opted-in scan emitted no commit metadata chunk")
+	}
+	if !strings.Contains(string(metadata.Data), messageSecret) || !strings.Contains(string(metadata.Data), noteSecret) || !strings.Contains(string(metadata.Data), "refs/notes/security") || !strings.Contains(string(metadata.Data), secondNoteSecret) {
+		t.Fatalf("metadata chunk missing message or note secret: %q", metadata.Data)
+	}
+}
+
+func TestChunks_LargeAddedTextBlobIsBoundedWithOverlap(t *testing.T) {
+	secret := strings.Repeat("x", diffChunkOverlap/2) + "github_pat_11BOUNDARY_abcdefghijklmnopqrstuvwxyz0123456789"
+	prefix := strings.Repeat("a", maxDiffChunkSize-len(secret)/2)
+	data := prefix + secret + strings.Repeat("z", maxDiffChunkSize)
+	repoPath, _ := buildRepo(t, []commitSpec{{files: map[string]string{"large.txt": data}, msg: "large add"}})
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath})
+	got, err := drain(t, s, 10*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks: %v", err)
+	}
+	found := false
+	for _, chunk := range got {
+		if len(chunk.Data) > maxDiffChunkSize {
+			t.Fatalf("added-file chunk size = %d, exceeds %d", len(chunk.Data), maxDiffChunkSize)
+		}
+		if strings.Contains(string(chunk.Data), "github_pat_11BOUNDARY_abcdefghijklmnopqrstuvwxyz0123456789") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("boundary-overlap chunks missed secret in newly-added large file")
+	}
+}
+
+func TestChunks_GitArchiveAndBinaryAreBoundedOptIn(t *testing.T) {
+	const archiveSecret = "github_pat_11ARCHIVE_abcdefghijklmnopqrstuvwxyz0123456789"
+	var zipped bytes.Buffer
+	zw := zip.NewWriter(&zipped)
+	f, err := zw.Create("inside/secret.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte(archiveSecret)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	binarySecret := "\x00\x01github_pat_11BINARY__abcdefghijklmnopqrstuvwxyz0123456789\x00"
+	repoPath, _ := buildRepo(t, []commitSpec{{files: map[string]string{
+		"payload.zip": zipped.String(), "payload.bin": binarySecret,
+	}, msg: "artifacts"}})
+
+	defaults := &Source{}
+	mustInit(t, defaults, Config{Repo: repoPath})
+	got, err := drain(t, defaults, 10*time.Second)
+	if err != nil {
+		t.Fatalf("default Chunks: %v", err)
+	}
+	for _, c := range got {
+		if strings.Contains(string(c.Data), archiveSecret) || strings.Contains(string(c.Data), "github_pat_11BINARY") {
+			t.Fatal("binary/archive emitted without opt-in")
+		}
+	}
+
+	enabled := &Source{}
+	mustInit(t, enabled, Config{Repo: repoPath, IncludeGitArchives: true, IncludeGitBinaries: true})
+	got, err = drain(t, enabled, 10*time.Second)
+	if err != nil {
+		t.Fatalf("opt-in Chunks: %v", err)
+	}
+	archiveFound, binaryFound := false, false
+	for _, c := range got {
+		if len(c.Data) > maxDiffChunkSize {
+			t.Fatalf("artifact chunk too large: %d", len(c.Data))
+		}
+		if strings.Contains(string(c.Data), archiveSecret) {
+			archiveFound = strings.Contains(c.SourceMetadata.Git.File, "payload.zip!inside/secret.txt")
+		}
+		if strings.Contains(string(c.Data), "github_pat_11BINARY") {
+			binaryFound = true
+		}
+	}
+	if !archiveFound || !binaryFound {
+		t.Fatalf("archive=%v binary=%v", archiveFound, binaryFound)
+	}
+}
+
+func TestChunks_CommitMetadataHasPerCommitDedupIdentity(t *testing.T) {
+	const secret = "github_pat_11REPEATED_abcdefghijklmnopqrstuvwxyz0123456789"
+	repoPath, _ := buildRepo(t, []commitSpec{
+		{files: map[string]string{"a": "1"}, msg: secret},
+		{files: map[string]string{"a": "2"}, msg: secret},
+	})
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath, IncludeCommitMetadata: true})
+	got, err := drain(t, s, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]bool{}
+	for _, c := range got {
+		if strings.Contains(string(c.Data), secret) && strings.HasPrefix(c.SourceMetadata.Git.File, "commit:metadata/") {
+			paths[c.SourceMetadata.Git.File] = true
+		}
+	}
+	if len(paths) != 2 {
+		t.Fatalf("metadata dedup identities = %v, want two", paths)
+	}
+}
+
+func TestChunks_CommitMetadataWorksWithoutNativeGit(t *testing.T) {
+	repoPath, _ := buildRepo(t, []commitSpec{{files: map[string]string{"a": "1"}, msg: "metadata-only"}})
+	t.Setenv("PATH", t.TempDir())
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath, IncludeCommitMetadata: true})
+	got, err := drain(t, s, 10*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks without git: %v", err)
+	}
+	found := false
+	for _, c := range got {
+		found = found || strings.Contains(string(c.Data), "metadata-only")
+	}
+	if !found {
+		t.Fatal("commit message missing without native git")
+	}
+}
+
+func TestChunks_LargeNativeDiffKeepsDistantHunkLines(t *testing.T) {
+	lines := make([]string, 220000)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line-%06d", i+1)
+	}
+	v1 := strings.Join(lines, "\n") + "\n"
+	lines[9] = "github_pat_11HUNKONE_abcdefghijklmnopqrstuvwxyz0123456789"
+	lines[219989] = "github_pat_11HUNKTWO_abcdefghijklmnopqrstuvwxyz0123456789"
+	v2 := strings.Join(lines, "\n") + "\n"
+	repoPath, _ := buildRepo(t, []commitSpec{{files: map[string]string{"big.txt": v1}, msg: "base"}, {files: map[string]string{"big.txt": v2}, msg: "two hunks"}})
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath})
+	got, err := drain(t, s, 20*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[int]bool{10: false, 219990: false}
+	for _, c := range got {
+		if c.SourceMetadata.Git.Message != "two hunks" {
+			continue
+		}
+		if _, ok := want[c.SourceMetadata.Git.Line]; ok {
+			want[c.SourceMetadata.Git.Line] = true
+		}
+	}
+	if !want[10] || !want[219990] {
+		t.Fatalf("distant hunk lines = %v", want)
+	}
+}
+
+func TestChunks_LargeNativeDiffDisablesTextconv(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "textconv-ran")
+	base := strings.Repeat("safe line\n", 150000)
+	repoPath, _ := buildRepo(t, []commitSpec{
+		{files: map[string]string{".gitattributes": "big.txt diff=hostile\n", "big.txt": base}, msg: "base"},
+		{files: map[string]string{".gitattributes": "big.txt diff=hostile\n", "big.txt": base + "github_pat_11NOTEXTCV_abcdefghijklmnopqrstuvwxyz0123456789\n"}, msg: "secret"},
+	})
+	if out, err := exec.Command("git", "-C", repoPath, "config", "diff.hostile.textconv", "touch "+marker).CombinedOutput(); err != nil {
+		t.Fatalf("git config: %v: %s", err, out)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath})
+	got, err := drain(t, s, 20*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range got {
+		found = found || strings.Contains(string(c.Data), "github_pat_11NOTEXTCV")
+	}
+	if !found {
+		t.Fatal("large diff secret missing")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("hostile textconv executed: %v", err)
+	}
+}
+
+func BenchmarkChunks_GitArchiveBounded(b *testing.B) {
+	var zipped bytes.Buffer
+	zw := zip.NewWriter(&zipped)
+	for i := 0; i < 100; i++ {
+		f, _ := zw.Create(fmt.Sprintf("entry-%03d.txt", i))
+		_, _ = f.Write(bytes.Repeat([]byte("benchmark-safe-data\n"), 500))
+	}
+	_ = zw.Close()
+	dir := b.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		b.Fatal(err)
+	}
+	wt, _ := repo.Worktree()
+	if err := os.WriteFile(filepath.Join(dir, "fixture.zip"), zipped.Bytes(), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	_, _ = wt.Add("fixture.zip")
+	when := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := wt.Commit("archive", &gogit.CommitOptions{Author: &object.Signature{Name: "T", Email: "t@e", When: when}, Committer: &object.Signature{Name: "T", Email: "t@e", When: when}}); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.SetBytes(int64(zipped.Len()))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s := &Source{}
+		raw, _ := json.Marshal(Config{Repo: dir, IncludeGitArchives: true})
+		if err := s.Init(context.Background(), "bench", 0, 1, false, raw, 1); err != nil {
+			b.Fatal(err)
+		}
+		ch := make(chan *sources.Chunk, 8)
+		errCh := make(chan error, 1)
+		go func() { errCh <- s.Chunks(context.Background(), ch); close(ch) }()
+		for range ch {
+		}
+		if err := <-errCh; err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestGitArchiveAllocationCeiling(t *testing.T) {
+	result := testing.Benchmark(BenchmarkChunks_GitArchiveBounded)
+	if got, max := result.AllocedBytesPerOp(), int64(8<<20); got > max {
+		t.Fatalf("archive history allocated %d bytes/op, ceiling %d", got, max)
+	}
+}
+
+func TestAggregateArtifactBudgetBackpressuresAndCancels(t *testing.T) {
+	release, _, err := acquireArtifactBudget(context.Background(), 200<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, _, err := acquireArtifactBudget(ctx, 1<<20); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("blocked acquisition error=%v", err)
 	}
 }
 

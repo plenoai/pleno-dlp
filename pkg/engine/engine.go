@@ -4,7 +4,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -55,6 +54,9 @@ type Options struct {
 }
 
 type Engine struct {
+	// runGate serializes RunWithStats calls while allowing a queued caller to
+	// abandon acquisition when its context is canceled.
+	runGate              chan struct{}
 	opts                 Options
 	dets                 []detectors.Detector
 	isVerifier           []bool
@@ -65,6 +67,10 @@ type Engine struct {
 	seenBufPool          sync.Pool
 	sink                 Sink
 	stats                statsCounters
+	failureMu            sync.Mutex
+	failures             []ScanFailure
+	failureTotal         int
+	failureCounts        map[FailureKind]int
 }
 
 type Stats struct {
@@ -80,13 +86,19 @@ type statsCounters struct {
 	findings atomic.Int64
 }
 
-func (e *Engine) Stats() Stats {
+// AggregateStats returns lifetime counters across every completed or active
+// run on this Engine. Use RunWithStats when per-run metrics are required.
+func (e *Engine) AggregateStats() Stats {
 	return Stats{
 		Chunks:   e.stats.chunks.Load(),
 		Bytes:    e.stats.bytes.Load(),
 		Findings: e.stats.findings.Load(),
 	}
 }
+
+// Stats is retained for compatibility. Deprecated: use AggregateStats for
+// lifetime counters or RunWithStats for metrics from one run.
+func (e *Engine) Stats() Stats { return e.AggregateStats() }
 
 func New(opts Options, sink Sink) *Engine {
 	return NewWithDetectors(detectors.All(), opts, sink)
@@ -111,6 +123,7 @@ func NewWithDetectors(dets []detectors.Detector, opts Options, sink Sink) *Engin
 		}
 	}
 	e := &Engine{
+		runGate:    make(chan struct{}, 1),
 		opts:       opts,
 		dets:       ordered,
 		isVerifier: isVerifier,
@@ -165,7 +178,16 @@ func (e *Engine) Run(ctx context.Context, src sources.Source) error {
 }
 
 func (e *Engine) RunWithStats(ctx context.Context, src sources.Source) (Stats, error) {
+	select {
+	case e.runGate <- struct{}{}:
+		defer func() { <-e.runGate }()
+	case <-ctx.Done():
+		return Stats{}, ctx.Err()
+	}
+
 	start := time.Now()
+	before := e.AggregateStats()
+	e.resetFailures()
 	ch := make(chan *sources.Chunk, e.opts.Concurrency*2)
 
 	var wg sync.WaitGroup
@@ -182,20 +204,67 @@ func (e *Engine) RunWithStats(ctx context.Context, src sources.Source) (Stats, e
 	srcErr := src.Chunks(ctx, ch)
 	close(ch)
 	wg.Wait()
-	s := e.Stats()
-	s.Duration = time.Since(start)
-	return s, srcErr
+	degradedErr := e.takeFailures()
+	after := e.AggregateStats()
+	stats := Stats{
+		Chunks:   after.Chunks - before.Chunks,
+		Bytes:    after.Bytes - before.Bytes,
+		Findings: after.Findings - before.Findings,
+		Duration: time.Since(start),
+	}
+	return stats, errors.Join(srcErr, degradedErr)
+}
+
+func (e *Engine) resetFailures() {
+	e.failureMu.Lock()
+	e.failures = e.failures[:0]
+	e.failureTotal = 0
+	e.failureCounts = make(map[FailureKind]int)
+	e.failureMu.Unlock()
+}
+
+func (e *Engine) recordFailure(failure ScanFailure) {
+	e.failureMu.Lock()
+	e.failureTotal++
+	e.failureCounts[failure.Kind]++
+	if len(e.failures) < maxFailureExamples {
+		e.failures = append(e.failures, failure)
+	}
+	e.failureMu.Unlock()
+}
+
+func (e *Engine) takeFailures() error {
+	e.failureMu.Lock()
+	failures := append([]ScanFailure(nil), e.failures...)
+	total := e.failureTotal
+	counts := make(map[FailureKind]int, len(e.failureCounts))
+	for kind, count := range e.failureCounts {
+		counts[kind] = count
+	}
+	e.failures = e.failures[:0]
+	e.failureTotal = 0
+	e.failureCounts = nil
+	e.failureMu.Unlock()
+	if total == 0 {
+		return nil
+	}
+	return &DegradedError{Total: total, Counts: counts, Failures: failures}
 }
 
 // scanChunk expands archive chunks and dispatches every leaf chunk.
 func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
 	if archive.LooksLikeArchive(c.Data) {
-		entries, err := archive.Walk(archiveRootName(c), c.Data, archive.Limits{})
+		const archiveTimeout = 5 * time.Second
+		archiveCtx, cancel := context.WithTimeout(ctx, archiveTimeout)
+		entries, err := archive.WalkContext(archiveCtx, archiveRootName(c), c.Data, archive.Limits{
+			MaxDepth: 3, MaxEntryBytes: 10 << 20, MaxExpandedBytes: 50 << 20, MaxFiles: 1000,
+		})
+		cancel()
 		if err != nil {
 			// Partial-failure: entries after the failure point were
 			// never extracted and will not be scanned. Surface it so
 			// the data-loss risk is visible instead of silent.
-			log.Printf("engine: archive expansion error for %s: %v", c.SourceName, err)
+			e.recordFailure(ScanFailure{Kind: FailureArchive, Source: archiveRootName(c), Err: err})
 		}
 		for _, entry := range entries {
 			inner := *c
@@ -391,6 +460,7 @@ func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Varia
 	// detector, merge overlapping ranges, then run FromData once per
 	// merged range.
 	dets := make(map[int][]vicinitySpan)
+	var detectorOrder []int
 	for _, h := range hits {
 		for _, di := range e.detectorIdxByPattern[h.PatternID] {
 			// FullChunkDetector opt-ins are handled once per chunk
@@ -408,11 +478,19 @@ func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Varia
 			if end > len(v.Data) {
 				end = len(v.Data)
 			}
+			if _, exists := dets[di]; !exists {
+				// Detector indices follow e.dets, which NewWithDetectors sorts
+				// verifier-first. Record each detector once, then restore that
+				// order below instead of ranging over the randomized map.
+				detectorOrder = append(detectorOrder, di)
+			}
 			dets[di] = append(dets[di], vicinitySpan{start, end})
 		}
 	}
+	sort.Ints(detectorOrder)
 	dispatched := 0
-	for di, spans := range dets {
+	for _, di := range detectorOrder {
+		spans := dets[di]
 		// Bail out of the per-detector dispatch on cancellation so a
 		// cancelled scan stops running detectors mid-window.
 		if ctx.Err() != nil {
@@ -477,13 +555,12 @@ func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.
 	// filtering verified findings out afterward at the sink layer.
 	results, err := d.FromData(ctx, !e.opts.NoVerify, data)
 	if err != nil {
-		// Cancellation is the expected shutdown path, not a fault:
-		// stay silent so a Ctrl-C / deadline doesn't spam stderr.
-		// Every other error means this detector failed to run on
-		// real data — surface it so silently-skipped detections
-		// are observable.
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			log.Printf("engine: detector %s error on %s: %v", d.Type(), c.SourceName, err)
+		// Cancellation of the scan context is the expected shutdown path,
+		// not degraded coverage. A detector's own deadline error while the
+		// scan context remains live is a real execution failure; provider
+		// verification failures belong on Result.VerificationErr instead.
+		if ctx.Err() == nil {
+			e.recordFailure(ScanFailure{Kind: FailureDetector, Source: archiveRootName(c), Detector: d.Type(), Err: err})
 		}
 		return
 	}
