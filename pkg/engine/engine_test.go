@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -96,6 +97,159 @@ func TestRunWithStats_CountsChunksBytesFindings(t *testing.T) {
 	}
 	if got := sink.Findings(); len(got) != 2 {
 		t.Errorf("sink got %d findings, want 2", len(got))
+	}
+}
+
+func TestRunWithStats_SequentialReuseReturnsPerRunMetrics(t *testing.T) {
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{&stubKeywordDet{}}, Options{Concurrency: 1}, sink)
+
+	first, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{
+		{Data: []byte("first secret"), SourceType: sources.SourceFilesystem},
+	}})
+	if err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	secondData := []byte("second run has no match")
+	second, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{
+		{Data: secondData, SourceType: sources.SourceFilesystem},
+	}})
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+
+	if first.Chunks != 1 || first.Findings != 1 {
+		t.Fatalf("first stats = %+v, want one chunk and finding", first)
+	}
+	if second.Chunks != 1 || second.Bytes != int64(len(secondData)) || second.Findings != 0 {
+		t.Fatalf("second stats = %+v, want metrics isolated from first run", second)
+	}
+	aggregate := eng.AggregateStats()
+	if aggregate.Chunks != 2 || aggregate.Findings != 1 {
+		t.Fatalf("aggregate stats = %+v, want both runs", aggregate)
+	}
+}
+
+type blockingSource struct {
+	entered chan<- struct{}
+	release <-chan struct{}
+}
+
+func (s *blockingSource) Init(context.Context, string, int64, int64, bool, []byte, int) error {
+	return nil
+}
+func (s *blockingSource) Type() sources.SourceType { return sources.SourceFilesystem }
+func (s *blockingSource) Chunks(context.Context, chan<- *sources.Chunk) error {
+	s.entered <- struct{}{}
+	<-s.release
+	return nil
+}
+
+func TestRunWithStats_ConcurrentReuseIsSerialized(t *testing.T) {
+	eng := NewWithDetectors(nil, Options{}, &engineRecordingSink{})
+	firstEntered := make(chan struct{}, 1)
+	secondEntered := make(chan struct{}, 1)
+	firstRelease := make(chan struct{})
+	secondRelease := make(chan struct{})
+	done := make(chan error, 2)
+
+	go func() {
+		_, err := eng.RunWithStats(context.Background(), &blockingSource{firstEntered, firstRelease})
+		done <- err
+	}()
+	<-firstEntered
+	go func() {
+		_, err := eng.RunWithStats(context.Background(), &blockingSource{secondEntered, secondRelease})
+		done <- err
+	}()
+
+	// Give the second goroutine repeated opportunities to enter Chunks. It
+	// must remain behind the Engine run lock until the first run completes.
+	for i := 0; i < 100; i++ {
+		runtime.Gosched()
+		select {
+		case <-secondEntered:
+			t.Fatal("concurrent RunWithStats calls entered their sources simultaneously")
+		default:
+		}
+	}
+	close(firstRelease)
+	<-secondEntered
+	close(secondRelease)
+	for range 2 {
+		if err := <-done; err != nil {
+			t.Fatalf("run: %v", err)
+		}
+	}
+}
+
+func TestRunWithStats_QueuedCancellationReturnsWithoutWaiting(t *testing.T) {
+	eng := NewWithDetectors(nil, Options{}, &engineRecordingSink{})
+	firstEntered := make(chan struct{}, 1)
+	firstRelease := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := eng.RunWithStats(context.Background(), &blockingSource{firstEntered, firstRelease})
+		firstDone <- err
+	}()
+	<-firstEntered
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	secondEntered := make(chan struct{}, 1)
+	secondRelease := make(chan struct{})
+	stats, err := eng.RunWithStats(ctx, &blockingSource{secondEntered, secondRelease})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("queued run error = %v, want context.Canceled", err)
+	}
+	if stats != (Stats{}) {
+		t.Fatalf("queued canceled run stats = %+v, want zero", stats)
+	}
+	select {
+	case <-secondEntered:
+		t.Fatal("canceled queued run entered its source")
+	default:
+	}
+	close(firstRelease)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+}
+
+type verifierPriorityDet struct{}
+
+func (verifierPriorityDet) Type() detectors.DetectorType { return detectors.AWS }
+func (verifierPriorityDet) Keywords() []string           { return []string{"collision"} }
+func (verifierPriorityDet) FromData(context.Context, bool, []byte) ([]detectors.Result, error) {
+	return []detectors.Result{{DetectorType: detectors.AWS, Raw: []byte("shared-secret")}}, nil
+}
+func (verifierPriorityDet) Verify(context.Context, string) (bool, error) { return true, nil }
+
+type genericCollisionDet struct{}
+
+func (genericCollisionDet) Type() detectors.DetectorType { return detectors.GenericHighEntropy }
+func (genericCollisionDet) Keywords() []string           { return []string{"collision"} }
+func (genericCollisionDet) FromData(context.Context, bool, []byte) ([]detectors.Result, error) {
+	return []detectors.Result{{DetectorType: detectors.GenericHighEntropy, Raw: []byte("shared-secret")}}, nil
+}
+
+func TestEngine_DispatchPreservesVerifierFirstDedupPriority(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		recorder := &engineRecordingSink{}
+		sink := NewDedup(recorder)
+		// Supply generic first to prove constructor sorting plus dispatch order,
+		// rather than input order, establishes verifier priority.
+		eng := NewWithDetectors([]detectors.Detector{genericCollisionDet{}, verifierPriorityDet{}}, Options{Concurrency: 1}, sink)
+		_, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{{
+			Data: []byte("collision"), SourceType: sources.SourceFilesystem,
+		}}})
+		if err != nil {
+			t.Fatalf("iteration %d: run: %v", i, err)
+		}
+		got := recorder.Findings()
+		if len(got) != 1 || got[0].Detector != detectors.AWS {
+			t.Fatalf("iteration %d: findings = %+v, want only verifier-backed AWS", i, got)
+		}
 	}
 }
 
@@ -279,6 +433,99 @@ func TestEngine_IndeterminateVerdictSeverity(t *testing.T) {
 	}
 	if got[0].Result.Severity != detectors.SeverityCritical {
 		t.Errorf("severity = %v, want SeverityCritical for an indeterminate verdict", got[0].Result.Severity)
+	}
+}
+
+type failingDet struct{ err error }
+
+func (d failingDet) Type() detectors.DetectorType { return detectors.AWS }
+func (d failingDet) Keywords() []string           { return []string{"trigger"} }
+func (d failingDet) FromData(context.Context, bool, []byte) ([]detectors.Result, error) {
+	return nil, d.err
+}
+
+func TestRunWithStats_ReturnsStructuredDetectorDegradation(t *testing.T) {
+	wantErr := errors.New("detector crashed")
+	eng := NewWithDetectors([]detectors.Detector{failingDet{err: wantErr}}, Options{Concurrency: 1}, &engineRecordingSink{})
+	_, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{{
+		Data: []byte("trigger"), SourceName: "fixture.txt", SourceType: sources.SourceFilesystem,
+	}}})
+	var degraded *DegradedError
+	if !errors.As(err, &degraded) {
+		t.Fatalf("error = %v, want DegradedError", err)
+	}
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("error must unwrap detector failure: %v", err)
+	}
+	if len(degraded.Failures) != 1 {
+		t.Fatalf("failures = %+v, want one", degraded.Failures)
+	}
+	if degraded.Total != 1 || degraded.Counts[FailureDetector] != 1 {
+		t.Fatalf("degradation accounting = total %d counts %v", degraded.Total, degraded.Counts)
+	}
+	failure := degraded.Failures[0]
+	if failure.Kind != FailureDetector || failure.Detector != detectors.AWS || failure.Source != "fixture.txt" {
+		t.Fatalf("failure = %+v, want structured detector context", failure)
+	}
+}
+
+func TestRunWithStats_BoundsDegradationExamples(t *testing.T) {
+	const failureCount = maxFailureExamples*4 + 7
+	wantErr := errors.New("repeatable detector failure")
+	chunks := make([]*sources.Chunk, failureCount)
+	for i := range chunks {
+		chunks[i] = &sources.Chunk{Data: []byte("trigger"), SourceName: "fixture", SourceType: sources.SourceFilesystem}
+	}
+	eng := NewWithDetectors([]detectors.Detector{failingDet{err: wantErr}}, Options{Concurrency: 8}, &engineRecordingSink{})
+	_, err := eng.RunWithStats(context.Background(), &stubSource{chunks: chunks})
+	var degraded *DegradedError
+	if !errors.As(err, &degraded) {
+		t.Fatalf("error = %v, want DegradedError", err)
+	}
+	if degraded.Total != failureCount || degraded.Counts[FailureDetector] != failureCount {
+		t.Fatalf("accounting = total %d counts %v, want %d detector failures", degraded.Total, degraded.Counts, failureCount)
+	}
+	if len(degraded.Failures) != maxFailureExamples {
+		t.Fatalf("retained examples = %d, want cap %d", len(degraded.Failures), maxFailureExamples)
+	}
+	if !errors.Is(err, wantErr) {
+		t.Fatal("retained examples must preserve errors.Is for the underlying failure")
+	}
+}
+
+func TestRunWithStats_ReturnsStructuredArchiveDegradation(t *testing.T) {
+	eng := NewWithDetectors(nil, Options{Concurrency: 1}, &engineRecordingSink{})
+	_, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{{
+		Data: []byte{'P', 'K', 3, 4}, SourceName: "broken.zip", SourceType: sources.SourceFilesystem,
+	}}})
+	var degraded *DegradedError
+	if !errors.As(err, &degraded) {
+		t.Fatalf("error = %v, want DegradedError", err)
+	}
+	if len(degraded.Failures) != 1 || degraded.Failures[0].Kind != FailureArchive || degraded.Failures[0].Source != "broken.zip" {
+		t.Fatalf("failures = %+v, want structured archive failure", degraded.Failures)
+	}
+}
+
+func TestRunWithStats_ArchiveExpansionHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	eng := NewWithDetectors(nil, Options{Concurrency: 1}, &engineRecordingSink{})
+	_, err := eng.RunWithStats(ctx, &stubSource{chunks: []*sources.Chunk{{
+		Data: []byte{'P', 'K', 3, 4}, SourceName: "canceled.zip", SourceType: sources.SourceFilesystem,
+	}}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error=%v, want context cancellation", err)
+	}
+}
+
+func TestRunWithStats_VerificationFailureIsNotCoverageDegradation(t *testing.T) {
+	eng := NewWithDetectors([]detectors.Detector{indeterminateDet{}}, Options{Concurrency: 1}, &engineRecordingSink{})
+	_, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{{
+		Data: []byte("trigger"), SourceName: "fixture.txt", SourceType: sources.SourceFilesystem,
+	}}})
+	if err != nil {
+		t.Fatalf("VerificationErr belongs to the finding verdict, not scan coverage: %v", err)
 	}
 }
 

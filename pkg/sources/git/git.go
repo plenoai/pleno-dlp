@@ -2,6 +2,7 @@
 package git
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -11,8 +12,11 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +25,8 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/format/diff"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
+	archivepkg "github.com/plenoai/pleno-dlp/pkg/archive"
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
@@ -34,11 +40,52 @@ const maxBlobSize int64 = 50 * 1024 * 1024 // 50 MiB
 // protect this path — and then hands them to a Myers diff that expands them
 // roughly 4x further as []rune. A single large text blob (SQL dump,
 // lockfile, generated code) can therefore spike memory by multiple GiB.
-// Above this bound the diff is skipped entirely: firstChangedLine degrades
-// to 0 (unknown) and addedHunks emits nothing for that change, rather than
-// fall back to full-blob emission — the #264 memory/scan-bytes blowup this
-// change exists to avoid reintroducing.
+// Above this bound emitCommit uses native git's streaming diff output and
+// splits added content into maxDiffChunkSize pieces. firstChangedLine and
+// addedHunks themselves still decline oversized blobs; callers must use the
+// native fallback rather than full-blob emission, which would reintroduce
+// the #264 memory/scan-bytes blowup.
 const maxDiffBlobSize int64 = 1 << 20 // 1 MiB
+
+// maxDiffChunkSize bounds chunks produced by the native streaming fallback.
+// The fallback scans at most maxBlobSize bytes of added/context content per
+// modification and never materializes either complete blob or a Myers matrix.
+const maxDiffChunkSize = 1 << 20 // 1 MiB
+
+const diffChunkOverlap = 512
+
+const artifactBudgetUnit = 1 << 20
+
+var aggregateArtifactBudget = make(chan struct{}, 200) // 200 MiB process-wide
+
+func acquireArtifactBudget(ctx context.Context, bytes int64) (func(), time.Duration, error) {
+	units := int((bytes + artifactBudgetUnit - 1) / artifactBudgetUnit)
+	if units < 1 {
+		units = 1
+	}
+	if units > cap(aggregateArtifactBudget) {
+		units = cap(aggregateArtifactBudget)
+	}
+	start := time.Now()
+	acquired := 0
+	for acquired < units {
+		select {
+		case aggregateArtifactBudget <- struct{}{}:
+			acquired++
+		case <-ctx.Done():
+			for acquired > 0 {
+				<-aggregateArtifactBudget
+				acquired--
+			}
+			return nil, time.Since(start), ctx.Err()
+		}
+	}
+	return func() {
+		for i := 0; i < units; i++ {
+			<-aggregateArtifactBudget
+		}
+	}, time.Since(start), nil
+}
 
 // diffContextLines is the number of unchanged lines kept on either side of
 // an added hunk, mirroring `git diff -U3`. It only bounds context: a run of
@@ -62,6 +109,17 @@ type Config struct {
 	// This is trufflehog-parity full-history mode. Off by default so the
 	// existing single-branch contract is byte-identical.
 	AllBranches bool `json:"all_branches,omitempty"`
+	// IncludeCommitMetadata emits one synthetic commit:metadata chunk per
+	// commit containing the message, identities, and default git notes.
+	// It is opt-in because author/committer emails are expected PII.
+	IncludeCommitMetadata   bool          `json:"include_commit_metadata,omitempty"`
+	IncludeGitArchives      bool          `json:"include_git_archives,omitempty"`
+	IncludeGitBinaries      bool          `json:"include_git_binaries,omitempty"`
+	GitArtifactMaxBytes     int64         `json:"git_artifact_max_bytes,omitempty"`
+	ArchiveMaxExpandedBytes int64         `json:"archive_max_expanded_bytes,omitempty"`
+	ArchiveMaxFiles         int           `json:"archive_max_files,omitempty"`
+	ArchiveMaxDepth         int           `json:"archive_max_depth,omitempty"`
+	ArchiveTimeout          time.Duration `json:"archive_timeout,omitempty"`
 }
 
 type Source struct {
@@ -70,13 +128,19 @@ type Source struct {
 	sourceID    int64
 	concurrency int
 
-	repoAbs     string
-	branch      string
-	allBranches bool
-	maxDepth    int
-	since       time.Time
-	include     []string
-	exclude     []string
+	repoAbs               string
+	branch                string
+	allBranches           bool
+	maxDepth              int
+	since                 time.Time
+	include               []string
+	exclude               []string
+	includeCommitMetadata bool
+	includeGitArchives    bool
+	includeGitBinaries    bool
+	gitArtifactMaxBytes   int64
+	archiveLimits         archivepkg.Limits
+	archiveTimeout        time.Duration
 
 	hasPreviousState bool
 	previousState    *incrementalState
@@ -138,6 +202,30 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, _
 	s.maxDepth = cfg.MaxDepth
 	s.include = cfg.Include
 	s.exclude = cfg.Exclude
+	s.includeCommitMetadata = cfg.IncludeCommitMetadata
+	s.includeGitArchives = cfg.IncludeGitArchives
+	s.includeGitBinaries = cfg.IncludeGitBinaries
+	s.gitArtifactMaxBytes = cfg.GitArtifactMaxBytes
+	if s.gitArtifactMaxBytes <= 0 {
+		s.gitArtifactMaxBytes = 10 << 20
+	}
+	s.archiveLimits = archivepkg.Limits{MaxDepth: cfg.ArchiveMaxDepth, MaxEntryBytes: s.gitArtifactMaxBytes, MaxExpandedBytes: cfg.ArchiveMaxExpandedBytes, MaxFiles: cfg.ArchiveMaxFiles}
+	if s.archiveLimits.MaxDepth <= 0 {
+		s.archiveLimits.MaxDepth = 3
+	}
+	if s.archiveLimits.MaxExpandedBytes <= 0 {
+		s.archiveLimits.MaxExpandedBytes = 50 << 20
+	}
+	if s.archiveLimits.MaxFiles <= 0 {
+		s.archiveLimits.MaxFiles = 1000
+	}
+	s.archiveTimeout = cfg.ArchiveTimeout
+	if s.archiveTimeout <= 0 {
+		s.archiveTimeout = 5 * time.Second
+	}
+	if s.gitArtifactMaxBytes > 50<<20 || s.archiveLimits.MaxExpandedBytes > 200<<20 || s.archiveLimits.MaxFiles > 10000 || s.archiveLimits.MaxDepth > 8 || s.archiveTimeout > time.Minute {
+		return errors.New("git: artifact limits exceed hard caps (blob 50MiB, expanded 200MiB, files 10000, depth 8, timeout 1m)")
+	}
 	return nil
 }
 
@@ -150,7 +238,11 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	if err != nil {
 		return err
 	}
-	s.nextState = newIncrementalState(starts)
+	// Publish the new heads only after every collected commit was covered.
+	// Advancing a checkpoint after a missing tree/object would make the retry
+	// stop at the very commit whose content was skipped.
+	candidateState := newIncrementalState(starts)
+	s.nextState = nil
 
 	stops := s.previousHeads()
 	refs, err := s.collectCommits(repo, starts, stops)
@@ -162,18 +254,43 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	// *object.Commit here rather than holding the whole history's commit
 	// objects live at once. go-git's object storer caches recently decoded
 	// objects, so this re-fetch is cheap for commits we just walked.
+	var coverage []engine.ScanFailure
+	coverageTotal := 0
+	recordCoverage := func(commit plumbing.Hash, stage string, err error) {
+		coverageTotal++
+		if len(coverage) < 32 {
+			coverage = append(coverage, engine.ScanFailure{
+				Kind:   engine.FailureSource,
+				Source: fmt.Sprintf("%s@%s:%s", s.repoAbs, commit, stage),
+				Err:    err,
+			})
+		}
+	}
 	for _, r := range refs {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		c, err := repo.CommitObject(r.hash)
 		if err != nil {
-			continue // pruned/rewritten between collect and emit — tolerate, don't abort
+			recordCoverage(r.hash, "commit", fmt.Errorf("git: load commit %s: %w", r.hash, err))
+			continue
 		}
 		if err := s.emitCommit(ctx, c, ch); err != nil {
-			return err
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			recordCoverage(c.Hash, "tree-diff", err)
 		}
 	}
+	if coverageTotal > 0 {
+		if s.previousState != nil {
+			previous := *s.previousState
+			previous.Heads = append([]string(nil), s.previousState.Heads...)
+			s.nextState = &previous
+		}
+		return &engine.DegradedError{Total: coverageTotal, Counts: map[engine.FailureKind]int{engine.FailureSource: coverageTotal}, Failures: coverage}
+	}
+	s.nextState = candidateState
 	return nil
 }
 
@@ -434,22 +551,41 @@ var errStorerStop = errors.New("git: stop iteration")
 
 // emitCommit diffs the commit against its first parent.
 func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *sources.Chunk) error {
+	var partialErrs []error
+	if s.includeGitArchives || s.includeGitBinaries {
+		weight := s.gitArtifactMaxBytes
+		if s.includeGitArchives && s.archiveLimits.MaxExpandedBytes > weight {
+			weight = s.archiveLimits.MaxExpandedBytes
+		}
+		release, waited, err := acquireArtifactBudget(ctx, weight)
+		if err != nil {
+			return fmt.Errorf("git: artifact budget wait: %w", err)
+		}
+		defer release()
+		if waited > 10*time.Millisecond {
+			fmt.Fprintf(os.Stderr, "git: artifact budget waited %s for %d bytes\n", waited.Round(time.Millisecond), weight)
+		}
+	}
 	newTree, err := c.Tree()
 	if err != nil {
-		return nil // skip unreadable commits, never abort whole scan
+		return fmt.Errorf("git: load tree for commit %s: %w", c.Hash, err)
 	}
 
 	var oldTree *object.Tree
 	if c.NumParents() > 0 {
 		parent, err := c.Parent(0)
-		if err == nil {
-			oldTree, _ = parent.Tree()
+		if err != nil {
+			return fmt.Errorf("git: load parent for commit %s: %w", c.Hash, err)
+		}
+		oldTree, err = parent.Tree()
+		if err != nil {
+			return fmt.Errorf("git: load parent tree for commit %s parent %s: %w", c.Hash, parent.Hash, err)
 		}
 	}
 
 	changes, err := object.DiffTreeWithOptions(ctx, oldTree, newTree, &object.DiffTreeOptions{DetectRenames: false})
 	if err != nil {
-		return nil
+		return fmt.Errorf("git: diff tree for commit %s: %w", c.Hash, err)
 	}
 
 	for _, change := range changes {
@@ -457,7 +593,15 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 			return err
 		}
 		from, to, err := change.Files()
-		if err != nil || to == nil {
+		if err != nil {
+			changePath := change.To.Name
+			if changePath == "" {
+				changePath = change.From.Name
+			}
+			partialErrs = append(partialErrs, fmt.Errorf("git: resolve changed file %q at %s: %w", changePath, c.Hash, err))
+			continue
+		}
+		if to == nil {
 			// Pure deletions have no `to` file — there is nothing to scan.
 			continue
 		}
@@ -468,7 +612,9 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 
 		bin, err := to.IsBinary()
 		if err == nil && bin {
-			continue
+			if !s.includeGitArchives && !s.includeGitBinaries {
+				continue
+			}
 		}
 		// A from==nil change (file added, or the insert half of a rename
 		// under DetectRenames:false above) has no prior version to diff
@@ -477,53 +623,318 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 		// blowup #264 targets. A genuine modification instead emits only
 		// the added hunks (+ context): the full new blob would otherwise
 		// be re-emitted on every commit that touches the file.
-		var data []byte
-		var ok bool
-		if from == nil {
-			data, ok = readBlob(to)
+		var segments []diffSegment
+		if bin {
+			data, ok := readBlobLimit(to, s.gitArtifactMaxBytes)
+			if !ok {
+				return fmt.Errorf("git: artifact %s at %s: %w", path, c.Hash, &archivepkg.PartialError{Kind: "max-blob-bytes", Entry: path, Err: fmt.Errorf("exceeds %d-byte limit", s.gitArtifactMaxBytes)})
+			}
+			if s.includeGitArchives && archivepkg.LooksLikeArchive(data) {
+				archiveCtx, cancel := context.WithTimeout(ctx, s.archiveTimeout)
+				entries, walkErr := archivepkg.WalkContext(archiveCtx, path, data, s.archiveLimits)
+				cancel()
+				if walkErr != nil {
+					partialErrs = append(partialErrs, fmt.Errorf("git: expand archive %s at %s: %w", path, c.Hash, walkErr))
+				}
+				for _, entry := range entries {
+					parts := splitBlob(entry.Data)
+					for i := range parts {
+						parts[i].path = entry.Path
+					}
+					segments = append(segments, parts...)
+				}
+			} else if s.includeGitBinaries {
+				segments = splitBlob(data)
+			}
+		} else if from == nil {
+			data, ok := readBlob(to)
+			if ok {
+				segments = splitBlob(data)
+			}
+		} else if from.Size <= maxDiffBlobSize && to.Size <= maxDiffBlobSize {
+			data, ok := addedHunks(change, from, to)
+			if ok {
+				segments = []diffSegment{{data: data, line: firstChangedLine(change, from, to)}}
+			}
 		} else {
-			data, ok = addedHunks(change, from, to)
+			segments, err = s.nativeAddedHunks(ctx, c, path)
+			if err != nil {
+				return fmt.Errorf("git: stream large diff for %s at %s: %w", path, c.Hash, err)
+			}
 		}
-		if !ok {
+		if len(segments) == 0 {
 			continue
 		}
-		// Belt-and-suspenders: go-git's IsBinary uses sniff bytes, but a few
-		// blob types (UTF-16 BOM-less) slip through. The NUL-byte test
-		// matches what the filesystem source applies.
-		if isBinary(data) {
-			continue
-		}
-
-		line := firstChangedLine(change, from, to)
 		commitMsg := c.Message
 		if nl := strings.IndexByte(commitMsg, '\n'); nl >= 0 {
 			commitMsg = commitMsg[:nl]
 		}
-		chunk := &sources.Chunk{
-			SourceID:   s.sourceID,
-			SourceType: sources.SourceGit,
-			SourceName: s.name,
-			Data:       data,
-			SourceMetadata: sources.Metadata{
-				Git: &sources.GitMeta{
-					Repository:   s.repoAbs,
-					Commit:       c.Hash.String(),
-					File:         path,
-					Line:         line,
-					Email:        c.Author.Email,
-					Author:       c.Author.Name,
-					AuthoredDate: c.Author.When.UTC().Format(time.RFC3339),
-					Message:      commitMsg,
+		for _, segment := range segments {
+			// Belt-and-suspenders: go-git's IsBinary uses sniff bytes, but a few
+			// blob types (UTF-16 BOM-less) slip through. The NUL-byte test
+			// matches what the filesystem source applies.
+			if !bin && isBinary(segment.data) {
+				continue
+			}
+			segmentPath := path
+			if segment.path != "" {
+				segmentPath = segment.path
+			}
+			chunk := &sources.Chunk{
+				SourceID:   s.sourceID,
+				SourceType: sources.SourceGit,
+				SourceName: s.name,
+				Data:       segment.data,
+				SourceMetadata: sources.Metadata{
+					Git: &sources.GitMeta{
+						Repository:   s.repoAbs,
+						Commit:       c.Hash.String(),
+						File:         segmentPath,
+						Line:         segment.line,
+						Email:        c.Author.Email,
+						Author:       c.Author.Name,
+						AuthoredDate: c.Author.When.UTC().Format(time.RFC3339),
+						Message:      commitMsg,
+					},
 				},
-			},
-		}
-		select {
-		case ch <- chunk:
-		case <-ctx.Done():
-			return ctx.Err()
+			}
+			select {
+			case ch <- chunk:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		}
 	}
-	return nil
+	if s.includeCommitMetadata {
+		if err := s.emitCommitMetadata(ctx, c, ch); err != nil {
+			return err
+		}
+	}
+	return errors.Join(partialErrs...)
+}
+
+type diffSegment struct {
+	data []byte
+	line int
+	path string
+}
+
+// splitBlob bounds newly-added text files just like streamed modification
+// diffs. Adjacent chunks overlap so detector tokens crossing a byte boundary
+// are still visible in at least one chunk.
+func splitBlob(data []byte) []diffSegment {
+	if len(data) <= maxDiffChunkSize {
+		return []diffSegment{{data: data, line: 1}}
+	}
+	var out []diffSegment
+	start, line := 0, 1
+	for start < len(data) {
+		end := start + maxDiffChunkSize
+		if end > len(data) {
+			end = len(data)
+		}
+		out = append(out, diffSegment{data: data[start:end], line: line})
+		if end == len(data) {
+			break
+		}
+		next := end - diffChunkOverlap
+		line += bytes.Count(data[start:next], []byte{'\n'})
+		start = next
+	}
+	return out
+}
+
+func (s *Source) emitCommitMetadata(ctx context.Context, c *object.Commit, ch chan<- *sources.Chunk) error {
+	var data strings.Builder
+	fmt.Fprintf(&data, "message: %s\nauthor: %s <%s>\ncommitter: %s <%s>\n",
+		c.Message, c.Author.Name, c.Author.Email, c.Committer.Name, c.Committer.Email)
+	notes, err := s.commitNotes(ctx, c.Hash)
+	if err != nil {
+		return fmt.Errorf("git: read notes for %s: %w", c.Hash, err)
+	}
+	if notes != "" {
+		fmt.Fprintf(&data, "notes: %s\n", notes)
+	}
+	chunk := &sources.Chunk{
+		SourceID: s.sourceID, SourceType: sources.SourceGit, SourceName: s.name,
+		Data: []byte(data.String()),
+		SourceMetadata: sources.Metadata{Git: &sources.GitMeta{
+			Repository: s.repoAbs, Commit: c.Hash.String(), File: "commit:metadata/" + c.Hash.String(), Line: 1,
+			Email: c.Author.Email, Author: c.Author.Name,
+			AuthoredDate: c.Author.When.UTC().Format(time.RFC3339), Message: strings.SplitN(c.Message, "\n", 2)[0],
+		}},
+	}
+	select {
+	case ch <- chunk:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *Source) commitNotes(ctx context.Context, hash plumbing.Hash) (string, error) {
+	refsCmd := exec.CommandContext(ctx, "git", "-C", s.repoAbs, "for-each-ref", "--format=%(refname)", "refs/notes")
+	refsOut, err := refsCmd.Output()
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return "", nil // messages still scan on git-less hosts; notes are unavailable
+		}
+		return "", err
+	}
+	refs := strings.Fields(string(refsOut))
+	sort.Strings(refs)
+	var notes strings.Builder
+	for _, ref := range refs {
+		cmd := exec.CommandContext(ctx, "git", "-C", s.repoAbs, "notes", "--ref="+ref, "show", hash.String())
+		out, err := cmd.Output()
+		if err == nil {
+			fmt.Fprintf(&notes, "[%s] %s\n", ref, strings.TrimSpace(string(out)))
+			continue
+		}
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			continue // this notes ref has no note for the commit
+		}
+		return "", err
+	}
+	return strings.TrimSpace(notes.String()), nil
+}
+
+// nativeAddedHunks streams a single large modification through native git.
+// go-git's Patch materializes both blobs and the Myers matrix, so it remains
+// reserved for small files. Native git produces a bounded stdout stream; this
+// parser retains only added lines and three lines of diff context and splits
+// output into maxDiffChunkSize pieces with a small detector-boundary overlap.
+func (s *Source) nativeAddedHunks(ctx context.Context, c *object.Commit, path string) ([]diffSegment, error) {
+	if c.NumParents() == 0 {
+		return nil, nil
+	}
+	parent, err := c.Parent(0)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", s.repoAbs, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--unified=3", parent.Hash.String(), c.Hash.String(), "--", path)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+
+	var segments []diffSegment
+	var buf []byte
+	totalBytes := int64(0)
+	overLimit := false
+	lineNo := 0
+	segmentLine := 0
+	inHunk := false
+	flush := func(overlap bool) {
+		if len(buf) == 0 {
+			return
+		}
+		if segmentLine == 0 {
+			segmentLine = lineNo
+		}
+		segments = append(segments, diffSegment{data: append([]byte(nil), buf...), line: segmentLine})
+		if overlap && len(buf) > diffChunkOverlap {
+			buf = append([]byte(nil), buf[len(buf)-diffChunkOverlap:]...)
+		} else {
+			buf = nil
+		}
+		segmentLine = lineNo
+	}
+	appendData := func(data []byte) {
+		if overLimit {
+			return
+		}
+		if totalBytes+int64(len(data)) > maxBlobSize {
+			overLimit = true
+			return
+		}
+		totalBytes += int64(len(data))
+		for len(data) > 0 {
+			room := maxDiffChunkSize - len(buf)
+			if room == 0 {
+				flush(true)
+				room = maxDiffChunkSize - len(buf)
+			}
+			if room > len(data) {
+				room = len(data)
+			}
+			buf = append(buf, data[:room]...)
+			data = data[room:]
+		}
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), int(maxBlobSize)+1)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "@@ ") {
+			flush(false)
+			newStart, ok := newHunkStart(line)
+			if !ok {
+				inHunk = false
+				continue
+			}
+			lineNo, segmentLine, inHunk = newStart, 0, true
+			continue
+		}
+		if !inHunk || len(line) == 0 {
+			continue
+		}
+		switch line[0] {
+		case '+':
+			if segmentLine == 0 {
+				segmentLine = lineNo
+			}
+			appendData(append([]byte(line[1:]), '\n'))
+			lineNo++
+		case ' ':
+			appendData(append([]byte(line[1:]), '\n'))
+			lineNo++
+		case '-':
+			// old-side only
+		case '\\':
+			// "No newline at end of file" marker
+		default:
+			inHunk = false
+		}
+	}
+	scanErr := scanner.Err()
+	if scanErr != nil {
+		_ = cmd.Process.Kill()
+	}
+	waitErr := cmd.Wait()
+	if scanErr != nil {
+		return nil, scanErr
+	}
+	if waitErr != nil {
+		return nil, waitErr
+	}
+	if overLimit {
+		return nil, fmt.Errorf("added diff content exceeds %d-byte limit", maxBlobSize)
+	}
+	flush(false)
+	return segments, nil
+}
+
+func newHunkStart(header string) (int, bool) {
+	plus := strings.IndexByte(header, '+')
+	if plus < 0 {
+		return 0, false
+	}
+	start := plus + 1
+	end := start
+	for end < len(header) && header[end] >= '0' && header[end] <= '9' {
+		end++
+	}
+	if end == start {
+		return 0, false
+	}
+	n, err := strconv.Atoi(header[start:end])
+	return n, err == nil
 }
 
 // pathAllowed applies include/exclude globs. Empty include = allow all;
@@ -549,13 +960,20 @@ func (s *Source) pathAllowed(path string) bool {
 // any read error means we skip the blob silently — partial-read corruption
 // would only produce noisy false detector hits.
 func readBlob(f *object.File) ([]byte, bool) {
+	return readBlobLimit(f, maxBlobSize)
+}
+
+func readBlobLimit(f *object.File, limit int64) ([]byte, bool) {
 	rdr, err := f.Reader()
 	if err != nil {
 		return nil, false
 	}
 	defer rdr.Close()
-	data, err := io.ReadAll(io.LimitReader(rdr, maxBlobSize))
+	data, err := io.ReadAll(io.LimitReader(rdr, limit+1))
 	if err != nil {
+		return nil, false
+	}
+	if int64(len(data)) > limit {
 		return nil, false
 	}
 	return data, true
