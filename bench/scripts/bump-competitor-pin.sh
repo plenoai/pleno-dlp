@@ -55,6 +55,7 @@ set_case_sha() {
     infn && /^}/ { infn = 0 }
     { print }
   ' "$fetch_tools" > "$fetch_tools.tmp"
+  chmod +x "$fetch_tools.tmp"
   mv "$fetch_tools.tmp" "$fetch_tools"
 }
 

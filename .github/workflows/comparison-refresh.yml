@@ -141,8 +141,9 @@ jobs:
           # Deterministic branch name per trigger (tag, or competitor
           # version pair) — a re-run before the PR merges updates the
           # same branch/PR instead of piling up duplicates.
-          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-            git push --force-with-lease origin "HEAD:refs/heads/$BRANCH"
+          remote_sha="$(git ls-remote --heads origin "refs/heads/$BRANCH" | awk '{print $1}')"
+          if [ -n "$remote_sha" ]; then
+            git push --force-with-lease="refs/heads/${BRANCH}:${remote_sha}" origin "HEAD:refs/heads/$BRANCH"
           else
             git push origin "HEAD:refs/heads/$BRANCH"
           fi
