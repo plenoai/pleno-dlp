@@ -68,6 +68,7 @@ jobs:
     if: needs.detect-trigger.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: write
       pull-requests: write
     steps:
@@ -160,3 +161,9 @@ jobs:
               --title "docs(comparison): auto-refresh — ${REASON}" \
               --body-file "$body_file"
           fi
+
+          # Pull requests created with GITHUB_TOKEN do not emit workflow
+          # events. Dispatch the required checks explicitly so the bot PR
+          # can satisfy branch protection without a human-authored push.
+          gh workflow run test.yml --ref "$BRANCH"
+          gh workflow run bench.yml --ref "$BRANCH"
