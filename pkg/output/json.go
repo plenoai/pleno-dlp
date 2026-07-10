@@ -162,6 +162,21 @@ func jsonSourceOf(c *sources.Chunk) jsonSource {
 		md["commit"] = gh.Commit
 		md["file"] = gh.File
 		md["line"] = gh.Line
+		if gh.Visibility != "" {
+			md["visibility"] = gh.Visibility
+		}
+		if gh.Owner != "" {
+			md["owner"] = gh.Owner
+			md["repo"] = gh.Repo
+		}
+		if gh.Path != "" {
+			md["path"] = gh.Path
+		}
+		if gh.Entity != "" {
+			md["entity"] = gh.Entity
+			md["number"] = gh.Number
+			md["part"] = gh.Part
+		}
 	case c.SourceMetadata.S3 != nil:
 		md["bucket"] = c.SourceMetadata.S3.Bucket
 		md["key"] = c.SourceMetadata.S3.Key

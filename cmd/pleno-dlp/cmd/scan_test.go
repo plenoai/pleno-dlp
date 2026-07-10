@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -22,10 +23,122 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/audit"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
+	"github.com/plenoai/pleno-dlp/pkg/sources"
 
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/all"
 	_ "github.com/plenoai/pleno-dlp/pkg/sources/all"
 )
+
+type degradedFindingSource struct{}
+
+func (degradedFindingSource) Init(context.Context, string, int64, int64, bool, []byte, int) error {
+	return nil
+}
+
+type incrementalCollaborationSource struct{ previous bool }
+
+func (*incrementalCollaborationSource) Init(context.Context, string, int64, int64, bool, []byte, int) error {
+	return nil
+}
+
+type incrementalWikiSource struct{ previous bool }
+
+func (*incrementalWikiSource) Init(context.Context, string, int64, int64, bool, []byte, int) error {
+	return nil
+}
+
+type incrementalGistSource struct{ previous bool }
+
+func (*incrementalGistSource) Init(context.Context, string, int64, int64, bool, []byte, int) error {
+	return nil
+}
+func (*incrementalGistSource) Type() sources.SourceType                            { return sources.SourceGitHub }
+func (*incrementalGistSource) ResourceFingerprint(context.Context) (string, error) { return "", nil }
+func (s *incrementalGistSource) SetIncrementalState(state json.RawMessage) error {
+	s.previous = string(state) == `"done"`
+	return nil
+}
+func (*incrementalGistSource) IncrementalState() json.RawMessage { return json.RawMessage(`"done"`) }
+func (s *incrementalGistSource) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
+	if s.previous {
+		return nil
+	}
+	c := &sources.Chunk{SourceType: sources.SourceGitHub, Data: []byte("token=github_pat_11AAABBB_abcdefghijklmnopqrstuvwxyz0123456789"), SourceMetadata: sources.Metadata{GitHub: &sources.GitHubMeta{Repository: "gist:abc123", Owner: "alice", Repo: "abc123", Visibility: "secret", Link: "https://gist.github.com/abc123", File: "config.env", Path: "config.env", Entity: "gist", Part: "content"}}}
+	select {
+	case ch <- c:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+func (*incrementalWikiSource) Type() sources.SourceType                            { return sources.SourceGitHub }
+func (*incrementalWikiSource) ResourceFingerprint(context.Context) (string, error) { return "", nil }
+func (s *incrementalWikiSource) SetIncrementalState(state json.RawMessage) error {
+	s.previous = string(state) == `"done"`
+	return nil
+}
+func (*incrementalWikiSource) IncrementalState() json.RawMessage { return json.RawMessage(`"done"`) }
+func (s *incrementalWikiSource) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
+	if s.previous {
+		return nil
+	}
+	chunk := &sources.Chunk{SourceType: sources.SourceGitHub, Data: []byte("token=github_pat_11AAABBB_abcdefghijklmnopqrstuvwxyz0123456789"), SourceMetadata: sources.Metadata{GitHub: &sources.GitHubMeta{
+		Repository: "acme/repo", Owner: "acme", Repo: "repo", Visibility: "private", Link: "https://github.com/acme/repo/wiki/Runbook",
+		File: "Runbook.md", Path: "Runbook.md", Entity: "wiki", Part: "page",
+	}}}
+	select {
+	case ch <- chunk:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+func (*incrementalCollaborationSource) Type() sources.SourceType { return sources.SourceGitHub }
+func (*incrementalCollaborationSource) ResourceFingerprint(context.Context) (string, error) {
+	return "", nil
+}
+func (s *incrementalCollaborationSource) SetIncrementalState(state json.RawMessage) error {
+	s.previous = string(state) == `"done"`
+	return nil
+}
+func (*incrementalCollaborationSource) IncrementalState() json.RawMessage {
+	return json.RawMessage(`"done"`)
+}
+func (s *incrementalCollaborationSource) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
+	if s.previous {
+		return nil
+	}
+	for _, item := range []struct {
+		entity, link, body string
+		number             int
+	}{
+		{"issue", "https://github.com/acme/repo/issues/7", "token=github_pat_11AAABBB_abcdefghijklmnopqrstuvwxyz0123456789", 7},
+		{"pull_request", "https://github.com/acme/repo/pull/8", "token=github_pat_11CCCDDD_abcdefghijklmnopqrstuvwxyz9876543210", 8},
+	} {
+		chunk := &sources.Chunk{SourceType: sources.SourceGitHub, Data: []byte(item.body), SourceMetadata: sources.Metadata{GitHub: &sources.GitHubMeta{
+			Repository: "acme/repo", Owner: "acme", Repo: "repo", Visibility: "private", Link: item.link,
+			File: fmt.Sprintf("%s:%d:body", item.entity, item.number), Path: fmt.Sprintf("%s:%d:body", item.entity, item.number), Entity: item.entity, Number: item.number, Part: "body",
+		}}}
+		select {
+		case ch <- chunk:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+func (degradedFindingSource) Type() sources.SourceType { return sources.SourceGitHub }
+func (degradedFindingSource) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
+	select {
+	case ch <- &sources.Chunk{SourceType: sources.SourceGitHub, Data: []byte("token=github_pat_11AAABBB_abcdefghijklmnopqrstuvwxyz0123456789")}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return &engine.DegradedError{
+		Total: 1, Counts: map[engine.FailureKind]int{engine.FailureSource: 1},
+		Failures: []engine.ScanFailure{{Kind: engine.FailureSource, Source: "repository-history:acme/broken", Err: errors.New("clone failed")}},
+	}
+}
 
 func TestScanHelp(t *testing.T) {
 	resetCommandFlags(t)
@@ -70,6 +183,172 @@ func TestScanFilesystemRequiresPath(t *testing.T) {
 	}
 }
 
+func TestScanFilesystem_CorruptArchiveReturnsCoverageError(t *testing.T) {
+	resetCommandFlags(t)
+	path := filepath.Join(t.TempDir(), "broken.zip")
+	if err := os.WriteFile(path, []byte{'P', 'K', 3, 4}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, stderr bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&stderr)
+	Root.SetArgs([]string{"scan", "filesystem", path, "--no-verify", "--quiet"})
+	err := Root.Execute()
+	if err == nil {
+		t.Fatal("incomplete archive coverage must produce a non-zero CLI result")
+	}
+	var degraded *engine.DegradedError
+	if !errors.As(err, &degraded) {
+		t.Fatalf("error = %v, want wrapped engine.DegradedError", err)
+	}
+	if !strings.Contains(err.Error(), "scan coverage incomplete") || !strings.Contains(err.Error(), "archive") {
+		t.Fatalf("CLI error must explain incomplete archive coverage: %v", err)
+	}
+}
+
+func TestRunScanCommonDegradedSourcePreservesFindingsAndReturnsTypedError(t *testing.T) {
+	resetCommandFlags(t)
+	scanOpts.noVerify = true
+	scanOpts.quiet = true
+	scanOpts.format = "json"
+	var out, stderr bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&stderr)
+	scanGitHubCmd.SetContext(context.Background())
+	err := runScanCommon(scanGitHubCmd, degradedFindingSource{}, nil, "github")
+	var degraded *engine.DegradedError
+	if !errors.As(err, &degraded) || degraded.Counts[engine.FailureSource] != 1 {
+		t.Fatalf("error = %v, want typed source degradation", err)
+	}
+	if out.Len() == 0 || !strings.Contains(out.String(), "secret_hash") {
+		t.Fatalf("successful-unit finding was discarded: %s", out.String())
+	}
+	if !strings.Contains(stderr.String(), "coverage: status=degraded failures=1 source=1") {
+		t.Fatalf("missing machine-readable coverage status: %s", stderr.String())
+	}
+}
+
+func TestGitHubCollaborationIncrementalCLIJSONAndSARIFE2E(t *testing.T) {
+	for _, format := range []string{"json", "sarif"} {
+		t.Run(format, func(t *testing.T) {
+			resetCommandFlags(t)
+			scanOpts.noVerify, scanOpts.quiet, scanOpts.incremental = true, true, true
+			scanOpts.format, scanOpts.failOn = format, "critical"
+			scanOpts.incrementalState = filepath.Join(t.TempDir(), "state.json")
+			scanGitHubCmd.SetContext(context.Background())
+			run := func(src *incrementalCollaborationSource) (string, error) {
+				var out, stderr bytes.Buffer
+				Root.SetOut(&out)
+				Root.SetErr(&stderr)
+				err := runScanCommon(scanGitHubCmd, src, nil, "github-collaboration-e2e-"+format)
+				return out.String(), err
+			}
+			first, err := run(&incrementalCollaborationSource{})
+			if err != nil && !errors.Is(err, errFindingsFound) {
+				t.Fatalf("first run: %v", err)
+			}
+			for _, want := range []string{"issue", "pull_request", "body", "acme/repo"} {
+				if !strings.Contains(first, want) {
+					t.Fatalf("%s output missing %q: %s", format, want, first)
+				}
+			}
+			second, err := run(&incrementalCollaborationSource{})
+			if err != nil {
+				t.Fatalf("incremental rerun: %v", err)
+			}
+			if format == "json" {
+				if strings.TrimSpace(second) != "[]" {
+					t.Fatalf("incremental JSON re-emitted body: %s", second)
+				}
+			} else if strings.Contains(second, "source_entity") || strings.Contains(second, "github_pat") {
+				t.Fatalf("incremental SARIF re-emitted body: %s", second)
+			}
+		})
+	}
+}
+
+func TestGitHubWikiIncrementalCLIJSONAndSARIFE2E(t *testing.T) {
+	for _, format := range []string{"json", "sarif"} {
+		t.Run(format, func(t *testing.T) {
+			resetCommandFlags(t)
+			scanOpts.noVerify, scanOpts.quiet, scanOpts.incremental = true, true, true
+			scanOpts.format, scanOpts.failOn = format, "critical"
+			scanOpts.incrementalState = filepath.Join(t.TempDir(), "state.json")
+			scanGitHubCmd.SetContext(context.Background())
+			run := func(src *incrementalWikiSource) string {
+				var out, stderr bytes.Buffer
+				Root.SetOut(&out)
+				Root.SetErr(&stderr)
+				if err := runScanCommon(scanGitHubCmd, src, nil, "github-wiki-e2e-"+format); err != nil && !errors.Is(err, errFindingsFound) {
+					t.Fatal(err)
+				}
+				return out.String()
+			}
+			first := run(&incrementalWikiSource{})
+			for _, want := range []string{"wiki", "page", "Runbook", "acme/repo"} {
+				if !strings.Contains(first, want) {
+					t.Fatalf("%s missing %q: %s", format, want, first)
+				}
+			}
+			second := run(&incrementalWikiSource{})
+			if format == "json" && strings.TrimSpace(second) != "[]" {
+				t.Fatalf("wiki re-emitted: %s", second)
+			}
+			if format == "sarif" && strings.Contains(second, "source_entity") {
+				t.Fatalf("wiki re-emitted: %s", second)
+			}
+		})
+	}
+}
+
+func TestGitHubGistIncrementalCLIJSONAndSARIFE2E(t *testing.T) {
+	for _, format := range []string{"json", "sarif"} {
+		t.Run(format, func(t *testing.T) {
+			resetCommandFlags(t)
+			scanOpts.noVerify, scanOpts.quiet, scanOpts.incremental = true, true, true
+			scanOpts.format, scanOpts.failOn = format, "critical"
+			scanOpts.incrementalState = filepath.Join(t.TempDir(), "state.json")
+			scanGitHubCmd.SetContext(context.Background())
+			run := func(src *incrementalGistSource) string {
+				var out, stderr bytes.Buffer
+				Root.SetOut(&out)
+				Root.SetErr(&stderr)
+				if err := runScanCommon(scanGitHubCmd, src, nil, "github-gist-e2e-"+format); err != nil && !errors.Is(err, errFindingsFound) {
+					t.Fatal(err)
+				}
+				return out.String()
+			}
+			first := run(&incrementalGistSource{})
+			for _, want := range []string{"gist", "content", "abc123"} {
+				if !strings.Contains(first, want) {
+					t.Fatalf("%s missing %q: %s", format, want, first)
+				}
+			}
+			if format == "json" {
+				for _, want := range []string{`"link": "https://gist.github.com/abc123"`, `"visibility": "secret"`, `"entity": "gist"`, `"part": "content"`} {
+					if !strings.Contains(first, want) {
+						t.Fatalf("JSON provenance missing %s: %s", want, first)
+					}
+				}
+			} else {
+				for _, want := range []string{`"source_link": "https://gist.github.com/abc123"`, `"source_visibility": "secret"`, `"source_entity": "gist"`, `"source_part": "content"`} {
+					if !strings.Contains(first, want) {
+						t.Fatalf("SARIF provenance missing %s: %s", want, first)
+					}
+				}
+			}
+			second := run(&incrementalGistSource{})
+			if format == "json" && strings.TrimSpace(second) != "[]" {
+				t.Fatalf("gist re-emitted: %s", second)
+			}
+			if format == "sarif" && strings.Contains(second, "source_entity") {
+				t.Fatalf("gist re-emitted: %s", second)
+			}
+		})
+	}
+}
+
 func TestScanGitHelp(t *testing.T) {
 	resetCommandFlags(t)
 
@@ -81,7 +360,7 @@ func TestScanGitHelp(t *testing.T) {
 		t.Fatalf("scan git --help: %v", err)
 	}
 	got := out.String()
-	for _, want := range []string{"--repo", "--branch", "--since", "--max-depth", "--include", "--exclude"} {
+	for _, want := range []string{"--repo", "--branch", "--since", "--max-depth", "--include", "--exclude", "--include-commit-metadata", "--include-git-archives", "--include-git-binaries", "--git-archive-timeout"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("scan git help missing %q in:\n%s", want, got)
 		}
@@ -762,6 +1041,55 @@ func TestScanGit_DefaultReportsUnverifiedFinding(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), "scanned 1 chunk(s)") || strings.Contains(errBuf.String(), "0 finding(s)") {
 		t.Errorf("expected non-zero finding count in summary; stderr:\n%s", errBuf.String())
+	}
+}
+
+func TestScanGit_CommitMessageAndNoteFindingsReachJSON(t *testing.T) {
+	resetCommandFlags(t)
+	dir := t.TempDir()
+	repo, _ := gogit.PlainInit(dir, false)
+	wt, _ := repo.Worktree()
+	if err := writeFile(filepath.Join(dir, "safe.txt"), "safe\n"); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = wt.Add("safe.txt")
+	sig := &object.Signature{Name: "Test", Email: "test@example.com", When: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)}
+	_, err := wt.Commit("META_TOKEN_MESSAGE_1234567890", &gogit.CommitOptions{Author: sig, Committer: sig})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFile(filepath.Join(dir, "safe.txt"), "safe changed\n"); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = wt.Add("safe.txt")
+	sig2 := *sig
+	sig2.When = sig.When.Add(time.Minute)
+	hash, err := wt.Commit("notes commit", &gogit.CommitOptions{Author: &sig2, Committer: &sig2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same value in a different commit's note must survive cross-commit
+	// dedup because commit metadata has commit-specific provenance.
+	if out, err := exec.Command("git", "-C", dir, "notes", "add", "-m", "META_TOKEN_MESSAGE_1234567890", hash.String()).CombinedOutput(); err != nil {
+		t.Fatalf("git notes: %v: %s", err, out)
+	}
+	rules := filepath.Join(dir, "rules.json")
+	if err := writeFile(rules, `[{"name":"Metadata Token","keywords":["META_TOKEN_"],"regex":"META_TOKEN_[A-Z_0-9]{18,}","severity":"high"}]`); err != nil {
+		t.Fatal(err)
+	}
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"scan", "--rules", rules, "--format", "json", "git", "--repo", dir, "--include-commit-metadata"})
+	if err := Root.Execute(); !IsFindingsError(err) {
+		t.Fatalf("scan error=%v stderr=%s", err, errBuf.String())
+	}
+	var records []map[string]any
+	if err := json.Unmarshal(out.Bytes(), &records); err != nil {
+		t.Fatalf("json: %v: %s", err, out.String())
+	}
+	if len(records) < 2 {
+		t.Fatalf("message/note findings missing: %s", out.String())
 	}
 }
 

@@ -7,14 +7,156 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+type countingTokenProvider struct{ calls atomic.Int64 }
+
+func (p *countingTokenProvider) Token(context.Context) (string, error) {
+	p.calls.Add(1)
+	return "secret", nil
+}
+
+func TestGitHubClientRejectsUnsafePaginationBeforeAuth(t *testing.T) {
+	p := &countingTokenProvider{}
+	c := newGitHubClient("https://ghe.example/api/v3", p)
+	for _, bad := range []string{"https://evil.example/api/v3/repos?page=2", "http://ghe.example/api/v3/repos?page=2", "https://user@ghe.example/api/v3/repos", "https://ghe.example/outside/repos"} {
+		if _, err := c.do(context.Background(), http.MethodGet, bad, nil); err == nil {
+			t.Fatalf("accepted %s", bad)
+		}
+	}
+	if p.calls.Load() != 0 {
+		t.Fatalf("token requested %d times", p.calls.Load())
+	}
+	if got, err := c.resolveURL("https://ghe.example/api/v3/repos?page=2"); err != nil || got == "" {
+		t.Fatalf("same-origin GHE rejected: %v", err)
+	}
+	public := newGitHubClient("https://api.github.com", nil)
+	if _, err := public.resolveURL("https://api.github.com/repositories?page=2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := public.resolveURL("https://api.github.com:443/repos"); err != nil {
+		t.Fatalf("default port rejected: %v", err)
+	}
+	for _, bad := range []string{"https://api.github.com/%2e%2e/evil", "https://api.github.com/repos%2Fsecret"} {
+		if _, err := public.resolveURL(bad); err == nil {
+			t.Fatalf("encoded attack accepted: %s", bad)
+		}
+	}
+}
+
+func TestGitHubRedirectDoesNotForwardTokenCrossOrigin(t *testing.T) {
+	received := make(chan string, 1)
+	evil := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received <- r.Header.Get("Authorization")
+		w.WriteHeader(200)
+	}))
+	defer evil.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, evil.URL+"/steal", http.StatusFound) }))
+	defer origin.Close()
+	c := newGitHubClient(origin.URL, staticGitHubToken("top-secret"))
+	if _, err := c.do(context.Background(), http.MethodGet, "/page", nil); err == nil {
+		t.Fatal("redirect accepted")
+	}
+	select {
+	case got := <-received:
+		t.Fatalf("redirect target received auth %q", got)
+	default:
+	}
+}
+
+func TestGitHubRateCoordinatorIgnoresStaleResponsesAndIsolatesClients(t *testing.T) {
+	c := newGitHubClient("https://stale.example", nil)
+	newer := &http.Response{Header: make(http.Header)}
+	newer.Header.Set("X-RateLimit-Remaining", "5")
+	newer.Header.Set("X-RateLimit-Reset", "200")
+	stale := &http.Response{Header: make(http.Header)}
+	stale.Header.Set("X-RateLimit-Remaining", "100")
+	stale.Header.Set("X-RateLimit-Reset", "100")
+	c.observeRateLimit(newer, 2)
+	c.observeRateLimit(stale, 1)
+	c.coord.mu.Lock()
+	constrained := c.coord.constrained
+	c.coord.mu.Unlock()
+	if !constrained {
+		t.Fatal("stale response reopened quota")
+	}
+	other := newGitHubClient("https://stale.example", staticGitHubToken("different"))
+	other.coord.mu.Lock()
+	isolated := !other.coord.constrained
+	other.coord.mu.Unlock()
+	if !isolated {
+		t.Fatal("coordinator leaked across clients/credentials")
+	}
+}
+
+func TestGitHubRateCoordinatorBackpressureCancellationAndRecovery(t *testing.T) {
+	c := newGitHubClient("https://rate.example/api/v3", nil)
+	c.coord.mu.Lock()
+	c.coord.constrained = true
+	c.coord.mu.Unlock()
+	release, err := c.acquireRatePermit(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := c.acquireRatePermit(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v", err)
+	}
+	resp := &http.Response{Header: make(http.Header)}
+	resp.Header.Set("X-RateLimit-Remaining", "100")
+	c.observeRateLimit(resp)
+	c.coord.mu.Lock()
+	constrained := c.coord.constrained
+	c.coord.mu.Unlock()
+	if constrained {
+		t.Fatal("healthy quota stayed constrained")
+	}
+}
+
+func TestGitHubRateCoordinatorSerializesLowQuotaWorkers(t *testing.T) {
+	c := newGitHubClient("https://workers-rate.example/api/v3", nil)
+	c.coord.mu.Lock()
+	c.coord.constrained = true
+	c.coord.mu.Unlock()
+	var active, peak atomic.Int64
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			release, err := c.acquireRatePermit(context.Background())
+			if err != nil {
+				return
+			}
+			n := active.Add(1)
+			for old := peak.Load(); n > old && !peak.CompareAndSwap(old, n); old = peak.Load() {
+			}
+			time.Sleep(time.Millisecond)
+			active.Add(-1)
+			release()
+		}()
+	}
+	wg.Wait()
+	if peak.Load() != 1 {
+		t.Fatalf("peak=%d", peak.Load())
+	}
+	_, throttles := c.rateCoordinationStats()
+	if throttles != 8 {
+		t.Fatalf("throttles=%d", throttles)
+	}
+}
 
 func TestGitHubAppTokenProviderRefreshesInstallationToken(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
@@ -72,6 +214,100 @@ func TestGitHubAppTokenProviderRefreshesInstallationToken(t *testing.T) {
 	}
 	if got, want := strings.Join(seenAuth, ","), "Bearer installation-token-1,Bearer installation-token-2"; got != want {
 		t.Fatalf("seen auth = %q, want %q", got, want)
+	}
+}
+
+func TestGitHubAppTokenProviderRefreshWaitersHonorContextWithoutDuplicateRefresh(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	now := time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)
+	refreshStarted := make(chan struct{})
+	releaseRefresh := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseRefresh) }) }
+	t.Cleanup(release)
+	var calls atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			close(refreshStarted)
+		}
+		<-releaseRefresh
+		writeJSON(t, w, githubAppTokenResp{Token: "shared-token", ExpiresAt: now.Add(time.Hour).Format(time.RFC3339)})
+	}))
+	t.Cleanup(srv.Close)
+
+	provider, err := newGitHubAppTokenProvider(Config{
+		"api_base": srv.URL, "app_id": "123", "app_installation_id": "42", "app_private_key": string(keyPEM),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.now = func() time.Time { return now }
+
+	type result struct {
+		token string
+		err   error
+	}
+	leaderDone := make(chan result, 1)
+	go func() {
+		token, err := provider.Token(context.Background())
+		leaderDone <- result{token, err}
+	}()
+	<-refreshStarted
+
+	const waiterCount = 20
+	waiterDone := make(chan result, waiterCount)
+	cancels := make([]context.CancelFunc, waiterCount/2)
+	var started sync.WaitGroup
+	started.Add(waiterCount)
+	for i := 0; i < waiterCount; i++ {
+		ctx := context.Background()
+		if i < len(cancels) {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithCancel(ctx)
+			cancels[i] = cancel
+		}
+		go func(ctx context.Context) {
+			started.Done()
+			token, err := provider.Token(ctx)
+			waiterDone <- result{token, err}
+		}(ctx)
+	}
+	started.Wait()
+	for _, cancel := range cancels {
+		cancel()
+	}
+
+	for range len(cancels) {
+		got := <-waiterDone
+		if !errors.Is(got.err, context.Canceled) || got.token != "" {
+			t.Fatalf("canceled waiter = (%q, %v), want empty/context.Canceled", got.token, got.err)
+		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("refresh calls while owner blocked = %d, want 1", got)
+	}
+	release()
+	if got := <-leaderDone; got.err != nil || got.token != "shared-token" {
+		t.Fatalf("leader = (%q, %v)", got.token, got.err)
+	}
+	for range waiterCount - len(cancels) {
+		got := <-waiterDone
+		if got.err != nil || got.token != "shared-token" {
+			t.Fatalf("successful waiter = (%q, %v)", got.token, got.err)
+		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("total refresh calls = %d, want 1", got)
+	}
+	if token, err := provider.Token(context.Background()); err != nil || token != "shared-token" {
+		t.Fatalf("cached token = (%q, %v)", token, err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("cached call triggered refresh: %d", got)
 	}
 }
 

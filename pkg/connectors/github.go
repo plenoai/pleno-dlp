@@ -43,13 +43,16 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/sources"
@@ -97,8 +100,9 @@ func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
 		return err
 	}
 	org, repo := cfg["org"], cfg["repo"]
-	if org == "" && repo == "" {
-		return errors.New("github: either org or repo must be set")
+	hasGists := len(splitNonEmptyLines(cfg["gist_urls"])) > 0 || parseBool(cfg["include_authenticated_gists"])
+	if org == "" && repo == "" && !hasGists {
+		return errors.New("github: either org, repo, explicit gists, or authenticated gists must be set")
 	}
 	if org != "" && repo != "" {
 		return errors.New("github: org and repo are mutually exclusive")
@@ -110,10 +114,24 @@ func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
 		}
 	}
 	apiBase := cfg.Get("api_base", githubDefaultAPIBase)
-	if u, err := url.Parse(apiBase); err != nil || u.Scheme == "" || u.Host == "" {
+	if u, err := url.Parse(apiBase); err != nil || u.Scheme == "" || u.Host == "" || u.User != nil {
 		return fmt.Errorf("github: invalid api_base %q", apiBase)
 	}
-	return scanGitHubHistory(ctx, cfg, auth, apiBase, org, repo, emit)
+	if err := validateGitHubAuthenticatedTransport(apiBase, auth != nil); err != nil {
+		return err
+	}
+	if _, err := githubCommentsSince(cfg, time.Now()); err != nil {
+		return err
+	}
+	var historyErr error
+	if org != "" || repo != "" {
+		historyErr = scanGitHubHistory(ctx, cfg, auth, apiBase, org, repo, emit)
+	}
+	var gistErr error
+	if hasGists {
+		gistErr = scanGitHubGists(ctx, cfg, auth, apiBase, emit)
+	}
+	return errors.Join(historyErr, gistErr)
 }
 
 // verifyGitHub hits GET /user for PATs and GET /installation/repositories for
@@ -151,6 +169,7 @@ func verifyGitHub(ctx context.Context, cfg Config, secret string) (bool, error) 
 // --- internal types ---
 
 type githubRepoRef struct {
+	ID    int64  `json:"id"`
 	Name  string `json:"name"`
 	Owner struct {
 		Login string `json:"login"`
@@ -161,6 +180,13 @@ type githubRepoRef struct {
 	PushedAt      string `json:"pushed_at"`
 	UpdatedAt     string `json:"updated_at"`
 	Size          int64  `json:"size"`
+	Fork          bool   `json:"fork"`
+	Archived      bool   `json:"archived"`
+	HasWiki       bool   `json:"has_wiki"`
+}
+
+type githubMemberRef struct {
+	Login string `json:"login"`
 }
 
 type githubIssueComment struct {
@@ -181,12 +207,39 @@ type githubPullReviewComment struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type githubIssue struct {
+	Number      int       `json:"number"`
+	Title       string    `json:"title"`
+	Body        string    `json:"body"`
+	HTMLURL     string    `json:"html_url"`
+	UpdatedAt   string    `json:"updated_at"`
+	PullRequest *struct{} `json:"pull_request"`
+}
+
+type githubPullRequest struct {
+	Number    int    `json:"number"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	HTMLURL   string `json:"html_url"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 type githubIncrementalState struct {
-	Version int                                   `json:"version"`
-	Repos   map[string]githubRepoIncrementalState `json:"repos"`
+	Version          int                                              `json:"version"`
+	ScopeFingerprint string                                           `json:"scope_fingerprint,omitempty"`
+	CompleteRuns     int                                              `json:"complete_runs,omitempty"`
+	Tombstones       map[string]githubStateTombstone                  `json:"tombstones,omitempty"`
+	Surfaces         map[string]map[string]githubRepoIncrementalState `json:"surfaces,omitempty"`
+	// Repos accepts the version-1 state written before source-unit namespaces.
+	// New state is written exclusively through Surfaces.
+	Repos map[string]githubRepoIncrementalState `json:"repos,omitempty"`
 }
 
 type githubRepoIncrementalState struct {
+	StableID        string `json:"stable_id,omitempty"`
+	LastSeen        string `json:"last_seen,omitempty"`
+	UnobservedSince string `json:"unobserved_since,omitempty"`
+	UnobservedRuns  int    `json:"unobserved_runs,omitempty"`
 	// Mode tags the state shape so legacy tree-mode state (written by builds
 	// from before tree mode was removed: Mode empty or "tree", carrying a
 	// blobs map and no RefHeads) is recognised and ignored. Current state is
@@ -209,14 +262,49 @@ type githubRepoIncrementalState struct {
 	// cause harmless re-walks, never misses. Empty for state written by builds
 	// predating this field, which disables the skip until one walk records it.
 	PushedAt           string                                   `json:"pushed_at,omitempty"`
+	Policy             string                                   `json:"policy,omitempty"`
 	IssueComments      map[string]githubCommentIncrementalState `json:"issue_comments,omitempty"`
 	PullReviewComments map[string]githubCommentIncrementalState `json:"pull_review_comments,omitempty"`
+	Issues             map[string]githubEntityIncrementalState  `json:"issues,omitempty"`
+	PullRequests       map[string]githubEntityIncrementalState  `json:"pull_requests,omitempty"`
+}
+
+type githubStateTombstone struct {
+	StableID        string `json:"stable_id,omitempty"`
+	LastName        string `json:"last_name"`
+	FirstUnobserved string `json:"first_unobserved"`
+	CompleteRuns    int    `json:"complete_runs"`
+}
+
+func githubHistoryPolicy(cfg Config) string {
+	h := sha256.New()
+	writeFingerprint(h, "github-history-policy-v1")
+	for _, key := range []string{
+		"include_commit_metadata", "include_git_archives", "include_git_binaries",
+		"git_artifact_max_bytes", "archive_max_expanded_bytes", "archive_max_files",
+		"archive_max_depth", "archive_timeout",
+	} {
+		writeFingerprint(h, key)
+		writeFingerprint(h, cfg[key])
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 type githubCommentIncrementalState struct {
 	UpdatedAt string `json:"updated_at"`
 	Path      string `json:"path,omitempty"`
 	Position  int    `json:"position,omitempty"`
+}
+
+type githubEntityIncrementalState struct {
+	UpdatedAt string `json:"updated_at"`
+	TitleHash string `json:"title_hash,omitempty"`
+	BodyHash  string `json:"body_hash,omitempty"`
+}
+
+func githubTextHash(text string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(text)))
+	return hex.EncodeToString(sum[:])
 }
 
 // loadGitHubIncrementalState parses persisted per-repo incremental state.
@@ -235,8 +323,24 @@ func loadGitHubIncrementalState(raw string) (*githubIncrementalState, error) {
 	if err := json.Unmarshal([]byte(raw), &state); err != nil {
 		return nil, fmt.Errorf("github: parse incremental source state: %w", err)
 	}
+	if state.Version > 3 {
+		return nil, fmt.Errorf("github: incremental source state version %d is newer than supported version 3", state.Version)
+	}
 	if state.Repos == nil {
 		state.Repos = map[string]githubRepoIncrementalState{}
+	}
+	if state.Surfaces == nil {
+		state.Surfaces = map[string]map[string]githubRepoIncrementalState{}
+	}
+	if state.Tombstones == nil {
+		state.Tombstones = map[string]githubStateTombstone{}
+	}
+	state.Version = 3
+	if _, ok := state.Surfaces["repository-history"]; !ok {
+		state.Surfaces["repository-history"] = state.Repos
+	}
+	if _, ok := state.Surfaces["repository-wiki"]; !ok {
+		state.Surfaces["repository-wiki"] = map[string]githubRepoIncrementalState{}
 	}
 	return &state, nil
 }
@@ -271,18 +375,151 @@ func githubListRepos(ctx context.Context, cli *githubClient, org, repo string) (
 	return repos, nil
 }
 
-func scanGitHubCommentsIncremental(ctx context.Context, cli *githubClient, repo githubRepoRef, prev githubRepoIncrementalState, hasPrev bool, next *githubRepoIncrementalState, emit Emit) error {
-	if err := scanGitHubIssueCommentsIncremental(ctx, cli, repo, prev, hasPrev, next, emit); err != nil {
-		return err
+func githubEnumerateRepos(ctx context.Context, cli *githubClient, cfg Config, org, repo string) ([]githubRepoRef, []githubRepoRef, map[string]int, error) {
+	repos, err := githubListRepos(ctx, cli, org, repo)
+	if err != nil {
+		return nil, nil, nil, err
 	}
-	return scanGitHubPullReviewCommentsIncremental(ctx, cli, repo, prev, hasPrev, next, emit)
+	if repo == "" && parseBool(cfg["expand_members"]) {
+		members, err := githubListMembers(ctx, cli, org)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		for _, member := range members {
+			memberRepos, err := githubListUserRepos(ctx, cli, member.Login)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			repos = append(repos, memberRepos...)
+		}
+	}
+	selected, skipped, err := githubFilterRepos(cfg, repos)
+	return selected, repos, skipped, err
 }
 
-func scanGitHubIssueCommentsIncremental(ctx context.Context, cli *githubClient, repo githubRepoRef, prev githubRepoIncrementalState, hasPrev bool, next *githubRepoIncrementalState, emit Emit) error {
+func githubListMembers(ctx context.Context, cli *githubClient, org string) ([]githubMemberRef, error) {
+	var members []githubMemberRef
+	next := fmt.Sprintf("/orgs/%s/members?per_page=100", org)
+	for next != "" {
+		var page []githubMemberRef
+		resp, err := cli.getJSON(ctx, next, &page)
+		if err != nil {
+			return nil, fmt.Errorf("github: list org %s members: %w", org, err)
+		}
+		members = append(members, page...)
+		next = parseLinkHeader(resp.Header.Get("Link"))
+	}
+	return members, nil
+}
+
+func githubListUserRepos(ctx context.Context, cli *githubClient, login string) ([]githubRepoRef, error) {
+	var repos []githubRepoRef
+	next := fmt.Sprintf("/users/%s/repos?per_page=100&type=owner", login)
+	for next != "" {
+		var page []githubRepoRef
+		resp, err := cli.getJSON(ctx, next, &page)
+		if err != nil {
+			return nil, fmt.Errorf("github: list member %s repos: %w", login, err)
+		}
+		repos = append(repos, page...)
+		next = parseLinkHeader(resp.Header.Get("Link"))
+	}
+	return repos, nil
+}
+
+func githubFilterRepos(cfg Config, repos []githubRepoRef) ([]githubRepoRef, map[string]int, error) {
+	includes := splitNonEmptyLines(cfg["include_repo_globs"])
+	excludes := splitNonEmptyLines(cfg["exclude_repo_globs"])
+	includeForks := parseBoolDefault(cfg, "include_forks", true)
+	includeArchived := parseBoolDefault(cfg, "include_archived", true)
+	seen := make(map[string]struct{}, len(repos))
+	filtered := make([]githubRepoRef, 0, len(repos))
+	skipped := map[string]int{}
+	for _, r := range repos {
+		key := r.Owner.Login + "/" + r.Name
+		if _, ok := seen[key]; ok {
+			skipped["duplicate"]++
+			continue
+		}
+		seen[key] = struct{}{}
+		if r.Fork && !includeForks {
+			skipped["fork"]++
+			continue
+		}
+		if r.Archived && !includeArchived {
+			skipped["archived"]++
+			continue
+		}
+		included, err := githubGlobMatch(includes, key, len(includes) == 0)
+		if err != nil {
+			return nil, nil, fmt.Errorf("github: invalid include repo glob: %w", err)
+		}
+		if !included {
+			skipped["not-included"]++
+			continue
+		}
+		excluded, err := githubGlobMatch(excludes, key, false)
+		if err != nil {
+			return nil, nil, fmt.Errorf("github: invalid exclude repo glob: %w", err)
+		}
+		if excluded {
+			skipped["excluded"]++
+			continue
+		}
+		filtered = append(filtered, r)
+	}
+	return filtered, skipped, nil
+}
+
+func githubGlobMatch(globs []string, value string, fallback bool) (bool, error) {
+	for _, glob := range globs {
+		matched, err := path.Match(glob, value)
+		if err != nil {
+			return false, err
+		}
+		if matched {
+			return true, nil
+		}
+	}
+	return fallback, nil
+}
+
+func splitNonEmptyLines(raw string) []string {
+	var out []string
+	for _, item := range strings.Split(raw, "\n") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func parseBoolDefault(cfg Config, key string, fallback bool) bool {
+	raw, ok := cfg[key]
+	if !ok || strings.TrimSpace(raw) == "" {
+		return fallback
+	}
+	return parseBool(raw)
+}
+
+func scanGitHubCommentsIncremental(ctx context.Context, cli *githubClient, repo githubRepoRef, prev githubRepoIncrementalState, hasPrev bool, next *githubRepoIncrementalState, since string, emit Emit) error {
+	if err := scanGitHubIssueCommentsIncremental(ctx, cli, repo, prev, hasPrev, next, since, emit); err != nil {
+		return err
+	}
+	return scanGitHubPullReviewCommentsIncremental(ctx, cli, repo, prev, hasPrev, next, since, emit)
+}
+
+func scanGitHubIssueCommentsIncremental(ctx context.Context, cli *githubClient, repo githubRepoRef, prev githubRepoIncrementalState, hasPrev bool, next *githubRepoIncrementalState, since string, emit Emit) error {
 	if next.IssueComments == nil {
-		next.IssueComments = map[string]githubCommentIncrementalState{}
+		next.IssueComments = make(map[string]githubCommentIncrementalState, len(prev.IssueComments))
+		for id, state := range prev.IssueComments {
+			next.IssueComments[id] = state
+		}
 	}
 	nextPath := fmt.Sprintf("/repos/%s/%s/issues/comments?per_page=100", repo.Owner.Login, repo.Name)
+	if since != "" {
+		nextPath += "&since=" + url.QueryEscape(since)
+	}
 	for nextPath != "" {
 		var page []githubIssueComment
 		resp, err := cli.getJSON(ctx, nextPath, &page)
@@ -319,11 +556,17 @@ func scanGitHubIssueCommentsIncremental(ctx context.Context, cli *githubClient, 
 	return nil
 }
 
-func scanGitHubPullReviewCommentsIncremental(ctx context.Context, cli *githubClient, repo githubRepoRef, prev githubRepoIncrementalState, hasPrev bool, next *githubRepoIncrementalState, emit Emit) error {
+func scanGitHubPullReviewCommentsIncremental(ctx context.Context, cli *githubClient, repo githubRepoRef, prev githubRepoIncrementalState, hasPrev bool, next *githubRepoIncrementalState, since string, emit Emit) error {
 	if next.PullReviewComments == nil {
-		next.PullReviewComments = map[string]githubCommentIncrementalState{}
+		next.PullReviewComments = make(map[string]githubCommentIncrementalState, len(prev.PullReviewComments))
+		for id, state := range prev.PullReviewComments {
+			next.PullReviewComments[id] = state
+		}
 	}
 	nextPath := fmt.Sprintf("/repos/%s/%s/pulls/comments?per_page=100", repo.Owner.Login, repo.Name)
+	if since != "" {
+		nextPath += "&since=" + url.QueryEscape(since)
+	}
 	for nextPath != "" {
 		var page []githubPullReviewComment
 		resp, err := cli.getJSON(ctx, nextPath, &page)
@@ -369,6 +612,152 @@ func scanGitHubPullReviewCommentsIncremental(ctx context.Context, cli *githubCli
 	return nil
 }
 
+func githubCommentsSince(cfg Config, now time.Time) (string, error) {
+	raw := cfg.Get("comments_timeframe_days", "0")
+	days, err := strconv.Atoi(raw)
+	if err != nil || days < 0 {
+		return "", fmt.Errorf("github: comments_timeframe_days must be non-negative, got %q", raw)
+	}
+	if days == 0 {
+		return "", nil
+	}
+	return now.UTC().AddDate(0, 0, -days).Format(time.RFC3339), nil
+}
+
+func githubCollaborationSince(cfg Config, now time.Time) (string, error) {
+	raw := cfg.Get("collab_timeframe_days", "0")
+	days, err := strconv.Atoi(raw)
+	if err != nil || days < 0 {
+		return "", fmt.Errorf("github: collab_timeframe_days must be non-negative, got %q", raw)
+	}
+	if days == 0 {
+		return "", nil
+	}
+	return now.UTC().AddDate(0, 0, -days).Format(time.RFC3339), nil
+}
+
+func scanGitHubIssuesIncremental(ctx context.Context, cli *githubClient, repo githubRepoRef, prev githubRepoIncrementalState, next *githubRepoIncrementalState, since string, emit Emit) error {
+	if next.Issues == nil {
+		next.Issues = make(map[string]githubEntityIncrementalState, len(prev.Issues))
+		for id, state := range prev.Issues {
+			next.Issues[id] = state
+		}
+	}
+	nextPath := fmt.Sprintf("/repos/%s/%s/issues?state=all&sort=updated&direction=asc&per_page=100", repo.Owner.Login, repo.Name)
+	if since != "" {
+		nextPath += "&since=" + url.QueryEscape(since)
+	}
+	for nextPath != "" {
+		var page []githubIssue
+		resp, err := cli.getJSON(ctx, nextPath, &page)
+		if err != nil {
+			return fmt.Errorf("github: list issues for %s/%s: %w", repo.Owner.Login, repo.Name, err)
+		}
+		for _, item := range page {
+			if item.PullRequest != nil {
+				continue
+			}
+			id := strconv.Itoa(item.Number)
+			old, hadOld := prev.Issues[id]
+			state := githubEntityIncrementalState{UpdatedAt: item.UpdatedAt, TitleHash: githubTextHash(item.Title), BodyHash: githubTextHash(item.Body)}
+			next.Issues[id] = state
+			if hadOld && old.UpdatedAt == item.UpdatedAt {
+				continue
+			}
+			if err := emitGitHubEntityPartsChanged(repo, "issue", item.Number, item.Title, item.Body, item.HTMLURL, old, hadOld, emit); err != nil {
+				return err
+			}
+		}
+		nextPath = parseLinkHeader(resp.Header.Get("Link"))
+	}
+	return nil
+}
+
+func scanGitHubPullRequestsIncremental(ctx context.Context, cli *githubClient, repo githubRepoRef, prev githubRepoIncrementalState, next *githubRepoIncrementalState, since string, emit Emit) error {
+	if next.PullRequests == nil {
+		next.PullRequests = make(map[string]githubEntityIncrementalState, len(prev.PullRequests))
+		for id, state := range prev.PullRequests {
+			next.PullRequests[id] = state
+		}
+	}
+	nextPath := fmt.Sprintf("/repos/%s/%s/pulls?state=all&sort=updated&direction=desc&per_page=100", repo.Owner.Login, repo.Name)
+	ordered := true
+	var previousUpdated time.Time
+	cutoff, cutoffErr := time.Parse(time.RFC3339, since)
+	if since != "" && cutoffErr != nil {
+		return fmt.Errorf("github: invalid PR timeframe %q: %w", since, cutoffErr)
+	}
+	pages, timeframeItems, avoidedPages := 0, 0, 0
+	for nextPath != "" {
+		var page []githubPullRequest
+		resp, err := cli.getJSON(ctx, nextPath, &page)
+		if err != nil {
+			return fmt.Errorf("github: list pull requests for %s/%s: %w", repo.Owner.Login, repo.Name, err)
+		}
+		pages++
+		allOlder := len(page) > 0
+		for _, item := range page {
+			updated, parseErr := time.Parse(time.RFC3339, item.UpdatedAt)
+			if parseErr != nil {
+				ordered = false
+				allOlder = false
+			}
+			if parseErr == nil && !previousUpdated.IsZero() && updated.After(previousUpdated) {
+				ordered = false
+			}
+			if parseErr == nil {
+				previousUpdated = updated
+			}
+			if since != "" && parseErr == nil && updated.Before(cutoff) {
+				timeframeItems++
+				continue
+			}
+			allOlder = false
+			id := strconv.Itoa(item.Number)
+			old, hadOld := prev.PullRequests[id]
+			state := githubEntityIncrementalState{UpdatedAt: item.UpdatedAt, TitleHash: githubTextHash(item.Title), BodyHash: githubTextHash(item.Body)}
+			next.PullRequests[id] = state
+			if hadOld && old.UpdatedAt == item.UpdatedAt {
+				continue
+			}
+			if err := emitGitHubEntityPartsChanged(repo, "pull_request", item.Number, item.Title, item.Body, item.HTMLURL, old, hadOld, emit); err != nil {
+				return err
+			}
+		}
+		next := parseLinkHeader(resp.Header.Get("Link"))
+		if since != "" && allOlder && ordered && next != "" {
+			avoidedPages = 1 // lower bound; GitHub Link does not expose remaining count reliably
+			break
+		}
+		nextPath = next
+	}
+	if timeframeItems > 0 || avoidedPages > 0 {
+		fmt.Fprintf(os.Stderr, "github: PR timeframe %s/%s fetched %d pages, skipped %d old items, avoided at least %d pages\n", repo.Owner.Login, repo.Name, pages, timeframeItems, avoidedPages)
+	}
+	return nil
+}
+
+func emitGitHubEntityPartsChanged(repo githubRepoRef, entity string, number int, title, body, link string, old githubEntityIncrementalState, hadOld bool, emit Emit) error {
+	for _, part := range []struct{ name, text string }{{"title", title}, {"body", body}} {
+		text := strings.TrimSpace(part.text)
+		if text == "" {
+			continue
+		}
+		if hadOld && ((part.name == "title" && old.TitleHash == githubTextHash(text)) || (part.name == "body" && old.BodyHash == githubTextHash(text))) {
+			continue
+		}
+		path := fmt.Sprintf("%s:%d:%s", entity, number, part.name)
+		if err := emit([]byte(text), sources.Metadata{GitHub: &sources.GitHubMeta{
+			Repository: repo.Owner.Login + "/" + repo.Name,
+			Owner:      repo.Owner.Login, Repo: repo.Name, Link: link,
+			File: path, Path: path, Entity: entity, Number: number, Part: part.name, Visibility: githubVisibility(repo),
+		}}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // fingerprintGitHub digests the repo list (name, default branch, pushed_at,
 // updated_at) as the whole-resource fingerprint. Earlier versions advertised
 // every repo's refs and paged through every issue/PR comment here, which
@@ -393,12 +782,12 @@ func fingerprintGitHub(ctx context.Context, cfg Config) (string, error) {
 	if org != "" && repo != "" {
 		return "", errors.New("github: org and repo are mutually exclusive")
 	}
-	if parseBool(cfg["include_comments"]) {
+	if parseBool(cfg["include_comments"]) || parseBool(cfg["include_issues"]) || parseBool(cfg["include_pull_requests"]) || parseBool(cfg["include_wikis"]) {
 		return "", nil
 	}
 	apiBase := cfg.Get("api_base", githubDefaultAPIBase)
 	cli := newGitHubClient(apiBase, auth)
-	repos, err := githubListRepos(ctx, cli, org, repo)
+	repos, _, _, err := githubEnumerateRepos(ctx, cli, cfg, org, repo)
 	if err != nil {
 		return "", err
 	}
@@ -448,6 +837,10 @@ type githubAppTokenProvider struct {
 	mu        sync.Mutex
 	token     string
 	expiresAt time.Time
+	// refreshDone is non-nil while one caller owns the installation-token
+	// request. Other callers wait on this channel without holding mu, so their
+	// own contexts can cancel independently without starting duplicate refreshes.
+	refreshDone chan struct{}
 }
 
 type githubAppTokenResp struct {
@@ -545,20 +938,43 @@ func parseGitHubAppPrivateKey(data []byte) (*rsa.PrivateKey, error) {
 }
 
 func (p *githubAppTokenProvider) Token(ctx context.Context) (string, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	for {
+		p.mu.Lock()
+		now := p.now()
+		if p.token != "" && now.Before(p.expiresAt.Add(-githubAppRefreshSkew)) {
+			token := p.token
+			p.mu.Unlock()
+			return token, nil
+		}
+		if done := p.refreshDone; done != nil {
+			p.mu.Unlock()
+			select {
+			case <-done:
+				// Re-check the cache under the mutex. If the owner failed, exactly
+				// one awakened waiter becomes the next refresh owner.
+				continue
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}
+		p.refreshDone = make(chan struct{})
+		done := p.refreshDone
+		p.mu.Unlock()
 
-	now := p.now()
-	if p.token != "" && now.Before(p.expiresAt.Add(-githubAppRefreshSkew)) {
-		return p.token, nil
+		token, expiresAt, err := p.fetchInstallationToken(ctx, now)
+		p.mu.Lock()
+		if err == nil {
+			p.token = token
+			p.expiresAt = expiresAt
+		}
+		p.refreshDone = nil
+		close(done)
+		p.mu.Unlock()
+		if err != nil {
+			return "", err
+		}
+		return token, nil
 	}
-	token, expiresAt, err := p.fetchInstallationToken(ctx, now)
-	if err != nil {
-		return "", err
-	}
-	p.token = token
-	p.expiresAt = expiresAt
-	return p.token, nil
 }
 
 func (p *githubAppTokenProvider) fetchInstallationToken(ctx context.Context, now time.Time) (string, time.Time, error) {
@@ -625,22 +1041,52 @@ type githubClient struct {
 	auth githubTokenProvider
 	http *http.Client
 
-	mu          sync.Mutex
-	nextAllowed time.Time
-
 	// testSleep replaces real sleeps in tests. nil in production.
 	testSleep func(time.Duration)
+	coord     *githubRateCoordinator
+}
+type githubAPIError struct {
+	Status int
+	Kind   string
+	Path   string
+	Err    error
+	Detail string
+}
+
+func (e *githubAPIError) Error() string {
+	return fmt.Sprintf("github API %s %s (status=%d): %s", e.Kind, e.Path, e.Status, e.Detail)
+}
+func (e *githubAPIError) Unwrap() error { return e.Err }
+
+type githubRateCoordinator struct {
+	mu              sync.Mutex
+	nextAllowed     time.Time
+	constrained     bool
+	permit          chan struct{}
+	waits           atomic.Int64
+	throttles       atomic.Int64
+	requestSeq      atomic.Uint64
+	lastResponseSeq uint64
+	resetEpoch      int64
 }
 
 func newGitHubClient(base string, auth githubTokenProvider) *githubClient {
 	if base == "" {
 		base = githubDefaultAPIBase
 	}
-	return &githubClient{
-		base: base,
-		auth: auth,
-		http: &http.Client{Timeout: githubRequestTimeout},
+	c := &githubClient{
+		base:  base,
+		auth:  auth,
+		coord: &githubRateCoordinator{permit: make(chan struct{}, 1)},
 	}
+	c.coord.permit <- struct{}{}
+	c.http = &http.Client{Timeout: githubRequestTimeout, CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+		if _, err := c.validateURL(req.URL); err != nil {
+			return err
+		}
+		return nil
+	}}
+	return c
 }
 
 func (c *githubClient) do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
@@ -650,7 +1096,11 @@ func (c *githubClient) do(ctx context.Context, method, path string, body io.Read
 		if err := c.waitForBucket(ctx); err != nil {
 			return nil, err
 		}
-		req, err := http.NewRequestWithContext(ctx, method, c.url(path), body)
+		target, err := c.resolveURL(path)
+		if err != nil {
+			return nil, err
+		} // reject before token lookup/header attachment
+		req, err := http.NewRequestWithContext(ctx, method, target, body)
 		if err != nil {
 			return nil, err
 		}
@@ -665,7 +1115,13 @@ func (c *githubClient) do(ctx context.Context, method, path string, body io.Read
 				req.Header.Set("Authorization", "Bearer "+token)
 			}
 		}
+		release, err := c.acquireRatePermit(ctx)
+		if err != nil {
+			return nil, err
+		}
+		seq := c.coord.requestSeq.Add(1)
 		resp, err := c.http.Do(req)
+		release()
 		if err != nil {
 			// Transport-level failures (connection reset, timeout, DNS) are
 			// transient: record into lastErr and retry within maxAttempts,
@@ -678,7 +1134,7 @@ func (c *githubClient) do(ctx context.Context, method, path string, body io.Read
 			lastErr = err
 			continue
 		}
-		c.observeRateLimit(resp)
+		c.observeRateLimit(resp, seq)
 		// idempotent な GET に対する 5xx (502/503/504 など) は GitHub 側の
 		// 一時的な障害が大半で、 巨大 org の数時間 scan を 1 回の Bad Gateway
 		// で投げ捨てる損が大きすぎる。 rate-limit と同じ backoff で retry する。
@@ -729,6 +1185,28 @@ func (c *githubClient) do(ctx context.Context, method, path string, body io.Read
 	return nil, lastErr
 }
 
+func (c *githubClient) acquireRatePermit(ctx context.Context) (func(), error) {
+	c.coord.mu.Lock()
+	constrained := c.coord.constrained
+	c.coord.mu.Unlock()
+	if !constrained {
+		return func() {}, nil
+	}
+	start := time.Now()
+	select {
+	case <-c.coord.permit:
+		wait := time.Since(start)
+		c.coord.waits.Add(wait.Nanoseconds())
+		c.coord.throttles.Add(1)
+		return func() { c.coord.permit <- struct{}{} }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+func (c *githubClient) rateCoordinationStats() (time.Duration, int64) {
+	return time.Duration(c.coord.waits.Load()), c.coord.throttles.Load()
+}
+
 func (c *githubClient) getJSON(ctx context.Context, path string, out any) (*http.Response, error) {
 	const maxAttempts = 5
 	var lastResp *http.Response
@@ -736,7 +1214,10 @@ func (c *githubClient) getJSON(ctx context.Context, path string, out any) (*http
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		resp, err := c.do(ctx, http.MethodGet, path, nil)
 		if err != nil {
-			return nil, err
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, &githubAPIError{Kind: "transport", Path: path, Err: err, Detail: err.Error()}
 		}
 		lastResp = resp
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -744,7 +1225,13 @@ func (c *githubClient) getJSON(ctx context.Context, path string, out any) (*http
 			_ = resp.Body.Close()
 			// c.do は 5xx GET なら既に retry 済み。 ここに来た 5xx は
 			// retry-exhausted なので上位に返す。
-			return resp, fmt.Errorf("github: GET %s -> %s: %s", path, resp.Status, strings.TrimSpace(string(body)))
+			kind := "status"
+			if resp.StatusCode == http.StatusNotFound {
+				kind = "missing"
+			} else if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+				kind = "auth"
+			}
+			return resp, &githubAPIError{Status: resp.StatusCode, Kind: kind, Path: path, Detail: strings.TrimSpace(string(body))}
 		}
 		if out == nil {
 			return resp, nil
@@ -793,20 +1280,83 @@ func isTransientHTTPReadErr(err error) bool {
 		strings.Contains(msg, "GOAWAY")
 }
 
-func (c *githubClient) url(p string) string {
+func (c *githubClient) resolveURL(p string) (string, error) {
+	base, err := url.Parse(c.base)
+	if err != nil {
+		return "", err
+	}
+	if base.User != nil {
+		return "", errors.New("github: api_base must not contain credentials")
+	}
 	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
-		return p
+		u, err := url.Parse(p)
+		if err != nil {
+			return "", err
+		}
+		if _, err := c.validateURL(u); err != nil {
+			return "", err
+		}
+		return u.String(), nil
 	}
 	if !strings.HasPrefix(p, "/") {
 		p = "/" + p
 	}
-	return strings.TrimRight(c.base, "/") + p
+	u, err := url.Parse(strings.TrimRight(c.base, "/") + p)
+	if err != nil {
+		return "", err
+	}
+	if _, err := c.validateURL(u); err != nil {
+		return "", err
+	}
+	return u.String(), nil
+}
+
+func canonicalOrigin(u *url.URL) string {
+	host := strings.ToLower(u.Hostname())
+	port := u.Port()
+	if (u.Scheme == "https" && port == "443") || (u.Scheme == "http" && port == "80") {
+		port = ""
+	}
+	if port != "" {
+		host = net.JoinHostPort(host, port)
+	}
+	return strings.ToLower(u.Scheme) + "://" + host
+}
+func (c *githubClient) validateURL(u *url.URL) (*url.URL, error) {
+	base, err := url.Parse(c.base)
+	if err != nil {
+		return nil, err
+	}
+	if base.User != nil || u.User != nil {
+		return nil, errors.New("github: credentials in API URL are forbidden")
+	}
+	if canonicalOrigin(u) != canonicalOrigin(base) {
+		return nil, errors.New("github: rejected URL outside canonical API origin")
+	}
+	raw := strings.ToLower(u.EscapedPath())
+	if strings.Contains(raw, "%2f") || strings.Contains(raw, "%5c") || strings.Contains(raw, "%2e") {
+		return nil, errors.New("github: encoded separators or traversal in API URL")
+	}
+	decoded, err := url.PathUnescape(u.EscapedPath())
+	if err != nil {
+		return nil, err
+	}
+	clean := path.Clean(decoded)
+	if strings.Contains(decoded, "\\") || clean == ".." || strings.HasPrefix(clean, "../") {
+		return nil, errors.New("github: traversal in API URL")
+	}
+	baseDecoded, _ := url.PathUnescape(base.EscapedPath())
+	basePath := strings.TrimRight(path.Clean(baseDecoded), "/")
+	if basePath != "" && basePath != "." && clean != basePath && !strings.HasPrefix(clean, basePath+"/") {
+		return nil, errors.New("github: rejected URL outside API path base")
+	}
+	return u, nil
 }
 
 func (c *githubClient) waitForBucket(ctx context.Context) error {
-	c.mu.Lock()
-	until := c.nextAllowed
-	c.mu.Unlock()
+	c.coord.mu.Lock()
+	until := c.coord.nextAllowed
+	c.coord.mu.Unlock()
 	if until.IsZero() {
 		return nil
 	}
@@ -839,19 +1389,43 @@ func logGitHubWait(cause string, wait time.Duration, attempt, maxAttempts int) {
 		cause, wait.Round(time.Second), attempt, maxAttempts)
 }
 
-func (c *githubClient) observeRateLimit(resp *http.Response) {
+func (c *githubClient) observeRateLimit(resp *http.Response, sequences ...uint64) {
 	rem := resp.Header.Get("X-RateLimit-Remaining")
 	reset := resp.Header.Get("X-RateLimit-Reset")
-	if rem == "" || rem != "0" || reset == "" {
-		return
-	}
-	ts, err := strconv.ParseInt(reset, 10, 64)
+	n, err := strconv.Atoi(rem)
 	if err != nil {
 		return
 	}
-	c.mu.Lock()
-	c.nextAllowed = time.Unix(ts, 0)
-	c.mu.Unlock()
+	c.coord.mu.Lock()
+	defer c.coord.mu.Unlock()
+	seq := uint64(0)
+	if len(sequences) > 0 {
+		seq = sequences[0]
+	}
+	epoch := int64(0)
+	if reset != "" {
+		epoch, _ = strconv.ParseInt(reset, 10, 64)
+	}
+	if epoch < c.coord.resetEpoch || (epoch == c.coord.resetEpoch && seq > 0 && seq < c.coord.lastResponseSeq) {
+		return
+	}
+	if epoch > c.coord.resetEpoch {
+		c.coord.resetEpoch = epoch
+	}
+	if seq > c.coord.lastResponseSeq {
+		c.coord.lastResponseSeq = seq
+	}
+	if n <= 10 {
+		c.coord.constrained = true
+	} else if n > 50 {
+		c.coord.constrained = false
+		c.coord.nextAllowed = time.Time{}
+	}
+	if n == 0 && reset != "" {
+		if ts, e := strconv.ParseInt(reset, 10, 64); e == nil {
+			c.coord.nextAllowed = time.Unix(ts, 0)
+		}
+	}
 }
 
 func githubRateLimited(resp *http.Response) bool {

@@ -12,6 +12,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +23,9 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
+
+	"github.com/plenoai/pleno-dlp/pkg/engine"
+	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
 // TestNativeGitAuthEnv covers the native-clone auth-env helper: the token is
@@ -93,6 +98,130 @@ func TestRedactCloneError(t *testing.T) {
 	}
 	if same := redactCloneError(raw, ""); same != raw {
 		t.Errorf("empty token must return the original error unchanged")
+	}
+}
+
+func TestRedactCloneErrorScrubsBasicCredential(t *testing.T) {
+	token := "super-secret-token"
+	basic := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+	got := redactCloneError(errors.New("Authorization: Basic "+basic), token).Error()
+	if strings.Contains(got, token) || strings.Contains(got, basic) {
+		t.Fatalf("credential leaked: %q", got)
+	}
+}
+
+func TestGitHubAuthenticatedTransportAndCloneTrust(t *testing.T) {
+	if err := validateGitHubAuthenticatedTransport("http://github.example/api/v3", true); err == nil {
+		t.Fatal("authenticated non-loopback HTTP accepted")
+	}
+	if err := validateGitHubAuthenticatedTransport("http://127.0.0.1:8080", true); err != nil {
+		t.Fatalf("loopback test endpoint rejected: %v", err)
+	}
+	if err := validateGitHubCloneTarget("https://ghe.example/api/v3", "https://evil.example/acme/r.git"); err == nil {
+		t.Fatal("cross-origin clone template accepted")
+	}
+	if err := validateGitHubCloneTarget("https://ghe.example/api/v3", "/tmp/repo"); err == nil {
+		t.Fatal("local clone template accepted for production API")
+	}
+	if err := validateGitHubCloneTarget("https://ghe.example/api/v3", "https://ghe.example:443/acme/r.git"); err != nil {
+		t.Fatalf("equivalent default port rejected: %v", err)
+	}
+	if err := validateGitHubCloneTarget("https://ghe.example:8443/api/v3", "https://ghe.example:9443/acme/r.git"); err == nil {
+		t.Fatal("alternate-port clone template accepted")
+	}
+}
+
+func TestGitHubAlternatePortTemplatesNeverReachCloneService(t *testing.T) {
+	var cloneRequests int
+	cloneSrv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { cloneRequests++ }))
+	t.Cleanup(cloneSrv.Close)
+
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/acme/repo":
+			_, _ = io.WriteString(w, `{"id":1,"name":"repo","owner":{"login":"acme"},"has_wiki":true}`)
+		case "/gists/abc123":
+			_, _ = io.WriteString(w, `{"id":"abc123","owner":{"login":"acme"}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(apiSrv.Close)
+
+	cases := []Config{
+		{"token": "token", "repo": "acme/repo", "api_base": apiSrv.URL, "clone_url_template": cloneSrv.URL + "/{owner}/{repo}.git"},
+		{"token": "token", "repo": "acme/repo", "api_base": apiSrv.URL, "clone_url_template": filepath.Join(t.TempDir(), "repo"), "include_wikis": "true", "wiki_clone_url_template": cloneSrv.URL + "/{owner}/{repo}.wiki.git"},
+		{"token": "token", "gist_urls": "abc123", "api_base": apiSrv.URL, "gist_clone_url_template": cloneSrv.URL + "/{id}.git"},
+	}
+	for i, cfg := range cases {
+		if err := scanGitHub(context.Background(), cfg, func([]byte, sources.Metadata) error { return nil }); err == nil {
+			t.Fatalf("case %d accepted alternate-port template", i)
+		}
+	}
+	if cloneRequests != 0 {
+		t.Fatalf("alternate-port clone service received %d request(s), want zero", cloneRequests)
+	}
+}
+
+func TestGitHubCloneMissingTreeDoesNotAdvanceAndRepairResumes(t *testing.T) {
+	fixture, _ := buildFixtureRepo(t)
+	repo, err := gogit.PlainOpen(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, err := repo.Head()
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit, err := repo.CommitObject(head.Hash())
+	if err != nil {
+		t.Fatal(err)
+	}
+	objectPath := filepath.Join(fixture, ".git", "objects", commit.TreeHash.String()[:2], commit.TreeHash.String()[2:])
+	objectData, err := os.ReadFile(objectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(objectPath); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/acme/repo" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, `{"id":1,"name":"repo","owner":{"login":"acme"},"pushed_at":"2026-07-10T00:00:00Z"}`)
+	}))
+	t.Cleanup(srv.Close)
+	cfg := Config{"token": "token", "repo": "acme/repo", "api_base": srv.URL, "clone_url_template": fixture}
+	err = scanGitHub(context.Background(), cfg, func([]byte, sources.Metadata) error { return nil })
+	var degraded *engine.DegradedError
+	if !errors.As(err, &degraded) {
+		t.Fatalf("missing object err=%v, want degraded coverage", err)
+	}
+	state, stateErr := loadGitHubIncrementalState(cfg[configKeyIncrementalNextState])
+	if stateErr != nil {
+		t.Fatal(stateErr)
+	}
+	if got := state.Surfaces["repository-history"]["acme/repo"].RefHeads; len(got) != 0 {
+		t.Fatalf("failed clone advanced checkpoint: %v", got)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(objectPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(objectPath, objectData, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	cfg[configKeyIncrementalPreviousState] = cfg[configKeyIncrementalNextState]
+	delete(cfg, configKeyIncrementalNextState)
+	emitted := 0
+	if err := scanGitHub(context.Background(), cfg, func([]byte, sources.Metadata) error { emitted++; return nil }); err != nil {
+		t.Fatalf("repaired resume: %v", err)
+	}
+	if emitted == 0 {
+		t.Fatal("repaired resume did not re-emit previously uncovered content")
 	}
 }
 
@@ -188,7 +317,7 @@ func TestNativeGitCloneArgs(t *testing.T) {
 	got := nativeGitCloneArgs("https://github.com/acme/widget.git", "/tmp/clone-dir")
 	want := []string{
 		"clone",
-		"--bare",
+		"--mirror",
 		"--filter=blob:limit=52428800", // githubCloneBlobFilterLimit, 50 MiB
 		"--progress",
 		"--",
