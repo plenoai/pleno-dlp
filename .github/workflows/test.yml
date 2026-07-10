@@ -20,7 +20,7 @@ jobs:
           cache: true
       - name: gofmt
         run: |
-          unformatted=$(gofmt -l . | grep -v '^_workspace\|^python' || true)
+          unformatted=$(git ls-files -z -- '*.go' | xargs -0 gofmt -l)
           if [ -n "$unformatted" ]; then echo "Unformatted files:"; echo "$unformatted"; exit 1; fi
       - name: staticcheck
         run: go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
@@ -28,7 +28,11 @@ jobs:
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - run: go build ./...
-      - run: go test ./... -race -timeout 5m
+      - run: bash tests/ci/full-race.sh
+      - name: Source-to-detector prefilter boundary
+        run: go test ./pkg/connectors -run '^TestSourceFixtureDetectorKeywordMatrix$' -race -count=1
+      - name: CLI boundary E2E
+        run: bash tests/e2e/run.sh
 
   detector-unit:
     runs-on: ubuntu-latest
