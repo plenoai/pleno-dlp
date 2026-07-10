@@ -9,6 +9,33 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+## [v0.61.0] - 2026-07-10
+
+### Added
+
+- GitHub scans can opt into repository wikis, explicit or authenticated-user
+  gists, gist comments, issue and pull-request titles/bodies, commit metadata,
+  Git notes, and bounded Git-history archive/binary content.
+- Repository-level concurrency, repository scope controls, collaboration
+  timeframes, deterministic source-unit output, and v3 incremental-state
+  retention make large organization scans bounded and resumable.
+
+### Changed
+
+- Large Git modifications and newly added blobs are streamed in bounded chunks
+  instead of being silently skipped or emitted as one large allocation.
+- Partial source, detector, archive, and Git-history failures now return
+  structured degraded-coverage errors after preserving successful findings and
+  safe incremental checkpoints.
+- Test and tag-release workflows share the same race, detector-unit,
+  source-prefilter, and CLI E2E gates.
+
+### Security
+
+- Hardened archive limits, traversal and decompression cancellation; GitHub
+  redirect, pagination, clone-origin, TLS and token-refresh boundaries; and
+  cross-worker artifact/rate-limit backpressure.
+
 ## [v0.60.0] - 2026-07-10
 
 ### Changed
