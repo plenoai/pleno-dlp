@@ -123,6 +123,9 @@ func TestJSONSinkEmitsGitHubLink(t *testing.T) {
 			Link:       "https://github.com/owner/repo/pull/1#discussion_r1",
 			File:       "app/config.go",
 			Line:       12,
+			Entity:     "pull_request",
+			Number:     1,
+			Part:       "body",
 		},
 	}
 
@@ -144,6 +147,9 @@ func TestJSONSinkEmitsGitHubLink(t *testing.T) {
 	md, _ := src["metadata"].(map[string]any)
 	if md["link"] != "https://github.com/owner/repo/pull/1#discussion_r1" {
 		t.Errorf("metadata.link: %v", md["link"])
+	}
+	if md["entity"] != "pull_request" || md["number"] != float64(1) || md["part"] != "body" {
+		t.Errorf("collaboration metadata: %v", md)
 	}
 }
 

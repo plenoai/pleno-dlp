@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -84,7 +85,7 @@ var scanCmd = &cobra.Command{
 		"  git         walk the commit history of a local git repo\n" +
 		"  s3          walk objects in an S3 bucket (or S3-compatible store)\n" +
 		"  stdin       read input from os.Stdin (e.g. `cat file | pleno-dlp scan stdin`)\n" +
-		"  github      walk every default-branch blob in a GitHub org or single repo; --include-comments scans issue/PR comments\n" +
+		"  github      walk full commit history across every branch; optional REST issues/PRs/comments/gists and opt-in wikis/artifacts\n" +
 		"  gitlab      walk GitLab API blobs; --include-comments scans MR notes/discussions\n" +
 		"  forgejo|gitea|gogs|gitbucket|codeberg  scan issue comments via forge API\n" +
 		"  onedev|codebase|pagure                  scan issue/PR comments via forge API\n" +
@@ -108,13 +109,21 @@ type fsFlags struct {
 var fsOpts fsFlags
 
 type gitFlags struct {
-	repo           string
-	branch         string
-	since          string
-	maxDepth       int
-	include        []string
-	exclude        []string
-	allOccurrences bool
+	repo                    string
+	branch                  string
+	since                   string
+	maxDepth                int
+	include                 []string
+	exclude                 []string
+	allOccurrences          bool
+	includeCommitMetadata   bool
+	includeGitArchives      bool
+	includeGitBinaries      bool
+	gitArtifactMaxBytes     int64
+	archiveMaxExpandedBytes int64
+	archiveMaxFiles         int
+	archiveMaxDepth         int
+	archiveTimeout          time.Duration
 }
 
 var gitOpts gitFlags
@@ -241,6 +250,14 @@ func init() {
 	scanGitCmd.Flags().StringSliceVar(&gitOpts.include, "include", nil, "glob(s) to include (matched against repo-relative paths)")
 	scanGitCmd.Flags().StringSliceVar(&gitOpts.exclude, "exclude", nil, "glob(s) to exclude")
 	scanGitCmd.Flags().BoolVar(&gitOpts.allOccurrences, "all-occurrences", false, "report every commit a secret appears in; default collapses to the introducing commit with extra_data.occurrence_count")
+	scanGitCmd.Flags().BoolVar(&gitOpts.includeCommitMetadata, "include-commit-metadata", false, "scan commit messages, author/committer identities, and git notes (opt-in because identities contain expected PII)")
+	scanGitCmd.Flags().BoolVar(&gitOpts.includeGitArchives, "include-git-archives", false, "expand and scan recognized archives in Git history within strict resource budgets")
+	scanGitCmd.Flags().BoolVar(&gitOpts.includeGitBinaries, "include-git-binaries", false, "scan otherwise-binary blobs in Git history within strict resource budgets")
+	scanGitCmd.Flags().Int64Var(&gitOpts.gitArtifactMaxBytes, "git-artifact-max-bytes", 10<<20, "maximum compressed archive or raw binary blob bytes")
+	scanGitCmd.Flags().Int64Var(&gitOpts.archiveMaxExpandedBytes, "git-archive-max-expanded-bytes", 50<<20, "maximum total expanded archive bytes per changed blob")
+	scanGitCmd.Flags().IntVar(&gitOpts.archiveMaxFiles, "git-archive-max-files", 1000, "maximum expanded files per changed archive")
+	scanGitCmd.Flags().IntVar(&gitOpts.archiveMaxDepth, "git-archive-max-depth", 3, "maximum nested archive recursion depth")
+	scanGitCmd.Flags().DurationVar(&gitOpts.archiveTimeout, "git-archive-timeout", 5*time.Second, "maximum archive expansion time per changed blob")
 	_ = scanGitCmd.MarkFlagRequired("repo")
 
 	scanStdinCmd.Flags().StringVar(&stdinOpts.label, "label", "", "label for the stdin input (rendered in output; default \"<stdin>\")")
@@ -310,13 +327,50 @@ func runScanGit(cmd *cobra.Command, _ []string) error {
 	if src == nil {
 		return fmt.Errorf("git source is not registered (missing pkg/sources/all import?)")
 	}
+	for name, valid := range map[string]bool{
+		"git-artifact-max-bytes": gitOpts.gitArtifactMaxBytes > 0, "git-archive-max-expanded-bytes": gitOpts.archiveMaxExpandedBytes > 0,
+		"git-archive-max-files": gitOpts.archiveMaxFiles > 0, "git-archive-max-depth": gitOpts.archiveMaxDepth > 0, "git-archive-timeout": gitOpts.archiveTimeout > 0,
+	} {
+		if cmd.Flags().Changed(name) && !valid {
+			return fmt.Errorf("git: --%s must be positive", name)
+		}
+	}
+	if gitOpts.gitArtifactMaxBytes == 0 {
+		gitOpts.gitArtifactMaxBytes = 10 << 20
+	}
+	if gitOpts.archiveMaxExpandedBytes == 0 {
+		gitOpts.archiveMaxExpandedBytes = 50 << 20
+	}
+	if gitOpts.archiveMaxFiles == 0 {
+		gitOpts.archiveMaxFiles = 1000
+	}
+	if gitOpts.archiveMaxDepth == 0 {
+		gitOpts.archiveMaxDepth = 3
+	}
+	if gitOpts.archiveTimeout == 0 {
+		gitOpts.archiveTimeout = 5 * time.Second
+	}
+	if gitOpts.gitArtifactMaxBytes < 0 || gitOpts.archiveMaxExpandedBytes < 0 || gitOpts.archiveMaxFiles < 0 || gitOpts.archiveMaxDepth < 0 || gitOpts.archiveTimeout < 0 {
+		return errors.New("git: artifact limits must be positive")
+	}
+	if gitOpts.gitArtifactMaxBytes > 50<<20 || gitOpts.archiveMaxExpandedBytes > 200<<20 || gitOpts.archiveMaxFiles > 10000 || gitOpts.archiveMaxDepth > 8 || gitOpts.archiveTimeout > time.Minute {
+		return errors.New("git: artifact limits exceed hard caps")
+	}
 	cfg, err := json.Marshal(map[string]any{
-		"repo":      gitOpts.repo,
-		"branch":    gitOpts.branch,
-		"since":     gitOpts.since,
-		"max_depth": gitOpts.maxDepth,
-		"include":   gitOpts.include,
-		"exclude":   gitOpts.exclude,
+		"repo":                       gitOpts.repo,
+		"branch":                     gitOpts.branch,
+		"since":                      gitOpts.since,
+		"max_depth":                  gitOpts.maxDepth,
+		"include":                    gitOpts.include,
+		"exclude":                    gitOpts.exclude,
+		"include_commit_metadata":    gitOpts.includeCommitMetadata,
+		"include_git_archives":       gitOpts.includeGitArchives,
+		"include_git_binaries":       gitOpts.includeGitBinaries,
+		"git_artifact_max_bytes":     gitOpts.gitArtifactMaxBytes,
+		"archive_max_expanded_bytes": gitOpts.archiveMaxExpandedBytes,
+		"archive_max_files":          gitOpts.archiveMaxFiles,
+		"archive_max_depth":          gitOpts.archiveMaxDepth,
+		"archive_timeout":            gitOpts.archiveTimeout,
 	})
 	if err != nil {
 		return fmt.Errorf("encode source config: %w", err)
@@ -580,6 +634,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	}, scanSink)
 
 	stats, err := eng.RunWithStats(ctx, src)
+	var coverageErr *engine.DegradedError
 	if err != nil {
 		// Stdin truncation is not a fatal scan error: the chunk that was
 		// read (up to --max-bytes) has already been scanned and any
@@ -590,6 +645,11 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		if stdin.IsTruncationError(err) {
 			fmt.Fprintf(cmd.ErrOrStderr(),
 				"stdin: input exceeded max_bytes; trailing data was not scanned (raise --max-bytes to scan it all)\n")
+		} else if errors.As(err, &coverageErr) {
+			// Degraded coverage is non-zero, but not an immediate abort: source
+			// units that succeeded already emitted valid findings and partial
+			// incremental state. Flush/output/persist those before returning the
+			// structured error so automation sees both the findings and the gap.
 		} else {
 			return fmt.Errorf("scan: %w", err)
 		}
@@ -658,6 +718,11 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		if err := saveIncrementalState(scanOpts.incrementalState, incrementalState); err != nil {
 			return err
 		}
+	}
+	if coverageErr != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "coverage: status=degraded failures=%d source=%d archive=%d detector=%d\n",
+			coverageErr.Total, coverageErr.Counts[engine.FailureSource], coverageErr.Counts[engine.FailureArchive], coverageErr.Counts[engine.FailureDetector])
+		return fmt.Errorf("scan: %w", coverageErr)
 	}
 
 	if counter.failing.Load() > 0 {

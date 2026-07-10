@@ -81,6 +81,9 @@ func tableLocationOf(f engine.Finding) string {
 	case md.Git != nil:
 		return md.Git.Repository + "@" + md.Git.Commit + ":" + md.Git.File + ":" + strconv.Itoa(md.Git.Line)
 	case md.GitHub != nil:
+		if md.GitHub.Link != "" && md.GitHub.Entity != "" {
+			return md.GitHub.Link + " [" + md.GitHub.Part + "]"
+		}
 		return md.GitHub.Repository + "@" + md.GitHub.Commit + ":" + md.GitHub.File + ":" + strconv.Itoa(md.GitHub.Line)
 	case md.S3 != nil:
 		return "s3://" + md.S3.Bucket + "/" + md.S3.Key

@@ -7,16 +7,21 @@
 package connectors
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,9 +29,27 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 	gitsource "github.com/plenoai/pleno-dlp/pkg/sources/git"
 )
+
+// githubCloneBytesObserver is test/benchmark instrumentation. Production
+// leaves it nil, avoiding an extra directory walk on every clone.
+var githubCloneBytesObserver func(string, int64)
+
+func directoryBytes(root string) int64 {
+	var total int64
+	_ = filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			if info, e := d.Info(); e == nil {
+				total += info.Size()
+			}
+		}
+		return nil
+	})
+	return total
+}
 
 // githubCloneBlobFilterLimit bounds the clone's protocol-level blob filter
 // (--filter=blob:limit). It must stay equal to maxBlobSize in
@@ -38,6 +61,16 @@ import (
 // the native-git path, the delta-resolution memory those blobs would have
 // cost git during the clone.
 const githubCloneBlobFilterLimit int64 = 50 * 1024 * 1024 // 50 MiB — keep equal to gitsource.maxBlobSize
+
+type githubSurfaceFailure struct {
+	Surface string
+	Err     error
+}
+type githubSurfaceFailures []githubSurfaceFailure
+
+func (e githubSurfaceFailures) Error() string {
+	return fmt.Sprintf("%d GitHub surface failure(s)", len(e))
+}
 
 // deriveCloneURL turns the REST api_base and an owner/repo into the smart-HTTP
 // clone URL.
@@ -80,71 +113,267 @@ func deriveCloneURL(apiBase, owner, repo, template string) (string, error) {
 	return u.String(), nil
 }
 
+func validateGitHubAuthenticatedTransport(raw string, authenticated bool) error {
+	if !authenticated {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.User != nil {
+		return fmt.Errorf("github: invalid authenticated endpoint %q", raw)
+	}
+	if u.Scheme == "https" || (u.Scheme == "http" && isLoopbackHost(u.Hostname())) {
+		return nil
+	}
+	return fmt.Errorf("github: authenticated endpoint must use HTTPS (HTTP is allowed only for loopback tests): %q", raw)
+}
+
+func validateGitHubCloneTarget(apiBase, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("github: invalid clone target %q", raw)
+	}
+	base, err := url.Parse(apiBase)
+	if err != nil || base.Host == "" {
+		return fmt.Errorf("github: invalid api_base %q", apiBase)
+	}
+	if u.Scheme == "" {
+		if !isLoopbackHost(base.Hostname()) {
+			return errors.New("github: local clone templates are allowed only with a loopback API test endpoint")
+		}
+		return nil
+	}
+	if u.User != nil || canonicalOrigin(u) != canonicalOrigin(base) {
+		return fmt.Errorf("github: untrusted clone template origin %q", u.Host)
+	}
+	return validateGitHubAuthenticatedTransport(raw, true)
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func deriveWikiCloneURL(apiBase, owner, repo, template string) (string, error) {
+	cloneURL, err := deriveCloneURL(apiBase, owner, repo, template)
+	if err != nil {
+		return "", err
+	}
+	if strings.HasSuffix(cloneURL, ".wiki.git") {
+		return cloneURL, nil
+	}
+	if strings.HasSuffix(cloneURL, ".git") {
+		return strings.TrimSuffix(cloneURL, ".git") + ".wiki.git", nil
+	}
+	return cloneURL + ".wiki.git", nil
+}
+
+type githubCloneFailureKind string
+
+const (
+	githubCloneMissing githubCloneFailureKind = "missing"
+	githubCloneAuth    githubCloneFailureKind = "auth"
+	githubCloneNetwork githubCloneFailureKind = "network"
+)
+
+type githubCloneError struct {
+	Kind   githubCloneFailureKind
+	Err    error
+	Detail string
+}
+
+func (e *githubCloneError) Error() string {
+	if e.Detail != "" {
+		return "github clone " + string(e.Kind) + ": " + e.Detail
+	}
+	return "github clone " + string(e.Kind) + ": " + e.Err.Error()
+}
+func (e *githubCloneError) Unwrap() error { return e.Err }
+
+func classifyGitHubCloneError(err error, detail string) error {
+	text := strings.ToLower(detail + " " + err.Error())
+	kind := githubCloneNetwork
+	if strings.Contains(text, "repository not found") || strings.Contains(text, "does not exist") || strings.Contains(text, "not a git repository") {
+		kind = githubCloneMissing
+	} else if strings.Contains(text, "authentication failed") || strings.Contains(text, "authentication required") || strings.Contains(text, "unauthorized") || strings.Contains(text, "status code: 401") || strings.Contains(text, "status code: 403") {
+		kind = githubCloneAuth
+	}
+	return &githubCloneError{Kind: kind, Err: err, Detail: strings.TrimSpace(detail)}
+}
+
 // scanGitHubHistory clones every enumerated repo and walks its full history.
 // Per-repo failures (clone error, walk error) are tolerated so the org walk
 // continues; context cancellation/deadline is terminal.
 func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider, apiBase, org, repo string, emit Emit) error {
+	if _, err := githubGitArtifactConfig(cfg); err != nil {
+		return err
+	}
 	cli := newGitHubClient(apiBase, auth)
-	repos, err := githubListRepos(ctx, cli, org, repo)
+	repos, observedRepos, enumerationSkipped, err := githubEnumerateRepos(ctx, cli, cfg, org, repo)
 	if err != nil {
 		return err
 	}
+	// API ordering is not an incremental-state contract. Stable identity order
+	// makes commits and partial flushes deterministic across pagination changes.
+	sort.Slice(repos, func(i, j int) bool {
+		return repos[i].Owner.Login+"/"+repos[i].Name < repos[j].Owner.Login+"/"+repos[j].Name
+	})
 	previousState, err := loadGitHubIncrementalState(cfg[configKeyIncrementalPreviousState])
 	if err != nil {
 		return err
 	}
 	if previousState == nil {
-		previousState = &githubIncrementalState{Version: 1, Repos: map[string]githubRepoIncrementalState{}}
+		previousState = &githubIncrementalState{Version: 3, Surfaces: map[string]map[string]githubRepoIncrementalState{
+			"repository-history": {},
+			"repository-wiki":    {},
+		}}
 	}
-	nextState := &githubIncrementalState{Version: 1, Repos: map[string]githubRepoIncrementalState{}}
-
+	prunedState, err := prepareGitHubStateV3(previousState, observedRepos, cfg, time.Now())
+	if err != nil {
+		return err
+	}
+	previousRepos := previousState.Surfaces["repository-history"]
+	previousWikis := previousState.Surfaces["repository-wiki"]
+	// Scope filters must not erase checkpoints: a repository excluded for one
+	// run can be re-included later without an avoidable full-history rescan.
+	nextRepos := make(map[string]githubRepoIncrementalState, len(previousRepos))
+	for key, state := range previousRepos {
+		nextRepos[key] = state
+	}
+	nextWikis := make(map[string]githubRepoIncrementalState, len(previousWikis))
+	for key, state := range previousWikis {
+		nextWikis[key] = state
+	}
+	nextSurfaces := make(map[string]map[string]githubRepoIncrementalState, len(previousState.Surfaces))
+	for surface, entries := range previousState.Surfaces {
+		nextSurfaces[surface] = entries
+	}
+	nextSurfaces["repository-history"] = nextRepos
+	nextSurfaces["repository-wiki"] = nextWikis
+	nextState := &githubIncrementalState{Version: 3, ScopeFingerprint: previousState.ScopeFingerprint, CompleteRuns: previousState.CompleteRuns, Tombstones: previousState.Tombstones, Surfaces: nextSurfaces}
+	concurrency, err := githubRepoConcurrency(cfg)
+	if err != nil {
+		return err
+	}
 	template := cfg["clone_url_template"]
-	host := githubHostFromAPIBase(apiBase)
-
-	orgStart := time.Now()
-	failed := 0
-	skipped := 0
-	var lastFlush time.Time
-	for i, r := range repos {
-		if err := ctx.Err(); err != nil {
+	wikiTemplate := cfg["wiki_clone_url_template"]
+	if template != "" {
+		if err := validateGitHubCloneTarget(apiBase, template); err != nil {
 			return err
 		}
+	}
+	if wikiTemplate != "" {
+		if err := validateGitHubCloneTarget(apiBase, wikiTemplate); err != nil {
+			return err
+		}
+	}
+	host := githubHostFromAPIBase(apiBase)
+	commentsSince, err := githubCommentsSince(cfg, time.Now())
+	if err != nil {
+		return err
+	}
+	collaborationSince, err := githubCollaborationSince(cfg, time.Now())
+	if err != nil {
+		return err
+	}
+	orgStart := time.Now()
+	historyPolicy := githubHistoryPolicy(cfg)
+	var lastFlush time.Time
+	var unitFailures []engine.ScanFailure
+	unitFailureTotal := 0
+
+	units := make([]githubSourceUnit, 0, len(repos)*2)
+	reposByKey := make(map[string]githubRepoRef, len(repos))
+	for _, r := range repos {
 		repoKey := r.Owner.Login + "/" + r.Name
+		units = append(units, githubSourceUnit{
+			Surface: "repository-history",
+			ID:      repoKey,
+			Metadata: map[string]string{
+				"visibility": githubVisibility(r),
+				"pushed_at":  r.PushedAt,
+			},
+			Budget: githubUnitBudget{MaxBytes: githubCloneBlobFilterLimit},
+		})
+		if parseBool(cfg["include_wikis"]) {
+			units = append(units, githubSourceUnit{
+				Surface: "repository-wiki", ID: repoKey,
+				Metadata: map[string]string{"visibility": githubVisibility(r)},
+				Budget:   githubUnitBudget{MaxBytes: githubCloneBlobFilterLimit},
+			})
+		}
+		reposByKey[repoKey] = r
+	}
+
+	type repoOutcome struct {
+		Next       githubRepoIncrementalState
+		StateValid bool
+	}
+	unitOrder := make(map[string]int, len(units))
+	for i, u := range units {
+		unitOrder[u.Key()] = i
+	}
+	orderedEmit := newGitHubOrderedEmitter(ctx, len(units), emit)
+	produce := func(ctx context.Context, unit githubSourceUnit) githubUnitResult[repoOutcome] {
+		order := unitOrder[unit.Key()]
+		unitEmit := orderedEmit.Emit(order)
+		r := reposByKey[unit.ID]
+		repoKey := unit.ID
+		if unit.Surface == "repository-wiki" {
+			prevWiki := previousWikis[repoKey]
+			if !r.HasWiki {
+				return githubUnitResult[repoOutcome]{State: repoOutcome{Next: prevWiki, StateValid: prevWiki.Mode == githubScanModeHistory}, Stats: githubUnitStats{Skipped: "wiki-disabled"}}
+			}
+			seed := prevWiki
+			if seed.Policy != historyPolicy {
+				seed = githubRepoIncrementalState{}
+			}
+			nextWiki, err := scanGitHubWikiHistory(ctx, cfg, auth, apiBase, host, wikiTemplate, r, seed, unitEmit)
+			if err != nil {
+				if isMissingWikiError(err) {
+					return githubUnitResult[repoOutcome]{State: repoOutcome{Next: prevWiki, StateValid: prevWiki.Mode == githubScanModeHistory}, Stats: githubUnitStats{Skipped: "wiki-missing"}}
+				}
+				return githubUnitResult[repoOutcome]{State: repoOutcome{Next: prevWiki, StateValid: prevWiki.Mode == githubScanModeHistory}, Err: err}
+			}
+			nextWiki.StableID = githubStableRepoID(r, repoKey)
+			nextWiki.LastSeen = time.Now().UTC().Format(time.RFC3339)
+			return githubUnitResult[repoOutcome]{State: repoOutcome{Next: nextWiki, StateValid: true}, Stats: githubUnitStats{CostItems: 1}}
+		}
 		sizeNote := ""
 		if r.Size > 0 {
 			sizeNote = " (" + formatBytes(uint64(r.Size)*1024) + ")"
 		}
-		fmt.Fprintf(os.Stderr, "github: scan [%d/%d] %s%s\n", i+1, len(repos), repoKey, sizeNote)
+		fmt.Fprintf(os.Stderr, "github: scan %s%s\n", repoKey, sizeNote)
 		repoStart := time.Now()
-		prevRepo := previousState.Repos[repoKey]
+		prevRepo := previousRepos[repoKey]
 		var nextRepo githubRepoIncrementalState
-		if githubRepoUnchanged(prevRepo, r) {
+		var surfaceFailures githubSurfaceFailures
+		unchanged := githubRepoUnchanged(prevRepo, r, historyPolicy)
+		if unchanged {
 			// No push since the walk that produced prevRepo.RefHeads: cloning
 			// would fetch the same refs and the seeded walk would emit nothing.
 			// Carry the state; only Visibility can have moved without a push
 			// (comments can too — their scan below still runs on this path).
-			skipped++
 			nextRepo = prevRepo
 			nextRepo.Visibility = githubVisibility(r)
-			fmt.Fprintf(os.Stderr, "github: scan [%d/%d] %s unchanged since last run (pushed_at %s), clone skipped\n", i+1, len(repos), repoKey, r.PushedAt)
+			fmt.Fprintf(os.Stderr, "github: scan %s unchanged since last run (pushed_at %s), clone skipped\n", repoKey, r.PushedAt)
 		} else {
 			var err error
-			nextRepo, err = scanGitHubRepoHistory(ctx, cfg, auth, apiBase, host, template, r, prevRepo, emit)
+			nextRepo, err = scanGitHubRepoHistory(ctx, cfg, auth, apiBase, host, template, r, prevRepo, unitEmit)
 			if err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return err
+				if ctx.Err() != nil {
+					return githubUnitResult[repoOutcome]{Err: ctx.Err()}
 				}
-				// Per-repo failures are tolerated — keep walking the org. The repo
-				// is still scanned up to the previous run's heads, so carry that
-				// state forward; dropping it would force a full rescan next run.
-				failed++
 				fmt.Fprintf(os.Stderr, "WARN: github: scan failed for %s after %s, skipping: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
-				if prevRepo.Mode == githubScanModeHistory {
-					nextState.Repos[repoKey] = prevRepo
-				}
-				continue
+				nextRepo = prevRepo
+				nextRepo.Mode = githubScanModeHistory
+				nextRepo.Policy = historyPolicy
+				surfaceFailures = append(surfaceFailures, githubSurfaceFailure{Surface: "repository-history", Err: err})
 			}
 		}
+		seedGitHubCollaborationState(&nextRepo, prevRepo)
 		if parseBool(cfg["include_comments"]) {
 			// Comments are REST-based. To keep comment incrementality, carry the
 			// previous comment cursors only when the previous state was history
@@ -156,9 +385,9 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 				commentPrev = prevRepo
 				hasCommentPrev = true
 			}
-			if err := scanGitHubCommentsIncremental(ctx, cli, r, commentPrev, hasCommentPrev, &nextRepo, emit); err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return err
+			if err := scanGitHubCommentsIncremental(ctx, cli, r, commentPrev, hasCommentPrev, &nextRepo, commentsSince, unitEmit); err != nil {
+				if ctx.Err() != nil {
+					return githubUnitResult[repoOutcome]{Err: ctx.Err()}
 				}
 				// Code walked to the new heads but comments didn't finish:
 				// keep the new RefHeads and the previous comment cursors so
@@ -168,12 +397,81 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 				merged := nextRepo
 				merged.IssueComments = commentPrev.IssueComments
 				merged.PullReviewComments = commentPrev.PullReviewComments
-				nextState.Repos[repoKey] = merged
-				continue
+				nextRepo = merged
+				surfaceFailures = append(surfaceFailures, githubSurfaceFailure{Surface: "repository-comments", Err: err})
 			}
 		}
-		nextState.Repos[repoKey] = nextRepo
-		fmt.Fprintf(os.Stderr, "github: scan [%d/%d] %s done in %s\n", i+1, len(repos), repoKey, time.Since(repoStart).Round(time.Second))
+		collabPrev := githubRepoIncrementalState{}
+		if prevRepo.Mode == githubScanModeHistory {
+			collabPrev = prevRepo
+		}
+		if parseBool(cfg["include_issues"]) {
+			if err := scanGitHubIssuesIncremental(ctx, cli, r, collabPrev, &nextRepo, collaborationSince, unitEmit); err != nil {
+				if ctx.Err() != nil {
+					return githubUnitResult[repoOutcome]{Err: ctx.Err()}
+				}
+				nextRepo.Issues = collabPrev.Issues
+				surfaceFailures = append(surfaceFailures, githubSurfaceFailure{Surface: "repository-issues", Err: err})
+			}
+		}
+		if parseBool(cfg["include_pull_requests"]) {
+			if err := scanGitHubPullRequestsIncremental(ctx, cli, r, collabPrev, &nextRepo, collaborationSince, unitEmit); err != nil {
+				if ctx.Err() != nil {
+					return githubUnitResult[repoOutcome]{Err: ctx.Err()}
+				}
+				nextRepo.PullRequests = collabPrev.PullRequests
+				surfaceFailures = append(surfaceFailures, githubSurfaceFailure{Surface: "repository-pull-requests", Err: err})
+			}
+		}
+		fmt.Fprintf(os.Stderr, "github: scan %s done in %s\n", repoKey, time.Since(repoStart).Round(time.Second))
+		stats := githubUnitStats{CostItems: 1}
+		if unchanged {
+			stats.Skipped = "unchanged"
+		} else if r.Size > 0 {
+			// GitHub reports repository size in KiB. This is an estimate of
+			// source work, not exact wire bytes after partial-clone filtering.
+			stats.CostBytes = r.Size * 1024
+		}
+		var surfaceErr error
+		if len(surfaceFailures) > 0 {
+			surfaceErr = surfaceFailures
+		}
+		nextRepo.StableID = githubStableRepoID(r, repoKey)
+		nextRepo.LastSeen = time.Now().UTC().Format(time.RFC3339)
+		nextRepo.UnobservedRuns = 0
+		nextRepo.UnobservedSince = ""
+		return githubUnitResult[repoOutcome]{State: repoOutcome{Next: nextRepo, StateValid: true}, Stats: stats, Err: surfaceErr}
+	}
+
+	commit := func(_ int, result githubUnitResult[repoOutcome]) error {
+		if err := orderedEmit.Close(unitOrder[result.Unit.Key()]); err != nil {
+			return err
+		}
+		if result.Err != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if result.State.StateValid {
+			if result.Unit.Surface == "repository-wiki" {
+				nextWikis[result.Unit.ID] = result.State.Next
+			} else {
+				nextRepos[result.Unit.ID] = result.State.Next
+			}
+		}
+		if result.Err != nil {
+			if failures, ok := result.Err.(githubSurfaceFailures); ok {
+				for _, failure := range failures {
+					unitFailureTotal++
+					if len(unitFailures) < 32 {
+						unitFailures = append(unitFailures, engine.ScanFailure{Kind: engine.FailureSource, Source: failure.Surface + ":" + result.Unit.ID, Err: failure.Err})
+					}
+				}
+			} else {
+				unitFailureTotal++
+				if len(unitFailures) < 32 {
+					unitFailures = append(unitFailures, engine.ScanFailure{Kind: engine.FailureSource, Source: result.Unit.Key(), Err: result.Err})
+				}
+			}
+		}
 		// per-repo flush。 cmd 層が「ここまで進んだ」状態を atomic に persist
 		// するので、 scan が途中の repo で死んでも次回 run が resume できる。
 		// nextState は org 全体を丸ごと marshal するため repo 数に対して
@@ -184,17 +482,52 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 		if flush := IncrementalFlushFromContext(ctx); flush != nil && time.Since(lastFlush) >= githubIncrementalFlushInterval {
 			if data, err := json.Marshal(nextState); err == nil {
 				if ferr := flush(data); ferr != nil {
-					fmt.Fprintf(os.Stderr, "WARN: github incremental flush failed after %s: %v\n", repoKey, ferr)
+					fmt.Fprintf(os.Stderr, "WARN: github incremental flush failed after %s: %v\n", result.Unit.ID, ferr)
 				}
 				lastFlush = time.Now()
 			}
 		}
+		return nil
 	}
+
+	stats, err := runGitHubSourceUnits(ctx, units, concurrency, produce, commit)
+	if err != nil {
+		return err
+	}
+	if err := orderedEmit.Wait(); err != nil {
+		return err
+	}
+	var finalFlushErr error
 	if data, err := json.Marshal(nextState); err == nil {
 		cfg[configKeyIncrementalNextState] = string(data)
+		if flush := IncrementalFlushFromContext(ctx); flush != nil {
+			if ferr := flush(data); ferr != nil {
+				finalFlushErr = fmt.Errorf("github: final incremental flush: %w", ferr)
+			}
+		}
+	} else {
+		finalFlushErr = fmt.Errorf("github: marshal final incremental state: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "github: org scan complete: %d repos, %d unchanged (clone skipped), %d failed, took %s\n", len(repos), skipped, failed, time.Since(orgStart).Round(time.Second))
-	return nil
+	fmt.Fprintf(os.Stderr, "github: org scan complete: %d units, concurrency %d, %d unchanged, wiki-disabled=%d wiki-missing=%d, %d filtered (fork=%d archived=%d excluded=%d not-included=%d duplicate=%d), %d failed, %d items, %d bytes, peak %d pending, took %s\n",
+		stats.Total, concurrency, stats.Skipped["unchanged"],
+		stats.Skipped["wiki-disabled"], stats.Skipped["wiki-missing"],
+		enumerationSkipped["fork"]+enumerationSkipped["archived"]+enumerationSkipped["excluded"]+enumerationSkipped["not-included"]+enumerationSkipped["duplicate"],
+		enumerationSkipped["fork"], enumerationSkipped["archived"], enumerationSkipped["excluded"], enumerationSkipped["not-included"], enumerationSkipped["duplicate"],
+		stats.Failed, stats.CostItems, stats.CostBytes, stats.PeakInFlight, time.Since(orgStart).Round(time.Second))
+	if prunedState > 0 {
+		fmt.Fprintf(os.Stderr, "github: incremental state pruned=%d\n", prunedState)
+	}
+	rateWait, constrainedAcquisitions := cli.rateCoordinationStats()
+	fmt.Fprintf(os.Stderr, "github: rate coordination: %d constrained request acquisition(s), %s aggregate permit wait\n", constrainedAcquisitions, rateWait.Round(time.Millisecond))
+	if unitFailureTotal > 0 {
+		degraded := &engine.DegradedError{
+			Total:    unitFailureTotal,
+			Counts:   map[engine.FailureKind]int{engine.FailureSource: unitFailureTotal},
+			Failures: unitFailures,
+		}
+		return errors.Join(degraded, finalFlushErr)
+	}
+	return finalFlushErr
 }
 
 // githubRepoUnchanged reports whether the repo received no push since the
@@ -203,11 +536,39 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 // must take the one-time full rescan) and a non-empty pushed_at on both sides:
 // the enumeration reports pushed_at as null for never-pushed repos, and state
 // written by builds predating PushedAt carries none — neither proves anything.
-func githubRepoUnchanged(prev githubRepoIncrementalState, r githubRepoRef) bool {
+func githubRepoUnchanged(prev githubRepoIncrementalState, r githubRepoRef, policy string) bool {
 	return prev.Mode == githubScanModeHistory &&
 		len(prev.RefHeads) > 0 &&
 		prev.PushedAt != "" &&
-		prev.PushedAt == r.PushedAt
+		prev.PushedAt == r.PushedAt &&
+		prev.Policy == policy
+}
+
+func seedGitHubCollaborationState(next *githubRepoIncrementalState, prev githubRepoIncrementalState) {
+	if next.IssueComments == nil {
+		next.IssueComments = make(map[string]githubCommentIncrementalState, len(prev.IssueComments))
+		for key, state := range prev.IssueComments {
+			next.IssueComments[key] = state
+		}
+	}
+	if next.PullReviewComments == nil {
+		next.PullReviewComments = make(map[string]githubCommentIncrementalState, len(prev.PullReviewComments))
+		for key, state := range prev.PullReviewComments {
+			next.PullReviewComments[key] = state
+		}
+	}
+	if next.Issues == nil {
+		next.Issues = make(map[string]githubEntityIncrementalState, len(prev.Issues))
+		for key, state := range prev.Issues {
+			next.Issues[key] = state
+		}
+	}
+	if next.PullRequests == nil {
+		next.PullRequests = make(map[string]githubEntityIncrementalState, len(prev.PullRequests))
+		for key, state := range prev.PullRequests {
+			next.PullRequests[key] = state
+		}
+	}
 }
 
 // scanGitHubRepoHistory clones one repo bare and walks it. It returns the
@@ -217,6 +578,23 @@ func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProv
 	if err != nil {
 		return githubRepoIncrementalState{}, err
 	}
+	return scanGitHubGitHistory(ctx, cfg, auth, host, cloneURL, repo, prev, false, emit)
+}
+
+func scanGitHubWikiHistory(ctx context.Context, cfg Config, auth githubTokenProvider, apiBase, host, template string, repo githubRepoRef, prev githubRepoIncrementalState, emit Emit) (githubRepoIncrementalState, error) {
+	cloneURL, err := deriveWikiCloneURL(apiBase, repo.Owner.Login, repo.Name, template)
+	if err != nil {
+		return githubRepoIncrementalState{}, err
+	}
+	if u, parseErr := url.Parse(cloneURL); parseErr == nil && u.Scheme == "" {
+		if _, statErr := os.Stat(cloneURL); statErr != nil && os.IsNotExist(statErr) {
+			return githubRepoIncrementalState{}, &githubCloneError{Kind: githubCloneMissing, Err: statErr, Detail: "wiki repository not found"}
+		}
+	}
+	return scanGitHubGitHistory(ctx, cfg, auth, host, cloneURL, repo, prev, true, emit)
+}
+
+func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvider, host, cloneURL string, repo githubRepoRef, prev githubRepoIncrementalState, wiki bool, emit Emit) (githubRepoIncrementalState, error) {
 
 	dir, err := os.MkdirTemp("", "pleno-gh-clone-")
 	if err != nil {
@@ -225,6 +603,9 @@ func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProv
 	defer os.RemoveAll(dir)
 
 	repoKey := repo.Owner.Login + "/" + repo.Name
+	if wiki {
+		repoKey += ".wiki"
+	}
 	hb := startRepoHeartbeat(repoKey, githubHeartbeatInterval)
 	defer hb.end()
 
@@ -243,6 +624,9 @@ func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProv
 		return githubRepoIncrementalState{}, fmt.Errorf("github: clone %s/%s: %w", repo.Owner.Login, repo.Name, err)
 	}
 	fmt.Fprintf(os.Stderr, "github: clone %s done in %s (%s)\n", repoKey, time.Since(cloneStart).Round(time.Second), cloneMethodLabel(usedNative))
+	if githubCloneBytesObserver != nil {
+		githubCloneBytesObserver(repoKey, directoryBytes(dir))
+	}
 	hb.setPhase("walk")
 	walkStart := time.Now()
 
@@ -261,7 +645,11 @@ func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProv
 
 	visibility := githubVisibility(repo)
 	src := &gitsource.Source{}
-	gitCfg := gitsource.Config{Repo: dir, AllBranches: true}
+	gitCfg, err := githubGitArtifactConfig(cfg)
+	if err != nil {
+		return githubRepoIncrementalState{}, err
+	}
+	gitCfg.Repo, gitCfg.AllBranches = dir, true
 	raw, err := json.Marshal(gitCfg)
 	if err != nil {
 		return githubRepoIncrementalState{}, err
@@ -300,6 +688,12 @@ func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProv
 	}()
 
 	link := func(commit, path string, line int) string {
+		if wiki {
+			return githubWikiLink(host, repo.Owner.Login, repo.Name, commit, path, line)
+		}
+		if strings.HasPrefix(path, "commit:") {
+			return "https://" + host + "/" + repo.Owner.Login + "/" + repo.Name + "/commit/" + commit
+		}
 		return githubBlobLink(host, repo.Owner.Login, repo.Name, commit, path, line)
 	}
 	var emitErr error
@@ -325,6 +719,10 @@ func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProv
 				Link:       link(gm.Commit, gm.File, gm.Line),
 			},
 		}
+		if wiki {
+			meta.GitHub.Entity = "wiki"
+			meta.GitHub.Part = "page"
+		}
 		if err := emit(c.Data, meta); err != nil {
 			emitErr = err
 		}
@@ -341,6 +739,10 @@ func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProv
 		Mode:       githubScanModeHistory,
 		Visibility: visibility,
 		PushedAt:   repo.PushedAt,
+		Policy:     githubHistoryPolicy(cfg),
+	}
+	if wiki {
+		next.PushedAt = ""
 	}
 	heads, err := gitRefHeads(gitRepo)
 	if err != nil {
@@ -348,6 +750,71 @@ func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProv
 	}
 	next.RefHeads = heads
 	return next, nil
+}
+
+func githubWikiLink(host, owner, repo, commit, path string, line int) string {
+	outer := strings.SplitN(path, "!", 2)[0]
+	if strings.HasPrefix(outer, "commit:") {
+		return "https://" + host + "/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + ".wiki/commit/" + url.PathEscape(commit)
+	}
+	ext := strings.ToLower(filepath.Ext(outer))
+	base := strings.TrimSuffix(filepath.Base(outer), filepath.Ext(outer))
+	if (ext == ".md" || ext == ".markdown") && base != "_Sidebar" && base != "_Footer" && !strings.Contains(path, "!") {
+		page := strings.TrimSuffix(strings.TrimSuffix(outer, ".md"), ".markdown")
+		segments := strings.Split(filepath.ToSlash(page), "/")
+		for i := range segments {
+			segments[i] = url.PathEscape(segments[i])
+		}
+		return "https://" + host + "/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/wiki/" + strings.Join(segments, "/")
+	}
+	return githubBlobLink(host, owner, repo+".wiki", commit, outer, line)
+}
+
+func isMissingWikiError(err error) bool {
+	var cloneErr *githubCloneError
+	return errors.As(err, &cloneErr) && cloneErr.Kind == githubCloneMissing
+}
+
+func githubGitArtifactConfig(cfg Config) (gitsource.Config, error) {
+	parseI64 := func(key string, def int64) (int64, error) {
+		raw := cfg[key]
+		if raw == "" {
+			return def, nil
+		}
+		n, e := strconv.ParseInt(raw, 10, 64)
+		if e != nil || n <= 0 {
+			return 0, fmt.Errorf("github: %s must be a positive integer, got %q", key, raw)
+		}
+		return n, nil
+	}
+	parseI := func(key string, def int) (int, error) { n, e := parseI64(key, int64(def)); return int(n), e }
+	blob, e := parseI64("git_artifact_max_bytes", 10<<20)
+	if e != nil {
+		return gitsource.Config{}, e
+	}
+	expanded, e := parseI64("archive_max_expanded_bytes", 50<<20)
+	if e != nil {
+		return gitsource.Config{}, e
+	}
+	files, e := parseI("archive_max_files", 1000)
+	if e != nil {
+		return gitsource.Config{}, e
+	}
+	depth, e := parseI("archive_max_depth", 3)
+	if e != nil {
+		return gitsource.Config{}, e
+	}
+	timeout := 5 * time.Second
+	if raw := cfg["archive_timeout"]; raw != "" {
+		timeout, e = time.ParseDuration(raw)
+		if e != nil || timeout <= 0 {
+			return gitsource.Config{}, fmt.Errorf("github: archive_timeout must be a positive duration, got %q", raw)
+		}
+	}
+	if blob > 50<<20 || expanded > 200<<20 || files > 10000 || depth > 8 || timeout > time.Minute {
+		return gitsource.Config{}, errors.New("github: artifact limits exceed hard caps")
+	}
+	return gitsource.Config{IncludeCommitMetadata: parseBool(cfg["include_commit_metadata"]), IncludeGitArchives: parseBool(cfg["include_git_archives"]), IncludeGitBinaries: parseBool(cfg["include_git_binaries"]), GitArtifactMaxBytes: blob, ArchiveMaxExpandedBytes: expanded, ArchiveMaxFiles: files, ArchiveMaxDepth: depth, ArchiveTimeout: timeout}, nil
 }
 
 // githubCloneToken fetches the auth token once per clone, shared by both the
@@ -400,17 +867,22 @@ func cloneMethodLabel(usedNative bool) string {
 // passed as a struct field (githttp.BasicAuth), never URL-embedded, so it
 // cannot leak into a URL string anywhere on this path.
 func cloneWithGoGit(ctx context.Context, cloneURL, dir, token string, progress io.Writer) error {
-	cloneOpts := &gogit.CloneOptions{URL: cloneURL, Progress: progress}
+	// Mirror is required for refs/notes/*; a normal bare clone fetches branch
+	// heads and tags but can silently omit commit notes from #322's surface.
+	cloneOpts := &gogit.CloneOptions{URL: cloneURL, Progress: progress, Mirror: true}
 	if token != "" {
 		if u, err := url.Parse(cloneURL); err == nil && u.Scheme != "" && u.Host != "" {
 			cloneOpts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
 		}
 	}
 	_, err := gogit.PlainCloneContext(ctx, dir, true, cloneOpts)
-	return err
+	if err != nil {
+		return classifyGitHubCloneError(err, "")
+	}
+	return nil
 }
 
-// cloneWithNativeGit execs `git clone --bare --filter=blob:limit=<N>`.
+// cloneWithNativeGit execs `git clone --mirror --filter=blob:limit=<N>`.
 //
 // The token never touches argv: it is handed to git as an Authorization
 // header through GIT_CONFIG_* environment variables (nativeGitAuthEnv, the
@@ -421,7 +893,8 @@ func cloneWithGoGit(ctx context.Context, cloneURL, dir, token string, progress i
 // credentials.
 func cloneWithNativeGit(ctx context.Context, gitBin, cloneURL, dir, token string, progress io.Writer) error {
 	cmd := exec.CommandContext(ctx, gitBin, nativeGitCloneArgs(cloneURL, dir)...)
-	cmd.Stderr = progress
+	var diagnostic bytes.Buffer
+	cmd.Stderr = io.MultiWriter(progress, &diagnostic)
 	// Never prompt interactively: a hung terminal prompt on a bad/expired
 	// token would look identical to a stalled clone from the heartbeat's
 	// point of view. Fail fast instead.
@@ -431,18 +904,29 @@ func cloneWithNativeGit(ctx context.Context, gitBin, cloneURL, dir, token string
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
-		return redactCloneError(err, token)
+		classified := classifyGitHubCloneError(redactCloneError(err, token), diagnostic.String())
+		if cloneErr, ok := classified.(*githubCloneError); ok {
+			cloneErr.Detail = redactCloneDiagnostic(cloneErr.Detail, token)
+		}
+		return classified
 	}
 	return nil
 }
 
-// nativeGitCloneArgs builds the argv for the native bare clone with the
+func redactCloneDiagnostic(detail, token string) string {
+	if len(token) < 8 {
+		return detail
+	}
+	return strings.ReplaceAll(detail, token, "[REDACTED]")
+}
+
+// nativeGitCloneArgs builds the argv for the native mirror clone with the
 // blob-size filter (#265). Split out from cloneWithNativeGit so the exact
 // flags/ordering can be asserted in a unit test without executing git.
 func nativeGitCloneArgs(cloneURL, dir string) []string {
 	return []string{
 		"clone",
-		"--bare",
+		"--mirror",
 		fmt.Sprintf("--filter=blob:limit=%d", githubCloneBlobFilterLimit),
 		"--progress",
 		"--",
@@ -478,10 +962,13 @@ func nativeGitAuthEnv(cloneURL, token string) []string {
 // of the token never being in argv (see nativeGitAuthEnv) and git's own
 // credential-free fatal messages.
 func redactCloneError(err error, token string) error {
-	if token == "" {
+	if len(token) < 8 {
 		return err
 	}
-	return errors.New(strings.ReplaceAll(err.Error(), token, "REDACTED"))
+	redacted := strings.ReplaceAll(err.Error(), token, "REDACTED")
+	basic := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+	redacted = strings.ReplaceAll(redacted, basic, "REDACTED")
+	return errors.New(redacted)
 }
 
 // gitRefHeads reads the ref → sha map (branches and remotes) from an already
@@ -557,7 +1044,22 @@ func githubBlobLink(host, owner, repo, commit, path string, line int) string {
 	if host == "" || commit == "" || path == "" {
 		return ""
 	}
-	link := fmt.Sprintf("https://%s/%s/%s/blob/%s/%s", host, owner, repo, commit, path)
+	// Archive provenance is virtual (`outer.zip!inner/file`). GitHub can only
+	// link to the outer blob; the full virtual path remains in metadata.Path.
+	outer := strings.SplitN(path, "!", 2)[0]
+	if strings.HasPrefix(outer, "/") {
+		return ""
+	}
+	clean := strings.TrimPrefix(filepath.ToSlash(filepath.Clean(outer)), "./")
+	if clean == ".." || strings.HasPrefix(clean, "../") {
+		return ""
+	}
+	parts := strings.Split(clean, "/")
+	for i := range parts {
+		parts[i] = url.PathEscape(parts[i])
+	}
+	escapedPath := strings.Join(parts, "/")
+	link := fmt.Sprintf("https://%s/%s/%s/blob/%s/%s", host, url.PathEscape(owner), url.PathEscape(repo), url.PathEscape(commit), escapedPath)
 	if line > 0 {
 		link += fmt.Sprintf("#L%d", line)
 	}

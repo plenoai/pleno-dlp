@@ -1,10 +1,13 @@
 package connectors
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -109,6 +112,17 @@ func TestGitHubHostAndBlobLink(t *testing.T) {
 	}
 	if strings.Contains(noLine, "#L") {
 		t.Errorf("link with line=0 must omit #L: %q", noLine)
+	}
+}
+
+func TestGitHubBlobLinkEscapesPathAndRendersArchiveOuterBlob(t *testing.T) {
+	got := githubBlobLink("github.com", "acme", "widget", "abc", "dir/a #?% 日本.zip!../inner secret.txt", 9)
+	want := "https://github.com/acme/widget/blob/abc/dir/a%20%23%3F%25%20%E6%97%A5%E6%9C%AC.zip#L9"
+	if got != want {
+		t.Fatalf("link=%q want=%q", got, want)
+	}
+	if got := githubBlobLink("github.com", "a", "b", "c", "../escape", 1); got != "" {
+		t.Fatalf("traversal link=%q", got)
 	}
 }
 
@@ -232,6 +246,158 @@ func TestGitHubHistoryScanEmitsAllBranches(t *testing.T) {
 	}
 	if sideMeta.Line > 0 && !strings.Contains(sideMeta.Link, "#L") {
 		t.Errorf("Link with line>0 missing #L fragment: %q", sideMeta.Link)
+	}
+}
+
+func TestGitHubHistoryScanStreamsLargeModification(t *testing.T) {
+	const secret = "github_pat_11AAABBB_abcdefghijklmnopqrstuvwxyz0123456789"
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	var base strings.Builder
+	for i := 0; i < 220000; i++ {
+		base.WriteString("large fixture line\n")
+	}
+	commit := func(content, message string, minute int) {
+		if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(content), 0o600); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if _, err := wt.Add("big.txt"); err != nil {
+			t.Fatalf("add: %v", err)
+		}
+		when := time.Date(2026, 5, 1, 0, minute, 0, 0, time.UTC)
+		if _, err := wt.Commit(message, &gogit.CommitOptions{
+			Author:    &object.Signature{Name: "T", Email: "t@e.com", When: when},
+			Committer: &object.Signature{Name: "T", Email: "t@e.com", When: when},
+		}); err != nil {
+			t.Fatalf("commit: %v", err)
+		}
+	}
+	commit(base.String(), "large base", 0)
+	commit(base.String()+secret+"\n", "add secret", 1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/acme/widget" {
+			t.Fatalf("unexpected REST path: %s", r.URL.String())
+		}
+		writeJSON(t, w, githubRepoRef{Name: "widget", DefaultBranch: "master", Visibility: "private"})
+	}))
+	t.Cleanup(srv.Close)
+
+	found := false
+	err = scanGitHub(context.Background(), Config{
+		"token":              "ghp_test",
+		"repo":               "acme/widget",
+		"api_base":           srv.URL,
+		"clone_url_template": dir,
+	}, func(data []byte, meta sources.Metadata) error {
+		if meta.GitHub != nil && strings.Contains(string(data), secret) {
+			found = true
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scanGitHub history: %v", err)
+	}
+	if !found {
+		t.Fatal("GitHub history scan missed secret added to a >1 MiB file")
+	}
+}
+
+func TestGitHubHistoryCommitMetadataAndNotes(t *testing.T) {
+	const noteSecret = "github_pat_11GHNOTE__abcdefghijklmnopqrstuvwxyz0123456789"
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "safe.txt"), []byte("safe\n"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := wt.Add("safe.txt"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	when := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	hash, err := wt.Commit("metadata fixture", &gogit.CommitOptions{
+		Author:    &object.Signature{Name: "T", Email: "expected-pii@example.com", When: when},
+		Committer: &object.Signature{Name: "T", Email: "expected-pii@example.com", When: when},
+	})
+	if err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "notes", "add", "-m", noteSecret, hash.String()).CombinedOutput(); err != nil {
+		t.Fatalf("git notes add: %v: %s", err, out)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, githubRepoRef{Name: "widget", DefaultBranch: "master", Visibility: "private"})
+	}))
+	t.Cleanup(srv.Close)
+	var metadata *sources.GitHubMeta
+	found := false
+	err = scanGitHub(context.Background(), Config{
+		"token": "ghp_test", "repo": "acme/widget", "api_base": srv.URL,
+		"clone_url_template": dir, "include_commit_metadata": "true",
+	}, func(data []byte, meta sources.Metadata) error {
+		if strings.Contains(string(data), noteSecret) {
+			found, metadata = true, meta.GitHub
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scanGitHub: %v", err)
+	}
+	if !found || metadata == nil {
+		t.Fatal("GitHub scan missed opted-in git note")
+	}
+	if !strings.HasPrefix(metadata.Path, "commit:metadata/") || !strings.Contains(metadata.Link, "/commit/"+hash.String()) {
+		t.Fatalf("metadata provenance = %#v", metadata)
+	}
+}
+
+func TestGitHubHistoryScansOptInArchive(t *testing.T) {
+	const secret = "github_pat_11GHZIP___abcdefghijklmnopqrstuvwxyz0123456789"
+	var zipped bytes.Buffer
+	zw := zip.NewWriter(&zipped)
+	f, _ := zw.Create("nested/secret.txt")
+	_, _ = f.Write([]byte(secret))
+	_ = zw.Close()
+	dir := t.TempDir()
+	repo, _ := gogit.PlainInit(dir, false)
+	wt, _ := repo.Worktree()
+	if err := os.WriteFile(filepath.Join(dir, "payload.zip"), zipped.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = wt.Add("payload.zip")
+	when := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	_, err := wt.Commit("archive", &gogit.CommitOptions{Author: &object.Signature{Name: "T", Email: "t@e", When: when}, Committer: &object.Signature{Name: "T", Email: "t@e", When: when}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, githubRepoRef{Name: "widget", DefaultBranch: "master", Visibility: "private"})
+	}))
+	defer srv.Close()
+	found := false
+	err = scanGitHub(context.Background(), Config{"token": "x", "repo": "acme/widget", "api_base": srv.URL, "clone_url_template": dir, "include_git_archives": "true"}, func(data []byte, meta sources.Metadata) error {
+		found = found || (strings.Contains(string(data), secret) && meta.GitHub != nil && strings.Contains(meta.GitHub.Path, "payload.zip!nested/secret.txt"))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("GitHub archive history missed nested secret")
 	}
 }
 

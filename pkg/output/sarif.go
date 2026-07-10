@@ -814,6 +814,16 @@ func toSARIFResult(f engine.Finding) sarifResult {
 	// drop possibly-live secrets during an outage (#246).
 	props["verdict"] = f.Result.Verdict().String()
 	props["severity"] = f.Result.Severity.String()
+	if f.Chunk != nil && f.Chunk.SourceMetadata.GitHub != nil {
+		gh := f.Chunk.SourceMetadata.GitHub
+		props["source_link"] = gh.Link
+		props["source_visibility"] = gh.Visibility
+		if gh.Entity != "" {
+			props["source_entity"] = gh.Entity
+			props["source_number"] = gh.Number
+			props["source_part"] = gh.Part
+		}
+	}
 	// security-severity is GitHub Code Scanning's CVSS-shaped score used
 	// for sort/triage in the UI. The rule descriptor declares 9.0 for the
 	// detector class; results carrying the engine's blast_radius=true

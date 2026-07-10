@@ -103,6 +103,9 @@ type GitHubMeta struct {
 	Path       string
 	Sha        string
 	Branch     string
+	Entity     string // issue or pull_request
+	Number     int
+	Part       string // title, body, or comment
 }
 
 // GitLabMeta is populated by the GitLab source / SaaS connector. Mirrors
