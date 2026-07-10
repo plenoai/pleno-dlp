@@ -464,10 +464,14 @@ func TestChunks_CommitMetadataAndNotesAreExplicitOptIn(t *testing.T) {
 	repoPath, hashes := buildRepo(t, []commitSpec{{
 		files: map[string]string{"safe.txt": "safe\n"}, msg: "deploy " + messageSecret,
 	}})
-	if out, err := exec.Command("git", "-C", repoPath, "notes", "add", "-m", "incident "+noteSecret, hashes[0]).CombinedOutput(); err != nil {
+	gitWithIdentity := func(args ...string) *exec.Cmd {
+		base := []string{"-C", repoPath, "-c", "user.name=Test", "-c", "user.email=test@example.com"}
+		return exec.Command("git", append(base, args...)...)
+	}
+	if out, err := gitWithIdentity("notes", "add", "-m", "incident "+noteSecret, hashes[0]).CombinedOutput(); err != nil {
 		t.Fatalf("git notes add: %v: %s", err, out)
 	}
-	if out, err := exec.Command("git", "-C", repoPath, "notes", "--ref=security", "add", "-m", secondNoteSecret, hashes[0]).CombinedOutput(); err != nil {
+	if out, err := gitWithIdentity("notes", "--ref=security", "add", "-m", secondNoteSecret, hashes[0]).CombinedOutput(); err != nil {
 		t.Fatalf("git security notes add: %v: %s", err, out)
 	}
 
