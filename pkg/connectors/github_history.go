@@ -291,17 +291,10 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 		units = append(units, githubSourceUnit{
 			Surface: "repository-history",
 			ID:      repoKey,
-			Metadata: map[string]string{
-				"visibility": githubVisibility(r),
-				"pushed_at":  r.PushedAt,
-			},
-			Budget: githubUnitBudget{MaxBytes: githubCloneBlobFilterLimit},
 		})
 		if parseBool(cfg["include_wikis"]) {
 			units = append(units, githubSourceUnit{
 				Surface: "repository-wiki", ID: repoKey,
-				Metadata: map[string]string{"visibility": githubVisibility(r)},
-				Budget:   githubUnitBudget{MaxBytes: githubCloneBlobFilterLimit},
 			})
 		}
 		reposByKey[repoKey] = r
