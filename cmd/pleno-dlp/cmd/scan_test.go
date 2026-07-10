@@ -1070,7 +1070,7 @@ func TestScanGit_CommitMessageAndNoteFindingsReachJSON(t *testing.T) {
 	}
 	// Same value in a different commit's note must survive cross-commit
 	// dedup because commit metadata has commit-specific provenance.
-	if out, err := exec.Command("git", "-C", dir, "notes", "add", "-m", "META_TOKEN_MESSAGE_1234567890", hash.String()).CombinedOutput(); err != nil {
+	if out, err := exec.Command("git", "-C", dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "notes", "add", "-m", "META_TOKEN_MESSAGE_1234567890", hash.String()).CombinedOutput(); err != nil {
 		t.Fatalf("git notes: %v: %s", err, out)
 	}
 	rules := filepath.Join(dir, "rules.json")

@@ -335,7 +335,7 @@ func TestGitHubHistoryCommitMetadataAndNotes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commit: %v", err)
 	}
-	if out, err := exec.Command("git", "-C", dir, "notes", "add", "-m", noteSecret, hash.String()).CombinedOutput(); err != nil {
+	if out, err := exec.Command("git", "-C", dir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "notes", "add", "-m", noteSecret, hash.String()).CombinedOutput(); err != nil {
 		t.Fatalf("git notes add: %v: %s", err, out)
 	}
 
