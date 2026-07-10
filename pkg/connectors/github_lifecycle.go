@@ -110,20 +110,11 @@ const (
 	githubMaxRepoConcurrency     = 32
 )
 
-// githubSourceUnit is the common scheduling identity for every independently
-// resumable GitHub scan surface. Surface and ID form the incremental-state
-// namespace; producers may attach metadata and a resource budget without
-// changing the lifecycle.
+// githubSourceUnit identifies an independently resumable GitHub scan surface.
+// Surface and ID form the incremental-state namespace.
 type githubSourceUnit struct {
-	Surface  string
-	ID       string
-	Metadata map[string]string
-	Budget   githubUnitBudget
-}
-
-type githubUnitBudget struct {
-	MaxBytes int64
-	MaxItems int64
+	Surface string
+	ID      string
 }
 
 func (u githubSourceUnit) Key() string { return u.Surface + ":" + u.ID }
