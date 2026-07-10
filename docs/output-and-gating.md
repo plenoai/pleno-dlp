@@ -198,20 +198,23 @@ multi-line PEM secrets.
 
 ## Incremental source scans
 
-`scan github --incremental --incremental-state <file>` stores both the
-overall resource fingerprint and a GitHub source watermark. When the
-overall fingerprint is unchanged, the scan is skipped entirely. When
-only part of a GitHub org changes, the GitHub connector narrows the
-scan to changed resources:
+`scan github --incremental --incremental-state <file>` stores the overall
+resource fingerprint plus namespaced state for repository history, wikis,
+gist history/comments, and collaboration entities. A repository whose
+`pushed_at` and history-policy fingerprint are unchanged keeps its prior main
+history state without another clone. Otherwise, the connector clones it and walks every
+commit reachable from every branch, stopping at the previously recorded ref
+heads so already-scanned history is not emitted again.
 
-- default-branch blobs whose path, SHA, or size changed since the
-  previous successful baseline
-- new or updated issue comments
-- new or updated pull request review comments
+With `--include-comments`, new or updated issue comments and pull request
+review comments are fetched and scanned independently. Comment changes do not
+advance `pushed_at`, so the comment pass still runs when repository history is
+skipped. REST pages still contain bodies for unchanged comments; the connector
+compares cursors and does not re-emit or re-scan them. Wiki and gist checkpoints
+advance independently from main repository history.
 
-The connector still lists repositories, default-branch trees, and
-comment metadata to compute the next watermark, but unchanged blob
-contents and unchanged comment bodies are not fetched or scanned.
+See [GitHub full-history scanning](recipes/github-history-scan.md) for the
+coverage model, API cost, and race-safe resume behavior.
 
 `scan s3 --incremental --incremental-state <file>` also stores an S3
 source watermark. The S3 source still lists object metadata to compute
