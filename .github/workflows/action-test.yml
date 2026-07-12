@@ -30,7 +30,7 @@ permissions:
 env:
   # Bump when cutting a release, so the smoke test tracks a real signed
   # artifact instead of drifting to `latest`.
-  PLENO_DLP_SMOKE_VERSION: v0.59.0
+  PLENO_DLP_SMOKE_VERSION: v0.61.0
 
 jobs:
   smoke:

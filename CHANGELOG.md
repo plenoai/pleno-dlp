@@ -9,6 +9,8 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+## [v0.62.0] - 2026-07-12
+
 ### Fixed
 
 - **Security:** the `hooks install claude-code` PreToolUse hook now scans
@@ -455,7 +457,8 @@ releases. Their durable references are:
 - Initial CLI with filesystem scanning, core secret detectors, and JSON
   output.
 
-[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.53.0...HEAD
+[Unreleased]: https://github.com/plenoai/pleno-dlp/compare/v0.62.0...HEAD
+[v0.62.0]: https://github.com/plenoai/pleno-dlp/compare/v0.61.0...v0.62.0
 [0.53.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.53.0
 [0.52.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.52.0
 [0.51.0]: https://github.com/plenoai/pleno-dlp/releases/tag/v0.51.0
