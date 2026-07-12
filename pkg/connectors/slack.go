@@ -35,7 +35,14 @@ import (
 )
 
 const (
-	slackDefaultAPIBase  = "https://slack.com/api"
+	// slackDefaultAPIBase is the host root, NOT the /api path: every
+	// request path in this file already carries its own `/api/` prefix
+	// (the real Slack Web API endpoints, e.g. `/api/auth.test`). Keeping
+	// `/api` here as well produced `https://slack.com/api/api/auth.test`,
+	// so scan/verify never reached Slack. newSlackClient additionally
+	// strips a trailing `/api` from any configured base for the same
+	// reason.
+	slackDefaultAPIBase  = "https://slack.com"
 	slackRequestTimeout  = 60 * time.Second
 	slackMaxDownloadSize = 50 << 20
 )
@@ -60,7 +67,7 @@ var slackWarn = func(format string, args ...any) {
 // scanSlack is the Lambda handler. cfg keys:
 //   - token       (required) `xoxb-` or `xoxp-` token
 //   - channel     single channel ID (omit to list all)
-//   - api_base    override https://slack.com/api
+//   - api_base    override host root, e.g. https://slack.com (a trailing /api is tolerated)
 //   - concurrency thread-reply fanout
 func scanSlack(ctx context.Context, cfg Config, emit Emit) error {
 	token := cfg["token"]
@@ -515,6 +522,11 @@ func newSlackClient(base, token string) *slackClient {
 	if base == "" {
 		base = slackDefaultAPIBase
 	}
+	// Request paths already include `/api/`, so a base that also ends in
+	// `/api` (the value historically documented for the api_base override)
+	// would double it. Normalize to the host root.
+	base = strings.TrimRight(base, "/")
+	base = strings.TrimSuffix(base, "/api")
 	return &slackClient{
 		base:  base,
 		token: token,

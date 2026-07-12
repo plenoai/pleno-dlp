@@ -75,6 +75,63 @@ func TestScanSlackThreadWarnsOnReplyError(t *testing.T) {
 	}
 }
 
+// TestSlackClientURLNoDoubleAPI is the regression test for the
+// `https://slack.com/api/api/auth.test` doubling. Request paths already
+// carry `/api/`, so the base must be the host root. The other tests here
+// pass a bare httptest base and match paths with strings.Contains, which
+// could not see the doubled prefix — this one asserts the exact URL for
+// the real default base and for a base that (as historically documented)
+// still ends in /api.
+func TestSlackClientURLNoDoubleAPI(t *testing.T) {
+	cases := []struct {
+		name string
+		base string
+	}{
+		{"default", ""},
+		{"host root", "https://slack.com"},
+		{"trailing slash", "https://slack.com/"},
+		{"legacy /api suffix", "https://slack.com/api"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newSlackClient(tc.base, "xoxb-test")
+			got := c.url("/api/auth.test")
+			const want = "https://slack.com/api/auth.test"
+			if got != want {
+				t.Fatalf("url(/api/auth.test) = %q, want %q", got, want)
+			}
+			if strings.Contains(got, "/api/api/") {
+				t.Fatalf("doubled /api in %q", got)
+			}
+		})
+	}
+}
+
+// TestSlackRequestsExactAuthTestPath drives a real request through the
+// client and records the path the mock server actually receives, asserting
+// it is exactly /api/auth.test (not /api/api/auth.test).
+func TestSlackRequestsExactAuthTestPath(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	// srv.URL+"/api" exercises the legacy-suffix normalization on a live
+	// request path, not just the url() helper.
+	cli := newSlackClient(srv.URL+"/api", "xoxb-test")
+	resp, err := cli.do(context.Background(), http.MethodPost, "/api/auth.test", nil)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	_ = resp.Body.Close()
+	if gotPath != "/api/auth.test" {
+		t.Fatalf("server received path %q, want /api/auth.test", gotPath)
+	}
+}
+
 // TestScanSlackThreadWarnsOnReplyTransportError covers the getJSON error
 // branch (non-context transport/decode failure) of scanSlackThread.
 func TestScanSlackThreadWarnsOnReplyTransportError(t *testing.T) {
