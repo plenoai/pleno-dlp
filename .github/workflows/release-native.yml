@@ -1,0 +1,157 @@
+name: release-native
+
+# Additive native-engine release (ADR-0005 §C). Triggers on the SAME `v*`
+# tag as release.yml but is fully isolated from it: this workflow only
+# ATTACHES extra assets (in-process privacy-filter.cpp / cgo binaries built
+# with `-tags opf_native`) to the release that GoReleaser (release.yml)
+# creates. It never touches .goreleaser.yaml, the pure-Go build, its
+# signing/SBOM/attestation chain, or the default test workflow. A native
+# build failure here cannot break or block the signed pure-Go release —
+# that is the whole point of keeping it a separate workflow.
+on:
+  push:
+    tags: ['v*']
+
+# Deny by default; grant the minimum per job. Only the build/upload job
+# needs write (to attach assets); the gate job only reads.
+permissions: {}
+
+jobs:
+  # The pure-Go Release object is created by release.yml (GoReleaser) on the
+  # same tag. `gh release upload` can only attach to a release that already
+  # exists, so gate the native jobs on that release appearing.
+  wait-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 40
+    steps:
+      - name: Wait for the GoReleaser release to exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          # Failure discipline (past incident: a poll-watcher treated a
+          # transient gh/network failure as SUCCESS). We advance ONLY when a
+          # gh call exits 0 AND echoes back the exact tag. Every other
+          # outcome — release absent, gh/network error, empty output — is a
+          # retry, and exhausting all attempts FAILS this job. A transient
+          # failure is never success and never a silent skip.
+          attempts=60
+          sleep_s=30
+          for i in $(seq 1 "$attempts"); do
+            if seen=$(gh release view "$TAG" --repo "$REPO" --json tagName --jq '.tagName' 2>/dev/null) \
+               && [ "$seen" = "$TAG" ]; then
+              echo "Release $TAG is present (attempt $i/$attempts)."
+              exit 0
+            fi
+            echo "Release $TAG not visible yet (attempt $i/$attempts); retrying in ${sleep_s}s."
+            sleep "$sleep_s"
+          done
+          echo "::error::Release $TAG did not appear after $((attempts * sleep_s))s. The GoReleaser release (release.yml) may have failed; refusing to attach native assets to a nonexistent/failed release." >&2
+          exit 1
+
+  native:
+    needs: wait-release
+    permissions:
+      contents: write   # only asset attachment needs write; nothing else here does
+    timeout-minutes: 60
+    strategy:
+      # Each platform's asset is independent — publish whatever builds; one
+      # platform failing must not cancel the others.
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14          # Apple silicon: darwin/arm64 (Metal)
+            goos: darwin
+            goarch: arm64
+          - runner: ubuntu-latest      # linux/amd64 (CPU, static libstdc++/libgcc)
+            goos: linux
+            goarch: amd64
+          - runner: ubuntu-24.04-arm   # linux/arm64 (CPU, static libstdc++/libgcc)
+            goos: linux
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # fetch-depth 0 so any git-derived version stamp in the Makefile
+          # resolves against the tag; C deps come from the fetch script, not
+          # a submodule, so no `submodules:` here (ADR-0005 §A).
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: cmake sanity
+        # cmake is part of the standard GitHub-hosted image on all three
+        # runners (ADR-0005 §C). Assert it up front so a missing toolchain
+        # fails here with a clear message instead of deep inside `make`.
+        run: cmake --version
+
+      # Cache the fetched C sources AND the compiled static libs, keyed on the
+      # pinned lockfile. On a hit we skip the network fetch entirely; the
+      # Makefile links the cached `.a`. (Per-runner-arch key: darwin and the
+      # two linux arches produce different objects.)
+      - name: Restore native C-dep cache
+        id: cdeps-cache
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            build/opf-native
+            pkg/piiengine/opfnative/cdeps
+          key: opf-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pkg/piiengine/opfnative/deps.lock') }}
+
+      # Thin coupling: the workflow only calls the ADR-0005 §B Makefile
+      # targets; what to fetch/compile/skip is the Makefile's contract.
+      # `opf-native-deps` (pinned-commit fetch + SHA verify) runs only on a
+      # cache miss so a populated source tree is never re-cloned.
+      - name: Fetch + verify C deps
+        if: steps.cdeps-cache.outputs.cache-hit != 'true'
+        run: make opf-native-deps
+
+      - name: Build native binary
+        # cmake configure/build of the static libs (opf-native-lib) + the
+        # CGO_ENABLED=1 `-tags opf_native` go build, per the Makefile.
+        run: make opf-native-build
+
+      - name: Package archive + checksum
+        env:
+          ASSET: pleno-dlp-opf-native_${{ matrix.goos }}_${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist-native/stage
+          # Ship the binary under the canonical command name `pleno-dlp`
+          # (matches the GoReleaser archive layout) so `bin.install`-style
+          # extraction is identical for both artifact families.
+          cp bin/pleno-dlp-opf dist-native/stage/pleno-dlp
+          cp LICENSE README.md dist-native/stage/
+          tar -C dist-native/stage -czf "dist-native/${ASSET}.tar.gz" .
+          cd dist-native
+          # Per-artifact sha256 sidecar — deliberately NOT a shared
+          # checksums.txt: matrix jobs upload concurrently and a shared
+          # aggregate file would race/clobber across runners.
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${ASSET}.tar.gz" > "${ASSET}.tar.gz.sha256"
+          else
+            shasum -a 256 "${ASSET}.tar.gz" > "${ASSET}.tar.gz.sha256"
+          fi
+          cat "${ASSET}.tar.gz.sha256"
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ASSET: pleno-dlp-opf-native_${{ matrix.goos }}_${{ matrix.goarch }}
+        # --clobber makes a re-run idempotent (re-tagging / retrying a failed
+        # platform overwrites its own assets, never duplicates them).
+        run: |
+          set -euo pipefail
+          gh release upload "${{ github.ref_name }}" \
+            "dist-native/${ASSET}.tar.gz" \
+            "dist-native/${ASSET}.tar.gz.sha256" \
+            --repo "${{ github.repository }}" --clobber
