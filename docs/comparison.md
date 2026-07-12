@@ -41,7 +41,7 @@ matrices below, which no automated diff can safely rewrite without
 risking silent inconsistency with their own narrative.
 
 <!-- BENCH:AUTO:START -->
-**Generated:** 2026-07-12T00:58:44Z · **Trigger:** pleno-dlp tag push v0.62.0 · **Full run:** `bench/results/results.json` / `bench/results/results.md` (uploaded as a workflow artifact)
+**Generated:** 2026-07-12T10:23:53Z · **Trigger:** pleno-dlp tag push v0.63.0 · **Full run:** `bench/results/results.json` / `bench/results/results.md` (uploaded as a workflow artifact)
 
 | Tool | Version measured |
 |---|---|
