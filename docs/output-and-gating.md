@@ -45,7 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: plenoai/pleno-dlp@v0.61.0
+      - uses: plenoai/pleno-dlp@v0.62.0
         id: scan
         with:
           target: .              # default: "."
