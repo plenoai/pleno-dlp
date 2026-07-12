@@ -5,7 +5,7 @@
 <h1 align="center">Pleno DLP</h1>
 
 <p align="center">
-  Unified DLP scanner for secrets and PII across filesystem, git, stdin, and SaaS sources.
+  DLP scanner for secrets and PII. Single Go binary.
 </p>
 
 <p align="center">
@@ -24,9 +24,8 @@
 </p>
 
 ```sh
+brew install plenoai/tap/pleno-dlp   # signed release binary
 go install github.com/plenoai/pleno-dlp/cmd/pleno-dlp@latest
-# or, on macOS/Linux with Homebrew:
-brew install plenoai/tap/pleno-dlp
 
 pleno-dlp protect
 pleno-dlp scan filesystem ./repo
@@ -34,55 +33,70 @@ pleno-dlp scan git --repo ./repo --max-depth 200
 pleno-dlp scan filesystem ./repo --format sarif > findings.sarif
 ```
 
-The Homebrew formula (`plenoai/tap/pleno-dlp`) is published to the
-[`plenoai/homebrew-tap`](https://github.com/plenoai/homebrew-tap) repository
-by GoReleaser on every `vX.Y.Z` tag push; it always tracks the latest
-signed release and pins a specific binary rather than floating on `@latest`
-the way `go install` does.
+## Sources
 
-## Target source
-
-- `filesystem`: working trees, build outputs, arbitrary directories
-- `git`: local history with branch / depth / time filters
-- `stdin`: diffs, exports, and pipe-based checks
-- SaaS: GitHub, GitLab, Bitbucket, Slack, Notion, Confluence, Jira
+`filesystem`, `git` history (branch, depth, and time filters), `stdin`,
+and SaaS connectors: GitHub, GitLab, Bitbucket, Slack, Notion, Confluence,
+Jira, and more.
 
 ```sh
-pleno-dlp scan filesystem ./repo
 pleno-dlp scan git --repo ./repo --branch main --max-depth 500
 git diff | pleno-dlp scan stdin --label git-diff
 pleno-dlp scan github --org acme
 pleno-dlp sources list
 ```
 
-`sources list` enumerates every registered core source and SaaS connector
-from `pkg/sources/catalog.All()`, with a `CLI-WIRED` column marking whether
-a `scan` subcommand exists yet — see
-[`docs/comparison.md`](docs/comparison.md) §9 for the full
-implemented/planned breakdown.
+## Detectors
 
-More connector detail: [`docs/source-forge-api-comments.md`](docs/source-forge-api-comments.md)
-
-## Detect coverage
-
-- 619 built-in detector types (registered in `pkg/detectors`; see
-  [`docs/counts.md`](docs/counts.md) for what "detector type" counts)
-- table / JSON / SARIF output
-- custom allowlists and org-specific rules supported
+619 built-in detector types ([counting method](docs/counts.md)),
+[benchmarked against trufflehog and gitleaks](docs/comparison.md) for
+recall, noise, and verification value. Table, JSON, or SARIF output;
+allowlists and org-specific rules via config.
 
 ```sh
 pleno-dlp detectors list
-pleno-dlp detectors list --format json
 pleno-dlp scan filesystem ./repo --format sarif > findings.sarif
 ```
 
-More output and CI detail: [`docs/output-and-gating.md`](docs/output-and-gating.md)
+## Verification
+
+Findings are checked against the provider API by default where one
+exists. Verdicts are three-valued: verified (confirmed live at scan
+time), unverified, indeterminate. Detectors that cannot verify are
+classified in [`docs/verify-coverage.md`](docs/verify-coverage.md).
+
+```sh
+pleno-dlp detectors list --verify-status
+```
+
+## Revocation
+
+`pleno-dlp revoke` invalidates leaked GitHub, GitLab, Slack, and Stripe
+restricted-key credentials from the CLI; AWS additionally needs
+operator-supplied IAM admin context. Each attempt writes a
+schema-versioned [JSON Lines audit record](docs/audit-trail-schema.md)
+(`--audit-trail <path>`, default stderr). Gating rules:
+[`docs/revoke-support.md`](docs/revoke-support.md)
+
+```sh
+echo "$LEAKED_TOKEN" | PLENO_DLP_ALLOW_REVOKE=1 pleno-dlp revoke --detector github --secret - --confirm
+pleno-dlp revoke --detector slack --secret xoxb-... --dry-run
+pleno-dlp detectors list --revoke-support
+```
+
+## PII detection
+
+Opt-in. Engines and setup in [`docs/pii-detection.md`](docs/pii-detection.md).
+
+```sh
+pleno-dlp scan filesystem ./src --pii-engine=anonymize
+```
 
 ## GitHub Action
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: plenoai/pleno-dlp@v0.61.0
+- uses: plenoai/pleno-dlp@v0.62.0
   with:
     sarif-file: results.sarif
 - uses: github/codeql-action/upload-sarif@v3
@@ -91,73 +105,21 @@ More output and CI detail: [`docs/output-and-gating.md`](docs/output-and-gating.
     sarif_file: results.sarif
 ```
 
-The action downloads the pinned release binary for the runner's OS/arch
-and cosign-verifies it (Sigstore keyless) before running anything. Details:
-[`docs/output-and-gating.md`](docs/output-and-gating.md#github-action).
-
-Measured comparison against trufflehog and gitleaks (synthetic and
-real-world recall, noise, verification value, capability probes):
-[`docs/comparison.md`](docs/comparison.md)
-
-## Verification support
-
-Provider-side validation runs by default where available.
-
-```sh
-pleno-dlp scan filesystem ./repo
-pleno-dlp detectors list --verify-status
-```
-
-Coverage and unverified classes: [`docs/verify-coverage.md`](docs/verify-coverage.md)
-
-## Revocation support
-
-`pleno-dlp revoke` can invalidate supported leaked credentials for GitHub,
-GitLab, Slack, AWS, and Stripe restricted keys — headlessly, from the CLI,
-with no provider web console step. Among the OSS scanners we benchmark in
-[`docs/comparison.md`](docs/comparison.md) (trufflehog, gitleaks), that is
-currently unique to pleno-dlp; it is not a claim about commercial tools.
-
-```sh
-echo "$LEAKED_TOKEN" | pleno-dlp revoke --detector github --secret - --confirm
-pleno-dlp revoke --detector slack --secret xoxb-... --dry-run
-pleno-dlp detectors list --revoke-support
-```
-
-Every revoke attempt emits a schema-versioned JSON Lines audit-trail
-record (`--audit-trail <path>`, falls back to stderr): [`docs/audit-trail-schema.md`](docs/audit-trail-schema.md)
-
-Details and safety constraints: [`docs/revoke-support.md`](docs/revoke-support.md)
-
-## PII detection
-
-PII scanning is opt-in.
-
-```sh
-pleno-dlp scan filesystem ./src --pii-engine=anonymize
-```
-
-Advanced flags and engine setup:
-
-- `pleno-dlp scan --help`
-- `pleno-dlp pii-server --help`
-- [`docs/pii-detection.md`](docs/pii-detection.md)
+The action [cosign-verifies the pinned release binary](docs/output-and-gating.md#github-action)
+before running it.
 
 ## Agent hooks
 
-`pleno-dlp hooks install claude-code|cursor` wires a fast, offline
-`scan stdin --no-verify` into the agent's own hook mechanism so a
-credential gets flagged before it's written (claude-code) or committed
-(cursor) — without waiting on CI.
+`pleno-dlp hooks install claude-code|cursor` runs an offline
+`scan stdin --no-verify` inside the agent's own hook, flagging a
+credential before it is written or committed. Latency numbers are in
+[`docs/hooks.md`](docs/hooks.md).
 
 ```sh
 pleno-dlp hooks install claude-code
 pleno-dlp hooks install cursor
 ```
 
-Measured hook latency and what each target installs:
-[`docs/hooks.md`](docs/hooks.md)
-
 ## License
 
-[AGPL-3.0](LICENSE).
+[AGPL-3.0](LICENSE)
