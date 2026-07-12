@@ -30,9 +30,8 @@ func init() {
 func SetEngineImplNative() { engineImpl = "native" }
 
 // nativeAdapter bridges opfnative.Engine to the detector's local Analyzer /
-// Finding types. The per-element copy is zero-cost — the field layout is
-// identical to piiengine/opfnative.Finding — and mirrors supervisorAdapter
-// so FromData is backend-agnostic.
+// Finding types, mirroring supervisorAdapter so FromData stays
+// backend-agnostic.
 type nativeAdapter struct{ e *opfn.Engine }
 
 func (a nativeAdapter) Analyze(ctx context.Context, text string) ([]Finding, error) {

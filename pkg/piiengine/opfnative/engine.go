@@ -15,11 +15,8 @@ import (
 )
 
 // Engine holds a single pf_ctx. pf_classify's thread-safety on a shared
-// ctx is not guaranteed by the ABI, so Analyze is serialized by mu — the
-// design (single ctx + mutex), not a comment, is the safety contract. One
-// GGUF load amortizes over the whole scan; the mutex bounds concurrency on
-// the model, which is memory-heavy enough that a single resident copy is
-// the intended deployment anyway.
+// ctx is not guaranteed by the ABI, so Analyze is serialized by mu. One
+// GGUF load amortizes over the whole scan.
 type Engine struct {
 	mu        sync.Mutex
 	ctx       *C.pf_ctx
