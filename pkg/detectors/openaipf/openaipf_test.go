@@ -221,6 +221,84 @@ func TestFromData_EachOPFCategoryMapsCorrectly(t *testing.T) {
 	}
 }
 
+func TestMapping_SingularAndPluralNormalizeIdentically(t *testing.T) {
+	// The subprocess path emits plural labels; the native
+	// (privacy-filter.cpp) path emits the model's singular BIOES-stripped
+	// category names. Both must normalize to the same wire-stable pii_kind
+	// so downstream consumers cannot tell which engine implementation ran.
+	// Singular set is the GGUF's 8 categories (openai/privacy-filter model
+	// card, "Label space": 1 O + 8×4 BIOES = 33 classes).
+	type pair struct {
+		plural, singular, kind string
+	}
+	pairs := []pair{
+		{"account_numbers", "account_number", "ACCOUNT_NUMBER"},
+		{"private_addresses", "private_address", "ADDRESS"},
+		{"private_emails", "private_email", "EMAIL_ADDRESS"},
+		{"private_persons", "private_person", "PERSON"},
+		{"private_phone_numbers", "private_phone", "PHONE_NUMBER"},
+		{"private_urls", "private_url", "URL"},
+		{"private_dates", "private_date", "DATE"},
+		{"secrets", "secret", "OPF_SECRET"},
+	}
+	for _, p := range pairs {
+		gotP := mapEntityType(p.plural)
+		gotS := mapEntityType(p.singular)
+		if gotP != p.kind {
+			t.Errorf("plural %q: pii_kind want %q, got %q", p.plural, p.kind, gotP)
+		}
+		if gotS != p.kind {
+			t.Errorf("singular %q: pii_kind want %q, got %q", p.singular, p.kind, gotS)
+		}
+		if gotP != gotS {
+			t.Errorf("%q/%q normalize differently: %q vs %q", p.plural, p.singular, gotP, gotS)
+		}
+	}
+}
+
+func TestFromData_EachNativeCategoryMapsCorrectly(t *testing.T) {
+	// End-to-end mirror of TestFromData_EachOPFCategoryMapsCorrectly for
+	// the native path's singular labels: a singular EntityType from
+	// opfnative must surface with the same pii_kind as its plural twin.
+	type row struct {
+		entity, kind string
+	}
+	rows := []row{
+		{"account_number", "ACCOUNT_NUMBER"},
+		{"private_address", "ADDRESS"},
+		{"private_email", "EMAIL_ADDRESS"},
+		{"private_person", "PERSON"},
+		{"private_phone", "PHONE_NUMBER"},
+		{"private_url", "URL"},
+		{"private_date", "DATE"},
+		{"secret", "OPF_SECRET"},
+	}
+	findings := make([]Finding, len(rows))
+	for i, r := range rows {
+		findings[i] = Finding{
+			EntityType: r.entity,
+			Start:      i,
+			End:        i + 1,
+			Score:      0.50 + 0.01*float64(i),
+			Text:       "X" + r.entity + "Y",
+		}
+	}
+	withAnalyzer(t, &fakeAnalyzer{findings: findings})
+
+	res, err := Scanner{}.FromData(context.Background(), false, []byte("payload"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res) != len(rows) {
+		t.Fatalf("want %d results, got %d", len(rows), len(res))
+	}
+	for i, r := range res {
+		if got := r.ExtraData["pii_kind"]; got != rows[i].kind {
+			t.Errorf("row %d (%s): pii_kind want %q, got %q", i, rows[i].entity, rows[i].kind, got)
+		}
+	}
+}
+
 func TestFromData_UnknownEntity_PassesThroughRaw(t *testing.T) {
 	// A future opf release that adds a category we have not mapped
 	// MUST surface the finding (forwarding the raw entity_type as

@@ -34,7 +34,20 @@ func mapEntityType(entityType string) string {
 // consumer routing on pii_kind alone gets the same semantic regardless
 // of which engine emitted the finding. ExtraData["engine"]
 // distinguishes the two engines when distinction matters.
+// The plural keys are the labels of the Python subprocess path
+// (piiengine/openaipf). The singular keys are the model's own
+// BIOES-stripped category names emitted by the in-process native path
+// (piiengine/opfnative → privacy-filter.cpp: pf_entity.label is
+// category_name(cat)). The GGUF label space is fixed at "O plus
+// B-/I-/E-/S- for each of 8 categories (1 + 8×4 = 33)":
+// account_number, private_address, private_date, private_email,
+// private_person, private_phone, private_url, secret (openai/privacy-filter
+// model card, "Label space"). Both spellings of a category alias to one
+// pii_kind so a downstream consumer routing on pii_kind cannot tell which
+// engine implementation produced the finding — ExtraData["engine_impl"]
+// carries that when it matters.
 var entityTypeMap = map[string]string{
+	// Subprocess path (plural).
 	"account_numbers":       "ACCOUNT_NUMBER",
 	"private_addresses":     "ADDRESS",
 	"private_emails":        "EMAIL_ADDRESS",
@@ -43,4 +56,14 @@ var entityTypeMap = map[string]string{
 	"private_urls":          "URL",
 	"private_dates":         "DATE",
 	"secrets":               "OPF_SECRET",
+
+	// Native path (singular): the 8 GGUF category names.
+	"account_number":  "ACCOUNT_NUMBER",
+	"private_address": "ADDRESS",
+	"private_email":   "EMAIL_ADDRESS",
+	"private_person":  "PERSON",
+	"private_phone":   "PHONE_NUMBER",
+	"private_url":     "URL",
+	"private_date":    "DATE",
+	"secret":          "OPF_SECRET",
 }
