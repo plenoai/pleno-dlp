@@ -34,7 +34,16 @@ func mapEntityType(entityType string) string {
 // consumer routing on pii_kind alone gets the same semantic regardless
 // of which engine emitted the finding. ExtraData["engine"]
 // distinguishes the two engines when distinction matters.
+//
+// Plural keys are the Python subprocess path's labels
+// (piiengine/openaipf); singular keys are the model's own
+// BIOES-stripped category names emitted by the native path
+// (piiengine/opfnative → privacy-filter.cpp's pf_entity.label). Both
+// spellings of a category alias to one pii_kind, so a consumer
+// routing on pii_kind cannot tell which engine implementation
+// produced the finding — ExtraData["engine_impl"] carries that.
 var entityTypeMap = map[string]string{
+	// Subprocess path (plural).
 	"account_numbers":       "ACCOUNT_NUMBER",
 	"private_addresses":     "ADDRESS",
 	"private_emails":        "EMAIL_ADDRESS",
@@ -43,4 +52,14 @@ var entityTypeMap = map[string]string{
 	"private_urls":          "URL",
 	"private_dates":         "DATE",
 	"secrets":               "OPF_SECRET",
+
+	// Native path (singular): the 8 GGUF category names.
+	"account_number":  "ACCOUNT_NUMBER",
+	"private_address": "ADDRESS",
+	"private_email":   "EMAIL_ADDRESS",
+	"private_person":  "PERSON",
+	"private_phone":   "PHONE_NUMBER",
+	"private_url":     "URL",
+	"private_date":    "DATE",
+	"secret":          "OPF_SECRET",
 }

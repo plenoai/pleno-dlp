@@ -1,6 +1,7 @@
 package anonymize
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -90,16 +91,17 @@ type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.PIIAnonymize }
 
-// keywords is intentionally permissive but non-empty. An empty
-// Keywords() forces the engine to run FromData on every chunk
-// including pure-binary chunks (compressed archives, images), which
-// would shovel garbage through the supervisor with no chance of a
-// hit. The selected prefixes anchor email-shaped content, Japanese
-// PII markers (postal/phone/address/name), and the dash separator
-// that appears in most Western PII shapes (IBAN, SSN, phone, card).
+// keywords satisfies the Detector interface but no longer gates
+// dispatch: WantsFullChunk routes every chunk to FromData, where the
+// looksBinary guard keeps binary chunks away from the supervisor.
 var keywords = []string{"@", "〒", "電話", "住所", "氏名", "-"}
 
 func (Scanner) Keywords() []string { return keywords }
+
+// WantsFullChunk opts out of vicinity-slice dispatch for the same reason
+// as openaipf.Scanner: NER finds PII anywhere in prose, not only within
+// ±vicinityRadius of a keyword hit.
+func (Scanner) WantsFullChunk() bool { return true }
 
 // FromData runs the chunk through the registered Analyzer and maps
 // each returned Finding to a detectors.Result.
@@ -118,6 +120,9 @@ func (Scanner) Keywords() []string { return keywords }
 //
 // The verify flag is ignored — Scanner is not a Verifier.
 func (Scanner) FromData(ctx context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	if len(data) == 0 || looksBinary(data) {
+		return nil, nil
+	}
 	a := fetchAnalyzer()
 	if a == nil {
 		return nil, nil
@@ -166,6 +171,16 @@ func redact(kind, raw string) string {
 		return raw[:1] + "***" + raw[at:]
 	}
 	return raw[:1] + "***" + raw[len(raw)-1:]
+}
+
+// looksBinary mirrors the sources' NUL-sniff heuristic; see
+// openaipf.looksBinary for why full-chunk dispatch needs it.
+func looksBinary(b []byte) bool {
+	n := len(b)
+	if n > 512 {
+		n = 512
+	}
+	return bytes.IndexByte(b[:n], 0x00) >= 0
 }
 
 func init() {

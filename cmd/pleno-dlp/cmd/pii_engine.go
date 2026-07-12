@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,12 @@ const (
 	defaultOpenAIPFCmd  = "pleno-dlp openai-pf-server --port {PORT}"
 )
 
+// errNativeNotBuilt is returned when --pii-engine=openai-pf-native is
+// selected on a binary without the opf_native build tag. Defined here
+// (untagged) so scan.go's preflight and the stub both reference one source
+// of truth across build modes (ADR-0005 §F).
+var errNativeNotBuilt = errors.New("--pii-engine=openai-pf-native requires an opf_native build: download pleno-dlp-opf-native_<os>_<arch> from https://github.com/plenoai/pleno-dlp/releases or run 'make opf-native-build' (see docs/adr/0005-native-opf-engine.md)")
+
 // validPIIEngineMode reports whether mode is a recognized --pii-engine value.
 // Callers validate this before scanning so an unknown value (an operator typo
 // such as "openai-pf" mistyped, or the upstream name "opf") fails fast as a
@@ -28,7 +35,7 @@ const (
 // scan while the operator believes PII detection is live.
 func validPIIEngineMode(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "", "off", "anonymize", "openai-pf":
+	case "", "off", "anonymize", "openai-pf", "openai-pf-native":
 		return true
 	default:
 		return false
@@ -48,8 +55,10 @@ func startPIIEngine(ctx context.Context, cmd *cobra.Command, stderr io.Writer) (
 		return startAnonymize(ctx, cmd, stderr)
 	case "openai-pf":
 		return startOpenAIPF(ctx, cmd, stderr)
+	case "openai-pf-native":
+		return startOpenAIPFNative(ctx, cmd, stderr)
 	default:
-		return nil, fmt.Errorf("unknown --pii-engine %q (valid: off, anonymize, openai-pf)", scanOpts.piiEngine)
+		return nil, fmt.Errorf("unknown --pii-engine %q (valid: off, anonymize, openai-pf, openai-pf-native)", scanOpts.piiEngine)
 	}
 }
 

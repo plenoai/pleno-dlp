@@ -1,0 +1,11 @@
+# pleno-dlp opf_native C-dependency pin lock (ADR-0005 §A).
+#
+# Each pin is a git commit SHA — it content-addresses the whole source
+# tree, so scripts/opf-native/fetch-deps.sh verifies the resolved SHA and
+# fails closed on any mismatch. Editing a pin here is the only supported
+# way to move the native engine's C sources; the built .a cache in CI is
+# keyed on the hash of this file.
+#
+# format: <name> [<git-url>] <commit-sha>
+privacy-filter.cpp https://github.com/localai-org/privacy-filter.cpp 735a6c28607ee82afc3a670383f41b55266a3b9a
+ggml 3af5f5760e19a96427f5f7a93b79cbdf3d4b265b

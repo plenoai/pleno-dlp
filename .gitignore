@@ -20,6 +20,12 @@ coverage.html
 # Build artifacts
 /pleno-dlp
 
+# opf_native engine (ADR-0005): fetched C sources and the built static libs
+# are reproducible via `make opf-native-deps`/`opf-native-lib` and never
+# committed — the pure-Go default build must stay free of C sources.
+/build/opf-native/
+/pkg/piiengine/opfnative/cdeps/
+
 # Claude scratch
 .claude/worktrees/
 .claude/_workspace/
@@ -43,3 +49,5 @@ coverage.html
 /bench/.cache/
 /bench/results/*.json
 /bench/results/*.md
+__pycache__/
+*.pyc
