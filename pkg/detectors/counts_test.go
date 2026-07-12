@@ -22,13 +22,13 @@ import (
 //     split) is derived here, at test time, from detectors.All() — the
 //     exact registry `detectors list` and the scan engine use. It is
 //     never hand-typed twice; every doc must match the registry.
-//   - The pleno-dlp source count and the two competitor counts
-//     (trufflehog detectors, gitleaks rules) have no in-repo runtime
-//     registry to derive from (sources are wired ad hoc per CLI command;
-//     competitor numbers come from measuring third-party binaries). For
-//     those, docs/comparison.md's own numbers are the canonical text,
-//     extracted here and cross-checked against every other file that
-//     quotes them.
+//   - The pleno-dlp source count is derived from pkg/sources/catalog
+//     by cmd/pleno-dlp/cmd/sources_sync_test.go, which pins it to
+//     docs/comparison.md's "Scan sources" cell. That cell and the two
+//     competitor counts (trufflehog detectors, gitleaks rules — measured
+//     from third-party binaries, not derivable here) are extracted from
+//     docs/comparison.md as canonical text and cross-checked against
+//     every other file that quotes them, docs/counts.md included.
 //
 // Add, remove, or reclassify a detector and this test breaks until every
 // quoted location is updated in the same PR — that is the intended gate.
@@ -91,6 +91,27 @@ func TestPublishedCountsMatchSource(t *testing.T) {
 		regexp.MustCompile(`(?m)^a=(\d+)$`), verified)
 	checkInt(t, "docs/verify-coverage.md", "machine block b=", coverage,
 		regexp.MustCompile(`(?m)^b=(\d+)$`), unverified)
+
+	// docs/counts.md — the definitions page carries "Current value" lines
+	// of its own; per its closing rule, an unenforced count is exactly the
+	// drift it exists to prevent (§2 sat at a stale 24 for weeks because
+	// nothing read it).
+	counts := readFile(t, filepath.Join(root, "docs", "counts.md"))
+	checkInt(t, "docs/counts.md", `§1 "Current value: N total"`, counts,
+		regexp.MustCompile(`\*\*Current value:\*\* (\d+) total`), total)
+	checkInt(t, "docs/counts.md", `§1 verified split`, counts,
+		regexp.MustCompile(`\*\*Current value:\*\* \d+ total \((\d+) verified`), verified)
+	checkInt(t, "docs/counts.md", `§1 unverified split`, counts,
+		regexp.MustCompile(`\*\*Current value:\*\* \d+ total \(\d+ verified, (\d+) unverified-by-design\)`), unverified)
+	checkInt(t, "docs/counts.md", `§2 "Current value: N wired sources"`, counts,
+		regexp.MustCompile(`\*\*Current value:\*\* (\d+) wired sources`), sources)
+	checkInt(t, "docs/counts.md", `§3 trufflehog count`, counts,
+		regexp.MustCompile(`\*\*Current value:\*\* trufflehog (\d+), gitleaks`), trufflehogDetectors)
+	checkInt(t, "docs/counts.md", `§3 gitleaks count`, counts,
+		regexp.MustCompile(`\*\*Current value:\*\* trufflehog \d+, gitleaks (\d+)`), gitleaksRules)
+	if !strings.Contains(counts, measuredDate) {
+		t.Errorf("docs/counts.md: §3 quotes competitor counts without the %s measurement date from docs/comparison.md", measuredDate)
+	}
 
 	// README.md
 	readme := readFile(t, filepath.Join(root, "README.md"))
