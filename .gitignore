@@ -49,3 +49,5 @@ coverage.html
 /bench/.cache/
 /bench/results/*.json
 /bench/results/*.md
+__pycache__/
+*.pyc
