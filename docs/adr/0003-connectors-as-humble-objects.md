@@ -2,7 +2,7 @@
 
 **Status:** Accepted. Owner: architect. Supersedes the unit-test
 expectations implied by the now-deleted `pkg/connectors/<name>/<name>_test.go`
-files that lived under [ADR-0001](../../_workspace/architecture-decisions.md).
+files that lived under ADR-0001.
 
 ## Context
 
