@@ -1,42 +1,43 @@
 # Revoke support
 
 Use `pleno-dlp detectors list --revoke-support` for the runtime answer.
-This page keeps the static contract: gating, idempotency, provider requirements, and caveats.
+This page keeps the static contract.
 
 **Scope note:** as far as we have measured (`docs/comparison.md`
 benchmarks pleno-dlp against trufflehog and gitleaks, the two other OSS
 secret scanners in that comparison), pleno-dlp is currently the only
-OSS tool of the three with **headless revoke** — a non-interactive,
-CLI-only path from a detected leak to an invalidated credential,
-scriptable in CI without a human clicking through a provider's web
-console. That is a narrower, falsifiable claim, not "zero competition":
-it says nothing about commercial/SaaS DLP products, provider-native
-auto-revoke integrations (e.g. a provider's own secret-scanning partner
-program), or tools outside that three-way comparison. Framing it any
-more broadly than "only OSS headless revoke, among the tools we've
-benchmarked" would be an overclaim this repo does not stand behind.
+OSS tool of the three with **headless revoke**: a non-interactive,
+CLI-only path from a detected leak to an invalidated credential.
+The claim is narrow and falsifiable. It says nothing about
+commercial/SaaS DLP products, provider-native auto-revoke integrations
+(e.g. a provider's own secret-scanning partner program), or tools
+outside that three-way comparison.
 
 ## Audit trail
 
 Every revoke attempt — through `--detector`/`--secret`,
 `--revoke-from-spool`, or `scan --revoke-on-verified` — emits one
 schema-versioned JSON Lines record via `--audit-trail <path>` (falls
-back to stderr if omitted, never silently dropped). Schema and field
-reference: [`docs/audit-trail-schema.md`](audit-trail-schema.md).
+back to stderr if omitted).
+[`docs/audit-trail-schema.md`](audit-trail-schema.md) documents the
+schema and each field.
 
 ## Severity recap
 
-Revoke runs only against **verified** findings. Scan-mode verification runs by
-default, so `scan --revoke-on-verified` can dispatch only provider-confirmed
-findings.
+Scan-driven revoke (`--revoke-on-verified`, `--revoke-spool`) dispatches
+only provider-verified findings; scan-mode verification runs by default.
+`pleno-dlp revoke --detector/--secret` acts on whatever secret the
+operator supplies, without a verification step.
 
 ## Safety gating
 
 Revoke is irreversible. The CLI applies three gates:
 
 1. **Mode flag.** `pleno-dlp revoke` requires one of `--confirm` or
-   `--dry-run`. Without either, the command refuses with exit code 2
-   (refused-by-gate, distinct from a transport failure).
+   `--dry-run`. Without either, the command refuses with exit code 2.
+   Because provider/transport failures also exit 2, the exit code
+   alone cannot identify a gate refusal; check stderr for
+   `revoke: refusing to proceed without --confirm or --dry-run`.
 2. **Environment opt-in for non-interactive contexts.** When the
    command runs against a non-TTY stdin (CI, pipes, scripts),
    `PLENO_DLP_ALLOW_REVOKE=1` must be set in addition to `--confirm`.
@@ -44,18 +45,15 @@ Revoke is irreversible. The CLI applies three gates:
 3. **Scan-mode opt-in.** `scan --revoke-on-verified` always requires
    `PLENO_DLP_ALLOW_REVOKE=1` regardless of TTY state. The flag
    only dispatches verified findings; revoking unverified candidates
-   would risk invalidating tokens that are not ours.
+   risks invalidating credentials that belong to an unrelated party.
    `--revoke-dry-run` previews the work without contacting any
-   provider and bypasses only the env-var gate (operators previewing
-   work shouldn't have to mark CI as ready-to-revoke).
+   provider and bypasses only the env-var gate.
 
-`Revoker.Revoke` implementations do not enforce local policy. The caller owns gating.
+`Revoker.Revoke` implementations do not enforce local policy.
 
 ## Deferred revoke via spool
 
-For workflows that want scan and revoke decoupled — separate trust
-boundaries, replayable revokes, or a human review gate between
-detection and revocation — use the spool path:
+For workflows that want scan and revoke decoupled, use the spool path:
 
 ```sh
 PLENO_DLP_ALLOW_RAW_EXPORT=1 \
@@ -72,8 +70,6 @@ and **contains raw secret bytes** — `PLENO_DLP_ALLOW_RAW_EXPORT=1` is
 required to opt in to serializing live credentials to disk.
 
 `--revoke-spool` is mutually exclusive with `--revoke-on-verified`.
-Pick one trust model: inline revoke happens during scan, deferred
-spool lets a second invocation own the irreversible step.
 
 Spool record shape (v1):
 
@@ -82,14 +78,18 @@ Spool record shape (v1):
 ```
 
 `pleno-dlp revoke --revoke-from-spool` iterates the file and dispatches
-each line to the matching `Revoker`. Lines whose detector lacks a
-Revoker are counted as skipped, not failed. The same gating rules
+each line to the matching `Revoker`. Known limitation: spool lines
+record the detector type name (e.g. `SlackBotToken`), and
+`SlackBotToken` currently fails to resolve to the slack `Revoker`, so
+Slack lines are counted as skipped rather than revoked. Lines whose
+detector lacks a Revoker also land in the skipped count; they never
+count as failures. The same gating rules
 apply once for the batch: `--confirm`/`--dry-run` and
 `PLENO_DLP_ALLOW_REVOKE=1` in non-interactive contexts.
 
-After a successful revoke pass, delete the spool file —
-`PLENO_DLP_ALLOW_RAW_EXPORT` does not protect against an operator
-leaving raw secrets at rest indefinitely.
+After a successful revoke pass, delete the spool file.
+`PLENO_DLP_ALLOW_RAW_EXPORT` only gates the write; it does nothing
+about raw secrets an operator leaves at rest indefinitely.
 
 ## Idempotency contract
 
@@ -99,8 +99,6 @@ already-revoked secret returns `Revoked=true` with a non-nil
 (e.g. "token already revoked", "already deleted"). Hard failures
 (transport, 5xx, rate-limit) surface via the second return value;
 `RevokeResult.Err` is reserved for provider-acknowledged diagnostics.
-
-This split distinguishes provider rejection, idempotent success, and transport failure.
 
 ## Detector × provider matrix
 
@@ -118,12 +116,11 @@ Status semantics:
   setup beyond the standard CLI gating.
 - **context-required** — `Revoker` is implemented but cannot run
   without operator-supplied principal context (see AWS below). Without
-  the context, `scan --revoke-on-verified` skips the finding and
-  reports it in the end-of-scan summary as `skipped-no-revoker=…`
-  alongside genuinely unsupported detectors.
-- **unsupported** — `Revoker` is not implemented. The provider may or
-  may not expose a public revocation API; absence here means we do
-  not currently route through one.
+  the context, `scan --revoke-on-verified` still dispatches the
+  finding; the attempt fails with a missing-credentials error and is
+  reported in the end-of-scan summary under `failed=…` (with a
+  `revoke FAIL:` stderr line), not under `skipped-no-revoker=…`.
+- **unsupported** — `Revoker` is not implemented.
 
 ## Provider-specific notes
 
@@ -170,32 +167,34 @@ standard 2-step flow:
 2. `POST /api/v4/personal_access_tokens/{id}/revoke` (same Bearer).
 
 No additional CLI plumbing is required beyond passing the leaked
-token to `--secret`. `apiBase` is overridable for self-hosted GitLab
-deployments via the detector's package-level variable; the CLI does
-not currently expose this — file an issue if you need it.
+token to `--secret`. The GitLab API base is hard-coded to
+https://gitlab.com (an unexported package variable, overridden only in
+tests); self-hosted GitLab is not currently supported for revoke —
+file an issue if you need it.
 
 ### Slack
 
-Slack's `auth.revoke` works for every token shape (`xoxb-`, `xoxp-`,
-`xoxa-`, `xoxe-`, `xapp-`). The endpoint always returns HTTP 200; the
-classification lives in the JSON body. We treat
+Slack revoke is implemented for the `SlackBotToken` detector
+(`xoxb-`). `revoke --detector slack --secret …` will send any
+operator-supplied token to `auth.revoke`; shapes the endpoint does not
+accept surface as FAIL with the provider's error string. On success
+and provider-level rejection the endpoint returns HTTP 200 with the
+classification in the JSON body; HTTP 429 and 5xx responses surface as
+hard errors. We treat
 `token_revoked`/`invalid_auth`/`not_authed` as idempotent successes
-because each indicates the credential is no longer usable, even if a
-strict reading of the response would only flag the first as "we
-revoked it just now".
+because each indicates the credential is no longer usable.
 
 ### Stripe (restricted keys only)
 
 Stripe's revoke API only accepts **restricted keys** (`rk_test_` /
 `rk_live_`). Secret keys (`sk_test_` / `sk_live_`) cannot be revoked
 programmatically — they must be rotated via the Stripe Dashboard. The
-detector hard-rejects non-`rk_` inputs with an explanatory error so
-callers cannot believe rotation succeeded for an `sk_` key.
+detector hard-rejects non-`rk_` inputs with an explanatory error, so
+an `sk_` key never gets reported as successfully rotated.
 
 The `ProviderID` field carries the key's prefix plus the first four
 characters of the body so audit logs correlate revocations without
-storing the live secret. This is intentional: storing the full id
-defeats the point of redaction.
+storing the live secret.
 
 ### AWS access key (context-required)
 
@@ -217,29 +216,24 @@ admin credentials authorized to call DeleteAccessKey:
 | Target IAM user name          | `--aws-user-name`                         | `PLENO_DLP_REVOKE_AWS_USER_NAME`                |
 | Region (default `us-east-1`)  | `--aws-region`                            | `PLENO_DLP_REVOKE_AWS_REGION`                   |
 
-The signer is inline SigV4 (no AWS SDK dependency). NoSuchEntity
-responses are treated as idempotent successes.
+NoSuchEntity responses are treated as idempotent successes.
 
-When `scan --revoke-on-verified` encounters a verified AWS finding
-without the principal context, it cannot revoke and the finding lands
-in the `skipped-no-revoker` counter. Operators batching AWS
-revocations should script `pleno-dlp revoke --detector aws` with the
+Operators batching AWS revocations should script
+`pleno-dlp revoke --detector aws` with the
 correct `--aws-user-name` per finding rather than relying on the scan
 flag.
 
 ## Failure handling
 
-There is no rollback. Provider-side revocation is a one-way operation;
-once a token is invalidated the operator must mint a fresh one through
-the provider's normal flow. The CLI logs every revoke outcome to
-stderr (`revoke OK:`, `revoke OK (idempotent):`, `revoke FAIL:`) so a
-post-mortem can reconstruct what happened. Structured callers should
-prefer `pleno-dlp revoke --format json`, which emits one record per
+There is no rollback: once a token is invalidated the operator must
+mint a fresh one through the provider's normal flow. The CLI logs
+revoke outcomes so a post-mortem can reconstruct what happened:
+`scan --revoke-on-verified` and table-mode `pleno-dlp revoke` write
+outcome lines to stderr; `revoke --format json` writes the structured
+record to stdout instead. Structured callers should prefer
+`pleno-dlp revoke --format json`, which emits one record per
 invocation on stdout with `detector`, `redacted_secret`, `revoked`,
-`revoked_at`, `provider_id`, `dry_run`, and `error` fields. For a
-durable, schema-versioned trail across many invocations (rather than
-one process's stdout), pass `--audit-trail <path>` — see
-[`docs/audit-trail-schema.md`](audit-trail-schema.md).
+`revoked_at`, `provider_id`, `dry_run`, and `error` fields.
 
 Rate-limit responses (HTTP 429) surface as hard errors; the CLI does
 not retry. For batch revocations, set `--rate-limit-rps` on the
@@ -263,8 +257,8 @@ The recommended automation pattern:
       --format json filesystem .
 ```
 
-Most CI runs should stay on `--revoke-dry-run`. Production runbooks should also
-pin the detector set with `--include-detectors`.
+Production runbooks should pin the detector set with
+`--include-detectors`.
 
 ## Querying support at runtime
 
@@ -272,9 +266,8 @@ pin the detector set with `--include-detectors`.
 pleno-dlp detectors list --revoke-support --format=json
 ```
 
-emits one JSON object per detector with `revokes` (bool) and
-`revoke_status` ("supported" | "context-required" | "unsupported")
-fields alongside the existing `verifies` / `verify_status` columns.
+emits a JSON array with one object per detector; each object carries
+`revokes` (bool, omitted when false) and `revoke_status`
+("supported" | "context-required" | "unsupported") alongside
+`verifies`. Add `--verify-status` to also populate `verify_status`.
 The same data renders as a table when `--format` is omitted.
-
-This is the runtime answer for detector revoke support.

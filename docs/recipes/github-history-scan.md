@@ -1,37 +1,33 @@
 # GitHub full-history scanning
 
 The GitHub connector scans the **full commit history** of every enumerated
-repository. There is a single scan mode — there is no flag or config key to
-select it.
+repository. There is a single scan mode.
 
 ## How it works
 
-Trufflehog parity. For each enumerated repository the connector performs a
+For each enumerated repository the connector performs a
 single mirror clone over git smart-HTTP and then walks **every commit reachable
 from every branch** locally, diffing each commit against its first parent and
 emitting added text per changed file and commit. Text added to files over
 1 MiB is split into bounded 1 MiB chunks with overlap; modifications use a
-native streaming diff instead of materializing both blobs in memory.
+native streaming diff.
 
 ```sh
 pleno-dlp scan github --repo acme/widget
 pleno-dlp scan github --org acme
 ```
 
-Why clone-based: git smart-HTTP does **not** consume the GitHub REST rate
-limit, so the per-repo REST cost of a full-history scan is **zero**. REST is
+REST is
 used only for repository enumeration and, optionally, the comments surface.
 
-Coverage: HEAD plus all `refs/heads/` and `refs/remotes/` refs. A secret that
-was committed to a side branch — or rewritten away on the default branch but
-still reachable from another ref — is found.
+Coverage: HEAD plus all `refs/heads/` and `refs/remotes/` refs.
 
 ## Comments
 
 `--include-comments` scans issue comments and pull-request review comments.
 Comments are always fetched over REST. `--comments-timeframe-days N` adds a
 GitHub `since` bound to both comment surfaces; `0` (the default) scans all
-comments. A timeframe reduces REST and scan cost but intentionally excludes
+comments. A timeframe reduces REST and scan cost but excludes
 older comments, including on the first run.
 
 ## Issues and pull requests
@@ -43,7 +39,7 @@ Issue and pull-request descriptions are explicit, independent surfaces:
 - `--include-comments` continues to mean comments only; it enables neither
   title/body surface.
 - `--collaboration-timeframe-days N` limits issue/PR entities by `updated_at`;
-  `0` (default) performs the deliberate full backfill.
+  `0` (default) performs the full backfill.
 
 Title and body are emitted as separate chunks with metadata fields `entity`
 (`issue` or `pull_request`), `number`, and `part` (`title` or `body`). Their
@@ -68,7 +64,7 @@ page. Repositories reporting `has_wiki=false`, and enabled wikis whose Git
 repository is still absent, are nonfatal `wiki-disabled` / `wiki-missing`
 skips. Authentication, network, and walk failures remain structured degraded
 coverage. Wiki and main-history units share the bounded `--repo-concurrency`
-window, so enabling wikis cannot create an unbounded second clone pool.
+window.
 
 ## Gists
 
@@ -80,8 +76,7 @@ privacy boundary has only two explicit scopes:
   authenticated identity.
 
 `--include-gist-comments` is a separate opt-in because comments add API cost
-and PII-heavy user content. There is intentionally no org-member gist
-expansion. A classic PAT needs the `gist` scope for secret gists; fine-grained
+and PII-heavy user content. A classic PAT needs the `gist` scope for secret gists; fine-grained
 tokens and GitHub App installations can only return resources granted to that
 identity, and insufficient access is degraded coverage rather than “missing.”
 
@@ -121,7 +116,7 @@ the full commit message, author and committer identities, and git notes. It is
 off by default because identity email addresses are expected PII and would be
 noisy when `--pii-engine` is enabled. The same explicit flag and default apply
 to `scan git` and `scan github`. GitHub clones mirror `refs/notes/*`, and
-metadata findings link to the commit rather than to a synthetic blob path.
+metadata findings link to the commit (there is no synthetic blob path).
 Native git is required to enumerate notes; on git-less hosts commit messages
 and identities still scan, while notes are unavailable. Large modification
 streaming also requires native git and fails visibly if it is unavailable.
@@ -135,7 +130,7 @@ bytes. Both are opt-in. Defaults are 10 MiB compressed/raw and per entry,
 Override them with the `--git-artifact-max-bytes`,
 `--git-archive-max-expanded-bytes`, `--git-archive-max-files`,
 `--git-archive-max-depth`, and `--git-archive-timeout` flags. Budget breaches
-are reported as incomplete scans, not silently accepted. See ADR 0004.
+are reported as incomplete scans. See ADR 0004.
 
 ## Authentication
 
@@ -181,7 +176,9 @@ as a local filesystem path, which the clone supports directly).
 
 ## Incremental rescans
 
-The connector persists per-repo incremental state recording each ref's head
+With `--incremental` (state file set via `--incremental-state`, default
+`.pleno-dlp-incremental.json`), the connector persists per-repo incremental
+state recording each ref's head
 sha. A rerun seeds the walk's stop-set from those heads so only commits added
 since the last scan are emitted (a commit reachable from a previously recorded
 head is never re-emitted, even across branches). Legacy tree-mode state written
@@ -189,20 +186,19 @@ by pre-removal builds is ignored once (one full rescan), then replaced with
 history state.
 
 The state also records the repo's `pushed_at` as observed at enumeration time.
-When a rerun reports the same `pushed_at` **and the persisted history-policy
+When an `--incremental` rerun reports the same `pushed_at` **and the persisted history-policy
 fingerprint still matches**, the main clone and walk are skipped and prior
 state is carried forward. Enabling metadata/artifact surfaces or changing their
 budgets changes that fingerprint and forces the required rescan. On a large org
 where most repos see no pushes between daily runs, this removes most of the
 clone traffic. The `--include-comments` pass still runs for skipped repos,
 since issue/PR comments move without touching `pushed_at`. A push racing the
-scan lands after the recorded timestamp, so it forces a re-walk on the next
-run rather than being missed.
+scan lands after the recorded timestamp, so the next run picks it up with a
+forced re-walk; it is never missed.
 
 State is namespaced by surface: `repository-history`, `repository-wiki`,
 `gist-history`, and `gist-comments`. Main repositories, wikis, and gists keep
-independent ref heads and policy fingerprints, so enabling or failing one
-surface cannot advance another surface's checkpoint.
+independent ref heads and policy fingerprints.
 
 The reproducible selected-defaults large-org measurement, including wall time,
 peak RSS, actual clone bytes, API calls, and findings, is recorded in
@@ -226,5 +222,4 @@ line such as:
 coverage: status=degraded failures=1 source=1 archive=0 detector=0
 ```
 
-Coverage failure takes precedence over the finding-severity exit gate because
-an incomplete scan cannot be treated as a clean result.
+Coverage failure takes precedence over the finding-severity exit gate.

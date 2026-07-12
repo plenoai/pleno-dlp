@@ -14,7 +14,7 @@ enforces it.
 
 ## Severity model recap
 
-`detectors.DefaultSeverity` is the contract:
+`detectors.DefaultSeverity`:
 
 | Detector class                                          | Verified  | Unverified |
 |---------------------------------------------------------|-----------|------------|
@@ -22,28 +22,25 @@ enforces it.
 | `JWT`, `PrivateKeyPEM`, `GenericHighEntropy`            | Critical  | Medium     |
 | `PIIAnonymize`, `PIIOpenAIPF`                           | (n/a)     | Medium     |
 
-A handful of providers (`Stripe`, `MercuryBank`, `Bitwarden`, `Helcim`,
-…) override their unverified severity to Critical at the detector level
-because the leak surface is destructive even before verification. Those
-are not enumerated here — `DefaultSeverity` is the floor; per-detector
-overrides only raise it.
+A handful of providers (`Bitwarden`, `Helcim`, `AzureAD`, `CloudflareR2`,
+…) override their unverified severity to Critical at the detector level.
+Those are not enumerated here, since `DefaultSeverity` applies only
+when a detector leaves severity unset. Per-detector overrides usually
+raise it; the one lowering exception is `SalesforceRefresh` (see the
+class (b) table).
 
 ## (a) Verify implemented — 552 detectors
 
 Detector type satisfies `detectors.Verifier`. The detector calls the
 upstream provider and returns `(true, nil)` on success, `(false, nil)`
 when the credential is rejected, and `(false, err)` only for transport
-errors. Verified findings surface at `Severity = Critical`
-(via `DefaultSeverity`).
+errors.
 
 Some entries in this column implement `Verify` but return
 `(false, nil)` until an `apiBase` override is supplied (per-tenant or
-per-region host). They satisfy the interface — the detector's `Verify`
-function exists and is reachable from the engine — and are counted in
+per-region host). They satisfy the interface and are counted in
 class (a). Where the host shape is structurally absent from the chunk
 and no apiBase fallback is wired, the detector lives in (b) instead.
-
-The full enumeration lives in the machine block.
 
 ### Context-extraction Verify
 
@@ -51,14 +48,10 @@ Azure AD and Azure App detectors extract `tenant_id` from surrounding
 chunk data (assignment anchors, URLs, and known Azure directory
 patterns). The extracted tenant is combined with the matched
 `client_id` / `client_secret` pair to attempt an OAuth2
-`client_credentials` grant against
-`https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token`.
-A `200` with a valid `access_token` marks the finding verified; a
-`401` / `invalid_client` marks it unverified; transport errors are
-returned as `(false, err)` per the standard Verifier contract. This
-"context-extraction" pattern lets the detector verify credentials whose
-host endpoint is not self-contained in the secret itself but is
-recoverable from neighbouring text.
+`client_credentials` grant. Transport errors currently return
+`(false, nil)`, deviating from the standard Verifier contract: the
+AzureAD/AzureApp verifiers cannot yet distinguish a rejected credential
+from an unreachable token endpoint.
 
 ## (b) Unverified-by-design — 67 detectors
 
@@ -66,9 +59,7 @@ These detectors deliberately do not implement `Verify`. The rationale
 is one of:
 
 - **Connection-string / URL-embedded credential.** The credential is
-  meaningful only against a host that lives elsewhere. Reachability is
-  the user's environment, not ours, and a generic verify call would
-  either be wrong or destructive.
+  meaningful only against a host that lives elsewhere.
 - **Presigned URL / signed bearer.** Verification depends on
   unguessable signed-time-bound headers we cannot recreate.
 - **Self-hosted, host not in chunk.** Provider runs on
@@ -80,28 +71,22 @@ is one of:
   (key id, issuer id, project id) that is not co-located with the
   matched secret in the chunk.
 - **Generic shape detector.** No fixed upstream provider (`JWT`,
-  `GenericHighEntropy`). `PrivateKeyPEM` was previously in this list
-  but is now class (a) — see the Verifier note below.
-- **PII finding class.** No "is this real?" call exists — PII is
-  identity, not credential, and the appropriate response is access
-  control / redaction, not verification.
-
-Severity-on-finding is High by default, Medium for `JWT`,
-`PrivateKeyPEM`, `GenericHighEntropy`, `PIIAnonymize`, `PIIOpenAIPF`, and
-`SalesforceRefresh` (explicit override — instance URL and client credentials
-absent, so the finding acknowledges the token shape without implying live access).
+  `GenericHighEntropy`). `PrivateKeyPEM` is class (a) — see the
+  Verifier note below.
+- **PII finding class.** No "is this real?" call exists.
 
 > **PrivateKeyPEM Verifier (class a).** PEM private keys do not have a
 > single upstream provider, but the public-key half can be correlated
 > against Certificate Transparency logs. The detector derives the SPKI
 > SHA-256 locally (the private key never leaves the host) and queries
-> crt.sh `?spkisha256=<hex>` during verification. A non-empty CT
+> crt.sh during verification. A non-empty CT
 > match marks the finding `Verified=true` and surfaces the discovered
-> domains via `ExtraData["blast_radius_domains"]` — the leak's literal
-> blast radius. Encrypted PEMs are also tried against an embedded
-> 325-entry passphrase wordlist; a successful unlock escalates the
-> unverified severity from Medium to High. Inspired by
-> trufflesecurity/driftwood.
+> domains via `ExtraData["blast_radius_domains"]`. Encrypted PEMs are
+> also tried against an embedded
+> 325-entry passphrase wordlist; a successful unlock pins severity at
+> High — including for findings the CT lookup subsequently verifies,
+> which therefore surface at High rather than the table's Critical.
+> Inspired by trufflesecurity/driftwood.
 
 | DetectorType            | Class    | Rationale (verify infeasible; hardening applied where noted)                  |
 |-------------------------|----------|---------------------------------------------------------------------------|
@@ -159,11 +144,11 @@ absent, so the finding acknowledges the token shape without implying live access
 | RequestBin              | secret   | per-bin endpoint not in chunk |
 | SalesforceRefresh       | secret   | paired credential — instance URL + client_id + client_secret not co-located; Severity=Medium (explicit override, see severity recap above) |
 | Segment                 | secret   | ingest returns 200 for invalid keys and a probe mints billed events; hardened: entropy floor + pure-hex exclusion |
-| Sentry                  | secret   | matched value is a DSN ingest *write* key; the only verify is submitting an event (destructive / billed), no non-destructive validate — reclassified from (c) |
+| Sentry                  | secret   | matched value is a DSN ingest *write* key; the only verify is submitting an event (destructive / billed), no non-destructive validate |
 | Sinch                   | secret   | project_id half of (project_id, key) not in chunk |
 | Smee                    | secret   | per-channel proxy URL not in chunk |
 | SMTP                    | secret   | connection string, SMTP host not in chunk |
-| Snowflake               | secret   | keypair JWT auth needs the *private key* to sign the assertion, never present in the matched chunk — reclassified from (c) |
+| Snowflake               | secret   | keypair JWT auth needs the *private key* to sign the assertion, never present in the matched chunk |
 | SonatypeNexus           | secret   | self-hosted artifact repo, host not in chunk |
 | Spinnaker               | secret   | per-deploy Gate host, /auth/user returns anonymous 200; hardened: JWT structure validation + entropy + assignment anchor |
 | Stytch                  | secret   | environment-bound endpoints (test vs live) not in chunk |
@@ -179,6 +164,7 @@ The `coverage-machine` block pins counts and per-detector class.
 
 - `class=a` → Verify implemented (detector satisfies `detectors.Verifier`)
 - `class=b` → Unverified-by-design (no Verify, deliberate)
+- `class=c` → verifiable but not yet implemented (verify-gap; currently unused — every non-Verifier detector is class b)
 
 ```coverage-machine
 total=619
@@ -254,4 +240,5 @@ type=Zoho class=b
 ```
 
 `class=a` is the open-set complement of the list above. Adding a new
-detector without `Verify` and without listing it as `b` will fail CI.
+detector without `Verify` and without listing it as `b` or `c` will
+fail CI.
