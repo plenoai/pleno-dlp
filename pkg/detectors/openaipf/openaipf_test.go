@@ -20,10 +20,6 @@ type fakeAnalyzer struct {
 	calls    int
 }
 
-type nativeFakeAnalyzer struct{ *fakeAnalyzer }
-
-func (nativeFakeAnalyzer) engineImpl() string { return "native" }
-
 func (f *fakeAnalyzer) Analyze(_ context.Context, text string) ([]Finding, error) {
 	f.calls++
 	f.lastText = text
@@ -35,8 +31,7 @@ func (f *fakeAnalyzer) Analyze(_ context.Context, text string) ([]Finding, error
 
 // withAnalyzer overrides fetchAnalyzer for the duration of the test
 // and restores the prior implementation on cleanup. fetchAnalyzer is
-// a package-level function variable so the substitution does not
-// require touching the production singleton in pkg/piiengine/openaipf.
+// a package-level function variable so tests do not need a native model.
 func withAnalyzer(t *testing.T, a Analyzer) {
 	t.Helper()
 	prev := fetchAnalyzer
@@ -158,8 +153,7 @@ func TestFromData_AnalyzerError(t *testing.T) {
 func TestFromData_EmailFinding_EmitsExtraData(t *testing.T) {
 	withAnalyzer(t, &fakeAnalyzer{
 		findings: []Finding{{
-			EntityType: "private_emails",
-			BIOESTag:   "E-private_emails",
+			EntityType: "private_email",
 			Start:      9,
 			End:        26,
 			Score:      0.97,
@@ -191,30 +185,11 @@ func TestFromData_EmailFinding_EmitsExtraData(t *testing.T) {
 		t.Errorf("VerificationErr must be nil for PII; got %v", r.VerificationErr)
 	}
 	mustEqual(t, r.ExtraData, "finding_class", "pii")
-	mustEqual(t, r.ExtraData, "engine", "openai-pf")
-	mustEqual(t, r.ExtraData, "engine_impl", "subprocess")
+	mustEqual(t, r.ExtraData, "engine", "openai-pf-native")
 	mustEqual(t, r.ExtraData, "pii_kind", "EMAIL_ADDRESS")
 	mustEqual(t, r.ExtraData, "score", "0.97")
 	mustEqual(t, r.ExtraData, "start", "9")
 	mustEqual(t, r.ExtraData, "end", "26")
-	mustEqual(t, r.ExtraData, "bioes_tag", "E-private_emails")
-}
-
-func TestFromData_AdapterControlsEngineProvenance(t *testing.T) {
-	withAnalyzer(t, nativeFakeAnalyzer{&fakeAnalyzer{findings: []Finding{{
-		EntityType: "private_email",
-		Score:      0.99,
-		Text:       "alice@example.com",
-	}}}})
-
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("alice@example.com"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(res) != 1 {
-		t.Fatalf("want 1 result, got %d", len(res))
-	}
-	mustEqual(t, res[0].ExtraData, "engine_impl", "native")
 }
 
 func TestFromData_EachOPFCategoryMapsCorrectly(t *testing.T) {
@@ -225,14 +200,14 @@ func TestFromData_EachOPFCategoryMapsCorrectly(t *testing.T) {
 		entity, kind string
 	}
 	rows := []row{
-		{"account_numbers", "ACCOUNT_NUMBER"},
-		{"private_addresses", "ADDRESS"},
-		{"private_emails", "EMAIL_ADDRESS"},
-		{"private_persons", "PERSON"},
-		{"private_phone_numbers", "PHONE_NUMBER"},
-		{"private_urls", "URL"},
-		{"private_dates", "DATE"},
-		{"secrets", "OPF_SECRET"},
+		{"account_number", "ACCOUNT_NUMBER"},
+		{"private_address", "ADDRESS"},
+		{"private_email", "EMAIL_ADDRESS"},
+		{"private_person", "PERSON"},
+		{"private_phone", "PHONE_NUMBER"},
+		{"private_url", "URL"},
+		{"private_date", "DATE"},
+		{"secret", "OPF_SECRET"},
 	}
 	findings := make([]Finding, len(rows))
 	for i, r := range rows {
@@ -262,43 +237,8 @@ func TestFromData_EachOPFCategoryMapsCorrectly(t *testing.T) {
 		if r.ExtraData["finding_class"] != "pii" {
 			t.Errorf("row %d: missing finding_class=pii", i)
 		}
-		if r.ExtraData["engine"] != "openai-pf" {
+		if r.ExtraData["engine"] != "openai-pf-native" {
 			t.Errorf("row %d: wrong engine: %q", i, r.ExtraData["engine"])
-		}
-	}
-}
-
-func TestMapping_SingularAndPluralNormalizeIdentically(t *testing.T) {
-	// The subprocess path emits plural labels; the native
-	// (privacy-filter.cpp) path emits the model's singular BIOES-stripped
-	// category names. Both must normalize to the same wire-stable pii_kind
-	// so downstream consumers cannot tell which engine implementation ran.
-	// Singular set is the GGUF's 8 categories (openai/privacy-filter model
-	// card, "Label space": 1 O + 8×4 BIOES = 33 classes).
-	type pair struct {
-		plural, singular, kind string
-	}
-	pairs := []pair{
-		{"account_numbers", "account_number", "ACCOUNT_NUMBER"},
-		{"private_addresses", "private_address", "ADDRESS"},
-		{"private_emails", "private_email", "EMAIL_ADDRESS"},
-		{"private_persons", "private_person", "PERSON"},
-		{"private_phone_numbers", "private_phone", "PHONE_NUMBER"},
-		{"private_urls", "private_url", "URL"},
-		{"private_dates", "private_date", "DATE"},
-		{"secrets", "secret", "OPF_SECRET"},
-	}
-	for _, p := range pairs {
-		gotP := mapEntityType(p.plural)
-		gotS := mapEntityType(p.singular)
-		if gotP != p.kind {
-			t.Errorf("plural %q: pii_kind want %q, got %q", p.plural, p.kind, gotP)
-		}
-		if gotS != p.kind {
-			t.Errorf("singular %q: pii_kind want %q, got %q", p.singular, p.kind, gotS)
-		}
-		if gotP != gotS {
-			t.Errorf("%q/%q normalize differently: %q vs %q", p.plural, p.singular, gotP, gotS)
 		}
 	}
 }
@@ -378,7 +318,7 @@ func TestFromData_NoBIOES_OmitsBIOESKey(t *testing.T) {
 	// finding.
 	withAnalyzer(t, &fakeAnalyzer{
 		findings: []Finding{{
-			EntityType: "private_persons",
+			EntityType: "private_person",
 			Score:      0.91,
 			Text:       "Alice Tanaka",
 		}},
@@ -398,9 +338,9 @@ func TestFromData_NoBIOES_OmitsBIOESKey(t *testing.T) {
 func TestFromData_MultipleFindings_AllEmitted(t *testing.T) {
 	withAnalyzer(t, &fakeAnalyzer{
 		findings: []Finding{
-			{EntityType: "private_persons", Score: 0.85, Text: "Alice Tanaka"},
-			{EntityType: "private_phone_numbers", Score: 0.90, Text: "+81-3-5555-1234"},
-			{EntityType: "secrets", Score: 0.70, Text: "AKIA0000EXAMPLE"},
+			{EntityType: "private_person", Score: 0.85, Text: "Alice Tanaka"},
+			{EntityType: "private_phone", Score: 0.90, Text: "+81-3-5555-1234"},
+			{EntityType: "secret", Score: 0.70, Text: "AKIA0000EXAMPLE"},
 		},
 	})
 	res, err := Scanner{}.FromData(context.Background(), false, []byte("doc"))
@@ -421,7 +361,7 @@ func TestFromData_MultipleFindings_AllEmitted(t *testing.T) {
 		if want, ok := wantRedacted[kind]; ok && r.Redacted != want {
 			t.Errorf("%s redaction: want %q, got %q", kind, want, r.Redacted)
 		}
-		if r.ExtraData["engine"] != "openai-pf" {
+		if r.ExtraData["engine"] != "openai-pf-native" {
 			t.Errorf("%s: wrong engine: %q", kind, r.ExtraData["engine"])
 		}
 	}

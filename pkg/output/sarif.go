@@ -258,7 +258,7 @@ var ruleDescriptions = map[string]string{
 	// outputs that reference those names should fall back to a generic
 	// "deprecated PII detector" label.
 	detectors.PIIAnonymize.String():           "PII detected by the pleno-anonymize NER+regex engine (PERSON, EMAIL_ADDRESS, ADDRESS, PHONE_NUMBER, JP_MY_NUMBER, CREDIT_CARD, IBAN, US_SSN, …) — finding_class=pii, see properties.pii_kind for entity type",
-	detectors.PIIOpenAIPF.String():            "PII detected by the openai/privacy-filter (opf) transformer engine (PERSON, EMAIL_ADDRESS, PHONE_NUMBER, ADDRESS, URL, DATE, ACCOUNT_NUMBER, OPF_SECRET) — finding_class=pii, engine=openai-pf, see properties.pii_kind for entity type",
+	detectors.PIIOpenAIPF.String():            "PII detected by the native openai/privacy-filter engine (PERSON, EMAIL_ADDRESS, PHONE_NUMBER, ADDRESS, URL, DATE, ACCOUNT_NUMBER, OPF_SECRET) — finding_class=pii, engine=openai-pf-native, see properties.pii_kind for entity type",
 	detectors.AWSSession.String():             "AWS temporary session credential triple (ASIA…) — unverified by design (region/audit unknown)",
 	detectors.AzureSAS.String():               "Azure Storage SAS URL with embedded sig= signature",
 	detectors.GCPOAuth.String():               "Google OAuth refresh token (1//0…)",

@@ -8,25 +8,12 @@ import (
 	"strings"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
-	piie "github.com/plenoai/pleno-dlp/pkg/piiengine/openaipf"
 )
 
-// Analyzer is the subset of pkg/piiengine/openaipf.Supervisor that the
-// detector needs. Defined as an interface (and as a package-level
-// function variable below) so tests can substitute a fake without
-// spawning a real opf HTTP server. The interface matches the
-// supervisor's Analyze signature verbatim — see ADR-0004 §3.
 type Analyzer interface {
 	Analyze(ctx context.Context, text string) ([]Finding, error)
 }
 
-// Finding mirrors the per-entity payload returned by the supervisor.
-// Defined locally with the same fields as piie.Finding so the
-// detector and the supervisor can be tested independently without
-// pulling the supervisor (and its child-process / http.Client state)
-// into the detector test binary. The production path adapts the
-// supervisor's Finding into this shape with a zero-cost struct copy
-// in supervisorAdapter.
 type Finding struct {
 	EntityType string
 	BIOESTag   string
@@ -36,56 +23,7 @@ type Finding struct {
 	Text       string
 }
 
-// fetchAnalyzer returns the active Analyzer, or nil when the engine
-// is off (--pii-engine=off / --pii-engine=anonymize, or spawn failed
-// and the engine layer downgraded to skip-and-warn). Production looks
-// up the singleton Supervisor published by piie.SetDefault and wraps
-// it in supervisorAdapter; tests override this variable to inject a
-// fake.
-var fetchAnalyzer = productionAnalyzer
-
-func productionAnalyzer() Analyzer {
-	sup := piie.Default()
-	if sup == nil {
-		return nil
-	}
-	return supervisorAdapter{s: sup}
-}
-
-// supervisorAdapter bridges pkg/piiengine/openaipf.Supervisor (which
-// returns []piie.Finding) to the detector's local Analyzer / Finding
-// types. The per-element copy is zero-cost because the field layout
-// is identical; the indirection exists only so the detector compiles
-// against a stable local interface and so the test binary does not
-// transitively import the supervisor's net/http and os/exec
-// dependencies.
-type supervisorAdapter struct {
-	s *piie.Supervisor
-}
-
-func (supervisorAdapter) engineImpl() string { return "subprocess" }
-
-func (a supervisorAdapter) Analyze(ctx context.Context, text string) ([]Finding, error) {
-	fs, err := a.s.Analyze(ctx, text)
-	if err != nil {
-		return nil, err
-	}
-	if len(fs) == 0 {
-		return nil, nil
-	}
-	out := make([]Finding, len(fs))
-	for i, f := range fs {
-		out[i] = Finding{
-			EntityType: f.EntityType,
-			BIOESTag:   f.BIOESTag,
-			Start:      f.Start,
-			End:        f.End,
-			Score:      f.Score,
-			Text:       f.Text,
-		}
-	}
-	return out, nil
-}
+var fetchAnalyzer = func() Analyzer { return nil }
 
 // Scanner satisfies detectors.Detector. It deliberately does NOT
 // implement detectors.Verifier — opf is a classifier, not a credential
@@ -147,10 +85,6 @@ func (Scanner) FromData(ctx context.Context, _ bool, data []byte) ([]detectors.R
 	if a == nil {
 		return nil, nil
 	}
-	impl := "subprocess"
-	if p, ok := a.(interface{ engineImpl() string }); ok {
-		impl = p.engineImpl()
-	}
 	findings, err := a.Analyze(ctx, string(data))
 	if err != nil {
 		return nil, err
@@ -163,8 +97,7 @@ func (Scanner) FromData(ctx context.Context, _ bool, data []byte) ([]detectors.R
 		kind := mapEntityType(f.EntityType)
 		extra := map[string]string{
 			"finding_class": "pii",
-			"engine":        "openai-pf",
-			"engine_impl":   impl,
+			"engine":        "openai-pf-native",
 			"pii_kind":      kind,
 			"score":         fmt.Sprintf("%.2f", f.Score),
 			"start":         strconv.Itoa(f.Start),

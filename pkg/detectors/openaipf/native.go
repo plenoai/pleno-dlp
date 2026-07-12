@@ -8,19 +8,12 @@ import (
 	opfn "github.com/plenoai/pleno-dlp/pkg/piiengine/opfnative"
 )
 
-// In an opf_native build the in-process privacy-filter.cpp engine takes
-// precedence over the subprocess supervisor whenever it is the active
-// backend. Exactly one PII backend is SetDefault'd per run, so preferring
-// opfnative.Default() and falling back to the previous productionAnalyzer
-// is unambiguous — the fallback preserves the subprocess path for a native
-// build that was started with --pii-engine=openai-pf.
 func init() {
-	prev := fetchAnalyzer
 	fetchAnalyzer = func() Analyzer {
 		if e := opfn.Default(); e != nil {
 			return nativeAdapter{e: e}
 		}
-		return prev()
+		return nil
 	}
 }
 
@@ -28,8 +21,6 @@ func init() {
 // Finding types, mirroring supervisorAdapter so FromData stays
 // backend-agnostic.
 type nativeAdapter struct{ e *opfn.Engine }
-
-func (nativeAdapter) engineImpl() string { return "native" }
 
 func (a nativeAdapter) Analyze(ctx context.Context, text string) ([]Finding, error) {
 	fs, err := a.e.Analyze(ctx, text)

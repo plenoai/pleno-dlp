@@ -29,15 +29,6 @@ pleno-dlp scan filesystem ./src --pii-engine=anonymize
 pleno-dlp scan filesystem ./src --pii-engine=anonymize --pii-engine-language=ja
 ```
 
-### `openai-pf`
-
-- Uses a longer default readiness window on cold start
-
-```sh
-pleno-dlp scan filesystem ./src --pii-engine=openai-pf
-pleno-dlp scan filesystem ./src --pii-engine=openai-pf --pii-engine-device=cuda
-```
-
 ### `openai-pf-native`
 
 The same privacy-filter model, run in-process through a statically linked
@@ -49,8 +40,7 @@ with instructions for obtaining a native binary.
 - No Python, `uv`, or subprocess involved
 - Downloads the sha256-pinned GGUF weights on first use
   (override with `--pii-model-path`)
-- Findings carry `extra_data.engine_impl="native"`; `pii_kind` values are
-  identical to the `openai-pf` path
+- Findings carry `extra_data.engine="openai-pf-native"`
 
 ```sh
 pleno-dlp scan filesystem ./src --pii-engine=openai-pf-native
@@ -58,12 +48,11 @@ pleno-dlp scan stdin --pii-engine=openai-pf-native --pii-model-path ./privacy-fi
 ```
 
 For `openai-pf-native`, `extra_data.start`/`extra_data.end` are UTF-8 byte
-offsets relative to the scanned chunk. The subprocess `openai-pf` wrapper
-keeps its character offsets; `anonymize` does not emit offsets.
+offsets relative to the scanned chunk. `anonymize` does not emit offsets.
 
 ## Runtime requirements
 
-The subprocess engine paths (`anonymize`, `openai-pf`) require:
+The `anonymize` engine requires:
 
 - `uv`
 - Python 3.12+
@@ -80,10 +69,10 @@ These flags live on `pleno-dlp scan`:
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--pii-engine` | `off` | `off`, `anonymize`, `openai-pf`, or `openai-pf-native` |
-| `--pii-engine-cmd` | engine-specific | command template used to spawn the selected engine |
+| `--pii-engine` | `off` | `off`, `anonymize`, or `openai-pf-native` |
+| `--pii-engine-cmd` | engine-specific | command template used to spawn `anonymize` |
 | `--pii-engine-port` | `0` | auto-allocate a loopback port |
-| `--pii-engine-ready-timeout` | `0` | engine default: 60s for `anonymize`, 300s for `openai-pf` |
+| `--pii-engine-ready-timeout` | `0` | 60s for `anonymize` |
 | `--pii-engine-request-timeout` | `10s` | per `/api/analyze` request timeout |
 
 Engine-specific flags:
@@ -91,7 +80,7 @@ Engine-specific flags:
 | Flag | Applies to | Meaning |
 |---|---|---|
 | `--pii-engine-language` | `anonymize` | `ja`, `en`, or `auto` |
-| `--pii-engine-device` | `openai-pf`, `openai-pf-native` | `auto`, `cpu`, `cuda`, or `mps` |
+| `--pii-engine-device` | `openai-pf-native` | `auto`, `cpu`, `cuda`, or `mps` |
 | `--pii-model` | `openai-pf-native` | GGUF variant: `q8` (default) or `f16` |
 | `--pii-model-path` | `openai-pf-native` | local GGUF path, skips download and checksum pin |
 
@@ -102,8 +91,7 @@ The CLI itself lists the current flags:
 
 ## Direct server commands
 
-Typical usage is indirect through `pleno-dlp scan`, but both engines can be
-started directly for local debugging.
+The anonymize server can be started directly for local debugging.
 
 ### `pii-server`
 
@@ -119,12 +107,6 @@ Useful flags:
 - `--cache-dir ...` to control the cached clone / virtualenv location
 - `--host ...` for loopback / private-network binds only
 
-### `openai-pf-server`
-
-The privacy-filter wrapper is documented separately:
-
-- [`python/openaipf-server/README.md`](../python/openaipf-server/README.md)
-
 ## Safety model
 
 - Engine processes bind only to loopback / private-network addresses
@@ -132,14 +114,12 @@ The privacy-filter wrapper is documented separately:
 
 ## Trust chain (server bootstrap)
 
-`pii-server` and `openai-pf-server` each materialize a Python component on
-first use via `git`/`uvx` fetch. Each fetched artifact is pinned and verified
-as follows:
+`pii-server` materializes a Python component on first use. Fetched artifacts
+are pinned and verified as follows:
 
 | Artifact | Pin | Verification | Failure mode |
 |---|---|---|---|
 | `pleno-anonymize` checkout (`pii-server --source`, default `git+https://github.com/plenoai/pleno-anonymize.git`) | `--git-ref` defaults to a release tag baked into the binary (`defaultPIIServerGitRef` in `cmd/pleno-dlp/cmd/pii_server.go`) | None beyond HTTPS transport integrity | Checking out the wrong ref surfaces as a `uv sync`/import failure |
-| `python/openaipf-server` checkout (`openai-pf-server --source`, default `git+https://github.com/plenoai/pleno-dlp.git#subdirectory=python/openaipf-server`) | `--git-ref` defaults to a release tag baked into the binary (`defaultOpenAIPFGitRef` in `cmd/pleno-dlp/cmd/openai_pf_server.go`) | HTTPS transport integrity plus the fixed tag, nothing further | A wrong ref fails at `uv sync`/import |
 | NER model wheels (spaCy `en_core_web_sm`, `pleno_anonymize_ja`, `pleno_anonymize_en`) | URL is a specific, versioned filename per wheel (`nerWheels` in `cmd/pleno-dlp/cmd/pii_server.go`) | pleno-dlp downloads each wheel itself (uv never fetches it directly), computes its sha256, and compares against a hash baked into the binary | A hash mismatch aborts `pii-server` setup before installation |
 
 What this does **not** cover:
