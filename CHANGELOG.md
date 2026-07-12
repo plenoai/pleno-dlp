@@ -29,6 +29,14 @@ publishing, archives, SLSA provenance, and SBOM generation.
   match (#362).
 - Documented GitHub Action usage pins `plenoai/pleno-dlp@v0.61.0`; the prior
   `@v0.59.0` predated `action.yml` and resolved to a 404 (#361).
+- The `action-test` smoke workflow now scans a dedicated secret-free fixture
+  (`.github/action-smoke/`) instead of `docs/`. `docs/` documents a secrets
+  scanner and contains secret-shaped strings by design (detector key-format
+  tables, an example audit-trail record), so `--fail-on high` failed the
+  smoke job; because the workflow only re-ran on `action.yml` changes, the
+  contamination that landed with the audit-trail schema doc stayed latent
+  until an unrelated `action.yml` edit surfaced it. The SARIF check now also
+  asserts zero findings so fixture contamination fails loudly.
 
 ## [v0.61.0] - 2026-07-10
 

@@ -4,12 +4,25 @@ name: action-test
 # pinned release binary, cosign-verify it, run a scan, and check the SARIF
 # output. Pinned to a real, already-published release (not `latest`) so the
 # test is deterministic and doesn't depend on this PR's own release.
+#
+# The scan target is .github/action-smoke/, a committed, prose-only,
+# secret-free fixture — NOT docs/. docs/ documents a secrets scanner and so
+# contains secret-shaped strings by design (detector key-format tables,
+# example audit-trail records), which trip --fail-on high and can never be
+# guaranteed clean. Scanning the dedicated fixture keeps this smoke test
+# deterministic and immune to documentation drift.
 on:
   pull_request:
-    paths: ["action.yml", ".github/workflows/action-test.yml"]
+    paths:
+      - "action.yml"
+      - ".github/workflows/action-test.yml"
+      - ".github/action-smoke/**"
   push:
     branches: ["main"]
-    paths: ["action.yml", ".github/workflows/action-test.yml"]
+    paths:
+      - "action.yml"
+      - ".github/workflows/action-test.yml"
+      - ".github/action-smoke/**"
 
 permissions:
   contents: read
@@ -35,7 +48,7 @@ jobs:
         id: scan
         uses: ./
         with:
-          target: docs
+          target: .github/action-smoke
           version: ${{ env.PLENO_DLP_SMOKE_VERSION }}
           sarif-file: ${{ runner.temp }}/pleno-dlp-results.sarif
 
@@ -53,4 +66,9 @@ jobs:
               doc = json.load(f)
           assert doc['version'] == '2.1.0', doc.get('version')
           assert doc['runs'][0]['tool']['driver']['name']
+          # The fixture is secret-free by construction, so a passing scan must
+          # report zero results. A nonzero count means the fixture was
+          # contaminated — fail loudly instead of shipping a dirty smoke target.
+          results = doc['runs'][0]['results']
+          assert results == [], f'expected 0 findings on secret-free fixture, got {len(results)}'
           " "$file"
