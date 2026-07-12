@@ -8,7 +8,21 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+type observedContext struct {
+	context.Context
+	checked chan<- struct{}
+}
+
+func (c observedContext) Err() error {
+	select {
+	case c.checked <- struct{}{}:
+	default:
+	}
+	return c.Context.Err()
+}
 
 func TestResolveDevice(t *testing.T) {
 	cases := map[string]string{
@@ -70,6 +84,44 @@ func TestResolveModelPath_UnknownVariant(t *testing.T) {
 func TestNew_EmptyModelPath(t *testing.T) {
 	if _, err := New(Config{}); !errors.Is(err, ErrEmptyModelPath) {
 		t.Errorf("New empty path err = %v, want ErrEmptyModelPath", err)
+	}
+}
+
+func TestAnalyze_CancelledWhileWaitingForLock(t *testing.T) {
+	base, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	checked := make(chan struct{}, 2)
+	ctx := observedContext{Context: base, checked: checked}
+	e := &Engine{}
+	e.mu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			e.mu.Unlock()
+		}
+	}()
+
+	errs := make(chan error, 1)
+	go func() {
+		_, err := e.Analyze(ctx, "payload")
+		errs <- err
+	}()
+	select {
+	case <-checked:
+	case <-time.After(time.Second):
+		t.Fatal("Analyze did not check context before waiting for the lock")
+	}
+	cancel()
+	e.mu.Unlock()
+	locked = false
+
+	select {
+	case err := <-errs:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Analyze after cancellation = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Analyze remained blocked after the lock was released")
 	}
 }
 

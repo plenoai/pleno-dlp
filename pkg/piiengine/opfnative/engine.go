@@ -65,6 +65,9 @@ func (e *Engine) Analyze(ctx context.Context, text string) ([]Finding, error) {
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if e.ctx == nil {
 		return nil, ErrClosed
 	}

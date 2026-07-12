@@ -24,15 +24,12 @@ func init() {
 	}
 }
 
-// SetEngineImplNative marks findings emitted in this process as native
-// (ExtraData["engine_impl"]="native"). Called by the CLI when the native
-// backend is the selected engine.
-func SetEngineImplNative() { engineImpl = "native" }
-
 // nativeAdapter bridges opfnative.Engine to the detector's local Analyzer /
 // Finding types, mirroring supervisorAdapter so FromData stays
 // backend-agnostic.
 type nativeAdapter struct{ e *opfn.Engine }
+
+func (nativeAdapter) engineImpl() string { return "native" }
 
 func (a nativeAdapter) Analyze(ctx context.Context, text string) ([]Finding, error) {
 	fs, err := a.e.Analyze(ctx, text)

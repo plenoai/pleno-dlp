@@ -44,14 +44,6 @@ type Finding struct {
 // fake.
 var fetchAnalyzer = productionAnalyzer
 
-// engineImpl labels the active backend in ExtraData["engine_impl"]. It is
-// "subprocess" (the Python openaipf supervisor) by default; an opf_native
-// build flips it to "native" via SetEngineImplNative when the in-process
-// privacy-filter.cpp engine is the selected backend (ADR-0005 §E).
-// ExtraData["engine"] stays "openai-pf" regardless, so downstream routing
-// on the logical engine is unchanged — engine_impl carries provenance only.
-var engineImpl = "subprocess"
-
 func productionAnalyzer() Analyzer {
 	sup := piie.Default()
 	if sup == nil {
@@ -70,6 +62,8 @@ func productionAnalyzer() Analyzer {
 type supervisorAdapter struct {
 	s *piie.Supervisor
 }
+
+func (supervisorAdapter) engineImpl() string { return "subprocess" }
 
 func (a supervisorAdapter) Analyze(ctx context.Context, text string) ([]Finding, error) {
 	fs, err := a.s.Analyze(ctx, text)
@@ -153,6 +147,10 @@ func (Scanner) FromData(ctx context.Context, _ bool, data []byte) ([]detectors.R
 	if a == nil {
 		return nil, nil
 	}
+	impl := "subprocess"
+	if p, ok := a.(interface{ engineImpl() string }); ok {
+		impl = p.engineImpl()
+	}
 	findings, err := a.Analyze(ctx, string(data))
 	if err != nil {
 		return nil, err
@@ -166,7 +164,7 @@ func (Scanner) FromData(ctx context.Context, _ bool, data []byte) ([]detectors.R
 		extra := map[string]string{
 			"finding_class": "pii",
 			"engine":        "openai-pf",
-			"engine_impl":   engineImpl,
+			"engine_impl":   impl,
 			"pii_kind":      kind,
 			"score":         fmt.Sprintf("%.2f", f.Score),
 			"start":         strconv.Itoa(f.Start),

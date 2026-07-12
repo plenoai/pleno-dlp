@@ -61,9 +61,9 @@ pleno-dlp scan filesystem ./src --pii-engine=openai-pf-native
 pleno-dlp scan stdin --pii-engine=openai-pf-native --pii-model-path ./privacy-filter-f16.gguf
 ```
 
-Note for JSON consumers: `extra_data.start`/`extra_data.end` are byte
-offsets relative to the scanned chunk, not the whole file. This holds for
-every PII engine.
+For `openai-pf-native`, `extra_data.start`/`extra_data.end` are UTF-8 byte
+offsets relative to the scanned chunk. The subprocess `openai-pf` wrapper
+keeps its character offsets; `anonymize` does not emit offsets.
 
 ## Runtime requirements
 
@@ -95,7 +95,7 @@ Engine-specific flags:
 | Flag | Applies to | Meaning |
 |---|---|---|
 | `--pii-engine-language` | `anonymize` | `ja`, `en`, or `auto` |
-| `--pii-engine-device` | `openai-pf` | `auto`, `cpu`, `cuda`, or `mps` |
+| `--pii-engine-device` | `openai-pf`, `openai-pf-native` | `auto`, `cpu`, `cuda`, or `mps` |
 | `--pii-model` | `openai-pf-native` | GGUF variant: `q8` (default) or `f16` |
 | `--pii-model-path` | `openai-pf-native` | local GGUF path, skips download and checksum pin |
 

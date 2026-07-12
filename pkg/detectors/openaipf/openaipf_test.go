@@ -20,6 +20,10 @@ type fakeAnalyzer struct {
 	calls    int
 }
 
+type nativeFakeAnalyzer struct{ *fakeAnalyzer }
+
+func (nativeFakeAnalyzer) engineImpl() string { return "native" }
+
 func (f *fakeAnalyzer) Analyze(_ context.Context, text string) ([]Finding, error) {
 	f.calls++
 	f.lastText = text
@@ -188,11 +192,29 @@ func TestFromData_EmailFinding_EmitsExtraData(t *testing.T) {
 	}
 	mustEqual(t, r.ExtraData, "finding_class", "pii")
 	mustEqual(t, r.ExtraData, "engine", "openai-pf")
+	mustEqual(t, r.ExtraData, "engine_impl", "subprocess")
 	mustEqual(t, r.ExtraData, "pii_kind", "EMAIL_ADDRESS")
 	mustEqual(t, r.ExtraData, "score", "0.97")
 	mustEqual(t, r.ExtraData, "start", "9")
 	mustEqual(t, r.ExtraData, "end", "26")
 	mustEqual(t, r.ExtraData, "bioes_tag", "E-private_emails")
+}
+
+func TestFromData_AdapterControlsEngineProvenance(t *testing.T) {
+	withAnalyzer(t, nativeFakeAnalyzer{&fakeAnalyzer{findings: []Finding{{
+		EntityType: "private_email",
+		Score:      0.99,
+		Text:       "alice@example.com",
+	}}}})
+
+	res, err := Scanner{}.FromData(context.Background(), false, []byte("alice@example.com"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("want 1 result, got %d", len(res))
+	}
+	mustEqual(t, res[0].ExtraData, "engine_impl", "native")
 }
 
 func TestFromData_EachOPFCategoryMapsCorrectly(t *testing.T) {

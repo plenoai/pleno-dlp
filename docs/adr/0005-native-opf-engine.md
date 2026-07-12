@@ -1,6 +1,6 @@
 # ADR 0005: In-process openai-pf engine via cgo (privacy-filter.cpp)
 
-Status: proposed
+Status: accepted
 
 ## Context
 
@@ -103,7 +103,7 @@ Makefile targets (names are contract for CI/docs):
 | `opf-native-deps` | run fetch-deps.sh (fetch + SHA-verify sources) |
 | `opf-native-lib` | cmake configure+build; install `.a` + `pf.h` into `cdeps/` |
 | `opf-native-build` | `CGO_ENABLED=1 go build -tags opf_native -o bin/pleno-dlp-opf ./cmd/pleno-dlp` (deps on `opf-native-lib`) |
-| `opf-native-test` | `CGO_ENABLED=1 go test -tags opf_native ./pkg/piiengine/opfnative/... ./pkg/detectors/openaipf/...` |
+| `opf-native-test` | tagged `go vet`, `staticcheck`, and full race suite |
 | `opf-native-clean` | remove `build/opf-native/`, `cdeps/`, `bin/pleno-dlp-opf` |
 
 ### C. Release/CI: separate additive workflow
@@ -115,13 +115,13 @@ constraint 1: a native build failure cannot break the signed/SBOM'd/attested
 pure-Go release.
 
 Matrix: `macos-14` (darwin/arm64), `ubuntu-latest` (linux/amd64),
-`ubuntu-24.04-arm` (linux/arm64). Each job: restore the `.a` cache
-(`key: opf-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pkg/piiengine/opfnative/deps.lock') }}`),
-`make opf-native-build`, package
+`ubuntu-24.04-arm` (linux/arm64). Each job runs `make opf-native-build` and
+`make opf-native-test`, packages
 `pleno-dlp-opf-native_<os>_<arch>.tar.gz` (disjoint from GoReleaser's
-`pleno-dlp_<os>_<arch>.tar.gz`), emit a sha256, `gh release upload <tag>
---clobber`. `permissions: contents: write` only; all actions pinned to full
-commit SHAs (matches repo policy). Static linkage on linux
+`pleno-dlp_<os>_<arch>.tar.gz`), signs the archive with cosign, emits an SBOM,
+and uploads GitHub build provenance after the signed GoReleaser workflow
+succeeds. The archive includes `THIRD_PARTY_NOTICES` for the statically linked
+MIT dependencies. All actions are pinned to full commit SHAs. Static linkage on linux
 (`-static-libstdc++ -static-libgcc`) keeps the binary portable across glibc
 hosts; the macOS binary requires Metal (every arm64 Mac).
 
@@ -217,11 +217,3 @@ No new DetectorType, so the CI-enforced three-way sync
   pure-Go users who never opt in.
 - Weights remain a runtime download; first native run on a cold cache pays the
   1.5 GB (q8) fetch. `--pii-model-path` lets air-gapped operators pre-place it.
-
-## Open items for implementation
-
-- Capture and pin the HuggingFace revision for the GGUF `resolve/<rev>/…` URLs.
-- Confirm the exact `-lggml*` target set produced by the pinned cmake install
-  and, if it differs, update §B and the cgo files together.
-- Decide whether native release archives also get cosign/SBOM (follow-up; the
-  pure-Go release keeps its existing chain regardless).

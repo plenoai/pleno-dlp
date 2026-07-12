@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	pfdet "github.com/plenoai/pleno-dlp/pkg/detectors/openaipf"
 	"github.com/plenoai/pleno-dlp/pkg/piiengine/anonymize"
 	"github.com/plenoai/pleno-dlp/pkg/piiengine/openaipf"
 	"github.com/plenoai/pleno-dlp/pkg/piiengine/opfnative"
@@ -39,7 +38,6 @@ func startOpenAIPFNative(ctx context.Context, _ *cobra.Command, stderr io.Writer
 	anonymize.SetDefault(nil)
 	openaipf.SetDefault(nil)
 	opfnative.SetDefault(eng)
-	pfdet.SetEngineImplNative()
 	fmt.Fprintf(stderr, "pii-engine: openai-pf-native loaded %s\n", path)
 
 	return func() {
