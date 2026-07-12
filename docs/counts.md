@@ -5,8 +5,10 @@ docs/comparison.md, and docs/verify-coverage.md: pleno-dlp's detector
 count, pleno-dlp's source count, and the two competitor counts
 (trufflehog detectors, gitleaks rules). This page defines exactly what
 each one counts and where it comes from. `pkg/detectors/counts_test.go`
-enforces every claim listed below against these definitions — it runs
-under plain `go test ./...`, so CI fails on any drift automatically.
+(and, for the source count, `cmd/pleno-dlp/cmd/sources_sync_test.go`)
+enforces every claim listed below against these definitions — including
+the "Current value" lines on this page itself. Both run under plain
+`go test ./...`, so CI fails on any drift automatically.
 
 ## 1. pleno-dlp detector types — runtime-derived
 
@@ -39,37 +41,31 @@ removed. The test will fail on the very next `go test ./...` until every
 quoted location above is updated in the same PR — that's the intended
 gate, not a bug.
 
-## 2. pleno-dlp source count — hand-maintained, not runtime-derived
+## 2. pleno-dlp source count — runtime-derived
 
-**What is counted:** distinct data sources pleno-dlp can scan —
-filesystem, git, stdin, sqldump, gcs, s3, docker-image, and the SaaS
-connectors (GitHub, GitLab, Bitbucket, Slack, Notion, Confluence, Jira,
-CircleCI, Datadog, BigQuery, HuggingFace, Redash, Splunk, …).
+**What is counted:** entries in `pkg/sources/catalog.All()` — the union
+of the core-source registry (`sources.Register`) and the SaaS-connector
+registry (`connectors.Register`) — that have a wired `scan` subcommand.
+This is the same list `pleno-dlp sources list` prints, with the
+`CLI-WIRED` column marking the split. Registered-but-planned connectors
+(currently elasticsearch #217, jenkins #218, postman #219, enumerated in
+`sources_sync_test.go`'s `plannedSources`) are excluded from the
+published count.
 
-Unlike detectors, there is no single runtime registry unifying these:
-the six types in `pkg/sources` self-register via `sources.Register`,
-but the SaaS connectors are wired as ad hoc cobra subcommands
-(`cmd/pleno-dlp/cmd/*_cmd.go`) plus a handful of `pkg/connectors`
-packages. Deriving this count mechanically would require a source
-registry parallel to `pkg/detectors`' — worth doing if the count keeps
-drifting, but out of scope for this fix (tracked as a follow-up).
+**docs/comparison.md's "Scan sources" table cell is the canonical
+text.** `cmd/pleno-dlp/cmd/sources_sync_test.go` fails CI when that cell
+disagrees with the registry in either direction, and
+`pkg/detectors/counts_test.go` cross-checks every other file that quotes
+it, including this page.
 
-Until that registry exists, **docs/comparison.md's "Scan sources"
-table cell is the canonical text**, and every other file must match it
-verbatim. `docs/comparison.md` itself is cross-checked internally (the
-table cell vs. the §9 prose sentence).
+**Current value:** 28 wired sources.
 
-**Current value:** 24 (see docs/comparison.md §1 and §9 for the list).
+**Where it's quoted:** website/index.html (hero line), docs/comparison.md
+(§1 capability table, §9 prose).
 
-Note: docs/comparison.md's own source-breadth prose (§9) still lists
-docker-image, GCS, HuggingFace, and CircleCI as "planned" (#215, #216,
-#220, #221) even though `cmd/pleno-dlp/cmd/{docker,gcs,huggingface,circleci}_cmd.go`
-already implement them — the 24 figure and that roadmap paragraph look
-stale relative to what has actually shipped. Confirming the true current
-source count and refreshing that paragraph is a larger audit than this
-fix and is called out separately rather than guessed at here.
-
-**Where it's quoted:** website/index.html (hero line only).
+**When this legitimately changes:** when a source or connector
+subcommand ships or is removed; update `plannedSources` and
+docs/comparison.md in the same PR.
 
 ## 3. Competitor counts — dated point-in-time measurements
 
