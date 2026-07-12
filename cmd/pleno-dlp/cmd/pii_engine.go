@@ -24,12 +24,7 @@ const (
 // selected on a binary without the opf_native build tag. Defined here
 // (untagged) so scan.go's preflight and the stub both reference one source
 // of truth across build modes (ADR-0005 §F).
-var errNativeNotBuilt = errors.New(`--pii-engine=openai-pf-native requires a binary built with the 'opf_native'
-build tag (in-process privacy-filter.cpp inference). This is the portable
-pure-Go build, which does not include it. Get the native build: download
-pleno-dlp-opf-native_<os>_<arch> from
-https://github.com/plenoai/pleno-dlp/releases, or build locally with
-` + "`make opf-native-build`" + `. See docs/adr/0005-native-opf-engine.md.`)
+var errNativeNotBuilt = errors.New("--pii-engine=openai-pf-native requires an opf_native build: download pleno-dlp-opf-native_<os>_<arch> from https://github.com/plenoai/pleno-dlp/releases or run 'make opf-native-build' (see docs/adr/0005-native-opf-engine.md)")
 
 // validPIIEngineMode reports whether mode is a recognized --pii-engine value.
 // Callers validate this before scanning so an unknown value (an operator typo
