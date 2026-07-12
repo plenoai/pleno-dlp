@@ -21,13 +21,14 @@ SARIF output is GitHub Code Scanning compatible:
 ```yaml
 - run: pleno-dlp scan filesystem . --format sarif > findings.sarif
 - uses: github/codeql-action/upload-sarif@v3
+  if: always()   # upload even when --fail-on failed the scan step
   with:
     sarif_file: findings.sarif
 ```
 
 ## GitHub Action
 
-The two steps above are also available as a single composite action —
+The two steps above are also available as a single composite action,
 [`plenoai/pleno-dlp`](https://github.com/plenoai/pleno-dlp/blob/main/action.yml),
 usable via `uses: plenoai/pleno-dlp@vX.Y.Z`:
 
@@ -50,7 +51,7 @@ jobs:
         with:
           target: .              # default: "."
           sarif-file: results.sarif
-          fail-on: high           # default: high (audit-first, see above)
+          fail-on: high           # default: high
 
       - uses: github/codeql-action/upload-sarif@v3
         if: always()             # upload even when --fail-on failed the step
@@ -61,14 +62,12 @@ jobs:
 What the action does before running a scan:
 
 1. Resolves the pleno-dlp version to install — the `version` input if set,
-   otherwise the action's own tag ref (`github.action_ref`), so the action
-   revision and the binary it runs are always the same signed release.
+   otherwise the action's own tag ref (`github.action_ref`).
 2. Downloads that release's archive for the runner's OS/arch, plus
    `checksums.txt` and `checksums.txt.sigstore.json`.
 3. `cosign verify-blob`s `checksums.txt` against the release workflow's
-   Sigstore keyless (OIDC) identity — the same verification described in
-   every release's notes — then checks the archive's SHA-256 against the
-   now-verified `checksums.txt`.
+   Sigstore keyless (OIDC) identity, then checks the archive's SHA-256
+   against the now-verified `checksums.txt`.
 4. Extracts the verified binary and runs
    `pleno-dlp scan filesystem <target> --format sarif --fail-on <fail-on>`.
 
@@ -82,12 +81,15 @@ then, reference the action by tag as shown above.
 
 ## Verification verdicts
 
-Verification is three-valued, not a boolean: a detector's `Verify` call can
-confirm the secret is live (`verified`), confirm it's dead (`unverified`),
-or fail to complete at all — network error, provider 5xx, rate limit
-(`indeterminate`). Every output format carries a `verdict` field alongside
-the legacy `verified` boolean (kept for backward compatibility, but it
-cannot distinguish "provider said no" from "we couldn't ask"):
+A detector's `Verify` call yields one of three verdicts. It can confirm
+the secret is live (`verified`), get a rejection from the provider
+(`unverified`), or fail to complete because of a network error, provider
+5xx, or rate limit (`indeterminate`). Note that `unverified` is also the verdict
+when no verification was attempted at all: detectors without a `Verify`
+implementation (see docs/verify-coverage.md) and every finding under
+`--no-verify`. `unverified` therefore means "liveness not confirmed", not
+"provider confirmed dead". Every output format carries a `verdict` field
+alongside the legacy `verified` boolean (kept for backward compatibility):
 
 | Surface | Field |
 |---|---|
@@ -105,9 +107,8 @@ cannot distinguish "provider said no" from "we couldn't ask"):
 | Generic high entropy / JWT / PEM unverified | Medium |
 | PII | Medium |
 
-Indeterminate is deliberately as severe as Verified, not Unverified: a
-failed verification attempt doesn't disprove liveness, and under-classifying
-a possibly-live credential is the wrong failure mode for a secrets scanner.
+Indeterminate findings sit in the same Critical tier as verified ones
+because a failed verification attempt does not disprove liveness.
 
 ## Exit-code gating
 
@@ -119,21 +120,21 @@ pleno-dlp scan filesystem ./repo --fail-on high
 pleno-dlp scan filesystem ./repo --fail-on any
 ```
 
-**Default is `high` (audit-first).** A first scan of an unfamiliar repo
+The default is `high`, which suits an audit-first rollout. A first scan of an unfamiliar repo
 routinely turns up noise — generic high-entropy strings, JWTs, PEM
 blocks, PII — that the severity table above already classifies as
-Medium. Gating on `any` (the pre-#250 default) meant a single one of
-those exited 1 and broke a brand-new CI pipeline before the operator
-had a chance to triage anything. `high` still fails the build on every
-named-secret detector hit and every verified/critical finding — it
-only stops treating Medium-and-below noise as a hard gate. Tighten
+Medium. `high` still fails the build on every verified/indeterminate
+(Critical) finding and on named-secret detectors at their default High
+severity. Note that a few named detectors deliberately self-downgrade to
+Medium to avoid overstating confidence (SMTP, BasicAuth,
+SalesforceRefresh, encrypted PuTTY keys) — those fall below the `high`
+gate together with the generic-entropy/JWT/PEM/PII tier; use
+`--fail-on any` (or `medium`) to gate on them. Tighten
 with `--fail-on any` once the repo has an allowlist and a clean
 baseline; see [`docs/recipes/staged-rollout.md`](recipes/staged-rollout.md)
 for the recommended ratchet sequence.
 
-Findings still print and still count even when they don't meet the
-gate — nothing is hidden. Whenever a scan has findings that didn't
-trip the exit code, the summary says so and names the escape hatch:
+Findings below the gate still print and count; the summary notes them:
 
 ```
 scanned 12 chunk(s), 4096 byte(s), 3 finding(s) in 42ms
@@ -145,11 +146,8 @@ To preserve TruffleHog-style verified-only pipelines, use
 output, finding counts, exit-code gating, and `--revoke-on-verified`
 dispatch to provider-confirmed findings.
 
-`--only-verified` keeps `indeterminate` findings by default — a failed
-verification attempt (network error, provider 5xx, rate limit) is not the
-same as the provider confirming the secret is dead, so dropping it would
-silently hide a possibly-live credential caught in a transient outage. A
-stderr line reports how many indeterminate findings were kept:
+`--only-verified` keeps `indeterminate` findings by default. A stderr
+line reports how many were kept:
 
 ```
 only-verified: kept 3 indeterminate finding(s) — verification attempt failed ...
@@ -158,23 +156,17 @@ only-verified: kept 3 indeterminate finding(s) — verification attempt failed .
 Pass `--drop-indeterminate` to restore the strict pre-#246 behaviour and
 exclude indeterminate findings too (the same stderr line then reports how
 many were dropped instead). `--revoke-on-verified` and `--revoke-spool`
-never act on an indeterminate finding regardless of this flag — only a
-confirmed-live verdict triggers revocation.
+never act on an indeterminate finding regardless of this flag.
 
 ```sh
 pleno-dlp scan github --org acme --include-comments --only-verified --format json
 ```
 
-For the opposite trade-off — speed and offline operation over
-confidence — `--no-verify` skips every detector's `Verify()` network
-round-trip entirely (not merely filtering it out afterward): every
-finding's verdict is `unverified` — never `indeterminate`, since that
-verdict means an attempt was made and failed, and `--no-verify` means no
-attempt is made at all. It is mutually exclusive with `--only-verified`,
-which would otherwise always report zero results once nothing is ever
-verified. This is what the latency-tolerant `pleno-dlp hooks install`
-agent hooks use — see [`docs/hooks.md`](hooks.md) — but it applies to
-any scan kind:
+`--no-verify` skips every detector's `Verify()` network round-trip, so
+the scan runs fully offline: every finding's verdict is `unverified`.
+It is mutually exclusive with `--only-verified`. This is what the
+`pleno-dlp hooks install` agent hooks use (see
+[`docs/hooks.md`](hooks.md)), but it applies to any scan kind:
 
 ```sh
 pleno-dlp scan stdin --no-verify --quiet --fail-on any --format json < diff.txt
@@ -209,22 +201,22 @@ heads so already-scanned history is not emitted again.
 With `--include-comments`, new or updated issue comments and pull request
 review comments are fetched and scanned independently. Comment changes do not
 advance `pushed_at`, so the comment pass still runs when repository history is
-skipped. REST pages still contain bodies for unchanged comments; the connector
-compares cursors and does not re-emit or re-scan them. Wiki and gist checkpoints
+skipped. Wiki and gist checkpoints
 advance independently from main repository history.
 
 See [GitHub full-history scanning](recipes/github-history-scan.md) for the
 coverage model, API cost, and race-safe resume behavior.
 
-`scan s3 --incremental --incremental-state <file>` also stores an S3
-source watermark. The S3 source still lists object metadata to compute
-the next watermark, but unchanged object bodies are not fetched or
-scanned. Objects are considered unchanged when their key, ETag, size,
-and last-modified timestamp match the previous successful baseline.
+`scan s3 --incremental --incremental-state <file>` also stores a
+per-object baseline (object key → ETag, size, last-modified). The S3
+source still lists object metadata to recompute the baseline, but
+unchanged object bodies are not fetched or scanned. Objects are
+considered unchanged when their key, ETag, size, and last-modified
+timestamp match the previous successful baseline.
 
 ## Detector scoping
 
-Detector scoping is case-insensitive and fails closed on unknown names:
+Detector scoping is case-insensitive; unknown names are an error:
 
 ```sh
 pleno-dlp scan filesystem ./repo --exclude-detectors GenericHighEntropy

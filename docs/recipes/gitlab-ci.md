@@ -1,7 +1,6 @@
 # GitLab CI integration
 
-Run pleno-dlp on every push, write a SAST-format report, and surface
-findings in the merge request UI.
+Run pleno-dlp on every push and surface findings in the merge request UI.
 
 ```yaml
 # .gitlab-ci.yml
@@ -14,17 +13,22 @@ secret-scan:
         | tar xz -C /usr/local/bin pleno-dlp
   script:
     - pleno-dlp scan filesystem . --format sarif --fail-on high > findings.sarif
+    - sarif-converter --type sast findings.sarif gl-sast-report.json
   artifacts:
     when: always
     reports:
-      sast: findings.sarif
+      sast: gl-sast-report.json
     paths:
       - findings.sarif
 ```
 
-GitLab consumes SARIF natively under `reports.sast`; findings appear
-in the merge-request "Security & Compliance" tab without further
-configuration.
+GitLab does not ingest SARIF natively — `reports.sast` expects
+GitLab's security-report JSON schema. Convert the SARIF first (e.g.
+`sarif-converter --type sast findings.sarif gl-sast-report.json`) and
+declare `reports: { sast: gl-sast-report.json }`. The merge-request
+security widget also requires GitLab Ultimate; on other tiers keep
+`findings.sarif` as a plain downloadable artifact and gate on the exit
+code (`--fail-on`) instead.
 
 ## Restrict to merge-request changes
 

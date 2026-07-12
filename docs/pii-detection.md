@@ -12,17 +12,17 @@ pleno-dlp scan filesystem ./src --pii-engine=anonymize
 ```
 
 PII findings are emitted alongside secret findings and use the same output
-formats (`table`, `json`, `sarif`) and gating controls.
+formats (`table`, `json`, `sarif`) and
+[gating controls](output-and-gating.md).
 
 ## Engine choices
 
 ### `anonymize`
 
-Recommended default for README-level usage.
+This is the recommended default.
 
 - Japanese-first NER plus regex-based detection
 - Faster cold start than the privacy-filter path
-- Supports `--pii-engine-language=ja|en|auto`
 
 ```sh
 pleno-dlp scan filesystem ./src --pii-engine=anonymize
@@ -31,10 +31,6 @@ pleno-dlp scan filesystem ./src --pii-engine=anonymize --pii-engine-language=ja
 
 ### `openai-pf`
 
-Available for operators who need the privacy-filter model path.
-
-- Select with `--pii-engine=openai-pf`
-- Supports `--pii-engine-device=auto|cpu|cuda|mps`
 - Uses a longer default readiness window on cold start
 
 ```sh
@@ -72,7 +68,7 @@ Engine-specific flags:
 | `--pii-engine-language` | `anonymize` | `ja`, `en`, or `auto` |
 | `--pii-engine-device` | `openai-pf` | `auto`, `cpu`, `cuda`, or `mps` |
 
-Inspect the live CLI for the current flag surface:
+The CLI itself lists the current flags:
 
 - `pleno-dlp scan --help`
 - `pleno-dlp scan filesystem --help`
@@ -83,8 +79,6 @@ Typical usage is indirect through `pleno-dlp scan`, but both engines can be
 started directly for local debugging.
 
 ### `pii-server`
-
-`pii-server` foreground-spawns the `pleno-anonymize` HTTP server via `uv`.
 
 ```sh
 pleno-dlp pii-server --port 8080
@@ -108,38 +102,21 @@ The privacy-filter wrapper is documented separately:
 
 - Engine processes bind only to loopback / private-network addresses
 - Public bind targets such as `0.0.0.0` are refused
-- PII detection is mutually exclusive: choose one engine with `--pii-engine`
 
 ## Trust chain (server bootstrap)
 
 `pii-server` and `openai-pf-server` each materialize a Python component on
-first use via `git`/`uvx` fetch. Every checkout and artifact that crosses the
-trust boundary before any of that code executes is handled as follows:
+first use via `git`/`uvx` fetch. Each fetched artifact is pinned and verified
+as follows:
 
 | Artifact | Pin | Verification | Failure mode |
 |---|---|---|---|
-| `pleno-anonymize` checkout (`pii-server --source`, default `git+https://github.com/plenoai/pleno-anonymize.git`) | `--git-ref` defaults to a release tag baked into the binary (`defaultPIIServerGitRef` in `cmd/pleno-dlp/cmd/pii_server.go`), not the mutable default branch | None beyond git's own transport integrity (HTTPS) — the ref itself is a fixed tag, so "what code runs" is reproducible across runs unless the operator opts out | Checking out the wrong ref surfaces as a `uv sync`/import failure, not a silent substitution |
-| `python/openaipf-server` checkout (`openai-pf-server --source`, default `git+https://github.com/plenoai/pleno-dlp.git#subdirectory=python/openaipf-server`) | `--git-ref` defaults to a release tag baked into the binary (`defaultOpenAIPFGitRef` in `cmd/pleno-dlp/cmd/openai_pf_server.go`), not the mutable default branch | Same as above — HTTPS transport integrity plus a fixed tag | Same as above |
-| NER model wheels (spaCy `en_core_web_sm`, `pleno_anonymize_ja`, `pleno_anonymize_en`) | URL is a specific, versioned filename per wheel (`nerWheels` in `cmd/pleno-dlp/cmd/pii_server.go`) | pleno-dlp downloads each wheel itself (uv never fetches it directly), computes its sha256, and compares against a hash baked into the binary | **Fail closed**: a hash mismatch aborts `pii-server` setup with an explicit `sha256 mismatch ... aborting pii-server setup` error before `uv pip install` ever sees the file. Covered by `TestDownloadAndVerifyWheel_HashMismatch` and `TestRunUVPipInstallNERWheels_AbortsOnHashMismatch` in `cmd/pleno-dlp/cmd/pii_server_test.go`. |
+| `pleno-anonymize` checkout (`pii-server --source`, default `git+https://github.com/plenoai/pleno-anonymize.git`) | `--git-ref` defaults to a release tag baked into the binary (`defaultPIIServerGitRef` in `cmd/pleno-dlp/cmd/pii_server.go`) | None beyond HTTPS transport integrity | Checking out the wrong ref surfaces as a `uv sync`/import failure |
+| `python/openaipf-server` checkout (`openai-pf-server --source`, default `git+https://github.com/plenoai/pleno-dlp.git#subdirectory=python/openaipf-server`) | `--git-ref` defaults to a release tag baked into the binary (`defaultOpenAIPFGitRef` in `cmd/pleno-dlp/cmd/openai_pf_server.go`) | HTTPS transport integrity plus the fixed tag, nothing further | A wrong ref fails at `uv sync`/import |
+| NER model wheels (spaCy `en_core_web_sm`, `pleno_anonymize_ja`, `pleno_anonymize_en`) | URL is a specific, versioned filename per wheel (`nerWheels` in `cmd/pleno-dlp/cmd/pii_server.go`) | pleno-dlp downloads each wheel itself (uv never fetches it directly), computes its sha256, and compares against a hash baked into the binary | A hash mismatch aborts `pii-server` setup before installation |
 
 What this does **not** cover:
 
-- The pinned tags' *own* supply chain (their dependencies, their CI) —
-  pinning a ref bounds "which commit," not "is that commit's content
-  trustworthy." That trust is inherited from the `plenoai` org. For
-  `openai-pf-server` this is lower severity than the `pii-server` case
-  (issue #248): the pin points at pleno-dlp's own repo, not a third party.
-- Operators who explicitly pass `--git-ref ""` or `--git-ref main` (or any
-  other ref) to either subcommand are consciously opting out of the pin;
-  this is intentionally still possible for maintainers who need to test
-  against tip, but it is not the shipped default and should not be used
-  unattended/in CI.
+- The pinned tags' *own* supply chain (their dependencies, their CI).
 The `pleno_anonymize_ja`/`pleno_anonymize_en` wheels are hosted on the
-org-controlled Hugging Face organization (`huggingface.co/plenoai/...`,
-relocated from a personal account on 2026-07-07, closing the #248
-follow-up). The sha256 pins were verified unchanged across the move.
-
-## Related docs
-
-- [`docs/output-and-gating.md`](output-and-gating.md)
-- [`python/openaipf-server/README.md`](../python/openaipf-server/README.md)
+org-controlled Hugging Face organization (`huggingface.co/plenoai/...`).

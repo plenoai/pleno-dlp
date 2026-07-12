@@ -13,12 +13,8 @@ repos:
 ```
 
 The hook runs `pleno-dlp scan filesystem` against the
-pre-commit-staged paths only with `--fail-on high` (pleno-dlp's
-default since #250 — this flag is now redundant but kept explicit for
-clarity) so unverified named-secret detector hits and verified/critical
-findings block the commit, while Medium-and-below noise (generic
-high-entropy strings, JWTs, PEM blobs, PII) surfaces as a warning
-without blocking. Pass `--fail-on any` to also block on that noise
+pre-commit-staged paths only with `--fail-on high`. Pass `--fail-on
+any` to also block on Medium-and-below noise
 once the repo has an allowlist tuned — see
 [`staged-rollout.md`](staged-rollout.md).
 
@@ -53,7 +49,7 @@ Place `.pleno-allow.json` at the repo root:
      "reason": "trufflehog dummy"},
     {"path": "fixtures/**/*.env",
      "reason": "local test fixtures"},
-    {"raw_regex": "^sk-test_",
+    {"detector": "Stripe", "raw_regex": "^sk_test_",
      "reason": "Stripe test-mode keys"}
   ]
 }

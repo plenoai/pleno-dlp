@@ -42,21 +42,16 @@ root — pleno-dlp auto-discovers it.
 
 ## Operating advice
 
-1. **Reason fields aren't optional in practice.** Without them,
-   future maintainers can't tell if an entry is still valid. The
-   loader doesn't enforce this, but treat empty `reason` as a
-   review-block.
+Give every entry a `reason`. Without one, future maintainers can't
+tell if the entry is still valid; the loader accepts an empty
+`reason`, so make code review the point where it gets rejected.
 
-2. **Watch the suppression count.** pleno-dlp emits
-   `allowlist: suppressed N finding(s)` to stderr. Any rule with
-   zero hits across many runs is a candidate for removal — it's
-   either fixed-upstream or covering a fixture that no longer
-   exists.
+pleno-dlp emits `allowlist: suppressed N finding(s)` to stderr.
+Watch that count: any rule with zero hits across many runs is a
+candidate for removal, because either the finding was fixed upstream
+or the fixture it covered no longer exists.
 
-3. **Prefer narrow over broad.** A `path: "*"` entry with a tight
-   `detector` is far safer than a path-only entry that mutes
-   everything in a folder.
-
-4. **Pair with `--fail-on`.** Allowlist entries combined with
-   `--fail-on critical` keeps the noise floor low while still
-   blocking confirmed-active leaks.
+Scope entries narrowly. A `path: "*"` entry with a tight `detector`
+is far safer than a path-only entry that mutes everything in a
+folder. Allowlist entries combined with `--fail-on critical` keep
+the noise floor low while still blocking Critical findings.

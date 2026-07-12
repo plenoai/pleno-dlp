@@ -1,7 +1,7 @@
 # GitHub Actions integration
 
-Scan every push and PR with pleno-dlp, surface findings in GitHub
-Code Scanning, and gate merges on Critical findings.
+Scan every push and PR with pleno-dlp and surface findings in GitHub
+Code Scanning.
 
 ```yaml
 # .github/workflows/secret-scan.yml
@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # so `scan git --since` sees history
+          fetch-depth: 0   # full history — only needed if you add a `scan git` step; the filesystem and diff scans below don't use it
 
       - name: Install pleno-dlp
         run: |
@@ -67,23 +67,13 @@ Use the merge-base diff instead of the full filesystem:
 | `low`        | severity ≥ Low |
 | `medium`     | severity ≥ Medium (PII trips) |
 | `high`       | severity ≥ High (unverified named-secret detectors trip) — **default** |
-| `critical`   | severity ≥ Critical (verified secrets only) |
+| `critical`   | severity ≥ Critical |
 
-The default (`high`) is an audit-first choice (#250): generic
-high-entropy strings, JWTs, PEM blobs, and PII default to Medium and
-don't fail a first-time scan on their own, but a hit from any specific
-provider detector (AWS, GitHub PAT, …) or a verified live credential
-still does. See [`../output-and-gating.md`](../output-and-gating.md)
+The default (`high`) is an audit-first choice (#250).
+See [`../output-and-gating.md`](../output-and-gating.md)
 for the full severity table and
 [`staged-rollout.md`](staged-rollout.md) for ratcheting to `any` once
 the repo has an allowlist.
-
-Use `critical` for the strictest *verification-only* mode: only
-confirmed-active secrets fail the build.
-
-```yaml
-- run: pleno-dlp scan filesystem . --fail-on critical
-```
 
 ## Verify rate limiting
 

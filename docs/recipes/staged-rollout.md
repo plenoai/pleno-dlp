@@ -1,8 +1,6 @@
-# Staged rollout: audit first, then ratchet the gate down
+# Staged rollout
 
-A scanner that blocks CI on day one, on a repo nobody has triaged yet,
-gets disabled by the first frustrated engineer who hits a false
-positive. pleno-dlp's default (`--fail-on high`, see
+pleno-dlp's default (`--fail-on high`, see
 [`docs/output-and-gating.md`](../output-and-gating.md)) already keeps
 Medium-and-below noise (generic high-entropy, JWTs, PEM blobs, PII)
 from failing a build. The recipe below is the next step: how to adopt
@@ -11,8 +9,9 @@ quietly ignoring real findings forever.
 
 ## Stage 1 — audit (report-only)
 
-Run the scan, upload results, block nothing. The goal is visibility:
-know what's in the repo before anyone is on the hook to fix it.
+Run the scan and upload the results without blocking anything. The
+goal is to know what's in the repo before anyone is on the hook to
+fix it.
 
 ```yaml
 # .github/workflows/secret-scan.yml
@@ -29,31 +28,30 @@ know what's in the repo before anyone is on the hook to fix it.
     sarif_file: findings.sarif
 ```
 
-`--fail-on any` here is deliberate even though it's the "block on
-everything" setting elsewhere in this doc set — combined with
-`continue-on-error: true` the exit code is discarded, so this stage is
-purely about getting every finding, including the low/medium ones,
-into Code Scanning where a human can triage them. Skip
-`continue-on-error` and you've silently jumped to Stage 3.
+Combined with `continue-on-error: true` the exit code is discarded,
+so this stage is purely about getting every finding, including the
+low/medium ones, into Code Scanning where a human can triage them.
 
 Triage each finding into one of three buckets:
 
-- **Real, must rotate** — rotate the credential, then remove it from
-  history if it's in git (`scan git`), or from the working tree if
-  it's filesystem-only.
-- **Real, accepted risk** (rare — e.g. a scoped read-only demo key
-  that's meant to be public) — document why, then allowlist it.
-- **False positive** — add a narrow entry to `.pleno-allow.json` (see
-  [`allowlist-patterns.md`](allowlist-patterns.md)). Don't allowlist by
-  broad path glob; scope to `detector` + `raw_regex` where possible.
+- A real credential that must be rotated. Rotate it, then remove it
+  from history if it's in git (`scan git`) or from the working tree
+  if it's filesystem-only.
+- A real credential accepted as a risk, which is rare (e.g. a scoped
+  read-only demo key that's meant to be public). Document why, then
+  allowlist it.
+- A false positive: add a narrow entry to `.pleno-allow.json` (see
+  [`allowlist-patterns.md`](allowlist-patterns.md)), scoped to
+  `detector` + `raw_regex` where possible instead of a broad path
+  glob.
 
 Stay in this stage until the audit run is quiet: every remaining
 finding is either fixed or allowlisted with a `reason`.
 
 ## Stage 2 — gate on the default (critical + high)
 
-Once the repo has a clean audit baseline, start blocking merges — but
-still on the built-in default, not on everything:
+Once the repo has a clean audit baseline, start blocking merges,
+still gated on the built-in default rather than on everything:
 
 ```yaml
 - name: Scan filesystem (gated)
@@ -66,15 +64,10 @@ still on the built-in default, not on everything:
     # detector hits and verified/critical findings.
 ```
 
-Drop `continue-on-error`. New commits that introduce a named-secret
-detector hit or a verified live credential now fail CI; Medium/low
-noise (that the audit stage already worked through once) still
-doesn't block, so contributors aren't retriaging entropy-string false
-positives on every PR.
+Drop `continue-on-error`.
 
-If the team wants a stricter first gate than the built-in default —
-for example, blocking only on provider-confirmed live credentials
-while the allowlist is still being built out — pin it explicitly:
+If the team wants a stricter first gate than the built-in default,
+pin it explicitly:
 
 ```yaml
 - run: pleno-dlp scan filesystem . --allowlist .pleno-allow.json --fail-on critical
@@ -90,33 +83,14 @@ Medium/low noise:
 - run: pleno-dlp scan filesystem . --allowlist .pleno-allow.json --fail-on any
 ```
 
-At this point pleno-dlp behaves the way `--fail-on any` did before
-#250 — but the team reached it on purpose, with an allowlist already
-absorbing the known-noise patterns, instead of inheriting it as an
-unannounced default on day one.
-
 ## Combine with `--only-verified` for a zero-triage floor
-
-Independent of which `--fail-on` stage you're in, `--only-verified`
-restricts everything (output, counts, exit code, `--revoke-on-verified`)
-to provider-confirmed findings:
 
 ```sh
 pleno-dlp scan filesystem . --only-verified
 ```
 
-`--only-verified` drops every unverified finding before it reaches the
-counter or the exit-code gate, and every verified finding is Critical
-by definition (see the severity table in
-[`output-and-gating.md`](../output-and-gating.md)), so the default
-`--fail-on=high` already blocks on all of them without needing
-`--fail-on critical` explicitly.
-
-This is the closest thing to a "no false positives, ever" gate — a
-verified finding means the credential authenticated against the
-provider's API — and is a reasonable Stage-0 gate to run alongside the
-audit stage above, before triage capacity exists for unverified
-findings at all.
+See the severity table in
+[`output-and-gating.md`](../output-and-gating.md).
 
 ## Summary
 

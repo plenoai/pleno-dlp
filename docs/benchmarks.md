@@ -1,8 +1,6 @@
 # Benchmarks
 
 Historical benchmark snapshot for pleno-dlp, trufflehog, and gitleaks.
-Use this file to reproduce the methodology, not as a current performance
-claim.
 
 Captured 2026-05-12 against pleno-dlp commit `3be6e6a` (head of
 `main` at capture time).
@@ -58,24 +56,17 @@ Captured 2026-05-12 against pleno-dlp commit `3be6e6a` (head of
 
 - Each tool was invoked once per measurement under `hyperfine
   --warmup 3 --runs 20 --ignore-failure`. The 3 warmup runs prime
-  the filesystem cache and the macOS Gatekeeper / DTrace path-cache
-  for the binary; the 20 timed runs are interleaved across tools so
-  no single tool sees a consecutive thermal advantage.
-- Verification was **disabled** on every tool so that the measurement reflects
-  engine cost, not upstream API roundtrip latency. Each tool's
-  exit code was ignored because pleno-dlp and gitleaks return
-  non-zero whenever findings exist.
-- Each invocation redirects stdout to `/dev/null` so I/O cost does
-  not pollute the measurement; both tools were configured to emit
-  JSON to stdout.
+  the filesystem cache.
+- Verification was disabled on trufflehog (`--no-verification`).
+  Each tool's exit code was ignored because gitleaks returns
+  non-zero whenever findings exist and pleno-dlp returns non-zero
+  when any finding meets its `--fail-on` gate (default: high).
 - Reported statistics are computed from the 20 raw wall-clock
-  samples hyperfine exports to JSON. Mean ± SD is **not** the
-  primary statistic; medians are reported with a non-parametric
-  bootstrap 95 % CI (B = 10 000, seed = 42).
+  samples hyperfine exports to JSON. Medians are reported with a
+  non-parametric bootstrap 95 % CI (B = 10 000, seed = 42).
 - Pairwise comparisons use Welch's *t*-test (unequal variances)
   with Bonferroni correction for the three pairs (α' = 0.05/3 ≈
-  0.0167). Cohen's *d* is the effect-size measure on the same
-  pair.
+  0.0167).
 
 ## Results
 
@@ -128,24 +119,18 @@ other tools either do not enumerate or filter differently.
    per-detector benchmark would require restricting each tool to a
    common rule subset; none of the three exposes the same set.
 2. **macOS scheduling noise.** Workload D's wide 95 % CI for both
-   Go tools (pleno-dlp σ ≈ 750 ms around a 1.3 s median) is
-   consistent with macOS asymmetric P/E core scheduling — work can
-   land on an E-core mid-run. Linux with `cpupower frequency-set
-   -g performance` and `taskset -c 0-3` would tighten the CI.
+   Go tools is consistent with macOS asymmetric P/E core
+   scheduling — work can land on an E-core mid-run.
 3. **Filesystem cache state.** `--warmup 3` warms the page cache;
-   results therefore reflect hot-cache scans. Cold-cache numbers
-   would add ~50-150 ms of `read()` latency uniformly across all
-   tools and is unlikely to change pairwise ordering.
-4. **Bonferroni is conservative.** The only borderline comparison is
-   pleno-dlp vs trufflehog on Workload D.
+   results therefore reflect hot-cache scans.
+4. **Bonferroni is conservative.**
 5. **Single hardware platform.** All measurements are on a single
    Apple M3 MacBook. Behaviour on x86-64 servers, on Linux with a
    different scheduler, or under containers with cgroup CPU caps
-   may differ. We do not extrapolate beyond this configuration.
+   may differ.
 6. **Single corpus per workload class.** Workload D is dominated
    by Go source. Code in other languages with different keyword
-   densities (Python config-heavy, Rust trait-heavy) would
-   redistribute detector-dispatch cost.
+   densities would redistribute detector-dispatch cost.
 
 ## Reproducing
 
@@ -158,7 +143,7 @@ for i in $(seq 1 200); do
 2026-05-12T10:00:01Z INFO request=GET /api/v1/users status=200 latency_ms=12.4
 2026-05-12T10:00:02Z WARN slow query=select * from orders took=812ms
 EOF
-  for _ in $(seq 1 60); do
+  for _ in $(seq 1 228); do
     cat "/tmp/dlp-bench/corpus-b/log_${i}.txt" >> "/tmp/dlp-bench/corpus-b/log_${i}.txt.tmp"
   done
   mv "/tmp/dlp-bench/corpus-b/log_${i}.txt.tmp" "/tmp/dlp-bench/corpus-b/log_${i}.txt"
