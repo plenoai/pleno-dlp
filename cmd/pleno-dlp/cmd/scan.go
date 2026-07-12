@@ -406,6 +406,18 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	if scanOpts.noVerify && scanOpts.onlyVerified {
 		return fmt.Errorf("--no-verify and --only-verified are mutually exclusive: with --no-verify no finding is ever verified, so --only-verified would always emit zero results")
 	}
+	// Reject an unknown --pii-engine as a hard config error rather than
+	// letting startPIIEngine's error be swallowed by the "continue without
+	// PII" downgrade below — otherwise a typo silently produces a
+	// secret-only scan the operator reads as a full DLP pass.
+	if !validPIIEngineMode(scanOpts.piiEngine) {
+		return fmt.Errorf("unknown --pii-engine %q (valid: off, anonymize, openai-pf)", scanOpts.piiEngine)
+	}
+	// --concurrency < 1 was silently clamped to 8 inside the engine, so
+	// `--concurrency 0` scanned as if unset with no signal. Reject it here.
+	if scanOpts.concurrency < 1 {
+		return fmt.Errorf("--concurrency must be >= 1, got %d", scanOpts.concurrency)
+	}
 	if scanOpts.revokeOnVerified {
 		if !scanOpts.revokeDryRun && os.Getenv(EnvAllowRevoke) != "1" {
 			return fmt.Errorf("--revoke-on-verified refuses to run without %s=1 (irreversible operation; set the env var to opt in or pass --revoke-dry-run)", EnvAllowRevoke)

@@ -704,6 +704,83 @@ func TestScan_RevokeOnVerified_DryRunBypassesEnv(t *testing.T) {
 	}
 }
 
+// TestScan_UnknownPIIEngineIsHardError guards F32: a mistyped --pii-engine
+// value must fail loudly at the CLI boundary rather than being swallowed by
+// startPIIEngine's "continue without PII" downgrade, which would silently
+// produce a secret-only scan the operator reads as a full DLP pass.
+func TestScan_UnknownPIIEngineIsHardError(t *testing.T) {
+	resetCommandFlags(t)
+
+	dir := t.TempDir()
+	target := dir + "/leak.txt"
+	if err := writeFile(target, "nothing here\n"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"scan", "--pii-engine", "opf", "--no-verify", "filesystem", target})
+
+	err := Root.Execute()
+	if err == nil {
+		t.Fatalf("scan must reject an unknown --pii-engine value")
+	}
+	if !strings.Contains(err.Error(), "unknown --pii-engine") || !strings.Contains(err.Error(), "opf") {
+		t.Errorf("error must name the bad value: %v", err)
+	}
+}
+
+// TestScan_ValidPIIEngineOffIsAccepted pins the complement of the F32 gate:
+// the recognized values (here "off") pass validation and scan normally, so
+// the hard error above cannot regress into rejecting legitimate input.
+func TestScan_ValidPIIEngineOffIsAccepted(t *testing.T) {
+	resetCommandFlags(t)
+
+	dir := t.TempDir()
+	target := dir + "/clean.txt"
+	if err := writeFile(target, "nothing here\n"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"scan", "--pii-engine", "off", "--no-verify", "filesystem", target})
+
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("--pii-engine off must be accepted; got %v\nstderr:\n%s", err, errBuf.String())
+	}
+}
+
+// TestScan_ConcurrencyBelowOneIsHardError guards F32: --concurrency < 1 was
+// silently clamped to 8 inside the engine, so `--concurrency 0` scanned as if
+// unset with no signal. Reject it at the CLI boundary instead.
+func TestScan_ConcurrencyBelowOneIsHardError(t *testing.T) {
+	for _, n := range []string{"0", "-1"} {
+		resetCommandFlags(t)
+
+		dir := t.TempDir()
+		target := dir + "/clean.txt"
+		if err := writeFile(target, "nothing here\n"); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+
+		var out, errBuf bytes.Buffer
+		Root.SetOut(&out)
+		Root.SetErr(&errBuf)
+		Root.SetArgs([]string{"scan", "--concurrency", n, "--no-verify", "filesystem", target})
+
+		err := Root.Execute()
+		if err == nil {
+			t.Fatalf("--concurrency %s must be rejected", n)
+		}
+		if !strings.Contains(err.Error(), "--concurrency must be >= 1") {
+			t.Errorf("--concurrency %s: unexpected error %v", n, err)
+		}
+	}
+}
+
 func TestRevokingSink_VerifiedFindingDispatches(t *testing.T) {
 	captured := &captureSink{}
 	rev := &fakeRevoker{}

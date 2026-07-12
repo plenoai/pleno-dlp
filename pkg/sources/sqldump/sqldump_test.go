@@ -3,6 +3,7 @@ package sqldump
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -253,6 +254,44 @@ INSERT INTO t VALUES (1);
 	}
 	if !strings.Contains(allData, "hunter2_secret_key") {
 		t.Error("comment containing password keyword should be emitted")
+	}
+}
+
+// TestScanSkipsOversizedLineAndContinues is the regression for the
+// bufio.Scanner ErrTooLong abort: an oversized line must be skipped whole (its
+// content never reaching a chunk) while every later line keeps being scanned.
+// With the old scanner, the first oversized line aborted Chunks entirely, so
+// the secret after it vanished and collect() would t.Fatal on the error.
+func TestScanSkipsOversizedLineAndContinues(t *testing.T) {
+	big := strings.Repeat("A", 200)
+	dump := "-- secret1: ghp_secretAAA\n" +
+		"-- oversized: " + big + "\n" +
+		"-- secret2: ghp_secretBBB\n"
+	dir := t.TempDir()
+	path := writeDump(t, dir, "oversized.sql", dump)
+
+	var warns []string
+	prev := sqldumpWarnf
+	sqldumpWarnf = func(format string, args ...any) { warns = append(warns, fmt.Sprintf(format, args...)) }
+	t.Cleanup(func() { sqldumpWarnf = prev })
+
+	chunks := collect(t, path, func(c *Config) { c.MaxLineBytes = 100 })
+	var all string
+	for _, c := range chunks {
+		all += string(c.Data)
+	}
+
+	if !strings.Contains(all, "ghp_secretAAA") {
+		t.Error("secret before the oversized line is missing")
+	}
+	if !strings.Contains(all, "ghp_secretBBB") {
+		t.Fatal("secret after the oversized line is missing — scan aborted at the oversized line instead of skipping it")
+	}
+	if strings.Contains(all, big) {
+		t.Error("oversized line was not skipped — its content leaked into a chunk")
+	}
+	if len(warns) == 0 || !strings.Contains(warns[0], "skipped 1 line") {
+		t.Errorf("expected a skip warning mentioning 1 line, got %v", warns)
 	}
 }
 
