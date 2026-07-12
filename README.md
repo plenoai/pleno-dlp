@@ -19,7 +19,7 @@
     <img alt="license" src="https://img.shields.io/github/license/plenoai/pleno-dlp">
   </a>
   <a href="https://github.com/plenoai/pleno-dlp/blob/main/go.mod">
-    <img alt="go version" src="https://img.shields.io/badge/go-1.25.0-00ADD8?logo=go&logoColor=white">
+    <img alt="go version" src="https://img.shields.io/badge/go-1.25.8-00ADD8?logo=go&logoColor=white">
   </a>
 </p>
 

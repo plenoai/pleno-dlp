@@ -99,7 +99,7 @@ absent, so the finding acknowledges the token shape without implying live access
 > match marks the finding `Verified=true` and surfaces the discovered
 > domains via `ExtraData["blast_radius_domains"]` — the leak's literal
 > blast radius. Encrypted PEMs are also tried against an embedded
-> ~250-entry passphrase wordlist; a successful unlock escalates the
+> 325-entry passphrase wordlist; a successful unlock escalates the
 > unverified severity from Medium to High. Inspired by
 > trufflesecurity/driftwood.
 

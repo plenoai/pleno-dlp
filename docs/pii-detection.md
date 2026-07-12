@@ -88,7 +88,7 @@ started directly for local debugging.
 
 ```sh
 pleno-dlp pii-server --port 8080
-pleno-dlp pii-server --git-ref v0.5.0
+pleno-dlp pii-server --git-ref v0.1.0
 pleno-dlp pii-server --no-fetch
 ```
 

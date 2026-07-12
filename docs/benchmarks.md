@@ -120,9 +120,9 @@ other tools either do not enumerate or filter differently.
 ## Threats to validity
 
 1. **Detector-set parity.** pleno-dlp registered 607 detectors at
-   capture time; current builds ship 600. The compared tools also ship
+   capture time; current builds ship 619. The compared tools also ship
    different rule sets:
-   trufflehog ~870, gitleaks ~220. Wall-clock comparisons reflect
+   trufflehog ~870, gitleaks ~222. Wall-clock comparisons reflect
    "scan throughput at each tool's captured rule set,"
    not a controlled per-rule measurement. A like-for-like
    per-detector benchmark would require restricting each tool to a

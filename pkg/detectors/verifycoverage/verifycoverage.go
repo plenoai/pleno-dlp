@@ -30,7 +30,7 @@ func Lookup(detectorType string) (Class, bool) {
 }
 
 var Classes = map[string]Class{
-	// (b) Unverified-by-design — 51 detectors
+	// (b) Unverified-by-design — 67 detectors
 	"APNs":              ClassUnverifiedByDesign,
 	"AWSS3PresignedURL": ClassUnverifiedByDesign,
 	"AgoraIO":           ClassUnverifiedByDesign,

@@ -465,7 +465,7 @@ Full clones, git-mode invocations, single timed run (informational):
 
 The findings/unique ratio exposes duplicate handling: by default
 pleno-dlp now applies cross-commit dedup (`NewGitCrossCommitDedup`,
-`cmd/scan.go`) so the same secret+file pair across many commits collapses
+`cmd/pleno-dlp/cmd/scan.go`) so the same secret+file pair across many commits collapses
 to a single introducing-commit finding annotated with
 `extra_data.occurrence_count`. The numbers above were measured against
 v0.53.0 before this was added; opt-out via `--all-occurrences`.
@@ -508,11 +508,11 @@ observed behavior, not documentation.
 | Secrets inside `.zip` | ✗ (archive walker exists but blocked by `isBinary` gate — see #208) | ✓ | ✗ |
 | Secrets inside `.tar.gz` | ✗ (archive walker exists but blocked by `isBinary` gate — see #208) | ✓ | ✗ |
 | Base64-encoded secret (decode-then-detect) | ✓ (`extra_data.decoded_from=base64`) | ✗ (decoder exists; generic AWS-secret line not re-detected) | ✓ (`decoded:base64` tag) |
-| UTF-16 encoded secret | ✗ | ✓ (UTF16 decoder) | ✗ |
+| UTF-16 encoded secret | ✓ stdin/git (engine UTF-16 decoder); ✗ filesystem files (NUL-byte binary gate) | ✓ (UTF16 decoder) | ✗ |
 | SARIF output | ✓ valid 2.1.0 | ✗ (no SARIF format) | ✓ valid 2.1.0 |
-| Exit-code gating | exit 1 on findings; `--fail-on` severity threshold | exit 0 by default; opt-in `--fail` → 183 | exit 1 on findings; `--exit-code N`; no severity concept |
+| Exit-code gating | exit 1 on findings at/above the `--fail-on` threshold (default `high`) | exit 0 by default; opt-in `--fail` → 183 | exit 1 on findings; `--exit-code N`; no severity concept |
 | Custom rules | ✓ (`--rules` JSON) | ✓ (`--config` YAML CustomRegex) | ✓ (`--config` TOML `[[rules]]`) |
-| Machine-clean stdout | ✓ JSON array; `--quiet` empties stderr | ✓ NDJSON; logs on stderr | ✓ report file; logs on stderr |
+| Machine-clean stdout | ✓ JSON array; `--quiet` suppresses the end-of-scan summary line (suppression-count and trust-signal notices still print) | ✓ NDJSON; logs on stderr | ✓ report file; logs on stderr |
 
 Two behaviors worth flagging:
 
@@ -575,14 +575,20 @@ Where the competition — or the whole industry — is measurably ahead:
    re-adjudication against the new baseline is still pending.)*
 3. **Git-mode duplicate findings** (§5) — *(closed: cross-commit dedup
    landed in `pkg/engine/dedup.go:NewGitCrossCommitDedup`, wired in
-   `cmd/scan.go`. git attribution also closed in PR #199.)*
+   `cmd/pleno-dlp/cmd/scan.go`. git attribution also closed in PR #199.)*
 4. **Archive scanning** — trufflehog finds secrets inside `.zip` /
-   `.tar.gz`; pleno-dlp and gitleaks scan only raw bytes. The
-   pleno-dlp archive walker exists and is wired at the engine layer
-   (`pkg/engine/engine.go:173`) but is unreachable from the filesystem
-   source because the `isBinary` gate drops archives before they reach
-   the engine (tracked in #208).
-5. **UTF-16 decoding** — trufflehog only.
+   `.tar.gz`; gitleaks scans only raw bytes. *(closed: the `isBinary`
+   gate that dropped archives before the engine was fixed in PR #225
+   (#208); `pkg/engine/engine.go:scanChunk` now detects archive chunks
+   via `archive.LooksLikeArchive` and expands them with
+   `archive.WalkContext`, so pleno-dlp scans secrets inside `.zip` /
+   `.tar.gz` / `.bz2`.)*
+5. **UTF-16 files via the filesystem source** — the engine-level decoder
+   (`pkg/decoder`) transcodes UTF-16 on any chunk it receives, so UTF-16
+   secrets are found on the stdin and git paths. UTF-16 *files* scanned
+   through the filesystem source are dropped first: `isBinary`
+   (`pkg/sources/filesystem/filesystem.go`) treats the NUL bytes of
+   UTF-16 as binary and skips the file before the decoder runs.
 6. **Synthetic-corpus recall misses** (§2) — `slack-webhook-url`,
    `azure-storage-account-key` (AccountKey= connection strings),
    `asana-pat`, PGP `PRIVATE KEY BLOCK` armor headers.
