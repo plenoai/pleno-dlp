@@ -163,9 +163,20 @@ func LoadFile(path string) ([]*Detector, error) {
 // Load parses rules from any io.Reader. Useful for tests that build a
 // fixture in memory rather than touching the filesystem.
 func Load(r io.Reader) ([]*Detector, error) {
+	dec := json.NewDecoder(r)
+	// A mistyped field (verify_uri for verify_url, entropy_minimum for
+	// entropy_min) would otherwise be dropped silently, so the rule loads
+	// stripped of the setting the operator meant to apply. Reject it loudly.
+	dec.DisallowUnknownFields()
 	var rules []Rule
-	if err := json.NewDecoder(r).Decode(&rules); err != nil {
+	if err := dec.Decode(&rules); err != nil {
 		return nil, fmt.Errorf("custom rules: parse: %w", err)
+	}
+	// `null` and `[]` both decode without error into zero rules; an explicit
+	// --rules file that yields no detectors is a misconfiguration, not a
+	// silent no-op that leaves the operator thinking their patterns are live.
+	if len(rules) == 0 {
+		return nil, errors.New("custom rules: file contained no rules (expected a non-empty JSON array of rule objects)")
 	}
 	out := make([]*Detector, 0, len(rules))
 	for i, rule := range rules {

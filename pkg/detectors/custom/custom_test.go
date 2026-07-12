@@ -170,3 +170,26 @@ func TestLoad_RejectsInvalidRule(t *testing.T) {
 		t.Fatalf("expected error pointing at rule[1]; got %v", err)
 	}
 }
+
+// TestLoad_RejectsEmpty covers `null` and `[]`: both decode without error into
+// zero rules. An explicit --rules file that loads no detectors is a
+// misconfiguration and must not silently become a no-op scan.
+func TestLoad_RejectsEmpty(t *testing.T) {
+	for _, doc := range []string{"null", "[]", "  "} {
+		_, err := Load(strings.NewReader(doc))
+		if err == nil {
+			t.Errorf("Load(%q): expected error for zero rules, got nil", doc)
+		}
+	}
+}
+
+// TestLoad_RejectsUnknownField ensures a mistyped field name is rejected
+// rather than silently dropped, which would strip the setting the operator
+// meant to apply (here verify_uri instead of verify_url).
+func TestLoad_RejectsUnknownField(t *testing.T) {
+	doc := `[{"name":"r1","keywords":["x"],"regex":"x","verify_uri":"https://e.example"}]`
+	_, err := Load(strings.NewReader(doc))
+	if err == nil || !strings.Contains(err.Error(), "verify_uri") {
+		t.Fatalf("expected unknown-field error mentioning verify_uri; got %v", err)
+	}
+}

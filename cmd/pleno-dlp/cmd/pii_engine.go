@@ -19,6 +19,22 @@ const (
 	defaultOpenAIPFCmd  = "pleno-dlp openai-pf-server --port {PORT}"
 )
 
+// validPIIEngineMode reports whether mode is a recognized --pii-engine value.
+// Callers validate this before scanning so an unknown value (an operator typo
+// such as "openai-pf" mistyped, or the upstream name "opf") fails fast as a
+// config error. That is deliberately distinct from a runtime spawn failure of
+// a *valid* engine, which startPIIEngine's callers downgrade to a warning and
+// "continue without PII" — a typo must not silently degrade to a secret-only
+// scan while the operator believes PII detection is live.
+func validPIIEngineMode(mode string) bool {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "off", "anonymize", "openai-pf":
+		return true
+	default:
+		return false
+	}
+}
+
 // startPIIEngine evaluates --pii-engine, starts the selected supervisor,
 // publishes it via SetDefault, and returns a stop function.
 func startPIIEngine(ctx context.Context, cmd *cobra.Command, stderr io.Writer) (stop func(), err error) {

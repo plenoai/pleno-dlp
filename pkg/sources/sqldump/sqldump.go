@@ -225,8 +225,11 @@ func (s *Source) scanFile(ctx context.Context, path string, ch chan<- *sources.C
 		}
 	}
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), s.cfg.MaxLineBytes)
+	// bufio.Scanner aborts the whole file on the first line longer than its
+	// buffer (bufio.ErrTooLong), which would drop every secret after an
+	// oversized line. --max-line-bytes documents "longer lines are skipped",
+	// so read with a bufio.Reader that skips the oversized line and continues.
+	reader := bufio.NewReaderSize(f, 64*1024)
 
 	p := &parser{
 		format:  format,
@@ -239,36 +242,45 @@ func (s *Source) scanFile(ctx context.Context, path string, ch chan<- *sources.C
 	var chunkStartLine int
 	lineCount := 0
 	lineNum := 0
+	skippedLines := 0
 
-	for scanner.Scan() {
+	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		lineNum++
-		line := scanner.Text()
+		line, skipped, err := readLine(reader, s.cfg.MaxLineBytes)
+		if skipped {
+			// The oversized line is skipped whole rather than scanned in
+			// part, so a secret split across the cutoff isn't half-matched.
+			// lineNum still advances so later line numbers stay accurate.
+			lineNum++
+			skippedLines++
+		} else if len(line) > 0 || err == nil {
+			lineNum++
+			lineStr := string(line)
+			p.trackContext(lineStr)
+			if p.isDataLine(lineStr) && p.tableAllowed() {
+				if lineCount == 0 {
+					chunkStartLine = lineNum
+				}
+				buf.WriteString(lineStr)
+				buf.WriteByte('\n')
+				lineCount++
 
-		p.trackContext(line)
-
-		if !p.isDataLine(line) {
-			continue
-		}
-		if !p.tableAllowed() {
-			continue
-		}
-
-		if lineCount == 0 {
-			chunkStartLine = lineNum
-		}
-		buf.WriteString(line)
-		buf.WriteByte('\n')
-		lineCount++
-
-		if lineCount >= s.cfg.ChunkLineCount {
-			if err := s.emitChunk(ctx, ch, abs, p, buf.Bytes(), chunkStartLine, format); err != nil {
-				return err
+				if lineCount >= s.cfg.ChunkLineCount {
+					if emitErr := s.emitChunk(ctx, ch, abs, p, buf.Bytes(), chunkStartLine, format); emitErr != nil {
+						return emitErr
+					}
+					buf.Reset()
+					lineCount = 0
+				}
 			}
-			buf.Reset()
-			lineCount = 0
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
 		}
 	}
 
@@ -278,7 +290,62 @@ func (s *Source) scanFile(ctx context.Context, path string, ch chan<- *sources.C
 		}
 	}
 
-	return scanner.Err()
+	if skippedLines > 0 {
+		sqldumpWarnf("sqldump: skipped %d line(s) over --max-line-bytes=%d in %s\n",
+			skippedLines, s.cfg.MaxLineBytes, abs)
+	}
+
+	return nil
+}
+
+// readLine reads the next newline-terminated line from r, returning it with the
+// trailing CR/LF stripped. A line longer than max bytes is drained to its end
+// and reported with skipped=true and a nil line, so the caller skips it and
+// keeps scanning subsequent lines. The final line without a trailing newline is
+// returned alongside io.EOF.
+func readLine(r *bufio.Reader, max int) (line []byte, skipped bool, err error) {
+	var full []byte
+	n := 0 // content bytes seen so far, excluding the terminating newline
+	for {
+		frag, e := r.ReadSlice('\n')
+		content := frag
+		if e == nil && len(content) > 0 && content[len(content)-1] == '\n' {
+			content = content[:len(content)-1]
+		}
+		n += len(content)
+		if !skipped {
+			if n > max {
+				skipped = true
+				full = nil
+			} else {
+				full = append(full, frag...)
+			}
+		}
+		if e == bufio.ErrBufferFull {
+			continue
+		}
+		if skipped {
+			return nil, true, e
+		}
+		return trimEOL(full), false, e
+	}
+}
+
+// trimEOL drops a single trailing "\n" or "\r\n" from a line.
+func trimEOL(b []byte) []byte {
+	if n := len(b); n > 0 && b[n-1] == '\n' {
+		b = b[:n-1]
+		if n := len(b); n > 0 && b[n-1] == '\r' {
+			b = b[:n-1]
+		}
+	}
+	return b
+}
+
+// sqldumpWarnf reports non-fatal scan degradation (e.g. skipped oversized
+// lines) to stderr. It is a package var so tests can capture the warnings.
+var sqldumpWarnf = func(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, format, args...)
 }
 
 func (s *Source) emitChunk(ctx context.Context, ch chan<- *sources.Chunk, file string, p *parser, data []byte, line int, format string) error {
