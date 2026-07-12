@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/plenoai/pleno-dlp/pkg/piiengine/anonymize"
-	"github.com/plenoai/pleno-dlp/pkg/piiengine/openaipf"
 	"github.com/plenoai/pleno-dlp/pkg/piiengine/opfnative"
 )
 
@@ -36,7 +35,6 @@ func startOpenAIPFNative(ctx context.Context, _ *cobra.Command, stderr io.Writer
 	}
 
 	anonymize.SetDefault(nil)
-	openaipf.SetDefault(nil)
 	opfnative.SetDefault(eng)
 	fmt.Fprintf(stderr, "pii-engine: openai-pf-native loaded %s\n", path)
 

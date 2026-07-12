@@ -25,8 +25,7 @@ func mapEntityType(entityType string) string {
 // entityTypeMap is the ADR-0004 §6 wire contract. New entries land
 // here and in the ADR together; the table is one-to-one with the
 // "opf category → pii_kind" rows in the ADR. The keys are opf's
-// own category strings (the EntityType field in piiengine/openaipf
-// Finding); the values are the pleno-dlp pii_kind strings that
+// own category strings; the values are the pleno-dlp pii_kind strings that
 // downstream JSON consumers may pin against.
 //
 // Strings reused from anonymize ("ADDRESS", "EMAIL_ADDRESS",
@@ -34,26 +33,7 @@ func mapEntityType(entityType string) string {
 // consumer routing on pii_kind alone gets the same semantic regardless
 // of which engine emitted the finding. ExtraData["engine"]
 // distinguishes the two engines when distinction matters.
-//
-// Plural keys are the Python subprocess path's labels
-// (piiengine/openaipf); singular keys are the model's own
-// BIOES-stripped category names emitted by the native path
-// (piiengine/opfnative → privacy-filter.cpp's pf_entity.label). Both
-// spellings of a category alias to one pii_kind, so a consumer
-// routing on pii_kind cannot tell which engine implementation
-// produced the finding — ExtraData["engine_impl"] carries that.
 var entityTypeMap = map[string]string{
-	// Subprocess path (plural).
-	"account_numbers":       "ACCOUNT_NUMBER",
-	"private_addresses":     "ADDRESS",
-	"private_emails":        "EMAIL_ADDRESS",
-	"private_persons":       "PERSON",
-	"private_phone_numbers": "PHONE_NUMBER",
-	"private_urls":          "URL",
-	"private_dates":         "DATE",
-	"secrets":               "OPF_SECRET",
-
-	// Native path (singular): the 8 GGUF category names.
 	"account_number":  "ACCOUNT_NUMBER",
 	"private_address": "ADDRESS",
 	"private_email":   "EMAIL_ADDRESS",

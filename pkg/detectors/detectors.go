@@ -939,11 +939,11 @@ const (
 	// (ADR-0004). Sibling of PIIAnonymize, not a replacement: opf is a
 	// 1.5B-param transformer classifier (English-strong, GPU-friendly,
 	// 8 categories) while anonymize is the ja-first regex+spaCy pipeline.
-	// Mutually exclusive at the CLI in v1 (--pii-engine={anonymize|openai-pf}).
+	// Mutually exclusive with anonymize at the CLI.
 	// The detector at pkg/detectors/openaipf maps opf's 8 categories to
 	// ExtraData["pii_kind"] (ACCOUNT_NUMBER / ADDRESS / EMAIL_ADDRESS /
 	// PERSON / PHONE_NUMBER / URL / DATE / OPF_SECRET) per ADR-0004 §6;
-	// ExtraData["engine"]="openai-pf" disambiguates from anonymize when
+	// ExtraData["engine"]="openai-pf-native" disambiguates from anonymize when
 	// downstream consumers route by engine.
 	PIIOpenAIPF
 

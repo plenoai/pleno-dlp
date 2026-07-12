@@ -5,7 +5,7 @@ package opfnative
 import "errors"
 
 // DefaultThreshold is pf_classify's score cutoff when Config.Threshold is
-// unset. 0.5 matches the PoC and the subprocess engine's default.
+// unset.
 const DefaultThreshold = 0.5
 
 // Config configures a native privacy-filter.cpp engine.
@@ -20,8 +20,7 @@ type Config struct {
 	Threshold float64
 }
 
-// Finding is field-identical to openaipf.Finding so the detector's adapter
-// copy applies unchanged. BIOESTag is always "" — libpf resolves BIOES
+// Finding is returned by the native classifier. BIOESTag is always "" — libpf resolves BIOES
 // spans internally, so the Go side carries no token tag.
 type Finding struct {
 	EntityType string

@@ -4,11 +4,8 @@ Status: accepted
 
 ## Context
 
-`--pii-engine=openai-pf` runs the openai/privacy-filter model out-of-process:
-a Python FastAPI wrapper materialized by `uvx`, supervised over a loopback
-HTTP socket (`pkg/piiengine/openaipf`, ADR-0004). It works but drags a Python
-3.12 + `uv` runtime dependency, a multi-GB HuggingFace cold path, and a
-per-chunk HTTP round-trip into every PII scan.
+The original openai/privacy-filter integration ran through a Python FastAPI
+wrapper. That path has been removed; privacy-filter is now native-only.
 
 `localai-org/privacy-filter.cpp` (MIT) runs the same model natively. The PoC
 (`_workspace/poc-opfnative.md`) built `libpf.a` on macOS arm64 with cmake preset
@@ -23,8 +20,7 @@ Hard constraints:
    `CGO_ENABLED=0` pure-Go cross-compile. It must not break.
 2. The native engine is opt-in behind build tag `opf_native`. A tag-free binary
    asked for `openai-pf-native` fails with a clear, install-directing error.
-3. The Python `openaipf` supervisor and the `anonymize` engine are not removed;
-   engine choice stays `--pii-engine`.
+3. The independent `anonymize` engine remains available.
 4. Single Go module; new packages under `pkg/<area>/<name>/`, no new `go.mod`.
 5. PII findings set `ExtraData["finding_class"]="pii"`.
 
@@ -38,19 +34,8 @@ end. New package **`pkg/piiengine/opfnative`** (build tag `opf_native`) provides
 it, mirroring the supervisor's handle surface (`New`/`Analyze`/`Close`/
 `SetDefault`/`Default`).
 
-The **detector is reused**: `pkg/detectors/openaipf`,
-`DetectorType=PIIOpenAIPF`. The native and subprocess backends run the identical
-GGUF and emit identical categories and spans; the only difference is
-provenance. A second DetectorType would fork the wire contract (mapping,
-redaction, verify-coverage) for no semantic gain. The detector already
-abstracts its backend behind `var fetchAnalyzer = productionAnalyzer` returning
-an `Analyzer`; a build-tagged file prefers the native engine when it is the
-active backend. Exactly one backend is `SetDefault`'d per run (engines are
-mutually exclusive), so there is no ambiguity.
-
-Provenance is carried by `ExtraData["engine_impl"]` (`"subprocess"` |
-`"native"`); `ExtraData["engine"]` stays `"openai-pf"` so downstream routing on
-the logical engine is unchanged.
+The detector remains `pkg/detectors/openaipf`, `DetectorType=PIIOpenAIPF`.
+Native findings carry `ExtraData["engine"]="openai-pf-native"`.
 
 ### A. C sources: pinned-commit fetch, SHA-verified, git-ignored
 
@@ -161,8 +146,7 @@ func SetDefault(*Engine); func Default() *Engine
 type Finding struct { EntityType, BIOESTag string; Start, End int; Score float64; Text string }
 ```
 
-`Finding` is field-identical to `openaipf.Finding` (`BIOESTag` always `""`) so
-the detector's existing adapter copy applies unchanged. An **untagged**
+`Finding.BIOESTag` is always empty because libpf resolves spans internally. An **untagged**
 `doc.go` keeps the package valid under a tag-free `go build ./...`.
 
 ### F. Engine selection & the "not built" error
@@ -176,7 +160,7 @@ builds and added to both "valid: …" error strings. `startPIIEngine` dispatches
   `startOpenAIPFNative` returning it.
 - `cmd/pleno-dlp/cmd/pii_engine_native.go` (`//go:build opf_native`):
   `const nativeOPFBuilt = true`; resolves the model path (D), `New`s the
-  `Engine`, `opfnative.SetDefault`s it, sets the detector's `engineImpl="native"`,
+  `Engine`, `opfnative.SetDefault`s it,
   returns a stop func calling `Close`.
 
 `scan.go` preflight (beside the existing `validPIIEngineMode` gate) hard-fails
@@ -206,8 +190,7 @@ No new DetectorType, so the CI-enforced three-way sync
 
 ## Consequences
 
-- The default pure-Go release, its signing/SBOM/attestation, and default
-  `test.yml` are byte-for-byte unchanged; native support is fully additive.
+- The default pure-Go release remains available without the native engine.
 - Operators on native binaries get in-process opf with no Python/`uv`
   dependency and no per-chunk HTTP hop, at the cost of a cgo toolchain +
   cmake + a one-time C-dep build (cached in CI).

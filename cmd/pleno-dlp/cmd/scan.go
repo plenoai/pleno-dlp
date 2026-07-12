@@ -225,20 +225,20 @@ func init() {
 		"path to the incremental scan state file")
 
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngine, "pii-engine", "off",
-		"PII detection engine: 'off' disables PII detection; 'anonymize' spawns the pleno-anonymize HTTP server (ja-first NER, fast cold start); 'openai-pf' spawns the openai/privacy-filter wrapper (1.5B-param MoE classifier, GPU-recommended); 'openai-pf-native' runs the same model in-process via privacy-filter.cpp (no Python/uv, no HTTP hop) but requires a binary built with the opf_native build tag. The first three require uv + Python 3.12+ on PATH. Mutually exclusive — choose one.")
+		"PII detection engine: 'off' disables PII detection; 'anonymize' spawns the pleno-anonymize HTTP server (requires uv + Python 3.12+); 'openai-pf-native' runs privacy-filter.cpp in-process and requires a binary built with the opf_native build tag. Mutually exclusive — choose one.")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngineCmd, "pii-engine-cmd",
 		"pleno-dlp pii-server --port {PORT}",
-		"argv to spawn the PII engine; the literal '{PORT}' is substituted with the chosen ephemeral loopback port. When unset, defaults match the selected engine: 'pleno-dlp pii-server --port {PORT}' for anonymize, 'pleno-dlp openai-pf-server --port {PORT}' for openai-pf. 'pleno-dlp' as argv[0] is auto-resolved via os.Executable() so the spawn finds the running binary regardless of how it was installed.")
+		"argv to spawn the anonymize PII engine; the literal '{PORT}' is substituted with the chosen ephemeral loopback port. Defaults to 'pleno-dlp pii-server --port {PORT}'. 'pleno-dlp' as argv[0] is auto-resolved via os.Executable().")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.piiEnginePort, "pii-engine-port", 0,
-		"loopback port for the PII engine (0 = auto-allocate). Used by anonymize and openai-pf.")
+		"loopback port for the anonymize PII engine (0 = auto-allocate).")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngineLanguage, "pii-engine-language", "auto",
-		"language hint passed to the PII engine: 'ja', 'en', or 'auto' (let the engine pick). Only used when --pii-engine=anonymize (openai-pf does its own language inference).")
+		"language hint passed to the anonymize PII engine: 'ja', 'en', or 'auto'.")
 	scanCmd.PersistentFlags().DurationVar(&scanOpts.piiEngineReady, "pii-engine-ready-timeout", 0,
-		"how long to wait for the PII engine's /ready endpoint before giving up and continuing the scan without PII detection. 0 = engine default (60s for anonymize, 300s for openai-pf — opf's cold-path includes a multi-GB HuggingFace download).")
+		"how long to wait for the anonymize engine's /ready endpoint before giving up and continuing without PII detection. 0 defaults to 60s.")
 	scanCmd.PersistentFlags().DurationVar(&scanOpts.piiEngineRequest, "pii-engine-request-timeout", 10*time.Second,
-		"per-request timeout for /api/analyze calls to the PII engine. Used by anonymize and openai-pf.")
+		"per-request timeout for anonymize /api/analyze calls.")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngineDevice, "pii-engine-device", "auto",
-		"inference device hint for --pii-engine=openai-pf and openai-pf-native: 'auto' | 'cpu' | 'cuda' | 'mps'. For openai-pf-native, 'auto' picks Metal on darwin / CPU on linux and 'mps' maps to the Metal backend. Ignored by anonymize.")
+		"inference device for --pii-engine=openai-pf-native: 'auto' | 'cpu' | 'cuda' | 'mps'. 'auto' picks Metal on darwin and CPU on linux; 'mps' maps to Metal. Ignored by anonymize.")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiModel, "pii-model", "q8",
 		"GGUF weight variant for --pii-engine=openai-pf-native: 'q8' (default, ~1.5GB) or 'f16' (~2.6GB). Downloaded and cached under os.UserCacheDir()/pleno-dlp/models on first use, checksum-verified (a mismatch on a downloaded file is fatal). Ignored by other engines.")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiModelPath, "pii-model-path", "",
@@ -417,7 +417,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// PII" downgrade below — otherwise a typo silently produces a
 	// secret-only scan the operator reads as a full DLP pass.
 	if !validPIIEngineMode(scanOpts.piiEngine) {
-		return fmt.Errorf("unknown --pii-engine %q (valid: off, anonymize, openai-pf, openai-pf-native)", scanOpts.piiEngine)
+		return fmt.Errorf("unknown --pii-engine %q (valid: off, anonymize, openai-pf-native)", scanOpts.piiEngine)
 	}
 	// openai-pf-native needs the opf_native build tag. Hard-fail as a config
 	// error here — a valid engine that this binary simply cannot provide —
