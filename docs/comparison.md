@@ -41,7 +41,7 @@ matrices below, which no automated diff can safely rewrite without
 risking silent inconsistency with their own narrative.
 
 <!-- BENCH:AUTO:START -->
-**Generated:** 2026-07-10T14:23:28Z · **Trigger:** competitor release detected (trufflehog 3.95.9, gitleaks 8.30.1) · **Full run:** `bench/results/results.json` / `bench/results/results.md` (uploaded as a workflow artifact)
+**Generated:** 2026-07-12T00:58:44Z · **Trigger:** pleno-dlp tag push v0.62.0 · **Full run:** `bench/results/results.json` / `bench/results/results.md` (uploaded as a workflow artifact)
 
 | Tool | Version measured |
 |---|---|
