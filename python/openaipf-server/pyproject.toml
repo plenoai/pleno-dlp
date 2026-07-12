@@ -23,8 +23,11 @@ license = { text = "Apache-2.0" }
 dependencies = [
   # opf has no upstream HTTP server and no PyPI release we want to pin
   # against; install from git so the wrapper's lockfile cadence is owned
-  # by pleno-dlp (ADR-0004 §2).
-  "openai-privacy-filter @ git+https://github.com/openai/privacy-filter.git",
+  # by pleno-dlp (ADR-0004 §2). The distribution name is `opf` (the name
+  # in the upstream pyproject) — a PEP 508 `name @ url` requirement must
+  # match that exactly or uv/pip abort with "Package metadata name 'opf'
+  # does not match given name", which silently disabled the engine.
+  "opf @ git+https://github.com/openai/privacy-filter.git",
   "fastapi>=0.110",
   "uvicorn>=0.27",
   "pydantic>=2.5",

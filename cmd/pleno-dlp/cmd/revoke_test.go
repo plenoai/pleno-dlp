@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 
@@ -94,5 +95,28 @@ func TestResolveSecret(t *testing.T) {
 func TestIsInteractiveStdin(t *testing.T) {
 	if isInteractiveStdin(bytes.NewBufferString("anything")) {
 		t.Error("isInteractiveStdin(bytes.Buffer) = true, want false")
+	}
+
+	// /dev/null is a *os.File AND a character device, so the old
+	// os.ModeCharDevice check reported it as interactive and let
+	// `revoke --confirm </dev/null` skip the PLENO_DLP_ALLOW_REVOKE gate.
+	// term.IsTerminal must return false for it.
+	devnull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open %s: %v", os.DevNull, err)
+	}
+	defer devnull.Close()
+	if isInteractiveStdin(devnull) {
+		t.Errorf("isInteractiveStdin(%s) = true, want false (char device but not a TTY)", os.DevNull)
+	}
+
+	// A regular file is also non-interactive.
+	f, err := os.CreateTemp(t.TempDir(), "stdin")
+	if err != nil {
+		t.Fatalf("temp file: %v", err)
+	}
+	defer f.Close()
+	if isInteractiveStdin(f) {
+		t.Error("isInteractiveStdin(regular file) = true, want false")
 	}
 }

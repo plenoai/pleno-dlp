@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/plenoai/pleno-dlp/pkg/audit"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -258,19 +259,21 @@ func resolveSecret(cmd *cobra.Command, raw string) (string, error) {
 	return strings.TrimSpace(string(buf)), nil
 }
 
-// isInteractiveStdin reports whether the command's stdin is a terminal.
-// Returns false for any non-*os.File reader so CI is treated as
-// non-interactive by default.
+// isInteractiveStdin reports whether the command's stdin is a real
+// terminal a human is watching. Returns false for any non-*os.File reader
+// so CI is treated as non-interactive by default.
+//
+// This must use term.IsTerminal, not an os.ModeCharDevice check: /dev/null
+// is also a character device, so the mode check reported `revoke --confirm
+// </dev/null` as interactive and skipped the PLENO_DLP_ALLOW_REVOKE=1 gate,
+// letting an irreversible revoke run unattended. IsTerminal performs the
+// actual TTY ioctl, which /dev/null and regular files both fail.
 func isInteractiveStdin(r io.Reader) bool {
 	f, ok := r.(*os.File)
 	if !ok {
 		return false
 	}
-	info, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(f.Fd()))
 }
 
 // redactSecret renders a safe-to-log prefix view of the secret. Same

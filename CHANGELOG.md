@@ -9,6 +9,35 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Security:** the `hooks install claude-code` PreToolUse hook now scans
+  `Edit`/`MultiEdit` tool calls, not only `Write`. It previously read only
+  `tool_input.content`, so secrets introduced through an Edit's `new_string`
+  were never scanned and passed through unblocked (#357).
+- **Security:** `revoke` no longer treats `</dev/null` as an interactive
+  terminal. The non-interactive guard now uses a real TTY check, so an
+  irreversible revoke cannot run without `PLENO_DLP_ALLOW_REVOKE=1` when stdin
+  is redirected from a device file (#359).
+- The Slack connector no longer doubles the API path to `/api/api/...`; `scan
+  slack` and `verify slack` now reach the real Slack Web API (#358).
+- Finding line numbers now reflect where the secret sits in the file instead
+  of always reporting line 1, across table, JSON, SARIF, and git-history
+  output (#360).
+- `--pii-engine=openai-pf` bootstraps again: the upstream dependency is
+  declared under its actual distribution name `opf`, which uv/pip requires to
+  match (#362).
+- Documented GitHub Action usage pins `plenoai/pleno-dlp@v0.61.0`; the prior
+  `@v0.59.0` predated `action.yml` and resolved to a 404 (#361).
+- The `action-test` smoke workflow now scans a dedicated secret-free fixture
+  (`.github/action-smoke/`) instead of `docs/`. `docs/` documents a secrets
+  scanner and contains secret-shaped strings by design (detector key-format
+  tables, an example audit-trail record), so `--fail-on high` failed the
+  smoke job; because the workflow only re-ran on `action.yml` changes, the
+  contamination that landed with the audit-trail schema doc stayed latent
+  until an unrelated `action.yml` edit surfaced it. The SARIF check now also
+  asserts zero findings so fixture contamination fails loudly.
+
 ## [v0.61.0] - 2026-07-10
 
 ### Added

@@ -2,6 +2,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sort"
@@ -584,11 +585,97 @@ func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.
 		e.stats.findings.Add(1)
 		e.sink.Emit(Finding{
 			Result:         r,
-			Chunk:          c,
+			Chunk:          chunkWithMatchLine(c, r.Raw),
 			Detector:       d.Type(),
 			VerifierBacked: e.isVerifier[di],
 		})
 	}
+}
+
+// computeLineFromMatch returns the 1-based line of the first occurrence of
+// raw within data, offset by base (the chunk's starting line). It returns 0
+// when raw is absent so callers leave the existing line untouched rather
+// than reporting a wrong one.
+func computeLineFromMatch(data, raw []byte, base int) int {
+	if len(raw) == 0 {
+		return 0
+	}
+	idx := bytes.Index(data, raw)
+	if idx < 0 {
+		return 0
+	}
+	if base <= 0 {
+		base = 1
+	}
+	return base + bytes.Count(data[:idx], []byte{'\n'})
+}
+
+// chunkWithMatchLine returns a shallow copy of c whose source-metadata line
+// points at where the matched secret actually sits, instead of the chunk's
+// start line. A filesystem/sqldump chunk is a whole file (start line 1) and
+// a git/github diff chunk is a hunk segment (start line = the hunk's first
+// line), so base + newlines-before-match yields the true absolute line for
+// every source that carries one. Sources without a line concept (slack, s3,
+// gcs, stdin, siem, ...) are returned unchanged. The copy is shallow — Data
+// and every other metadata pointer are shared; only the one line-bearing
+// sub-struct is duplicated so per-finding lines never race on the shared
+// chunk.
+func chunkWithMatchLine(c *sources.Chunk, raw []byte) *sources.Chunk {
+	if c == nil {
+		return c
+	}
+	md := &c.SourceMetadata
+	switch {
+	case md.Filesystem != nil:
+		if line := computeLineFromMatch(c.Data, raw, md.Filesystem.Line); line > 0 {
+			cp := *c
+			m := *md.Filesystem
+			m.Line = line
+			cp.SourceMetadata.Filesystem = &m
+			return &cp
+		}
+	case md.Git != nil:
+		if line := computeLineFromMatch(c.Data, raw, md.Git.Line); line > 0 {
+			cp := *c
+			m := *md.Git
+			m.Line = line
+			cp.SourceMetadata.Git = &m
+			return &cp
+		}
+	case md.GitHub != nil:
+		if line := computeLineFromMatch(c.Data, raw, md.GitHub.Line); line > 0 {
+			cp := *c
+			m := *md.GitHub
+			m.Line = line
+			cp.SourceMetadata.GitHub = &m
+			return &cp
+		}
+	case md.Forge != nil:
+		if line := computeLineFromMatch(c.Data, raw, md.Forge.Line); line > 0 {
+			cp := *c
+			m := *md.Forge
+			m.Line = line
+			cp.SourceMetadata.Forge = &m
+			return &cp
+		}
+	case md.SQLDump != nil:
+		if line := computeLineFromMatch(c.Data, raw, md.SQLDump.Line); line > 0 {
+			cp := *c
+			m := *md.SQLDump
+			m.Line = line
+			cp.SourceMetadata.SQLDump = &m
+			return &cp
+		}
+	case md.DockerImage != nil:
+		if line := computeLineFromMatch(c.Data, raw, md.DockerImage.Line); line > 0 {
+			cp := *c
+			m := *md.DockerImage
+			m.Line = line
+			cp.SourceMetadata.DockerImage = &m
+			return &cp
+		}
+	}
+	return c
 }
 
 // blastRadiusSuffixes are the per-provider ExtraData keys that signal an

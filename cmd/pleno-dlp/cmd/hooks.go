@@ -396,13 +396,43 @@ func uninstallClaudeCodeHook(cmd *cobra.Command) error {
 }
 
 // claudeHookPayload is the subset of Claude Code's PreToolUse stdin JSON
-// this hook needs. tool_input.content carries the full new file content
-// for both Write and Edit tool calls.
+// this hook needs. The field that carries the content about to be written
+// depends on the tool: Write uses tool_input.content (the whole new file),
+// Edit uses tool_input.new_string (the replacement text), and MultiEdit
+// uses tool_input.edits[].new_string (one replacement per edit). Reading
+// only `content` silently let every Edit/MultiEdit through unscanned, so
+// scanClaudeContent below concatenates all three.
 type claudeHookPayload struct {
 	ToolInput struct {
-		FilePath string `json:"file_path"`
-		Content  string `json:"content"`
+		FilePath  string `json:"file_path"`
+		Content   string `json:"content"`
+		NewString string `json:"new_string"`
+		Edits     []struct {
+			NewString string `json:"new_string"`
+		} `json:"edits"`
 	} `json:"tool_input"`
+}
+
+// scanClaudeContent returns every piece of about-to-be-written text carried
+// by a PreToolUse payload, joined by newlines. Write populates Content;
+// Edit populates NewString; MultiEdit populates Edits. A tool call may set
+// more than one (or none), so all are collected rather than switched on
+// tool_name — the hook scans whatever content is present regardless of
+// which tool produced it.
+func (p claudeHookPayload) scanClaudeContent() string {
+	parts := make([]string, 0, 2+len(p.ToolInput.Edits))
+	if p.ToolInput.Content != "" {
+		parts = append(parts, p.ToolInput.Content)
+	}
+	if p.ToolInput.NewString != "" {
+		parts = append(parts, p.ToolInput.NewString)
+	}
+	for _, e := range p.ToolInput.Edits {
+		if e.NewString != "" {
+			parts = append(parts, e.NewString)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // runHookClaudeCode implements the claude-code half of the PreToolUse
@@ -423,11 +453,12 @@ func runHookClaudeCode(cmd *cobra.Command) error {
 		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: parse hook payload: %v — allowing\n", err)
 		return nil
 	}
-	if strings.TrimSpace(payload.ToolInput.Content) == "" {
+	content := payload.scanClaudeContent()
+	if strings.TrimSpace(content) == "" {
 		return nil
 	}
 
-	n, err := scanOfflineFunc([]byte(payload.ToolInput.Content))
+	n, err := scanOfflineFunc([]byte(content))
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: %v — allowing\n", err)
 		return nil

@@ -100,6 +100,72 @@ func TestRunWithStats_CountsChunksBytesFindings(t *testing.T) {
 	}
 }
 
+// tokenDet emits one Result whose Raw is a fixed token, so the engine's
+// line computation has a concrete offset to locate (unlike stubKeywordDet,
+// whose Raw is the whole chunk and always sits at offset 0 / line 1).
+type tokenDet struct{ token string }
+
+func (d *tokenDet) Type() detectors.DetectorType { return detectors.AWS }
+func (d *tokenDet) Keywords() []string           { return []string{d.token} }
+func (d *tokenDet) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	if !bytes.Contains(data, []byte(d.token)) {
+		return nil, nil
+	}
+	return []detectors.Result{{DetectorType: detectors.AWS, Raw: []byte(d.token)}}, nil
+}
+
+// TestRunReportsMatchLine is the regression test for the "line is always 1"
+// bug: a filesystem chunk is a whole file with base line 1, so the finding
+// line must be 1 + the number of newlines before the match, not the chunk's
+// hardcoded start line.
+func TestRunReportsMatchLine(t *testing.T) {
+	const token = "AKIA_ON_LINE_FOUR"
+	file := "line one\nline two\nline three\n" + token + "\nline five\n"
+	src := &stubSource{chunks: []*sources.Chunk{{
+		Data:           []byte(file),
+		SourceType:     sources.SourceFilesystem,
+		SourceMetadata: sources.Metadata{Filesystem: &sources.FilesystemMeta{Path: "f.env", Line: 1}},
+	}}}
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{&tokenDet{token: token}}, Options{Concurrency: 1}, sink)
+
+	if _, err := eng.RunWithStats(context.Background(), src); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	got := sink.Findings()
+	if len(got) != 1 {
+		t.Fatalf("findings = %d, want 1", len(got))
+	}
+	if line := got[0].Chunk.SourceMetadata.Filesystem.Line; line != 4 {
+		t.Errorf("finding line = %d, want 4 (the token is on the 4th line)", line)
+	}
+	// The shared source chunk must not have been mutated — its base line
+	// stays 1 so a second finding on the chunk starts from the right base.
+	if base := src.chunks[0].SourceMetadata.Filesystem.Line; base != 1 {
+		t.Errorf("source chunk base line mutated to %d, want 1 left intact", base)
+	}
+}
+
+func TestComputeLineFromMatch(t *testing.T) {
+	data := []byte("a\nb\nSECRET\nd\n")
+	cases := []struct {
+		raw  string
+		base int
+		want int
+	}{
+		{"a", 1, 1},
+		{"SECRET", 1, 3},
+		{"SECRET", 10, 12}, // base offset (git hunk start) is added
+		{"absent", 1, 0},   // not found -> 0 (leave line untouched)
+		{"", 1, 0},         // empty raw -> 0
+	}
+	for _, tc := range cases {
+		if got := computeLineFromMatch(data, []byte(tc.raw), tc.base); got != tc.want {
+			t.Errorf("computeLineFromMatch(%q, base=%d) = %d, want %d", tc.raw, tc.base, got, tc.want)
+		}
+	}
+}
+
 func TestRunWithStats_SequentialReuseReturnsPerRunMetrics(t *testing.T) {
 	sink := &engineRecordingSink{}
 	eng := NewWithDetectors([]detectors.Detector{&stubKeywordDet{}}, Options{Concurrency: 1}, sink)

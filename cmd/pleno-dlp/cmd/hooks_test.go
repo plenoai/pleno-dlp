@@ -389,6 +389,60 @@ func TestRunHookClaudeCode_BlocksOnFindings(t *testing.T) {
 	}
 }
 
+// TestRunHookClaudeCode_BlocksOnEditNewString is the regression test for
+// the Edit bypass: the hook matches Edit|Write but Edit tool calls carry
+// their content in tool_input.new_string, not tool_input.content. Reading
+// only content let every Edit through unscanned. This drives the real Edit
+// payload shape and asserts both that it blocks and that new_string reached
+// the scanner.
+func TestRunHookClaudeCode_BlocksOnEditNewString(t *testing.T) {
+	resetCommandFlags(t)
+	var gotData string
+	withFakeScanOffline(t, func(data []byte) (int, error) {
+		gotData = string(data)
+		return 1, nil
+	})
+
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+	Root.SetIn(strings.NewReader(`{"tool_name":"Edit","tool_input":{"file_path":"secrets.env","old_string":"x","new_string":"AWS_KEY=AKIA_edit_secret"}}`))
+	Root.SetArgs([]string{"hooks", "run", "claude-code"})
+	if err := Root.Execute(); err == nil {
+		t.Fatal("expected Edit new_string with a secret to block, got allow")
+	}
+	if !strings.Contains(gotData, "AKIA_edit_secret") {
+		t.Errorf("scanOfflineFunc got %q, want the new_string content", gotData)
+	}
+}
+
+// TestRunHookClaudeCode_BlocksOnMultiEdit drives the MultiEdit payload shape
+// (edits[].new_string) — the secret is in the second edit, so a hook that
+// only looked at the first or at tool_input.content would miss it.
+func TestRunHookClaudeCode_BlocksOnMultiEdit(t *testing.T) {
+	resetCommandFlags(t)
+	var gotData string
+	withFakeScanOffline(t, func(data []byte) (int, error) {
+		gotData = string(data)
+		if strings.Contains(gotData, "AKIA_multi_secret") {
+			return 1, nil
+		}
+		return 0, nil
+	})
+
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+	Root.SetIn(strings.NewReader(`{"tool_name":"MultiEdit","tool_input":{"file_path":"secrets.env","edits":[{"old_string":"a","new_string":"clean line"},{"old_string":"b","new_string":"AWS_KEY=AKIA_multi_secret"}]}}`))
+	Root.SetArgs([]string{"hooks", "run", "claude-code"})
+	if err := Root.Execute(); err == nil {
+		t.Fatal("expected MultiEdit edits[].new_string with a secret to block, got allow")
+	}
+	if !strings.Contains(gotData, "AKIA_multi_secret") {
+		t.Errorf("scanOfflineFunc got %q, want the second edit's new_string", gotData)
+	}
+}
+
 func TestRunHookClaudeCode_FailsOpenOnScanError(t *testing.T) {
 	resetCommandFlags(t)
 	withFakeScanOffline(t, func(data []byte) (int, error) {

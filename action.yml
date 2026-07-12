@@ -59,7 +59,7 @@ runs:
           version="$PLENO_DLP_ACTION_REF"
         fi
         if [ -z "$version" ]; then
-          echo "::error::could not resolve a pleno-dlp version — pass the 'version' input explicitly (e.g. version: v0.59.0). This happens when the action is invoked via a non-tag ref such as 'uses: ./' or a branch." >&2
+          echo "::error::could not resolve a pleno-dlp version — pass the 'version' input explicitly (e.g. version: v0.61.0). This happens when the action is invoked via a non-tag ref such as 'uses: ./' or a branch." >&2
           exit 1
         fi
         echo "version=$version" >> "$GITHUB_OUTPUT"
