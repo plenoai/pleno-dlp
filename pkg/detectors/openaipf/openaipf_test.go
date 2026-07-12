@@ -101,6 +101,31 @@ func TestFromData_EmptyInput_ShortCircuits(t *testing.T) {
 	}
 }
 
+func TestWantsFullChunk(t *testing.T) {
+	// Regression for the vicinity-slice PII gap: a 100 KB prose chunk
+	// lost ~91% of its PII because the detector only saw ±2 KB around
+	// keyword hits. NER must see the whole chunk.
+	var fc detectors.FullChunkDetector = Scanner{}
+	if !fc.WantsFullChunk() {
+		t.Fatal("Scanner must opt in to full-chunk dispatch")
+	}
+}
+
+func TestFromData_BinaryInput_ShortCircuits(t *testing.T) {
+	// Full-chunk dispatch bypasses keyword gating, so binary chunks
+	// now reach FromData; they must not reach the analyzer.
+	f := &fakeAnalyzer{}
+	withAnalyzer(t, f)
+
+	res, err := Scanner{}.FromData(context.Background(), false, append([]byte("PNG\x00\x00"), []byte("john@example.com")...))
+	if err != nil || res != nil {
+		t.Fatalf("binary input must return (nil, nil), got (%v, %v)", res, err)
+	}
+	if f.calls != 0 {
+		t.Errorf("binary input must not call Analyze, got %d calls", f.calls)
+	}
+}
+
 func TestFromData_EmptyFindings(t *testing.T) {
 	withAnalyzer(t, &fakeAnalyzer{})
 

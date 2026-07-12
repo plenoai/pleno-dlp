@@ -82,6 +82,28 @@ func TestFromData_EngineOff_ReturnsNil(t *testing.T) {
 	}
 }
 
+func TestWantsFullChunk(t *testing.T) {
+	// Same regression guard as openaipf: NER must see the whole chunk,
+	// not ±vicinityRadius around keyword hits.
+	var fc detectors.FullChunkDetector = Scanner{}
+	if !fc.WantsFullChunk() {
+		t.Fatal("Scanner must opt in to full-chunk dispatch")
+	}
+}
+
+func TestFromData_BinaryInput_ShortCircuits(t *testing.T) {
+	f := &fakeAnalyzer{}
+	withAnalyzer(t, f)
+
+	res, err := Scanner{}.FromData(context.Background(), false, append([]byte("PNG\x00\x00"), []byte("john@example.com")...))
+	if err != nil || res != nil {
+		t.Fatalf("binary input must return (nil, nil), got (%v, %v)", res, err)
+	}
+	if f.lastText != "" {
+		t.Errorf("binary input must not call Analyze, got text %q", f.lastText)
+	}
+}
+
 func TestFromData_EmptyFindings(t *testing.T) {
 	withAnalyzer(t, &fakeAnalyzer{})
 

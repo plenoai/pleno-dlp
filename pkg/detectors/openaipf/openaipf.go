@@ -1,6 +1,7 @@
 package openaipf
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strconv"
@@ -100,30 +101,11 @@ type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.PIIOpenAIPF }
 
-// keywords is intentionally permissive but non-empty. opf classifies
-// almost any chunk that contains either Western punctuation or a
-// digit, so the prefilter exists primarily to skip pure-binary chunks
-// (compressed archives, images) for which the model would return zero
-// findings while paying the full inference cost. The anchors below
-// route:
-//
-//   - "@" / "http" / "www." — emails and URLs
-//   - digits 0-9 + "20"/"19" — account numbers, phone numbers, dates
-//     (most ISO dates begin with "20" or "19"; bare "0" anchors phone
-//     numbers and account numbers; bare digit class is unavoidable
-//     because opf's account/phone categories have no spelled-out
-//     marker we could anchor more narrowly)
-//   - "+" / "-" — phone numbers, IBAN-shaped, account-number runs
-//   - "tel" / "phone" / "fax" — phone numbers in English text
-//   - "電話" / "〒" / "住所" / "氏名" — phone / postal / address /
-//     name markers in Japanese-language text (mirrors anonymize so
-//     bilingual corpora exercise both engines)
-//
-// We accept that the bare-digit anchors match a large fraction of
-// source code; throughput is bounded by the supervisor's per-chunk
-// 10s request timeout (Config.RequestTimeout default), so a chunk
-// that returns no findings is cheap on the Go side. The expensive
-// path lives in the Python wrapper and amortizes the model load.
+// keywords satisfies the Detector interface but no longer gates
+// dispatch: WantsFullChunk routes every chunk to FromData, where the
+// looksBinary guard replaces the prefilter's binary-skip role. Kept
+// non-empty so registry invariants that reject keyword-less detectors
+// hold.
 var keywords = []string{
 	"@", "http://", "https://", "www.",
 	"+", "-", "/",
@@ -134,6 +116,13 @@ var keywords = []string{
 }
 
 func (Scanner) Keywords() []string { return keywords }
+
+// WantsFullChunk opts out of vicinity-slice dispatch. NER needs the whole
+// chunk: PII sits anywhere in prose, not within ±vicinityRadius of a
+// keyword hit, and the model's own context handling (window stitching)
+// replaces the engine's regex-oriented slicing. Without this, PII outside
+// keyword vicinities is silently never analyzed.
+func (Scanner) WantsFullChunk() bool { return true }
 
 // FromData runs the chunk through the registered Analyzer and maps
 // each returned Finding to a detectors.Result.
@@ -157,7 +146,7 @@ func (Scanner) Keywords() []string { return keywords }
 //
 // The verify flag is ignored — Scanner is not a Verifier.
 func (Scanner) FromData(ctx context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	if len(data) == 0 {
+	if len(data) == 0 || looksBinary(data) {
 		return nil, nil
 	}
 	a := fetchAnalyzer()
@@ -218,6 +207,18 @@ func redact(kind, raw string) string {
 		return raw[:1] + "***" + raw[at:]
 	}
 	return raw[:1] + "***" + raw[len(raw)-1:]
+}
+
+// looksBinary mirrors the sources' NUL-sniff heuristic. Full-chunk
+// dispatch bypasses keyword gating, so without this guard every binary
+// chunk from archive/docker/s3 sources would be shipped through NER
+// inference for zero possible findings.
+func looksBinary(b []byte) bool {
+	n := len(b)
+	if n > 512 {
+		n = 512
+	}
+	return bytes.IndexByte(b[:n], 0x00) >= 0
 }
 
 func init() {
