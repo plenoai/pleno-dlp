@@ -82,7 +82,7 @@ More output and CI detail: [`docs/output-and-gating.md`](docs/output-and-gating.
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: plenoai/pleno-dlp@v0.59.0
+- uses: plenoai/pleno-dlp@v0.61.0
   with:
     sarif-file: results.sarif
 - uses: github/codeql-action/upload-sarif@v3
