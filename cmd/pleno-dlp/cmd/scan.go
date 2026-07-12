@@ -72,6 +72,8 @@ type scanFlags struct {
 	piiEngineReady    time.Duration
 	piiEngineRequest  time.Duration
 	piiEngineDevice   string
+	piiModel          string
+	piiModelPath      string
 }
 
 var scanOpts scanFlags
@@ -223,7 +225,7 @@ func init() {
 		"path to the incremental scan state file")
 
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngine, "pii-engine", "off",
-		"PII detection engine: 'off' disables PII detection; 'anonymize' spawns the pleno-anonymize HTTP server (ja-first NER, fast cold start); 'openai-pf' spawns the openai/privacy-filter wrapper (1.5B-param MoE classifier, GPU-recommended). Both require uv + Python 3.12+ on PATH. Mutually exclusive — choose one.")
+		"PII detection engine: 'off' disables PII detection; 'anonymize' spawns the pleno-anonymize HTTP server (ja-first NER, fast cold start); 'openai-pf' spawns the openai/privacy-filter wrapper (1.5B-param MoE classifier, GPU-recommended); 'openai-pf-native' runs the same model in-process via privacy-filter.cpp (no Python/uv, no HTTP hop) but requires a binary built with the opf_native build tag. The first three require uv + Python 3.12+ on PATH. Mutually exclusive — choose one.")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngineCmd, "pii-engine-cmd",
 		"pleno-dlp pii-server --port {PORT}",
 		"argv to spawn the PII engine; the literal '{PORT}' is substituted with the chosen ephemeral loopback port. When unset, defaults match the selected engine: 'pleno-dlp pii-server --port {PORT}' for anonymize, 'pleno-dlp openai-pf-server --port {PORT}' for openai-pf. 'pleno-dlp' as argv[0] is auto-resolved via os.Executable() so the spawn finds the running binary regardless of how it was installed.")
@@ -236,7 +238,11 @@ func init() {
 	scanCmd.PersistentFlags().DurationVar(&scanOpts.piiEngineRequest, "pii-engine-request-timeout", 10*time.Second,
 		"per-request timeout for /api/analyze calls to the PII engine. Used by anonymize and openai-pf.")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngineDevice, "pii-engine-device", "auto",
-		"inference device hint for --pii-engine=openai-pf: 'auto' | 'cpu' | 'cuda' | 'mps'. Ignored by anonymize.")
+		"inference device hint for --pii-engine=openai-pf and openai-pf-native: 'auto' | 'cpu' | 'cuda' | 'mps'. For openai-pf-native, 'auto' picks Metal on darwin / CPU on linux and 'mps' maps to the Metal backend. Ignored by anonymize.")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.piiModel, "pii-model", "q8",
+		"GGUF weight variant for --pii-engine=openai-pf-native: 'q8' (default, ~1.5GB) or 'f16' (~2.6GB). Downloaded and cached under os.UserCacheDir()/pleno-dlp/models on first use, checksum-verified (a mismatch on a downloaded file is fatal). Ignored by other engines.")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.piiModelPath, "pii-model-path", "",
+		"explicit path to a privacy-filter GGUF for --pii-engine=openai-pf-native, bypassing download and checksum verification (a user-supplied path is trusted; lets air-gapped operators pre-place the weights). Ignored by other engines.")
 
 	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.include, "include", nil, "glob(s) to include (matched against root-relative paths and basenames)")
 	scanFilesystemCmd.Flags().StringSliceVar(&fsOpts.exclude, "exclude", nil, "glob(s) to exclude (in addition to default excludes)")
@@ -411,7 +417,14 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// PII" downgrade below — otherwise a typo silently produces a
 	// secret-only scan the operator reads as a full DLP pass.
 	if !validPIIEngineMode(scanOpts.piiEngine) {
-		return fmt.Errorf("unknown --pii-engine %q (valid: off, anonymize, openai-pf)", scanOpts.piiEngine)
+		return fmt.Errorf("unknown --pii-engine %q (valid: off, anonymize, openai-pf, openai-pf-native)", scanOpts.piiEngine)
+	}
+	// openai-pf-native needs the opf_native build tag. Hard-fail as a config
+	// error here — a valid engine that this binary simply cannot provide —
+	// so it is not swallowed by the "continue without PII" spawn-failure
+	// downgrade below (ADR-0005 §F). nativeOPFBuilt is a build-tagged const.
+	if strings.EqualFold(strings.TrimSpace(scanOpts.piiEngine), "openai-pf-native") && !nativeOPFBuilt {
+		return errNativeNotBuilt
 	}
 	// --concurrency < 1 was silently clamped to 8 inside the engine, so
 	// `--concurrency 0` scanned as if unset with no signal. Reject it here.
@@ -999,6 +1012,8 @@ func scannerFingerprint(kind string, cfg []byte) (string, error) {
 		"pii_engine_cmd":      scanOpts.piiEngineCmd,
 		"pii_engine_language": scanOpts.piiEngineLanguage,
 		"pii_engine_device":   scanOpts.piiEngineDevice,
+		"pii_model":           scanOpts.piiModel,
+		"pii_model_path":      scanOpts.piiModelPath,
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
