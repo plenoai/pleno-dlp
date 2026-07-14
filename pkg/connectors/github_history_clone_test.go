@@ -279,13 +279,9 @@ func TestCloneRepoBareFallsBackWithoutGitBinary(t *testing.T) {
 	}
 }
 
-// TestCloneRepoBareNativeAppliesBlobFilter is a light regression guard on the
-// native git-arg construction (issue #265's --filter=blob:limit=<N>, kept
-// equal to gitsource's unexported maxBlobSize — see
-// githubCloneBlobFilterLimit's doc comment). It only runs when `git` is on
-// PATH; CI and dev boxes have it, and the fallback path is covered
-// separately above without needing the real binary.
-func TestCloneRepoBareNativeAppliesBlobFilter(t *testing.T) {
+// TestCloneRepoBareNativeProducesCompleteMirror verifies the native path
+// produces a self-contained repository for the later no-network walk.
+func TestCloneRepoBareNativeProducesCompleteMirror(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
@@ -308,9 +304,8 @@ func TestCloneRepoBareNativeAppliesBlobFilter(t *testing.T) {
 	}
 }
 
-// TestNativeGitCloneArgs pins the native clone's argv (issue #265's
-// --filter=blob:limit=<N>, --bare, and the "--" separator that keeps the
-// URL from ever being parsed as a flag) without executing git. The URL in
+// TestNativeGitCloneArgs pins the native clone's argv and the "--" separator
+// that keeps the URL from ever being parsed as a flag. The URL in
 // argv is always the clean one — auth travels via the child environment
 // (see nativeGitAuthEnv), never argv.
 func TestNativeGitCloneArgs(t *testing.T) {
@@ -318,7 +313,6 @@ func TestNativeGitCloneArgs(t *testing.T) {
 	want := []string{
 		"clone",
 		"--mirror",
-		"--filter=blob:limit=52428800", // githubCloneBlobFilterLimit, 50 MiB
 		"--progress",
 		"--",
 		"https://github.com/acme/widget.git",

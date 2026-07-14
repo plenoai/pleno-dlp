@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -246,6 +247,37 @@ func TestGitHubHistoryScanEmitsAllBranches(t *testing.T) {
 	}
 	if sideMeta.Line > 0 && !strings.Contains(sideMeta.Link, "#L") {
 		t.Errorf("Link with line>0 missing #L fragment: %q", sideMeta.Link)
+	}
+}
+
+func TestGitHubHistoryRepoWalkTimeout(t *testing.T) {
+	fixture, _ := buildFixtureRepo(t)
+	repo := githubRepoRef{Name: "widget", Visibility: "private"}
+	repo.Owner.Login = "acme"
+	next, err := scanGitHubGitHistory(context.Background(), Config{"repo_walk_timeout": "1ns"}, staticGitHubToken(""), "github.com", fixture, repo, githubRepoIncrementalState{}, false, func([]byte, sources.Metadata) error {
+		return nil
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("walk error = %v, want context deadline", err)
+	}
+	if !strings.Contains(err.Error(), "acme/widget") || !strings.Contains(err.Error(), "1ns") {
+		t.Fatalf("walk timeout lacks repository/budget: %v", err)
+	}
+	if len(next.RefHeads) != 0 {
+		t.Fatalf("timed-out walk advanced state: %#v", next)
+	}
+}
+
+func TestGitHubRepoWalkTimeoutValidation(t *testing.T) {
+	for _, raw := range []string{"invalid", "-1s"} {
+		if _, err := githubRepoWalkTimeout(Config{"repo_walk_timeout": raw}); err == nil {
+			t.Fatalf("repo_walk_timeout %q accepted", raw)
+		}
+	}
+	for _, raw := range []string{"", "0", "0s"} {
+		if got, err := githubRepoWalkTimeout(Config{"repo_walk_timeout": raw}); err != nil || got != 0 {
+			t.Fatalf("repo_walk_timeout %q = %s, %v", raw, got, err)
+		}
 	}
 }
 

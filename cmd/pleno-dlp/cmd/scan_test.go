@@ -31,6 +31,40 @@ import (
 
 type degradedFindingSource struct{}
 
+type retryAfterDegradedSource struct {
+	degraded bool
+	previous string
+	calls    int
+}
+
+func (*retryAfterDegradedSource) Init(context.Context, string, int64, int64, bool, []byte, int) error {
+	return nil
+}
+func (*retryAfterDegradedSource) Type() sources.SourceType { return sources.SourceGitHub }
+func (*retryAfterDegradedSource) ResourceFingerprint(context.Context) (string, error) {
+	return "stable-resources", nil
+}
+func (s *retryAfterDegradedSource) SetIncrementalState(state json.RawMessage) error {
+	s.previous = string(state)
+	return nil
+}
+func (s *retryAfterDegradedSource) IncrementalState() json.RawMessage {
+	if s.degraded {
+		return json.RawMessage(`"partial"`)
+	}
+	return json.RawMessage(`"complete"`)
+}
+func (s *retryAfterDegradedSource) Chunks(context.Context, chan<- *sources.Chunk) error {
+	s.calls++
+	if !s.degraded {
+		return nil
+	}
+	return &engine.DegradedError{
+		Total: 1, Counts: map[engine.FailureKind]int{engine.FailureSource: 1},
+		Failures: []engine.ScanFailure{{Kind: engine.FailureSource, Source: "repository-history:acme/timed-out", Err: context.DeadlineExceeded}},
+	}
+}
+
 func (degradedFindingSource) Init(context.Context, string, int64, int64, bool, []byte, int) error {
 	return nil
 }
@@ -153,10 +187,125 @@ func TestScanHelp(t *testing.T) {
 	}
 
 	got := out.String()
-	for _, want := range []string{"--format", "--concurrency", "scan"} {
+	for _, want := range []string{"--format", "--concurrency", "--cpu-profile", "scan"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("help missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+func TestScanCPUProfile(t *testing.T) {
+	resetCommandFlags(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "safe.txt"), []byte("safe\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	profile := filepath.Join(t.TempDir(), "scan.cpu.pprof")
+	if err := os.WriteFile(profile, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+	Root.SetArgs([]string{"scan", "--no-verify", "--quiet", "--cpu-profile", profile, "filesystem", dir})
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("scan with CPU profile: %v\n%s", err, out.String())
+	}
+	info, err := os.Stat(profile)
+	if err != nil {
+		t.Fatalf("CPU profile missing: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("CPU profile is empty")
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("CPU profile mode = %o, want 600", info.Mode().Perm())
+	}
+}
+
+func TestScanCPUProfileInvalidInvocationPreservesExistingFile(t *testing.T) {
+	resetCommandFlags(t)
+	dir := t.TempDir()
+	profile := filepath.Join(t.TempDir(), "scan.cpu.pprof")
+	want := []byte("existing-profile")
+	if err := os.WriteFile(profile, want, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+	Root.SetArgs([]string{"scan", "--cpu-profile", profile, "--no-verify", "--only-verified", "filesystem", dir})
+	if err := Root.Execute(); err == nil {
+		t.Fatal("invalid verification flags were accepted")
+	}
+	got, err := os.ReadFile(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("invalid invocation changed profile: got %q want %q", got, want)
+	}
+	info, err := os.Stat(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o640 {
+		t.Fatalf("invalid invocation changed profile mode to %o", info.Mode().Perm())
+	}
+}
+
+func TestScanCPUProfileLateValidationPreservesExistingFile(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		configure func(t *testing.T, dir, profile string) []string
+	}{
+		{
+			name: "invalid output format",
+			configure: func(_ *testing.T, dir, profile string) []string {
+				return []string{"scan", "--no-verify", "--cpu-profile", profile, "--format", "invalid", "filesystem", dir}
+			},
+		},
+		{
+			name: "corrupt incremental state",
+			configure: func(t *testing.T, dir, profile string) []string {
+				state := filepath.Join(t.TempDir(), "state.json")
+				if err := os.WriteFile(state, []byte("not-json"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				return []string{"scan", "--no-verify", "--cpu-profile", profile, "--incremental", "--incremental-state", state, "filesystem", dir}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetCommandFlags(t)
+			dir := t.TempDir()
+			profile := filepath.Join(t.TempDir(), "scan.cpu.pprof")
+			want := []byte("existing-profile")
+			if err := os.WriteFile(profile, want, 0o640); err != nil {
+				t.Fatal(err)
+			}
+			var out bytes.Buffer
+			Root.SetOut(&out)
+			Root.SetErr(&out)
+			Root.SetArgs(tc.configure(t, dir, profile))
+			if err := Root.Execute(); err == nil {
+				t.Fatal("invalid invocation was accepted")
+			}
+			got, err := os.ReadFile(profile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("invalid invocation changed profile: got %q want %q", got, want)
+			}
+			info, err := os.Stat(profile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm() != 0o640 {
+				t.Fatalf("invalid invocation changed profile mode to %o", info.Mode().Perm())
+			}
+		})
 	}
 }
 
@@ -226,6 +375,53 @@ func TestRunScanCommonDegradedSourcePreservesFindingsAndReturnsTypedError(t *tes
 	}
 	if !strings.Contains(stderr.String(), "coverage: status=degraded failures=1 source=1") {
 		t.Fatalf("missing machine-readable coverage status: %s", stderr.String())
+	}
+}
+
+func TestRunScanCommonDegradedIncrementalRunRetriesUnfinishedResources(t *testing.T) {
+	resetCommandFlags(t)
+	scanOpts.noVerify, scanOpts.quiet, scanOpts.incremental = true, true, true
+	scanOpts.format, scanOpts.failOn = "json", "critical"
+	scanOpts.incrementalState = filepath.Join(t.TempDir(), "state.json")
+	scanGitHubCmd.SetContext(context.Background())
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+
+	first := &retryAfterDegradedSource{degraded: true}
+	err := runScanCommon(scanGitHubCmd, first, nil, "github-timeout-retry")
+	var degraded *engine.DegradedError
+	if !errors.As(err, &degraded) || first.calls != 1 {
+		t.Fatalf("first run calls=%d err=%v, want one degraded walk", first.calls, err)
+	}
+	state, err := loadIncrementalState(scanOpts.incrementalState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Entries) != 1 {
+		t.Fatalf("first run entries=%d, want 1", len(state.Entries))
+	}
+	for _, entry := range state.Entries {
+		if entry.ResourceFingerprint != "" || string(entry.SourceState) != `"partial"` {
+			t.Fatalf("degraded checkpoint = %+v, want empty fingerprint and partial source state", entry)
+		}
+	}
+
+	second := &retryAfterDegradedSource{}
+	if err := runScanCommon(scanGitHubCmd, second, nil, "github-timeout-retry"); err != nil {
+		t.Fatalf("retry run: %v", err)
+	}
+	if second.calls != 1 || second.previous != `"partial"` {
+		t.Fatalf("retry fast-skipped unfinished resource: calls=%d previous=%q", second.calls, second.previous)
+	}
+	state, err = loadIncrementalState(scanOpts.incrementalState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range state.Entries {
+		if entry.ResourceFingerprint != "stable-resources" || string(entry.SourceState) != `"complete"` {
+			t.Fatalf("completed checkpoint = %+v", entry)
+		}
 	}
 }
 

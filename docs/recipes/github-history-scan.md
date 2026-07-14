@@ -6,11 +6,23 @@ repository. There is a single scan mode.
 ## How it works
 
 For each enumerated repository the connector performs a
-single mirror clone over git smart-HTTP and then walks **every commit reachable
-from every branch** locally, diffing each commit against its first parent and
-emitting added text per changed file and commit. Text added to files over
-1 MiB is split into bounded 1 MiB chunks with overlap; modifications use a
-native streaming diff.
+single complete mirror clone over git smart-HTTP and then walks **every commit
+reachable from every branch** locally. The mirror is self-contained: clone
+credentials are not persisted and the subsequent walk performs no lazy network
+fetch. The default text-history path streams one bounded, context-cancellable
+native `git log --patch` process, diffing each commit against its first parent
+and emitting added text per changed file and commit. This avoids decoding and
+diffing every tree in Go and keeps throughput stable as the history grows. A
+pure-Go path remains available when native Git is absent and for opt-in
+metadata or artifact modes. Text added to files over 1 MiB is split into
+bounded 1 MiB chunks with overlap.
+
+Complete clones preserve offline coverage, but histories containing blobs over
+50 MiB can consume more clone bandwidth and temporary disk than v0.63.0 even
+though default text scanning later skips those blobs. Clone time is not covered
+by `--repo-walk-timeout`. Restoring a bounded partial clone without retaining
+credentials or demand-fetching during the walk is tracked in
+[#378](https://github.com/plenoai/pleno-dlp/issues/378).
 
 ```sh
 pleno-dlp scan github --repo acme/widget
@@ -131,6 +143,33 @@ Override them with the `--git-artifact-max-bytes`,
 `--git-archive-max-expanded-bytes`, `--git-archive-max-files`,
 `--git-archive-max-depth`, and `--git-archive-timeout` flags. Budget breaches
 are reported as incomplete scans. See ADR 0004.
+
+## Bounding and profiling long walks
+
+`--repo-walk-timeout` places an independent deadline on each repository's Git
+history walk. `0` is unbounded. Clone time is excluded, so a slow network clone
+does not consume the walk budget. A timed-out repository is reported as
+degraded coverage, retains its previous checkpoint, and does not prevent the
+organisation scan from continuing with the next repository.
+
+```sh
+pleno-dlp scan github --org acme \
+  --repo-walk-timeout 45m \
+  --incremental --incremental-state /var/lib/pleno-dlp/github.json
+```
+
+Every scan command also accepts `--cpu-profile <file>`. The profile covers
+source enumeration, history walking, detection, and output, and is created with
+mode `0600`; it does not require a special build tag or a listening HTTP port.
+
+```sh
+pleno-dlp scan --cpu-profile /tmp/pleno-github.cpu.pprof \
+  github --org acme --repo-walk-timeout 45m
+go tool pprof -top /path/to/pleno-dlp /tmp/pleno-github.cpu.pprof
+```
+
+Treat profiles as internal diagnostics because executable and repository paths
+can appear in symbol and stack metadata.
 
 ## Authentication
 

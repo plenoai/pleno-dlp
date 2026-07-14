@@ -8,6 +8,22 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Added
+
+- GitHub scans can bound each repository history walk with
+  `--repo-walk-timeout`; every scan command can write a `--cpu-profile`.
+
+### Changed
+
+- Default Git history scans stream bounded native Git patches instead of
+  repeatedly decoding and diffing trees through go-git.
+- GitHub history scans use complete, self-contained mirror clones so an
+  offline walk cannot fail on a blob omitted by partial clone. Histories with
+  blobs over 50 MiB can use more clone bandwidth and disk than v0.63.0; bounded
+  transfer without authenticated lazy fetch is tracked in #378.
+- Degraded incremental scans retain completed unit checkpoints without
+  promoting the whole-resource fingerprint, so failed units are retried.
+
 ## [v0.62.0] - 2026-07-12
 
 ### Fixed

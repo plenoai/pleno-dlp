@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/pprof"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -65,6 +66,7 @@ type scanFlags struct {
 	showSuppressed    bool
 	incremental       bool
 	incrementalState  string
+	cpuProfile        string
 	piiEngine         string
 	piiEngineCmd      string
 	piiEnginePort     int
@@ -223,6 +225,7 @@ func init() {
 		"skip the scan when source resources and scan configuration match the previous successful baseline")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.incrementalState, "incremental-state", ".pleno-dlp-incremental.json",
 		"path to the incremental scan state file")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.cpuProfile, "cpu-profile", "", "write a Go CPU profile for the complete scan to this file (disabled by default)")
 
 	scanCmd.PersistentFlags().StringVar(&scanOpts.piiEngine, "pii-engine", "off",
 		"PII detection engine: 'off' disables PII detection; 'anonymize' spawns the pleno-anonymize HTTP server (requires uv + Python 3.12+); 'openai-pf-native' runs privacy-filter.cpp in-process and requires a binary built with the opf_native build tag. Mutually exclusive — choose one.")
@@ -405,7 +408,7 @@ func runScanSQLDump(cmd *cobra.Command, args []string) error {
 }
 
 // runScanCommon wires source init, engine execution, and output.
-func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind string) error {
+func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind string) (retErr error) {
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -503,7 +506,11 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	if incrementalKey != "" && incrementalState != nil {
 		flush := sources.IncrementalFlushFunc(func(sourceState json.RawMessage) error {
 			incrementalState.Entries[incrementalKey] = incrementalStateEntry{
-				ResourceFingerprint: incrementalState.PendingResourceFingerprint,
+				// A partial source checkpoint is resumable, but it does not
+				// prove whole-resource coverage. Leaving this empty prevents the
+				// next run from taking the unchanged-resource fast path before
+				// failed units have been retried.
+				ResourceFingerprint: "",
 				ScannerFingerprint:  incrementalState.PendingScannerFingerprint,
 				SourceState:         sourceState,
 				UpdatedAt:           time.Now().UTC().Format(time.RFC3339),
@@ -658,6 +665,18 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		NoVerify:    scanOpts.noVerify,
 	}, scanSink)
 
+	// Start only after every fallible configuration and output setup step.
+	// A rejected invocation must never truncate an existing profile file.
+	stopCPUProfile, err := startCPUProfile(scanOpts.cpuProfile)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := stopCPUProfile(); err != nil {
+			retErr = errors.Join(retErr, err)
+		}
+	}()
+
 	stats, err := eng.RunWithStats(ctx, src)
 	var coverageErr *engine.DegradedError
 	if err != nil {
@@ -730,8 +749,12 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		if iss, ok := src.(sources.IncrementalStateSource); ok {
 			sourceState = iss.IncrementalState()
 		}
+		resourceFingerprint := incrementalState.PendingResourceFingerprint
+		if coverageErr != nil {
+			resourceFingerprint = ""
+		}
 		incrementalState.Entries[incrementalKey] = incrementalStateEntry{
-			ResourceFingerprint: incrementalState.PendingResourceFingerprint,
+			ResourceFingerprint: resourceFingerprint,
 			ScannerFingerprint:  incrementalState.PendingScannerFingerprint,
 			SourceState:         sourceState,
 			Chunks:              stats.Chunks,
@@ -754,6 +777,31 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		return errFindingsFound
 	}
 	return nil
+}
+
+func startCPUProfile(path string) (func() error, error) {
+	if path == "" {
+		return func() error { return nil }, nil
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("create CPU profile %q: %w", path, err)
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("secure CPU profile %q: %w", path, err)
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("start CPU profile %q: %w", path, err)
+	}
+	return func() error {
+		pprof.StopCPUProfile()
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("close CPU profile %q: %w", path, err)
+		}
+		return nil
+	}, nil
 }
 
 // filterDetectors narrows a detector slice by include / exclude name lists.
