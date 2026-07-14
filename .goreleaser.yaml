@@ -38,18 +38,17 @@ archives:
 checksum:
   name_template: 'checksums.txt'
 
-# Publishes a Homebrew formula to plenoai/homebrew-tap on every tag push.
-# The tap repo itself and the HOMEBREW_TAP_GITHUB_TOKEN secret are
-# release-time prerequisites created outside this repo (see PR description);
-# until both exist, GoReleaser's brew publish step fails the release.
+# Generates a Homebrew formula for release.yml to publish only after the
+# GitHub Release is immutable. Deferring the tap update prevents it from ever
+# pointing users at draft assets and makes the cross-repo write retryable.
 brews:
   - name: pleno-dlp
     repository:
       owner: plenoai
       name: homebrew-tap
       branch: main
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
+    skip_upload: true
     homepage: "https://plenoai.com/pleno-dlp/"
     description: "Unified DLP scanner for secrets and PII across filesystem, git, stdin, and SaaS sources."
     license: "AGPL-3.0-only"
@@ -76,8 +75,17 @@ sboms:
       - "{{ .ArtifactName }}.sbom.json"
 
 release:
+  # Native archives are built, signed, and validated by release.yml before
+  # GoReleaser opens its draft. They must be uploaded with the portable assets
+  # before one immutable publication; GitHub rejects every later attachment.
+  extra_files:
+    - glob: ./dist-native/*.tar.gz
+    - glob: ./dist-native/*.tar.gz.sha256
+    - glob: ./dist-native/*.tar.gz.sigstore.json
+    - glob: ./dist-native/*.tar.gz.spdx.json
   prerelease: auto
-  draft: false
+  draft: true
+  replace_existing_draft: true
   footer: |
     ---
     `checksums.txt` is signed with Sigstore keyless (cosign). Verify with:

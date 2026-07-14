@@ -91,22 +91,30 @@ Makefile targets (names are contract for CI/docs):
 | `opf-native-test` | tagged `go vet`, `staticcheck`, and full race suite |
 | `opf-native-clean` | remove `build/opf-native/`, `cdeps/`, `bin/pleno-dlp-opf` |
 
-### C. Release/CI: separate additive workflow
+### C. Release/CI: one immutable publication boundary
 
-`.goreleaser.yaml` and `.github/workflows/release.yml` are **not touched**. A
-new `.github/workflows/release-native.yml` triggers on the same `v*` tag and
-attaches native binaries to the release GoReleaser creates. This isolates
-constraint 1: a native build failure cannot break the signed/SBOM'd/attested
-pure-Go release.
+`.github/workflows/release.yml` owns the complete tag release. Its native
+matrix builds, tests, signs, and attests each platform archive, then stages the
+files as same-run workflow artifacts. The draft job validates the expected
+file set, checksums, Sigstore identities, SBOMs, and archive contents before
+passing them to GoReleaser through `release.extra_files`. GoReleaser uploads
+portable and native assets to one draft. After all provenance attestations
+succeed, an action-free finalize job verifies the exact 26-asset set and
+publishes the draft once. GoReleaser only generates the Homebrew formula; a
+retryable post-finalize job updates the tap after the assets are public. A
+failed pre-finalize run leaves a replaceable draft while the prior formula
+remains valid. GitHub rejects asset attachment after an immutable release is
+published, so native failure blocks publication instead of producing an
+incomplete release.
 
 Matrix: `macos-14` (darwin/arm64), `ubuntu-latest` (linux/amd64),
 `ubuntu-24.04-arm` (linux/arm64). Each job runs `make opf-native-build` and
 `make opf-native-test`, packages
 `pleno-dlp-opf-native_<os>_<arch>.tar.gz` (disjoint from GoReleaser's
 `pleno-dlp_<os>_<arch>.tar.gz`), signs the archive with cosign, emits an SBOM,
-and uploads GitHub build provenance after the signed GoReleaser workflow
-succeeds. The archive includes `THIRD_PARTY_NOTICES` for the statically linked
-MIT dependencies. All actions are pinned to full commit SHAs. Static linkage on linux
+and uploads GitHub build provenance before the draft assembly job. The
+archive includes `THIRD_PARTY_NOTICES` for the statically linked MIT
+dependencies. All actions are pinned to full commit SHAs. Static linkage on linux
 (`-static-libstdc++ -static-libgcc`) keeps the binary portable across glibc
 hosts; the macOS binary requires Metal (every arm64 Mac).
 
