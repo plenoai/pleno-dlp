@@ -29,18 +29,6 @@ func TestGitHubHistoryRepoWalkTimeoutIsolatesUnitAndRetries(t *testing.T) {
 		peerAdded = "peer-completed-content"
 	)
 
-	slowRepo, _ := buildFixtureRepo(t)
-	peerRepo, _ := buildFixtureRepo(t)
-	cloneRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(cloneRoot, "acme"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for name, target := range map[string]string{"a-slow": slowRepo, "b-peer": peerRepo} {
-		if err := os.Symlink(target, filepath.Join(cloneRoot, "acme", name)); err != nil {
-			t.Fatal(err)
-		}
-	}
-
 	var pushedVersion atomic.Int32
 	repoRef := func(name string) githubRepoRef {
 		pushedAt := "2026-07-01T00:00:00Z"
@@ -51,23 +39,7 @@ func TestGitHubHistoryRepoWalkTimeoutIsolatesUnitAndRetries(t *testing.T) {
 		r.Owner.Login = "acme"
 		return r
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/orgs/acme/repos" {
-			t.Errorf("unexpected API path: %s", r.URL.Path)
-			http.NotFound(w, r)
-			return
-		}
-		writeJSON(t, w, []githubRepoRef{repoRef("b-peer"), repoRef("a-slow")})
-	}))
-	t.Cleanup(srv.Close)
-
-	cfg := Config{
-		"token":              "ghp_test",
-		"org":                "acme",
-		"api_base":           srv.URL,
-		"repo_concurrency":   "1",
-		"clone_url_template": filepath.Join(cloneRoot, "{owner}", "{repo}"),
-	}
+	slowRepo, peerRepo, cfg := newGitHubTimeoutHarness(t, "1", repoRef)
 	if err := scanGitHub(context.Background(), cfg, func([]byte, sources.Metadata) error { return nil }); err != nil {
 		t.Fatalf("baseline scan: %v", err)
 	}
@@ -179,30 +151,7 @@ func TestGitHubHistoryRepoWalkTimeoutStartsAfterOrderedTurn(t *testing.T) {
 		peerKey = "acme/b-peer"
 	)
 
-	slowRepo, _ := buildFixtureRepo(t)
-	peerRepo, _ := buildFixtureRepo(t)
-	cloneRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(cloneRoot, "acme"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for name, target := range map[string]string{"a-slow": slowRepo, "b-peer": peerRepo} {
-		if err := os.Symlink(target, filepath.Join(cloneRoot, "acme", name)); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/orgs/acme/repos" {
-			t.Errorf("unexpected API path: %s", r.URL.Path)
-			http.NotFound(w, r)
-			return
-		}
-		writeJSON(t, w, []githubRepoRef{
-			githubTimeoutRepoRef("b-peer"),
-			githubTimeoutRepoRef("a-slow"),
-		})
-	}))
-	t.Cleanup(srv.Close)
+	_, _, cfg := newGitHubTimeoutHarness(t, "2", githubTimeoutRepoRef)
 
 	peerCloned := make(chan struct{})
 	var peerCloneOnce sync.Once
@@ -236,14 +185,7 @@ func TestGitHubHistoryRepoWalkTimeoutStartsAfterOrderedTurn(t *testing.T) {
 	var slowEmissionOnce sync.Once
 	emitted := make(map[string]int)
 	var emittedMu sync.Mutex
-	cfg := Config{
-		"token":              "ghp_test",
-		"org":                "acme",
-		"api_base":           srv.URL,
-		"repo_concurrency":   "2",
-		"repo_walk_timeout":  "30s",
-		"clone_url_template": filepath.Join(cloneRoot, "{owner}", "{repo}"),
-	}
+	cfg["repo_walk_timeout"] = "30s"
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- scanGitHub(context.Background(), cfg, func(_ []byte, meta sources.Metadata) error {
@@ -305,6 +247,37 @@ func TestGitHubHistoryRepoWalkTimeoutStartsAfterOrderedTurn(t *testing.T) {
 	emittedMu.Unlock()
 	if peerEmissions == 0 {
 		t.Fatal("peer did not complete within its fresh walk timeout")
+	}
+}
+
+func newGitHubTimeoutHarness(t *testing.T, concurrency string, repoRef func(string) githubRepoRef) (slowRepo, peerRepo string, cfg Config) {
+	t.Helper()
+	slowRepo, _ = buildFixtureRepo(t)
+	peerRepo, _ = buildFixtureRepo(t)
+	cloneRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cloneRoot, "acme"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{"a-slow": slowRepo, "b-peer": peerRepo} {
+		if err := os.Symlink(target, filepath.Join(cloneRoot, "acme", name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/orgs/acme/repos" {
+			t.Errorf("unexpected API path: %s", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		writeJSON(t, w, []githubRepoRef{repoRef("b-peer"), repoRef("a-slow")})
+	}))
+	t.Cleanup(srv.Close)
+	return slowRepo, peerRepo, Config{
+		"token":              "ghp_test",
+		"org":                "acme",
+		"api_base":           srv.URL,
+		"repo_concurrency":   concurrency,
+		"clone_url_template": filepath.Join(cloneRoot, "{owner}", "{repo}"),
 	}
 }
 

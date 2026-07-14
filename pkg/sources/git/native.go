@@ -28,7 +28,7 @@ const (
 	nativeStderrLimit     = 64 << 10
 	nativePathLimit       = 64 << 10
 	nativeSegmentLimit    = 64 << 10
-	nativePrettyFormat    = "%x1e%H%x00%an%x00%ae%x00%aI%x00%s%x00%P%x00"
+	nativePrettyFormat    = "%x1e%H%x00%an%x00%ae%x00%aI%x00%s%x00"
 )
 
 var nativeCapabilityCache sync.Map
@@ -144,7 +144,7 @@ func nativeGitEnv() []string {
 // emitted chunk would duplicate findings and could advance the checkpoint
 // across a partially covered walk.
 func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBin string, starts, stops []plumbing.Hash, ch chan<- *sources.Chunk) error {
-	cmd := exec.CommandContext(ctx, gitBin, s.nativeLogArgs(starts, stops)...)
+	cmd := exec.CommandContext(ctx, gitBin, s.nativeLogArgs()...)
 	cmd.Stdin = strings.NewReader(nativeRevisionInput(starts, stops))
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -180,7 +180,7 @@ func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBi
 	return nil
 }
 
-func (s *Source) nativeLogArgs(starts, stops []plumbing.Hash) []string {
+func (s *Source) nativeLogArgs() []string {
 	// Reverse topological order is deterministic and always emits a parent
 	// before its child. The go-git fallback's stable timestamp sort can invert
 	// that relation when commit clocks are skewed; the native path deliberately
@@ -791,7 +791,7 @@ func parseNativeCommit(line []byte) (nativeCommit, error) {
 		return nativeCommit{}, errors.New("malformed native commit record")
 	}
 	fields := bytes.Split(record[1:len(record)-1], []byte{nativeFieldSeparator})
-	if len(fields) != 6 {
+	if len(fields) != 5 {
 		return nativeCommit{}, fmt.Errorf("malformed native commit record: got %d fields", len(fields))
 	}
 	hash := string(fields[0])

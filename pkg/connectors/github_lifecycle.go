@@ -27,20 +27,18 @@ type githubOrderedEmitter struct {
 	err        error
 }
 
-type githubOrderedUnit struct {
+type githubOrderedWalkControl struct {
 	emitter *githubOrderedEmitter
 	index   int
+	wrap    func(Emit) Emit
 }
 
-type githubOrderedUnitContextKey struct{}
-
-func withGitHubOrderedUnit(ctx context.Context, emitter *githubOrderedEmitter, index int) context.Context {
-	return context.WithValue(ctx, githubOrderedUnitContextKey{}, githubOrderedUnit{emitter: emitter, index: index})
-}
-
-func githubOrderedUnitFromContext(ctx context.Context) (githubOrderedUnit, bool) {
-	unit, ok := ctx.Value(githubOrderedUnitContextKey{}).(githubOrderedUnit)
-	return unit, ok
+func (c *githubOrderedWalkControl) emitContext(ctx context.Context) Emit {
+	emit := c.emitter.EmitContext(ctx, c.index)
+	if c.wrap != nil {
+		return c.wrap(emit)
+	}
+	return emit
 }
 
 func newGitHubOrderedEmitter(ctx context.Context, n int, downstream Emit) *githubOrderedEmitter {

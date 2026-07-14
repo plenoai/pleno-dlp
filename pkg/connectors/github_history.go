@@ -307,7 +307,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 	orderedEmit := newGitHubOrderedEmitter(ctx, len(units), emit)
 	produce := func(ctx context.Context, unit githubSourceUnit) githubUnitResult[repoOutcome] {
 		order := unitOrder[unit.Key()]
-		ctx = withGitHubOrderedUnit(ctx, orderedEmit, order)
+		walkControl := &githubOrderedWalkControl{emitter: orderedEmit, index: order}
 		unitEmit := orderedEmit.EmitContext(ctx, order)
 		r := reposByKey[unit.ID]
 		repoKey := unit.ID
@@ -320,7 +320,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 			if seed.Policy != historyPolicy {
 				seed = githubRepoIncrementalState{}
 			}
-			nextWiki, err := scanGitHubWikiHistory(ctx, cfg, auth, apiBase, host, wikiTemplate, r, seed, unitEmit)
+			nextWiki, err := scanGitHubWikiHistory(ctx, cfg, auth, apiBase, host, wikiTemplate, r, seed, walkControl, unitEmit)
 			if err != nil {
 				if isMissingWikiError(err) {
 					return githubUnitResult[repoOutcome]{State: repoOutcome{Next: prevWiki, StateValid: prevWiki.Mode == githubScanModeHistory}, Stats: githubUnitStats{Skipped: "wiki-missing"}}
@@ -351,7 +351,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 			fmt.Fprintf(os.Stderr, "github: scan %s unchanged since last run (pushed_at %s), clone skipped\n", repoKey, r.PushedAt)
 		} else {
 			var err error
-			nextRepo, err = scanGitHubRepoHistory(ctx, cfg, auth, apiBase, host, template, r, prevRepo, unitEmit)
+			nextRepo, err = scanGitHubRepoHistory(ctx, cfg, auth, apiBase, host, template, r, prevRepo, walkControl, unitEmit)
 			if err != nil {
 				if ctx.Err() != nil {
 					return githubUnitResult[repoOutcome]{Err: ctx.Err()}
@@ -563,15 +563,15 @@ func seedGitHubCollaborationState(next *githubRepoIncrementalState, prev githubR
 
 // scanGitHubRepoHistory clones one repo bare and walks it. It returns the
 // repo's next incremental state (RefHeads after the walk).
-func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProvider, apiBase, host, template string, repo githubRepoRef, prev githubRepoIncrementalState, emit Emit) (githubRepoIncrementalState, error) {
+func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProvider, apiBase, host, template string, repo githubRepoRef, prev githubRepoIncrementalState, walkControl *githubOrderedWalkControl, emit Emit) (githubRepoIncrementalState, error) {
 	cloneURL, err := deriveCloneURL(apiBase, repo.Owner.Login, repo.Name, template)
 	if err != nil {
 		return githubRepoIncrementalState{}, err
 	}
-	return scanGitHubGitHistory(ctx, cfg, auth, host, cloneURL, repo, prev, false, emit)
+	return scanGitHubGitHistory(ctx, cfg, auth, host, cloneURL, repo, prev, false, walkControl, emit)
 }
 
-func scanGitHubWikiHistory(ctx context.Context, cfg Config, auth githubTokenProvider, apiBase, host, template string, repo githubRepoRef, prev githubRepoIncrementalState, emit Emit) (githubRepoIncrementalState, error) {
+func scanGitHubWikiHistory(ctx context.Context, cfg Config, auth githubTokenProvider, apiBase, host, template string, repo githubRepoRef, prev githubRepoIncrementalState, walkControl *githubOrderedWalkControl, emit Emit) (githubRepoIncrementalState, error) {
 	cloneURL, err := deriveWikiCloneURL(apiBase, repo.Owner.Login, repo.Name, template)
 	if err != nil {
 		return githubRepoIncrementalState{}, err
@@ -581,10 +581,10 @@ func scanGitHubWikiHistory(ctx context.Context, cfg Config, auth githubTokenProv
 			return githubRepoIncrementalState{}, &githubCloneError{Kind: githubCloneMissing, Err: statErr, Detail: "wiki repository not found"}
 		}
 	}
-	return scanGitHubGitHistory(ctx, cfg, auth, host, cloneURL, repo, prev, true, emit)
+	return scanGitHubGitHistory(ctx, cfg, auth, host, cloneURL, repo, prev, true, walkControl, emit)
 }
 
-func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvider, host, cloneURL string, repo githubRepoRef, prev githubRepoIncrementalState, wiki bool, emit Emit) (githubRepoIncrementalState, error) {
+func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvider, host, cloneURL string, repo githubRepoRef, prev githubRepoIncrementalState, wiki bool, walkControl *githubOrderedWalkControl, emit Emit) (githubRepoIncrementalState, error) {
 	walkTimeout, err := githubRepoWalkTimeout(cfg)
 	if err != nil {
 		return githubRepoIncrementalState{}, err
@@ -621,10 +621,9 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 	if githubCloneBytesObserver != nil {
 		githubCloneBytesObserver(repoKey, directoryBytes(dir))
 	}
-	orderedUnit, ordered := githubOrderedUnitFromContext(ctx)
-	if ordered {
+	if walkControl != nil {
 		hb.setPhase("ordered-wait")
-		if err := orderedUnit.emitter.WaitTurn(ctx, orderedUnit.index); err != nil {
+		if err := walkControl.emitter.WaitTurn(ctx, walkControl.index); err != nil {
 			return githubRepoIncrementalState{}, err
 		}
 	}
@@ -642,8 +641,8 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 		defer cancelHook()
 	}
 	walkEmit := emit
-	if ordered {
-		walkEmit = orderedUnit.emitter.EmitContext(walkCtx, orderedUnit.index)
+	if walkControl != nil {
+		walkEmit = walkControl.emitContext(walkCtx)
 	}
 
 	// Open the bare clone once and reuse the handle for the ref-head read

@@ -26,7 +26,7 @@ func TestNativeLogArgsPreserveWalkConstraints(t *testing.T) {
 	}
 	start := plumbing.NewHash("1111111111111111111111111111111111111111")
 	stop := plumbing.NewHash("2222222222222222222222222222222222222222")
-	args := s.nativeLogArgs([]plumbing.Hash{start}, []plumbing.Hash{stop})
+	args := s.nativeLogArgs()
 
 	for _, want := range []string{
 		"--patch", "--root", "--reverse", "--topo-order", "--full-history",

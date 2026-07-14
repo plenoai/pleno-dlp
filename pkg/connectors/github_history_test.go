@@ -254,7 +254,7 @@ func TestGitHubHistoryRepoWalkTimeout(t *testing.T) {
 	fixture, _ := buildFixtureRepo(t)
 	repo := githubRepoRef{Name: "widget", Visibility: "private"}
 	repo.Owner.Login = "acme"
-	next, err := scanGitHubGitHistory(context.Background(), Config{"repo_walk_timeout": "1ns"}, staticGitHubToken(""), "github.com", fixture, repo, githubRepoIncrementalState{}, false, func([]byte, sources.Metadata) error {
+	next, err := scanGitHubGitHistory(context.Background(), Config{"repo_walk_timeout": "1ns"}, staticGitHubToken(""), "github.com", fixture, repo, githubRepoIncrementalState{}, false, nil, func([]byte, sources.Metadata) error {
 		return nil
 	})
 	if !errors.Is(err, context.DeadlineExceeded) {
