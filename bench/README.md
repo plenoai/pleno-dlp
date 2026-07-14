@@ -10,6 +10,10 @@ both, and writes a results table. See issue #298 for the origin story.
 ```sh
 make bench
 cat bench/results/results.md
+
+# Git-history performance regression smoke (4,000 commits / 20,000 objects)
+make bench-git-history
+cat bench/results/git-history.md
 ```
 
 `bench-fixtures` and `bench-tools` are separate targets so CI can cache
@@ -31,13 +35,12 @@ leaky-repo clone if you have no network.
   comes from leaky-repo's *own* `.leaky-meta/secrets.csv` — not a label
   file this project authored — so there is nothing here for us to have
   gotten wrong or cherry-picked; see `bench/harness/leakyrepo.go`.
-- **§4–§8** (noise sweeps, git-history timings, verification triage, PII,
-  capability probes): not automated here. Each depends on either a
-  larger set of pinned OSS repos and manual FP adjudication (§4), timing
-  methodology with statistical machinery (§5, already covered by
-  `docs/benchmarks.md`'s own `hyperfine` recipe), or fixtures with no
-  fixed ground-truth shape (§6–§8). Deferred — see the PR that introduced
-  this directory for the explicit list.
+- **§5 (git-history timings)**: reproduced separately by
+  `make bench-git-history`; the benchmark and its performance gates are
+  described below.
+- **§4 and §6–§8** (noise sweeps, verification triage, PII, capability
+  probes): not automated here. They depend on pinned OSS corpora plus
+  manual FP adjudication, or fixtures without a fixed ground-truth shape.
 
 `make bench`'s numbers are **not** expected to match `docs/comparison.md`
 exactly, and that's the point: the doc is a frozen snapshot from
@@ -58,12 +61,51 @@ bench/
   gen/        synthetic-corpus generator (`go run ./bench/gen`)
   labels/     ground-truth manifest schema shared by gen and harness
   harness/    3-tool re-run + recall scoring (`go run ./bench/harness`)
+  git-history/ deterministic deep-history fixture + pleno/TruffleHog benchmark
   docsync/    regenerates docs/comparison.md's live box from results.json (`go run ./bench/docsync`)
   scripts/    fetch-tools.sh (pinned, checksum-verified tool download),
               check-competitor-drift.sh + bump-competitor-pin.sh (issue #299)
   fixtures/synthetic/   generated output lives here (gitignored)
   results/    results.json / results.md (gitignored)
 ```
+
+## Deep Git history performance
+
+`make bench-git-history` builds one deterministic bare repository with
+4,000 commits and exactly 20,000 Git objects. The fixture is generated with
+`git fast-import` in a temporary directory and is never committed. A single
+non-placeholder GitHub token is assembled at runtime, inserted in one commit,
+and omitted from result artifacts. Both tools scan the same repository with
+only the GitHub detector, verification disabled, and binary/archive skipping
+enabled. Every timed scan must report that canary exactly once at the expected
+path and commit; a zero-result scan is a benchmark failure.
+
+The harness records direct-source timing windows, their linear throughput
+slope, the tail/early throughput ratio, runtime memory counters, and
+end-to-end timings for this checkout and the checksum-pinned
+`bench/.tools/trufflehog`. The Make targets always refresh and checksum-verify
+that pin before measuring. The harness performs warmups and repeated
+interleaved samples; fast scans are repeated inside each sample until at least
+two seconds have actually elapsed. JSON and Markdown results are written to
+`bench/results/git-history.{json,md}`.
+
+The first source window includes process startup and is excluded from the
+slope and tail/early gate. Stability compares the median throughput of the
+next three windows with the median of the final three, so the large fixture
+compares chunks 170,001–200,000 with chunks 10,001–40,000.
+
+Pull requests run the 4,000-commit smoke without enforcing machine-sensitive
+timing thresholds. The separate scheduled/manual job runs:
+
+```sh
+make bench-git-history-large
+```
+
+That opt-in target fixes the fixture at 200,000 commits and exactly 1,000,000
+objects, then requires pleno-dlp's median to be at most 90% of TruffleHog's and
+the median throughput of the final three source windows to be at least 90% of
+the first three post-startup windows. It writes artifacts before returning a
+non-zero status when either gate fails.
 
 ## Keeping docs/comparison.md current automatically (issue #299)
 
