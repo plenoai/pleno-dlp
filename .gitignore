@@ -1,6 +1,7 @@
 # Go
 bin/
 dist/
+dist-native/
 coverage.out
 coverage.html
 *.test
