@@ -176,7 +176,7 @@ func TestChunks_MissingTreeIsDegradedAndDoesNotAdvanceState(t *testing.T) {
 	if len(got) == 0 || got[0].SourceMetadata.Git.Commit != hashes[0] {
 		t.Fatalf("earlier finding provenance lost: %#v", got)
 	}
-	if len(degraded.Failures) != 1 || !strings.Contains(degraded.Failures[0].Source, hashes[1]) || !strings.Contains(degraded.Failures[0].Source, "tree-diff") {
+	if len(degraded.Failures) != 1 || !strings.Contains(degraded.Failures[0].Source, commit.TreeHash.String()) || !strings.Contains(degraded.Failures[0].Source, "tree-diff") {
 		t.Fatalf("failure provenance=%+v", degraded.Failures)
 	}
 	if state := s.IncrementalState(); len(state) != 0 {
