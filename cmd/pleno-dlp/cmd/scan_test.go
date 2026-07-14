@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/pprof"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -306,6 +308,58 @@ func TestScanCPUProfileLateValidationPreservesExistingFile(t *testing.T) {
 				t.Fatalf("invalid invocation changed profile mode to %o", info.Mode().Perm())
 			}
 		})
+	}
+}
+
+func TestScanCPUProfileStartFailurePreservesExistingFile(t *testing.T) {
+	resetCommandFlags(t)
+	dir := t.TempDir()
+	profileDir := t.TempDir()
+	profile := filepath.Join(profileDir, "scan.cpu.pprof")
+	want := []byte("existing-profile")
+	if err := os.WriteFile(profile, want, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := pprof.StartCPUProfile(io.Discard); err != nil {
+		t.Fatalf("start controlling CPU profile: %v", err)
+	}
+	profiling := true
+	defer func() {
+		if profiling {
+			pprof.StopCPUProfile()
+		}
+	}()
+
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+	Root.SetArgs([]string{"scan", "--no-verify", "--quiet", "--cpu-profile", profile, "filesystem", dir})
+	err := Root.Execute()
+	pprof.StopCPUProfile()
+	profiling = false
+	if err == nil || !strings.Contains(err.Error(), "start CPU profile") {
+		t.Fatalf("scan error = %v, want CPU profile start failure", err)
+	}
+	got, err := os.ReadFile(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("profile start failure changed target: got %q want %q", got, want)
+	}
+	info, err := os.Stat(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o640 {
+		t.Fatalf("profile start failure changed target mode to %o", info.Mode().Perm())
+	}
+	entries, err := os.ReadDir(profileDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(profile) {
+		t.Fatalf("profile start failure left temporary files: %v", entries)
 	}
 }
 

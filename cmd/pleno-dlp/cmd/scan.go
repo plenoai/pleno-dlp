@@ -783,22 +783,41 @@ func startCPUProfile(path string) (func() error, error) {
 	if path == "" {
 		return func() error { return nil }, nil
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
 	if err != nil {
 		return nil, fmt.Errorf("create CPU profile %q: %w", path, err)
 	}
+	tempPath := f.Name()
+	removeTemp := func() error {
+		err := os.Remove(tempPath)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("remove temporary CPU profile %q: %w", tempPath, err)
+		}
+		return nil
+	}
+	discard := func() error {
+		closeErr := f.Close()
+		if closeErr != nil {
+			closeErr = fmt.Errorf("close temporary CPU profile %q: %w", tempPath, closeErr)
+		}
+		return errors.Join(closeErr, removeTemp())
+	}
 	if err := f.Chmod(0o600); err != nil {
-		_ = f.Close()
-		return nil, fmt.Errorf("secure CPU profile %q: %w", path, err)
+		return nil, errors.Join(fmt.Errorf("secure CPU profile %q: %w", path, err), discard())
 	}
 	if err := pprof.StartCPUProfile(f); err != nil {
-		_ = f.Close()
-		return nil, fmt.Errorf("start CPU profile %q: %w", path, err)
+		return nil, errors.Join(fmt.Errorf("start CPU profile %q: %w", path, err), discard())
 	}
 	return func() error {
 		pprof.StopCPUProfile()
 		if err := f.Close(); err != nil {
-			return fmt.Errorf("close CPU profile %q: %w", path, err)
+			return errors.Join(fmt.Errorf("close CPU profile %q: %w", path, err), removeTemp())
+		}
+		if err := os.Rename(tempPath, path); err != nil {
+			return errors.Join(fmt.Errorf("replace CPU profile %q: %w", path, err), removeTemp())
 		}
 		return nil
 	}, nil
