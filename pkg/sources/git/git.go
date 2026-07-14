@@ -245,7 +245,36 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	s.nextState = nil
 
 	stops := s.previousHeads()
-	refs, err := s.collectCommits(repo, starts, stops)
+	if s.nativeFastPathEligible(len(starts)) {
+		if gitBin, lookupErr := exec.LookPath("git"); lookupErr == nil {
+			supported, probeErr := s.nativeFastPathSupported(ctx, gitBin, starts[0])
+			if probeErr != nil {
+				if errors.Is(probeErr, context.Canceled) || errors.Is(probeErr, context.DeadlineExceeded) {
+					return probeErr
+				}
+				s.retainPreviousState()
+				return s.nativeDegradedError(probeErr)
+			}
+			if supported {
+				nativeStops, stopErr := nativeExistingStops(ctx, repo, stops)
+				if stopErr != nil {
+					s.retainPreviousState()
+					return s.nativeDegradedError(stopErr)
+				}
+				if err := s.chunksNative(ctx, repo, gitBin, starts, nativeStops, ch); err != nil {
+					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+						return err
+					}
+					s.retainPreviousState()
+					return s.nativeDegradedError(err)
+				}
+				s.nextState = candidateState
+				return nil
+			}
+		}
+	}
+
+	refs, err := s.collectCommits(ctx, repo, starts, stops)
 	if err != nil {
 		return err
 	}
@@ -468,12 +497,15 @@ type commitRef struct {
 // current start down to that commit passes through the recorded head first
 // — go-git's iterator prunes there (see boundarySet) before ever reaching
 // the older commit, so its ancestry never needs to be enumerated up front.
-func (s *Source) collectCommits(repo *git.Repository, starts []plumbing.Hash, stops []plumbing.Hash) ([]commitRef, error) {
+func (s *Source) collectCommits(ctx context.Context, repo *git.Repository, starts []plumbing.Hash, stops []plumbing.Hash) ([]commitRef, error) {
 	seen := boundarySet(stops)
 
 	var refs []commitRef
 
 	for _, start := range starts {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if seen[start] {
 			continue
 		}
@@ -483,6 +515,9 @@ func (s *Source) collectCommits(repo *git.Repository, starts []plumbing.Hash, st
 		}
 		iter := object.NewCommitPreorderIter(startCommit, seen, nil)
 		err = iter.ForEach(func(c *object.Commit) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			// go-git's preorder ForEach aborts the WHOLE walk on any returned
 			// error, so the only error we may return is the terminal maxDepth
 			// stop.
@@ -498,6 +533,9 @@ func (s *Source) collectCommits(repo *git.Repository, starts []plumbing.Hash, st
 		})
 		iter.Close()
 		if err != nil && !errors.Is(err, errStorerStop) {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
 			return nil, fmt.Errorf("git: iterate commits: %w", err)
 		}
 		if s.maxDepth > 0 && len(refs) >= s.maxDepth {

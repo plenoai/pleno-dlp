@@ -5,7 +5,7 @@
 # targets exist so CI can cache the tool-download step separately from
 # the (network-dependent) leaky-repo clone.
 
-.PHONY: bench bench-fixtures bench-tools bench-run bench-offline bench-clean bench-docsync
+.PHONY: bench bench-fixtures bench-tools bench-run bench-offline bench-git-history bench-git-history-large bench-clean bench-docsync
 
 # Full reproduction: fresh fixtures, pinned tool binaries, live 3-tool
 # re-run against both the synthetic and leaky-repo corpora.
@@ -29,6 +29,14 @@ bench-run:
 # for iterating on the synthetic corpus without a network round-trip.
 bench-offline:
 	go run ./bench/harness -skip-leaky-repo
+
+# Deterministic 4k-commit smoke; BENCH_GIT_HISTORY_ARGS can override local sampling.
+bench-git-history: bench-tools
+	go run ./bench/git-history $(BENCH_GIT_HISTORY_ARGS)
+
+# Scheduled/manual performance gate: 200k commits x 5 objects = exactly 1M objects.
+bench-git-history-large: bench-tools
+	go run ./bench/git-history $(BENCH_GIT_HISTORY_ARGS) -commits 200000 -files 4096 -window 10000 -enforce
 
 bench-clean:
 	rm -rf bench/fixtures/synthetic/generated bench/fixtures/synthetic/labels.json bench/.cache bench/.tools bench/results/*.json bench/results/*.md

@@ -38,6 +38,10 @@ import (
 // leaves it nil, avoiding an extra directory walk on every clone.
 var githubCloneBytesObserver func(string, int64)
 
+// githubRepoWalkTestHook runs after the per-repository deadline is installed
+// and before history state can advance. It is nil outside tests.
+var githubRepoWalkTestHook func(context.Context, string) (context.Context, context.CancelFunc)
+
 func directoryBytes(root string) int64 {
 	var total int64
 	_ = filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
@@ -50,17 +54,6 @@ func directoryBytes(root string) int64 {
 	})
 	return total
 }
-
-// githubCloneBlobFilterLimit bounds the clone's protocol-level blob filter
-// (--filter=blob:limit). It must stay equal to maxBlobSize in
-// pkg/sources/git/git.go (unexported there, so this is a documented
-// duplicate rather than a shared import): the git walk discards any blob
-// bigger than that constant regardless of how it got fetched, so filtering
-// oversized blobs out of the clone itself — instead of downloading them and
-// then throwing them away during the walk — saves both bandwidth and, for
-// the native-git path, the delta-resolution memory those blobs would have
-// cost git during the clone.
-const githubCloneBlobFilterLimit int64 = 50 * 1024 * 1024 // 50 MiB — keep equal to gitsource.maxBlobSize
 
 type githubSurfaceFailure struct {
 	Surface string
@@ -210,6 +203,9 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 	if _, err := githubGitArtifactConfig(cfg); err != nil {
 		return err
 	}
+	if _, err := githubRepoWalkTimeout(cfg); err != nil {
+		return err
+	}
 	cli := newGitHubClient(apiBase, auth)
 	repos, observedRepos, enumerationSkipped, err := githubEnumerateRepos(ctx, cli, cfg, org, repo)
 	if err != nil {
@@ -311,7 +307,8 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 	orderedEmit := newGitHubOrderedEmitter(ctx, len(units), emit)
 	produce := func(ctx context.Context, unit githubSourceUnit) githubUnitResult[repoOutcome] {
 		order := unitOrder[unit.Key()]
-		unitEmit := orderedEmit.Emit(order)
+		walkControl := &githubOrderedWalkControl{emitter: orderedEmit, index: order}
+		unitEmit := orderedEmit.EmitContext(ctx, order)
 		r := reposByKey[unit.ID]
 		repoKey := unit.ID
 		if unit.Surface == "repository-wiki" {
@@ -323,7 +320,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 			if seed.Policy != historyPolicy {
 				seed = githubRepoIncrementalState{}
 			}
-			nextWiki, err := scanGitHubWikiHistory(ctx, cfg, auth, apiBase, host, wikiTemplate, r, seed, unitEmit)
+			nextWiki, err := scanGitHubWikiHistory(ctx, cfg, auth, apiBase, host, wikiTemplate, r, seed, walkControl, unitEmit)
 			if err != nil {
 				if isMissingWikiError(err) {
 					return githubUnitResult[repoOutcome]{State: repoOutcome{Next: prevWiki, StateValid: prevWiki.Mode == githubScanModeHistory}, Stats: githubUnitStats{Skipped: "wiki-missing"}}
@@ -354,7 +351,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 			fmt.Fprintf(os.Stderr, "github: scan %s unchanged since last run (pushed_at %s), clone skipped\n", repoKey, r.PushedAt)
 		} else {
 			var err error
-			nextRepo, err = scanGitHubRepoHistory(ctx, cfg, auth, apiBase, host, template, r, prevRepo, unitEmit)
+			nextRepo, err = scanGitHubRepoHistory(ctx, cfg, auth, apiBase, host, template, r, prevRepo, walkControl, unitEmit)
 			if err != nil {
 				if ctx.Err() != nil {
 					return githubUnitResult[repoOutcome]{Err: ctx.Err()}
@@ -566,15 +563,15 @@ func seedGitHubCollaborationState(next *githubRepoIncrementalState, prev githubR
 
 // scanGitHubRepoHistory clones one repo bare and walks it. It returns the
 // repo's next incremental state (RefHeads after the walk).
-func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProvider, apiBase, host, template string, repo githubRepoRef, prev githubRepoIncrementalState, emit Emit) (githubRepoIncrementalState, error) {
+func scanGitHubRepoHistory(ctx context.Context, cfg Config, auth githubTokenProvider, apiBase, host, template string, repo githubRepoRef, prev githubRepoIncrementalState, walkControl *githubOrderedWalkControl, emit Emit) (githubRepoIncrementalState, error) {
 	cloneURL, err := deriveCloneURL(apiBase, repo.Owner.Login, repo.Name, template)
 	if err != nil {
 		return githubRepoIncrementalState{}, err
 	}
-	return scanGitHubGitHistory(ctx, cfg, auth, host, cloneURL, repo, prev, false, emit)
+	return scanGitHubGitHistory(ctx, cfg, auth, host, cloneURL, repo, prev, false, walkControl, emit)
 }
 
-func scanGitHubWikiHistory(ctx context.Context, cfg Config, auth githubTokenProvider, apiBase, host, template string, repo githubRepoRef, prev githubRepoIncrementalState, emit Emit) (githubRepoIncrementalState, error) {
+func scanGitHubWikiHistory(ctx context.Context, cfg Config, auth githubTokenProvider, apiBase, host, template string, repo githubRepoRef, prev githubRepoIncrementalState, walkControl *githubOrderedWalkControl, emit Emit) (githubRepoIncrementalState, error) {
 	cloneURL, err := deriveWikiCloneURL(apiBase, repo.Owner.Login, repo.Name, template)
 	if err != nil {
 		return githubRepoIncrementalState{}, err
@@ -584,10 +581,14 @@ func scanGitHubWikiHistory(ctx context.Context, cfg Config, auth githubTokenProv
 			return githubRepoIncrementalState{}, &githubCloneError{Kind: githubCloneMissing, Err: statErr, Detail: "wiki repository not found"}
 		}
 	}
-	return scanGitHubGitHistory(ctx, cfg, auth, host, cloneURL, repo, prev, true, emit)
+	return scanGitHubGitHistory(ctx, cfg, auth, host, cloneURL, repo, prev, true, walkControl, emit)
 }
 
-func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvider, host, cloneURL string, repo githubRepoRef, prev githubRepoIncrementalState, wiki bool, emit Emit) (githubRepoIncrementalState, error) {
+func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvider, host, cloneURL string, repo githubRepoRef, prev githubRepoIncrementalState, wiki bool, walkControl *githubOrderedWalkControl, emit Emit) (githubRepoIncrementalState, error) {
+	walkTimeout, err := githubRepoWalkTimeout(cfg)
+	if err != nil {
+		return githubRepoIncrementalState{}, err
+	}
 
 	dir, err := os.MkdirTemp("", "pleno-gh-clone-")
 	if err != nil {
@@ -620,8 +621,29 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 	if githubCloneBytesObserver != nil {
 		githubCloneBytesObserver(repoKey, directoryBytes(dir))
 	}
+	if walkControl != nil {
+		hb.setPhase("ordered-wait")
+		if err := walkControl.emitter.WaitTurn(ctx, walkControl.index); err != nil {
+			return githubRepoIncrementalState{}, err
+		}
+	}
 	hb.setPhase("walk")
 	walkStart := time.Now()
+	walkCtx := ctx
+	cancelWalk := func() {}
+	if walkTimeout > 0 {
+		walkCtx, cancelWalk = context.WithTimeout(ctx, walkTimeout)
+	}
+	defer cancelWalk()
+	if hook := githubRepoWalkTestHook; hook != nil {
+		var cancelHook context.CancelFunc
+		walkCtx, cancelHook = hook(walkCtx, repoKey)
+		defer cancelHook()
+	}
+	walkEmit := emit
+	if walkControl != nil {
+		walkEmit = walkControl.emitContext(walkCtx)
+	}
 
 	// Open the bare clone once and reuse the handle for the ref-head read
 	// below. This file previously reopened the clone via gogit.PlainOpen a
@@ -650,7 +672,7 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 	// The git source's verify flag only stamps chunk.Verify, which we discard
 	// when re-emitting via the connector Emit (the engine sets verify on the
 	// connector path). false is correct here.
-	if err := src.Init(ctx, "github", 0, 0, false, raw, 1); err != nil {
+	if err := src.Init(walkCtx, "github", 0, 0, false, raw, 1); err != nil {
 		return githubRepoIncrementalState{}, fmt.Errorf("github: init git walk for %s/%s: %w", repo.Owner.Login, repo.Name, err)
 	}
 	// Seed the git walk's stop-set from the previous run's ref heads.
@@ -676,7 +698,7 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 	ch := make(chan *sources.Chunk, 4)
 	walkErr := make(chan error, 1)
 	go func() {
-		walkErr <- src.Chunks(ctx, ch)
+		walkErr <- src.Chunks(walkCtx, ch)
 		close(ch)
 	}()
 
@@ -716,15 +738,18 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 			meta.GitHub.Entity = "wiki"
 			meta.GitHub.Part = "page"
 		}
-		if err := emit(c.Data, meta); err != nil {
+		if err := walkEmit(c.Data, meta); err != nil {
 			emitErr = err
 		}
 	}
 	if err := <-walkErr; err != nil {
-		return githubRepoIncrementalState{}, err
+		return githubRepoIncrementalState{}, normalizeGitHubRepoWalkError(ctx, repoKey, walkTimeout, err)
 	}
 	if emitErr != nil {
 		return githubRepoIncrementalState{}, emitErr
+	}
+	if err := walkCtx.Err(); err != nil {
+		return githubRepoIncrementalState{}, normalizeGitHubRepoWalkError(ctx, repoKey, walkTimeout, err)
 	}
 	fmt.Fprintf(os.Stderr, "github: walk %s done: %d chunks in %s\n", repoKey, hb.chunks.Load(), time.Since(walkStart).Round(time.Second))
 
@@ -743,6 +768,13 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 	}
 	next.RefHeads = heads
 	return next, nil
+}
+
+func normalizeGitHubRepoWalkError(parent context.Context, repoKey string, timeout time.Duration, err error) error {
+	if errors.Is(err, context.DeadlineExceeded) && parent.Err() == nil && timeout > 0 {
+		return fmt.Errorf("github: repository walk %s exceeded %s: %w", repoKey, timeout, err)
+	}
+	return err
 }
 
 func githubWikiLink(host, owner, repo, commit, path string, line int) string {
@@ -810,6 +842,18 @@ func githubGitArtifactConfig(cfg Config) (gitsource.Config, error) {
 	return gitsource.Config{IncludeCommitMetadata: parseBool(cfg["include_commit_metadata"]), IncludeGitArchives: parseBool(cfg["include_git_archives"]), IncludeGitBinaries: parseBool(cfg["include_git_binaries"]), GitArtifactMaxBytes: blob, ArchiveMaxExpandedBytes: expanded, ArchiveMaxFiles: files, ArchiveMaxDepth: depth, ArchiveTimeout: timeout}, nil
 }
 
+func githubRepoWalkTimeout(cfg Config) (time.Duration, error) {
+	raw := strings.TrimSpace(cfg["repo_walk_timeout"])
+	if raw == "" || raw == "0" || raw == "0s" {
+		return 0, nil
+	}
+	timeout, err := time.ParseDuration(raw)
+	if err != nil || timeout <= 0 {
+		return 0, fmt.Errorf("github: repo_walk_timeout must be a positive duration or 0, got %q", raw)
+	}
+	return timeout, nil
+}
+
 // githubCloneToken fetches the auth token once per clone, shared by both the
 // native-git and go-git clone paths below. A local-path clone URL (no
 // scheme/host, as tests use to inject a fixture repo) needs no auth.
@@ -830,12 +874,10 @@ func githubCloneToken(ctx context.Context, auth githubTokenProvider, cloneURL st
 // construction — inside the git subprocess, so a multi-GB history costs that
 // subprocess's memory, not this process's. go-git's PlainCloneContext
 // materializes delta resolution in-process instead, which is the memory
-// scaling problem #265 reports; it also has no partial-clone filter support,
-// so it always fetches full history regardless of blob size.
-//
-// The native path additionally passes --filter=blob:limit=<N> (see
-// githubCloneBlobFilterLimit) so oversized blobs the walk would discard
-// anyway are never fetched. go-git's fallback has no equivalent for this.
+// scaling problem #265 reports. The native clone intentionally remains
+// complete: a filtered clone needs authenticated demand-fetches during
+// `git log --patch`, but clone credentials are ephemeral and the history
+// walk disables lazy fetching so it cannot unexpectedly access the network.
 //
 // go-git remains the fallback for environments without a `git` binary on
 // PATH (e.g. a from-scratch pure-Go build/container) so those keep working,
@@ -875,7 +917,7 @@ func cloneWithGoGit(ctx context.Context, cloneURL, dir, token string, progress i
 	return nil
 }
 
-// cloneWithNativeGit execs `git clone --mirror --filter=blob:limit=<N>`.
+// cloneWithNativeGit execs `git clone --mirror`.
 //
 // The token never touches argv: it is handed to git as an Authorization
 // header through GIT_CONFIG_* environment variables (nativeGitAuthEnv, the
@@ -913,14 +955,13 @@ func redactCloneDiagnostic(detail, token string) string {
 	return strings.ReplaceAll(detail, token, "[REDACTED]")
 }
 
-// nativeGitCloneArgs builds the argv for the native mirror clone with the
-// blob-size filter (#265). Split out from cloneWithNativeGit so the exact
-// flags/ordering can be asserted in a unit test without executing git.
+// nativeGitCloneArgs builds the argv for the native mirror clone. Split out
+// from cloneWithNativeGit so the exact flags and ordering can be asserted in
+// a unit test without executing git.
 func nativeGitCloneArgs(cloneURL, dir string) []string {
 	return []string{
 		"clone",
 		"--mirror",
-		fmt.Sprintf("--filter=blob:limit=%d", githubCloneBlobFilterLimit),
 		"--progress",
 		"--",
 		cloneURL,

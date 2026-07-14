@@ -25,6 +25,7 @@ type githubFlags struct {
 	appPrivateKeyFile         string
 	includeComments           bool
 	repoConcurrency           int
+	repoWalkTimeout           time.Duration
 	includeCommitMetadata     bool
 	includeGitArchives        bool
 	includeGitBinaries        bool
@@ -89,6 +90,7 @@ func init() {
 	scanGitHubCmd.Flags().StringVar(&scanGitHubOpts.appPrivateKeyFile, "app-private-key-file", "", "path to GitHub App PEM private key (falls back to the GITHUB_APP_PRIVATE_KEY_FILE env var)")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeComments, "include-comments", false, "also scan issue comments and pull request review comments")
 	scanGitHubCmd.Flags().IntVar(&scanGitHubOpts.repoConcurrency, "repo-concurrency", 1, "maximum concurrent GitHub repository clone/walk workers (independent of --concurrency)")
+	scanGitHubCmd.Flags().DurationVar(&scanGitHubOpts.repoWalkTimeout, "repo-walk-timeout", 0, "maximum Git history walk time per repository (0 = unbounded; clone time is excluded)")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeCommitMetadata, "include-commit-metadata", false, "scan commit messages, author/committer identities, and git notes (opt-in because identities contain expected PII)")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeGitArchives, "include-git-archives", false, "expand and scan recognized archives in Git history within strict resource budgets")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeGitBinaries, "include-git-binaries", false, "scan otherwise-binary blobs in Git history within strict resource budgets")
@@ -191,6 +193,9 @@ func scanGitHubConfig(opts githubFlags) (connectors.Config, error) {
 	if opts.commentsTimeframeDays < 0 {
 		return nil, fmt.Errorf("github: --comments-timeframe-days must be non-negative, got %d", opts.commentsTimeframeDays)
 	}
+	if opts.repoWalkTimeout < 0 {
+		return nil, fmt.Errorf("github: --repo-walk-timeout must be non-negative, got %s", opts.repoWalkTimeout)
+	}
 	if opts.gitArtifactMaxBytes == 0 {
 		opts.gitArtifactMaxBytes = 10 << 20
 	}
@@ -221,6 +226,7 @@ func scanGitHubConfig(opts githubFlags) (connectors.Config, error) {
 		"api_base":                    opts.apiBase,
 		"include_comments":            fmt.Sprintf("%t", opts.includeComments),
 		"repo_concurrency":            fmt.Sprintf("%d", repoConcurrency),
+		"repo_walk_timeout":           opts.repoWalkTimeout.String(),
 		"include_commit_metadata":     fmt.Sprintf("%t", opts.includeCommitMetadata),
 		"include_git_archives":        fmt.Sprintf("%t", opts.includeGitArchives),
 		"include_git_binaries":        fmt.Sprintf("%t", opts.includeGitBinaries),

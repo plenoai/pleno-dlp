@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestScanGitHubHelpDocumentsSurfacesDefaultsAndCosts(t *testing.T) {
@@ -16,7 +17,7 @@ func TestScanGitHubHelpDocumentsSurfacesDefaultsAndCosts(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := out.String()
-	for _, want := range []string{"full commit history", "zero REST calls", "--include-comments", "--include-issues", "--include-pull-requests", "--include-wikis", "--gist", "--include-authenticated-gists", "--include-gist-comments", "--repo-concurrency", "default 1", "--include-commit-metadata", "--include-git-archives", "--include-git-binaries", "--include-forks", "default true", "--include-archived"} {
+	for _, want := range []string{"full commit history", "zero REST calls", "--include-comments", "--include-issues", "--include-pull-requests", "--include-wikis", "--gist", "--include-authenticated-gists", "--include-gist-comments", "--repo-concurrency", "default 1", "--repo-walk-timeout", "--include-commit-metadata", "--include-git-archives", "--include-git-binaries", "--include-forks", "default true", "--include-archived"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("help missing %q:\n%s", want, got)
 		}
@@ -67,6 +68,20 @@ func TestScanGitHubConfigRepoConcurrency(t *testing.T) {
 	}
 	if _, err := scanGitHubConfig(githubFlags{org: "acme", repoConcurrency: 33}); err == nil {
 		t.Fatal("expected repo concurrency range error")
+	}
+}
+
+func TestScanGitHubConfigRepoWalkTimeout(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "ghp_test")
+	cfg, err := scanGitHubConfig(githubFlags{org: "acme", repoWalkTimeout: 45 * time.Minute})
+	if err != nil {
+		t.Fatalf("scanGitHubConfig: %v", err)
+	}
+	if got := cfg["repo_walk_timeout"]; got != "45m0s" {
+		t.Fatalf("repo_walk_timeout = %q, want 45m0s", got)
+	}
+	if _, err := scanGitHubConfig(githubFlags{org: "acme", repoWalkTimeout: -time.Second}); err == nil {
+		t.Fatal("expected negative repo walk timeout error")
 	}
 }
 

@@ -183,7 +183,7 @@ func scanGitHubGists(ctx context.Context, cfg Config, auth githubTokenProvider, 
 	orderedEmit := newGitHubOrderedEmitter(ctx, len(units), emit)
 	produce := func(ctx context.Context, u githubSourceUnit) githubUnitResult[outcome] {
 		order := unitOrder[u.Key()]
-		unitEmit := orderedEmit.Emit(order)
+		unitEmit := orderedEmit.EmitContext(ctx, order)
 		g := byID[u.ID]
 		prev := state.Surfaces[u.Surface][u.ID]
 		if u.Surface == "gist-comments" {
@@ -243,16 +243,19 @@ func scanGitHubGists(ctx context.Context, cfg Config, auth githubTokenProvider, 
 		if repo.Owner.Login == "" {
 			repo.Owner.Login = "gist"
 		}
-		wrapped := func(data []byte, meta sources.Metadata) error {
-			if meta.GitHub != nil {
-				meta.GitHub.Repository = "gist:" + u.ID
-				meta.GitHub.Entity = "gist"
-				meta.GitHub.Part = "content"
-				meta.GitHub.Link = canonicalGistWebURL(apiBase, u.ID)
+		wrapGistEmit := func(next Emit) Emit {
+			return func(data []byte, meta sources.Metadata) error {
+				if meta.GitHub != nil {
+					meta.GitHub.Repository = "gist:" + u.ID
+					meta.GitHub.Entity = "gist"
+					meta.GitHub.Part = "content"
+					meta.GitHub.Link = canonicalGistWebURL(apiBase, u.ID)
+				}
+				return next(data, meta)
 			}
-			return unitEmit(data, meta)
 		}
-		next, e := scanGitHubGitHistory(ctx, cfg, auth, githubHostFromAPIBase(apiBase), clone, repo, prev, false, wrapped)
+		walkControl := &githubOrderedWalkControl{emitter: orderedEmit, index: order, wrap: wrapGistEmit}
+		next, e := scanGitHubGitHistory(ctx, cfg, auth, githubHostFromAPIBase(apiBase), clone, repo, prev, false, walkControl, wrapGistEmit(unitEmit))
 		return githubUnitResult[outcome]{State: outcome{next, e == nil || prev.Mode == githubScanModeHistory}, Err: e}
 	}
 	concurrency, err := githubRepoConcurrency(cfg)

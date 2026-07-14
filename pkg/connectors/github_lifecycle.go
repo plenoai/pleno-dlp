@@ -19,6 +19,7 @@ type githubOrderedEmitter struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	channels   []chan githubUnitEmission
+	unitReady  []chan struct{}
 	unitDone   []chan struct{}
 	downstream Emit
 	done       chan struct{}
@@ -26,16 +27,32 @@ type githubOrderedEmitter struct {
 	err        error
 }
 
+type githubOrderedWalkControl struct {
+	emitter *githubOrderedEmitter
+	index   int
+	wrap    func(Emit) Emit
+}
+
+func (c *githubOrderedWalkControl) emitContext(ctx context.Context) Emit {
+	emit := c.emitter.EmitContext(ctx, c.index)
+	if c.wrap != nil {
+		return c.wrap(emit)
+	}
+	return emit
+}
+
 func newGitHubOrderedEmitter(ctx context.Context, n int, downstream Emit) *githubOrderedEmitter {
 	runCtx, cancel := context.WithCancel(ctx)
-	o := &githubOrderedEmitter{ctx: runCtx, cancel: cancel, channels: make([]chan githubUnitEmission, n), unitDone: make([]chan struct{}, n), downstream: downstream, done: make(chan struct{})}
+	o := &githubOrderedEmitter{ctx: runCtx, cancel: cancel, channels: make([]chan githubUnitEmission, n), unitReady: make([]chan struct{}, n), unitDone: make([]chan struct{}, n), downstream: downstream, done: make(chan struct{})}
 	for i := range o.channels {
 		o.channels[i] = make(chan githubUnitEmission, 1)
+		o.unitReady[i] = make(chan struct{})
 		o.unitDone[i] = make(chan struct{})
 	}
 	go func() {
 		defer close(o.done)
 		for i, ch := range o.channels {
+			close(o.unitReady[i])
 			for {
 				select {
 				case item, ok := <-ch:
@@ -71,19 +88,36 @@ func newGitHubOrderedEmitter(ctx context.Context, n int, downstream Emit) *githu
 	return o
 }
 func (o *githubOrderedEmitter) Emit(index int) Emit {
+	return o.EmitContext(o.ctx, index)
+}
+func (o *githubOrderedEmitter) EmitContext(ctx context.Context, index int) Emit {
 	return func(data []byte, meta sources.Metadata) error {
 		item := githubUnitEmission{data: data, meta: meta, ack: make(chan error, 1)}
 		select {
 		case o.channels[index] <- item:
+		case <-ctx.Done():
+			return ctx.Err()
 		case <-o.ctx.Done():
 			return o.error()
 		}
 		select {
 		case err := <-item.ack:
 			return err
+		case <-ctx.Done():
+			return ctx.Err()
 		case <-o.ctx.Done():
 			return o.error()
 		}
+	}
+}
+func (o *githubOrderedEmitter) WaitTurn(ctx context.Context, index int) error {
+	select {
+	case <-o.unitReady[index]:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-o.ctx.Done():
+		return o.error()
 	}
 }
 func (o *githubOrderedEmitter) Close(index int) error {

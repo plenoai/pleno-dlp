@@ -147,7 +147,7 @@ func TestSourceFixtureDetectorKeywordMatrix(t *testing.T) {
 		repo := githubRepoRef{Name: "repo", Visibility: "private"}
 		repo.Owner.Login = "acme"
 		var chunks [][]byte
-		_, err := scanGitHubGitHistory(context.Background(), Config{}, staticGitHubToken(""), "github.com", repoPath, repo, githubRepoIncrementalState{}, true, func(data []byte, _ sources.Metadata) error {
+		_, err := scanGitHubGitHistory(context.Background(), Config{}, staticGitHubToken(""), "github.com", repoPath, repo, githubRepoIncrementalState{}, true, nil, func(data []byte, _ sources.Metadata) error {
 			chunks = append(chunks, append([]byte(nil), data...))
 			return nil
 		})
