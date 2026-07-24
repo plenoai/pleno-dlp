@@ -32,7 +32,7 @@ jobs:
       gitleaks_drift: ${{ steps.drift.outputs.gitleaks_drift }}
       gitleaks_latest: ${{ steps.drift.outputs.gitleaks_latest }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: check competitor releases
@@ -72,7 +72,7 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Unlike every other checkout in this repo, this job does push
           # a branch and open a PR — but per sisakulint's `artipacked`
