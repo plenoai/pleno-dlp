@@ -38,24 +38,22 @@ archives:
 checksum:
   name_template: 'checksums.txt'
 
-# Generates a Homebrew formula for release.yml to publish only after the
+# Generates a Homebrew cask for release.yml to publish only after the
 # GitHub Release is immutable. Deferring the tap update prevents it from ever
 # pointing users at draft assets and makes the cross-repo write retryable.
-homebrew_taps:
+homebrew_casks:
   - name: pleno-dlp
+    binaries:
+      - pleno-dlp
     repository:
       owner: plenoai
       name: homebrew-tap
       branch: main
-    directory: Formula
+    directory: Casks
     skip_upload: true
     homepage: "https://plenoai.com/pleno-dlp/"
     description: "Unified DLP scanner for secrets and PII across filesystem, git, stdin, and SaaS sources."
     license: "AGPL-3.0-only"
-    install: |
-      bin.install "pleno-dlp"
-    test: |
-      system "#{bin}/pleno-dlp", "--version"
 
 signs:
   - cmd: cosign
@@ -121,4 +119,5 @@ changelog:
       order: 3
     - title: 'Other'
       order: 999
+
 
