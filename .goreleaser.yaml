@@ -41,7 +41,7 @@ checksum:
 # Generates a Homebrew formula for release.yml to publish only after the
 # GitHub Release is immutable. Deferring the tap update prevents it from ever
 # pointing users at draft assets and makes the cross-repo write retryable.
-brews:
+homebrew_taps:
   - name: pleno-dlp
     repository:
       owner: plenoai
@@ -121,3 +121,4 @@ changelog:
       order: 3
     - title: 'Other'
       order: 999
+
