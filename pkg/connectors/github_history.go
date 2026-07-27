@@ -340,6 +340,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 		prevRepo := previousRepos[repoKey]
 		var nextRepo githubRepoIncrementalState
 		var surfaceFailures githubSurfaceFailures
+		empty := false
 		unchanged := githubRepoUnchanged(prevRepo, r, historyPolicy)
 		if unchanged {
 			// No push since the walk that produced prevRepo.RefHeads: cloning
@@ -356,11 +357,19 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 				if ctx.Err() != nil {
 					return githubUnitResult[repoOutcome]{Err: ctx.Err()}
 				}
-				fmt.Fprintf(os.Stderr, "WARN: github: scan failed for %s after %s, skipping: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
 				nextRepo = prevRepo
 				nextRepo.Mode = githubScanModeHistory
 				nextRepo.Policy = historyPolicy
-				surfaceFailures = append(surfaceFailures, githubSurfaceFailure{Surface: "repository-history", Err: err})
+				if errors.Is(err, gitsource.ErrNoBranchHeads) {
+					empty = true
+					nextRepo.PushedAt = r.PushedAt
+					nextRepo.Visibility = githubVisibility(r)
+					nextRepo.RefHeads = nil
+					fmt.Fprintf(os.Stderr, "github: scan %s has no branch heads, history skipped\n", repoKey)
+				} else {
+					fmt.Fprintf(os.Stderr, "WARN: github: scan failed for %s after %s, skipping: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
+					surfaceFailures = append(surfaceFailures, githubSurfaceFailure{Surface: "repository-history", Err: err})
+				}
 			}
 		}
 		seedGitHubCollaborationState(&nextRepo, prevRepo)
@@ -415,7 +424,9 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 		}
 		fmt.Fprintf(os.Stderr, "github: scan %s done in %s\n", repoKey, time.Since(repoStart).Round(time.Second))
 		stats := githubUnitStats{CostItems: 1}
-		if unchanged {
+		if empty {
+			stats.Skipped = "empty"
+		} else if unchanged {
 			stats.Skipped = "unchanged"
 		} else if r.Size > 0 {
 			// GitHub reports repository size in KiB. This is an estimate of
@@ -498,8 +509,8 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 	} else {
 		finalFlushErr = fmt.Errorf("github: marshal final incremental state: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "github: org scan complete: %d units, concurrency %d, %d unchanged, wiki-disabled=%d wiki-missing=%d, %d filtered (fork=%d archived=%d excluded=%d not-included=%d duplicate=%d), %d failed, %d items, %d bytes, peak %d pending, took %s\n",
-		stats.Total, concurrency, stats.Skipped["unchanged"],
+	fmt.Fprintf(os.Stderr, "github: org scan complete: %d units, concurrency %d, %d unchanged, %d empty, wiki-disabled=%d wiki-missing=%d, %d filtered (fork=%d archived=%d excluded=%d not-included=%d duplicate=%d), %d failed, %d items, %d bytes, peak %d pending, took %s\n",
+		stats.Total, concurrency, stats.Skipped["unchanged"], stats.Skipped["empty"],
 		stats.Skipped["wiki-disabled"], stats.Skipped["wiki-missing"],
 		enumerationSkipped["fork"]+enumerationSkipped["archived"]+enumerationSkipped["excluded"]+enumerationSkipped["not-included"]+enumerationSkipped["duplicate"],
 		enumerationSkipped["fork"], enumerationSkipped["archived"], enumerationSkipped["excluded"], enumerationSkipped["not-included"], enumerationSkipped["duplicate"],

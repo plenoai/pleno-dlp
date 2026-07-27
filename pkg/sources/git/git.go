@@ -34,6 +34,9 @@ const binarySniffLen = 512
 
 const maxBlobSize int64 = 50 * 1024 * 1024 // 50 MiB
 
+// ErrNoBranchHeads identifies repositories with no commit-bearing branch refs.
+var ErrNoBranchHeads = errors.New("git: no branch heads to walk")
+
 // maxDiffBlobSize bounds the blob size (either side) that firstChangedLine
 // and addedHunks will run a diff over. change.Patch() reads both blob sides
 // fully into strings with no cap of its own — maxBlobSize above does not
@@ -450,7 +453,7 @@ func (s *Source) resolveStarts(repo *git.Repository) ([]plumbing.Hash, error) {
 		return nil, fmt.Errorf("git: iterate references: %w", err)
 	}
 	if len(starts) == 0 {
-		return nil, errors.New("git: no branch heads to walk")
+		return nil, ErrNoBranchHeads
 	}
 	return starts, nil
 }

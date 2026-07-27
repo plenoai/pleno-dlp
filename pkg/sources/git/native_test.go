@@ -228,6 +228,43 @@ func TestChunks_NativeSkipsBinaryWithNULOutsideChangedHunk(t *testing.T) {
 	}
 }
 
+func TestChunks_NativeSkipsDeletedBinary(t *testing.T) {
+	requireNativeGit(t)
+	repoPath, _ := buildRepo(t, []commitSpec{{
+		files: map[string]string{"payload.bin": "\x00binary"},
+		msg:   "add binary",
+	}})
+	if err := os.Remove(filepath.Join(repoPath, "payload.bin")); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git",
+		"-c", "core.hooksPath="+os.DevNull,
+		"-c", "commit.gpgsign=false",
+		"-c", "user.name=Test",
+		"-c", "user.email=test@example.com",
+		"-C", repoPath,
+		"commit", "-am", "delete binary",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("delete binary: %v: %s", err, out)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath})
+	if _, err := drain(t, s, 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestParseNativePatchPathIgnoresTimestampSeparator(t *testing.T) {
+	got, isNull, err := parseNativePatchPath([]byte("\"b/path with space.svg\"\t\n"), "b/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isNull || got != "path with space.svg" {
+		t.Fatalf("path=%q isNull=%v", got, isNull)
+	}
+}
+
 func TestChunks_NativeDisablesSignatureVerificationProgram(t *testing.T) {
 	requireNativeGit(t)
 	if _, err := exec.LookPath("ssh-keygen"); err != nil {

@@ -301,6 +301,7 @@ type nativeCommit struct {
 type nativeFilePatch struct {
 	path             string
 	newFile          bool
+	deleted          bool
 	segments         []diffSegment
 	totalBytes       int64
 	hasAdd           bool
@@ -331,6 +332,7 @@ type nativeLogParser struct {
 	hunk         nativeHunk
 	inHunk       bool
 	rawPaths     []string
+	rawDeleted   []bool
 	rawPathBytes int64
 	rawIndex     int
 }
@@ -481,12 +483,13 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		}
 		p.commit = &commit
 		p.rawPaths = nil
+		p.rawDeleted = nil
 		p.rawPathBytes = 0
 		p.rawIndex = 0
 		return nil
 	}
 	if line[0] == ':' {
-		path, err := parseNativeRawPath(line)
+		path, deleted, err := parseNativeRawPath(line)
 		if err != nil {
 			return err
 		}
@@ -494,6 +497,7 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 			return fmt.Errorf("native raw diff paths exceed %d entries or %d bytes", nativePathLimit, maxBlobSize)
 		}
 		p.rawPaths = append(p.rawPaths, path)
+		p.rawDeleted = append(p.rawDeleted, deleted)
 		p.rawPathBytes += int64(len(path))
 		return nil
 	}
@@ -504,6 +508,7 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		p.file = nativeFilePatch{}
 		if p.rawIndex < len(p.rawPaths) {
 			p.file.path = p.rawPaths[p.rawIndex]
+			p.file.deleted = p.rawDeleted[p.rawIndex]
 			p.rawIndex++
 		}
 		return nil
@@ -683,6 +688,10 @@ func (p *nativeLogParser) handleBinaryPatch() error {
 	if p.file.path == "" || p.commit == nil {
 		return nil
 	}
+	if p.file.deleted {
+		p.file.binary = true
+		return nil
+	}
 	commit, err := p.repo.CommitObject(plumbing.NewHash(p.commit.hash))
 	if err != nil {
 		return fmt.Errorf("load commit %s for binary classification: %w", p.commit.hash, err)
@@ -821,6 +830,7 @@ func parseNativePatchPath(raw []byte, prefix string) (string, bool, error) {
 	if text == "/dev/null" {
 		return "", true, nil
 	}
+	text = strings.TrimSuffix(text, "\t")
 	if strings.HasPrefix(text, "\"") {
 		unquoted, err := strconv.Unquote(text)
 		if err != nil {
@@ -834,10 +844,14 @@ func parseNativePatchPath(raw []byte, prefix string) (string, bool, error) {
 	return strings.TrimPrefix(text, prefix), false, nil
 }
 
-func parseNativeRawPath(line []byte) (string, error) {
+func parseNativeRawPath(line []byte) (string, bool, error) {
 	tab := bytes.IndexByte(line, '\t')
 	if tab < 0 {
-		return "", fmt.Errorf("malformed native raw diff record %q", strings.TrimSpace(string(line)))
+		return "", false, fmt.Errorf("malformed native raw diff record %q", strings.TrimSpace(string(line)))
+	}
+	fields := bytes.Fields(line[:tab])
+	if len(fields) == 0 {
+		return "", false, fmt.Errorf("malformed native raw diff record %q", strings.TrimSpace(string(line)))
 	}
 	raw := bytes.TrimSuffix(line[tab+1:], []byte{'\n'})
 	raw = bytes.TrimSuffix(raw, []byte{'\r'})
@@ -845,11 +859,11 @@ func parseNativeRawPath(line []byte) (string, error) {
 	if strings.HasPrefix(path, "\"") {
 		unquoted, err := strconv.Unquote(path)
 		if err != nil {
-			return "", fmt.Errorf("malformed native raw diff path %q: %w", path, err)
+			return "", false, fmt.Errorf("malformed native raw diff path %q: %w", path, err)
 		}
 		path = unquoted
 	}
-	return path, nil
+	return path, fields[len(fields)-1][0] == 'D', nil
 }
 
 type limitedWriter struct {
