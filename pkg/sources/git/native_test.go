@@ -34,7 +34,7 @@ func TestNativeLogArgsPreserveWalkConstraints(t *testing.T) {
 		"--no-show-signature", "--raw", "--abbrev=40", "--no-renames",
 		"--no-ext-diff", "--no-textconv", "--no-indent-heuristic",
 		"--inter-hunk-context=0", "--ignore-submodules=all",
-		"--diff-algorithm=myers", "--diff-merges=first-parent", "--unified=3",
+		"--diff-algorithm=myers", "--diff-merges=dense-combined", "--unified=3",
 		"--src-prefix=a/", "--dst-prefix=b/",
 		"--max-count=7", "--since-as-filter=@1700000000",
 		"--stdin", "--",
@@ -84,6 +84,48 @@ func TestChunks_NativePreservesMetadataAndNoFinalNewline(t *testing.T) {
 	}
 	if meta.AuthoredDate != base.Add(time.Minute).UTC().Format(time.RFC3339) {
 		t.Fatalf("authored date=%q", meta.AuthoredDate)
+	}
+}
+
+func TestNativeLogParserDenseCombinedKeepsOnlyResultSide(t *testing.T) {
+	ch := make(chan *sources.Chunk, 1)
+	parser := nativeLogParser{
+		ctx:    context.Background(),
+		source: &Source{name: "fixture", repoAbs: "/repo"},
+		ch:     ch,
+		commit: &nativeCommit{hash: strings.Repeat("a", 40)},
+	}
+	diff := "diff --cc resolved.txt\n" +
+		"index 1111111,2222222..3333333\n" +
+		"--- a/resolved.txt\n+++ b/resolved.txt\n" +
+		"@@@ -10,2 -10,2 +10,3 @@@\n" +
+		" +existing-parent-line\n" +
+		"--removed-from-result\n" +
+		"++merge-only-secret\n" +
+		"  trailing-context\n"
+	if err := parser.parse(strings.NewReader(diff)); err != nil {
+		t.Fatal(err)
+	}
+	close(ch)
+	got := <-ch
+	if got == nil {
+		t.Fatal("dense-combined merge addition emitted no chunk")
+	}
+	if got.SourceMetadata.Git.File != "resolved.txt" || got.SourceMetadata.Git.Line != 11 {
+		t.Fatalf("metadata=%+v", got.SourceMetadata.Git)
+	}
+	if string(got.Data) != "existing-parent-line\nmerge-only-secret\ntrailing-context\n" {
+		t.Fatalf("data=%q", got.Data)
+	}
+}
+
+func TestNewCombinedHunkStart(t *testing.T) {
+	width, start, ok := newCombinedHunkStart("@@@ -8,2 -9,3 +10,4 @@@ function")
+	if !ok || width != 2 || start != 10 {
+		t.Fatalf("width=%d start=%d ok=%t", width, start, ok)
+	}
+	if _, _, ok := newCombinedHunkStart("@@ -1 +1 @@"); ok {
+		t.Fatal("ordinary hunk parsed as combined")
 	}
 }
 
@@ -511,6 +553,53 @@ func TestChunks_NativeClockSkewUsesCausalOldestFirst(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].SourceMetadata.Git.Commit != hashes[0] || got[1].SourceMetadata.Git.Commit != hashes[1] {
 		t.Fatalf("clock-skew order=%v, want causal parent then child", commitOrder(got))
+	}
+}
+
+func TestChunks_NativeMergeScansResolutionWithoutRepeatingBranch(t *testing.T) {
+	requireNativeGit(t)
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	cBase := commitOn(t, repo, map[string]string{"base.txt": "base\n"}, "base", base)
+	checkoutNewBranch(t, repo, "feature")
+	cFeature := commitOn(t, repo, map[string]string{"feature.txt": "branch-only\n"}, "feature", base.Add(time.Minute))
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wt.Checkout(&gogit.CheckoutOptions{Branch: plumbing.NewBranchReferenceName("master")}); err != nil {
+		if err2 := wt.Checkout(&gogit.CheckoutOptions{Branch: plumbing.NewBranchReferenceName("main")}); err2 != nil {
+			t.Fatalf("checkout default branch: %v / %v", err, err2)
+		}
+	}
+	cMain := commitOn(t, repo, map[string]string{"main.txt": "main-only\n"}, "main", base.Add(2*time.Minute))
+	cMerge := commitMerge(t, repo, map[string]string{
+		"feature.txt":    "branch-only\n",
+		"resolution.txt": "merge-only\n",
+	}, "merge", base.Add(3*time.Minute), plumbing.NewHash(cMain), plumbing.NewHash(cFeature))
+
+	s := &Source{}
+	mustInit(t, s, Config{Repo: dir})
+	got, err := drain(t, s, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := make(map[string]int)
+	for _, chunk := range got {
+		seen[chunk.SourceMetadata.Git.File]++
+		if chunk.SourceMetadata.Git.File == "resolution.txt" && chunk.SourceMetadata.Git.Commit != cMerge {
+			t.Fatalf("resolution attributed to %s, want merge %s", chunk.SourceMetadata.Git.Commit, cMerge)
+		}
+	}
+	for _, file := range []string{"base.txt", "feature.txt", "main.txt", "resolution.txt"} {
+		if seen[file] != 1 {
+			t.Fatalf("%s emitted %d times, want once; base=%s chunks=%v", file, seen[file], cBase, filesOf(got))
+		}
 	}
 }
 

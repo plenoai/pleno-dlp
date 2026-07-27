@@ -58,7 +58,7 @@ func (s *Source) nativeFastPathSupported(ctx context.Context, gitBin string, sta
 		"--no-indent-heuristic",
 		"--inter-hunk-context=0",
 		"--ignore-submodules=all",
-		"--diff-merges=first-parent",
+		"--diff-merges=dense-combined",
 		"--src-prefix=a/",
 		"--dst-prefix=b/",
 		"--since-as-filter=@0",
@@ -205,7 +205,10 @@ func (s *Source) nativeLogArgs() []string {
 		"--inter-hunk-context=0",
 		"--ignore-submodules=all",
 		"--diff-algorithm=myers",
-		"--diff-merges=first-parent",
+		// first-parent repeats the complete side-branch delta at every merge.
+		// Dense-combined keeps merge-resolution additions without rescanning
+		// content already covered in the branch's own commits.
+		"--diff-merges=dense-combined",
 		"--unified=3",
 		"--src-prefix=a/",
 		"--dst-prefix=b/",
@@ -319,6 +322,7 @@ type nativeHunk struct {
 	binary         bool
 	lastWasNewSide bool
 	overLimit      bool
+	combinedWidth  int
 }
 
 type nativeLogParser struct {
@@ -490,6 +494,12 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		p.rawIndex = 0
 		return nil
 	}
+	if bytes.HasPrefix(line, []byte("::")) {
+		// A dense-combined raw record has one ':' per parent. Its following
+		// +++ header carries the result path, so do not feed it to the
+		// ordinary single-parent raw-path parser.
+		return nil
+	}
 	if line[0] == ':' {
 		path, deleted, err := parseNativeRawPath(line)
 		if err != nil {
@@ -515,6 +525,13 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		}
 		return nil
 	}
+	if bytes.HasPrefix(line, []byte("diff --cc ")) || bytes.HasPrefix(line, []byte("diff --combined ")) {
+		if err := p.flushFile(); err != nil {
+			return err
+		}
+		p.file = nativeFilePatch{}
+		return nil
+	}
 	if !p.inHunk && bytes.HasPrefix(line, []byte("--- ")) {
 		path, isNull, err := parseNativePatchPath(line[4:], "a/")
 		if err != nil {
@@ -538,6 +555,14 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		}
 		return nil
 	}
+	if width, start, ok := newCombinedHunkStart(string(line)); ok {
+		if err := p.flushHunk(); err != nil {
+			return err
+		}
+		p.hunk = nativeHunk{newLine: start, combinedWidth: width}
+		p.inHunk = true
+		return nil
+	}
 	if bytes.HasPrefix(line, []byte("@@ ")) {
 		if err := p.flushHunk(); err != nil {
 			return err
@@ -555,6 +580,9 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 	}
 	if !p.inHunk {
 		return nil
+	}
+	if p.hunk.combinedWidth > 0 {
+		return p.consumeCombinedHunkLine(line)
 	}
 
 	switch line[0] {
@@ -580,6 +608,79 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		p.inHunk = false
 	}
 	return nil
+}
+
+// consumeCombinedHunkLine retains the result side of a dense-combined merge
+// hunk. Each parent contributes one prefix column. A '-' in any column means
+// the line is absent from the result; an all-'+' line is new to every parent
+// and makes the hunk scan-worthy. Mixed space/'+' lines remain as bounded
+// context for multiline detectors.
+func (p *nativeLogParser) consumeCombinedHunkLine(line []byte) error {
+	width := p.hunk.combinedWidth
+	if len(line) < width {
+		p.inHunk = false
+		return nil
+	}
+	prefix := line[:width]
+	for _, marker := range prefix {
+		if marker != ' ' && marker != '+' && marker != '-' {
+			p.inHunk = false
+			return nil
+		}
+	}
+	data := line[width:]
+	if bytes.IndexByte(prefix, '-') >= 0 {
+		p.hunk.lastWasNewSide = false
+		return nil
+	}
+	allPlus := true
+	for _, marker := range prefix {
+		allPlus = allPlus && marker == '+'
+	}
+	if allPlus {
+		p.hunk.hasAdd = true
+		if p.hunk.firstAddLine == 0 {
+			p.hunk.firstAddLine = p.hunk.newLine
+		}
+	}
+	if len(data) > 0 && data[0] == '\\' {
+		if p.hunk.lastWasNewSide && len(p.hunk.data) > 0 && p.hunk.data[len(p.hunk.data)-1] == '\n' {
+			p.hunk.data = p.hunk.data[:len(p.hunk.data)-1]
+		}
+		return nil
+	}
+	p.hunk.append(data)
+	p.hunk.newLine++
+	p.hunk.lastWasNewSide = true
+	return nil
+}
+
+func newCombinedHunkStart(header string) (width, start int, ok bool) {
+	if len(header) < 4 || header[0] != '@' {
+		return 0, 0, false
+	}
+	for width < len(header) && header[width] == '@' {
+		width++
+	}
+	// An N-parent combined hunk begins with N+1 '@' characters.
+	width--
+	if width < 2 {
+		return 0, 0, false
+	}
+	for _, field := range strings.Fields(header) {
+		if !strings.HasPrefix(field, "+") {
+			continue
+		}
+		raw := strings.TrimPrefix(field, "+")
+		if comma := strings.IndexByte(raw, ','); comma >= 0 {
+			raw = raw[:comma]
+		}
+		start, err := strconv.Atoi(raw)
+		if err == nil {
+			return width, start, true
+		}
+	}
+	return 0, 0, false
 }
 
 func (h *nativeHunk) append(data []byte) {
@@ -800,7 +901,7 @@ func (p *nativeLogParser) emitForcedTextPatch(path string) error {
 		"--inter-hunk-context=0",
 		"--ignore-submodules=all",
 		"--diff-algorithm=myers",
-		"--diff-merges=first-parent",
+		"--diff-merges=dense-combined",
 		"--unified=3",
 		"--src-prefix=a/",
 		"--dst-prefix=b/",
