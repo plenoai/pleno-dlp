@@ -306,6 +306,7 @@ type nativeFilePatch struct {
 	totalBytes       int64
 	hasAdd           bool
 	binary           bool
+	streaming        bool
 	overLimit        bool
 	overSegmentLimit bool
 }
@@ -335,6 +336,7 @@ type nativeLogParser struct {
 	rawDeleted   []bool
 	rawPathBytes int64
 	rawIndex     int
+	bufferLimit  int64
 }
 
 func (p *nativeLogParser) walkError(err error) error {
@@ -513,7 +515,7 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		}
 		return nil
 	}
-	if bytes.HasPrefix(line, []byte("--- ")) {
+	if !p.inHunk && bytes.HasPrefix(line, []byte("--- ")) {
 		path, isNull, err := parseNativePatchPath(line[4:], "a/")
 		if err != nil {
 			return err
@@ -524,7 +526,7 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		}
 		return nil
 	}
-	if bytes.HasPrefix(line, []byte("+++ ")) {
+	if !p.inHunk && bytes.HasPrefix(line, []byte("+++ ")) {
 		path, isNull, err := parseNativePatchPath(line[4:], "b/")
 		if err != nil {
 			return err
@@ -609,29 +611,94 @@ func (p *nativeLogParser) flushHunk() error {
 		p.hunk = nativeHunk{}
 		return nil
 	}
-	p.file.append(p.hunk.data, p.hunk.firstAddLine)
+	if err := p.appendFile(p.hunk.data, p.hunk.firstAddLine); err != nil {
+		return err
+	}
 	p.hunk = nativeHunk{}
 	return nil
 }
 
-func (f *nativeFilePatch) append(data []byte, firstLine int) {
+func (p *nativeLogParser) appendFile(data []byte, firstLine int) error {
+	f := &p.file
 	if f.overLimit || f.overSegmentLimit {
-		return
+		return nil
 	}
-	if f.totalBytes+int64(len(data)) > maxBlobSize {
-		f.segments = nil
-		f.overLimit = true
-		return
-	}
-	f.totalBytes += int64(len(data))
 	f.hasAdd = true
 	segments := splitNativePatch(data, firstLine)
+	if f.streaming {
+		return p.emitSegments(f.path, segments)
+	}
+	limit := p.bufferLimit
+	if limit == 0 {
+		limit = maxBlobSize
+	}
+	if f.totalBytes+int64(len(data)) > limit {
+		if f.path == "" || p.commit == nil || !p.source.pathAllowed(f.path) {
+			f.segments = nil
+			f.streaming = true
+			return nil
+		}
+		binary, err := p.currentFileBinary()
+		if err != nil {
+			return err
+		}
+		if binary {
+			f.segments = nil
+			f.binary = true
+			return nil
+		}
+		f.streaming = true
+		buffered := f.segments
+		f.segments = nil
+		if err := p.emitSegments(f.path, buffered); err != nil {
+			return err
+		}
+		return p.emitSegments(f.path, segments)
+	}
+	f.totalBytes += int64(len(data))
 	if len(f.segments)+len(segments) > nativeSegmentLimit {
 		f.segments = nil
 		f.overSegmentLimit = true
-		return
+		return nil
 	}
 	f.segments = append(f.segments, segments...)
+	return nil
+}
+
+func (p *nativeLogParser) currentFileBinary() (binary bool, err error) {
+	commit, err := p.repo.CommitObject(plumbing.NewHash(p.commit.hash))
+	if err != nil {
+		return false, fmt.Errorf("load commit %s for binary classification: %w", p.commit.hash, err)
+	}
+	file, err := commit.File(p.file.path)
+	if err != nil {
+		return false, fmt.Errorf("load %s at %s for binary classification: %w", p.file.path, p.commit.hash, err)
+	}
+	reader, err := file.Reader()
+	if err != nil {
+		return false, fmt.Errorf("open %s at %s for binary classification: %w", p.file.path, p.commit.hash, err)
+	}
+	defer func() {
+		if closeErr := reader.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close %s at %s after binary classification: %w", p.file.path, p.commit.hash, closeErr)
+		}
+	}()
+	buf := make([]byte, 32<<10)
+	for {
+		if err := p.ctx.Err(); err != nil {
+			return false, err
+		}
+		n, readErr := reader.Read(buf)
+		if bytes.IndexByte(buf[:n], 0x00) >= 0 {
+			return true, nil
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return false, nil
+			}
+			return false, fmt.Errorf("read %s at %s for binary classification: %w", p.file.path, p.commit.hash, readErr)
+		}
+	}
 }
 
 func (p *nativeLogParser) flushFile() error {
@@ -655,10 +722,14 @@ func (p *nativeLogParser) flushFile() error {
 		}
 		return fmt.Errorf("added diff content for %s at %s exceeds %d-byte limit", file.path, p.commit.hash, maxBlobSize)
 	}
-	if !p.source.pathAllowed(file.path) || len(file.segments) == 0 {
+	if file.streaming || !p.source.pathAllowed(file.path) || len(file.segments) == 0 {
 		return nil
 	}
-	for _, segment := range file.segments {
+	return p.emitSegments(file.path, file.segments)
+}
+
+func (p *nativeLogParser) emitSegments(path string, segments []diffSegment) error {
+	for _, segment := range segments {
 		chunk := &sources.Chunk{
 			SourceID:   p.source.sourceID,
 			SourceType: sources.SourceGit,
@@ -667,7 +738,7 @@ func (p *nativeLogParser) flushFile() error {
 			SourceMetadata: sources.Metadata{Git: &sources.GitMeta{
 				Repository:   p.source.repoAbs,
 				Commit:       p.commit.hash,
-				File:         file.path,
+				File:         path,
 				Line:         segment.line,
 				Email:        p.commit.email,
 				Author:       p.commit.author,

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/plenoai/pleno-dlp/pkg/engine"
@@ -205,6 +206,95 @@ func TestChunks_NativeOverridesSuppressBlankEmpty(t *testing.T) {
 		}
 	}
 	t.Fatal("diff.suppressBlankEmpty hid a later addition in the hunk")
+}
+
+func TestChunks_NativeTreatsPatchMarkersAsHunkContent(t *testing.T) {
+	requireNativeGit(t)
+	repoPath, _ := buildRepo(t, []commitSpec{
+		{files: map[string]string{"markers.txt": "-- old\n"}, msg: "base"},
+		{files: map[string]string{"markers.txt": "++ new\n"}, msg: "update"},
+	})
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath})
+	got, err := drain(t, s, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, chunk := range got {
+		if chunk.SourceMetadata.Git.File == "markers.txt" && strings.Contains(string(chunk.Data), "++ new") {
+			return
+		}
+	}
+	t.Fatalf("hunk content beginning with patch markers was not emitted: %#v", got)
+}
+
+func TestNativeLogParserStreamsTextAfterBufferLimit(t *testing.T) {
+	repoPath, hashes := buildRepo(t, []commitSpec{{
+		files: map[string]string{"large.txt": "first\nmiddle\nsecond\n"},
+		msg:   "large text",
+	}})
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath})
+	ch := make(chan *sources.Chunk, 2)
+	parser := nativeLogParser{
+		ctx:         context.Background(),
+		source:      s,
+		repo:        repo,
+		ch:          ch,
+		commit:      &nativeCommit{hash: hashes[0]},
+		bufferLimit: 8,
+	}
+	diff := "diff --git a/large.txt b/large.txt\n" +
+		"--- a/large.txt\n+++ b/large.txt\n" +
+		"@@ -0,0 +1 @@\n+first\n" +
+		"@@ -0,0 +3 @@\n+second\n"
+	if err := parser.parse(strings.NewReader(diff)); err != nil {
+		t.Fatal(err)
+	}
+	close(ch)
+	var data strings.Builder
+	for chunk := range ch {
+		data.Write(chunk.Data)
+	}
+	if got := data.String(); got != "first\nsecond\n" {
+		t.Fatalf("streamed data=%q", got)
+	}
+}
+
+func TestNativeLogParserDropsBinaryAfterBufferLimit(t *testing.T) {
+	repoPath, hashes := buildRepo(t, []commitSpec{{
+		files: map[string]string{"large.bin": "first\n\x00\nsecond\n"},
+		msg:   "large binary",
+	}})
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath})
+	ch := make(chan *sources.Chunk, 2)
+	parser := nativeLogParser{
+		ctx:         context.Background(),
+		source:      s,
+		repo:        repo,
+		ch:          ch,
+		commit:      &nativeCommit{hash: hashes[0]},
+		bufferLimit: 8,
+	}
+	diff := "diff --git a/large.bin b/large.bin\n" +
+		"--- a/large.bin\n+++ b/large.bin\n" +
+		"@@ -0,0 +1 @@\n+first\n" +
+		"@@ -0,0 +3 @@\n+second\n"
+	if err := parser.parse(strings.NewReader(diff)); err != nil {
+		t.Fatal(err)
+	}
+	if len(ch) != 0 {
+		t.Fatalf("binary file emitted %d chunks", len(ch))
+	}
 }
 
 func TestChunks_NativeSkipsBinaryWithNULOutsideChangedHunk(t *testing.T) {
@@ -514,10 +604,13 @@ func TestReadNativeLineBoundsAndDrains(t *testing.T) {
 }
 
 func TestNativeFilePatchBoundsSegmentMetadata(t *testing.T) {
-	var file nativeFilePatch
+	parser := nativeLogParser{}
 	for i := 0; i <= nativeSegmentLimit; i++ {
-		file.append([]byte("x"), i+1)
+		if err := parser.appendFile([]byte("x"), i+1); err != nil {
+			t.Fatal(err)
+		}
 	}
+	file := parser.file
 	if !file.overSegmentLimit || len(file.segments) != 0 {
 		t.Fatalf("overSegmentLimit=%t segments=%d", file.overSegmentLimit, len(file.segments))
 	}
