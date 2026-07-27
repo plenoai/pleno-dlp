@@ -158,26 +158,50 @@ func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBi
 		return fmt.Errorf("git: start native log: %w", err)
 	}
 
-	parser := nativeLogParser{ctx: ctx, source: s, repo: repo, gitBin: gitBin, ch: ch}
+	mergePass, err := s.startNativeMergeResults(ctx, gitBin)
+	if err != nil {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+		return err
+	}
+
+	parser := nativeLogParser{
+		ctx:        ctx,
+		source:     s,
+		repo:       repo,
+		gitBin:     gitBin,
+		ch:         ch,
+		mergeInput: mergePass.stdin,
+	}
 	parseErr := parser.parse(stdout)
+	mergeCloseErr := mergePass.closeInput()
 	if parseErr != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	}
 	waitErr := cmd.Wait()
 	if err := ctx.Err(); err != nil {
+		mergePass.abort()
 		return err
 	}
 	if parseErr != nil {
+		mergePass.abort()
 		return parser.walkError(fmt.Errorf("git: parse native log: %w", parseErr))
 	}
 	if waitErr != nil {
+		mergePass.abort()
 		detail := strings.TrimSpace(stderr.String())
 		if detail != "" {
 			return parser.walkError(fmt.Errorf("git: native log: %w: %s", waitErr, detail))
 		}
 		return parser.walkError(fmt.Errorf("git: native log: %w", waitErr))
 	}
-	return s.chunksNativeMergeResults(ctx, repo, gitBin, parser.mergeHashes, ch)
+	if mergeCloseErr != nil {
+		mergePass.abort()
+		return fmt.Errorf("git: close native merge input: %w", mergeCloseErr)
+	}
+	return mergePass.finish(ctx, s, repo, ch)
 }
 
 func (s *Source) nativeLogArgs() []string {
@@ -223,15 +247,23 @@ func (s *Source) nativeLogArgs() []string {
 	return append(args, "--stdin", "--")
 }
 
-// chunksNativeMergeResults covers content introduced by merge conflict
+// nativeMergePass computes combined tree diffs while the main patch stream is
+// being parsed. Its stdout contains paths and commit metadata, never blob
+// contents, and is spooled to a private temporary file so merge-result chunks
+// remain ordered after all ordinary-history chunks.
+type nativeMergePass struct {
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	output *os.File
+	stderr limitedWriter
+	closed bool
+}
+
+// startNativeMergeResults covers content introduced by merge conflict
 // resolution without asking git-log to render every merge patch. The main
-// patch pass records the selected merge IDs, so diff-tree can inspect exactly
-// those commits without traversing the complete history a second time. A
-// combined raw diff lists only files whose result differs from every parent.
-func (s *Source) chunksNativeMergeResults(ctx context.Context, repo *gogit.Repository, gitBin string, merges []plumbing.Hash, ch chan<- *sources.Chunk) error {
-	if len(merges) == 0 {
-		return nil
-	}
+// patch parser streams selected merge IDs into diff-tree, so tree comparison
+// overlaps the ordinary patch walk and never traverses history a second time.
+func (s *Source) startNativeMergeResults(ctx context.Context, gitBin string) (*nativeMergePass, error) {
 	args := []string{
 		"-C", s.repoAbs,
 		"diff-tree",
@@ -252,36 +284,73 @@ func (s *Source) chunksNativeMergeResults(ctx context.Context, repo *gogit.Repos
 	}
 
 	cmd := exec.CommandContext(ctx, gitBin, args...)
-	cmd.Stdin = strings.NewReader(nativeHashInput(merges))
-	stdout, err := cmd.StdoutPipe()
+	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return fmt.Errorf("git: native merge raw stdout: %w", err)
+		return nil, fmt.Errorf("git: native merge raw stdin: %w", err)
 	}
-	var stderr limitedWriter
-	stderr.limit = nativeStderrLimit
-	cmd.Stderr = &stderr
+	output, err := os.CreateTemp("", "pleno-dlp-native-merge-*.raw")
+	if err != nil {
+		_ = stdin.Close()
+		return nil, fmt.Errorf("git: create native merge spool: %w", err)
+	}
+	pass := &nativeMergePass{cmd: cmd, stdin: stdin, output: output}
+	pass.stderr.limit = nativeStderrLimit
+	cmd.Stdout = output
+	cmd.Stderr = &pass.stderr
 	cmd.Env = nativeGitEnv()
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("git: start native merge raw: %w", err)
+		_ = stdin.Close()
+		_ = output.Close()
+		_ = os.Remove(output.Name())
+		return nil, fmt.Errorf("git: start native merge raw: %w", err)
 	}
+	return pass, nil
+}
 
-	parseErr := s.parseNativeMergeResults(ctx, repo, stdout, ch)
-	if parseErr != nil && cmd.Process != nil {
-		_ = cmd.Process.Kill()
+func (p *nativeMergePass) closeInput() error {
+	if p.closed {
+		return nil
 	}
-	waitErr := cmd.Wait()
+	p.closed = true
+	return p.stdin.Close()
+}
+
+func (p *nativeMergePass) cleanup() {
+	_ = p.output.Close()
+	_ = os.Remove(p.output.Name())
+}
+
+func (p *nativeMergePass) abort() {
+	_ = p.closeInput()
+	if p.cmd.Process != nil {
+		_ = p.cmd.Process.Kill()
+	}
+	_ = p.cmd.Wait()
+	p.cleanup()
+}
+
+func (p *nativeMergePass) finish(ctx context.Context, source *Source, repo *gogit.Repository, ch chan<- *sources.Chunk) error {
+	waitErr := p.cmd.Wait()
 	if err := ctx.Err(); err != nil {
+		p.cleanup()
 		return err
 	}
-	if parseErr != nil {
-		return fmt.Errorf("git: parse native merge raw: %w", parseErr)
-	}
 	if waitErr != nil {
-		detail := strings.TrimSpace(stderr.String())
+		detail := strings.TrimSpace(p.stderr.String())
+		p.cleanup()
 		if detail != "" {
 			return fmt.Errorf("git: native merge raw: %w: %s", waitErr, detail)
 		}
 		return fmt.Errorf("git: native merge raw: %w", waitErr)
+	}
+	if _, err := p.output.Seek(0, io.SeekStart); err != nil {
+		p.cleanup()
+		return fmt.Errorf("git: rewind native merge spool: %w", err)
+	}
+	parseErr := source.parseNativeMergeResults(ctx, repo, p.output, ch)
+	p.cleanup()
+	if parseErr != nil {
+		return fmt.Errorf("git: parse native merge raw: %w", parseErr)
 	}
 	return nil
 }
@@ -401,17 +470,6 @@ func nativeRevisionInput(starts, stops []plumbing.Hash) string {
 	return input.String()
 }
 
-func nativeHashInput(hashes []plumbing.Hash) string {
-	var input strings.Builder
-	input.Grow(len(hashes) * (len(plumbing.ZeroHash.String()) + 1))
-	for _, hash := range hashes {
-		if hash != plumbing.ZeroHash {
-			fmt.Fprintln(&input, hash)
-		}
-	}
-	return input.String()
-}
-
 func nativeExistingStops(ctx context.Context, repo *gogit.Repository, stops []plumbing.Hash) ([]plumbing.Hash, error) {
 	existing := make([]plumbing.Hash, 0, len(stops))
 	for _, stop := range stops {
@@ -515,7 +573,7 @@ type nativeLogParser struct {
 	rawPathBytes int64
 	rawIndex     int
 	bufferLimit  int64
-	mergeHashes  []plumbing.Hash
+	mergeInput   io.Writer
 }
 
 func (p *nativeLogParser) walkError(err error) error {
@@ -663,8 +721,10 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 			return err
 		}
 		p.commit = &commit
-		if commit.parentCount > 1 {
-			p.mergeHashes = append(p.mergeHashes, plumbing.NewHash(commit.hash))
+		if commit.parentCount > 1 && p.mergeInput != nil {
+			if _, err := fmt.Fprintln(p.mergeInput, commit.hash); err != nil {
+				return fmt.Errorf("write native merge hash: %w", err)
+			}
 		}
 		p.rawPaths = nil
 		p.rawDeleted = nil

@@ -66,13 +66,13 @@ func TestParseNativeCommitTracksMergeParents(t *testing.T) {
 	if commit.hash != hash || commit.parentCount != 2 {
 		t.Fatalf("commit=%+v", commit)
 	}
-}
-
-func TestNativeHashInput(t *testing.T) {
-	first := plumbing.NewHash("1111111111111111111111111111111111111111")
-	second := plumbing.NewHash("2222222222222222222222222222222222222222")
-	if got, want := nativeHashInput([]plumbing.Hash{first, plumbing.ZeroHash, second}), first.String()+"\n"+second.String()+"\n"; got != want {
-		t.Fatalf("native hash input=%q, want %q", got, want)
+	var mergeInput strings.Builder
+	parser := nativeLogParser{mergeInput: &mergeInput}
+	if err := parser.consumeLine([]byte(record)); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := mergeInput.String(), hash+"\n"; got != want {
+		t.Fatalf("merge input=%q, want %q", got, want)
 	}
 }
 
