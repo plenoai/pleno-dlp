@@ -34,7 +34,7 @@ func TestNativeLogArgsPreserveWalkConstraints(t *testing.T) {
 		"--no-show-signature", "--raw", "--abbrev=40", "--no-renames",
 		"--no-ext-diff", "--no-textconv", "--no-indent-heuristic",
 		"--inter-hunk-context=0", "--ignore-submodules=all",
-		"--diff-algorithm=myers", "--diff-merges=dense-combined", "--unified=3",
+		"--diff-algorithm=myers", "--diff-merges=off", "--unified=3",
 		"--src-prefix=a/", "--dst-prefix=b/",
 		"--max-count=7", "--since-as-filter=@1700000000",
 		"--stdin", "--",
@@ -84,48 +84,6 @@ func TestChunks_NativePreservesMetadataAndNoFinalNewline(t *testing.T) {
 	}
 	if meta.AuthoredDate != base.Add(time.Minute).UTC().Format(time.RFC3339) {
 		t.Fatalf("authored date=%q", meta.AuthoredDate)
-	}
-}
-
-func TestNativeLogParserDenseCombinedKeepsOnlyResultSide(t *testing.T) {
-	ch := make(chan *sources.Chunk, 1)
-	parser := nativeLogParser{
-		ctx:    context.Background(),
-		source: &Source{name: "fixture", repoAbs: "/repo"},
-		ch:     ch,
-		commit: &nativeCommit{hash: strings.Repeat("a", 40)},
-	}
-	diff := "diff --cc resolved.txt\n" +
-		"index 1111111,2222222..3333333\n" +
-		"--- a/resolved.txt\n+++ b/resolved.txt\n" +
-		"@@@ -10,2 -10,2 +10,3 @@@\n" +
-		" +existing-parent-line\n" +
-		"--removed-from-result\n" +
-		"++merge-only-secret\n" +
-		"  trailing-context\n"
-	if err := parser.parse(strings.NewReader(diff)); err != nil {
-		t.Fatal(err)
-	}
-	close(ch)
-	got := <-ch
-	if got == nil {
-		t.Fatal("dense-combined merge addition emitted no chunk")
-	}
-	if got.SourceMetadata.Git.File != "resolved.txt" || got.SourceMetadata.Git.Line != 11 {
-		t.Fatalf("metadata=%+v", got.SourceMetadata.Git)
-	}
-	if string(got.Data) != "existing-parent-line\nmerge-only-secret\ntrailing-context\n" {
-		t.Fatalf("data=%q", got.Data)
-	}
-}
-
-func TestNewCombinedHunkStart(t *testing.T) {
-	width, start, ok := newCombinedHunkStart("@@@ -8,2 -9,3 +10,4 @@@ function")
-	if !ok || width != 2 || start != 10 {
-		t.Fatalf("width=%d start=%d ok=%t", width, start, ok)
-	}
-	if _, _, ok := newCombinedHunkStart("@@ -1 +1 @@"); ok {
-		t.Fatal("ordinary hunk parsed as combined")
 	}
 }
 
@@ -394,6 +352,17 @@ func TestParseNativePatchPathIgnoresTimestampSeparator(t *testing.T) {
 	}
 	if isNull || got != "path with space.svg" {
 		t.Fatalf("path=%q isNull=%v", got, isNull)
+	}
+}
+
+func TestParseNativeCombinedRawPath(t *testing.T) {
+	path, deleted, err := parseNativeCombinedRawPath([]byte("::100644 100644 100644 111 222 333 MM\t\"dir/merge result.txt\"\n"))
+	if err != nil || deleted || path != "dir/merge result.txt" {
+		t.Fatalf("path=%q deleted=%t err=%v", path, deleted, err)
+	}
+	path, deleted, err = parseNativeCombinedRawPath([]byte("::100644 100644 000000 111 222 000 DD\tremoved.txt\n"))
+	if err != nil || !deleted || path != "removed.txt" {
+		t.Fatalf("deleted path=%q deleted=%t err=%v", path, deleted, err)
 	}
 }
 

@@ -58,7 +58,7 @@ func (s *Source) nativeFastPathSupported(ctx context.Context, gitBin string, sta
 		"--no-indent-heuristic",
 		"--inter-hunk-context=0",
 		"--ignore-submodules=all",
-		"--diff-merges=dense-combined",
+		"--diff-merges=off",
 		"--src-prefix=a/",
 		"--dst-prefix=b/",
 		"--since-as-filter=@0",
@@ -177,7 +177,7 @@ func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBi
 		}
 		return parser.walkError(fmt.Errorf("git: native log: %w", waitErr))
 	}
-	return nil
+	return s.chunksNativeMergeResults(ctx, repo, gitBin, starts, stops, ch)
 }
 
 func (s *Source) nativeLogArgs() []string {
@@ -205,10 +205,10 @@ func (s *Source) nativeLogArgs() []string {
 		"--inter-hunk-context=0",
 		"--ignore-submodules=all",
 		"--diff-algorithm=myers",
-		// first-parent repeats the complete side-branch delta at every merge.
-		// Dense-combined keeps merge-resolution additions without rescanning
-		// content already covered in the branch's own commits.
-		"--diff-merges=dense-combined",
+		// Merge commits are handled by a separate raw-tree pass below. Asking
+		// git-log to render merge patches repeats side-branch history and makes
+		// large monorepos spend hours formatting duplicate diffs.
+		"--diff-merges=off",
 		"--unified=3",
 		"--src-prefix=a/",
 		"--dst-prefix=b/",
@@ -221,6 +221,177 @@ func (s *Source) nativeLogArgs() []string {
 		args = append(args, "--since-as-filter=@"+strconv.FormatInt(s.since.Unix(), 10))
 	}
 	return append(args, "--stdin", "--")
+}
+
+// chunksNativeMergeResults covers content introduced by merge conflict
+// resolution without asking git-log to render every merge patch. A combined
+// raw diff lists only files whose result differs from every parent. Reading
+// those result blobs catches merge-only additions while the main patch pass
+// covers the ordinary commits on every parent lineage.
+func (s *Source) chunksNativeMergeResults(ctx context.Context, repo *gogit.Repository, gitBin string, starts, stops []plumbing.Hash, ch chan<- *sources.Chunk) error {
+	args := []string{
+		"-C", s.repoAbs,
+		"log",
+		"--raw",
+		"--reverse",
+		"--topo-order",
+		"--full-history",
+		"--no-show-signature",
+		"--abbrev=40",
+		"--no-renames",
+		"--no-color",
+		"--no-ext-diff",
+		"--no-textconv",
+		"--ignore-submodules=all",
+		"--diff-merges=combined",
+		"--format=" + nativePrettyFormat,
+	}
+	if s.maxDepth > 0 {
+		// Keep max-depth relative to all selected commits. With --merges,
+		// git would count only merge commits and scan older merges outside
+		// the main pass's bounded history. Standard ':' records are ignored.
+		args = append(args, "--max-count="+strconv.Itoa(s.maxDepth))
+	} else {
+		args = append(args, "--merges")
+	}
+	if !s.since.IsZero() {
+		args = append(args, "--since-as-filter=@"+strconv.FormatInt(s.since.Unix(), 10))
+	}
+	args = append(args, "--stdin", "--")
+
+	cmd := exec.CommandContext(ctx, gitBin, args...)
+	cmd.Stdin = strings.NewReader(nativeRevisionInput(starts, stops))
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("git: native merge raw stdout: %w", err)
+	}
+	var stderr limitedWriter
+	stderr.limit = nativeStderrLimit
+	cmd.Stderr = &stderr
+	cmd.Env = nativeGitEnv()
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("git: start native merge raw: %w", err)
+	}
+
+	parseErr := s.parseNativeMergeResults(ctx, repo, stdout, ch)
+	if parseErr != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+	waitErr := cmd.Wait()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if parseErr != nil {
+		return fmt.Errorf("git: parse native merge raw: %w", parseErr)
+	}
+	if waitErr != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail != "" {
+			return fmt.Errorf("git: native merge raw: %w: %s", waitErr, detail)
+		}
+		return fmt.Errorf("git: native merge raw: %w", waitErr)
+	}
+	return nil
+}
+
+func (s *Source) parseNativeMergeResults(ctx context.Context, repo *gogit.Repository, r io.Reader, ch chan<- *sources.Chunk) error {
+	reader := bufio.NewReaderSize(r, 256<<10)
+	var meta *nativeCommit
+	for {
+		line, truncated, err := readNativeLine(reader, int(maxBlobSize)+1)
+		if truncated {
+			return fmt.Errorf("native merge raw line exceeds %d-byte limit", maxBlobSize)
+		}
+		if len(line) > 0 {
+			switch {
+			case line[0] == nativeRecordSeparator:
+				commit, parseErr := parseNativeCommit(line)
+				if parseErr != nil {
+					return parseErr
+				}
+				meta = &commit
+			case bytes.HasPrefix(line, []byte("::")):
+				if meta == nil {
+					return errors.New("native merge raw record precedes commit metadata")
+				}
+				path, deleted, parseErr := parseNativeCombinedRawPath(line)
+				if parseErr != nil {
+					return parseErr
+				}
+				if !deleted && s.pathAllowed(path) {
+					if emitErr := s.emitNativeMergeResult(ctx, repo, *meta, path, ch); emitErr != nil {
+						return emitErr
+					}
+				}
+			}
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+}
+
+func (s *Source) emitNativeMergeResult(ctx context.Context, repo *gogit.Repository, meta nativeCommit, path string, ch chan<- *sources.Chunk) error {
+	commit, err := repo.CommitObject(plumbing.NewHash(meta.hash))
+	if err != nil {
+		return fmt.Errorf("load merge commit %s: %w", meta.hash, err)
+	}
+	file, err := commit.File(path)
+	if err != nil {
+		return fmt.Errorf("load merge result %s at %s: %w", path, meta.hash, err)
+	}
+	reader, err := file.Reader()
+	if err != nil {
+		return fmt.Errorf("open merge result %s at %s: %w", path, meta.hash, err)
+	}
+	data, readErr := io.ReadAll(io.LimitReader(reader, maxBlobSize+1))
+	closeErr := reader.Close()
+	if readErr != nil {
+		return fmt.Errorf("read merge result %s at %s: %w", path, meta.hash, readErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close merge result %s at %s: %w", path, meta.hash, closeErr)
+	}
+	if len(data) > int(maxBlobSize) {
+		return fmt.Errorf("merge result %s at %s exceeds %d-byte limit", path, meta.hash, maxBlobSize)
+	}
+	if bytes.IndexByte(data, 0x00) >= 0 {
+		return nil
+	}
+	parser := nativeLogParser{ctx: ctx, source: s, repo: repo, ch: ch, commit: &meta}
+	return parser.emitSegments(path, splitBlob(data))
+}
+
+func parseNativeCombinedRawPath(line []byte) (path string, deleted bool, err error) {
+	tab := bytes.IndexByte(line, '\t')
+	if tab < 0 {
+		return "", false, fmt.Errorf("malformed native combined raw record %q", strings.TrimSpace(string(line)))
+	}
+	fields := bytes.Fields(line[:tab])
+	if len(fields) < 2 {
+		return "", false, fmt.Errorf("malformed native combined raw record %q", strings.TrimSpace(string(line)))
+	}
+	status := fields[len(fields)-1]
+	deleted = len(status) > 0
+	for _, marker := range status {
+		deleted = deleted && marker == 'D'
+	}
+	raw := bytes.TrimSuffix(line[tab+1:], []byte{'\n'})
+	raw = bytes.TrimSuffix(raw, []byte{'\r'})
+	path = string(raw)
+	if strings.HasPrefix(path, "\"") {
+		path, err = strconv.Unquote(path)
+		if err != nil {
+			return "", false, fmt.Errorf("malformed native combined raw path %q: %w", string(raw), err)
+		}
+	}
+	return path, deleted, nil
 }
 
 func nativeRevisionInput(starts, stops []plumbing.Hash) string {
@@ -322,7 +493,6 @@ type nativeHunk struct {
 	binary         bool
 	lastWasNewSide bool
 	overLimit      bool
-	combinedWidth  int
 }
 
 type nativeLogParser struct {
@@ -494,12 +664,6 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		p.rawIndex = 0
 		return nil
 	}
-	if bytes.HasPrefix(line, []byte("::")) {
-		// A dense-combined raw record has one ':' per parent. Its following
-		// +++ header carries the result path, so do not feed it to the
-		// ordinary single-parent raw-path parser.
-		return nil
-	}
 	if line[0] == ':' {
 		path, deleted, err := parseNativeRawPath(line)
 		if err != nil {
@@ -525,13 +689,6 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		}
 		return nil
 	}
-	if bytes.HasPrefix(line, []byte("diff --cc ")) || bytes.HasPrefix(line, []byte("diff --combined ")) {
-		if err := p.flushFile(); err != nil {
-			return err
-		}
-		p.file = nativeFilePatch{}
-		return nil
-	}
 	if !p.inHunk && bytes.HasPrefix(line, []byte("--- ")) {
 		path, isNull, err := parseNativePatchPath(line[4:], "a/")
 		if err != nil {
@@ -555,14 +712,6 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		}
 		return nil
 	}
-	if width, start, ok := newCombinedHunkStart(string(line)); ok {
-		if err := p.flushHunk(); err != nil {
-			return err
-		}
-		p.hunk = nativeHunk{newLine: start, combinedWidth: width}
-		p.inHunk = true
-		return nil
-	}
 	if bytes.HasPrefix(line, []byte("@@ ")) {
 		if err := p.flushHunk(); err != nil {
 			return err
@@ -581,10 +730,6 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 	if !p.inHunk {
 		return nil
 	}
-	if p.hunk.combinedWidth > 0 {
-		return p.consumeCombinedHunkLine(line)
-	}
-
 	switch line[0] {
 	case '+':
 		p.hunk.hasAdd = true
@@ -608,79 +753,6 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		p.inHunk = false
 	}
 	return nil
-}
-
-// consumeCombinedHunkLine retains the result side of a dense-combined merge
-// hunk. Each parent contributes one prefix column. A '-' in any column means
-// the line is absent from the result; an all-'+' line is new to every parent
-// and makes the hunk scan-worthy. Mixed space/'+' lines remain as bounded
-// context for multiline detectors.
-func (p *nativeLogParser) consumeCombinedHunkLine(line []byte) error {
-	width := p.hunk.combinedWidth
-	if len(line) < width {
-		p.inHunk = false
-		return nil
-	}
-	prefix := line[:width]
-	for _, marker := range prefix {
-		if marker != ' ' && marker != '+' && marker != '-' {
-			p.inHunk = false
-			return nil
-		}
-	}
-	data := line[width:]
-	if bytes.IndexByte(prefix, '-') >= 0 {
-		p.hunk.lastWasNewSide = false
-		return nil
-	}
-	allPlus := true
-	for _, marker := range prefix {
-		allPlus = allPlus && marker == '+'
-	}
-	if allPlus {
-		p.hunk.hasAdd = true
-		if p.hunk.firstAddLine == 0 {
-			p.hunk.firstAddLine = p.hunk.newLine
-		}
-	}
-	if len(data) > 0 && data[0] == '\\' {
-		if p.hunk.lastWasNewSide && len(p.hunk.data) > 0 && p.hunk.data[len(p.hunk.data)-1] == '\n' {
-			p.hunk.data = p.hunk.data[:len(p.hunk.data)-1]
-		}
-		return nil
-	}
-	p.hunk.append(data)
-	p.hunk.newLine++
-	p.hunk.lastWasNewSide = true
-	return nil
-}
-
-func newCombinedHunkStart(header string) (width, start int, ok bool) {
-	if len(header) < 4 || header[0] != '@' {
-		return 0, 0, false
-	}
-	for width < len(header) && header[width] == '@' {
-		width++
-	}
-	// An N-parent combined hunk begins with N+1 '@' characters.
-	width--
-	if width < 2 {
-		return 0, 0, false
-	}
-	for _, field := range strings.Fields(header) {
-		if !strings.HasPrefix(field, "+") {
-			continue
-		}
-		raw := strings.TrimPrefix(field, "+")
-		if comma := strings.IndexByte(raw, ','); comma >= 0 {
-			raw = raw[:comma]
-		}
-		start, err := strconv.Atoi(raw)
-		if err == nil {
-			return width, start, true
-		}
-	}
-	return 0, 0, false
 }
 
 func (h *nativeHunk) append(data []byte) {
@@ -901,7 +973,7 @@ func (p *nativeLogParser) emitForcedTextPatch(path string) error {
 		"--inter-hunk-context=0",
 		"--ignore-submodules=all",
 		"--diff-algorithm=myers",
-		"--diff-merges=dense-combined",
+		"--diff-merges=off",
 		"--unified=3",
 		"--src-prefix=a/",
 		"--dst-prefix=b/",
