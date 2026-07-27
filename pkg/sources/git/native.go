@@ -28,7 +28,7 @@ const (
 	nativeStderrLimit     = 64 << 10
 	nativePathLimit       = 64 << 10
 	nativeSegmentLimit    = 64 << 10
-	nativePrettyFormat    = "%x1e%H%x00%an%x00%ae%x00%aI%x00%s%x00"
+	nativePrettyFormat    = "%x1e%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00"
 )
 
 var nativeCapabilityCache sync.Map
@@ -177,7 +177,7 @@ func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBi
 		}
 		return parser.walkError(fmt.Errorf("git: native log: %w", waitErr))
 	}
-	return s.chunksNativeMergeResults(ctx, repo, gitBin, starts, stops, ch)
+	return s.chunksNativeMergeResults(ctx, repo, gitBin, parser.mergeHashes, ch)
 }
 
 func (s *Source) nativeLogArgs() []string {
@@ -224,18 +224,21 @@ func (s *Source) nativeLogArgs() []string {
 }
 
 // chunksNativeMergeResults covers content introduced by merge conflict
-// resolution without asking git-log to render every merge patch. A combined
-// raw diff lists only files whose result differs from every parent. Reading
-// those result blobs catches merge-only additions while the main patch pass
-// covers the ordinary commits on every parent lineage.
-func (s *Source) chunksNativeMergeResults(ctx context.Context, repo *gogit.Repository, gitBin string, starts, stops []plumbing.Hash, ch chan<- *sources.Chunk) error {
+// resolution without asking git-log to render every merge patch. The main
+// patch pass records the selected merge IDs, so diff-tree can inspect exactly
+// those commits without traversing the complete history a second time. A
+// combined raw diff lists only files whose result differs from every parent.
+func (s *Source) chunksNativeMergeResults(ctx context.Context, repo *gogit.Repository, gitBin string, merges []plumbing.Hash, ch chan<- *sources.Chunk) error {
+	if len(merges) == 0 {
+		return nil
+	}
 	args := []string{
 		"-C", s.repoAbs,
-		"log",
+		"diff-tree",
+		"--stdin",
+		"--root",
+		"-r",
 		"--raw",
-		"--reverse",
-		"--topo-order",
-		"--full-history",
 		"--no-show-signature",
 		"--abbrev=40",
 		"--no-renames",
@@ -243,24 +246,13 @@ func (s *Source) chunksNativeMergeResults(ctx context.Context, repo *gogit.Repos
 		"--no-ext-diff",
 		"--no-textconv",
 		"--ignore-submodules=all",
-		"--diff-merges=combined",
+		"-c",
 		"--format=" + nativePrettyFormat,
+		"--",
 	}
-	if s.maxDepth > 0 {
-		// Keep max-depth relative to all selected commits. With --merges,
-		// git would count only merge commits and scan older merges outside
-		// the main pass's bounded history. Standard ':' records are ignored.
-		args = append(args, "--max-count="+strconv.Itoa(s.maxDepth))
-	} else {
-		args = append(args, "--merges")
-	}
-	if !s.since.IsZero() {
-		args = append(args, "--since-as-filter=@"+strconv.FormatInt(s.since.Unix(), 10))
-	}
-	args = append(args, "--stdin", "--")
 
 	cmd := exec.CommandContext(ctx, gitBin, args...)
-	cmd.Stdin = strings.NewReader(nativeRevisionInput(starts, stops))
+	cmd.Stdin = strings.NewReader(nativeHashInput(merges))
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("git: native merge raw stdout: %w", err)
@@ -409,6 +401,17 @@ func nativeRevisionInput(starts, stops []plumbing.Hash) string {
 	return input.String()
 }
 
+func nativeHashInput(hashes []plumbing.Hash) string {
+	var input strings.Builder
+	input.Grow(len(hashes) * (len(plumbing.ZeroHash.String()) + 1))
+	for _, hash := range hashes {
+		if hash != plumbing.ZeroHash {
+			fmt.Fprintln(&input, hash)
+		}
+	}
+	return input.String()
+}
+
 func nativeExistingStops(ctx context.Context, repo *gogit.Repository, stops []plumbing.Hash) ([]plumbing.Hash, error) {
 	existing := make([]plumbing.Hash, 0, len(stops))
 	for _, stop := range stops {
@@ -466,6 +469,7 @@ func (e *nativeWalkError) Unwrap() error { return e.err }
 
 type nativeCommit struct {
 	hash         string
+	parentCount  int
 	author       string
 	email        string
 	authoredDate string
@@ -511,6 +515,7 @@ type nativeLogParser struct {
 	rawPathBytes int64
 	rawIndex     int
 	bufferLimit  int64
+	mergeHashes  []plumbing.Hash
 }
 
 func (p *nativeLogParser) walkError(err error) error {
@@ -658,6 +663,9 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 			return err
 		}
 		p.commit = &commit
+		if commit.parentCount > 1 {
+			p.mergeHashes = append(p.mergeHashes, plumbing.NewHash(commit.hash))
+		}
 		p.rawPaths = nil
 		p.rawDeleted = nil
 		p.rawPathBytes = 0
@@ -1044,7 +1052,7 @@ func parseNativeCommit(line []byte) (nativeCommit, error) {
 		return nativeCommit{}, errors.New("malformed native commit record")
 	}
 	fields := bytes.Split(record[1:len(record)-1], []byte{nativeFieldSeparator})
-	if len(fields) != 5 {
+	if len(fields) != 6 {
 		return nativeCommit{}, fmt.Errorf("malformed native commit record: got %d fields", len(fields))
 	}
 	hash := string(fields[0])
@@ -1054,16 +1062,26 @@ func parseNativeCommit(line []byte) (nativeCommit, error) {
 	if _, err := hex.DecodeString(hash); err != nil {
 		return nativeCommit{}, fmt.Errorf("malformed native commit hash %q: %w", hash, err)
 	}
-	authored, err := time.Parse(time.RFC3339, string(fields[3]))
+	parents := bytes.Fields(fields[1])
+	for _, parent := range parents {
+		if len(parent) != 40 {
+			return nativeCommit{}, fmt.Errorf("malformed native parent hash %q", parent)
+		}
+		if _, err := hex.DecodeString(string(parent)); err != nil {
+			return nativeCommit{}, fmt.Errorf("malformed native parent hash %q: %w", parent, err)
+		}
+	}
+	authored, err := time.Parse(time.RFC3339, string(fields[4]))
 	if err != nil {
-		return nativeCommit{}, fmt.Errorf("malformed native authored date %q: %w", fields[3], err)
+		return nativeCommit{}, fmt.Errorf("malformed native authored date %q: %w", fields[4], err)
 	}
 	return nativeCommit{
 		hash:         hash,
-		author:       string(fields[1]),
-		email:        string(fields[2]),
+		parentCount:  len(parents),
+		author:       string(fields[2]),
+		email:        string(fields[3]),
 		authoredDate: authored.UTC().Format(time.RFC3339),
-		message:      string(fields[4]),
+		message:      string(fields[5]),
 	}, nil
 }
 

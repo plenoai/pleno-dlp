@@ -48,6 +48,34 @@ func TestNativeLogArgsPreserveWalkConstraints(t *testing.T) {
 	}
 }
 
+func TestParseNativeCommitTracksMergeParents(t *testing.T) {
+	hash := "1111111111111111111111111111111111111111"
+	parent1 := "2222222222222222222222222222222222222222"
+	parent2 := "3333333333333333333333333333333333333333"
+	record := string(nativeRecordSeparator) + hash + string(nativeFieldSeparator) +
+		parent1 + " " + parent2 + string(nativeFieldSeparator) +
+		"Test" + string(nativeFieldSeparator) +
+		"test@example.com" + string(nativeFieldSeparator) +
+		"2026-07-01T00:00:00Z" + string(nativeFieldSeparator) +
+		"merge" + string(nativeFieldSeparator) + "\n"
+
+	commit, err := parseNativeCommit([]byte(record))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commit.hash != hash || commit.parentCount != 2 {
+		t.Fatalf("commit=%+v", commit)
+	}
+}
+
+func TestNativeHashInput(t *testing.T) {
+	first := plumbing.NewHash("1111111111111111111111111111111111111111")
+	second := plumbing.NewHash("2222222222222222222222222222222222222222")
+	if got, want := nativeHashInput([]plumbing.Hash{first, plumbing.ZeroHash, second}), first.String()+"\n"+second.String()+"\n"; got != want {
+		t.Fatalf("native hash input=%q, want %q", got, want)
+	}
+}
+
 func TestChunks_NativePreservesMetadataAndNoFinalNewline(t *testing.T) {
 	requireNativeGit(t)
 	base := time.Date(2026, 7, 1, 2, 3, 4, 0, time.FixedZone("JST", 9*60*60))
