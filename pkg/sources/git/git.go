@@ -115,7 +115,11 @@ type Config struct {
 	// IncludeCommitMetadata emits one synthetic commit:metadata chunk per
 	// commit containing the message, identities, and default git notes.
 	// It is opt-in because author/committer emails are expected PII.
-	IncludeCommitMetadata   bool          `json:"include_commit_metadata,omitempty"`
+	IncludeCommitMetadata bool `json:"include_commit_metadata,omitempty"`
+	// SkipMergeCommits omits merge-commit diffs while retaining every
+	// non-merge commit. This matches `git log --patch` (and trufflehog) and is
+	// opt-in because merge-conflict resolutions can introduce unique content.
+	SkipMergeCommits        bool          `json:"skip_merge_commits,omitempty"`
 	IncludeGitArchives      bool          `json:"include_git_archives,omitempty"`
 	IncludeGitBinaries      bool          `json:"include_git_binaries,omitempty"`
 	GitArtifactMaxBytes     int64         `json:"git_artifact_max_bytes,omitempty"`
@@ -139,6 +143,7 @@ type Source struct {
 	include               []string
 	exclude               []string
 	includeCommitMetadata bool
+	skipMergeCommits      bool
 	includeGitArchives    bool
 	includeGitBinaries    bool
 	gitArtifactMaxBytes   int64
@@ -206,6 +211,7 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, _
 	s.include = cfg.Include
 	s.exclude = cfg.Exclude
 	s.includeCommitMetadata = cfg.IncludeCommitMetadata
+	s.skipMergeCommits = cfg.SkipMergeCommits
 	s.includeGitArchives = cfg.IncludeGitArchives
 	s.includeGitBinaries = cfg.IncludeGitBinaries
 	s.gitArtifactMaxBytes = cfg.GitArtifactMaxBytes
@@ -592,6 +598,12 @@ var errStorerStop = errors.New("git: stop iteration")
 
 // emitCommit diffs the commit against its first parent.
 func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *sources.Chunk) error {
+	if s.skipMergeCommits && c.NumParents() > 1 {
+		if s.includeCommitMetadata {
+			return s.emitCommitMetadata(ctx, c, ch)
+		}
+		return nil
+	}
 	var partialErrs []error
 	if s.includeGitArchives || s.includeGitBinaries {
 		weight := s.gitArtifactMaxBytes

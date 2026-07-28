@@ -159,39 +159,55 @@ func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBi
 		return fmt.Errorf("git: start native log: %w", err)
 	}
 
-	mergePass, err := s.startNativeMergeResults(ctx, gitBin)
-	if err != nil {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
+	var mergePass *nativeMergePass
+	if !s.skipMergeCommits {
+		mergePass, err = s.startNativeMergeResults(ctx, gitBin)
+		if err != nil {
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			_ = cmd.Wait()
+			return err
 		}
-		_ = cmd.Wait()
-		return err
 	}
 
+	var mergeInput io.Writer
+	if mergePass != nil {
+		mergeInput = mergePass.stdin
+	}
 	parser := nativeLogParser{
 		ctx:        ctx,
 		source:     s,
 		repo:       repo,
 		gitBin:     gitBin,
 		ch:         ch,
-		mergeInput: mergePass.stdin,
+		mergeInput: mergeInput,
 	}
 	parseErr := parser.parse(stdout)
-	mergeCloseErr := mergePass.closeInput()
+	var mergeCloseErr error
+	if mergePass != nil {
+		mergeCloseErr = mergePass.closeInput()
+	}
 	if parseErr != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	}
 	waitErr := cmd.Wait()
 	if err := ctx.Err(); err != nil {
-		mergePass.abort()
+		if mergePass != nil {
+			mergePass.abort()
+		}
 		return err
 	}
 	if parseErr != nil {
-		mergePass.abort()
+		if mergePass != nil {
+			mergePass.abort()
+		}
 		return parser.walkError(fmt.Errorf("git: parse native log: %w", parseErr))
 	}
 	if waitErr != nil {
-		mergePass.abort()
+		if mergePass != nil {
+			mergePass.abort()
+		}
 		detail := strings.TrimSpace(stderr.String())
 		if detail != "" {
 			return parser.walkError(fmt.Errorf("git: native log: %w: %s", waitErr, detail))
@@ -201,6 +217,9 @@ func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBi
 	if mergeCloseErr != nil {
 		mergePass.abort()
 		return fmt.Errorf("git: close native merge input: %w", mergeCloseErr)
+	}
+	if mergePass == nil {
+		return nil
 	}
 	return mergePass.finish(ctx, s, repo, gitBin, ch)
 }

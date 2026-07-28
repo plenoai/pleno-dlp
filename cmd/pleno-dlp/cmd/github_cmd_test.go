@@ -17,7 +17,7 @@ func TestScanGitHubHelpDocumentsSurfacesDefaultsAndCosts(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := out.String()
-	for _, want := range []string{"full commit history", "zero REST calls", "--include-comments", "--include-issues", "--include-pull-requests", "--include-wikis", "--gist", "--include-authenticated-gists", "--include-gist-comments", "--repo-concurrency", "default 1", "--repo-walk-timeout", "--include-commit-metadata", "--include-git-archives", "--include-git-binaries", "--include-forks", "default true", "--include-archived"} {
+	for _, want := range []string{"full commit history", "zero REST calls", "--include-comments", "--include-issues", "--include-pull-requests", "--include-wikis", "--gist", "--include-authenticated-gists", "--include-gist-comments", "--repo-concurrency", "default 1", "--repo-walk-timeout", "--include-commit-metadata", "--skip-merge-commits", "--include-git-archives", "--include-git-binaries", "--include-forks", "default true", "--include-archived"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("help missing %q:\n%s", want, got)
 		}
@@ -30,7 +30,7 @@ func TestScanGitHubConfigAcceptsGitHubAppEnv(t *testing.T) {
 	t.Setenv("GITHUB_APP_INSTALLATION_ID", "42")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", "/tmp/app.pem")
 
-	cfg, err := scanGitHubConfig(githubFlags{org: "acme", includeComments: true, includeCommitMetadata: true})
+	cfg, err := scanGitHubConfig(githubFlags{org: "acme", includeComments: true, includeCommitMetadata: true, skipMergeCommits: true})
 	if err != nil {
 		t.Fatalf("scanGitHubConfig: %v", err)
 	}
@@ -45,6 +45,9 @@ func TestScanGitHubConfigAcceptsGitHubAppEnv(t *testing.T) {
 	}
 	if cfg["include_commit_metadata"] != "true" {
 		t.Fatalf("include_commit_metadata = %q, want true", cfg["include_commit_metadata"])
+	}
+	if cfg["skip_merge_commits"] != "true" {
+		t.Fatalf("skip_merge_commits = %q, want true", cfg["skip_merge_commits"])
 	}
 }
 

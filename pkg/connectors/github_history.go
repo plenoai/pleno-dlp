@@ -850,7 +850,7 @@ func githubGitArtifactConfig(cfg Config) (gitsource.Config, error) {
 	if blob > 50<<20 || expanded > 200<<20 || files > 10000 || depth > 8 || timeout > time.Minute {
 		return gitsource.Config{}, errors.New("github: artifact limits exceed hard caps")
 	}
-	return gitsource.Config{IncludeCommitMetadata: parseBool(cfg["include_commit_metadata"]), IncludeGitArchives: parseBool(cfg["include_git_archives"]), IncludeGitBinaries: parseBool(cfg["include_git_binaries"]), GitArtifactMaxBytes: blob, ArchiveMaxExpandedBytes: expanded, ArchiveMaxFiles: files, ArchiveMaxDepth: depth, ArchiveTimeout: timeout}, nil
+	return gitsource.Config{IncludeCommitMetadata: parseBool(cfg["include_commit_metadata"]), SkipMergeCommits: parseBool(cfg["skip_merge_commits"]), IncludeGitArchives: parseBool(cfg["include_git_archives"]), IncludeGitBinaries: parseBool(cfg["include_git_binaries"]), GitArtifactMaxBytes: blob, ArchiveMaxExpandedBytes: expanded, ArchiveMaxFiles: files, ArchiveMaxDepth: depth, ArchiveTimeout: timeout}, nil
 }
 
 func githubRepoWalkTimeout(cfg Config) (time.Duration, error) {

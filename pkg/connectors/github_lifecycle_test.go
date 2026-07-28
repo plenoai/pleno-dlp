@@ -249,6 +249,10 @@ func TestGitHubHistoryPolicyChangesInvalidateUnchangedSkip(t *testing.T) {
 	if githubRepoUnchanged(prev, r, changed) {
 		t.Fatal("policy change must force a history rescan")
 	}
+	changed = githubHistoryPolicy(Config{"include_commit_metadata": "false", "include_git_archives": "false", "skip_merge_commits": "true"})
+	if githubRepoUnchanged(prev, r, changed) {
+		t.Fatal("merge policy change must force a history rescan")
+	}
 }
 
 func TestRunGitHubSourceUnitsCancellation(t *testing.T) {

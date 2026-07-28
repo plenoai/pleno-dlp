@@ -682,6 +682,45 @@ func TestChunks_NativeMergeScansResolutionWithoutRepeatingBranch(t *testing.T) {
 			t.Fatalf("%s emitted %d times, want once; base=%s chunks=%v", file, seen[file], cBase, filesOf(got))
 		}
 	}
+
+	parity := &Source{}
+	mustInit(t, parity, Config{Repo: dir, SkipMergeCommits: true})
+	got, err = drain(t, parity, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen = make(map[string]int)
+	for _, chunk := range got {
+		seen[chunk.SourceMetadata.Git.File]++
+	}
+	if seen["resolution.txt"] != 0 {
+		t.Fatalf("merge-only resolution emitted in parity mode: %v", filesOf(got))
+	}
+	for _, file := range []string{"base.txt", "feature.txt", "main.txt"} {
+		if seen[file] != 1 {
+			t.Fatalf("%s emitted %d times in parity mode, want once; chunks=%v", file, seen[file], filesOf(got))
+		}
+	}
+
+	fallback := &Source{}
+	mustInit(t, fallback, Config{Repo: dir, SkipMergeCommits: true, IncludeCommitMetadata: true})
+	got, err = drain(t, fallback, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mergeMetadata := false
+	for _, chunk := range got {
+		meta := chunk.SourceMetadata.Git
+		if meta.File == "resolution.txt" {
+			t.Fatalf("fallback emitted merge-only resolution in parity mode: %v", filesOf(got))
+		}
+		if meta.Commit == cMerge && strings.HasPrefix(meta.File, "commit:metadata/") {
+			mergeMetadata = true
+		}
+	}
+	if !mergeMetadata {
+		t.Fatal("fallback parity mode dropped requested merge metadata")
+	}
 }
 
 func TestChunks_NativeSinceFilterTraversesSkewedHistory(t *testing.T) {
