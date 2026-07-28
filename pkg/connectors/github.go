@@ -280,7 +280,7 @@ func githubHistoryPolicy(cfg Config) string {
 	h := sha256.New()
 	writeFingerprint(h, "github-history-policy-v1")
 	for _, key := range []string{
-		"include_commit_metadata", "skip_merge_commits", "include_git_archives", "include_git_binaries",
+		"include_commit_metadata", "skip_merge_commits", "trufflehog_compatible", "include_git_archives", "include_git_binaries",
 		"git_artifact_max_bytes", "archive_max_expanded_bytes", "archive_max_files",
 		"archive_max_depth", "archive_timeout",
 	} {

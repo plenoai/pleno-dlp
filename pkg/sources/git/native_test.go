@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
@@ -45,6 +47,38 @@ func TestNativeLogArgsPreserveWalkConstraints(t *testing.T) {
 	}
 	if got, want := nativeRevisionInput([]plumbing.Hash{start}, []plumbing.Hash{stop}), start.String()+"\n^"+stop.String()+"\n"; got != want {
 		t.Fatalf("native revision input=%q, want %q", got, want)
+	}
+}
+
+func TestNativeLogArgsTrufflehogCompatible(t *testing.T) {
+	s := &Source{repoAbs: "/repo", trufflehogCompatible: true}
+	args := s.nativeLogArgs()
+	for _, want := range []string{"--find-renames", "--diff-filter=AM", "--diff-merges=off"} {
+		if !slices.Contains(args, want) {
+			t.Fatalf("trufflehog-compatible args missing %q: %v", want, args)
+		}
+	}
+	if slices.Contains(args, "--no-renames") {
+		t.Fatalf("trufflehog-compatible args retain --no-renames: %v", args)
+	}
+}
+
+func TestGitRenameOptionsTrufflehogCompatible(t *testing.T) {
+	if gitRenameOptions(false).DetectRenames {
+		t.Fatal("default rename options enabled rename detection")
+	}
+	opts := gitRenameOptions(true)
+	if !opts.DetectRenames || opts.RenameScore != 50 || opts.RenameLimit != 1000 {
+		t.Fatalf("trufflehog-compatible diff-tree options = %+v", opts)
+	}
+}
+
+func TestSameGitDiffType(t *testing.T) {
+	if !sameGitDiffType(filemode.Regular, filemode.Executable) {
+		t.Fatal("executable-bit change must remain a modification")
+	}
+	if sameGitDiffType(filemode.Regular, filemode.Symlink) {
+		t.Fatal("regular-to-symlink change must be a type change")
 	}
 }
 
@@ -112,6 +146,233 @@ func TestChunks_NativePreservesMetadataAndNoFinalNewline(t *testing.T) {
 	}
 	if meta.AuthoredDate != base.Add(time.Minute).UTC().Format(time.RFC3339) {
 		t.Fatalf("authored date=%q", meta.AuthoredDate)
+	}
+}
+
+func TestChunks_TrufflehogCompatibleBlanksContext(t *testing.T) {
+	requireNativeGit(t)
+	repoPath, hashes := buildRepo(t, []commitSpec{
+		{files: map[string]string{"config.txt": "before\nold\nafter\n"}, msg: "base"},
+		{files: map[string]string{"config.txt": "before\nadded\nafter\n"}, msg: "change"},
+	})
+	for _, tc := range []struct {
+		name string
+		cfg  Config
+	}{
+		{name: "native", cfg: Config{Repo: repoPath, TrufflehogCompatible: true}},
+		{name: "go-git fallback", cfg: Config{Repo: repoPath, TrufflehogCompatible: true, IncludeCommitMetadata: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Source{}
+			mustInit(t, s, tc.cfg)
+			got, err := drain(t, s, 10*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var changed *sources.Chunk
+			for _, chunk := range got {
+				meta := chunk.SourceMetadata.Git
+				if meta != nil && meta.Commit == hashes[1] && meta.File == "config.txt" {
+					changed = chunk
+					break
+				}
+			}
+			if changed == nil {
+				t.Fatalf("changed file chunk missing: %v", filesOf(got))
+			}
+			if got, want := string(changed.Data), "\nadded\n\n"; got != want {
+				t.Fatalf("data=%q, want trufflehog-compatible context %q", got, want)
+			}
+		})
+	}
+}
+
+func TestChunks_TrufflehogCompatibleSkipsRenameDiffs(t *testing.T) {
+	requireNativeGit(t)
+	repoPath, _ := buildRepo(t, []commitSpec{
+		{files: map[string]string{"old.txt": "unchanged content\n"}, msg: "base"},
+	})
+	for _, args := range [][]string{
+		{"mv", "old.txt", "renamed.txt"},
+		{"-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgSign=false", "commit", "-m", "rename"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", repoPath}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	hashOutput, err := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	renameHash := strings.TrimSpace(string(hashOutput))
+
+	for _, tc := range []struct {
+		name string
+		cfg  Config
+	}{
+		{name: "native", cfg: Config{Repo: repoPath, TrufflehogCompatible: true}},
+		{name: "go-git fallback", cfg: Config{Repo: repoPath, TrufflehogCompatible: true, IncludeCommitMetadata: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Source{}
+			mustInit(t, s, tc.cfg)
+			got, err := drain(t, s, 10*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, chunk := range got {
+				meta := chunk.SourceMetadata.Git
+				if meta != nil && meta.Commit == renameHash && meta.File == "renamed.txt" {
+					t.Fatalf("rename diff emitted in trufflehog-compatible mode: %#v", meta)
+				}
+			}
+		})
+	}
+}
+
+func TestChunks_TrufflehogCompatibleFallbackSkipsEditedExecutableRename(t *testing.T) {
+	requireNativeGit(t)
+	var shared strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&shared, "shared-line-%02d\n", i)
+	}
+	repoPath, _ := buildRepo(t, []commitSpec{
+		{files: map[string]string{"old.txt": shared.String() + strings.Repeat("old-only\n", 5)}, msg: "base"},
+	})
+	for _, args := range [][]string{
+		{"update-index", "--chmod=+x", "old.txt"},
+		{"-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgSign=false", "commit", "-m", "make executable"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", repoPath}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	if out, err := exec.Command("git", "-C", repoPath, "mv", "old.txt", "renamed.txt").CombinedOutput(); err != nil {
+		t.Fatalf("git mv: %v: %s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(repoPath, "renamed.txt"), []byte(shared.String()+strings.Repeat("new-only\n", 5)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"add", "renamed.txt"},
+		{"update-index", "--chmod=+x", "renamed.txt"},
+		{"-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgSign=false", "commit", "-m", "edited rename"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", repoPath}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	hashOutput, err := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	renameHash := strings.TrimSpace(string(hashOutput))
+
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath, TrufflehogCompatible: true, IncludeCommitMetadata: true})
+	got, err := drain(t, s, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, chunk := range got {
+		meta := chunk.SourceMetadata.Git
+		if meta != nil && meta.Commit == renameHash && meta.File == "renamed.txt" {
+			t.Fatalf("edited executable rename emitted by trufflehog-compatible fallback: %#v", meta)
+		}
+	}
+}
+
+func TestChunks_TrufflehogCompatibleFallbackKeepsUnrelatedAddition(t *testing.T) {
+	requireNativeGit(t)
+	repoPath, _ := buildRepo(t, []commitSpec{
+		{files: map[string]string{"old.txt": strings.Repeat("old-only-alpha\n", 32)}, msg: "base"},
+	})
+	if err := os.Remove(filepath.Join(repoPath, "old.txt")); err != nil {
+		t.Fatal(err)
+	}
+	const marker = "new-only-omega"
+	if err := os.WriteFile(filepath.Join(repoPath, "new.txt"), []byte(strings.Repeat(marker+"\n", 32)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"add", "-A"},
+		{"-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgSign=false", "commit", "-m", "replace unrelated file"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", repoPath}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	hashOutput, err := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaceHash := strings.TrimSpace(string(hashOutput))
+
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath, TrufflehogCompatible: true, IncludeCommitMetadata: true})
+	got, err := drain(t, s, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, chunk := range got {
+		meta := chunk.SourceMetadata.Git
+		if meta == nil || meta.Commit != replaceHash || meta.File != "new.txt" {
+			continue
+		}
+		if !strings.Contains(string(chunk.Data), marker) {
+			t.Fatalf("unrelated addition missing marker: %q", chunk.Data)
+		}
+		return
+	}
+	t.Fatal("unrelated addition was misclassified as a rename")
+}
+
+func TestChunks_TrufflehogCompatibleSkipsTypeChanges(t *testing.T) {
+	requireNativeGit(t)
+	repoPath, _ := buildRepo(t, []commitSpec{
+		{files: map[string]string{"kind.txt": "regular content\n"}, msg: "base"},
+	})
+	if err := os.Remove(filepath.Join(repoPath, "kind.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("symlink-target", filepath.Join(repoPath, "kind.txt")); err != nil {
+		t.Skipf("symlink fixture unavailable: %v", err)
+	}
+	for _, args := range [][]string{
+		{"add", "-A"},
+		{"-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgSign=false", "commit", "-m", "change file type"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", repoPath}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	hashOutput, err := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	typeChangeHash := strings.TrimSpace(string(hashOutput))
+
+	for _, tc := range []struct {
+		name string
+		cfg  Config
+	}{
+		{name: "native", cfg: Config{Repo: repoPath, TrufflehogCompatible: true}},
+		{name: "go-git fallback", cfg: Config{Repo: repoPath, TrufflehogCompatible: true, IncludeCommitMetadata: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Source{}
+			mustInit(t, s, tc.cfg)
+			got, err := drain(t, s, 10*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, chunk := range got {
+				meta := chunk.SourceMetadata.Git
+				if meta != nil && meta.Commit == typeChangeHash && meta.File == "kind.txt" {
+					t.Fatalf("type-change diff emitted in trufflehog-compatible mode: %#v", meta)
+				}
+			}
+		})
 	}
 }
 
@@ -702,6 +963,16 @@ func TestChunks_NativeMergeScansResolutionWithoutRepeatingBranch(t *testing.T) {
 		}
 	}
 
+	compatible := &Source{}
+	mustInit(t, compatible, Config{Repo: dir, TrufflehogCompatible: true})
+	got, err = drain(t, compatible, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filesOf(got)["resolution.txt"] {
+		t.Fatalf("merge-only resolution emitted in trufflehog-compatible mode: %v", filesOf(got))
+	}
+
 	fallback := &Source{}
 	mustInit(t, fallback, Config{Repo: dir, SkipMergeCommits: true, IncludeCommitMetadata: true})
 	got, err = drain(t, fallback, 10*time.Second)
@@ -809,6 +1080,26 @@ func TestReadNativeLineBoundsAndDrains(t *testing.T) {
 	line, truncated, err = readNativeLine(reader, 16)
 	if err != nil || truncated || string(line) != "next\n" {
 		t.Fatalf("second line=%q truncated=%t err=%v", line, truncated, err)
+	}
+}
+
+func TestConsumeTruncatedContextTrufflehogCompatible(t *testing.T) {
+	parser := nativeLogParser{
+		source: &Source{trufflehogCompatible: true},
+		inHunk: true,
+		hunk:   nativeHunk{newLine: 7},
+	}
+	if err := parser.consumeTruncatedLine([]byte(" context")); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(parser.hunk.data); got != "\n" {
+		t.Fatalf("truncated context data=%q, want newline only", got)
+	}
+	if parser.hunk.overLimit {
+		t.Fatal("blanked truncated context marked hunk over limit")
+	}
+	if parser.hunk.newLine != 8 {
+		t.Fatalf("new line=%d, want 8", parser.hunk.newLine)
 	}
 }
 

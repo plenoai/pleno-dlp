@@ -206,6 +206,9 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 	}
 	mergeMode := "dense-resolution"
 	if gitCfg.SkipMergeCommits {
+		mergeMode = "off"
+	}
+	if gitCfg.TrufflehogCompatible {
 		mergeMode = "off (trufflehog-compatible)"
 	}
 	fmt.Fprintf(os.Stderr, "github: history merge diff mode: %s\n", mergeMode)
@@ -322,10 +325,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 			if !r.HasWiki {
 				return githubUnitResult[repoOutcome]{State: repoOutcome{Next: prevWiki, StateValid: prevWiki.Mode == githubScanModeHistory}, Stats: githubUnitStats{Skipped: "wiki-disabled"}}
 			}
-			seed := prevWiki
-			if seed.Policy != historyPolicy {
-				seed = githubRepoIncrementalState{}
-			}
+			seed := githubHistoryWalkSeed(prevWiki, historyPolicy)
 			nextWiki, err := scanGitHubWikiHistory(ctx, cfg, auth, apiBase, host, wikiTemplate, r, seed, walkControl, unitEmit)
 			if err != nil {
 				if isMissingWikiError(err) {
@@ -358,16 +358,17 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 			fmt.Fprintf(os.Stderr, "github: scan %s unchanged since last run (pushed_at %s), clone skipped\n", repoKey, r.PushedAt)
 		} else {
 			var err error
-			nextRepo, err = scanGitHubRepoHistory(ctx, cfg, auth, apiBase, host, template, r, prevRepo, walkControl, unitEmit)
+			seed := githubHistoryWalkSeed(prevRepo, historyPolicy)
+			nextRepo, err = scanGitHubRepoHistory(ctx, cfg, auth, apiBase, host, template, r, seed, walkControl, unitEmit)
 			if err != nil {
 				if ctx.Err() != nil {
 					return githubUnitResult[repoOutcome]{Err: ctx.Err()}
 				}
 				nextRepo = prevRepo
-				nextRepo.Mode = githubScanModeHistory
-				nextRepo.Policy = historyPolicy
 				if errors.Is(err, gitsource.ErrNoBranchHeads) {
 					empty = true
+					nextRepo.Mode = githubScanModeHistory
+					nextRepo.Policy = historyPolicy
 					nextRepo.PushedAt = r.PushedAt
 					nextRepo.Visibility = githubVisibility(r)
 					nextRepo.RefHeads = nil
@@ -535,6 +536,13 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 		return errors.Join(degraded, finalFlushErr)
 	}
 	return finalFlushErr
+}
+
+func githubHistoryWalkSeed(prev githubRepoIncrementalState, policy string) githubRepoIncrementalState {
+	if prev.Policy != policy {
+		return githubRepoIncrementalState{}
+	}
+	return prev
 }
 
 // githubRepoUnchanged reports whether the repo received no push since the
@@ -856,7 +864,7 @@ func githubGitArtifactConfig(cfg Config) (gitsource.Config, error) {
 	if blob > 50<<20 || expanded > 200<<20 || files > 10000 || depth > 8 || timeout > time.Minute {
 		return gitsource.Config{}, errors.New("github: artifact limits exceed hard caps")
 	}
-	return gitsource.Config{IncludeCommitMetadata: parseBool(cfg["include_commit_metadata"]), SkipMergeCommits: parseBool(cfg["skip_merge_commits"]), IncludeGitArchives: parseBool(cfg["include_git_archives"]), IncludeGitBinaries: parseBool(cfg["include_git_binaries"]), GitArtifactMaxBytes: blob, ArchiveMaxExpandedBytes: expanded, ArchiveMaxFiles: files, ArchiveMaxDepth: depth, ArchiveTimeout: timeout}, nil
+	return gitsource.Config{IncludeCommitMetadata: parseBool(cfg["include_commit_metadata"]), SkipMergeCommits: parseBool(cfg["skip_merge_commits"]), TrufflehogCompatible: parseBool(cfg["trufflehog_compatible"]), IncludeGitArchives: parseBool(cfg["include_git_archives"]), IncludeGitBinaries: parseBool(cfg["include_git_binaries"]), GitArtifactMaxBytes: blob, ArchiveMaxExpandedBytes: expanded, ArchiveMaxFiles: files, ArchiveMaxDepth: depth, ArchiveTimeout: timeout}, nil
 }
 
 func githubRepoWalkTimeout(cfg Config) (time.Duration, error) {

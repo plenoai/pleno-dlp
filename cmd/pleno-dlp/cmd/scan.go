@@ -122,6 +122,7 @@ type gitFlags struct {
 	allOccurrences          bool
 	includeCommitMetadata   bool
 	skipMergeCommits        bool
+	trufflehogCompatible    bool
 	includeGitArchives      bool
 	includeGitBinaries      bool
 	gitArtifactMaxBytes     int64
@@ -261,7 +262,8 @@ func init() {
 	scanGitCmd.Flags().StringSliceVar(&gitOpts.exclude, "exclude", nil, "glob(s) to exclude")
 	scanGitCmd.Flags().BoolVar(&gitOpts.allOccurrences, "all-occurrences", false, "report every commit a secret appears in; default collapses to the introducing commit with extra_data.occurrence_count")
 	scanGitCmd.Flags().BoolVar(&gitOpts.includeCommitMetadata, "include-commit-metadata", false, "scan commit messages, author/committer identities, and git notes (opt-in because identities contain expected PII)")
-	scanGitCmd.Flags().BoolVar(&gitOpts.skipMergeCommits, "skip-merge-commits", false, "omit merge-commit diffs for trufflehog-compatible performance (non-merge history is still scanned)")
+	scanGitCmd.Flags().BoolVar(&gitOpts.skipMergeCommits, "skip-merge-commits", false, "omit merge-commit diffs while retaining non-merge history")
+	scanGitCmd.Flags().BoolVar(&gitOpts.trufflehogCompatible, "trufflehog-compatible", false, "match trufflehog's Git diff surface (omit merge/rename diffs and blank unchanged context)")
 	scanGitCmd.Flags().BoolVar(&gitOpts.includeGitArchives, "include-git-archives", false, "expand and scan recognized archives in Git history within strict resource budgets")
 	scanGitCmd.Flags().BoolVar(&gitOpts.includeGitBinaries, "include-git-binaries", false, "scan otherwise-binary blobs in Git history within strict resource budgets")
 	scanGitCmd.Flags().Int64Var(&gitOpts.gitArtifactMaxBytes, "git-artifact-max-bytes", 10<<20, "maximum compressed archive or raw binary blob bytes")
@@ -376,6 +378,7 @@ func runScanGit(cmd *cobra.Command, _ []string) error {
 		"exclude":                    gitOpts.exclude,
 		"include_commit_metadata":    gitOpts.includeCommitMetadata,
 		"skip_merge_commits":         gitOpts.skipMergeCommits,
+		"trufflehog_compatible":      gitOpts.trufflehogCompatible,
 		"include_git_archives":       gitOpts.includeGitArchives,
 		"include_git_binaries":       gitOpts.includeGitBinaries,
 		"git_artifact_max_bytes":     gitOpts.gitArtifactMaxBytes,

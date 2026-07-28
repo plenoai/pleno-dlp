@@ -116,6 +116,16 @@ func TestGitHubGitArtifactConfigRejectsMalformedAndHardCaps(t *testing.T) {
 	}
 }
 
+func TestGitHubGitArtifactConfigPropagatesTrufflehogCompatibility(t *testing.T) {
+	cfg, err := githubGitArtifactConfig(Config{"trufflehog_compatible": "true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.TrufflehogCompatible {
+		t.Fatal("trufflehog_compatible was not propagated to the git source")
+	}
+}
+
 func TestRunGitHubSourceUnitsDeterministicFailureIsolation(t *testing.T) {
 	units := []githubSourceUnit{
 		{Surface: "repository-history", ID: "acme/slow"},
@@ -252,6 +262,24 @@ func TestGitHubHistoryPolicyChangesInvalidateUnchangedSkip(t *testing.T) {
 	changed = githubHistoryPolicy(Config{"include_commit_metadata": "false", "include_git_archives": "false", "skip_merge_commits": "true"})
 	if githubRepoUnchanged(prev, r, changed) {
 		t.Fatal("merge policy change must force a history rescan")
+	}
+	changed = githubHistoryPolicy(Config{"include_commit_metadata": "false", "include_git_archives": "false", "trufflehog_compatible": "true"})
+	if githubRepoUnchanged(prev, r, changed) {
+		t.Fatal("trufflehog compatibility policy change must force a history rescan")
+	}
+}
+
+func TestGitHubHistoryWalkSeedClearsPreviousHeadsOnPolicyChange(t *testing.T) {
+	prev := githubRepoIncrementalState{
+		Mode:     githubScanModeHistory,
+		Policy:   "policy-a",
+		RefHeads: map[string]string{"refs/heads/main": "abc"},
+	}
+	if got := githubHistoryWalkSeed(prev, "policy-a"); len(got.RefHeads) != 1 {
+		t.Fatalf("matching policy cleared history seed: %+v", got)
+	}
+	if got := githubHistoryWalkSeed(prev, "policy-b"); len(got.RefHeads) != 0 || got.Mode != "" {
+		t.Fatalf("changed policy retained history seed: %+v", got)
 	}
 }
 

@@ -2,9 +2,12 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/plenoai/pleno-dlp/pkg/connectors"
 )
 
 func TestScanGitHubHelpDocumentsSurfacesDefaultsAndCosts(t *testing.T) {
@@ -17,7 +20,7 @@ func TestScanGitHubHelpDocumentsSurfacesDefaultsAndCosts(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := out.String()
-	for _, want := range []string{"full commit history", "zero REST calls", "--include-comments", "--include-issues", "--include-pull-requests", "--include-wikis", "--gist", "--include-authenticated-gists", "--include-gist-comments", "--repo-concurrency", "default 1", "--repo-walk-timeout", "--include-commit-metadata", "--skip-merge-commits", "--include-git-archives", "--include-git-binaries", "--include-forks", "default true", "--include-archived"} {
+	for _, want := range []string{"full commit history", "zero REST calls", "--include-comments", "--include-issues", "--include-pull-requests", "--include-wikis", "--gist", "--include-authenticated-gists", "--include-gist-comments", "--repo-concurrency", "default 1", "--repo-walk-timeout", "--include-commit-metadata", "--skip-merge-commits", "--trufflehog-compatible", "--include-git-archives", "--include-git-binaries", "--include-forks", "default true", "--include-archived"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("help missing %q:\n%s", want, got)
 		}
@@ -30,7 +33,7 @@ func TestScanGitHubConfigAcceptsGitHubAppEnv(t *testing.T) {
 	t.Setenv("GITHUB_APP_INSTALLATION_ID", "42")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", "/tmp/app.pem")
 
-	cfg, err := scanGitHubConfig(githubFlags{org: "acme", includeComments: true, includeCommitMetadata: true, skipMergeCommits: true})
+	cfg, err := scanGitHubConfig(githubFlags{org: "acme", includeComments: true, includeCommitMetadata: true, skipMergeCommits: true, trufflehogCompatible: true})
 	if err != nil {
 		t.Fatalf("scanGitHubConfig: %v", err)
 	}
@@ -48,6 +51,100 @@ func TestScanGitHubConfigAcceptsGitHubAppEnv(t *testing.T) {
 	}
 	if cfg["skip_merge_commits"] != "true" {
 		t.Fatalf("skip_merge_commits = %q, want true", cfg["skip_merge_commits"])
+	}
+	if cfg["trufflehog_compatible"] != "true" {
+		t.Fatalf("trufflehog_compatible = %q, want true", cfg["trufflehog_compatible"])
+	}
+}
+
+func TestGitHubScannerFingerprintConfigTracksSurfaceWithoutCredentials(t *testing.T) {
+	resetCommandFlags(t)
+	base := connectors.Config{
+		"org":                     "acme",
+		"trufflehog_compatible":   "false",
+		"token":                   "token-one",
+		"app_id":                  "app-one",
+		"app_installation_id":     "installation-one",
+		"app_private_key":         "private-key-one",
+		"app_private_key_file":    "/credentials/one.pem",
+		"include_git_archives":    "false",
+		"include_commit_metadata": "false",
+		"repo_concurrency":        "1",
+		"repo_walk_timeout":       "30m",
+		"state_retention_days":    "30",
+		"state_retention_runs":    "3",
+	}
+	encoded, err := githubScannerFingerprintConfig(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]string
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"token", "app_id", "app_installation_id", "app_private_key", "app_private_key_file"} {
+		if _, ok := decoded[key]; ok {
+			t.Fatalf("credential key %q retained in scanner fingerprint config", key)
+		}
+	}
+
+	rotated := connectors.Config{}
+	for key, value := range base {
+		rotated[key] = value
+	}
+	rotated["token"] = "token-two"
+	rotated["app_private_key"] = "private-key-two"
+	rotatedEncoded, err := githubScannerFingerprintConfig(rotated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseFP, err := scannerFingerprint("github", encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotatedFP, err := scannerFingerprint("github", rotatedEncoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseFP != rotatedFP {
+		t.Fatal("credential rotation changed scanner fingerprint")
+	}
+
+	retuned := connectors.Config{}
+	for key, value := range base {
+		retuned[key] = value
+	}
+	retuned["repo_concurrency"] = "8"
+	retuned["repo_walk_timeout"] = "1h"
+	retuned["state_retention_days"] = "90"
+	retuned["state_retention_runs"] = "10"
+	retunedEncoded, err := githubScannerFingerprintConfig(retuned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retunedFP, err := scannerFingerprint("github", retunedEncoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseFP != retunedFP {
+		t.Fatal("execution-control change changed scanner fingerprint")
+	}
+
+	changed := connectors.Config{}
+	for key, value := range base {
+		changed[key] = value
+	}
+	changed["trufflehog_compatible"] = "true"
+	changedEncoded, err := githubScannerFingerprintConfig(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedFP, err := scannerFingerprint("github", changedEncoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseFP == changedFP {
+		t.Fatal("trufflehog compatibility change did not change scanner fingerprint")
 	}
 }
 

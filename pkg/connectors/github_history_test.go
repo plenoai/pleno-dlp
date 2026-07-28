@@ -614,6 +614,18 @@ func TestGitHubHistoryPushedAtSkipsUnchangedRepo(t *testing.T) {
 	if !strings.Contains(cfg[configKeyIncrementalNextState], `"pushed_at":"`+pushedAt+`"`) {
 		t.Fatalf("third run state did not record new pushed_at: %s", cfg[configKeyIncrementalNextState])
 	}
+
+	// Changing the history policy invalidates both the clone skip and the
+	// previous ref-head stop set. With pushed_at unchanged, the existing
+	// commits must be emitted again under the new diff semantics.
+	cfg[configKeyIncrementalPreviousState] = cfg[configKeyIncrementalNextState]
+	delete(cfg, configKeyIncrementalNextState)
+	cfg["trufflehog_compatible"] = "true"
+
+	fourth := collect()
+	if strings.Join(fourth, ",") != "a.txt,b.txt" {
+		t.Fatalf("policy-change run files = %v, want full rescan [a.txt b.txt]", fourth)
+	}
 }
 
 // fingerprint は repo list のメタデータ (pushed_at / updated_at) だけで

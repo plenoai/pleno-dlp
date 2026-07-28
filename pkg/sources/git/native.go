@@ -160,7 +160,7 @@ func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBi
 	}
 
 	var mergePass *nativeMergePass
-	if !s.skipMergeCommits {
+	if !s.omitMergeDiffs() {
 		mergePass, err = s.startNativeMergeResults(ctx, gitBin)
 		if err != nil {
 			if cmd.Process != nil {
@@ -241,7 +241,6 @@ func (s *Source) nativeLogArgs() []string {
 		"--no-show-signature",
 		"--raw",
 		"--abbrev=40",
-		"--no-renames",
 		"--no-color",
 		"--no-ext-diff",
 		"--no-textconv",
@@ -257,6 +256,13 @@ func (s *Source) nativeLogArgs() []string {
 		"--src-prefix=a/",
 		"--dst-prefix=b/",
 		"--format=" + nativePrettyFormat,
+	}
+	if s.trufflehogCompatible {
+		// Trufflehog's full-history path uses --diff-filter=AM. Make rename
+		// detection explicit because nativeGitEnv ignores user git config.
+		args = append(args, "--find-renames", "--diff-filter=AM")
+	} else {
+		args = append(args, "--no-renames")
 	}
 	if s.maxDepth > 0 {
 		args = append(args, "--max-count="+strconv.Itoa(s.maxDepth))
@@ -778,9 +784,13 @@ func (p *nativeLogParser) consumeTruncatedLine(line []byte) error {
 		p.hunk.newLine++
 		p.hunk.lastWasNewSide = true
 	case ' ':
-		p.hunk.binary = p.hunk.binary || bytes.IndexByte(line[1:], 0x00) >= 0
-		p.hunk.data = nil
-		p.hunk.overLimit = true
+		if p.source.trufflehogCompatible {
+			p.hunk.append([]byte{'\n'})
+		} else {
+			p.hunk.binary = p.hunk.binary || bytes.IndexByte(line[1:], 0x00) >= 0
+			p.hunk.data = nil
+			p.hunk.overLimit = true
+		}
 		p.hunk.newLine++
 		p.hunk.lastWasNewSide = true
 	case '-':
@@ -891,7 +901,11 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		p.hunk.newLine++
 		p.hunk.lastWasNewSide = true
 	case ' ':
-		p.hunk.append(line[1:])
+		if p.source.trufflehogCompatible {
+			p.hunk.append([]byte{'\n'})
+		} else {
+			p.hunk.append(line[1:])
+		}
 		p.hunk.newLine++
 		p.hunk.lastWasNewSide = true
 	case '-':

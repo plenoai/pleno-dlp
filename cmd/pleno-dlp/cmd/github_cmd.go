@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -28,6 +29,7 @@ type githubFlags struct {
 	repoWalkTimeout           time.Duration
 	includeCommitMetadata     bool
 	skipMergeCommits          bool
+	trufflehogCompatible      bool
 	includeGitArchives        bool
 	includeGitBinaries        bool
 	gitArtifactMaxBytes       int64
@@ -93,7 +95,8 @@ func init() {
 	scanGitHubCmd.Flags().IntVar(&scanGitHubOpts.repoConcurrency, "repo-concurrency", 1, "maximum concurrent GitHub repository clone/walk workers (independent of --concurrency)")
 	scanGitHubCmd.Flags().DurationVar(&scanGitHubOpts.repoWalkTimeout, "repo-walk-timeout", 0, "maximum Git history walk time per repository (0 = unbounded; clone time is excluded)")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeCommitMetadata, "include-commit-metadata", false, "scan commit messages, author/committer identities, and git notes (opt-in because identities contain expected PII)")
-	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.skipMergeCommits, "skip-merge-commits", false, "omit merge-commit diffs for trufflehog-compatible performance (non-merge history is still scanned)")
+	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.skipMergeCommits, "skip-merge-commits", false, "omit merge-commit diffs while retaining non-merge history")
+	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.trufflehogCompatible, "trufflehog-compatible", false, "match trufflehog's Git diff surface (omit merge/rename diffs and blank unchanged context)")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeGitArchives, "include-git-archives", false, "expand and scan recognized archives in Git history within strict resource budgets")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeGitBinaries, "include-git-binaries", false, "scan otherwise-binary blobs in Git history within strict resource budgets")
 	scanGitHubCmd.Flags().Int64Var(&scanGitHubOpts.gitArtifactMaxBytes, "git-artifact-max-bytes", 10<<20, "maximum compressed archive or raw binary blob bytes")
@@ -145,6 +148,9 @@ func runScanGitHub(cmd *cobra.Command, _ []string) error {
 	}
 	mergeMode := "dense-resolution"
 	if scanGitHubOpts.skipMergeCommits {
+		mergeMode = "off"
+	}
+	if scanGitHubOpts.trufflehogCompatible {
 		mergeMode = "off (trufflehog-compatible)"
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "github: merge diff mode: %s\n", mergeMode)
@@ -152,7 +158,32 @@ func runScanGitHub(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	return runScanCommon(cmd, src, nil, "github")
+	scannerCfg, err := githubScannerFingerprintConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("github: encode scanner fingerprint config: %w", err)
+	}
+	return runScanCommon(cmd, src, scannerCfg, "github")
+}
+
+func githubScannerFingerprintConfig(cfg connectors.Config) ([]byte, error) {
+	keys := []string{
+		"org", "repo", "api_base",
+		"include_comments", "comments_timeframe_days",
+		"include_commit_metadata", "skip_merge_commits", "trufflehog_compatible",
+		"include_git_archives", "include_git_binaries",
+		"git_artifact_max_bytes", "archive_max_expanded_bytes", "archive_max_files",
+		"archive_max_depth", "archive_timeout",
+		"include_repo_globs", "exclude_repo_globs", "include_forks", "include_archived",
+		"expand_members", "include_issues", "include_pull_requests", "collab_timeframe_days",
+		"include_wikis", "gist_urls", "include_authenticated_gists", "include_gist_comments",
+	}
+	safe := make(connectors.Config, len(keys))
+	for _, key := range keys {
+		if value, ok := cfg[key]; ok {
+			safe[key] = value
+		}
+	}
+	return json.Marshal(safe)
 }
 
 // runVerifyGitHub looks up the github connector and dispatches the token
@@ -236,6 +267,7 @@ func scanGitHubConfig(opts githubFlags) (connectors.Config, error) {
 		"repo_walk_timeout":           opts.repoWalkTimeout.String(),
 		"include_commit_metadata":     fmt.Sprintf("%t", opts.includeCommitMetadata),
 		"skip_merge_commits":          fmt.Sprintf("%t", opts.skipMergeCommits),
+		"trufflehog_compatible":       fmt.Sprintf("%t", opts.trufflehogCompatible),
 		"include_git_archives":        fmt.Sprintf("%t", opts.includeGitArchives),
 		"include_git_binaries":        fmt.Sprintf("%t", opts.includeGitBinaries),
 		"git_artifact_max_bytes":      fmt.Sprintf("%d", opts.gitArtifactMaxBytes),
