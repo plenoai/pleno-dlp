@@ -200,9 +200,15 @@ func classifyGitHubCloneError(err error, detail string) error {
 // Per-repo failures (clone error, walk error) are tolerated so the org walk
 // continues; context cancellation/deadline is terminal.
 func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider, apiBase, org, repo string, emit Emit) error {
-	if _, err := githubGitArtifactConfig(cfg); err != nil {
+	gitCfg, err := githubGitArtifactConfig(cfg)
+	if err != nil {
 		return err
 	}
+	mergeMode := "dense-resolution"
+	if gitCfg.SkipMergeCommits {
+		mergeMode = "off (trufflehog-compatible)"
+	}
+	fmt.Fprintf(os.Stderr, "github: history merge diff mode: %s\n", mergeMode)
 	if _, err := githubRepoWalkTimeout(cfg); err != nil {
 		return err
 	}

@@ -143,6 +143,11 @@ func runScanGitHub(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	mergeMode := "dense-resolution"
+	if scanGitHubOpts.skipMergeCommits {
+		mergeMode = "off (trufflehog-compatible)"
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "github: merge diff mode: %s\n", mergeMode)
 	src, err := connectors.AsSource("github", cfg)
 	if err != nil {
 		return err
