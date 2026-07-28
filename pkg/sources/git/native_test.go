@@ -394,6 +394,33 @@ func TestParseNativeCombinedRawPath(t *testing.T) {
 	}
 }
 
+func TestNativeCombinedPatchKeepsOnlyResolutionAdds(t *testing.T) {
+	start, ok := nativeCombinedHunkStart([]byte("@@@ -10,2 -20,3 +30,4 @@@\n"), 2)
+	if !ok || start != 30 {
+		t.Fatalf("start=%d ok=%v", start, ok)
+	}
+
+	tests := []struct {
+		line string
+		want string
+	}{
+		{"  shared\n", " shared\n"},
+		{"+ from-first-parent\n", " from-first-parent\n"},
+		{" +from-second-parent\n", " from-second-parent\n"},
+		{"++merge-resolution\n", "+merge-resolution\n"},
+		{"- removed-from-first\n", "-removed-from-first\n"},
+	}
+	for _, tt := range tests {
+		got, err := nativeCombinedResultLine([]byte(tt.line), 2)
+		if err != nil {
+			t.Fatalf("%q: %v", tt.line, err)
+		}
+		if string(got) != tt.want {
+			t.Fatalf("%q => %q, want %q", tt.line, got, tt.want)
+		}
+	}
+}
+
 func TestChunks_NativeDisablesSignatureVerificationProgram(t *testing.T) {
 	requireNativeGit(t)
 	if _, err := exec.LookPath("ssh-keygen"); err != nil {

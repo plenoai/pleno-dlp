@@ -247,10 +247,9 @@ func (s *Source) nativeLogArgs() []string {
 	return append(args, "--stdin", "--")
 }
 
-// nativeMergePass computes combined tree diffs while the main patch stream is
-// being parsed. Its stdout contains paths and commit metadata, never blob
-// contents, and is spooled to a private temporary file so merge-result chunks
-// remain ordered after all ordinary-history chunks.
+// nativeMergePass computes combined patches while the main patch stream is
+// being parsed. Its stdout is spooled to a private temporary file so merge
+// resolution chunks remain ordered after all ordinary-history chunks.
 type nativeMergePass struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
@@ -271,14 +270,21 @@ func (s *Source) startNativeMergeResults(ctx context.Context, gitBin string) (*n
 		"--root",
 		"-r",
 		"--raw",
+		"--patch",
 		"--no-show-signature",
 		"--abbrev=40",
 		"--no-renames",
 		"--no-color",
 		"--no-ext-diff",
 		"--no-textconv",
+		"--no-indent-heuristic",
+		"--inter-hunk-context=0",
 		"--ignore-submodules=all",
+		"--diff-algorithm=myers",
 		"-c",
+		"--unified=3",
+		"--src-prefix=a/",
+		"--dst-prefix=b/",
 		"--format=" + nativePrettyFormat,
 		"--",
 	}
@@ -288,7 +294,7 @@ func (s *Source) startNativeMergeResults(ctx context.Context, gitBin string) (*n
 	if err != nil {
 		return nil, fmt.Errorf("git: native merge raw stdin: %w", err)
 	}
-	output, err := os.CreateTemp("", "pleno-dlp-native-merge-*.raw")
+	output, err := os.CreateTemp("", "pleno-dlp-native-merge-*.patch")
 	if err != nil {
 		_ = stdin.Close()
 		return nil, fmt.Errorf("git: create native merge spool: %w", err)
@@ -350,45 +356,70 @@ func (p *nativeMergePass) finish(ctx context.Context, source *Source, repo *gogi
 	parseErr := source.parseNativeMergeResults(ctx, repo, p.output, ch)
 	p.cleanup()
 	if parseErr != nil {
-		return fmt.Errorf("git: parse native merge raw: %w", parseErr)
+		return fmt.Errorf("git: parse native merge patch: %w", parseErr)
 	}
 	return nil
 }
 
 func (s *Source) parseNativeMergeResults(ctx context.Context, repo *gogit.Repository, r io.Reader, ch chan<- *sources.Chunk) error {
 	reader := bufio.NewReaderSize(r, 256<<10)
-	var meta *nativeCommit
+	parser := nativeLogParser{ctx: ctx, source: s, repo: repo, ch: ch}
 	for {
 		line, truncated, err := readNativeLine(reader, int(maxBlobSize)+1)
 		if truncated {
-			return fmt.Errorf("native merge raw line exceeds %d-byte limit", maxBlobSize)
+			return fmt.Errorf("native merge patch line exceeds %d-byte limit", maxBlobSize)
 		}
 		if len(line) > 0 {
 			switch {
 			case line[0] == nativeRecordSeparator:
-				commit, parseErr := parseNativeCommit(line)
-				if parseErr != nil {
+				if parseErr := parser.consumeLine(line); parseErr != nil {
 					return parseErr
 				}
-				meta = &commit
-			case bytes.HasPrefix(line, []byte("::")):
-				if meta == nil {
+			case line[0] == ':' && bytes.HasPrefix(line, []byte("::")):
+				if parser.commit == nil {
 					return errors.New("native merge raw record precedes commit metadata")
 				}
 				path, deleted, parseErr := parseNativeCombinedRawPath(line)
 				if parseErr != nil {
 					return parseErr
 				}
-				if !deleted && s.pathAllowed(path) {
-					if emitErr := s.emitNativeMergeResult(ctx, repo, *meta, path, ch); emitErr != nil {
-						return emitErr
-					}
+				if len(parser.rawPaths) >= nativePathLimit || parser.rawPathBytes+int64(len(path)) > maxBlobSize {
+					return fmt.Errorf("native merge raw paths exceed %d entries or %d bytes", nativePathLimit, maxBlobSize)
+				}
+				parser.rawPaths = append(parser.rawPaths, path)
+				parser.rawDeleted = append(parser.rawDeleted, deleted)
+				parser.rawPathBytes += int64(len(path))
+			case bytes.HasPrefix(line, []byte("diff --combined ")) || bytes.HasPrefix(line, []byte("diff --cc ")):
+				if parseErr := parser.consumeLine([]byte("diff --git \n")); parseErr != nil {
+					return parseErr
+				}
+			case parser.commit != nil && isNativeCombinedHunkHeader(line, parser.commit.parentCount):
+				if parseErr := parser.flushHunk(); parseErr != nil {
+					return parseErr
+				}
+				start, ok := nativeCombinedHunkStart(line, parser.commit.parentCount)
+				if !ok {
+					return fmt.Errorf("malformed native combined hunk header %q", strings.TrimSpace(string(line)))
+				}
+				parser.hunk = nativeHunk{newLine: start}
+				parser.inHunk = true
+			case parser.inHunk:
+				synthetic, parseErr := nativeCombinedResultLine(line, parser.commit.parentCount)
+				if parseErr != nil {
+					return parseErr
+				}
+				if parseErr := parser.consumeLine(synthetic); parseErr != nil {
+					return parseErr
+				}
+			default:
+				if parseErr := parser.consumeLine(line); parseErr != nil {
+					return parseErr
 				}
 			}
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				return nil
+				return parser.flushFile()
 			}
 			return err
 		}
@@ -398,35 +429,61 @@ func (s *Source) parseNativeMergeResults(ctx context.Context, repo *gogit.Reposi
 	}
 }
 
-func (s *Source) emitNativeMergeResult(ctx context.Context, repo *gogit.Repository, meta nativeCommit, path string, ch chan<- *sources.Chunk) error {
-	commit, err := repo.CommitObject(plumbing.NewHash(meta.hash))
-	if err != nil {
-		return fmt.Errorf("load merge commit %s: %w", meta.hash, err)
+func isNativeCombinedHunkHeader(line []byte, parents int) bool {
+	if parents < 2 {
+		return false
 	}
-	file, err := commit.File(path)
-	if err != nil {
-		return fmt.Errorf("load merge result %s at %s: %w", path, meta.hash, err)
+	return bytes.HasPrefix(line, []byte(strings.Repeat("@", parents+1)+" "))
+}
+
+func nativeCombinedHunkStart(line []byte, parents int) (int, bool) {
+	if !isNativeCombinedHunkHeader(line, parents) {
+		return 0, false
 	}
-	reader, err := file.Reader()
-	if err != nil {
-		return fmt.Errorf("open merge result %s at %s: %w", path, meta.hash, err)
+	fields := bytes.Fields(line)
+	if len(fields) < parents+3 {
+		return 0, false
 	}
-	data, readErr := io.ReadAll(io.LimitReader(reader, maxBlobSize+1))
-	closeErr := reader.Close()
-	if readErr != nil {
-		return fmt.Errorf("read merge result %s at %s: %w", path, meta.hash, readErr)
+	resultRange := fields[parents+1]
+	if len(resultRange) < 2 || resultRange[0] != '+' {
+		return 0, false
 	}
-	if closeErr != nil {
-		return fmt.Errorf("close merge result %s at %s: %w", path, meta.hash, closeErr)
+	end := bytes.IndexByte(resultRange, ',')
+	if end < 0 {
+		end = len(resultRange)
 	}
-	if len(data) > int(maxBlobSize) {
-		return fmt.Errorf("merge result %s at %s exceeds %d-byte limit", path, meta.hash, maxBlobSize)
+	start, err := strconv.Atoi(string(resultRange[1:end]))
+	return start, err == nil
+}
+
+func nativeCombinedResultLine(line []byte, parents int) ([]byte, error) {
+	if len(line) > 0 && line[0] == '\\' {
+		return line, nil
 	}
-	if bytes.IndexByte(data, 0x00) >= 0 {
-		return nil
+	if parents < 2 || len(line) < parents {
+		return nil, fmt.Errorf("malformed native combined patch line %q", strings.TrimSpace(string(line)))
 	}
-	parser := nativeLogParser{ctx: ctx, source: s, repo: repo, ch: ch, commit: &meta}
-	return parser.emitSegments(path, splitBlob(data))
+	prefix := line[:parents]
+	marker := byte(' ')
+	allAdded := true
+	for _, column := range prefix {
+		switch column {
+		case '-':
+			marker = '-'
+			allAdded = false
+		case '+':
+		case ' ':
+			allAdded = false
+		default:
+			return nil, fmt.Errorf("malformed native combined patch prefix %q", string(prefix))
+		}
+	}
+	if marker != '-' && allAdded {
+		marker = '+'
+	}
+	synthetic := make([]byte, 1, len(line)-parents+1)
+	synthetic[0] = marker
+	return append(synthetic, line[parents:]...), nil
 }
 
 func parseNativeCombinedRawPath(line []byte) (path string, deleted bool, err error) {
