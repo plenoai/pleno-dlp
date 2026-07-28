@@ -23,12 +23,13 @@ import (
 )
 
 const (
-	nativeRecordSeparator = byte(0x1e)
-	nativeFieldSeparator  = byte(0x00)
-	nativeStderrLimit     = 64 << 10
-	nativePathLimit       = 64 << 10
-	nativeSegmentLimit    = 64 << 10
-	nativePrettyFormat    = "%x1e%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00"
+	nativeRecordSeparator   = byte(0x1e)
+	nativeFieldSeparator    = byte(0x00)
+	nativeOmittedResultLine = byte(0x01)
+	nativeStderrLimit       = 64 << 10
+	nativePathLimit         = 64 << 10
+	nativeSegmentLimit      = 64 << 10
+	nativePrettyFormat      = "%x1e%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00"
 )
 
 var nativeCapabilityCache sync.Map
@@ -466,12 +467,14 @@ func nativeCombinedResultLine(line []byte, parents int) ([]byte, error) {
 	prefix := line[:parents]
 	marker := byte(' ')
 	allAdded := true
+	addedFromParent := false
 	for _, column := range prefix {
 		switch column {
 		case '-':
 			marker = '-'
 			allAdded = false
 		case '+':
+			addedFromParent = true
 		case ' ':
 			allAdded = false
 		default:
@@ -480,6 +483,8 @@ func nativeCombinedResultLine(line []byte, parents int) ([]byte, error) {
 	}
 	if marker != '-' && allAdded {
 		marker = '+'
+	} else if marker != '-' && addedFromParent {
+		marker = nativeOmittedResultLine
 	}
 	synthetic := make([]byte, 1, len(line)-parents+1)
 	synthetic[0] = marker
@@ -869,6 +874,9 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		p.hunk.newLine++
 		p.hunk.lastWasNewSide = true
 	case '-':
+		p.hunk.lastWasNewSide = false
+	case nativeOmittedResultLine:
+		p.hunk.newLine++
 		p.hunk.lastWasNewSide = false
 	case '\\':
 		if p.hunk.lastWasNewSide && len(p.hunk.data) > 0 && p.hunk.data[len(p.hunk.data)-1] == '\n' {

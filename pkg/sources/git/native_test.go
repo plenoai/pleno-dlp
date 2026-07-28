@@ -454,8 +454,8 @@ func TestNativeCombinedPatchKeepsOnlyResolutionAdds(t *testing.T) {
 		want string
 	}{
 		{"  shared\n", " shared\n"},
-		{"+ from-first-parent\n", " from-first-parent\n"},
-		{" +from-second-parent\n", " from-second-parent\n"},
+		{"+ from-first-parent\n", "\x01from-first-parent\n"},
+		{" +from-second-parent\n", "\x01from-second-parent\n"},
 		{"++merge-resolution\n", "+merge-resolution\n"},
 		{"- removed-from-first\n", "-removed-from-first\n"},
 	}
@@ -467,6 +467,14 @@ func TestNativeCombinedPatchKeepsOnlyResolutionAdds(t *testing.T) {
 		if string(got) != tt.want {
 			t.Fatalf("%q => %q, want %q", tt.line, got, tt.want)
 		}
+	}
+
+	parser := nativeLogParser{inHunk: true, hunk: nativeHunk{newLine: 30}}
+	if err := parser.consumeLine([]byte{nativeOmittedResultLine, 'x', '\n'}); err != nil {
+		t.Fatal(err)
+	}
+	if parser.hunk.newLine != 31 || len(parser.hunk.data) != 0 || parser.hunk.hasAdd {
+		t.Fatalf("omitted result line changed hunk content: %+v", parser.hunk)
 	}
 }
 
