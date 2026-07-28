@@ -282,7 +282,9 @@ func (s *Source) startNativeMergeResults(ctx context.Context, gitBin string) (*n
 		"--inter-hunk-context=0",
 		"--ignore-submodules=all",
 		"--diff-algorithm=myers",
-		"-c",
+		// Dense combined diffs retain conflict-resolution hunks while omitting
+		// hunks where the merge simply selected one parent's content.
+		"--cc",
 		"--unified=3",
 		"--src-prefix=a/",
 		"--dst-prefix=b/",
