@@ -201,7 +201,7 @@ func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBi
 		mergePass.abort()
 		return fmt.Errorf("git: close native merge input: %w", mergeCloseErr)
 	}
-	return mergePass.finish(ctx, s, repo, ch)
+	return mergePass.finish(ctx, s, repo, gitBin, ch)
 }
 
 func (s *Source) nativeLogArgs() []string {
@@ -335,7 +335,7 @@ func (p *nativeMergePass) abort() {
 	p.cleanup()
 }
 
-func (p *nativeMergePass) finish(ctx context.Context, source *Source, repo *gogit.Repository, ch chan<- *sources.Chunk) error {
+func (p *nativeMergePass) finish(ctx context.Context, source *Source, repo *gogit.Repository, gitBin string, ch chan<- *sources.Chunk) error {
 	waitErr := p.cmd.Wait()
 	if err := ctx.Err(); err != nil {
 		p.cleanup()
@@ -353,7 +353,7 @@ func (p *nativeMergePass) finish(ctx context.Context, source *Source, repo *gogi
 		p.cleanup()
 		return fmt.Errorf("git: rewind native merge spool: %w", err)
 	}
-	parseErr := source.parseNativeMergeResults(ctx, repo, p.output, ch)
+	parseErr := source.parseNativeMergeResults(ctx, repo, gitBin, p.output, ch)
 	p.cleanup()
 	if parseErr != nil {
 		return fmt.Errorf("git: parse native merge patch: %w", parseErr)
@@ -361,9 +361,9 @@ func (p *nativeMergePass) finish(ctx context.Context, source *Source, repo *gogi
 	return nil
 }
 
-func (s *Source) parseNativeMergeResults(ctx context.Context, repo *gogit.Repository, r io.Reader, ch chan<- *sources.Chunk) error {
+func (s *Source) parseNativeMergeResults(ctx context.Context, repo *gogit.Repository, gitBin string, r io.Reader, ch chan<- *sources.Chunk) error {
 	reader := bufio.NewReaderSize(r, 256<<10)
-	parser := nativeLogParser{ctx: ctx, source: s, repo: repo, ch: ch}
+	parser := nativeLogParser{ctx: ctx, source: s, repo: repo, gitBin: gitBin, ch: ch}
 	for {
 		line, truncated, err := readNativeLine(reader, int(maxBlobSize)+1)
 		if truncated {
@@ -964,6 +964,9 @@ func (p *nativeLogParser) appendFile(data []byte, firstLine int) error {
 }
 
 func (p *nativeLogParser) currentFileBinary() (binary bool, err error) {
+	if p.gitBin != "" {
+		return p.currentFileBinaryNative()
+	}
 	commit, err := p.repo.CommitObject(plumbing.NewHash(p.commit.hash))
 	if err != nil {
 		return false, fmt.Errorf("load commit %s for binary classification: %w", p.commit.hash, err)
@@ -981,9 +984,52 @@ func (p *nativeLogParser) currentFileBinary() (binary bool, err error) {
 			err = fmt.Errorf("close %s at %s after binary classification: %w", p.file.path, p.commit.hash, closeErr)
 		}
 	}()
+	binary, readErr := readerContainsNUL(p.ctx, reader)
+	if readErr != nil {
+		return false, fmt.Errorf("read %s at %s for binary classification: %w", p.file.path, p.commit.hash, readErr)
+	}
+	return binary, nil
+}
+
+func (p *nativeLogParser) currentFileBinaryNative() (bool, error) {
+	object := p.commit.hash + ":" + p.file.path
+	cmd := exec.CommandContext(p.ctx, p.gitBin, "-C", p.source.repoAbs, "cat-file", "blob", object)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return false, fmt.Errorf("git: native binary classification stdout for %s: %w", p.file.path, err)
+	}
+	var stderr limitedWriter
+	stderr.limit = nativeStderrLimit
+	cmd.Stderr = &stderr
+	cmd.Env = nativeGitEnv()
+	if err := cmd.Start(); err != nil {
+		return false, fmt.Errorf("git: start native binary classification for %s: %w", p.file.path, err)
+	}
+	binary, readErr := readerContainsNUL(p.ctx, stdout)
+	if binary || readErr != nil {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+		if readErr != nil {
+			return false, fmt.Errorf("git: read native binary classification for %s: %w", p.file.path, readErr)
+		}
+		return true, nil
+	}
+	if waitErr := cmd.Wait(); waitErr != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail != "" {
+			return false, fmt.Errorf("git: native binary classification for %s: %w: %s", p.file.path, waitErr, detail)
+		}
+		return false, fmt.Errorf("git: native binary classification for %s: %w", p.file.path, waitErr)
+	}
+	return false, nil
+}
+
+func readerContainsNUL(ctx context.Context, reader io.Reader) (bool, error) {
 	buf := make([]byte, 32<<10)
 	for {
-		if err := p.ctx.Err(); err != nil {
+		if err := ctx.Err(); err != nil {
 			return false, err
 		}
 		n, readErr := reader.Read(buf)
@@ -994,7 +1040,7 @@ func (p *nativeLogParser) currentFileBinary() (binary bool, err error) {
 			if errors.Is(readErr, io.EOF) {
 				return false, nil
 			}
-			return false, fmt.Errorf("read %s at %s for binary classification: %w", p.file.path, p.commit.hash, readErr)
+			return false, readErr
 		}
 	}
 }

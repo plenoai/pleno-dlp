@@ -325,6 +325,55 @@ func TestNativeLogParserDropsBinaryAfterBufferLimit(t *testing.T) {
 	}
 }
 
+func TestNativeLogParserClassifiesLargeFilesWithNativeGit(t *testing.T) {
+	requireNativeGit(t)
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{name: "text", content: "first\nsecond\n", want: "first\nsecond\n"},
+		{name: "binary", content: "first\n\x00\nsecond\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			repoPath, hashes := buildRepo(t, []commitSpec{{
+				files: map[string]string{"large.txt": tt.content},
+				msg:   "large file",
+			}})
+			s := &Source{}
+			mustInit(t, s, Config{Repo: repoPath})
+			ch := make(chan *sources.Chunk, 2)
+			parser := nativeLogParser{
+				ctx:         context.Background(),
+				source:      s,
+				gitBin:      gitBin,
+				ch:          ch,
+				commit:      &nativeCommit{hash: hashes[0]},
+				bufferLimit: 8,
+			}
+			diff := "diff --git a/large.txt b/large.txt\n" +
+				"--- a/large.txt\n+++ b/large.txt\n" +
+				"@@ -0,0 +1 @@\n+first\n" +
+				"@@ -0,0 +2 @@\n+second\n"
+			if err := parser.parse(strings.NewReader(diff)); err != nil {
+				t.Fatal(err)
+			}
+			close(ch)
+			var got strings.Builder
+			for chunk := range ch {
+				got.Write(chunk.Data)
+			}
+			if got.String() != tt.want {
+				t.Fatalf("data=%q, want %q", got.String(), tt.want)
+			}
+		})
+	}
+}
+
 func TestChunks_NativeSkipsBinaryWithNULOutsideChangedHunk(t *testing.T) {
 	requireNativeGit(t)
 	const secret = "github_pat_11DISTANTNUL_abcdefghijklmnopqrstuvwxyz0123456789"
