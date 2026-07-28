@@ -638,8 +638,8 @@ func TestEngine_NoVerifyOptionSuppressesVerifyArg(t *testing.T) {
 		t.Errorf("NoVerify: true must call FromData with verify=false, got verify=true")
 	}
 
-	// Sanity check the default (NoVerify: false) still passes verify=true,
-	// so this test would fail loudly if the polarity were ever flipped.
+	// An unregistered detector without an explicit cache policy preserves the
+	// historical single verified call.
 	det2 := &verifyArgRecordingDet{}
 	sink2 := &engineRecordingSink{}
 	eng2 := NewWithDetectors([]detectors.Detector{det2}, Options{}, sink2)
@@ -647,6 +647,6 @@ func TestEngine_NoVerifyOptionSuppressesVerifyArg(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 	if len(det2.calls) != 1 || !det2.calls[0] {
-		t.Errorf("default Options must call FromData with verify=true, got calls=%v", det2.calls)
+		t.Errorf("default Options calls = %v, want [true]", det2.calls)
 	}
 }

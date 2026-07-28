@@ -24,7 +24,8 @@ var urlRe = regexp.MustCompile(`cloudinary://([0-9]{6,18}):([A-Za-z0-9_\-]{20,80
 
 type Scanner struct{}
 
-func (Scanner) Type() detectors.DetectorType { return detectors.Cloudinary }
+func (Scanner) Type() detectors.DetectorType         { return detectors.Cloudinary }
+func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 
 func (Scanner) Keywords() []string { return []string{"cloudinary"} }
 

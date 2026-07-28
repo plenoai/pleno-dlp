@@ -77,19 +77,36 @@ func (WebhookScanner) Verify(ctx context.Context, secret string) (bool, error) {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 512))
+	if err != nil {
+		return false, fmt.Errorf("slack webhook verify: read response: %w", err)
+	}
 	msg := strings.TrimSpace(string(body))
 
 	switch resp.StatusCode {
 	case http.StatusBadRequest:
-		return msg == "invalid_payload" || msg == "no_text", nil
-	case http.StatusNotFound, http.StatusGone, http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
-		return false, nil
+		if msg == "invalid_payload" || msg == "no_text" {
+			return true, nil
+		}
+		return false, fmt.Errorf("slack webhook verify: ambiguous HTTP 400 response")
+	case http.StatusUnauthorized, http.StatusNotFound:
+		switch msg {
+		case "invalid_token", "no_service", "no_service_id", "no_team":
+			return false, nil
+		default:
+			return false, fmt.Errorf("slack webhook verify: ambiguous HTTP %d response", resp.StatusCode)
+		}
+	case http.StatusForbidden, http.StatusGone:
+		// action_prohibited and channel_is_archived describe policy or channel
+		// state, not an invalid webhook secret.
+		return false, fmt.Errorf("slack webhook verify: non-credential HTTP %d response", resp.StatusCode)
+	case http.StatusTooManyRequests:
+		return false, fmt.Errorf("slack webhook verify: rate limited")
 	}
 	if resp.StatusCode >= http.StatusInternalServerError {
 		return false, fmt.Errorf("slack webhook verify: server error: %s", resp.Status)
 	}
-	return false, nil
+	return false, fmt.Errorf("slack webhook verify: ambiguous HTTP %d", resp.StatusCode)
 }
 
 func slackWebhookVerifyURL(secret string) (string, bool) {

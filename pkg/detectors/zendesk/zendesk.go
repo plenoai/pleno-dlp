@@ -70,7 +70,8 @@ var hostRe = regexp.MustCompile(`\b([a-z0-9-]+\.zendesk\.com)\b`)
 
 type Scanner struct{}
 
-func (Scanner) Type() detectors.DetectorType { return detectors.Zendesk }
+func (Scanner) Type() detectors.DetectorType         { return detectors.Zendesk }
+func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 
 func (Scanner) Keywords() []string { return []string{"zendesk"} }
 

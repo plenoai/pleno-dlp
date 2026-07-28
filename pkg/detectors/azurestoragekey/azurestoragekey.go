@@ -43,7 +43,8 @@ var httpClient = &http.Client{Timeout: dialTimeout}
 
 type Scanner struct{}
 
-func (Scanner) Type() detectors.DetectorType { return detectors.AzureStorageKey }
+func (Scanner) Type() detectors.DetectorType         { return detectors.AzureStorageKey }
+func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 
 func (Scanner) Keywords() []string { return []string{"AccountKey="} }
 

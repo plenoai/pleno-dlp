@@ -57,13 +57,23 @@ func TestClassifyVerifyHTTP_TransientCodes(t *testing.T) {
 	}
 }
 
-func TestClassifyVerifyHTTP_UnknownCode_TreatedAsRejection(t *testing.T) {
+func TestClassifyVerifyHTTP_UnknownCode_IsIndeterminate(t *testing.T) {
 	resp := &http.Response{StatusCode: 422}
 	ok, err := detectors.ClassifyVerifyHTTP(resp, nil, []int{200}, []int{401, 403})
 	if ok {
 		t.Error("expected verified=false for unknown code")
 	}
-	if err != nil {
-		t.Errorf("expected err==nil for unknown non-transient code, got: %v", err)
+	if err == nil {
+		t.Error("expected err != nil for unknown non-transient code")
+	}
+}
+
+func TestClassifyVerifyHTTP_MissingResponseIsIndeterminate(t *testing.T) {
+	ok, err := detectors.ClassifyVerifyHTTP(nil, nil, []int{200}, []int{401})
+	if ok {
+		t.Error("expected verified=false for missing response")
+	}
+	if err == nil {
+		t.Error("expected err != nil for missing response")
 	}
 }

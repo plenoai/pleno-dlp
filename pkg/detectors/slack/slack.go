@@ -92,15 +92,22 @@ func verifyWithMetadata(ctx context.Context, secret string) (bool, map[string]st
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		return false, nil, nil
+		return false, nil, errors.New("slack verify: rate limited")
 	}
 	if resp.StatusCode != http.StatusOK {
-		return false, nil, nil
+		if resp.StatusCode == http.StatusUnauthorized {
+			return false, nil, nil
+		}
+		return false, nil, fmt.Errorf("slack verify: ambiguous HTTP %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return false, nil, fmt.Errorf("slack verify: read response: %w", err)
+	}
 	var auth struct {
 		OK           bool   `json:"ok"`
+		Error        string `json:"error"`
 		URL          string `json:"url"`
 		Team         string `json:"team"`
 		User         string `json:"user"`
@@ -111,10 +118,15 @@ func verifyWithMetadata(ctx context.Context, secret string) (bool, map[string]st
 		IsEnterprise bool   `json:"is_enterprise_install"`
 	}
 	if err := json.Unmarshal(body, &auth); err != nil {
-		return false, nil, nil
+		return false, nil, fmt.Errorf("slack verify: decode response: %w", err)
 	}
 	if !auth.OK {
-		return false, nil, nil
+		switch auth.Error {
+		case "invalid_auth", "not_authed", "account_inactive", "token_revoked", "token_expired":
+			return false, nil, nil
+		default:
+			return false, nil, fmt.Errorf("slack verify: ambiguous API error %q", auth.Error)
+		}
 	}
 	meta := buildAuthMetadata(resp.Header, &auth)
 	return true, meta, nil
@@ -123,6 +135,7 @@ func verifyWithMetadata(ctx context.Context, secret string) (bool, map[string]st
 // buildAuthMetadata assembles ExtraData from a successful auth.test response.
 func buildAuthMetadata(h http.Header, auth *struct {
 	OK           bool   `json:"ok"`
+	Error        string `json:"error"`
 	URL          string `json:"url"`
 	Team         string `json:"team"`
 	User         string `json:"user"`

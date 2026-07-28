@@ -1171,7 +1171,9 @@ func DefaultSeverityForVerdict(t DetectorType, v Verdict) Severity {
 
 // Detector is the trufflehog-compatible detector contract. Keywords gates the
 // expensive FromData step: the engine skips chunks containing none of the
-// returned strings (case-insensitive substring match).
+// returned strings (case-insensitive substring match). FromData must return the
+// same candidates regardless of verify; verify may only enrich their verdict
+// and verification metadata.
 type Detector interface {
 	Keywords() []string
 	FromData(ctx context.Context, verify bool, data []byte) ([]Result, error)
@@ -1183,6 +1185,30 @@ type Detector interface {
 // caller requested verification.
 type Verifier interface {
 	Verify(ctx context.Context, secret string) (bool, error)
+}
+
+// VerificationCacheInputDependent is implemented by Verifier detectors whose
+// verification outcome depends on bytes outside Result.Raw and Result.RawV2.
+// The engine includes the full detector input in those detectors' cache keys.
+//
+// A detector that derives a provider host, tenant, session token, certificate,
+// or another verification input from the surrounding data must implement this
+// interface and return true. Returning false explicitly declares that Raw and
+// RawV2 fully determine verification identity. For backward safety, the engine
+// does not cache unregistered or unaudited detector implementations that do
+// not declare a policy.
+type VerificationCacheInputDependent interface {
+	VerificationCacheUsesFullInput() bool
+}
+
+// VerificationCacheSafe lets an external detector opt in to run-scoped
+// positive- and negative-verdict caching. FromData must return an
+// output-stable candidate set for verify=false and verify=true, verification
+// must have no required per-call side effects, and ambiguous outcomes must
+// carry a non-nil VerificationErr. In particular, transport failures, rate
+// limits, provider 5xx responses, and policy failures are not clean negatives.
+type VerificationCacheSafe interface {
+	VerificationCacheCanStoreVerdicts() bool
 }
 
 // FullChunkDetector is optionally implemented by detectors whose match

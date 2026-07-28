@@ -120,7 +120,8 @@ var tenantUUIDKeywords = []string{
 
 type Scanner struct{}
 
-func (Scanner) Type() detectors.DetectorType { return detectors.AzureApp }
+func (Scanner) Type() detectors.DetectorType         { return detectors.AzureApp }
+func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 
 func (Scanner) Keywords() []string { return []string{"client_id", "azure"} }
 

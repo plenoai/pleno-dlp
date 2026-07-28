@@ -71,6 +71,38 @@ func TestVerify_NotOK(t *testing.T) {
 	}
 }
 
+func TestVerify_TransientAndAmbiguousResponses(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{name: "rate_limited", status: http.StatusTooManyRequests},
+		{name: "provider_error", status: http.StatusServiceUnavailable},
+		{name: "malformed_body", status: http.StatusOK, body: "not-json"},
+		{name: "ambiguous_api_error", status: http.StatusOK, body: `{"ok":false,"error":"internal_error"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+			old := apiBase
+			apiBase = srv.URL
+			t.Cleanup(func() { apiBase = old })
+
+			verified, err := Scanner{}.Verify(context.Background(), dummyToken)
+			if verified {
+				t.Fatal("ambiguous response must not verify")
+			}
+			if err == nil {
+				t.Fatal("ambiguous response must be indeterminate")
+			}
+		})
+	}
+}
+
 func TestFromData_VerifyEnrichesIdentity(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("X-OAuth-Scopes", "chat:write, files:write, users:read")

@@ -147,6 +147,61 @@ func TestWebhookVerifyRevoked(t *testing.T) {
 	}
 }
 
+func TestWebhookVerifyCredentialRejections(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{name: "invalid_token", status: http.StatusUnauthorized, body: "invalid_token"},
+		{name: "no_service", status: http.StatusNotFound, body: "no_service"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := webhookVerifyServer(t, tc.status, tc.body)
+			defer srv.Close()
+
+			verified, err := WebhookScanner{}.Verify(context.Background(), dummyWebhook)
+			if err != nil {
+				t.Fatalf("authoritative rejection: %v", err)
+			}
+			if verified {
+				t.Fatal("rejected webhook must not verify")
+			}
+		})
+	}
+}
+
+func TestWebhookVerifyTransientAndAmbiguousResponses(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{name: "rate_limited", status: http.StatusTooManyRequests},
+		{name: "provider_error", status: http.StatusServiceUnavailable},
+		{name: "unknown_bad_request", status: http.StatusBadRequest, body: "unknown_error"},
+		{name: "admin_restriction", status: http.StatusForbidden, body: "action_prohibited"},
+		{name: "hooks_disabled", status: http.StatusNotFound, body: "no_active_hooks"},
+		{name: "team_disabled", status: http.StatusNotFound, body: "team_disabled"},
+		{name: "missing_channel", status: http.StatusNotFound, body: "channel_not_found"},
+		{name: "archived_channel", status: http.StatusGone, body: "channel_is_archived"},
+		{name: "unknown_status", status: http.StatusTeapot},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := webhookVerifyServer(t, tc.status, tc.body)
+			defer srv.Close()
+
+			verified, err := WebhookScanner{}.Verify(context.Background(), dummyWebhook)
+			if verified {
+				t.Fatal("ambiguous response must not verify")
+			}
+			if err == nil {
+				t.Fatal("ambiguous response must be indeterminate")
+			}
+		})
+	}
+}
+
 func TestWebhookVerifyRejectsNonSlackHost(t *testing.T) {
 	v, err := WebhookScanner{}.Verify(
 		context.Background(),

@@ -33,6 +33,21 @@ func TestFromData_Pair(t *testing.T) {
 	}
 }
 
+func TestFromData_DoesNotPairSecretIDWithItself(t *testing.T) {
+	const exact32ByteID = "AKIDabcdefghijklmnopqrstuvwxyz01"
+	body := "tencent_secret_id=" + exact32ByteID + "\ntencent_secret_key=" + dummySecret + "\n"
+	res, err := Scanner{}.FromData(context.Background(), false, []byte(body))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected 1, got %d", len(res))
+	}
+	if string(res[0].RawV2) != dummySecret {
+		t.Fatalf("RawV2 must contain the adjacent SecretKey")
+	}
+}
+
 func TestFromData_NoKeyword(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, []byte("random "+dummyID+" word"))
 	if len(res) != 0 {
@@ -124,6 +139,28 @@ func TestVerify_SecretIdNotFoundOn200(t *testing.T) {
 	}
 }
 
+func TestVerify_NonCredentialAuthFailuresAreIndeterminate(t *testing.T) {
+	for _, code := range []string{
+		"AuthFailure.SignatureExpire",
+		"AuthFailure.TokenFailure",
+		"AuthFailure.UnauthorizedOperation",
+	} {
+		t.Run(code, func(t *testing.T) {
+			withServer(t, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`{"Response":{"Error":{"Code":"` + code + `","Message":"not a credential rejection"},"RequestId":"req-indeterminate"}}`))
+			})
+
+			v, err := Scanner{}.Verify(context.Background(), dummyID+":"+dummySecret)
+			if err == nil {
+				t.Fatal("expected indeterminate verification error")
+			}
+			if v {
+				t.Fatal("indeterminate response must not verify")
+			}
+		})
+	}
+}
+
 func TestVerify_Transient500(t *testing.T) {
 	withServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -193,7 +230,7 @@ func TestFromData_VerifySetsAccountID(t *testing.T) {
 	}
 }
 
-func TestFromData_VerifyAuthFailureNotVerified(t *testing.T) {
+func TestFromData_VerifyTokenFailureIsIndeterminate(t *testing.T) {
 	withServer(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"Response":{"Error":{"Code":"AuthFailure.TokenFailure","Message":"bad"},"RequestId":"req-5"}}`))
 	})
@@ -206,7 +243,7 @@ func TestFromData_VerifyAuthFailureNotVerified(t *testing.T) {
 	if res[0].Verified {
 		t.Fatal("AuthFailure must leave Verified=false")
 	}
-	if res[0].VerificationErr != nil {
-		t.Fatalf("authoritative AuthFailure must not set VerificationErr: %v", res[0].VerificationErr)
+	if res[0].VerificationErr == nil {
+		t.Fatal("token failure must set VerificationErr")
 	}
 }

@@ -112,3 +112,45 @@ func TestContractNoDuplicateTypes(t *testing.T) {
 		}
 	}
 }
+
+// TestContractVerificationCacheInputDependentSet pins the audited set of
+// detectors whose provider verification uses context outside Raw and RawV2.
+// Update this set only after auditing a detector's verified FromData path.
+func TestContractVerificationCacheInputDependentSet(t *testing.T) {
+	t.Parallel()
+	want := map[detectors.DetectorType]bool{
+		detectors.AWSSession:      true,
+		detectors.AzureAD:         true,
+		detectors.AzureApp:        true,
+		detectors.AzureStorageKey: true,
+		detectors.Cloudinary:      true,
+		detectors.Databricks:      true,
+		detectors.Freshdesk:       true,
+		detectors.JFrog:           true,
+		detectors.Kubeconfig:      true,
+		detectors.Supabase:        true,
+		detectors.Weaviate:        true,
+		detectors.Zendesk:         true,
+	}
+	got := make(map[detectors.DetectorType]bool)
+	for _, d := range detectors.All() {
+		contextual, ok := d.(detectors.VerificationCacheInputDependent)
+		if !ok || !contextual.VerificationCacheUsesFullInput() {
+			continue
+		}
+		if _, ok := d.(detectors.Verifier); !ok {
+			t.Errorf("input-dependent detector %T (%s) is not a Verifier", d, d.Type())
+		}
+		got[d.Type()] = true
+	}
+	for detectorType := range want {
+		if !got[detectorType] {
+			t.Errorf("input-dependent detector %s is missing its cache marker", detectorType)
+		}
+	}
+	for detectorType := range got {
+		if !want[detectorType] {
+			t.Errorf("detector %s has an unaudited input-dependent cache marker", detectorType)
+		}
+	}
+}

@@ -723,6 +723,16 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 			"scanned %d chunk(s), %d byte(s), %d finding(s) in %s\n",
 			stats.Chunks, stats.Bytes, counter.count.Load(), stats.Duration.Round(time.Millisecond),
 		)
+		if stats.VerificationCacheHits+stats.VerificationCacheMisses+stats.VerifiedDetectorCalls > 0 {
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"verification cache: verdict_hits=%d missed_passes=%d partial_hits_wasted=%d bypasses=%d evictions=%d verified_passes_saved=%d verified_detector_calls=%d verified_call_time=%s\n",
+				stats.VerificationCacheHits, stats.VerificationCacheMisses,
+				stats.VerificationCacheHitsWasted, stats.VerificationCacheBypasses,
+				stats.VerificationCacheEvictions,
+				stats.VerifiedPassesSaved,
+				stats.VerifiedDetectorCalls, stats.VerifiedDetectorCallDuration.Round(time.Millisecond),
+			)
+		}
 		// Discoverability for the audit-first default (#250): when
 		// some findings were emitted but didn't meet the --fail-on
 		// gate, say so explicitly and name the escape hatch. Without
