@@ -102,6 +102,7 @@ func builtInVerificationCacheSafe(detectorType detectors.DetectorType) bool {
 	case detectors.ArgoCD,
 		detectors.BitbucketServer,
 		detectors.DockerHub,
+		detectors.Resend,
 		detectors.SlackWebhook,
 		detectors.Tailscale:
 		return true
