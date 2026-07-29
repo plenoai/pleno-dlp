@@ -1,15 +1,20 @@
 // Package resend detects Resend API keys (`re_…`) and verifies them
 // against /domains using Bearer auth.
 //
-// Resend keys grant the issuing workspace's full email-sending scope.
-// The `re_` prefix is distinctive enough that no keyword gate is
-// required; we still keep `re_` in the prefilter list for the engine.
+// Resend keys grant the issuing workspace's email-sending scope. The `re_`
+// prefix also appears in ordinary identifiers, so obvious snake_case
+// identifiers are retained as candidates but do not trigger remote
+// verification.
 package resend
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,9 +24,6 @@ var apiBase = "https://api.resend.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-// re_<workspace-id-or-prefix>_<base62 body>. Production keys are 30+
-// chars total. Some samples are `re_<base62>` without the second
-// underscore — we accept both shapes.
 var tokenRe = regexp.MustCompile(`\b(re_[A-Za-z0-9_]{20,})\b`)
 
 type Scanner struct{}
@@ -37,25 +39,44 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	}
 	out := make([]detectors.Result, 0, len(matches))
 	seen := map[string]struct{}{}
-	for _, m := range matches {
-		token := string(m)
-		if _, dup := seen[token]; dup {
+	for _, match := range matches {
+		token := string(match)
+		if _, duplicate := seen[token]; duplicate {
 			continue
 		}
 		seen[token] = struct{}{}
-		res := detectors.Result{
+		result := detectors.Result{
 			DetectorType: detectors.Resend,
 			Raw:          []byte(token),
 			Redacted:     redact(token),
 		}
-		if verify {
+		if verify && shouldVerify(token) {
 			v, err := s.Verify(ctx, token)
-			res.Verified = v
-			res.VerificationErr = err
+			result.Verified = v
+			result.VerificationErr = err
 		}
-		out = append(out, res)
+		out = append(out, result)
 	}
 	return out, nil
+}
+
+func shouldVerify(token string) bool {
+	// Resend publicly guarantees only the re_ prefix, so unfamiliar token
+	// shapes still go to the provider. The narrow exception is an all-lowercase
+	// body with multiple separators: this is the common snake_case identifier
+	// collision behind large candidate storms, not the provider's documented
+	// generated-key shape. Keeping the candidate in the result preserves the
+	// detector contract and offline coverage.
+	body := token[len("re_"):]
+	if strings.Count(body, "_") < 2 {
+		return true
+	}
+	for _, c := range body {
+		if c >= 'A' && c <= 'Z' {
+			return true
+		}
+	}
+	return false
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
@@ -68,20 +89,40 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+secret)
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "pleno-dlp")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return false, err
 	}
 	defer resp.Body.Close()
-	switch resp.StatusCode {
-	case http.StatusOK:
+	if resp.StatusCode == http.StatusOK {
 		return true, nil
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
-		return false, nil
-	default:
-		return false, nil
 	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	if err != nil {
+		return false, fmt.Errorf("resend verify: read response: %w", err)
+	}
+	var apiErr struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(body, &apiErr); err != nil {
+		return false, fmt.Errorf("resend verify: ambiguous HTTP %d response", resp.StatusCode)
+	}
+	switch apiErr.Name {
+	case "restricted_api_key":
+		// Sending-only keys cannot list domains, but the provider has
+		// authenticated the key and reported its permission boundary.
+		if resp.StatusCode == http.StatusUnauthorized {
+			return true, nil
+		}
+	case "invalid_api_key":
+		if resp.StatusCode == http.StatusForbidden {
+			return false, nil
+		}
+	}
+	return false, fmt.Errorf("resend verify: ambiguous HTTP %d response (%s)", resp.StatusCode, apiErr.Name)
 }
 
 func redact(t string) string {

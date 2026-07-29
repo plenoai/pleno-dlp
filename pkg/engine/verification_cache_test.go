@@ -222,6 +222,7 @@ func TestVerificationCacheBuiltInSafeAllowlist(t *testing.T) {
 		detectors.ArgoCD:          true,
 		detectors.BitbucketServer: true,
 		detectors.DockerHub:       true,
+		detectors.Resend:          true,
 		detectors.SlackWebhook:    true,
 		detectors.Tailscale:       true,
 	}
