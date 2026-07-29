@@ -123,7 +123,8 @@ type window struct{ start, end int }
 
 type Scanner struct{}
 
-func (Scanner) Type() detectors.DetectorType { return detectors.Kubeconfig }
+func (Scanner) Type() detectors.DetectorType         { return detectors.Kubeconfig }
+func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 
 func (Scanner) Keywords() []string { return []string{"kind: Config", "kind:Config"} }
 

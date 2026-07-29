@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/format/diff"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
@@ -33,6 +34,9 @@ import (
 const binarySniffLen = 512
 
 const maxBlobSize int64 = 50 * 1024 * 1024 // 50 MiB
+
+// ErrNoBranchHeads identifies repositories with no commit-bearing branch refs.
+var ErrNoBranchHeads = errors.New("git: no branch heads to walk")
 
 // maxDiffBlobSize bounds the blob size (either side) that firstChangedLine
 // and addedHunks will run a diff over. change.Patch() reads both blob sides
@@ -112,7 +116,14 @@ type Config struct {
 	// IncludeCommitMetadata emits one synthetic commit:metadata chunk per
 	// commit containing the message, identities, and default git notes.
 	// It is opt-in because author/committer emails are expected PII.
-	IncludeCommitMetadata   bool          `json:"include_commit_metadata,omitempty"`
+	IncludeCommitMetadata bool `json:"include_commit_metadata,omitempty"`
+	// SkipMergeCommits omits merge-commit diffs while retaining every
+	// non-merge commit. It is opt-in because merge-conflict resolutions can
+	// introduce unique content.
+	SkipMergeCommits bool `json:"skip_merge_commits,omitempty"`
+	// TrufflehogCompatible matches trufflehog's Git diff surface: merge and
+	// rename diffs are omitted and unchanged context keeps only newlines.
+	TrufflehogCompatible    bool          `json:"trufflehog_compatible,omitempty"`
 	IncludeGitArchives      bool          `json:"include_git_archives,omitempty"`
 	IncludeGitBinaries      bool          `json:"include_git_binaries,omitempty"`
 	GitArtifactMaxBytes     int64         `json:"git_artifact_max_bytes,omitempty"`
@@ -136,6 +147,8 @@ type Source struct {
 	include               []string
 	exclude               []string
 	includeCommitMetadata bool
+	skipMergeCommits      bool
+	trufflehogCompatible  bool
 	includeGitArchives    bool
 	includeGitBinaries    bool
 	gitArtifactMaxBytes   int64
@@ -159,6 +172,10 @@ type incrementalState struct {
 }
 
 func (s *Source) Type() sources.SourceType { return sources.SourceGit }
+
+func (s *Source) omitMergeDiffs() bool {
+	return s.skipMergeCommits || s.trufflehogCompatible
+}
 
 func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, _ bool, config []byte, concurrency int) error {
 	var cfg Config
@@ -203,6 +220,8 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, _
 	s.include = cfg.Include
 	s.exclude = cfg.Exclude
 	s.includeCommitMetadata = cfg.IncludeCommitMetadata
+	s.skipMergeCommits = cfg.SkipMergeCommits
+	s.trufflehogCompatible = cfg.TrufflehogCompatible
 	s.includeGitArchives = cfg.IncludeGitArchives
 	s.includeGitBinaries = cfg.IncludeGitBinaries
 	s.gitArtifactMaxBytes = cfg.GitArtifactMaxBytes
@@ -230,6 +249,9 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, _
 }
 
 func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
+	if s.trufflehogCompatible {
+		fmt.Fprintln(os.Stderr, "git: diff surface: trufflehog-compatible")
+	}
 	repo, err := git.PlainOpen(s.repoAbs)
 	if err != nil {
 		return fmt.Errorf("git: reopen repo: %w", err)
@@ -450,7 +472,7 @@ func (s *Source) resolveStarts(repo *git.Repository) ([]plumbing.Hash, error) {
 		return nil, fmt.Errorf("git: iterate references: %w", err)
 	}
 	if len(starts) == 0 {
-		return nil, errors.New("git: no branch heads to walk")
+		return nil, ErrNoBranchHeads
 	}
 	return starts, nil
 }
@@ -589,6 +611,12 @@ var errStorerStop = errors.New("git: stop iteration")
 
 // emitCommit diffs the commit against its first parent.
 func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *sources.Chunk) error {
+	if s.omitMergeDiffs() && c.NumParents() > 1 {
+		if s.includeCommitMetadata {
+			return s.emitCommitMetadata(ctx, c, ch)
+		}
+		return nil
+	}
 	var partialErrs []error
 	if s.includeGitArchives || s.includeGitBinaries {
 		weight := s.gitArtifactMaxBytes
@@ -621,7 +649,10 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 		}
 	}
 
-	changes, err := object.DiffTreeWithOptions(ctx, oldTree, newTree, &object.DiffTreeOptions{DetectRenames: false})
+	changes, err := object.DiffTreeWithOptions(ctx, oldTree, newTree, &object.DiffTreeOptions{})
+	if err == nil && s.trufflehogCompatible {
+		changes, err = detectTrufflehogRenames(changes)
+	}
 	if err != nil {
 		return fmt.Errorf("git: diff tree for commit %s: %w", c.Hash, err)
 	}
@@ -641,6 +672,16 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 		}
 		if to == nil {
 			// Pure deletions have no `to` file — there is nothing to scan.
+			continue
+		}
+		if s.trufflehogCompatible && from != nil && change.From.Name != change.To.Name {
+			// Trufflehog's full-history command uses --diff-filter=AM, which
+			// excludes paths classified as renames.
+			continue
+		}
+		if s.trufflehogCompatible && from != nil && !sameGitDiffType(change.From.TreeEntry.Mode, change.To.TreeEntry.Mode) {
+			// --diff-filter=AM also excludes type changes such as a regular
+			// file becoming a symlink. Executable-bit changes remain M.
 			continue
 		}
 		path := change.To.Name
@@ -690,7 +731,7 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 				segments = splitBlob(data)
 			}
 		} else if from.Size <= maxDiffBlobSize && to.Size <= maxDiffBlobSize {
-			data, ok := addedHunks(change, from, to)
+			data, ok := addedHunks(change, from, to, s.trufflehogCompatible)
 			if ok {
 				segments = []diffSegment{{data: data, line: firstChangedLine(change, from, to)}}
 			}
@@ -843,6 +884,7 @@ func (s *Source) commitNotes(ctx context.Context, hash plumbing.Hash) (string, e
 // reserved for small files. Native git produces a bounded stdout stream; this
 // parser retains only added lines and three lines of diff context and splits
 // output into maxDiffChunkSize pieces with a small detector-boundary overlap.
+// In trufflehog-compatible mode unchanged context keeps only its newlines.
 func (s *Source) nativeAddedHunks(ctx context.Context, c *object.Commit, path string) ([]diffSegment, error) {
 	if c.NumParents() == 0 {
 		return nil, nil
@@ -930,7 +972,11 @@ func (s *Source) nativeAddedHunks(ctx context.Context, c *object.Commit, path st
 			appendData(append([]byte(line[1:]), '\n'))
 			lineNo++
 		case ' ':
-			appendData(append([]byte(line[1:]), '\n'))
+			if s.trufflehogCompatible {
+				appendData([]byte{'\n'})
+			} else {
+				appendData(append([]byte(line[1:]), '\n'))
+			}
 			lineNo++
 		case '-':
 			// old-side only
@@ -1022,6 +1068,61 @@ func readBlobLimit(f *object.File, limit int64) ([]byte, bool) {
 // the commit added the file as a whole (no patch context), when either blob
 // side exceeds maxDiffBlobSize, or when the patch cannot be computed —
 // callers treat 0 as "unknown".
+func gitRenameOptions(trufflehogCompatible bool) *object.DiffTreeOptions {
+	if !trufflehogCompatible {
+		return &object.DiffTreeOptions{}
+	}
+	return &object.DiffTreeOptions{
+		DetectRenames: true,
+		RenameScore:   50,   // Git --find-renames default.
+		RenameLimit:   1000, // Git diff.renameLimit default.
+	}
+}
+
+func detectTrufflehogRenames(changes object.Changes) (object.Changes, error) {
+	fromModes := make(map[string]filemode.FileMode, len(changes))
+	toModes := make(map[string]filemode.FileMode, len(changes))
+	normalized := make(object.Changes, 0, len(changes))
+	for _, change := range changes {
+		copy := *change
+		if copy.From.Name != "" {
+			fromModes[copy.From.Name] = copy.From.TreeEntry.Mode
+			copy.From.TreeEntry.Mode = normalizeGitBlobMode(copy.From.TreeEntry.Mode)
+		}
+		if copy.To.Name != "" {
+			toModes[copy.To.Name] = copy.To.TreeEntry.Mode
+			copy.To.TreeEntry.Mode = normalizeGitBlobMode(copy.To.TreeEntry.Mode)
+		}
+		normalized = append(normalized, &copy)
+	}
+	detected, err := object.DetectRenames(normalized, gitRenameOptions(true))
+	if err != nil {
+		return nil, err
+	}
+	for _, change := range detected {
+		if mode, ok := fromModes[change.From.Name]; ok {
+			change.From.TreeEntry.Mode = mode
+		}
+		if mode, ok := toModes[change.To.Name]; ok {
+			change.To.TreeEntry.Mode = mode
+		}
+	}
+	return detected, nil
+}
+
+func normalizeGitBlobMode(mode filemode.FileMode) filemode.FileMode {
+	switch mode {
+	case filemode.Regular, filemode.Deprecated, filemode.Executable:
+		return filemode.Regular
+	default:
+		return mode
+	}
+}
+
+func sameGitDiffType(from, to filemode.FileMode) bool {
+	return normalizeGitBlobMode(from) == normalizeGitBlobMode(to)
+}
+
 func firstChangedLine(change *object.Change, from, to *object.File) int {
 	if to != nil && to.Size > maxDiffBlobSize {
 		return 0
@@ -1066,7 +1167,7 @@ func firstChangedLine(change *object.Change, from, to *object.File) int {
 // change added no lines (pure deletion or a no-content-change rename/mode
 // change) — callers must skip the change, not fall back to full-file
 // content, or the problem this function exists to fix comes right back.
-func addedHunks(change *object.Change, from, to *object.File) ([]byte, bool) {
+func addedHunks(change *object.Change, from, to *object.File, blankContext bool) ([]byte, bool) {
 	if to != nil && to.Size > maxDiffBlobSize {
 		return nil, false
 	}
@@ -1092,9 +1193,15 @@ func addedHunks(change *object.Change, from, to *object.File) ([]byte, bool) {
 			if out.Len() > 0 && out.Bytes()[out.Len()-1] != '\n' {
 				out.WriteByte('\n')
 			}
-			out.WriteString(trailingContext(chunks, i, diffContextLines))
+			trailing := trailingContext(chunks, i, diffContextLines)
+			leading := leadingContext(chunks, i, diffContextLines)
+			if blankContext {
+				trailing = blankDiffContext(trailing)
+				leading = blankDiffContext(leading)
+			}
+			out.WriteString(trailing)
 			out.WriteString(c.Content())
-			out.WriteString(leadingContext(chunks, i, diffContextLines))
+			out.WriteString(leading)
 			wrote = true
 		}
 	}
@@ -1102,6 +1209,14 @@ func addedHunks(change *object.Change, from, to *object.File) ([]byte, bool) {
 		return nil, false
 	}
 	return out.Bytes(), true
+}
+
+func blankDiffContext(context string) string {
+	lines := strings.Count(context, "\n")
+	if context != "" && !strings.HasSuffix(context, "\n") {
+		lines++
+	}
+	return strings.Repeat("\n", lines)
 }
 
 // trailingContext returns up to n lines of context immediately preceding the

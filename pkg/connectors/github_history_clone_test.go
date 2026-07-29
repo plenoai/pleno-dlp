@@ -163,6 +163,30 @@ func TestGitHubAlternatePortTemplatesNeverReachCloneService(t *testing.T) {
 	}
 }
 
+func TestGitHubEmptyRepositorySkipsHistory(t *testing.T) {
+	fixture := filepath.Join(t.TempDir(), "empty.git")
+	if _, err := gogit.PlainInit(fixture, true); err != nil {
+		t.Fatal(err)
+	}
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/acme/empty" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, `{"id":1,"name":"empty","owner":{"login":"acme"},"default_branch":null}`)
+	}))
+	t.Cleanup(apiSrv.Close)
+	cfg := Config{
+		"token":              "token",
+		"repo":               "acme/empty",
+		"api_base":           apiSrv.URL,
+		"clone_url_template": fixture,
+	}
+	if err := scanGitHub(context.Background(), cfg, func([]byte, sources.Metadata) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGitHubCloneMissingTreeDoesNotAdvanceAndRepairResumes(t *testing.T) {
 	fixture, _ := buildFixtureRepo(t)
 	repo, err := gogit.PlainOpen(fixture)

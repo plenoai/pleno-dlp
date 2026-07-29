@@ -71,7 +71,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if len(idMatches) == 0 {
 		return nil, nil
 	}
-	secrets := secretRe.FindAllSubmatchIndex(data, -1)
+	secrets := excludeOverlappingRuns(secretRe.FindAllSubmatchIndex(data, -1), idMatches)
 	lower := strings.ToLower(string(data))
 
 	out := make([]detectors.Result, 0, len(idMatches))
@@ -176,10 +176,9 @@ func verifyPair(ctx context.Context, id, key string) (bool, string, error) {
 
 	resp, err := httpClient.Do(req)
 	// ClassifyVerifyHTTP separates transport failures and transient 429/5xx
-	// from authoritative responses. We pass an empty acceptCodes set because a
-	// 200 here does NOT mean "valid" — the body decides. We only consume the
-	// error half (transient/transport) and ignore the bool.
-	if _, classErr := detectors.ClassifyVerifyHTTP(resp, err, nil, nil); classErr != nil {
+	// from authoritative responses. HTTP 200 passes only this status gate; the
+	// body below still decides validity because a 200 can carry AuthFailure.
+	if _, classErr := detectors.ClassifyVerifyHTTP(resp, err, []int{http.StatusOK}, nil); classErr != nil {
 		if resp != nil {
 			resp.Body.Close()
 		}
@@ -193,12 +192,15 @@ func verifyPair(ctx context.Context, id, key string) (bool, string, error) {
 	}
 
 	if parsed.Response.Error != nil && parsed.Response.Error.Code != "" {
-		// AuthFailure.* (SignatureFailure, SecretIdNotFound, TokenFailure) are
-		// authoritative invalid verdicts. Other error codes (e.g. throttling)
-		// are surfaced as VerificationErr so we never claim a key is dead on a
-		// non-auth error.
 		code := parsed.Response.Error.Code
-		if strings.HasPrefix(code, "AuthFailure") {
+		// Only errors that authoritatively reject the key pair are clean
+		// negatives. Other AuthFailure codes can be caused by clock skew,
+		// missing permissions, MFA, or a temporary session token and must not
+		// poison the verification cache.
+		switch code {
+		case "AuthFailure.InvalidSecretId",
+			"AuthFailure.SecretIdNotFound",
+			"AuthFailure.SignatureFailure":
 			return false, "", nil
 		}
 		return false, "", fmt.Errorf("verify: unexpected error code %q", code)
@@ -303,6 +305,24 @@ func nearestRun(idStart int, data []byte, runs [][]int, maxDistance int) (string
 		return "", false
 	}
 	return best, true
+}
+
+func excludeOverlappingRuns(runs, excluded [][]int) [][]int {
+	filtered := make([][]int, 0, len(runs))
+	for _, run := range runs {
+		start, end := run[2], run[3]
+		overlaps := false
+		for _, span := range excluded {
+			if start < span[3] && end > span[2] {
+				overlaps = true
+				break
+			}
+		}
+		if !overlaps {
+			filtered = append(filtered, run)
+		}
+	}
+	return filtered
 }
 
 func nearKeyword(lower string, start, end int) bool {

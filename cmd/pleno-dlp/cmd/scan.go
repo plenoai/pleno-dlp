@@ -121,6 +121,8 @@ type gitFlags struct {
 	exclude                 []string
 	allOccurrences          bool
 	includeCommitMetadata   bool
+	skipMergeCommits        bool
+	trufflehogCompatible    bool
 	includeGitArchives      bool
 	includeGitBinaries      bool
 	gitArtifactMaxBytes     int64
@@ -260,6 +262,8 @@ func init() {
 	scanGitCmd.Flags().StringSliceVar(&gitOpts.exclude, "exclude", nil, "glob(s) to exclude")
 	scanGitCmd.Flags().BoolVar(&gitOpts.allOccurrences, "all-occurrences", false, "report every commit a secret appears in; default collapses to the introducing commit with extra_data.occurrence_count")
 	scanGitCmd.Flags().BoolVar(&gitOpts.includeCommitMetadata, "include-commit-metadata", false, "scan commit messages, author/committer identities, and git notes (opt-in because identities contain expected PII)")
+	scanGitCmd.Flags().BoolVar(&gitOpts.skipMergeCommits, "skip-merge-commits", false, "omit merge-commit diffs while retaining non-merge history")
+	scanGitCmd.Flags().BoolVar(&gitOpts.trufflehogCompatible, "trufflehog-compatible", false, "match trufflehog's Git diff surface (omit merge/rename diffs and blank unchanged context)")
 	scanGitCmd.Flags().BoolVar(&gitOpts.includeGitArchives, "include-git-archives", false, "expand and scan recognized archives in Git history within strict resource budgets")
 	scanGitCmd.Flags().BoolVar(&gitOpts.includeGitBinaries, "include-git-binaries", false, "scan otherwise-binary blobs in Git history within strict resource budgets")
 	scanGitCmd.Flags().Int64Var(&gitOpts.gitArtifactMaxBytes, "git-artifact-max-bytes", 10<<20, "maximum compressed archive or raw binary blob bytes")
@@ -373,6 +377,8 @@ func runScanGit(cmd *cobra.Command, _ []string) error {
 		"include":                    gitOpts.include,
 		"exclude":                    gitOpts.exclude,
 		"include_commit_metadata":    gitOpts.includeCommitMetadata,
+		"skip_merge_commits":         gitOpts.skipMergeCommits,
+		"trufflehog_compatible":      gitOpts.trufflehogCompatible,
 		"include_git_archives":       gitOpts.includeGitArchives,
 		"include_git_binaries":       gitOpts.includeGitBinaries,
 		"git_artifact_max_bytes":     gitOpts.gitArtifactMaxBytes,
@@ -717,6 +723,16 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 			"scanned %d chunk(s), %d byte(s), %d finding(s) in %s\n",
 			stats.Chunks, stats.Bytes, counter.count.Load(), stats.Duration.Round(time.Millisecond),
 		)
+		if stats.VerificationCacheHits+stats.VerificationCacheMisses+stats.VerifiedDetectorCalls > 0 {
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"verification cache: verdict_hits=%d missed_passes=%d partial_hits_wasted=%d bypasses=%d evictions=%d verified_passes_saved=%d verified_detector_calls=%d verified_call_time=%s\n",
+				stats.VerificationCacheHits, stats.VerificationCacheMisses,
+				stats.VerificationCacheHitsWasted, stats.VerificationCacheBypasses,
+				stats.VerificationCacheEvictions,
+				stats.VerifiedPassesSaved,
+				stats.VerifiedDetectorCalls, stats.VerifiedDetectorCallDuration.Round(time.Millisecond),
+			)
+		}
 		// Discoverability for the audit-first default (#250): when
 		// some findings were emitted but didn't meet the --fail-on
 		// gate, say so explicitly and name the escape hatch. Without

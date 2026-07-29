@@ -658,6 +658,51 @@ func TestChunks_LargeNativeDiffKeepsDistantHunkLines(t *testing.T) {
 	}
 }
 
+func TestChunks_LargeNativeDiffBlanksContextInTrufflehogMode(t *testing.T) {
+	base := strings.Repeat("context-sentinel\n", 70000)
+	repoPath, _ := buildRepo(t, []commitSpec{
+		{files: map[string]string{"big.txt": base}, msg: "base"},
+		{files: map[string]string{"big.txt": base + "added-marker\n"}, msg: "change"},
+	})
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath, TrufflehogCompatible: true, IncludeCommitMetadata: true})
+	got, err := drain(t, s, 20*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, chunk := range got {
+		meta := chunk.SourceMetadata.Git
+		if meta == nil || meta.Message != "change" || meta.File != "big.txt" {
+			continue
+		}
+		if !strings.Contains(string(chunk.Data), "added-marker") {
+			t.Fatalf("large diff added content missing: %q", chunk.Data)
+		}
+		if strings.Contains(string(chunk.Data), "context-sentinel") {
+			t.Fatalf("large diff retained unchanged context: %q", chunk.Data)
+		}
+		return
+	}
+	t.Fatal("large modified-file chunk missing")
+}
+
+func TestBlankDiffContextPreservesContextLineCount(t *testing.T) {
+	for _, tc := range []struct {
+		context string
+		want    string
+	}{
+		{context: "", want: ""},
+		{context: "one", want: "\n"},
+		{context: "one\n", want: "\n"},
+		{context: "one\ntwo", want: "\n\n"},
+		{context: "one\ntwo\n", want: "\n\n"},
+	} {
+		if got := blankDiffContext(tc.context); got != tc.want {
+			t.Fatalf("blankDiffContext(%q)=%q, want %q", tc.context, got, tc.want)
+		}
+	}
+}
+
 func TestChunks_LargeNativeDiffDisablesTextconv(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "textconv-ran")
 	base := strings.Repeat("safe line\n", 150000)

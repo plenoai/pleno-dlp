@@ -30,7 +30,8 @@ var hostRe = regexp.MustCompile(`https?://[a-zA-Z0-9.-]+\.weaviate\.(?:cloud|net
 
 type Scanner struct{}
 
-func (Scanner) Type() detectors.DetectorType { return detectors.Weaviate }
+func (Scanner) Type() detectors.DetectorType         { return detectors.Weaviate }
+func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 
 func (Scanner) Keywords() []string { return []string{"weaviate"} }
 

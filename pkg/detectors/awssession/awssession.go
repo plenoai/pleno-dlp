@@ -83,7 +83,8 @@ var contextKeywords = []string{"aws_session_token", "session_token", "sessiontok
 
 type Scanner struct{}
 
-func (Scanner) Type() detectors.DetectorType { return detectors.AWSSession }
+func (Scanner) Type() detectors.DetectorType         { return detectors.AWSSession }
+func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 
 // ASIA prefilters cheaply; session_token catches cases where the id is on a
 // separate line far from the prefix.

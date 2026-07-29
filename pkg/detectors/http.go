@@ -14,19 +14,21 @@ import (
 //   - resp.StatusCode in rejectCodes    → (false, nil)            // explicit rejection
 //   - resp.StatusCode >= 500            → (false, fmt.Errorf(…))  // provider-side transient
 //   - resp.StatusCode == 429            → (false, fmt.Errorf(…))  // rate-limit transient
-//   - anything else                     → (false, nil)            // treat as rejection
+//   - anything else                     → (false, fmt.Errorf(…))  // ambiguous response
 //
 // acceptCodes must include every status code that means "credential is valid"
 // (commonly []int{200}). rejectCodes lists statuses that are unambiguously
-// invalid (commonly []int{401, 403, 404}); any status not in either list and
-// not a transient code is also treated as rejection so callers don't need to
-// be exhaustive.
+// invalid (commonly []int{401, 403, 404}). Any undeclared status is ambiguous
+// and must not be collapsed into a provider-confirmed negative.
 //
 // Callers pass transportErr from http.Client.Do. When transportErr != nil the
 // resp argument is unused and may be nil.
 func ClassifyVerifyHTTP(resp *http.Response, transportErr error, acceptCodes, rejectCodes []int) (bool, error) {
 	if transportErr != nil {
 		return false, transportErr
+	}
+	if resp == nil {
+		return false, fmt.Errorf("verify: missing HTTP response")
 	}
 	code := resp.StatusCode
 	for _, c := range acceptCodes {
@@ -37,7 +39,12 @@ func ClassifyVerifyHTTP(resp *http.Response, transportErr error, acceptCodes, re
 	if isTransient(code) {
 		return false, fmt.Errorf("verify: transient HTTP %d", code)
 	}
-	return false, nil
+	for _, c := range rejectCodes {
+		if code == c {
+			return false, nil
+		}
+	}
+	return false, fmt.Errorf("verify: ambiguous HTTP %d", code)
 }
 
 // isTransient reports whether an HTTP status code represents a condition that

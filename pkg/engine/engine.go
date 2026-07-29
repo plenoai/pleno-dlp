@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/decoder"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
+	"golang.org/x/sync/singleflight"
 )
 
 type Finding struct {
@@ -57,21 +59,55 @@ type Options struct {
 type Engine struct {
 	// runGate serializes RunWithStats calls while allowing a queued caller to
 	// abandon acquisition when its context is canceled.
-	runGate              chan struct{}
-	opts                 Options
-	dets                 []detectors.Detector
-	isVerifier           []bool
-	wantsFull            []bool
-	prefilter            *ahocorasick.Matcher
-	detectorIdxByPattern [][]int
-	lowerBufPool         sync.Pool
-	seenBufPool          sync.Pool
-	sink                 Sink
-	stats                statsCounters
-	failureMu            sync.Mutex
-	failures             []ScanFailure
-	failureTotal         int
-	failureCounts        map[FailureKind]int
+	runGate               chan struct{}
+	opts                  Options
+	dets                  []detectors.Detector
+	isVerifier            []bool
+	verificationCacheable []bool
+	verificationUsesData  []bool
+	wantsFull             []bool
+	prefilter             *ahocorasick.Matcher
+	detectorIdxByPattern  [][]int
+	lowerBufPool          sync.Pool
+	seenBufPool           sync.Pool
+	sink                  Sink
+	verificationCache     *verificationCache
+	verificationFlights   singleflight.Group
+	stats                 statsCounters
+	failureMu             sync.Mutex
+	failures              []ScanFailure
+	failureTotal          int
+	failureCounts         map[FailureKind]int
+}
+
+const builtInDetectorPackagePrefix = "github.com/plenoai/pleno-dlp/pkg/detectors/"
+
+func isBuiltInDetectorImplementation(detector detectors.Detector) bool {
+	detectorType := reflect.TypeOf(detector)
+	if detectorType == nil {
+		return false
+	}
+	for detectorType.Kind() == reflect.Pointer {
+		detectorType = detectorType.Elem()
+	}
+	return strings.HasPrefix(detectorType.PkgPath(), builtInDetectorPackagePrefix)
+}
+
+// These built-in verifiers were audited to preserve candidate output and to
+// return errors for transport failures, rate limits, provider 5xx responses,
+// policy failures, and every other ambiguous outcome. The conservative
+// allowlist prevents transient conditions from poisoning cached verdicts.
+func builtInVerificationCacheSafe(detectorType detectors.DetectorType) bool {
+	switch detectorType {
+	case detectors.ArgoCD,
+		detectors.BitbucketServer,
+		detectors.DockerHub,
+		detectors.SlackWebhook,
+		detectors.Tailscale:
+		return true
+	default:
+		return false
+	}
 }
 
 type Stats struct {
@@ -79,21 +115,48 @@ type Stats struct {
 	Bytes    int64         `json:"bytes"`
 	Findings int64         `json:"findings"`
 	Duration time.Duration `json:"duration"`
+	// VerificationCacheHits counts candidate verdicts served from cache.
+	VerificationCacheHits int64 `json:"verification_cache_hits,omitempty"`
+	// VerificationCacheMisses counts detector passes with at least one miss.
+	VerificationCacheMisses int64 `json:"verification_cache_misses,omitempty"`
+	// VerificationCacheHitsWasted counts partial candidate hits in missed passes.
+	VerificationCacheHitsWasted  int64         `json:"verification_cache_hits_wasted,omitempty"`
+	VerificationCacheBypasses    int64         `json:"verification_cache_bypasses,omitempty"`
+	VerificationCacheEvictions   int64         `json:"verification_cache_evictions,omitempty"`
+	VerifiedPassesSaved          int64         `json:"verified_passes_saved,omitempty"`
+	VerifiedDetectorCalls        int64         `json:"verified_detector_calls,omitempty"`
+	VerifiedDetectorCallDuration time.Duration `json:"verified_detector_call_duration,omitempty"`
 }
 
 type statsCounters struct {
-	chunks   atomic.Int64
-	bytes    atomic.Int64
-	findings atomic.Int64
+	chunks                      atomic.Int64
+	bytes                       atomic.Int64
+	findings                    atomic.Int64
+	verificationCacheHits       atomic.Int64
+	verificationCacheMisses     atomic.Int64
+	verificationCacheHitsWasted atomic.Int64
+	verificationCacheBypasses   atomic.Int64
+	verificationCacheEvictions  atomic.Int64
+	verifiedPassesSaved         atomic.Int64
+	verifiedDetectorCalls       atomic.Int64
+	verifiedDetectorCallNanos   atomic.Int64
 }
 
 // AggregateStats returns lifetime counters across every completed or active
 // run on this Engine. Use RunWithStats when per-run metrics are required.
 func (e *Engine) AggregateStats() Stats {
 	return Stats{
-		Chunks:   e.stats.chunks.Load(),
-		Bytes:    e.stats.bytes.Load(),
-		Findings: e.stats.findings.Load(),
+		Chunks:                       e.stats.chunks.Load(),
+		Bytes:                        e.stats.bytes.Load(),
+		Findings:                     e.stats.findings.Load(),
+		VerificationCacheHits:        e.stats.verificationCacheHits.Load(),
+		VerificationCacheMisses:      e.stats.verificationCacheMisses.Load(),
+		VerificationCacheHitsWasted:  e.stats.verificationCacheHitsWasted.Load(),
+		VerificationCacheBypasses:    e.stats.verificationCacheBypasses.Load(),
+		VerificationCacheEvictions:   e.stats.verificationCacheEvictions.Load(),
+		VerifiedPassesSaved:          e.stats.verifiedPassesSaved.Load(),
+		VerifiedDetectorCalls:        e.stats.verifiedDetectorCalls.Load(),
+		VerifiedDetectorCallDuration: time.Duration(e.stats.verifiedDetectorCallNanos.Load()),
 	}
 }
 
@@ -116,20 +179,37 @@ func NewWithDetectors(dets []detectors.Detector, opts Options, sink Sink) *Engin
 		return vi && !vj
 	})
 	isVerifier := make([]bool, len(ordered))
+	verificationCacheable := make([]bool, len(ordered))
+	verificationUsesData := make([]bool, len(ordered))
 	wantsFull := make([]bool, len(ordered))
 	for i, d := range ordered {
 		_, isVerifier[i] = d.(detectors.Verifier)
+		builtIn := isBuiltInDetectorImplementation(d)
+		if policy, ok := d.(detectors.VerificationCacheSafe); ok {
+			verificationCacheable[i] = policy.VerificationCacheCanStoreVerdicts()
+		} else {
+			verificationCacheable[i] = builtIn &&
+				builtInVerificationCacheSafe(d.Type())
+		}
+		if contextual, ok := d.(detectors.VerificationCacheInputDependent); ok {
+			verificationUsesData[i] = contextual.VerificationCacheUsesFullInput()
+		} else if !builtIn {
+			verificationUsesData[i] = true
+		}
 		if fc, ok := d.(detectors.FullChunkDetector); ok {
 			wantsFull[i] = fc.WantsFullChunk()
 		}
 	}
 	e := &Engine{
-		runGate:    make(chan struct{}, 1),
-		opts:       opts,
-		dets:       ordered,
-		isVerifier: isVerifier,
-		wantsFull:  wantsFull,
-		sink:       sink,
+		runGate:               make(chan struct{}, 1),
+		opts:                  opts,
+		dets:                  ordered,
+		isVerifier:            isVerifier,
+		verificationCacheable: verificationCacheable,
+		verificationUsesData:  verificationUsesData,
+		wantsFull:             wantsFull,
+		sink:                  sink,
+		verificationCache:     newVerificationCache(defaultVerificationCacheCapacity),
 	}
 	e.buildPrefilter()
 	return e
@@ -185,6 +265,8 @@ func (e *Engine) RunWithStats(ctx context.Context, src sources.Source) (Stats, e
 	case <-ctx.Done():
 		return Stats{}, ctx.Err()
 	}
+	e.verificationCache.clear()
+	defer e.verificationCache.clear()
 
 	start := time.Now()
 	before := e.AggregateStats()
@@ -208,10 +290,18 @@ func (e *Engine) RunWithStats(ctx context.Context, src sources.Source) (Stats, e
 	degradedErr := e.takeFailures()
 	after := e.AggregateStats()
 	stats := Stats{
-		Chunks:   after.Chunks - before.Chunks,
-		Bytes:    after.Bytes - before.Bytes,
-		Findings: after.Findings - before.Findings,
-		Duration: time.Since(start),
+		Chunks:                       after.Chunks - before.Chunks,
+		Bytes:                        after.Bytes - before.Bytes,
+		Findings:                     after.Findings - before.Findings,
+		Duration:                     time.Since(start),
+		VerificationCacheHits:        after.VerificationCacheHits - before.VerificationCacheHits,
+		VerificationCacheMisses:      after.VerificationCacheMisses - before.VerificationCacheMisses,
+		VerificationCacheHitsWasted:  after.VerificationCacheHitsWasted - before.VerificationCacheHitsWasted,
+		VerificationCacheBypasses:    after.VerificationCacheBypasses - before.VerificationCacheBypasses,
+		VerificationCacheEvictions:   after.VerificationCacheEvictions - before.VerificationCacheEvictions,
+		VerifiedPassesSaved:          after.VerifiedPassesSaved - before.VerifiedPassesSaved,
+		VerifiedDetectorCalls:        after.VerifiedDetectorCalls - before.VerifiedDetectorCalls,
+		VerifiedDetectorCallDuration: after.VerifiedDetectorCallDuration - before.VerifiedDetectorCallDuration,
 	}
 	return stats, errors.Join(srcErr, degradedErr)
 }
@@ -554,7 +644,7 @@ func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.
 	// set it and every Verifier detector's FromData skips its network
 	// round-trip, keeping the scan fully offline instead of only
 	// filtering verified findings out afterward at the sink layer.
-	results, err := d.FromData(ctx, !e.opts.NoVerify, data)
+	results, err := e.fromData(ctx, d, di, data)
 	if err != nil {
 		// Cancellation of the scan context is the expected shutdown path,
 		// not degraded coverage. A detector's own deadline error while the

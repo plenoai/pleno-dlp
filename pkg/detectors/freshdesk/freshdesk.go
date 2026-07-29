@@ -46,7 +46,8 @@ const minEntropy = 3.5
 
 type Scanner struct{}
 
-func (Scanner) Type() detectors.DetectorType { return detectors.Freshdesk }
+func (Scanner) Type() detectors.DetectorType         { return detectors.Freshdesk }
+func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 
 func (Scanner) Keywords() []string { return []string{"freshdesk", "freshworks"} }
 

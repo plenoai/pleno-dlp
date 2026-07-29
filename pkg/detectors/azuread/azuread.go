@@ -106,7 +106,8 @@ var contextKeywords = []string{"azure", "azuread", "client_secret", "client_id",
 
 type Scanner struct{}
 
-func (Scanner) Type() detectors.DetectorType { return detectors.AzureAD }
+func (Scanner) Type() detectors.DetectorType         { return detectors.AzureAD }
+func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 
 // "~" alone would be far too noisy as a prefilter. We keyword-gate on
 // "azure" / "client_secret" — operators who paste a bare secret will be missed,

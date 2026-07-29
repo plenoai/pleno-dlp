@@ -37,7 +37,8 @@ var hostRe = regexp.MustCompile(`https?://[a-zA-Z0-9.-]+(?:\.jfrog\.io|/artifact
 
 type Scanner struct{}
 
-func (Scanner) Type() detectors.DetectorType { return detectors.JFrog }
+func (Scanner) Type() detectors.DetectorType         { return detectors.JFrog }
+func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 
 func (Scanner) Keywords() []string { return []string{"cmVmdGtuO", "jfrog", "artifactory"} }
 

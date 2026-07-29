@@ -31,7 +31,8 @@ var contextKeywords = []string{"supabase", "supabase_url", "supabase_anon", "sup
 
 type Scanner struct{}
 
-func (Scanner) Type() detectors.DetectorType { return detectors.Supabase }
+func (Scanner) Type() detectors.DetectorType         { return detectors.Supabase }
+func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 
 func (Scanner) Keywords() []string { return []string{"supabase", "service_role"} }
 

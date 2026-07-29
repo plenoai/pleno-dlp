@@ -64,7 +64,8 @@ var hostRe = regexp.MustCompile(`\b([a-z0-9-]+\.cloud\.databricks\.com|adb-[0-9]
 
 type Scanner struct{}
 
-func (Scanner) Type() detectors.DetectorType { return detectors.Databricks }
+func (Scanner) Type() detectors.DetectorType         { return detectors.Databricks }
+func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 
 // `dapi` is distinctive and short enough that prefiltering is cheap.
 func (Scanner) Keywords() []string { return []string{"dapi"} }
