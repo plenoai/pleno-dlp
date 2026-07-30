@@ -5,6 +5,12 @@ methodology: `make bench` regenerates a synthetic recall corpus, clones a
 pinned real-world corpus, runs pleno-dlp / trufflehog / gitleaks against
 both, and writes a results table. See issue #298 for the origin story.
 
+Recall and throughput comparisons disable remote verification for both
+pleno-dlp (`--no-verify`) and TruffleHog (`--no-verification`). This keeps
+the benchmark detection-only, avoids provider traffic from synthetic
+credentials, and prevents network latency from being attributed to either
+scanner's local engine.
+
 ## Quick start
 
 ```sh
