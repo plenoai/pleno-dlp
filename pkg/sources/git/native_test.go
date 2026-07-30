@@ -2,9 +2,11 @@ package git
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +18,7 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
+	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
@@ -586,6 +589,30 @@ func TestNativeLogParserDropsBinaryAfterBufferLimit(t *testing.T) {
 	}
 }
 
+func TestNativeLogParserKeepsExcludedFileDiscardedAfterBufferLimit(t *testing.T) {
+	ch := make(chan *sources.Chunk, 1)
+	parser := nativeLogParser{
+		ctx:         context.Background(),
+		source:      &Source{exclude: []string{"*.txt"}},
+		ch:          ch,
+		commit:      &nativeCommit{hash: strings.Repeat("1", 40)},
+		file:        nativeFilePatch{path: "excluded.txt"},
+		bufferLimit: 1,
+	}
+	if err := parser.appendFile([]byte("first"), 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := parser.appendFile([]byte("second"), 2); err != nil {
+		t.Fatal(err)
+	}
+	if !parser.file.discard {
+		t.Fatal("excluded file did not remain discarded")
+	}
+	if len(ch) != 0 {
+		t.Fatalf("excluded file emitted %d chunks", len(ch))
+	}
+}
+
 func TestNativeLogParserClassifiesLargeFilesWithNativeGit(t *testing.T) {
 	requireNativeGit(t)
 	gitBin, err := exec.LookPath("git")
@@ -635,6 +662,85 @@ func TestNativeLogParserClassifiesLargeFilesWithNativeGit(t *testing.T) {
 	}
 }
 
+func TestNativeLogParserStreamsAddedLineBeyondBlobLimit(t *testing.T) {
+	repoPath, hashes := buildRepo(t, []commitSpec{{
+		files: map[string]string{"large.txt": "text\n"},
+		msg:   "large text",
+	}})
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath})
+	ch := make(chan *sources.Chunk, 2)
+	type result struct {
+		chunks          int
+		maxLen          int
+		found           bool
+		markerLine      int
+		lastEndsNewline bool
+	}
+	resultCh := make(chan result, 1)
+	const marker = "tail-marker-after-limit"
+	go func() {
+		var got result
+		for chunk := range ch {
+			got.chunks++
+			if len(chunk.Data) > got.maxLen {
+				got.maxLen = len(chunk.Data)
+			}
+			if bytes.Contains(chunk.Data, []byte(marker)) {
+				got.found = true
+				got.markerLine = chunk.SourceMetadata.Git.Line
+			}
+			got.lastEndsNewline = len(chunk.Data) > 0 && chunk.Data[len(chunk.Data)-1] == '\n'
+		}
+		resultCh <- got
+	}()
+
+	parser := nativeLogParser{
+		ctx:         context.Background(),
+		source:      s,
+		repo:        repo,
+		ch:          ch,
+		commit:      &nativeCommit{hash: hashes[0]},
+		bufferLimit: 1,
+	}
+	diff := io.MultiReader(
+		strings.NewReader("diff --git a/large.txt b/large.txt\n--- a/large.txt\n+++ b/large.txt\n@@ -1 +1 @@\n+prefix\n@@ -2 +2 @@\n+"),
+		io.LimitReader(nativeRepeatedByte('x'), maxBlobSize+1024),
+		strings.NewReader(marker+"\n\\ No newline at end of file\n"),
+	)
+	parseErr := parser.parse(diff)
+	close(ch)
+	got := <-resultCh
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	if !got.found {
+		t.Fatalf("tail marker missing after %d chunks", got.chunks)
+	}
+	if got.markerLine != 2 {
+		t.Fatalf("tail marker line=%d, want 2", got.markerLine)
+	}
+	if got.maxLen > maxDiffChunkSize {
+		t.Fatalf("chunk size=%d, exceeds %d", got.maxLen, maxDiffChunkSize)
+	}
+	if got.lastEndsNewline {
+		t.Fatal("no-newline marker left a trailing newline in the final chunk")
+	}
+}
+
+type nativeRepeatedByte byte
+
+func (b nativeRepeatedByte) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = byte(b)
+	}
+	return len(p), nil
+}
+
 func TestChunks_NativeSkipsBinaryWithNULOutsideChangedHunk(t *testing.T) {
 	requireNativeGit(t)
 	const secret = "github_pat_11DISTANTNUL_abcdefghijklmnopqrstuvwxyz0123456789"
@@ -680,6 +786,79 @@ func TestChunks_NativeSkipsDeletedBinary(t *testing.T) {
 	mustInit(t, s, Config{Repo: repoPath})
 	if _, err := drain(t, s, 10*time.Second); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestChunks_NativeSkipsBinaryWithControlCharacterPath(t *testing.T) {
+	requireNativeGit(t)
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, true)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	putObject := func(value plumbing.EncodedObject) plumbing.Hash {
+		t.Helper()
+		hash, err := repo.Storer.SetEncodedObject(value)
+		if err != nil {
+			t.Fatalf("SetEncodedObject: %v", err)
+		}
+		return hash
+	}
+
+	blob := repo.Storer.NewEncodedObject()
+	blob.SetType(plumbing.BlobObject)
+	writer, err := blob.Writer()
+	if err != nil {
+		t.Fatalf("blob Writer: %v", err)
+	}
+	if _, err := writer.Write([]byte("binary\x00content")); err != nil {
+		t.Fatalf("write blob: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close blob: %v", err)
+	}
+	blobHash := putObject(blob)
+
+	tree := &object.Tree{Entries: []object.TreeEntry{{
+		Name: "control" + string([]byte{0x1c}) + "path.bin",
+		Mode: filemode.Regular,
+		Hash: blobHash,
+	}}}
+	treeObject := repo.Storer.NewEncodedObject()
+	if err := tree.Encode(treeObject); err != nil {
+		t.Fatalf("encode tree: %v", err)
+	}
+	treeHash := putObject(treeObject)
+
+	when := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	commit := &object.Commit{
+		Author:       object.Signature{Name: "Test", Email: "test@example.com", When: when},
+		Committer:    object.Signature{Name: "Test", Email: "test@example.com", When: when},
+		Message:      "control character path",
+		TreeHash:     treeHash,
+		ParentHashes: nil,
+	}
+	commitObject := repo.Storer.NewEncodedObject()
+	if err := commit.Encode(commitObject); err != nil {
+		t.Fatalf("encode commit: %v", err)
+	}
+	commitHash := putObject(commitObject)
+	branch := plumbing.NewBranchReferenceName("master")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(branch, commitHash)); err != nil {
+		t.Fatalf("set branch: %v", err)
+	}
+	if err := repo.Storer.SetReference(plumbing.NewSymbolicReference(plumbing.HEAD, branch)); err != nil {
+		t.Fatalf("set HEAD: %v", err)
+	}
+
+	s := &Source{}
+	mustInit(t, s, Config{Repo: dir})
+	got, err := drain(t, s, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("binary file emitted %d chunks", len(got))
 	}
 }
 
@@ -994,6 +1173,46 @@ func TestChunks_NativeMergeScansResolutionWithoutRepeatingBranch(t *testing.T) {
 	}
 }
 
+func TestParseNativeMergeResultsStreamsFragmentedAddedLine(t *testing.T) {
+	repoPath, hashes := buildRepo(t, []commitSpec{{
+		files: map[string]string{"large.txt": "text\n"},
+		msg:   "large text",
+	}})
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath})
+	ch := make(chan *sources.Chunk, 1)
+	const marker = "merge-tail-marker"
+	parent1 := strings.Repeat("1", 40)
+	parent2 := strings.Repeat("2", 40)
+	zero := strings.Repeat("0", 40)
+	record := string(nativeRecordSeparator) + hashes[0] + string(nativeFieldSeparator) +
+		parent1 + " " + parent2 + string(nativeFieldSeparator) +
+		"Test" + string(nativeFieldSeparator) +
+		"test@example.com" + string(nativeFieldSeparator) +
+		"2026-05-01T00:00:00Z" + string(nativeFieldSeparator) +
+		"merge" + string(nativeFieldSeparator) + "\n"
+	diff := io.MultiReader(
+		strings.NewReader(record+
+			"::100644 100644 100644 "+zero+" "+zero+" "+zero+" MM\tlarge.txt\n"+
+			"diff --cc large.txt\n--- a/large.txt\n+++ b/large.txt\n"+
+			"@@@ -1,1 -1,1 +1,1 @@@\n++"),
+		io.LimitReader(nativeRepeatedByte('x'), 300<<10),
+		strings.NewReader(marker+"\n"),
+	)
+	if err := s.parseNativeMergeResults(context.Background(), repo, "", diff, ch); err != nil {
+		t.Fatal(err)
+	}
+	close(ch)
+	chunk := <-ch
+	if chunk == nil || !bytes.Contains(chunk.Data, []byte(marker)) {
+		t.Fatal("fragmented combined line lost its tail marker")
+	}
+}
+
 func TestChunks_NativeSinceFilterTraversesSkewedHistory(t *testing.T) {
 	requireNativeGit(t)
 	recent := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -1080,26 +1299,6 @@ func TestReadNativeLineBoundsAndDrains(t *testing.T) {
 	line, truncated, err = readNativeLine(reader, 16)
 	if err != nil || truncated || string(line) != "next\n" {
 		t.Fatalf("second line=%q truncated=%t err=%v", line, truncated, err)
-	}
-}
-
-func TestConsumeTruncatedContextTrufflehogCompatible(t *testing.T) {
-	parser := nativeLogParser{
-		source: &Source{trufflehogCompatible: true},
-		inHunk: true,
-		hunk:   nativeHunk{newLine: 7},
-	}
-	if err := parser.consumeTruncatedLine([]byte(" context")); err != nil {
-		t.Fatal(err)
-	}
-	if got := string(parser.hunk.data); got != "\n" {
-		t.Fatalf("truncated context data=%q, want newline only", got)
-	}
-	if parser.hunk.overLimit {
-		t.Fatal("blanked truncated context marked hunk over limit")
-	}
-	if parser.hunk.newLine != 8 {
-		t.Fatalf("new line=%d, want 8", parser.hunk.newLine)
 	}
 }
 

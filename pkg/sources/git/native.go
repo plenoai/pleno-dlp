@@ -393,7 +393,36 @@ func (s *Source) parseNativeMergeResults(ctx context.Context, repo *gogit.Reposi
 	reader := bufio.NewReaderSize(r, 256<<10)
 	parser := nativeLogParser{ctx: ctx, source: s, repo: repo, gitBin: gitBin, ch: ch}
 	for {
-		line, truncated, err := readNativeLine(reader, int(maxBlobSize)+1)
+		line, err := reader.ReadSlice('\n')
+		if errors.Is(err, bufio.ErrBufferFull) && parser.commit != nil && parser.inHunk {
+			synthetic, parseErr := nativeCombinedResultLine(line, parser.commit.parentCount)
+			if parseErr != nil {
+				return parseErr
+			}
+			if parser.fragmentedHunkLine(synthetic) {
+				readErr, parseErr := parser.consumeFragmentedHunkLine(reader, synthetic)
+				if parseErr != nil {
+					return parseErr
+				}
+				if readErr != nil {
+					if errors.Is(readErr, io.EOF) {
+						return parser.flushFile()
+					}
+					return readErr
+				}
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		truncated := false
+		if errors.Is(err, bufio.ErrBufferFull) {
+			line, truncated, err = readNativeLineRemainder(reader, line, int(maxBlobSize)+1)
+		} else if len(line) > int(maxBlobSize)+1 {
+			line = line[:int(maxBlobSize)+1]
+			truncated = true
+		}
 		if truncated {
 			return fmt.Errorf("native merge patch line exceeds %d-byte limit", maxBlobSize)
 		}
@@ -625,25 +654,24 @@ type nativeCommit struct {
 
 type nativeFilePatch struct {
 	path             string
-	newFile          bool
 	deleted          bool
 	segments         []diffSegment
 	totalBytes       int64
 	hasAdd           bool
 	binary           bool
+	discard          bool
 	streaming        bool
-	overLimit        bool
 	overSegmentLimit bool
 }
 
 type nativeHunk struct {
 	data           []byte
+	dataLine       int
 	newLine        int
 	firstAddLine   int
 	hasAdd         bool
 	binary         bool
 	lastWasNewSide bool
-	overLimit      bool
 }
 
 type nativeLogParser struct {
@@ -701,13 +729,35 @@ func missingTreeHash(message string) plumbing.Hash {
 func (p *nativeLogParser) parse(r io.Reader) error {
 	reader := bufio.NewReaderSize(r, 256<<10)
 	for {
-		line, truncated, err := readNativeLine(reader, int(maxBlobSize)+1)
+		line, err := reader.ReadSlice('\n')
+		if errors.Is(err, bufio.ErrBufferFull) && p.fragmentedHunkLine(line) {
+			readErr, parseErr := p.consumeFragmentedHunkLine(reader, line)
+			if parseErr != nil {
+				return parseErr
+			}
+			if readErr != nil {
+				if errors.Is(readErr, io.EOF) {
+					break
+				}
+				return readErr
+			}
+			if err := p.ctx.Err(); err != nil {
+				return err
+			}
+			continue
+		}
+		truncated := false
+		if errors.Is(err, bufio.ErrBufferFull) {
+			line, truncated, err = readNativeLineRemainder(reader, line, int(maxBlobSize)+1)
+		} else if len(line) > int(maxBlobSize)+1 {
+			line = line[:int(maxBlobSize)+1]
+			truncated = true
+		}
 		if len(line) > 0 {
 			if truncated {
-				if parseErr := p.consumeTruncatedLine(line); parseErr != nil {
-					return parseErr
-				}
-			} else if parseErr := p.consumeLine(line); parseErr != nil {
+				return fmt.Errorf("native output line exceeds %d-byte limit", maxBlobSize)
+			}
+			if parseErr := p.consumeLine(line); parseErr != nil {
 				return parseErr
 			}
 		}
@@ -735,8 +785,13 @@ func readNativeLine(reader *bufio.Reader, limit int) ([]byte, bool, error) {
 		}
 		return fragment, false, err
 	}
+	return readNativeLineRemainder(reader, fragment, limit)
+}
+
+func readNativeLineRemainder(reader *bufio.Reader, fragment []byte, limit int) ([]byte, bool, error) {
 	line := make([]byte, 0, min(limit, 2*len(fragment)))
 	truncated := false
+	var err error
 	for {
 		if remaining := limit - len(line); remaining > 0 {
 			if remaining > len(fragment) {
@@ -768,37 +823,66 @@ func readNativeLine(reader *bufio.Reader, limit int) ([]byte, bool, error) {
 	}
 }
 
-func (p *nativeLogParser) consumeTruncatedLine(line []byte) error {
+func (p *nativeLogParser) fragmentedHunkLine(line []byte) bool {
 	if !p.inHunk || len(line) == 0 {
-		return fmt.Errorf("native output line exceeds %d-byte limit", maxBlobSize)
+		return false
 	}
 	switch line[0] {
-	case '+':
-		p.hunk.hasAdd = true
-		if p.hunk.firstAddLine == 0 {
-			p.hunk.firstAddLine = p.hunk.newLine
-		}
-		p.hunk.binary = p.hunk.binary || bytes.IndexByte(line[1:], 0x00) >= 0
-		p.hunk.data = nil
-		p.hunk.overLimit = true
-		p.hunk.newLine++
-		p.hunk.lastWasNewSide = true
-	case ' ':
-		if p.source.trufflehogCompatible {
-			p.hunk.append([]byte{'\n'})
-		} else {
-			p.hunk.binary = p.hunk.binary || bytes.IndexByte(line[1:], 0x00) >= 0
-			p.hunk.data = nil
-			p.hunk.overLimit = true
-		}
-		p.hunk.newLine++
-		p.hunk.lastWasNewSide = true
-	case '-':
-		p.hunk.lastWasNewSide = false
+	case '+', ' ', '-', nativeOmittedResultLine:
+		return true
 	default:
-		return fmt.Errorf("native output line exceeds %d-byte limit", maxBlobSize)
+		return false
 	}
-	return nil
+}
+
+func (p *nativeLogParser) consumeFragmentedHunkLine(reader *bufio.Reader, first []byte) (readErr, parseErr error) {
+	marker := first[0]
+	if marker == '+' {
+		p.beginAddedLine()
+		if err := p.appendHunkData(first[1:]); err != nil {
+			return nil, err
+		}
+	} else if marker == ' ' && !p.source.trufflehogCompatible {
+		if err := p.appendHunkData(first[1:]); err != nil {
+			return nil, err
+		}
+	}
+	for {
+		if err := p.ctx.Err(); err != nil {
+			return nil, err
+		}
+		fragment, err := reader.ReadSlice('\n')
+		switch marker {
+		case '+':
+			if appendErr := p.appendHunkData(fragment); appendErr != nil {
+				return nil, appendErr
+			}
+		case ' ':
+			if p.source.trufflehogCompatible {
+				if !errors.Is(err, bufio.ErrBufferFull) && len(fragment) > 0 && fragment[len(fragment)-1] == '\n' {
+					if appendErr := p.appendHunkData([]byte{'\n'}); appendErr != nil {
+						return nil, appendErr
+					}
+				}
+			} else if appendErr := p.appendHunkData(fragment); appendErr != nil {
+				return nil, appendErr
+			}
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		switch marker {
+		case '+', ' ':
+			p.hunk.newLine++
+			p.hunk.lastWasNewSide = true
+		case '-':
+			p.hunk.lastWasNewSide = false
+		case nativeOmittedResultLine:
+			p.hunk.newLine++
+			p.hunk.lastWasNewSide = false
+		}
+		return err, nil
+	}
 }
 
 func (p *nativeLogParser) consumeLine(line []byte) error {
@@ -855,7 +939,6 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		if err != nil {
 			return err
 		}
-		p.file.newFile = isNull
 		if !isNull && p.file.path == "" {
 			p.file.path = path
 		}
@@ -893,18 +976,23 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 	}
 	switch line[0] {
 	case '+':
-		p.hunk.hasAdd = true
-		if p.hunk.firstAddLine == 0 {
-			p.hunk.firstAddLine = p.hunk.newLine
+		p.beginAddedLine()
+		if err := p.appendHunkData(line[1:]); err != nil {
+			return err
 		}
-		p.hunk.append(line[1:])
 		p.hunk.newLine++
 		p.hunk.lastWasNewSide = true
 	case ' ':
 		if p.source.trufflehogCompatible {
-			p.hunk.append([]byte{'\n'})
+			if len(line) > 0 && line[len(line)-1] == '\n' {
+				if err := p.appendHunkData([]byte{'\n'}); err != nil {
+					return err
+				}
+			}
 		} else {
-			p.hunk.append(line[1:])
+			if err := p.appendHunkData(line[1:]); err != nil {
+				return err
+			}
 		}
 		p.hunk.newLine++
 		p.hunk.lastWasNewSide = true
@@ -923,17 +1011,74 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 	return nil
 }
 
-func (h *nativeHunk) append(data []byte) {
+func (p *nativeLogParser) beginAddedLine() {
+	h := &p.hunk
+	h.hasAdd = true
+	if h.firstAddLine == 0 {
+		h.firstAddLine = h.newLine
+		h.dataLine = h.firstAddLine
+	}
+}
+
+func (p *nativeLogParser) appendHunkData(data []byte) error {
+	h := &p.hunk
 	h.binary = h.binary || bytes.IndexByte(data, 0x00) >= 0
-	if h.overLimit {
-		return
+	if !h.hasAdd {
+		// Unified context can precede the first addition. Keep its trailing
+		// scan window so boundary-spanning tokens remain covered without
+		// letting an unchanged line grow the hunk buffer without bound.
+		h.data = appendNativeTail(h.data, data, maxDiffChunkSize)
+		return nil
 	}
-	if int64(len(h.data))+int64(len(data)) > maxBlobSize {
-		h.data = nil
-		h.overLimit = true
-		return
+	for len(data) > 0 {
+		room := maxDiffChunkSize + 1 - len(h.data)
+		if room <= 0 {
+			if err := p.flushHunkWindow(); err != nil {
+				return err
+			}
+			continue
+		}
+		if room > len(data) {
+			room = len(data)
+		}
+		h.data = append(h.data, data[:room]...)
+		data = data[room:]
+		if len(h.data) > maxDiffChunkSize {
+			if err := p.flushHunkWindow(); err != nil {
+				return err
+			}
+		}
 	}
-	h.data = append(h.data, data...)
+	return nil
+}
+
+func appendNativeTail(dst, data []byte, limit int) []byte {
+	if len(data) >= limit {
+		return append(dst[:0], data[len(data)-limit:]...)
+	}
+	if drop := len(dst) + len(data) - limit; drop > 0 {
+		copy(dst, dst[drop:])
+		dst = dst[:len(dst)-drop]
+	}
+	return append(dst, data...)
+}
+
+func (p *nativeLogParser) flushHunkWindow() error {
+	h := &p.hunk
+	if len(h.data) <= maxDiffChunkSize {
+		return nil
+	}
+	line := h.dataLine
+	segment := append([]byte(nil), h.data[:maxDiffChunkSize]...)
+	advance := maxDiffChunkSize - diffChunkOverlap
+	nextLine := line + bytes.Count(h.data[:advance], []byte{'\n'})
+	remaining := append([]byte(nil), h.data[advance:]...)
+	if err := p.appendFile(segment, line); err != nil {
+		return err
+	}
+	h.data = remaining
+	h.dataLine = nextLine
+	return nil
 }
 
 func (p *nativeLogParser) flushHunk() error {
@@ -946,13 +1091,11 @@ func (p *nativeLogParser) flushHunk() error {
 		p.hunk = nativeHunk{}
 		return nil
 	}
-	if p.hunk.overLimit {
-		p.file.overLimit = true
-		p.file.segments = nil
-		p.hunk = nativeHunk{}
-		return nil
+	line := p.hunk.dataLine
+	if line == 0 {
+		line = p.hunk.firstAddLine
 	}
-	if err := p.appendFile(p.hunk.data, p.hunk.firstAddLine); err != nil {
+	if err := p.appendFile(p.hunk.data, line); err != nil {
 		return err
 	}
 	p.hunk = nativeHunk{}
@@ -961,7 +1104,7 @@ func (p *nativeLogParser) flushHunk() error {
 
 func (p *nativeLogParser) appendFile(data []byte, firstLine int) error {
 	f := &p.file
-	if f.overLimit || f.overSegmentLimit {
+	if f.binary || f.discard || f.overSegmentLimit {
 		return nil
 	}
 	f.hasAdd = true
@@ -976,7 +1119,7 @@ func (p *nativeLogParser) appendFile(data []byte, firstLine int) error {
 	if f.totalBytes+int64(len(data)) > limit {
 		if f.path == "" || p.commit == nil || !p.source.pathAllowed(f.path) {
 			f.segments = nil
-			f.streaming = true
+			f.discard = true
 			return nil
 		}
 		binary, err := p.currentFileBinary()
@@ -1103,12 +1246,6 @@ func (p *nativeLogParser) flushFile() error {
 	if !file.hasAdd {
 		return nil
 	}
-	if file.overLimit {
-		if file.newFile {
-			return nil
-		}
-		return fmt.Errorf("added diff content for %s at %s exceeds %d-byte limit", file.path, p.commit.hash, maxBlobSize)
-	}
 	if file.streaming || !p.source.pathAllowed(file.path) || len(file.segments) == 0 {
 		return nil
 	}
@@ -1150,17 +1287,9 @@ func (p *nativeLogParser) handleBinaryPatch() error {
 		p.file.binary = true
 		return nil
 	}
-	commit, err := p.repo.CommitObject(plumbing.NewHash(p.commit.hash))
+	binary, err := p.currentFileBinary()
 	if err != nil {
-		return fmt.Errorf("load commit %s for binary classification: %w", p.commit.hash, err)
-	}
-	file, err := commit.File(p.file.path)
-	if err != nil {
-		return fmt.Errorf("load %s at %s for binary classification: %w", p.file.path, p.commit.hash, err)
-	}
-	binary, err := file.IsBinary()
-	if err != nil {
-		return fmt.Errorf("classify %s at %s as binary: %w", p.file.path, p.commit.hash, err)
+		return err
 	}
 	if binary {
 		p.file.binary = true
