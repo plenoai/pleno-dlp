@@ -11,6 +11,8 @@ package monday
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -21,7 +23,7 @@ import (
 
 var apiBase = "https://api.monday.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // JWT shape — eyJ + base64url... .eyJ + base64url... .signature.
 var jwtRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
@@ -85,22 +87,41 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return false, err
+		return detectors.ClassifyVerifyHTTP(nil, err, nil, nil)
 	}
 	defer resp.Body.Close()
-	// Monday returns 200 on a valid token (with `data.me.id` payload) and
-	// 401 on a bad token. Some bad tokens come back as 200 with an
-	// `errors` array and `data: null` — we don't read the body here
-	// because false-positives on shape are minimal and reading the body
-	// would slow the verification path.
-	switch resp.StatusCode {
-	case http.StatusOK:
-		return true, nil
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
-		return false, nil
-	default:
-		return false, nil
+	if resp.StatusCode != http.StatusOK {
+		return detectors.ClassifyVerifyHTTP(
+			resp,
+			nil,
+			nil,
+			[]int{http.StatusUnauthorized},
+		)
 	}
+
+	// Monday documents application-level failures as HTTP 200 with an errors
+	// array. The me query returns the identity associated with the API token:
+	// https://developer.monday.com/api-reference/reference/me
+	// https://developer.monday.com/api-reference/docs/error-handling
+	var body struct {
+		Data *struct {
+			Me *struct {
+				ID string `json:"id"`
+			} `json:"me"`
+		} `json:"data"`
+		Errors []json.RawMessage `json:"errors"`
+	}
+	if err := detectors.DecodeVerifyJSON(resp.Body, 64<<10, &body); err != nil {
+		return false, fmt.Errorf("monday verify: decode response: %w", err)
+	}
+	if len(body.Errors) > 0 {
+		return false, fmt.Errorf("monday verify: ambiguous GraphQL error response")
+	}
+	if body.Data == nil || body.Data.Me == nil ||
+		body.Data.Me.ID == "" {
+		return false, fmt.Errorf("monday verify: response lacks authenticated identity")
+	}
+	return true, nil
 }
 
 func nearKeyword(lower string, start, end int) bool {

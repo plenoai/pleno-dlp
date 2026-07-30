@@ -147,6 +147,9 @@ func verificationFlightKey(keys []verificationCacheKey) string {
 // verify=true; verification may only enrich each candidate's verdict metadata.
 func (e *Engine) fromData(ctx context.Context, detector detectors.Detector, detectorIndex int, data []byte) ([]detectors.Result, error) {
 	verify := !e.opts.NoVerify
+	if minimum := e.opts.MinimumVerificationAssurance; verify && minimum != detectors.AssuranceUnknown {
+		verify = e.verificationAssurance[detectorIndex] >= minimum
+	}
 	if !verify || !e.isVerifier[detectorIndex] {
 		return detector.FromData(ctx, verify, data)
 	}

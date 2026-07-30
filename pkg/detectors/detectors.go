@@ -1056,9 +1056,10 @@ func (s Severity) String() string {
 // Result is what a detector emits per match. Mirrors trufflehog's Result so
 // detectors can be ported in either direction.
 type Result struct {
-	DetectorType    DetectorType
-	Verified        bool
-	VerificationErr error
+	DetectorType          DetectorType
+	Verified              bool
+	VerificationErr       error
+	VerificationAssurance VerificationAssurance
 	// Severity classifies the finding for triage. When zero (the default),
 	// the engine derives one from Verified and DetectorType via DefaultSeverity.
 	Severity Severity
@@ -1070,6 +1071,44 @@ type Result struct {
 	// Redacted is a safe-to-display rendering (prefix + ellipsis).
 	Redacted  string
 	ExtraData map[string]string
+}
+
+// VerificationAssurance describes the strongest evidence supporting a
+// verification result. It is intentionally separate from Verdict: Verdict
+// records what the detector concluded, while assurance records how strongly
+// the provider response supports that conclusion.
+type VerificationAssurance uint8
+
+const (
+	// AssuranceUnknown is the backward-compatible default for detectors that
+	// have not had their verification semantics audited.
+	AssuranceUnknown VerificationAssurance = iota
+	// AssuranceHeuristic means verification relied on a shape check or generic
+	// transport success that did not prove the credential was accepted.
+	AssuranceHeuristic
+	// AssuranceResponseConfirmed means a provider-specific response was
+	// observed, but it did not authenticate an identity or capability.
+	AssuranceResponseConfirmed
+	// AssuranceProviderConfirmed means the provider authenticated the
+	// credential or demonstrated an authenticated capability.
+	AssuranceProviderConfirmed
+)
+
+func (a VerificationAssurance) String() string {
+	switch a {
+	case AssuranceHeuristic:
+		return "heuristic"
+	case AssuranceResponseConfirmed:
+		return "response-confirmed"
+	case AssuranceProviderConfirmed:
+		return "provider-confirmed"
+	default:
+		return "unknown"
+	}
+}
+
+func (a VerificationAssurance) MarshalText() ([]byte, error) {
+	return []byte(a.String()), nil
 }
 
 // Verdict is the three-valued outcome of provider verification. Collapsing
@@ -1185,6 +1224,16 @@ type Detector interface {
 // caller requested verification.
 type Verifier interface {
 	Verify(ctx context.Context, secret string) (bool, error)
+}
+
+// VerificationPolicy is implemented only by detectors whose verification
+// semantics have been audited. Existing detectors remain AssuranceUnknown
+// until they opt in, preserving legacy verdict behaviour while allowing
+// strict consumers to fail closed.
+type VerificationPolicy interface {
+	// MaxVerificationAssurance is both the upper bound for explicit per-result
+	// assurance and the default for a verified result that leaves it unknown.
+	MaxVerificationAssurance() VerificationAssurance
 }
 
 // VerificationCacheInputDependent is implemented by Verifier detectors whose

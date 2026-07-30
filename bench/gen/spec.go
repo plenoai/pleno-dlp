@@ -124,7 +124,9 @@ var fixtures = []fixture{
 		return "OPENAI_API_KEY=" + t + "\n"
 	}},
 	{"anthropic-api-key", detectors.Anthropic, func(r *rand.Rand) string {
-		t := token(r, func(r *rand.Rand) string { return "sk-ant-" + sample(r, charsetURLSafe, 24) })
+		t := token(r, func(r *rand.Rand) string {
+			return "sk-ant-api03-" + sample(r, charsetURLSafe, 93) + "AA"
+		})
 		return "ANTHROPIC_API_KEY=" + t + "\n"
 	}},
 	{"mailgun-api-key", detectors.Mailgun, func(r *rand.Rand) string {

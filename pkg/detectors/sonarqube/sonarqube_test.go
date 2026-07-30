@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -69,7 +70,8 @@ func TestVerify_OK(t *testing.T) {
 		if r.Header.Get("Authorization") != want {
 			t.Errorf("auth mismatch: %q", r.Header.Get("Authorization"))
 		}
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"valid":true}`))
 	}))
 	defer srv.Close()
 	old := apiBase
@@ -79,6 +81,65 @@ func TestVerify_OK(t *testing.T) {
 	v, err := Scanner{}.Verify(context.Background(), dummyPrefixed)
 	if err != nil || !v {
 		t.Fatalf("verified expected true: err=%v v=%v", err, v)
+	}
+}
+
+func TestVerify_OKBodyRejectsInvalidToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"valid":false}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummyPrefixed)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v {
+		t.Fatal("HTTP 200 with valid=false must not verify")
+	}
+}
+
+func TestVerify_MalformedOKBodyIsIndeterminate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`not-json`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummyPrefixed)
+	if v || err == nil {
+		t.Fatalf("malformed provider response = (verified=%v, err=%v), want indeterminate", v, err)
+	}
+}
+
+func TestVerify_AmbiguousOKBodyIsIndeterminate(t *testing.T) {
+	for name, body := range map[string]string{
+		"missing valid":  `{}`,
+		"trailing JSON":  `{"valid":true}{"valid":false}`,
+		"oversized body": `{"valid":true}` + strings.Repeat(" ", maxVerifyResponseBytes),
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+			old := apiBase
+			apiBase = srv.URL
+			defer func() { apiBase = old }()
+
+			v, err := Scanner{}.Verify(context.Background(), dummyPrefixed)
+			if v || err == nil {
+				t.Fatalf("ambiguous provider response = (verified=%v, err=%v), want indeterminate", v, err)
+			}
+		})
 	}
 }
 
@@ -94,5 +155,20 @@ func TestVerify_Unauthorized(t *testing.T) {
 	v, _ := Scanner{}.Verify(context.Background(), dummyPrefixed)
 	if v {
 		t.Fatal("expected verified=false")
+	}
+}
+
+func TestVerify_ServerErrorIsIndeterminate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummyPrefixed)
+	if v || err == nil {
+		t.Fatalf("server error = (verified=%v, err=%v), want indeterminate", v, err)
 	}
 }

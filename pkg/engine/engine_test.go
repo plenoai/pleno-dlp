@@ -502,6 +502,165 @@ func TestEngine_IndeterminateVerdictSeverity(t *testing.T) {
 	}
 }
 
+type assuranceDetector struct {
+	max    detectors.VerificationAssurance
+	result detectors.Result
+}
+
+func (d assuranceDetector) Type() detectors.DetectorType { return detectors.AWS }
+func (d assuranceDetector) Keywords() []string           { return []string{"trigger"} }
+func (d assuranceDetector) FromData(context.Context, bool, []byte) ([]detectors.Result, error) {
+	return []detectors.Result{d.result}, nil
+}
+func (d assuranceDetector) MaxVerificationAssurance() detectors.VerificationAssurance {
+	return d.max
+}
+
+type assuranceExecutionProbe struct {
+	max       detectors.VerificationAssurance
+	verifyArg atomic.Bool
+}
+
+func (d *assuranceExecutionProbe) Type() detectors.DetectorType { return detectors.AWS }
+func (d *assuranceExecutionProbe) Keywords() []string           { return []string{"trigger"} }
+func (d *assuranceExecutionProbe) Verify(context.Context, string) (bool, error) {
+	return true, nil
+}
+func (d *assuranceExecutionProbe) MaxVerificationAssurance() detectors.VerificationAssurance {
+	return d.max
+}
+func (d *assuranceExecutionProbe) FromData(_ context.Context, verify bool, _ []byte) ([]detectors.Result, error) {
+	d.verifyArg.Store(verify)
+	return []detectors.Result{{
+		DetectorType: detectors.AWS,
+		Raw:          []byte("trigger"),
+		Verified:     verify,
+	}}, nil
+}
+
+func runAssuranceTestDetector(t *testing.T, detector detectors.Detector) detectors.Result {
+	t.Helper()
+	src := &stubSource{chunks: []*sources.Chunk{{
+		Data: []byte("trigger"), SourceType: sources.SourceFilesystem,
+	}}}
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{detector}, Options{}, sink)
+	if _, err := eng.RunWithStats(context.Background(), src); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	findings := sink.Findings()
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	return findings[0].Result
+}
+
+func TestEnginePromotesAuditedVerifiedResultToDeclaredAssurance(t *testing.T) {
+	got := runAssuranceTestDetector(t, assuranceDetector{
+		max: detectors.AssuranceProviderConfirmed,
+		result: detectors.Result{
+			DetectorType: detectors.AWS,
+			Raw:          []byte("trigger"),
+			Verified:     true,
+		},
+	})
+	if got.VerificationAssurance != detectors.AssuranceProviderConfirmed {
+		t.Fatalf("assurance = %v, want provider-confirmed", got.VerificationAssurance)
+	}
+	if !got.Verified {
+		t.Fatal("legacy verified verdict must be preserved")
+	}
+}
+
+func TestEngineRejectsAssuranceAboveDetectorPolicy(t *testing.T) {
+	got := runAssuranceTestDetector(t, assuranceDetector{
+		max: detectors.AssuranceResponseConfirmed,
+		result: detectors.Result{
+			DetectorType:          detectors.AWS,
+			Raw:                   []byte("trigger"),
+			Verified:              true,
+			VerificationAssurance: detectors.AssuranceProviderConfirmed,
+		},
+	})
+	if got.Verified {
+		t.Fatal("assurance above detector policy must fail closed")
+	}
+	if got.Verdict() != detectors.VerdictIndeterminate {
+		t.Fatalf("verdict = %v, want indeterminate", got.Verdict())
+	}
+	if got.VerificationAssurance != detectors.AssuranceResponseConfirmed {
+		t.Fatalf("assurance = %v, want detector maximum response-confirmed", got.VerificationAssurance)
+	}
+}
+
+type legacyVerifiedDetector struct{}
+
+func (legacyVerifiedDetector) Type() detectors.DetectorType { return detectors.AWS }
+func (legacyVerifiedDetector) Keywords() []string           { return []string{"trigger"} }
+func (legacyVerifiedDetector) FromData(context.Context, bool, []byte) ([]detectors.Result, error) {
+	return []detectors.Result{{
+		DetectorType: detectors.AWS,
+		Raw:          []byte("trigger"),
+		Verified:     true,
+	}}, nil
+}
+
+func TestEnginePreservesLegacyVerifiedUnknownAssurance(t *testing.T) {
+	got := runAssuranceTestDetector(t, legacyVerifiedDetector{})
+	if !got.Verified {
+		t.Fatal("legacy verified verdict must remain backward compatible")
+	}
+	if got.VerificationAssurance != detectors.AssuranceUnknown {
+		t.Fatalf("assurance = %v, want unknown", got.VerificationAssurance)
+	}
+}
+
+func TestEngineMinimumVerificationAssuranceSkipsWeakerVerifier(t *testing.T) {
+	detector := &assuranceExecutionProbe{max: detectors.AssuranceResponseConfirmed}
+	src := &stubSource{chunks: []*sources.Chunk{{
+		Data: []byte("trigger"), SourceType: sources.SourceFilesystem,
+	}}}
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors(
+		[]detectors.Detector{detector},
+		Options{MinimumVerificationAssurance: detectors.AssuranceProviderConfirmed},
+		sink,
+	)
+	if _, err := eng.RunWithStats(context.Background(), src); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if detector.verifyArg.Load() {
+		t.Fatal("weaker verifier received verify=true")
+	}
+	if got := sink.Findings(); len(got) != 1 || got[0].Result.Verified {
+		t.Fatalf("findings = %+v, want one unverified candidate", got)
+	}
+}
+
+func TestEngineMinimumVerificationAssuranceRunsEligibleVerifier(t *testing.T) {
+	detector := &assuranceExecutionProbe{max: detectors.AssuranceProviderConfirmed}
+	src := &stubSource{chunks: []*sources.Chunk{{
+		Data: []byte("trigger"), SourceType: sources.SourceFilesystem,
+	}}}
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors(
+		[]detectors.Detector{detector},
+		Options{MinimumVerificationAssurance: detectors.AssuranceProviderConfirmed},
+		sink,
+	)
+	if _, err := eng.RunWithStats(context.Background(), src); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !detector.verifyArg.Load() {
+		t.Fatal("provider-confirmed verifier received verify=false")
+	}
+	got := sink.Findings()
+	if len(got) != 1 || !got[0].Result.Verified ||
+		got[0].Result.VerificationAssurance != detectors.AssuranceProviderConfirmed {
+		t.Fatalf("findings = %+v, want one provider-confirmed candidate", got)
+	}
+}
+
 type failingDet struct{ err error }
 
 func (d failingDet) Type() detectors.DetectorType { return detectors.AWS }

@@ -22,7 +22,9 @@ type jsonRecord struct {
 	// "verification attempt failed", which is exactly the distinction
 	// --only-verified needs (#246). New consumers should read Verdict.
 	Verdict           string            `json:"verdict"`
+	Assurance         string            `json:"verification_assurance"`
 	VerificationError string            `json:"verification_error,omitempty"`
+	Severity          string            `json:"severity"`
 	Redacted          string            `json:"redacted"`
 	SecretHash        string            `json:"secret_hash,omitempty"`
 	SecretHashV2      string            `json:"secret_hash_v2,omitempty"`
@@ -105,6 +107,8 @@ func toJSONRecord(f engine.Finding) jsonRecord {
 		Detector:     f.Detector.String(),
 		Verified:     f.Result.Verified,
 		Verdict:      f.Result.Verdict().String(),
+		Assurance:    f.Result.VerificationAssurance.String(),
+		Severity:     f.Result.Severity.String(),
 		Redacted:     f.Result.Redacted,
 		SecretHash:   hashSecret(f.Result.Raw),
 		ExtraData:    f.Result.ExtraData,

@@ -46,36 +46,38 @@ func SetVersion(version, commit string) {
 
 // scanFlags holds flags shared by every source kind.
 type scanFlags struct {
-	format            string
-	onlyVerified      bool
-	noVerify          bool
-	dropIndeterminate bool
-	verifyRPS         int
-	concurrency       int
-	rulesPath         string
-	failOn            string
-	allowlistPath     string
-	includeDetectors  []string
-	excludeDetectors  []string
-	quiet             bool
-	revokeOnVerified  bool
-	revokeDryRun      bool
-	revokeSpool       string
-	auditTrail        string
-	blastRadiusOnly   bool
-	showSuppressed    bool
-	incremental       bool
-	incrementalState  string
-	cpuProfile        string
-	piiEngine         string
-	piiEngineCmd      string
-	piiEnginePort     int
-	piiEngineLanguage string
-	piiEngineReady    time.Duration
-	piiEngineRequest  time.Duration
-	piiEngineDevice   string
-	piiModel          string
-	piiModelPath      string
+	format             string
+	onlyVerified       bool
+	providerOnly       bool
+	noVerify           bool
+	verifyMinAssurance string
+	dropIndeterminate  bool
+	verifyRPS          int
+	concurrency        int
+	rulesPath          string
+	failOn             string
+	allowlistPath      string
+	includeDetectors   []string
+	excludeDetectors   []string
+	quiet              bool
+	revokeOnVerified   bool
+	revokeDryRun       bool
+	revokeSpool        string
+	auditTrail         string
+	blastRadiusOnly    bool
+	showSuppressed     bool
+	incremental        bool
+	incrementalState   string
+	cpuProfile         string
+	piiEngine          string
+	piiEngineCmd       string
+	piiEnginePort      int
+	piiEngineLanguage  string
+	piiEngineReady     time.Duration
+	piiEngineRequest   time.Duration
+	piiEngineDevice    string
+	piiModel           string
+	piiModelPath       string
 }
 
 var scanOpts scanFlags
@@ -180,7 +182,9 @@ var scanSQLDumpCmd = &cobra.Command{
 
 func init() {
 	scanCmd.PersistentFlags().StringVar(&scanOpts.format, "format", "table", "output format: json, sarif, table")
-	scanCmd.PersistentFlags().BoolVar(&scanOpts.onlyVerified, "only-verified", false, "emit, count, and optionally revoke only provider-verified findings; findings whose verification attempt failed (network error, provider 5xx, rate limit) are kept as indeterminate by default — see --drop-indeterminate")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.onlyVerified, "only-verified", false, "legacy compatibility mode: emit, count, and optionally revoke detector-verified findings regardless of assurance; indeterminate findings are kept by default — see --drop-indeterminate and --only-provider-confirmed")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.providerOnly, "only-provider-confirmed", false,
+		"verify, emit, count, and optionally revoke only findings from detectors whose semantics were audited as provider-confirmed; unaudited and weaker verification requests are skipped")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.noVerify, "no-verify", false,
 		"skip every detector's network Verify() round-trip so the scan runs fully offline and fast. "+
 			"Verification is never attempted, so every finding's verdict is unverified — not indeterminate; "+
@@ -188,6 +192,8 @@ func init() {
 			"happen here. This trades confidence for latency, meant for latency-sensitive callers like "+
 			"pre-commit/agent hooks (see pleno-dlp hooks install, issue #303), not for CI gating. Mutually "+
 			"exclusive with --only-verified, which would otherwise always yield zero findings.")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.verifyMinAssurance, "verify-min-assurance", "unknown",
+		"attempt remote verification only for detectors audited to at least this level, while still emitting other candidates as unverified: unknown|heuristic|response-confirmed|provider-confirmed")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.dropIndeterminate, "drop-indeterminate", false,
 		"with --only-verified, also drop findings whose verification attempt failed instead of keeping them as indeterminate. "+
 			"The default keeps them: a failed verification attempt means liveness is unknown, not disproven, so dropping by "+
@@ -421,6 +427,22 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	if scanOpts.noVerify && scanOpts.onlyVerified {
 		return fmt.Errorf("--no-verify and --only-verified are mutually exclusive: with --no-verify no finding is ever verified, so --only-verified would always emit zero results")
 	}
+	if scanOpts.onlyVerified && scanOpts.providerOnly {
+		return fmt.Errorf("--only-verified and --only-provider-confirmed are mutually exclusive")
+	}
+	if scanOpts.noVerify && scanOpts.providerOnly {
+		return fmt.Errorf("--no-verify and --only-provider-confirmed are mutually exclusive: provider confirmation requires verification")
+	}
+	minimumVerificationAssurance, err := parseVerificationAssurance(scanOpts.verifyMinAssurance)
+	if err != nil {
+		return err
+	}
+	if scanOpts.providerOnly {
+		minimumVerificationAssurance = detectors.AssuranceProviderConfirmed
+	}
+	if scanOpts.noVerify && minimumVerificationAssurance != detectors.AssuranceUnknown {
+		return fmt.Errorf("--no-verify and --verify-min-assurance are mutually exclusive")
+	}
 	// Reject an unknown --pii-engine as a hard config error rather than
 	// letting startPIIEngine's error be swallowed by the "continue without
 	// PII" downgrade below — otherwise a typo silently produces a
@@ -568,10 +590,14 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// counter/piidbSink/etc. is deliberate — a suppressed finding must
 	// still be visible for audit, but must not re-enter dedup, PII
 	// classification, --only-verified, --blast-radius-only, or the
-	// --fail-on gate the way a normal finding does.
+	// --fail-on gate the way a normal finding does. Strict provider-only
+	// mode remains an outer trust boundary even for audit output.
 	var suppressedAudit engine.Sink
 	if scanOpts.showSuppressed {
 		suppressedAudit = sink
+		if scanOpts.providerOnly {
+			suppressedAudit = &providerConfirmedOnlySink{inner: sink}
+		}
 	}
 
 	// Wrap with the counting+dedup+placeholder+allowlist chain. Order
@@ -621,6 +647,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		onlyVerified = &verifiedOnlySink{inner: topSink, dropIndeterminate: scanOpts.dropIndeterminate}
 		topSink = chain.Track(onlyVerified)
 	}
+	if scanOpts.providerOnly {
+		topSink = chain.Track(&providerConfirmedOnlySink{inner: topSink})
+	}
 	// --blast-radius-only sits OUTSIDE counter+revoker so the filter
 	// happens first: non-blast-radius findings never reach the counter
 	// (so they don't trigger exit 1) and never reach the user-facing
@@ -667,8 +696,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	}()
 
 	eng := engine.NewWithDetectors(dets, engine.Options{
-		Concurrency: scanOpts.concurrency,
-		NoVerify:    scanOpts.noVerify,
+		Concurrency:                  scanOpts.concurrency,
+		NoVerify:                     scanOpts.noVerify,
+		MinimumVerificationAssurance: minimumVerificationAssurance,
 	}, scanSink)
 
 	// Start only after every fallible configuration and output setup step.
@@ -897,6 +927,24 @@ func filterDetectors(in []detectors.Detector, include, exclude []string) ([]dete
 	return out, nil
 }
 
+func parseVerificationAssurance(s string) (detectors.VerificationAssurance, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "unknown":
+		return detectors.AssuranceUnknown, nil
+	case "heuristic":
+		return detectors.AssuranceHeuristic, nil
+	case "response-confirmed":
+		return detectors.AssuranceResponseConfirmed, nil
+	case "provider-confirmed":
+		return detectors.AssuranceProviderConfirmed, nil
+	default:
+		return detectors.AssuranceUnknown, fmt.Errorf(
+			"--verify-min-assurance: unknown value %q (valid: unknown, heuristic, response-confirmed, provider-confirmed)",
+			s,
+		)
+	}
+}
+
 // parseFailOn turns the --fail-on string into a Severity threshold. The
 // special value "any" means any finding (severity > Unknown) trips the
 // gate — this preserves the historical behaviour for callers that don't
@@ -1075,28 +1123,30 @@ func scannerFingerprint(kind string, cfg []byte) (string, error) {
 		return "", fmt.Errorf("incremental: hash allowlist: %w", err)
 	}
 	payload := map[string]any{
-		"version":             1,
-		"tool_version":        toolVersion,
-		"kind":                kind,
-		"source_config":       json.RawMessage(cfg),
-		"only_verified":       scanOpts.onlyVerified,
-		"no_verify":           scanOpts.noVerify,
-		"drop_indeterminate":  scanOpts.dropIndeterminate,
-		"verify_rps":          scanOpts.verifyRPS,
-		"rules_path":          scanOpts.rulesPath,
-		"rules_hash":          rulesHash,
-		"fail_on":             scanOpts.failOn,
-		"allowlist_path":      discoverAllowlistPath(scanOpts.allowlistPath),
-		"allowlist_hash":      allowlistHash,
-		"include_detectors":   scanOpts.includeDetectors,
-		"exclude_detectors":   scanOpts.excludeDetectors,
-		"blast_radius_only":   scanOpts.blastRadiusOnly,
-		"pii_engine":          scanOpts.piiEngine,
-		"pii_engine_cmd":      scanOpts.piiEngineCmd,
-		"pii_engine_language": scanOpts.piiEngineLanguage,
-		"pii_engine_device":   scanOpts.piiEngineDevice,
-		"pii_model":           scanOpts.piiModel,
-		"pii_model_path":      scanOpts.piiModelPath,
+		"version":                 1,
+		"tool_version":            toolVersion,
+		"kind":                    kind,
+		"source_config":           json.RawMessage(cfg),
+		"only_verified":           scanOpts.onlyVerified,
+		"only_provider_confirmed": scanOpts.providerOnly,
+		"no_verify":               scanOpts.noVerify,
+		"verify_min_assurance":    scanOpts.verifyMinAssurance,
+		"drop_indeterminate":      scanOpts.dropIndeterminate,
+		"verify_rps":              scanOpts.verifyRPS,
+		"rules_path":              scanOpts.rulesPath,
+		"rules_hash":              rulesHash,
+		"fail_on":                 scanOpts.failOn,
+		"allowlist_path":          discoverAllowlistPath(scanOpts.allowlistPath),
+		"allowlist_hash":          allowlistHash,
+		"include_detectors":       scanOpts.includeDetectors,
+		"exclude_detectors":       scanOpts.excludeDetectors,
+		"blast_radius_only":       scanOpts.blastRadiusOnly,
+		"pii_engine":              scanOpts.piiEngine,
+		"pii_engine_cmd":          scanOpts.piiEngineCmd,
+		"pii_engine_language":     scanOpts.piiEngineLanguage,
+		"pii_engine_device":       scanOpts.piiEngineDevice,
+		"pii_model":               scanOpts.piiModel,
+		"pii_model_path":          scanOpts.piiModelPath,
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -1233,7 +1283,8 @@ func (b *blastRadiusFilterSink) Emit(f engine.Finding) {
 
 func (b *blastRadiusFilterSink) Close() error { return b.inner.Close() }
 
-// verifiedOnlySink filters to provider-confirmed findings, but treats the
+// verifiedOnlySink is the backward-compatible detector-verdict filter. It
+// does not require an audited assurance level and treats the
 // three verification verdicts differently rather than collapsing to a
 // boolean (issue #246):
 //   - Verified: always forwarded — that's the whole point of the flag.
@@ -1270,6 +1321,22 @@ func (v *verifiedOnlySink) Emit(f engine.Finding) {
 }
 
 func (v *verifiedOnlySink) Close() error { return v.inner.Close() }
+
+type providerConfirmedOnlySink struct {
+	inner   engine.Sink
+	dropped atomic.Int64
+}
+
+func (s *providerConfirmedOnlySink) Emit(f engine.Finding) {
+	if f.Result.Verdict() != detectors.VerdictVerified ||
+		f.Result.VerificationAssurance != detectors.AssuranceProviderConfirmed {
+		s.dropped.Add(1)
+		return
+	}
+	s.inner.Emit(f)
+}
+
+func (s *providerConfirmedOnlySink) Close() error { return s.inner.Close() }
 
 // Execute is a thin wrapper main.go invokes. Returning instead of calling
 // os.Exit here keeps the cmd package testable.

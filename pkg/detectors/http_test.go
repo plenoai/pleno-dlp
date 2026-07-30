@@ -3,7 +3,11 @@ package detectors_test
 import (
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -75,5 +79,61 @@ func TestClassifyVerifyHTTP_MissingResponseIsIndeterminate(t *testing.T) {
 	}
 	if err == nil {
 		t.Error("expected err != nil for missing response")
+	}
+}
+
+func TestDecodeVerifyJSONRequiresBoundedExactPayload(t *testing.T) {
+	var got struct {
+		OK bool `json:"ok"`
+	}
+	if err := detectors.DecodeVerifyJSON(strings.NewReader(`{"ok":true}`), 64, &got); err != nil {
+		t.Fatalf("valid response: %v", err)
+	}
+	if !got.OK {
+		t.Fatal("valid response was not decoded")
+	}
+
+	for name, payload := range map[string]string{
+		"valid prefix above limit": `{"ok":true}` + strings.Repeat(" ", 64),
+		"trailing JSON":            `{"ok":true}{"ok":false}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var decoded struct {
+				OK bool `json:"ok"`
+			}
+			if err := detectors.DecodeVerifyJSON(strings.NewReader(payload), 64, &decoded); err == nil {
+				t.Fatal("ambiguous response must fail closed")
+			}
+		})
+	}
+}
+
+func TestNewVerifyHTTPClientDoesNotFollowRedirect(t *testing.T) {
+	var redirected atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		redirected.Store(true)
+	}))
+	defer target.Close()
+
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	}))
+	defer source.Close()
+
+	req, err := http.NewRequest(http.MethodGet, source.URL, nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	req.Header.Set("X-Api-Key", "test-value")
+	resp, err := detectors.NewVerifyHTTPClient(time.Second).Do(req)
+	if err != nil {
+		t.Fatalf("request redirect response: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusFound)
+	}
+	if redirected.Load() {
+		t.Fatal("verification client followed redirect")
 	}
 }

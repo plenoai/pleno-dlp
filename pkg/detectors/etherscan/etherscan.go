@@ -1,10 +1,13 @@
 // Package etherscan detects Etherscan API keys — 34-char alnum strings
-// near the `etherscan` keyword. Verified via /api?module=stats&action=
-// ethsupply on api.etherscan.io with apikey query param.
+// near the `etherscan` keyword. Verified via the read-only V2 eth supply
+// endpoint on api.etherscan.io with the candidate key.
 package etherscan
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -16,7 +19,9 @@ import (
 
 var apiBase = "https://api.etherscan.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
+
+const maxVerifyResponseBytes = 64 << 10
 
 var tokenRe = regexp.MustCompile(`\b([A-Z0-9]{34})\b`)
 
@@ -86,23 +91,74 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	q := url.Values{}
+	q.Set("chainid", "1")
 	q.Set("module", "stats")
 	q.Set("action", "ethsupply")
 	q.Set("apikey", secret)
-	target := strings.TrimRight(apiBase, "/") + "/api?" + q.Encode()
+	target := strings.TrimRight(apiBase, "/") + "/v2/api?" + q.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("etherscan verify: build request")
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return false, err
+		// net/url errors may embed the complete request URL, including the API
+		// key query parameter. Keep verification diagnostics secret-free.
+		return false, fmt.Errorf("etherscan verify: request failed")
+	}
+	accepted, classifyErr := detectors.ClassifyVerifyHTTP(
+		resp,
+		nil,
+		[]int{http.StatusOK},
+		nil,
+	)
+	if resp == nil {
+		return accepted, classifyErr
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusOK {
+	if classifyErr != nil || !accepted {
+		return accepted, classifyErr
+	}
+	return classifyVerifyResponse(resp.Body)
+}
+
+func classifyVerifyResponse(body io.Reader) (bool, error) {
+	payload, err := io.ReadAll(io.LimitReader(body, maxVerifyResponseBytes+1))
+	if err != nil {
+		return false, fmt.Errorf("etherscan verify: read response: %w", err)
+	}
+	if len(payload) > maxVerifyResponseBytes {
+		return false, fmt.Errorf("etherscan verify: response exceeds %d bytes", maxVerifyResponseBytes)
+	}
+
+	var envelope struct {
+		Status  string          `json:"status"`
+		Message string          `json:"message"`
+		Result  json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return false, fmt.Errorf("etherscan verify: malformed JSON response: %w", err)
+	}
+	if len(envelope.Result) == 0 {
+		return false, fmt.Errorf("etherscan verify: ambiguous provider response")
+	}
+
+	var result string
+	if err := json.Unmarshal(envelope.Result, &result); err != nil {
+		return false, fmt.Errorf("etherscan verify: unexpected result shape")
+	}
+
+	status := strings.TrimSpace(envelope.Status)
+	message := strings.TrimSpace(envelope.Message)
+	result = strings.TrimSpace(result)
+	if status == "1" && message == "OK" && result != "" {
 		return true, nil
 	}
-	return false, nil
+	if status == "0" && message == "NOTOK" &&
+		strings.Contains(strings.ToLower(result), "invalid api key") {
+		return false, nil
+	}
+	return false, fmt.Errorf("etherscan verify: ambiguous provider response")
 }
 
 func redact(t string) string {

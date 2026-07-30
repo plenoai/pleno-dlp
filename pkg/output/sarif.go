@@ -599,10 +599,10 @@ var ruleDescriptions = map[string]string{
 	detectors.AbstractAPI.String():            "AbstractAPI key (32 hex) near abstract keyword, verified via /v1/?api_key=... on emailvalidation.abstractapi.com with api_key query param",
 	detectors.NeverBounce.String():            "NeverBounce API key (`secret_`/`private_` alnum) near neverbounce keyword, verified via /v4/account/info on api.neverbounce.com with key query param",
 	detectors.Snov.String():                   "Snov.io OAuth2 client_id + client_secret pair near snov keyword, verified via /v1/oauth/access_token (client_credentials) on api.snov.io (RawV2 carries the secret)",
-	detectors.Apollo.String():                 "Apollo.io sales-engagement API key (22 alnum) near apollo keyword, verified via /v1/auth/health on api.apollo.io with X-Api-Key header",
+	detectors.Apollo.String():                 "Apollo.io sales-engagement API key (22 alnum) within 40 bytes after the apollo keyword, verified via /api/v1/auth/health on api.apollo.io with X-Api-Key header",
 	detectors.Lemlist.String():                "Lemlist user_email + api_key pair near lemlist keyword, verified via /api/team on api.lemlist.com with HTTP Basic auth (RawV2 carries the api_key)",
 	detectors.Authentik.String():              "Authentik identity-provider token (60+ alnum) near authentik keyword — unverified by design (per-tenant host `<tenant>.goauthentik.io` or self-hosted), apiBase override required",
-	detectors.Etherscan.String():              "Etherscan blockchain explorer API key (34 alnum) near etherscan keyword, verified via /api?module=stats&action=ethsupply on api.etherscan.io with apikey query param",
+	detectors.Etherscan.String():              "Etherscan blockchain explorer API key (34 alnum) near etherscan keyword, verified via /v2/api?chainid=1&module=stats&action=ethsupply on api.etherscan.io with apikey query param",
 	detectors.Alchemy.String():                "Alchemy blockchain RPC API key (32 alnum) near alchemy keyword, verified via JSON-RPC eth_blockNumber on eth-mainnet.g.alchemy.com/v2/<key>",
 	detectors.Infura.String():                 "Infura project ID (32 hex) near infura keyword, verified via JSON-RPC eth_blockNumber on mainnet.infura.io/v3/<id>",
 	detectors.QuickNode.String():              "QuickNode endpoint URL or token (32+ alnum) near quicknode keyword — unverified by design (per-endpoint host required), apiBase override required",
@@ -803,7 +803,7 @@ func toSARIFResult(f engine.Finding) sarifResult {
 		}
 		r.Locations = []sarifLocation{loc}
 	}
-	props := make(map[string]any, len(f.Result.ExtraData)+3)
+	props := make(map[string]any, len(f.Result.ExtraData)+4)
 	for k, v := range f.Result.ExtraData {
 		props[k] = v
 	}
@@ -813,6 +813,7 @@ func toSARIFResult(f engine.Finding) sarifResult {
 	// verified=false, which is exactly what let --only-verified silently
 	// drop possibly-live secrets during an outage (#246).
 	props["verdict"] = f.Result.Verdict().String()
+	props["verification_assurance"] = f.Result.VerificationAssurance.String()
 	props["severity"] = f.Result.Severity.String()
 	if f.Chunk != nil && f.Chunk.SourceMetadata.GitHub != nil {
 		gh := f.Chunk.SourceMetadata.GitHub

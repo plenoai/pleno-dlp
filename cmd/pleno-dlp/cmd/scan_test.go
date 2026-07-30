@@ -795,6 +795,144 @@ func TestVerifiedOnlySink_DropsUnverified(t *testing.T) {
 	}
 }
 
+func TestProviderConfirmedOnlySinkBlocksWeakAssuranceBeforeSideEffects(t *testing.T) {
+	sideEffects := &captureSink{}
+	strict := &providerConfirmedOnlySink{inner: sideEffects}
+
+	legacy := engineFinding(detectors.GitHub, true, "legacy")
+	responseConfirmed := engineFinding(detectors.GitHub, true, "response")
+	responseConfirmed.Result.VerificationAssurance = detectors.AssuranceResponseConfirmed
+	providerConfirmed := engineFinding(detectors.GitHub, true, "provider")
+	providerConfirmed.Result.VerificationAssurance = detectors.AssuranceProviderConfirmed
+	indeterminate := engineFindingIndeterminate(detectors.GitHub, "indeterminate")
+	indeterminate.Result.VerificationAssurance = detectors.AssuranceProviderConfirmed
+
+	strict.Emit(legacy)
+	strict.Emit(responseConfirmed)
+	strict.Emit(providerConfirmed)
+	strict.Emit(indeterminate)
+
+	if got := len(sideEffects.findings); got != 1 {
+		t.Fatalf("expected only provider-confirmed finding forwarded, got %d", got)
+	}
+	if got := sideEffects.findings[0].Result.VerificationAssurance; got != detectors.AssuranceProviderConfirmed {
+		t.Fatalf("forwarded assurance = %v, want provider-confirmed", got)
+	}
+	if got := strict.dropped.Load(); got != 3 {
+		t.Fatalf("dropped = %d, want 3", got)
+	}
+}
+
+func TestProviderConfirmedOnlySinkAlsoGuardsSuppressedAuditOutput(t *testing.T) {
+	captured := &captureSink{}
+	strictAudit := &providerConfirmedOnlySink{inner: captured}
+	placeholder := engine.NewPlaceholderFilter(&captureSink{}, strictAudit)
+
+	legacy := engineFinding(detectors.GitHub, true, "changeme")
+	placeholder.Emit(legacy)
+	if got := len(captured.findings); got != 0 {
+		t.Fatalf("legacy suppressed finding bypassed strict audit gate: %d", got)
+	}
+
+	providerConfirmed := engineFinding(detectors.GitHub, true, "changeme")
+	providerConfirmed.Result.VerificationAssurance = detectors.AssuranceProviderConfirmed
+	placeholder.Emit(providerConfirmed)
+	if got := len(captured.findings); got != 1 {
+		t.Fatalf("provider-confirmed suppressed finding count = %d, want 1", got)
+	}
+}
+
+func TestScanOnlyProviderConfirmedDropsLegacyVerifiedFinding(t *testing.T) {
+	resetCommandFlags(t)
+
+	var requests atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	rules := filepath.Join(t.TempDir(), "rules.json")
+	rulesJSON := fmt.Sprintf(`[{
+		"name":"ACME Token",
+		"keywords":["ACME_"],
+		"regex":"ACME_[A-Z0-9]{20}",
+		"verify_url":"%s"
+	}]`, srv.URL)
+	if err := writeFile(rules, rulesJSON); err != nil {
+		t.Fatalf("seed rules: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetIn(strings.NewReader("ACME_1234567890ABCDEFGHIJ"))
+	Root.SetArgs([]string{
+		"scan", "--rules", rules, "--only-provider-confirmed", "--format", "json", "stdin",
+	})
+
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("strict scan should drop legacy verified finding without failing: %v\nstderr:\n%s", err, errBuf.String())
+	}
+	if strings.TrimSpace(out.String()) != "[]" {
+		t.Fatalf("strict output = %q, want empty JSON array", out.String())
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("verification requests = %d, want 0 for an unaudited detector", requests.Load())
+	}
+}
+
+func TestScanVerifyMinAssurancePreservesUnauditedCandidateWithoutRequest(t *testing.T) {
+	resetCommandFlags(t)
+
+	var requests atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	rules := filepath.Join(t.TempDir(), "rules.json")
+	rulesJSON := fmt.Sprintf(`[{
+		"name":"ACME Token",
+		"keywords":["ACME_"],
+		"regex":"ACME_[A-Z0-9]{20}",
+		"verify_url":"%s"
+	}]`, srv.URL)
+	if err := writeFile(rules, rulesJSON); err != nil {
+		t.Fatalf("seed rules: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetIn(strings.NewReader("ACME_1234567890ABCDEFGHIJ"))
+	Root.SetArgs([]string{
+		"scan", "--rules", rules,
+		"--verify-min-assurance", "provider-confirmed",
+		"--fail-on", "critical",
+		"--format", "json", "stdin",
+	})
+
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("audit scan failed: %v\nstderr:\n%s", err, errBuf.String())
+	}
+	var findings []struct {
+		Verified              bool   `json:"verified"`
+		VerificationAssurance string `json:"verification_assurance"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &findings); err != nil {
+		t.Fatalf("decode output: %v\noutput:\n%s", err, out.String())
+	}
+	if len(findings) != 1 || findings[0].Verified ||
+		findings[0].VerificationAssurance != "unknown" {
+		t.Fatalf("findings = %+v, want one unaudited candidate", findings)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("verification requests = %d, want 0 for an unaudited detector", requests.Load())
+	}
+}
+
 // engineFindingIndeterminate builds a Finding whose verification attempt
 // failed (VerificationErr set, Verified false) — the shape a real detector
 // produces on a network error / provider 5xx / rate limit rather than an

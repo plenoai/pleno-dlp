@@ -1,10 +1,11 @@
-// Package anthropic detects Anthropic API keys (sk-ant-…) and verifies them
-// with a 1-token /v1/messages probe.
+// Package anthropic detects Anthropic API keys (sk-ant-api03-...) and verifies
+// them with the read-only /v1/models endpoint.
 package anthropic
 
 import (
-	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -15,19 +16,17 @@ import (
 
 var apiBase = "https://api.anthropic.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var keyRe = regexp.MustCompile(`\b(sk-ant-[A-Za-z0-9_-]{20,})\b`)
+const maxVerifyResponseBytes = 64 << 10
 
-// probeBody is the smallest legal /v1/messages request — 1 max token, single
-// user turn. Sufficient to distinguish 401/403 (bad key) from 200 (valid).
-var probeBody = []byte(`{"model":"claude-haiku-4-5","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`)
+var keyRe = regexp.MustCompile(`\b(sk-ant-api03-[A-Za-z0-9_-]{93}AA)\b`)
 
 type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.Anthropic }
 
-func (Scanner) Keywords() []string { return []string{"sk-ant-"} }
+func (Scanner) Keywords() []string { return []string{"sk-ant-api03-"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	matches := keyRe.FindAll(data, -1)
@@ -37,11 +36,6 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	out := make([]detectors.Result, 0, len(matches))
 	for _, m := range matches {
 		token := string(m)
-		// Admin keys (sk-ant-admin-...) are owned by the AnthropicAdmin
-		// detector — skip them here so we don't double-report.
-		if strings.HasPrefix(token, "sk-ant-admin-") {
-			continue
-		}
 		res := detectors.Result{
 			DetectorType: detectors.Anthropic,
 			Raw:          []byte(token),
@@ -61,32 +55,34 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBase+"/v1/messages", bytes.NewReader(probeBody))
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		strings.TrimRight(apiBase, "/")+"/v1/models",
+		http.NoBody,
+	)
 	if err != nil {
 		return false, err
 	}
 	req.Header.Set("x-api-key", secret)
 	req.Header.Set("anthropic-version", "2023-06-01")
-	req.Header.Set("content-type", "application/json")
+	req.Header.Set("accept", "application/json")
 
 	resp, err := httpClient.Do(req)
-	if err != nil {
-		return false, err
+	accepted, classifyErr := detectors.ClassifyVerifyHTTP(
+		resp,
+		err,
+		[]int{http.StatusOK},
+		[]int{http.StatusUnauthorized, http.StatusNotFound},
+	)
+	if resp == nil {
+		return accepted, classifyErr
 	}
 	defer resp.Body.Close()
-	switch resp.StatusCode {
-	case http.StatusOK:
-		return true, nil
-	case http.StatusUnauthorized, http.StatusForbidden:
-		return false, nil
-	case http.StatusTooManyRequests:
-		return false, nil
-	default:
-		// Other errors shouldn't classify as verified, but they also imply the
-		// key was authenticated. Stay strict and only return true on 200 to
-		// avoid false positives.
-		return false, nil
+	if _, drainErr := io.Copy(io.Discard, io.LimitReader(resp.Body, maxVerifyResponseBytes)); drainErr != nil {
+		return false, fmt.Errorf("anthropic verify: read response: %w", drainErr)
 	}
+	return accepted, classifyErr
 }
 
 func redact(t string) string {
