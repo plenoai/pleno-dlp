@@ -34,16 +34,61 @@ import (
 type degradedFindingSource struct{}
 
 type retryAfterDegradedSource struct {
-	degraded bool
+	degraded    bool
+	fatal       bool
+	fingerprint string
+	previous    string
+	calls       int
+	flush       sources.IncrementalFlushFunc
+}
+
+type archiveCheckpointSource struct {
+	data     []byte
+	next     json.RawMessage
 	previous string
 	calls    int
+}
+
+func (*archiveCheckpointSource) Init(context.Context, string, int64, int64, bool, []byte, int) error {
+	return nil
+}
+func (*archiveCheckpointSource) Type() sources.SourceType { return sources.SourceS3 }
+func (*archiveCheckpointSource) ResourceFingerprint(context.Context) (string, error) {
+	return "", nil
+}
+func (s *archiveCheckpointSource) SetIncrementalState(state json.RawMessage) error {
+	s.previous = string(state)
+	return nil
+}
+func (s *archiveCheckpointSource) IncrementalState() json.RawMessage { return s.next }
+func (s *archiveCheckpointSource) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
+	s.calls++
+	if len(s.data) == 0 {
+		return nil
+	}
+	select {
+	case ch <- &sources.Chunk{
+		SourceType: sources.SourceS3,
+		SourceName: "cli",
+		Data:       s.data,
+		SourceMetadata: sources.Metadata{
+			S3: &sources.S3Meta{Bucket: "example-bucket", Key: "broken.zip"},
+		},
+	}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (*retryAfterDegradedSource) Init(context.Context, string, int64, int64, bool, []byte, int) error {
 	return nil
 }
 func (*retryAfterDegradedSource) Type() sources.SourceType { return sources.SourceGitHub }
-func (*retryAfterDegradedSource) ResourceFingerprint(context.Context) (string, error) {
+func (s *retryAfterDegradedSource) ResourceFingerprint(context.Context) (string, error) {
+	if s.fingerprint != "" {
+		return s.fingerprint, nil
+	}
 	return "stable-resources", nil
 }
 func (s *retryAfterDegradedSource) SetIncrementalState(state json.RawMessage) error {
@@ -51,13 +96,24 @@ func (s *retryAfterDegradedSource) SetIncrementalState(state json.RawMessage) er
 	return nil
 }
 func (s *retryAfterDegradedSource) IncrementalState() json.RawMessage {
-	if s.degraded {
+	if s.degraded || s.fatal {
 		return json.RawMessage(`"partial"`)
 	}
 	return json.RawMessage(`"complete"`)
 }
+func (s *retryAfterDegradedSource) SetIncrementalFlush(flush sources.IncrementalFlushFunc) {
+	s.flush = flush
+}
 func (s *retryAfterDegradedSource) Chunks(context.Context, chan<- *sources.Chunk) error {
 	s.calls++
+	if (s.degraded || s.fatal) && s.flush != nil {
+		if err := s.flush(json.RawMessage(`"partial"`)); err != nil {
+			return err
+		}
+	}
+	if s.fatal {
+		return errors.New("injected fatal source failure")
+	}
 	if !s.degraded {
 		return nil
 	}
@@ -432,7 +488,7 @@ func TestRunScanCommonDegradedSourcePreservesFindingsAndReturnsTypedError(t *tes
 	}
 }
 
-func TestRunScanCommonDegradedIncrementalRunRetriesUnfinishedResources(t *testing.T) {
+func TestRunScanCommonDegradedIncrementalRunPreservesPriorCheckpoint(t *testing.T) {
 	resetCommandFlags(t)
 	scanOpts.noVerify, scanOpts.quiet, scanOpts.incremental = true, true, true
 	scanOpts.format, scanOpts.failOn = "json", "critical"
@@ -442,7 +498,12 @@ func TestRunScanCommonDegradedIncrementalRunRetriesUnfinishedResources(t *testin
 	Root.SetOut(&out)
 	Root.SetErr(&out)
 
-	first := &retryAfterDegradedSource{degraded: true}
+	baseline := &retryAfterDegradedSource{fingerprint: "before"}
+	if err := runScanCommon(scanGitHubCmd, baseline, nil, "github-timeout-retry"); err != nil {
+		t.Fatalf("baseline run: %v", err)
+	}
+
+	first := &retryAfterDegradedSource{degraded: true, fingerprint: "after"}
 	err := runScanCommon(scanGitHubCmd, first, nil, "github-timeout-retry")
 	var degraded *engine.DegradedError
 	if !errors.As(err, &degraded) || first.calls != 1 {
@@ -456,16 +517,16 @@ func TestRunScanCommonDegradedIncrementalRunRetriesUnfinishedResources(t *testin
 		t.Fatalf("first run entries=%d, want 1", len(state.Entries))
 	}
 	for _, entry := range state.Entries {
-		if entry.ResourceFingerprint != "" || string(entry.SourceState) != `"partial"` {
-			t.Fatalf("degraded checkpoint = %+v, want empty fingerprint and partial source state", entry)
+		if entry.ResourceFingerprint != "" || string(entry.SourceState) != `"complete"` {
+			t.Fatalf("degraded checkpoint = %+v, want empty fingerprint and prior complete source state", entry)
 		}
 	}
 
-	second := &retryAfterDegradedSource{}
+	second := &retryAfterDegradedSource{fingerprint: "after"}
 	if err := runScanCommon(scanGitHubCmd, second, nil, "github-timeout-retry"); err != nil {
 		t.Fatalf("retry run: %v", err)
 	}
-	if second.calls != 1 || second.previous != `"partial"` {
+	if second.calls != 1 || second.previous != `"complete"` {
 		t.Fatalf("retry fast-skipped unfinished resource: calls=%d previous=%q", second.calls, second.previous)
 	}
 	state, err = loadIncrementalState(scanOpts.incrementalState)
@@ -473,8 +534,113 @@ func TestRunScanCommonDegradedIncrementalRunRetriesUnfinishedResources(t *testin
 		t.Fatal(err)
 	}
 	for _, entry := range state.Entries {
-		if entry.ResourceFingerprint != "stable-resources" || string(entry.SourceState) != `"complete"` {
+		if entry.ResourceFingerprint != "after" || string(entry.SourceState) != `"complete"` {
 			t.Fatalf("completed checkpoint = %+v", entry)
+		}
+	}
+}
+
+func TestRunScanCommonArchiveFailureRestoresPriorCheckpoint(t *testing.T) {
+	resetCommandFlags(t)
+	scanOpts.noVerify, scanOpts.quiet, scanOpts.incremental = true, true, true
+	scanOpts.format, scanOpts.failOn = "json", "critical"
+	scanOpts.incrementalState = filepath.Join(t.TempDir(), "state.json")
+	scanGitHubCmd.SetContext(context.Background())
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+
+	baseline := &archiveCheckpointSource{next: json.RawMessage(`"prior-complete"`)}
+	if err := runScanCommon(scanGitHubCmd, baseline, nil, "s3-archive-checkpoint"); err != nil {
+		t.Fatalf("baseline run: %v", err)
+	}
+
+	failed := &archiveCheckpointSource{
+		data: []byte{'P', 'K', 3, 4},
+		next: json.RawMessage(`"archive-emitted"`),
+	}
+	err := runScanCommon(scanGitHubCmd, failed, nil, "s3-archive-checkpoint")
+	var degraded *engine.DegradedError
+	if !errors.As(err, &degraded) || degraded.Counts[engine.FailureArchive] != 1 {
+		t.Fatalf("archive run error = %v, want archive coverage degradation", err)
+	}
+	if failed.calls != 1 || failed.previous != `"prior-complete"` {
+		t.Fatalf("archive run calls=%d previous=%q, want prior checkpoint and one attempt", failed.calls, failed.previous)
+	}
+	state, err := loadIncrementalState(scanOpts.incrementalState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range state.Entries {
+		if entry.ResourceFingerprint != "" || string(entry.SourceState) != `"prior-complete"` {
+			t.Fatalf("archive failure advanced checkpoint = %+v, want prior complete state", entry)
+		}
+	}
+}
+
+func TestRunScanCommonFatalRunRestoresPriorFlushedCheckpoint(t *testing.T) {
+	resetCommandFlags(t)
+	scanOpts.noVerify, scanOpts.quiet, scanOpts.incremental = true, true, true
+	scanOpts.format, scanOpts.failOn = "json", "critical"
+	scanOpts.incrementalState = filepath.Join(t.TempDir(), "state.json")
+	scanGitHubCmd.SetContext(context.Background())
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+
+	baseline := &retryAfterDegradedSource{fingerprint: "before"}
+	if err := runScanCommon(scanGitHubCmd, baseline, nil, "github-fatal-restore"); err != nil {
+		t.Fatalf("baseline run: %v", err)
+	}
+	fatalSource := &retryAfterDegradedSource{fatal: true, fingerprint: "after"}
+	if err := runScanCommon(scanGitHubCmd, fatalSource, nil, "github-fatal-restore"); err == nil {
+		t.Fatal("fatal source run unexpectedly succeeded")
+	}
+	state, err := loadIncrementalState(scanOpts.incrementalState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range state.Entries {
+		if entry.ResourceFingerprint != "before" || string(entry.SourceState) != `"complete"` {
+			t.Fatalf("fatal run left partial checkpoint = %+v, want prior complete entry", entry)
+		}
+	}
+}
+
+type failingWriter struct {
+	err error
+}
+
+func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestRunScanCommonOutputCloseFailureRestoresPriorCheckpoint(t *testing.T) {
+	resetCommandFlags(t)
+	scanOpts.noVerify, scanOpts.quiet, scanOpts.incremental = true, true, true
+	scanOpts.format, scanOpts.failOn = "json", "critical"
+	scanOpts.incrementalState = filepath.Join(t.TempDir(), "state.json")
+	scanGitHubCmd.SetContext(context.Background())
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+
+	baseline := &retryAfterDegradedSource{fingerprint: "before"}
+	if err := runScanCommon(scanGitHubCmd, baseline, nil, "github-close-restore"); err != nil {
+		t.Fatalf("baseline run: %v", err)
+	}
+	writeErr := errors.New("injected final output failure")
+	Root.SetOut(failingWriter{err: writeErr})
+	next := &retryAfterDegradedSource{fingerprint: "after"}
+	err := runScanCommon(scanGitHubCmd, next, nil, "github-close-restore")
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("run error = %v, want final output failure", err)
+	}
+	state, err := loadIncrementalState(scanOpts.incrementalState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range state.Entries {
+		if entry.ResourceFingerprint != "before" || string(entry.SourceState) != `"complete"` {
+			t.Fatalf("output failure advanced checkpoint = %+v, want prior complete entry", entry)
 		}
 	}
 }

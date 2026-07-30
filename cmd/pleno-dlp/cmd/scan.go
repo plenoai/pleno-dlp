@@ -513,6 +513,25 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	if err != nil {
 		return err
 	}
+	var priorIncrementalEntry incrementalStateEntry
+	var hasPriorIncrementalEntry bool
+	if incrementalKey != "" && incrementalState != nil {
+		priorIncrementalEntry, hasPriorIncrementalEntry = incrementalState.Entries[incrementalKey]
+	}
+	restorePriorIncrementalState := func(runErr error) error {
+		if incrementalKey == "" || incrementalState == nil {
+			return runErr
+		}
+		if hasPriorIncrementalEntry {
+			incrementalState.Entries[incrementalKey] = priorIncrementalEntry
+		} else {
+			delete(incrementalState.Entries, incrementalKey)
+		}
+		if err := saveIncrementalState(scanOpts.incrementalState, incrementalState); err != nil {
+			return errors.Join(runErr, fmt.Errorf("restore incremental state after failed scan: %w", err))
+		}
+		return runErr
+	}
 	if incrementalEntry != nil {
 		if !scanOpts.quiet {
 			fmt.Fprintf(cmd.ErrOrStderr(),
@@ -716,22 +735,24 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	stats, err := eng.RunWithStats(ctx, src)
 	var coverageErr *engine.DegradedError
 	if err != nil {
+		var fatalErr error
+		coverageErr, fatalErr = engine.PartitionDegradedErrors(err)
 		// Stdin truncation is not a fatal scan error: the chunk that was
 		// read (up to --max-bytes) has already been scanned and any
 		// findings already counted. Treating it as fatal would discard
 		// the summary and clobber the findings exit code. Warn on stderr
 		// and fall through so the summary prints and errFindingsFound is
 		// driven from the finding counter. Any other error is fatal.
-		if stdin.IsTruncationError(err) {
+		if stdin.IsTruncationError(fatalErr) {
 			fmt.Fprintf(cmd.ErrOrStderr(),
 				"stdin: input exceeded max_bytes; trailing data was not scanned (raise --max-bytes to scan it all)\n")
-		} else if errors.As(err, &coverageErr) {
+		} else if fatalErr == nil && coverageErr != nil {
 			// Degraded coverage is non-zero, but not an immediate abort: source
 			// units that succeeded already emitted valid findings and partial
 			// incremental state. Flush/output/persist those before returning the
 			// structured error so automation sees both the findings and the gap.
 		} else {
-			return fmt.Errorf("scan: %w", err)
+			return restorePriorIncrementalState(fmt.Errorf("scan: %w", fatalErr))
 		}
 	}
 
@@ -742,7 +763,13 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// reach them, but only after the summary line and exit code are
 	// already computed. See issue #282.
 	if err := chain.Flush(); err != nil {
-		return fmt.Errorf("sink chain flush: %w", err)
+		return restorePriorIncrementalState(fmt.Errorf("sink chain flush: %w", err))
+	}
+	// Output sinks can latch Emit failures or write their final JSON/SARIF
+	// envelope only during Close. Confirm report durability before advancing
+	// incremental state; the deferred Close remains as idempotent cleanup.
+	if err := chain.Close(); err != nil {
+		return restorePriorIncrementalState(fmt.Errorf("sink chain close: %w", err))
 	}
 
 	// End-of-scan summary on stderr so it doesn't pollute --format json /
@@ -791,24 +818,29 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		}
 	}
 	if incrementalKey != "" {
-		var sourceState json.RawMessage
-		if iss, ok := src.(sources.IncrementalStateSource); ok {
-			sourceState = iss.IncrementalState()
-		}
-		resourceFingerprint := incrementalState.PendingResourceFingerprint
-		if coverageErr != nil {
-			resourceFingerprint = ""
-		}
-		incrementalState.Entries[incrementalKey] = incrementalStateEntry{
-			ResourceFingerprint: resourceFingerprint,
+		entry := incrementalStateEntry{
+			ResourceFingerprint: incrementalState.PendingResourceFingerprint,
 			ScannerFingerprint:  incrementalState.PendingScannerFingerprint,
-			SourceState:         sourceState,
 			Chunks:              stats.Chunks,
 			Bytes:               stats.Bytes,
 			Findings:            counter.count.Load(),
 			Failing:             counter.failing.Load(),
 			UpdatedAt:           time.Now().UTC().Format(time.RFC3339),
 		}
+		if coverageErr != nil {
+			// Findings are not persisted with the source checkpoint. Advancing
+			// source state after incomplete engine/source coverage would make
+			// the retry skip bytes whose findings were only in the failed run.
+			if hasPriorIncrementalEntry {
+				entry = priorIncrementalEntry
+			}
+			entry.ResourceFingerprint = ""
+			entry.ScannerFingerprint = incrementalState.PendingScannerFingerprint
+			entry.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		} else if iss, ok := src.(sources.IncrementalStateSource); ok {
+			entry.SourceState = iss.IncrementalState()
+		}
+		incrementalState.Entries[incrementalKey] = entry
 		if err := saveIncrementalState(scanOpts.incrementalState, incrementalState); err != nil {
 			return err
 		}

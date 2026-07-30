@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -58,6 +60,69 @@ func TestArchiveIntegration_FindsSecretInsideZip(t *testing.T) {
 	// Path should mention both the source filename and the inner entry.
 	if !bytes.Contains([]byte(gotPath), []byte("config.env")) {
 		t.Errorf("archive_path missing inner entry: %q", gotPath)
+	}
+}
+
+func TestArchiveRootNameUsesS3ObjectKey(t *testing.T) {
+	chunk := &sources.Chunk{
+		SourceName: "cli",
+		SourceMetadata: sources.Metadata{
+			S3: &sources.S3Meta{Bucket: "example-bucket", Key: "archives/bundle.zip"},
+		},
+	}
+	if got, want := archiveRootName(chunk), "archives/bundle.zip"; got != want {
+		t.Fatalf("archiveRootName = %q, want %q", got, want)
+	}
+}
+
+func TestArchiveCoverageFailureRedactsS3KeyAndEntry(t *testing.T) {
+	const (
+		hostileKey   = "credential-like-object-key.zip"
+		hostileEntry = "credential-like-entry.txt"
+	)
+	marker := []byte("archive-entry-marker")
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.CreateHeader(&zip.FileHeader{Name: hostileEntry, Method: zip.Store})
+	if err != nil {
+		t.Fatalf("zip CreateHeader: %v", err)
+	}
+	if _, err := w.Write(marker); err != nil {
+		t.Fatalf("zip Write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zip Close: %v", err)
+	}
+	payload := append([]byte(nil), buf.Bytes()...)
+	markerOffset := bytes.Index(payload, marker)
+	if markerOffset < 0 {
+		t.Fatal("zip payload did not contain the stored marker")
+	}
+	payload[markerOffset] ^= 0xff // Keep headers valid while forcing a CRC failure.
+
+	eng := NewWithDetectors(nil, Options{Concurrency: 1}, &recordingSink{})
+	eng.resetFailures()
+	eng.scanChunk(context.Background(), &sources.Chunk{
+		SourceName: "cli",
+		Data:       payload,
+		SourceMetadata: sources.Metadata{
+			S3: &sources.S3Meta{Bucket: "example-bucket", Key: hostileKey},
+		},
+	})
+	err = eng.takeFailures()
+	var degraded *DegradedError
+	if !errors.As(err, &degraded) || degraded.Total != 1 {
+		t.Fatalf("error = %#v, want one archive coverage failure", err)
+	}
+	rendered := err.Error()
+	if strings.Contains(rendered, hostileKey) || strings.Contains(rendered, hostileEntry) {
+		t.Fatalf("coverage error exposed S3 archive provenance: %q", rendered)
+	}
+	if got := degraded.Failures[0].Source; !strings.HasPrefix(got, "s3-object-sha256:") {
+		t.Fatalf("failure source = %q, want opaque S3 locator", got)
+	}
+	if !errors.Is(err, zip.ErrChecksum) {
+		t.Fatal("archive error redaction did not preserve the original cause")
 	}
 }
 

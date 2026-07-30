@@ -4,6 +4,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"reflect"
@@ -89,6 +90,13 @@ type Engine struct {
 	failureTotal          int
 	failureCounts         map[FailureKind]int
 }
+
+type redactedArchiveCoverageError struct {
+	cause error
+}
+
+func (e *redactedArchiveCoverageError) Error() string { return "archive expansion failed" }
+func (e *redactedArchiveCoverageError) Unwrap() error { return e.cause }
 
 const builtInDetectorPackagePrefix = "github.com/plenoai/pleno-dlp/pkg/detectors/"
 
@@ -369,7 +377,11 @@ func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
 			// Partial-failure: entries after the failure point were
 			// never extracted and will not be scanned. Surface it so
 			// the data-loss risk is visible instead of silent.
-			e.recordFailure(ScanFailure{Kind: FailureArchive, Source: archiveRootName(c), Err: err})
+			e.recordFailure(ScanFailure{
+				Kind:   FailureArchive,
+				Source: archiveFailureSource(c),
+				Err:    &redactedArchiveCoverageError{cause: err},
+			})
 		}
 		for _, entry := range entries {
 			inner := *c
@@ -401,8 +413,20 @@ func archiveRootName(c *sources.Chunk) string {
 		return md.Git.File
 	case md.GitHub != nil:
 		return md.GitHub.File
+	case md.S3 != nil:
+		return md.S3.Key
 	}
 	return c.SourceName
+}
+
+// archiveFailureSource keeps user-visible coverage diagnostics safe without
+// changing archiveRootName, which remains finding provenance.
+func archiveFailureSource(c *sources.Chunk) string {
+	if c != nil && c.SourceMetadata.S3 != nil {
+		sum := sha256.Sum256([]byte(c.SourceMetadata.S3.Key))
+		return fmt.Sprintf("s3-object-sha256:%x", sum)
+	}
+	return archiveRootName(c)
 }
 
 // maxWindowSize and windowOverlap bound how much data any single
