@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -691,6 +692,39 @@ func TestRunWithStats_ReturnsStructuredDetectorDegradation(t *testing.T) {
 	failure := degraded.Failures[0]
 	if failure.Kind != FailureDetector || failure.Detector != detectors.AWS || failure.Source != "fixture.txt" {
 		t.Fatalf("failure = %+v, want structured detector context", failure)
+	}
+}
+
+func TestRunWithStats_RedactsS3KeyFromDetectorDegradation(t *testing.T) {
+	const hostileKey = "credential-like-object-key.txt"
+	wantErr := errors.New("detector crashed")
+	eng := NewWithDetectors(
+		[]detectors.Detector{failingDet{err: wantErr}},
+		Options{Concurrency: 1},
+		&engineRecordingSink{},
+	)
+	_, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{{
+		Data:       []byte("trigger"),
+		SourceName: "cli",
+		SourceType: sources.SourceS3,
+		SourceMetadata: sources.Metadata{
+			S3: &sources.S3Meta{Bucket: "example-bucket", Key: hostileKey},
+		},
+	}}})
+	var degraded *DegradedError
+	if !errors.As(err, &degraded) || len(degraded.Failures) != 1 {
+		t.Fatalf("error = %#v, want one detector degradation", err)
+	}
+	failure := degraded.Failures[0]
+	if failure.Source != archiveFailureSource(&sources.Chunk{
+		SourceMetadata: sources.Metadata{
+			S3: &sources.S3Meta{Key: hostileKey},
+		},
+	}) {
+		t.Fatalf("failure source = %q, want hashed S3 identity", failure.Source)
+	}
+	if strings.Contains(err.Error(), hostileKey) {
+		t.Fatalf("detector degradation exposed S3 object key: %q", err)
 	}
 }
 

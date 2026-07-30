@@ -689,7 +689,7 @@ func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.
 		// scan context remains live is a real execution failure; provider
 		// verification failures belong on Result.VerificationErr instead.
 		if ctx.Err() == nil {
-			e.recordFailure(ScanFailure{Kind: FailureDetector, Source: archiveRootName(c), Detector: d.Type(), Err: err})
+			e.recordFailure(ScanFailure{Kind: FailureDetector, Source: archiveFailureSource(c), Detector: d.Type(), Err: err})
 		}
 		return
 	}
