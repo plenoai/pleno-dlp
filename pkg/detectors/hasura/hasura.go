@@ -9,13 +9,16 @@
 // within a tight 64-byte window, and (3) gate on Shannon entropy before
 // surfacing the candidate.
 //
-// Verified via /v1/version on the per-project host (`<project>.hasura.app`)
-// sending `x-hasura-admin-secret`. The project host isn't in the chunk so
-// verify requires apiBase override and ships unverified-by-default.
+// Verified via a read-only GraphQL schema query on the per-project host
+// (`<project>.hasura.app`) using `x-hasura-admin-secret`. The project host
+// isn't in the chunk, so verification requires an apiBase override and ships
+// unverified-by-default.
 package hasura
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -26,7 +29,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`)
 
@@ -109,21 +112,57 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(apiBase, "/")+"/v1/version", nil)
+	// Hasura validates x-hasura-admin-secret on GraphQL requests. Querying the
+	// schema provides positive capability evidence while remaining read-only.
+	// https://hasura.io/blog/hasura-authentication-explained
+	query := `{"query":"query { __schema { queryType { name } } }"}`
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		strings.TrimRight(apiBase, "/")+"/v1/graphql",
+		strings.NewReader(query),
+	)
 	if err != nil {
 		return false, err
 	}
 	req.Header.Set("x-hasura-admin-secret", secret)
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return false, err
+		return detectors.ClassifyVerifyHTTP(nil, err, nil, nil)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusOK {
-		return true, nil
+	if resp.StatusCode != http.StatusOK {
+		return detectors.ClassifyVerifyHTTP(
+			resp,
+			nil,
+			nil,
+			[]int{http.StatusUnauthorized},
+		)
 	}
-	return false, nil
+
+	var body struct {
+		Data *struct {
+			Schema *struct {
+				QueryType *struct {
+					Name string `json:"name"`
+				} `json:"queryType"`
+			} `json:"__schema"`
+		} `json:"data"`
+		Errors []json.RawMessage `json:"errors"`
+	}
+	if err := detectors.DecodeVerifyJSON(resp.Body, 64<<10, &body); err != nil {
+		return false, fmt.Errorf("hasura verify: decode response: %w", err)
+	}
+	if len(body.Errors) > 0 {
+		return false, nil
+	}
+	if body.Data == nil || body.Data.Schema == nil ||
+		body.Data.Schema.QueryType == nil || body.Data.Schema.QueryType.Name == "" {
+		return false, fmt.Errorf("hasura verify: response lacks authenticated schema evidence")
+	}
+	return true, nil
 }
 
 func redact(t string) string {

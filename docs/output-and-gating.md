@@ -89,12 +89,27 @@ when no verification was attempted at all: detectors without a `Verify`
 implementation (see docs/verify-coverage.md) and every finding under
 `--no-verify`. `unverified` therefore means "liveness not confirmed", not
 "provider confirmed dead". Every output format carries a `verdict` field
-alongside the legacy `verified` boolean (kept for backward compatibility):
+alongside the legacy `verified` boolean (kept for backward compatibility).
+
+Verification assurance is a separate, ordered signal describing how
+strongly the provider response supports a `verified` verdict:
+
+| Assurance | Meaning |
+|---|---|
+| `unknown` | The detector has not had its verification semantics audited. This is the backward-compatible default. |
+| `heuristic` | Verification relied on a shape check or generic transport success. |
+| `response-confirmed` | A provider-specific response was observed, but it did not prove authenticated identity or capability. |
+| `provider-confirmed` | The provider authenticated the credential or demonstrated an authenticated capability. |
+
+Assurance does not silently change the legacy verdict. Existing detectors
+continue to produce their previous `verified` result with `unknown`
+assurance until their verifier is audited. Strict consumers can therefore
+fail closed without changing default scan behavior.
 
 | Surface | Field |
 |---|---|
-| `--format json` | `verdict` (`"verified"` \| `"unverified"` \| `"indeterminate"`), plus legacy `verified` bool and `verification_error` |
-| `--format sarif` | `properties.verdict`, plus legacy `properties.verified` |
+| `--format json` | `verdict` (`"verified"` \| `"unverified"` \| `"indeterminate"`), `verification_assurance`, `severity`, plus legacy `verified` bool and `verification_error` |
+| `--format sarif` | `properties.verdict`, `properties.verification_assurance`, `properties.severity`, plus legacy `properties.verified` |
 | `--format table` | `VERDICT` column: `✓` verified, `✗` unverified, `?` indeterminate |
 
 ## Severity defaults
@@ -141,10 +156,12 @@ scanned 12 chunk(s), 4096 byte(s), 3 finding(s) in 42ms
 exit gate: --fail-on=high (2 low/medium finding(s) did not affect exit code; use --fail-on=any to block on all)
 ```
 
-To preserve TruffleHog-style verified-only pipelines, use
-`--only-verified`. Verification runs by default, and the flag filters
+To preserve existing verified-only pipelines, use `--only-verified`.
+Verification runs by default, and this backward-compatible flag filters
 output, finding counts, exit-code gating, and `--revoke-on-verified`
-dispatch to provider-confirmed findings.
+dispatch using the detector's legacy verdict. It does not require an
+audited assurance level, so `verified` findings with `unknown` assurance
+still pass.
 
 `--only-verified` keeps `indeterminate` findings by default. A stderr
 line reports how many were kept:
@@ -161,6 +178,40 @@ never act on an indeterminate finding regardless of this flag.
 ```sh
 pleno-dlp scan github --org acme --include-comments --only-verified --format json
 ```
+
+For alerting or other side effects where false positives are more costly,
+use `--only-provider-confirmed`. This strict flag passes only findings
+whose verdict is `verified` and whose audited assurance is
+`provider-confirmed`; legacy `unknown`, `heuristic`,
+`response-confirmed`, unverified, and indeterminate findings are all
+dropped before counting, revocation, or spool dispatch. Verification
+requests are also skipped for detectors that cannot reach
+`provider-confirmed`, avoiding unaudited network side effects and the cost
+of requests whose findings would be dropped.
+
+```sh
+pleno-dlp scan github --org acme --include-comments \
+  --only-provider-confirmed --format json
+```
+
+`--only-provider-confirmed` is mutually exclusive with `--only-verified`
+and `--no-verify`.
+
+To retain the complete candidate inventory for audit while applying the same
+safe execution boundary, use `--verify-min-assurance provider-confirmed`
+without `--only-provider-confirmed`. Detectors below that audited level still
+run their local matcher and emit `unverified` candidates, but their remote
+verification requests are skipped. This provides broad coverage and
+provider-confirmed enrichment in one pass without executing unaudited,
+write-capable, or metered probes.
+
+```sh
+pleno-dlp scan github --org acme --include-comments \
+  --verify-min-assurance provider-confirmed --format json
+```
+
+A non-`unknown` `--verify-min-assurance` is mutually exclusive with
+`--no-verify`.
 
 `--no-verify` skips every detector's `Verify()` network round-trip, so
 the scan runs fully offline: every finding's verdict is `unverified`.

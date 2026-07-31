@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -89,4 +90,42 @@ func (e *DegradedError) Unwrap() []error {
 		}
 	}
 	return errs
+}
+
+// PartitionDegradedErrors merges every coverage error in an errors.Join tree
+// while returning non-coverage errors separately. Callers must not mistake a
+// joined fatal error for a coverage-only result just because errors.As finds
+// one DegradedError first.
+func PartitionDegradedErrors(err error) (*DegradedError, error) {
+	var merged *DegradedError
+	var residual []error
+	var visit func(error)
+	visit = func(current error) {
+		if current == nil {
+			return
+		}
+		if degraded, ok := current.(*DegradedError); ok {
+			if merged == nil {
+				merged = &DegradedError{Counts: make(map[FailureKind]int)}
+			}
+			merged.Total += degraded.total()
+			for kind, count := range degraded.Counts {
+				merged.Counts[kind] += count
+			}
+			remaining := maxFailureExamples - len(merged.Failures)
+			if remaining > 0 {
+				merged.Failures = append(merged.Failures, degraded.Failures[:min(remaining, len(degraded.Failures))]...)
+			}
+			return
+		}
+		if joined, ok := current.(interface{ Unwrap() []error }); ok {
+			for _, child := range joined.Unwrap() {
+				visit(child)
+			}
+			return
+		}
+		residual = append(residual, current)
+	}
+	visit(err)
+	return merged, errors.Join(residual...)
 }

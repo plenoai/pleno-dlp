@@ -22,7 +22,7 @@ Canonical invocations (verification disabled where the tool supports
 it; all corpora are `.git`-free unless the probe says otherwise):
 
 ```sh
-pleno-dlp scan filesystem <dir> --quiet --format json
+pleno-dlp scan filesystem <dir> --no-verify --quiet --format json
 trufflehog filesystem <dir> --no-verification --no-update --json --log-level=-1
 gitleaks dir <dir> --no-banner --report-format json --report-path out.json --exit-code 0
 ```

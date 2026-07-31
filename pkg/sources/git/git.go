@@ -51,9 +51,9 @@ var ErrNoBranchHeads = errors.New("git: no branch heads to walk")
 // the #264 memory/scan-bytes blowup.
 const maxDiffBlobSize int64 = 1 << 20 // 1 MiB
 
-// maxDiffChunkSize bounds chunks produced by the native streaming fallback.
-// The fallback scans at most maxBlobSize bytes of added/context content per
-// modification and never materializes either complete blob or a Myers matrix.
+// maxDiffChunkSize bounds chunks produced by native diff parsing. The fast
+// history path rolls this window across arbitrarily large text hunks; the
+// go-git fallback still caps total added/context content at maxBlobSize.
 const maxDiffChunkSize = 1 << 20 // 1 MiB
 
 const diffChunkOverlap = 512

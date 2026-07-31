@@ -1,14 +1,19 @@
 // Package kraken detects Kraken exchange API key + secret pairs near the
-// `kraken` keyword. Production calls require HMAC-SHA512 signing, so the
-// verify path here is the unsigned-bearer probe against /0/private/Balance
-// — production rejects (401) which surfaces unverified; mock servers
-// returning 200 verify cleanly. Pair encoded as RawV2.
+// `kraken` keyword. Verification signs a read-only GetApiKeyInfo request with
+// both credential parts and requires an identity-matching Kraken JSON response.
 package kraken
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/sha512"
+	"encoding/base64"
+	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,7 +22,7 @@ import (
 
 var apiBase = "https://api.kraken.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Kraken API keys are 56 base64-ish chars; secrets are 88 base64 chars.
 var keyRe = regexp.MustCompile(`\b([A-Za-z0-9+/]{56})\b`)
@@ -65,7 +70,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 				Redacted:     redact(key),
 			}
 			if verify {
-				v, err := s.Verify(ctx, key)
+				v, err := s.Verify(ctx, k)
 				res.Verified = v
 				res.VerificationErr = err
 			}
@@ -97,23 +102,91 @@ func nearKeyword(lower string, start, end int) bool {
 	return false
 }
 
-func (Scanner) Verify(ctx context.Context, key string) (bool, error) {
+func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
+	key, privateSecret, ok := strings.Cut(secret, ":")
+	if !ok || key == "" || privateSecret == "" {
+		return false, fmt.Errorf("kraken verify: malformed credential pair")
+	}
+	decodedSecret, err := base64.StdEncoding.DecodeString(privateSecret)
+	if err != nil {
+		return false, fmt.Errorf("kraken verify: decode private secret: %w", err)
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(apiBase, "/")+"/0/private/Balance", nil)
+
+	// https://docs.kraken.com/api/docs/rest-api/get-api-key-info/
+	// GetApiKeyInfo is read-only and requires no API-key permissions. Its
+	// response includes the authenticated key, which lets us prove the exact
+	// candidate pair rather than treating generic transport success as valid.
+	const requestPath = "/0/private/GetApiKeyInfo"
+	nonce := strconv.FormatInt(time.Now().UnixNano(), 10)
+	form := url.Values{"nonce": {nonce}}
+	encodedForm := form.Encode()
+	digest := sha256.Sum256([]byte(nonce + encodedForm))
+	mac := hmac.New(sha512.New, decodedSecret)
+	_, _ = mac.Write(append([]byte(requestPath), digest[:]...))
+	signature := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		strings.TrimRight(apiBase, "/")+requestPath,
+		strings.NewReader(encodedForm),
+	)
 	if err != nil {
 		return false, err
 	}
 	req.Header.Set("API-Key", key)
+	req.Header.Set("API-Sign", signature)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return false, err
+		return detectors.ClassifyVerifyHTTP(nil, err, nil, nil)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusOK {
+	if resp.StatusCode != http.StatusOK {
+		return detectors.ClassifyVerifyHTTP(
+			resp,
+			nil,
+			nil,
+			[]int{http.StatusUnauthorized},
+		)
+	}
+
+	var body struct {
+		Error  []string `json:"error"`
+		Result *struct {
+			APIKey string `json:"apiKey"`
+		} `json:"result"`
+	}
+	if err := detectors.DecodeVerifyJSON(resp.Body, 64<<10, &body); err != nil {
+		return false, fmt.Errorf("kraken verify: decode response: %w", err)
+	}
+	if len(body.Error) == 0 {
+		if body.Result == nil || body.Result.APIKey == "" {
+			return false, fmt.Errorf("kraken verify: success response lacks authenticated key")
+		}
+		if body.Result.APIKey != key {
+			return false, fmt.Errorf("kraken verify: response identity mismatch")
+		}
 		return true, nil
 	}
-	return false, nil
+
+	for _, apiError := range body.Error {
+		lower := strings.ToLower(apiError)
+		if strings.Contains(lower, "invalid key") ||
+			strings.Contains(lower, "invalid signature") {
+			return false, nil
+		}
+		if strings.Contains(lower, "rate limit") ||
+			strings.Contains(lower, "throttl") ||
+			strings.Contains(lower, "temporar") ||
+			strings.Contains(lower, "unavailable") {
+			return false, fmt.Errorf("kraken verify: transient API rejection")
+		}
+	}
+	return false, fmt.Errorf("kraken verify: ambiguous API rejection")
 }
 
 func redact(t string) string {

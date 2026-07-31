@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -81,7 +82,14 @@ func TestVerify_OK(t *testing.T) {
 		if r.Header.Get("x-hasura-admin-secret") != dummy {
 			t.Errorf("header mismatch")
 		}
-		w.WriteHeader(http.StatusOK)
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if r.URL.Path != "/v1/graphql" {
+			t.Errorf("path = %s, want /v1/graphql", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"__schema":{"queryType":{"name":"query_root"}}}}`))
 	}))
 	defer srv.Close()
 	old := apiBase
@@ -93,6 +101,63 @@ func TestVerify_OK(t *testing.T) {
 	}
 }
 
+func TestVerify_HTTP200GraphQLErrorRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":null,"errors":[{"message":"access denied"}]}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if err != nil {
+		t.Fatalf("explicit GraphQL rejection returned error: %v", err)
+	}
+	if v {
+		t.Fatal("HTTP 200 GraphQL error must not verify")
+	}
+}
+
+func TestVerify_HTTP200MalformedBodyIsIndeterminate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`not-json`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if err == nil {
+		t.Fatal("malformed GraphQL response must be indeterminate")
+	}
+	if v {
+		t.Fatal("malformed GraphQL response must not verify")
+	}
+}
+
+func TestVerify_HTTP200OversizedBodyIsIndeterminate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Repeat(" ", (64<<10)+1) + `{"data":{"__schema":{"queryType":{"name":"query_root"}}}}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if err == nil {
+		t.Fatal("oversized response must be indeterminate")
+	}
+	if v {
+		t.Fatal("oversized response must not verify")
+	}
+}
+
 func TestVerify_Unauthorized(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -101,7 +166,10 @@ func TestVerify_Unauthorized(t *testing.T) {
 	old := apiBase
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
-	v, _ := Scanner{}.Verify(context.Background(), dummy)
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if err != nil {
+		t.Fatalf("explicit rejection returned error: %v", err)
+	}
 	if v {
 		t.Fatal("expected verified=false")
 	}
@@ -115,8 +183,36 @@ func TestVerify_ServerError(t *testing.T) {
 	old := apiBase
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
-	v, _ := Scanner{}.Verify(context.Background(), dummy)
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if err == nil {
+		t.Fatal("server error must be indeterminate")
+	}
 	if v {
 		t.Fatal("expected verified=false")
+	}
+}
+
+func TestFromData_ServerErrorProducesIndeterminateVerdict(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	results, err := Scanner{}.FromData(
+		context.Background(),
+		true,
+		[]byte("HASURA_ADMIN_SECRET="+dummy),
+	)
+	if err != nil {
+		t.Fatalf("FromData: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1", len(results))
+	}
+	if got := results[0].Verdict(); got != detectors.VerdictIndeterminate {
+		t.Fatalf("verdict = %v, want indeterminate", got)
 	}
 }

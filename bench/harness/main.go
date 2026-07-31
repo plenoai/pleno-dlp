@@ -191,7 +191,7 @@ func scoreLeakyRepo(dir, plenoDLP, trufflehog, gitleaks string) (corpusReport, e
 func runAllTools(dir, plenoDLP, trufflehog, gitleaks string) (map[string][]finding, error) {
 	out := make(map[string][]finding, 3)
 
-	pOut, err := runOne(plenoDLP, "scan", "filesystem", dir, "--quiet", "--format", "json")
+	pOut, err := runOne(plenoDLP, plenoDetectionOnlyArgs(dir)...)
 	if err != nil {
 		return nil, fmt.Errorf("pleno-dlp: %w", err)
 	}
@@ -227,4 +227,13 @@ func runAllTools(dir, plenoDLP, trufflehog, gitleaks string) (map[string][]findi
 	out["gitleaks"] = gFindings
 
 	return out, nil
+}
+
+func plenoDetectionOnlyArgs(dir string) []string {
+	return []string{
+		"scan", "filesystem", dir,
+		"--no-verify",
+		"--quiet",
+		"--format", "json",
+	}
 }

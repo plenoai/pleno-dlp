@@ -25,7 +25,9 @@ schema and each field.
 ## Severity recap
 
 Scan-driven revoke (`--revoke-on-verified`, `--revoke-spool`) dispatches
-only provider-verified findings; scan-mode verification runs by default.
+only detector-verified findings; scan-mode verification runs by default.
+For side effects that require an audited provider-confirmed result, combine
+revocation with `--only-provider-confirmed`.
 `pleno-dlp revoke --detector/--secret` acts on whatever secret the
 operator supplies, without a verification step.
 

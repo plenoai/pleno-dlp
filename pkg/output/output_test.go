@@ -17,7 +17,7 @@ import (
 // sample builds a deterministic Finding for golden tests. Centralised so the
 // JSON / SARIF / Table assertions all share the same input shape.
 func sample() engine.Finding {
-	return engine.Finding{
+	finding := engine.Finding{
 		Detector: detectors.AWS,
 		Result: detectors.Result{
 			DetectorType: detectors.AWS,
@@ -38,6 +38,8 @@ func sample() engine.Finding {
 			},
 		},
 	}
+	finding.Result.VerificationAssurance = detectors.AssuranceProviderConfirmed
+	return finding
 }
 
 func TestNewSinkRejectsUnknownFormat(t *testing.T) {
@@ -70,6 +72,12 @@ func TestJSONSinkEmitsArray(t *testing.T) {
 	}
 	if rec["verified"] != true {
 		t.Errorf("verified: %v", rec["verified"])
+	}
+	if rec["verification_assurance"] != "provider-confirmed" {
+		t.Errorf("verification_assurance: %v", rec["verification_assurance"])
+	}
+	if rec["severity"] != "critical" {
+		t.Errorf("severity: %v", rec["severity"])
 	}
 	if rec["redacted"] != "AKIA…AMPLE" {
 		t.Errorf("redacted: %v", rec["redacted"])
@@ -271,8 +279,18 @@ func TestSARIFSinkShape(t *testing.T) {
 	if pl["region"].(map[string]any)["startLine"].(float64) != 42 {
 		t.Errorf("startLine: %v", pl["region"])
 	}
-	if props, ok := r["properties"].(map[string]any); !ok || props["verdict"] != "verified" {
-		t.Errorf("properties.verdict = %v, want verified", r["properties"])
+	props, ok := r["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties missing: %v", r)
+	}
+	if props["verdict"] != "verified" {
+		t.Errorf("properties.verdict = %v, want verified", props["verdict"])
+	}
+	if props["verification_assurance"] != "provider-confirmed" {
+		t.Errorf("properties.verification_assurance = %v, want provider-confirmed", props["verification_assurance"])
+	}
+	if props["severity"] != "critical" {
+		t.Errorf("properties.severity = %v, want critical", props["severity"])
 	}
 }
 

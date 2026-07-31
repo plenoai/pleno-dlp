@@ -8,6 +8,7 @@ package sonarqube
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -18,7 +19,9 @@ import (
 
 var apiBase = "https://sonarcloud.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
+
+const maxVerifyResponseBytes = 1 << 20
 
 var (
 	prefixedRe = regexp.MustCompile(`\b(sq[apu]_[A-Za-z0-9]{40})\b`)
@@ -90,18 +93,29 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := httpClient.Do(req)
-	if err != nil {
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	accepted, err := detectors.ClassifyVerifyHTTP(
+		resp,
+		err,
+		[]int{http.StatusOK},
+		[]int{http.StatusUnauthorized, http.StatusForbidden},
+	)
+	if err != nil || !accepted {
 		return false, err
 	}
-	defer resp.Body.Close()
-	switch resp.StatusCode {
-	case http.StatusOK:
-		return true, nil
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
-		return false, nil
-	default:
-		return false, nil
+
+	var result struct {
+		Valid *bool `json:"valid"`
 	}
+	if err := detectors.DecodeVerifyJSON(resp.Body, maxVerifyResponseBytes, &result); err != nil {
+		return false, fmt.Errorf("verify: decode SonarQube validation response: %w", err)
+	}
+	if result.Valid == nil {
+		return false, fmt.Errorf("verify: SonarQube validation response is missing valid")
+	}
+	return *result.Valid, nil
 }
 
 func nearKeyword(lower string, start, end int) bool {

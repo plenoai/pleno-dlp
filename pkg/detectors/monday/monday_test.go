@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 const dummy = "eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjEyMzQ1Njc4OSwiYWFpIjoxMSwidWlkIjoxMDAwMDAsImlhZCI6IjIwMjQtMDEtMDFUMDA6MDA6MDAuMDAwWiIsInBlciI6Im1lOndyaXRlIiwiYWN0aWQiOjEsInJnbiI6InVzZTEifQ.dummysig0123456"
@@ -51,7 +53,8 @@ func TestVerify_OK(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method: %s", r.Method)
 		}
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"me":{"id":"123"}}}`))
 	}))
 	defer srv.Close()
 	old := apiBase
@@ -67,6 +70,76 @@ func TestVerify_OK(t *testing.T) {
 	}
 }
 
+func TestVerify_HTTP200GraphQLErrorRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":null,"errors":[{"message":"Not Authenticated"}]}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if err == nil || v {
+		t.Fatalf("GraphQL error = (verified=%v, err=%v), want indeterminate", v, err)
+	}
+}
+
+func TestVerify_HTTP200InvalidIdentityTypeIsIndeterminate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"me":{"id":{"unexpected":true}}}}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if err == nil || v {
+		t.Fatalf("invalid identity = (verified=%v, err=%v), want indeterminate", v, err)
+	}
+}
+
+func TestVerify_HTTP200MalformedBodyIsIndeterminate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`not-json`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if err == nil {
+		t.Fatal("malformed GraphQL response must be indeterminate")
+	}
+	if v {
+		t.Fatal("malformed GraphQL response must not verify")
+	}
+}
+
+func TestVerify_HTTP200OversizedBodyIsIndeterminate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Repeat(" ", (64<<10)+1) + `{"data":{"me":{"id":"123"}}}`))
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if err == nil {
+		t.Fatal("oversized response must be indeterminate")
+	}
+	if v {
+		t.Fatal("oversized response must not verify")
+	}
+}
+
 func TestVerify_Unauthorized(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -76,9 +149,73 @@ func TestVerify_Unauthorized(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	v, _ := Scanner{}.Verify(context.Background(), dummy)
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if err != nil {
+		t.Fatalf("explicit rejection returned error: %v", err)
+	}
 	if v {
 		t.Fatal("expected verified=false")
+	}
+}
+
+func TestVerify_RateLimitIsIndeterminate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if err == nil {
+		t.Fatal("rate limit must be indeterminate")
+	}
+	if v {
+		t.Fatal("rate limit must not verify")
+	}
+}
+
+func TestVerify_ServerErrorIsIndeterminate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	v, err := Scanner{}.Verify(context.Background(), dummy)
+	if err == nil {
+		t.Fatal("server error must be indeterminate")
+	}
+	if v {
+		t.Fatal("server error must not verify")
+	}
+}
+
+func TestFromData_ServerErrorProducesIndeterminateVerdict(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	results, err := Scanner{}.FromData(
+		context.Background(),
+		true,
+		[]byte("MONDAY_API_TOKEN="+dummy),
+	)
+	if err != nil {
+		t.Fatalf("FromData: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %d, want 1", len(results))
+	}
+	if got := results[0].Verdict(); got != detectors.VerdictIndeterminate {
+		t.Fatalf("verdict = %v, want indeterminate", got)
 	}
 }
 

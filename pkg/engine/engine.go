@@ -4,7 +4,9 @@ package engine
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -54,6 +56,14 @@ type Options struct {
 	// (pre-commit / agent hooks, issue #303) that need an offline, fast
 	// scan and are willing to trade verified confidence for it.
 	NoVerify bool
+	// MinimumVerificationAssurance limits remote verification to detectors
+	// whose audited policy can satisfy this assurance level. The zero value
+	// preserves the legacy behaviour of attempting every verifier.
+	//
+	// This is an execution policy, not only an output filter: strict callers
+	// must not pay for or trigger unaudited verification requests whose
+	// findings would be discarded afterward.
+	MinimumVerificationAssurance detectors.VerificationAssurance
 }
 
 type Engine struct {
@@ -65,6 +75,7 @@ type Engine struct {
 	isVerifier            []bool
 	verificationCacheable []bool
 	verificationUsesData  []bool
+	verificationAssurance []detectors.VerificationAssurance
 	wantsFull             []bool
 	prefilter             *ahocorasick.Matcher
 	detectorIdxByPattern  [][]int
@@ -79,6 +90,13 @@ type Engine struct {
 	failureTotal          int
 	failureCounts         map[FailureKind]int
 }
+
+type redactedArchiveCoverageError struct {
+	cause error
+}
+
+func (e *redactedArchiveCoverageError) Error() string { return "archive expansion failed" }
+func (e *redactedArchiveCoverageError) Unwrap() error { return e.cause }
 
 const builtInDetectorPackagePrefix = "github.com/plenoai/pleno-dlp/pkg/detectors/"
 
@@ -182,9 +200,11 @@ func NewWithDetectors(dets []detectors.Detector, opts Options, sink Sink) *Engin
 	isVerifier := make([]bool, len(ordered))
 	verificationCacheable := make([]bool, len(ordered))
 	verificationUsesData := make([]bool, len(ordered))
+	verificationAssurance := make([]detectors.VerificationAssurance, len(ordered))
 	wantsFull := make([]bool, len(ordered))
 	for i, d := range ordered {
 		_, isVerifier[i] = d.(detectors.Verifier)
+		verificationAssurance[i] = maxVerificationAssurance(d)
 		builtIn := isBuiltInDetectorImplementation(d)
 		if policy, ok := d.(detectors.VerificationCacheSafe); ok {
 			verificationCacheable[i] = policy.VerificationCacheCanStoreVerdicts()
@@ -208,6 +228,7 @@ func NewWithDetectors(dets []detectors.Detector, opts Options, sink Sink) *Engin
 		isVerifier:            isVerifier,
 		verificationCacheable: verificationCacheable,
 		verificationUsesData:  verificationUsesData,
+		verificationAssurance: verificationAssurance,
 		wantsFull:             wantsFull,
 		sink:                  sink,
 		verificationCache:     newVerificationCache(defaultVerificationCacheCapacity),
@@ -356,7 +377,11 @@ func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
 			// Partial-failure: entries after the failure point were
 			// never extracted and will not be scanned. Surface it so
 			// the data-loss risk is visible instead of silent.
-			e.recordFailure(ScanFailure{Kind: FailureArchive, Source: archiveRootName(c), Err: err})
+			e.recordFailure(ScanFailure{
+				Kind:   FailureArchive,
+				Source: archiveFailureSource(c),
+				Err:    &redactedArchiveCoverageError{cause: err},
+			})
 		}
 		for _, entry := range entries {
 			inner := *c
@@ -388,8 +413,20 @@ func archiveRootName(c *sources.Chunk) string {
 		return md.Git.File
 	case md.GitHub != nil:
 		return md.GitHub.File
+	case md.S3 != nil:
+		return md.S3.Key
 	}
 	return c.SourceName
+}
+
+// archiveFailureSource keeps user-visible coverage diagnostics safe without
+// changing archiveRootName, which remains finding provenance.
+func archiveFailureSource(c *sources.Chunk) string {
+	if c != nil && c.SourceMetadata.S3 != nil {
+		sum := sha256.Sum256([]byte(c.SourceMetadata.S3.Key))
+		return fmt.Sprintf("s3-object-sha256:%x", sum)
+	}
+	return archiveRootName(c)
 }
 
 // maxWindowSize and windowOverlap bound how much data any single
@@ -652,7 +689,7 @@ func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.
 		// scan context remains live is a real execution failure; provider
 		// verification failures belong on Result.VerificationErr instead.
 		if ctx.Err() == nil {
-			e.recordFailure(ScanFailure{Kind: FailureDetector, Source: archiveRootName(c), Detector: d.Type(), Err: err})
+			e.recordFailure(ScanFailure{Kind: FailureDetector, Source: archiveFailureSource(c), Detector: d.Type(), Err: err})
 		}
 		return
 	}
@@ -663,6 +700,7 @@ func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.
 			}
 			r.ExtraData["decoded_from"] = v.Source
 		}
+		applyVerificationPolicy(d, &r)
 		if r.Severity == detectors.SeverityUnknown {
 			r.Severity = detectors.DefaultSeverityForVerdict(d.Type(), r.Verdict())
 		}
@@ -681,6 +719,39 @@ func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.
 			VerifierBacked: e.isVerifier[di],
 		})
 	}
+}
+
+func applyVerificationPolicy(detector detectors.Detector, result *detectors.Result) {
+	if !result.Verified {
+		return
+	}
+	maxAssurance := maxVerificationAssurance(detector)
+	if result.VerificationAssurance == detectors.AssuranceUnknown && maxAssurance != detectors.AssuranceUnknown {
+		result.VerificationAssurance = maxAssurance
+		return
+	}
+	if result.VerificationAssurance <= maxAssurance {
+		return
+	}
+	claimed := result.VerificationAssurance
+	result.Verified = false
+	result.VerificationAssurance = maxAssurance
+	result.VerificationErr = errors.Join(
+		result.VerificationErr,
+		fmt.Errorf("verification assurance %s exceeds detector policy %s", claimed, maxAssurance),
+	)
+}
+
+func maxVerificationAssurance(detector detectors.Detector) detectors.VerificationAssurance {
+	policy, ok := detector.(detectors.VerificationPolicy)
+	if !ok {
+		return detectors.AssuranceUnknown
+	}
+	maxAssurance := policy.MaxVerificationAssurance()
+	if maxAssurance > detectors.AssuranceProviderConfirmed {
+		return detectors.AssuranceUnknown
+	}
+	return maxAssurance
 }
 
 // computeLineFromMatch returns the 1-based line of the first occurrence of
