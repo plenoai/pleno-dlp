@@ -41,7 +41,7 @@ matrices below, which no automated diff can safely rewrite without
 risking silent inconsistency with their own narrative.
 
 <!-- BENCH:AUTO:START -->
-**Generated:** 2026-07-25T07:30:09Z · **Trigger:** competitor release detected (trufflehog 3.96.0, gitleaks 8.30.1) · **Full run:** `bench/results/results.json` / `bench/results/results.md` (uploaded as a workflow artifact)
+**Generated:** 2026-07-31T09:19:42Z · **Trigger:** pleno-dlp tag push v0.64.4 · **Full run:** `bench/results/results.json` / `bench/results/results.md` (uploaded as a workflow artifact)
 
 | Tool | Version measured |
 |---|---|
@@ -51,9 +51,9 @@ risking silent inconsistency with their own narrative.
 
 | Corpus | Tool | Detected | Total | Recall |
 |---|---|---:|---:|---:|
-| synthetic (docs/comparison.md §2 equivalent) | pleno-dlp | 46 | 48 | 96% |
+| synthetic (docs/comparison.md §2 equivalent) | pleno-dlp | 47 | 48 | 98% |
 | synthetic (docs/comparison.md §2 equivalent) | trufflehog | 24 | 48 | 50% |
-| synthetic (docs/comparison.md §2 equivalent) | gitleaks | 39 | 48 | 81% |
+| synthetic (docs/comparison.md §2 equivalent) | gitleaks | 38 | 48 | 79% |
 | leaky-repo@2e951359cac5 (docs/comparison.md §3 equivalent) | pleno-dlp | 11 | 44 | 25% |
 | leaky-repo@2e951359cac5 (docs/comparison.md §3 equivalent) | trufflehog | 3 | 44 | 7% |
 | leaky-repo@2e951359cac5 (docs/comparison.md §3 equivalent) | gitleaks | 4 | 44 | 9% |
