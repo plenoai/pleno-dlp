@@ -241,7 +241,9 @@ func (s *Source) s3Client() s3API {
 	if s.client != nil {
 		return s.client
 	}
-	return s3.NewFromConfig(s.awsCfg)
+	return s3.NewFromConfig(s.awsCfg, func(opts *s3.Options) {
+		opts.DisableLogOutputChecksumValidationSkipped = true
+	})
 }
 
 func (s *Source) progressWriter() io.Writer {

@@ -112,6 +112,24 @@ func TestType(t *testing.T) {
 	}
 }
 
+func TestS3ClientSuppressesSkippedChecksumWarningsWithoutDisablingValidation(t *testing.T) {
+	s := &Source{awsCfg: aws.Config{
+		Region:                     "us-east-1",
+		ResponseChecksumValidation: aws.ResponseChecksumValidationWhenSupported,
+	}}
+	client, ok := s.s3Client().(*awss3.Client)
+	if !ok {
+		t.Fatalf("s3Client() = %T, want *s3.Client", s.s3Client())
+	}
+	opts := client.Options()
+	if !opts.DisableLogOutputChecksumValidationSkipped {
+		t.Fatal("skipped checksum validation warnings are enabled")
+	}
+	if got, want := opts.ResponseChecksumValidation, aws.ResponseChecksumValidationWhenSupported; got != want {
+		t.Fatalf("response checksum validation = %v, want %v", got, want)
+	}
+}
+
 func TestInitMissingBucket(t *testing.T) {
 	s := &Source{}
 	cfg, _ := json.Marshal(Config{})
