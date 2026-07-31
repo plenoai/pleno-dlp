@@ -57,6 +57,7 @@ func TestReleasePublishesNativeAssetsInsideImmutableBoundary(t *testing.T) {
 		"path: dist/homebrew/Casks/pleno-dlp.rb",
 		"path: ${{ runner.temp }}/homebrew-formula",
 		"path=Casks/pleno-dlp.rb",
+		"releases/download/v#{version}/pleno-dlp_${platform}.tar.gz",
 		"retention-days: 30",
 		"Update Homebrew formula",
 		"Gem::Version",
@@ -71,6 +72,9 @@ func TestReleasePublishesNativeAssetsInsideImmutableBoundary(t *testing.T) {
 	}
 	if strings.Contains(release, "homebrew/Formula/") || strings.Contains(release, "path=Formula/") {
 		t.Error("release.yml must use the Homebrew cask paths emitted by homebrew_casks")
+	}
+	if strings.Contains(release, "releases/download/$TAG/pleno-dlp_${platform}.tar.gz") {
+		t.Error("release.yml must validate the version interpolation emitted by homebrew_casks")
 	}
 	if strings.Count(release, "contents: write") != 2 {
 		t.Error("only the draft and finalize jobs may write release contents")
