@@ -62,6 +62,11 @@ func TestReleasePublishesNativeAssetsInsideImmutableBoundary(t *testing.T) {
 		"Update Homebrew formula",
 		"Gem::Version",
 		"tap formula differs for existing version",
+		"error_file=$(mktemp)",
+		"sha_args=()",
+		"sha_args=(--raw-field sha=\"$sha\")",
+		"grep -Fq \"HTTP 404\"",
+		"\"${sha_args[@]}\"",
 	} {
 		if !strings.Contains(release, required) {
 			t.Errorf("release.yml must contain %q", required)

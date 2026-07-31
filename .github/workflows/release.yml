@@ -348,28 +348,36 @@ jobs:
           set -euo pipefail
           repo=plenoai/homebrew-tap
           path=Casks/pleno-dlp.rb
-          remote=$(gh api "repos/$repo/contents/$path?ref=main")
           local_content=$(base64 < "$FORMULA" | tr -d '\n')
-          remote_content=$(jq -r '.content' <<<"$remote" | tr -d '\n')
-          if [ "$local_content" = "$remote_content" ]; then
-            exit 0
+          error_file=$(mktemp)
+          trap 'rm -f "$error_file"' EXIT
+          sha_args=()
+          if remote=$(gh api "repos/$repo/contents/$path?ref=main" 2>"$error_file"); then
+            remote_content=$(jq -r '.content' <<<"$remote" | tr -d '\n')
+            if [ "$local_content" = "$remote_content" ]; then
+              exit 0
+            fi
+            remote_formula=$(jq -r '.content' <<<"$remote" | base64 --decode)
+            remote_version=$(sed -n 's/^[[:space:]]*version "\([^"]*\)"[[:space:]]*$/\1/p' <<<"$remote_formula")
+            target_version=${TAG#v}
+            test -n "$remote_version"
+            version_order=$(ruby -e 'require "rubygems"; puts Gem::Version.new(ARGV[0]) <=> Gem::Version.new(ARGV[1])' "$remote_version" "$target_version")
+            case "$version_order" in
+              1) echo "tap already has newer version $remote_version; refusing downgrade to $target_version"; exit 0 ;;
+              0) echo "::error::tap formula differs for existing version $target_version" >&2; exit 1 ;;
+              -1) ;;
+              *) echo "::error::unexpected version comparison: $version_order" >&2; exit 1 ;;
+            esac
+            sha=$(jq -r '.sha' <<<"$remote")
+            sha_args=(--raw-field sha="$sha")
+          elif ! grep -Fq "HTTP 404" "$error_file"; then
+            cat "$error_file" >&2
+            exit 1
           fi
-          remote_formula=$(jq -r '.content' <<<"$remote" | base64 --decode)
-          remote_version=$(sed -n 's/^[[:space:]]*version "\([^"]*\)"[[:space:]]*$/\1/p' <<<"$remote_formula")
-          target_version=${TAG#v}
-          test -n "$remote_version"
-          version_order=$(ruby -e 'require "rubygems"; puts Gem::Version.new(ARGV[0]) <=> Gem::Version.new(ARGV[1])' "$remote_version" "$target_version")
-          case "$version_order" in
-            1) echo "tap already has newer version $remote_version; refusing downgrade to $target_version"; exit 0 ;;
-            0) echo "::error::tap formula differs for existing version $target_version" >&2; exit 1 ;;
-            -1) ;;
-            *) echo "::error::unexpected version comparison: $version_order" >&2; exit 1 ;;
-          esac
-          sha=$(jq -r '.sha' <<<"$remote")
           gh api --method PUT "repos/$repo/contents/$path" \
             --raw-field message="Brew formula update for pleno-dlp version $TAG" \
             --raw-field content="$local_content" \
-            --raw-field sha="$sha" \
+            "${sha_args[@]}" \
             --raw-field branch=main >/dev/null
           updated=$(gh api "repos/$repo/contents/$path?ref=main")
           test "$(jq -r '.content' <<<"$updated" | tr -d '\n')" = "$local_content"
