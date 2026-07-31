@@ -326,7 +326,7 @@ jobs:
           ruby -c "$FORMULA"
           grep -F "version \"${TAG#v}\"" "$FORMULA" >/dev/null
           for platform in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
-            grep -F "releases/download/$TAG/pleno-dlp_${platform}.tar.gz" "$FORMULA" >/dev/null
+            grep -F "releases/download/v#{version}/pleno-dlp_${platform}.tar.gz" "$FORMULA" >/dev/null
           done
           test "$(grep -Ec '^[[:space:]]+sha256 \"[0-9a-f]{64}\"$' "$FORMULA")" = 4
 
