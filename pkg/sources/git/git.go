@@ -191,7 +191,7 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, _
 	if err != nil {
 		return fmt.Errorf("git: resolve repo path: %w", err)
 	}
-	if _, err := git.PlainOpen(abs); err != nil {
+	if _, err := openRepo(abs); err != nil {
 		return fmt.Errorf("git: open repo %q: %w", abs, err)
 	}
 	if cfg.Since != "" {
@@ -252,7 +252,7 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	if s.trufflehogCompatible {
 		fmt.Fprintln(os.Stderr, "git: diff surface: trufflehog-compatible")
 	}
-	repo, err := git.PlainOpen(s.repoAbs)
+	repo, err := openRepo(s.repoAbs)
 	if err != nil {
 		return fmt.Errorf("git: reopen repo: %w", err)
 	}
@@ -377,7 +377,7 @@ func (s *Source) ResourceFingerprint(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	repo, err := git.PlainOpen(s.repoAbs)
+	repo, err := openRepo(s.repoAbs)
 	if err != nil {
 		return "", fmt.Errorf("git: reopen repo: %w", err)
 	}
