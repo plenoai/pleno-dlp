@@ -374,10 +374,22 @@ jobs:
             cat "$error_file" >&2
             exit 1
           fi
-          gh api --method PUT "repos/$repo/contents/$path" \
+          update_response=$(gh api --method PUT "repos/$repo/contents/$path" \
             --raw-field message="Brew formula update for pleno-dlp version $TAG" \
             --raw-field content="$local_content" \
             "${sha_args[@]}" \
-            --raw-field branch=main >/dev/null
-          updated=$(gh api "repos/$repo/contents/$path?ref=main")
-          test "$(jq -r '.content' <<<"$updated" | tr -d '\n')" = "$local_content"
+            --raw-field branch=main)
+          updated_ref=$(jq -er '.commit.sha | select(type == "string" and test("^[0-9a-f]{40}$"))' <<<"$update_response")
+          for attempt in 1 2 3 4 5; do
+            if updated=$(gh api "repos/$repo/contents/$path?ref=$updated_ref" 2>"$error_file"); then
+              if [ "$(jq -r '.content' <<<"$updated" | tr -d '\n')" = "$local_content" ]; then
+                exit 0
+              fi
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              sleep "$((attempt * 2))"
+            fi
+          done
+          cat "$error_file" >&2
+          echo "::error::tap formula read-back did not match commit $updated_ref" >&2
+          exit 1
