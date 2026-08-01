@@ -67,6 +67,10 @@ func TestReleasePublishesNativeAssetsInsideImmutableBoundary(t *testing.T) {
 		"sha_args=(--raw-field sha=\"$sha\")",
 		"grep -Fq \"HTTP 404\"",
 		"\"${sha_args[@]}\"",
+		"update_response=$(gh api --method PUT",
+		"updated_ref=$(jq -er",
+		"contents/$path?ref=$updated_ref",
+		"for attempt in 1 2 3 4 5",
 	} {
 		if !strings.Contains(release, required) {
 			t.Errorf("release.yml must contain %q", required)
