@@ -451,7 +451,7 @@ func (s *walkState) walkTarReader(name string, input io.Reader, depth int) error
 			s.partial("symlink", header.Name, errors.New("link entries are not scanned"))
 			continue
 		}
-		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+		if header.Typeflag != tar.TypeReg {
 			continue
 		}
 		clean, ok := safeEntryName(header.Name)
