@@ -1,12 +1,13 @@
 // GitHub full-history scan. Per repo: one bare git clone over smart HTTP, then
-// a full-history walk of every ref via the git source (AllBranches=true). The
-// git source owns the diff walk; this file only clones, bridges its Chunk
-// channel into the connector Emit (rewriting GitMeta provenance into the
-// GitHubMeta shape downstream formatters expect), and threads incremental
-// state. See github.go's file header for the API-call accounting.
+// a full-history walk of every safe advertised ref via the git source
+// (AllBranches=true). The git source owns the diff walk; this file only clones,
+// bridges its Chunk channel into the connector Emit (rewriting GitMeta
+// provenance into the GitHubMeta shape downstream formatters expect), and
+// threads incremental state. See github.go's file header for API-call accounting.
 package connectors
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -15,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net"
 	"net/url"
 	"os"
@@ -26,8 +28,10 @@ import (
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/storage/memory"
 
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
@@ -41,6 +45,25 @@ var githubCloneBytesObserver func(string, int64)
 // githubRepoWalkTestHook runs after the per-repository deadline is installed
 // and before history state can advance. It is nil outside tests.
 var githubRepoWalkTestHook func(context.Context, string) (context.Context, context.CancelFunc)
+
+const (
+	githubPullRefProbeTimeout = 30 * time.Second
+
+	// Pull-ref advertisements are an incremental fast path, not an excuse for
+	// an unbounded remote-controlled allocation. GitHub advertises up to two
+	// synthetic refs per PR, so 500k refs accommodates roughly 250k PRs before
+	// the fail-safe full-clone path takes over.
+	githubPullRefAdvertisementMaxBytes     = 64 << 20
+	githubPullRefAdvertisementMaxLineBytes = 8 << 10
+	githubPullRefAdvertisementMaxLines     = 1_000_000
+	githubPullRefAdvertisementMaxRefs      = 500_000
+	githubPullRefDiagnosticMaxBytes        = 64 << 10
+	// go-git materializes the complete advertisement before returning. Reject
+	// an excessive result immediately; this is the earliest its API permits.
+	githubPullRefGoGitMaxReturnedRefs      = 1_000_000
+	githubPullRefGoGitMaxReturnedNameBytes = githubPullRefAdvertisementMaxBytes
+	githubPullRefGoGitMaxOutputBytes       = githubPullRefAdvertisementMaxBytes
+)
 
 func directoryBytes(root string) int64 {
 	var total int64
@@ -347,15 +370,25 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 		var nextRepo githubRepoIncrementalState
 		var surfaceFailures githubSurfaceFailures
 		empty := false
-		unchanged := githubRepoUnchanged(prevRepo, r, historyPolicy)
+		unchanged := false
+		if githubRepoMetadataUnchanged(prevRepo, r, historyPolicy) {
+			currentPullRefs, probeErr := probeGitHubPullRefHeads(ctx, auth, apiBase, template, r)
+			if probeErr != nil {
+				// Never treat a failed freshness probe as evidence that history is
+				// unchanged. Fall through to the regular clone+walk; if that also
+				// fails, the completed history checkpoint remains at prevRepo.
+				fmt.Fprintf(os.Stderr, "WARN: github: pull-ref probe failed for %s, falling back to clone: %v\n", repoKey, probeErr)
+			} else {
+				unchanged = maps.Equal(prevRepo.PullRefHeads, currentPullRefs)
+			}
+		}
 		if unchanged {
-			// No push since the walk that produced prevRepo.RefHeads: cloning
-			// would fetch the same refs and the seeded walk would emit nothing.
-			// Carry the state; only Visibility can have moved without a push
-			// (comments can too — their scan below still runs on this path).
+			// Neither pushed_at nor the exact GitHub pull-ref snapshot changed,
+			// so cloning would fetch the same history roots and emit nothing.
+			// Carry the state; REST collaboration surfaces still run below.
 			nextRepo = prevRepo
 			nextRepo.Visibility = githubVisibility(r)
-			fmt.Fprintf(os.Stderr, "github: scan %s unchanged since last run (pushed_at %s), clone skipped\n", repoKey, r.PushedAt)
+			fmt.Fprintf(os.Stderr, "github: scan %s unchanged since last run (pushed_at %s, pull refs verified), clone skipped\n", repoKey, r.PushedAt)
 		} else {
 			var err error
 			seed := githubHistoryWalkSeed(prevRepo, historyPolicy)
@@ -372,7 +405,8 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 					nextRepo.PushedAt = r.PushedAt
 					nextRepo.Visibility = githubVisibility(r)
 					nextRepo.RefHeads = nil
-					fmt.Fprintf(os.Stderr, "github: scan %s has no branch heads, history skipped\n", repoKey)
+					nextRepo.PullRefHeads = map[string]string{}
+					fmt.Fprintf(os.Stderr, "github: scan %s has no history refs, history skipped\n", repoKey)
 				} else {
 					fmt.Fprintf(os.Stderr, "WARN: github: scan failed for %s after %s, skipping: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
 					surfaceFailures = append(surfaceFailures, githubSurfaceFailure{Surface: "repository-history", Err: err})
@@ -545,15 +579,14 @@ func githubHistoryWalkSeed(prev githubRepoIncrementalState, policy string) githu
 	return prev
 }
 
-// githubRepoUnchanged reports whether the repo received no push since the
-// previous history walk, so the clone+walk can be skipped and prev carried
-// forward. It demands history-mode state with RefHeads (legacy tree-mode state
-// must take the one-time full rescan) and a non-empty pushed_at on both sides:
-// the enumeration reports pushed_at as null for never-pushed repos, and state
-// written by builds predating PushedAt carries none — neither proves anything.
-func githubRepoUnchanged(prev githubRepoIncrementalState, r githubRepoRef, policy string) bool {
+// githubRepoMetadataUnchanged reports whether the cheap repository metadata
+// permits a pull-ref freshness probe. It does not itself permit clone skipping:
+// callers must also compare the current advertised PR snapshot. Legacy state
+// with no RefHeads or PullRefHeads takes a one-time full scan.
+func githubRepoMetadataUnchanged(prev githubRepoIncrementalState, r githubRepoRef, policy string) bool {
 	return prev.Mode == githubScanModeHistory &&
 		len(prev.RefHeads) > 0 &&
+		prev.PullRefHeads != nil &&
 		prev.PushedAt != "" &&
 		prev.PushedAt == r.PushedAt &&
 		prev.Policy == policy
@@ -792,6 +825,9 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 		return githubRepoIncrementalState{}, err
 	}
 	next.RefHeads = heads
+	if !wiki {
+		next.PullRefHeads = githubPullRefHeads(heads)
+	}
 	return next, nil
 }
 
@@ -838,11 +874,11 @@ func githubGitArtifactConfig(cfg Config) (gitsource.Config, error) {
 		return n, nil
 	}
 	parseI := func(key string, def int) (int, error) { n, e := parseI64(key, int64(def)); return int(n), e }
-	blob, e := parseI64("git_artifact_max_bytes", 10<<20)
+	blob, e := parseI64("git_artifact_max_bytes", gitsource.DefaultGitArtifactMaxBytes)
 	if e != nil {
 		return gitsource.Config{}, e
 	}
-	expanded, e := parseI64("archive_max_expanded_bytes", 50<<20)
+	expanded, e := parseI64("archive_max_expanded_bytes", gitsource.DefaultArchiveMaxExpandedBytes)
 	if e != nil {
 		return gitsource.Config{}, e
 	}
@@ -861,7 +897,7 @@ func githubGitArtifactConfig(cfg Config) (gitsource.Config, error) {
 			return gitsource.Config{}, fmt.Errorf("github: archive_timeout must be a positive duration, got %q", raw)
 		}
 	}
-	if blob > 50<<20 || expanded > 200<<20 || files > 10000 || depth > 8 || timeout > time.Minute {
+	if blob > gitsource.MaxGitArtifactBytes || expanded > gitsource.MaxArchiveExpandedBytes || files > 10000 || depth > 8 || timeout > time.Minute {
 		return gitsource.Config{}, errors.New("github: artifact limits exceed hard caps")
 	}
 	return gitsource.Config{IncludeCommitMetadata: parseBool(cfg["include_commit_metadata"]), SkipMergeCommits: parseBool(cfg["skip_merge_commits"]), TrufflehogCompatible: parseBool(cfg["trufflehog_compatible"]), IncludeGitArchives: parseBool(cfg["include_git_archives"]), IncludeGitBinaries: parseBool(cfg["include_git_binaries"]), GitArtifactMaxBytes: blob, ArchiveMaxExpandedBytes: expanded, ArchiveMaxFiles: files, ArchiveMaxDepth: depth, ArchiveTimeout: timeout}, nil
@@ -890,6 +926,204 @@ func githubCloneToken(ctx context.Context, auth githubTokenProvider, cloneURL st
 		return "", nil
 	}
 	return auth.Token(ctx)
+}
+
+// probeGitHubPullRefHeads performs one lightweight smart-Git advertisement
+// for repositories whose pushed_at and scan policy are otherwise unchanged.
+// GitHub's synthetic pull refs can move without changing the base repository's
+// pushed_at, so this snapshot is the final condition for skipping a full clone.
+func probeGitHubPullRefHeads(ctx context.Context, auth githubTokenProvider, apiBase, template string, repo githubRepoRef) (map[string]string, error) {
+	cloneURL, err := deriveCloneURL(apiBase, repo.Owner.Login, repo.Name, template)
+	if err != nil {
+		return nil, err
+	}
+	token, err := githubCloneToken(ctx, auth, cloneURL)
+	if err != nil {
+		return nil, err
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, githubPullRefProbeTimeout)
+	defer cancel()
+	if gitBin, lookErr := exec.LookPath("git"); lookErr == nil {
+		return probeGitHubPullRefsNative(probeCtx, gitBin, cloneURL, token)
+	}
+	return probeGitHubPullRefsGoGit(probeCtx, cloneURL, token)
+}
+
+func probeGitHubPullRefsNative(ctx context.Context, gitBin, cloneURL, token string) (map[string]string, error) {
+	cmd := exec.CommandContext(ctx, gitBin, nativeGitPullRefArgs(cloneURL)...)
+	advertisement := githubBoundedBuffer{limit: githubPullRefAdvertisementMaxBytes}
+	diagnostic := githubBoundedBuffer{limit: githubPullRefDiagnosticMaxBytes}
+	cmd.Stdout = &advertisement
+	cmd.Stderr = &diagnostic
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.Env = append(cmd.Env, nativeGitAuthEnv(cloneURL, token)...)
+	if err := cmd.Run(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		classified := classifyGitHubCloneError(redactCloneError(err, token), diagnostic.String())
+		if cloneErr, ok := classified.(*githubCloneError); ok {
+			cloneErr.Detail = redactCloneDiagnostic(cloneErr.Detail, token)
+		}
+		return nil, fmt.Errorf("github: advertise pull refs: %w", classified)
+	}
+	if advertisement.exceeded {
+		return nil, fmt.Errorf("github: pull-ref advertisement exceeds %d bytes", githubPullRefAdvertisementMaxBytes)
+	}
+	return parseGitHubPullRefAdvertisementReader(bytes.NewReader(advertisement.Bytes()), githubPullRefAdvertisementMaxLineBytes, githubPullRefAdvertisementMaxLines, githubPullRefAdvertisementMaxRefs)
+}
+
+type githubBoundedBuffer struct {
+	bytes.Buffer
+	limit    int
+	exceeded bool
+}
+
+func (b *githubBoundedBuffer) Write(data []byte) (int, error) {
+	written := len(data)
+	remaining := b.limit - b.Len()
+	if remaining <= 0 {
+		b.exceeded = b.exceeded || len(data) > 0
+		return written, nil
+	}
+	if len(data) > remaining {
+		b.exceeded = true
+		data = data[:remaining]
+	}
+	_, _ = b.Buffer.Write(data)
+	return written, nil
+}
+
+func nativeGitPullRefArgs(cloneURL string) []string {
+	return []string{
+		"ls-remote",
+		"--refs",
+		"--",
+		cloneURL,
+		"refs/pull/*/head",
+		"refs/pull/*/merge",
+	}
+}
+
+func parseGitHubPullRefAdvertisement(raw string) (map[string]string, error) {
+	if len(raw) > githubPullRefAdvertisementMaxBytes {
+		return nil, fmt.Errorf("github: pull-ref advertisement exceeds %d bytes", githubPullRefAdvertisementMaxBytes)
+	}
+	return parseGitHubPullRefAdvertisementReader(strings.NewReader(raw), githubPullRefAdvertisementMaxLineBytes, githubPullRefAdvertisementMaxLines, githubPullRefAdvertisementMaxRefs)
+}
+
+func parseGitHubPullRefAdvertisementReader(input io.Reader, maxLineBytes, maxLines, maxRefs int) (map[string]string, error) {
+	if input == nil || maxLineBytes <= 0 || maxLines <= 0 || maxRefs <= 0 {
+		return nil, errors.New("github: invalid pull-ref advertisement limits")
+	}
+	out := map[string]string{}
+	scanner := bufio.NewScanner(input)
+	scanner.Buffer(make([]byte, 4096), maxLineBytes+1)
+	lines := 0
+	for scanner.Scan() {
+		if len(scanner.Bytes()) > maxLineBytes {
+			return nil, fmt.Errorf("github: pull-ref advertisement line exceeds %d bytes", maxLineBytes)
+		}
+		lines++
+		if lines > maxLines {
+			return nil, fmt.Errorf("github: pull-ref advertisement exceeds %d lines", maxLines)
+		}
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			return nil, errors.New("github: malformed pull-ref advertisement")
+		}
+		name := plumbing.ReferenceName(fields[1])
+		if !gitsource.IsGitHubPullRequestRef(name) {
+			continue
+		}
+		if !plumbing.IsHash(fields[0]) {
+			return nil, fmt.Errorf("github: malformed object ID for advertised ref %q", name)
+		}
+		if previous, exists := out[name.String()]; exists {
+			if previous != fields[0] {
+				return nil, fmt.Errorf("github: advertised pull ref %q has conflicting object IDs", name)
+			}
+			continue
+		}
+		if len(out) >= maxRefs {
+			return nil, fmt.Errorf("github: pull-ref advertisement exceeds %d refs", maxRefs)
+		}
+		out[name.String()] = fields[0]
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("github: read pull-ref advertisement: %w", err)
+	}
+	return out, nil
+}
+
+func probeGitHubPullRefsGoGit(ctx context.Context, cloneURL, token string) (map[string]string, error) {
+	remote := gogit.NewRemote(memory.NewStorage(), &gitconfig.RemoteConfig{Name: "origin", URLs: []string{cloneURL}})
+	opts := &gogit.ListOptions{}
+	if token != "" {
+		if u, err := url.Parse(cloneURL); err == nil && u.Scheme != "" && u.Host != "" {
+			opts.Auth = &githttp.BasicAuth{Username: "x-access-token", Password: token}
+		}
+	}
+	refs, err := remote.ListContext(ctx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("github: advertise pull refs: %w", classifyGitHubCloneError(err, ""))
+	}
+	return filterGitHubPullRefs(refs, githubPullRefGoGitMaxReturnedRefs, githubPullRefGoGitMaxReturnedNameBytes, githubPullRefAdvertisementMaxLineBytes, githubPullRefAdvertisementMaxRefs, githubPullRefGoGitMaxOutputBytes)
+}
+
+func filterGitHubPullRefs(refs []*plumbing.Reference, maxReturnedRefs, maxReturnedNameBytes, maxNameBytes, maxPullRefs, maxOutputBytes int) (map[string]string, error) {
+	if maxReturnedRefs <= 0 || maxReturnedNameBytes <= 0 || maxNameBytes <= 0 || maxPullRefs <= 0 || maxOutputBytes <= 0 {
+		return nil, errors.New("github: invalid pull-ref list limits")
+	}
+	if len(refs) > maxReturnedRefs {
+		return nil, fmt.Errorf("github: remote advertisement exceeds %d refs", maxReturnedRefs)
+	}
+	out := map[string]string{}
+	returnedNameBytes := 0
+	outputBytes := 0
+	for _, ref := range refs {
+		if ref == nil {
+			continue
+		}
+		name := ref.Name().String()
+		if len(name) > maxNameBytes {
+			return nil, fmt.Errorf("github: advertised ref name exceeds %d bytes", maxNameBytes)
+		}
+		if len(name) > maxReturnedNameBytes-returnedNameBytes {
+			return nil, fmt.Errorf("github: advertised ref names exceed %d bytes", maxReturnedNameBytes)
+		}
+		returnedNameBytes += len(name)
+		if !gitsource.IsGitHubPullRequestRef(ref.Name()) {
+			continue
+		}
+		if ref.Type() != plumbing.HashReference {
+			return nil, fmt.Errorf("github: advertised pull ref %q is not a direct object ID", ref.Name())
+		}
+		if ref.Hash().IsZero() {
+			return nil, fmt.Errorf("github: advertised pull ref %q has an empty object ID", ref.Name())
+		}
+		hash := ref.Hash().String()
+		if previous, exists := out[name]; exists {
+			if previous != hash {
+				return nil, fmt.Errorf("github: advertised pull ref %q has conflicting object IDs", ref.Name())
+			}
+			continue
+		}
+		if len(out) >= maxPullRefs {
+			return nil, fmt.Errorf("github: remote advertisement exceeds %d pull refs", maxPullRefs)
+		}
+		entryBytes := len(name) + len(hash)
+		if entryBytes > maxOutputBytes-outputBytes {
+			return nil, fmt.Errorf("github: pull-ref snapshot exceeds %d bytes", maxOutputBytes)
+		}
+		outputBytes += entryBytes
+		out[name] = hash
+	}
+	return out, nil
 }
 
 // cloneRepoBare clones cloneURL into dir as a bare repo, preferring an exec
@@ -1030,8 +1264,8 @@ func redactCloneError(err error, token string) error {
 	return errors.New(redacted)
 }
 
-// gitRefHeads reads the ref → sha map (branches and remotes) from an already
-// -open clone handle, so the next run can stop the walk at these heads. The
+// gitRefHeads reads the safe advertised ref → peeled commit map from an
+// already-open clone handle, so the next run can stop the walk at these heads. The
 // caller opens the clone once (gogit.PlainOpen) and passes the handle here;
 // this used to reopen the clone itself, doubling go-git's 96 MiB object LRU
 // cache for no reason (see the comment where this is called from).
@@ -1043,20 +1277,30 @@ func gitRefHeads(repo *gogit.Repository) (map[string]string, error) {
 	defer refs.Close()
 	out := map[string]string{}
 	err = refs.ForEach(func(ref *plumbing.Reference) error {
-		if ref.Type() != plumbing.HashReference {
+		hash, include, err := gitsource.AdvertisedHistoryRefCommit(repo, ref)
+		if err != nil {
+			return err
+		}
+		if !include {
 			return nil
 		}
-		name := ref.Name().String()
-		if !strings.HasPrefix(name, "refs/heads/") && !strings.HasPrefix(name, "refs/remotes/") {
-			return nil
-		}
-		out[name] = ref.Hash().String()
+		out[ref.Name().String()] = hash.String()
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+func githubPullRefHeads(refHeads map[string]string) map[string]string {
+	out := map[string]string{}
+	for name, hash := range refHeads {
+		if gitsource.IsGitHubPullRequestRef(plumbing.ReferenceName(name)) {
+			out[name] = hash
+		}
+	}
+	return out
 }
 
 // gitIncrementalSeed builds the git source's incremental-state JSON from a

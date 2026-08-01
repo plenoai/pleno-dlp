@@ -244,10 +244,14 @@ multi-line PEM secrets.
 `scan github --incremental --incremental-state <file>` stores the overall
 resource fingerprint plus namespaced state for repository history, wikis,
 gist history/comments, and collaboration entities. A repository whose
-`pushed_at` and history-policy fingerprint are unchanged keeps its prior main
-history state without another clone. Otherwise, the connector clones it and walks every
-commit reachable from every branch, stopping at the previously recorded ref
-heads so already-scanned history is not emitted again.
+`pushed_at` and history-policy fingerprint are unchanged receives a lightweight
+smart-Git comparison of its checkpointed GitHub PR head/merge refs. An
+identical snapshot keeps its prior main-history state without another clone;
+an added, updated, or deleted PR ref forces the scan even if `pushed_at` is
+unchanged. Otherwise, the connector clones it and walks every commit reachable
+from every safe advertised history ref, stopping at the previously recorded
+ref heads so already-scanned history is not emitted again. Pseudo refs such as
+notes and replace refs are excluded from the freshness snapshot.
 
 With `--include-comments`, new or updated issue comments and pull request
 review comments are fetched and scanned independently. Comment changes do not

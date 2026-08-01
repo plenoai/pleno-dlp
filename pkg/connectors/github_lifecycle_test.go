@@ -107,12 +107,25 @@ func TestGitHubCommentsSince(t *testing.T) {
 func TestGitHubGitArtifactConfigRejectsMalformedAndHardCaps(t *testing.T) {
 	for _, cfg := range []Config{
 		{"git_artifact_max_bytes": "nope"}, {"git_artifact_max_bytes": "0"},
-		{"git_artifact_max_bytes": "52428801"}, {"archive_timeout": "0s"},
+		{"git_artifact_max_bytes": "2147483649"}, {"archive_max_expanded_bytes": "2147483649"}, {"archive_timeout": "0s"},
 		{"archive_timeout": "61s"}, {"archive_max_files": "10001"},
 	} {
 		if _, err := githubGitArtifactConfig(cfg); err == nil {
 			t.Fatalf("cfg=%v accepted", cfg)
 		}
+	}
+}
+
+func TestGitHubGitArtifactConfigAcceptsTwoGiBByteCeilings(t *testing.T) {
+	cfg, err := githubGitArtifactConfig(Config{
+		"git_artifact_max_bytes":     "2147483648",
+		"archive_max_expanded_bytes": "2147483648",
+	})
+	if err != nil {
+		t.Fatalf("2 GiB ceiling rejected: %v", err)
+	}
+	if cfg.GitArtifactMaxBytes != 2<<30 || cfg.ArchiveMaxExpandedBytes != 2<<30 {
+		t.Fatalf("byte ceilings were not preserved: %+v", cfg)
 	}
 }
 
@@ -251,21 +264,25 @@ func TestGitHubHistoryPolicyChangesInvalidateUnchangedSkip(t *testing.T) {
 	base := Config{"include_commit_metadata": "false", "include_git_archives": "false"}
 	policy := githubHistoryPolicy(base)
 	r := githubRepoRef{PushedAt: "2026-07-01T00:00:00Z"}
-	prev := githubRepoIncrementalState{Mode: githubScanModeHistory, PushedAt: r.PushedAt, RefHeads: map[string]string{"refs/heads/main": "abc"}, Policy: policy}
-	if !githubRepoUnchanged(prev, r, policy) {
-		t.Fatal("matching policy should permit unchanged skip")
+	prev := githubRepoIncrementalState{Mode: githubScanModeHistory, PushedAt: r.PushedAt, RefHeads: map[string]string{"refs/heads/main": "abc"}, PullRefHeads: map[string]string{}, Policy: policy}
+	if !githubRepoMetadataUnchanged(prev, r, policy) {
+		t.Fatal("matching policy should permit a pull-ref freshness probe")
 	}
 	changed := githubHistoryPolicy(Config{"include_commit_metadata": "true", "include_git_archives": "false"})
-	if githubRepoUnchanged(prev, r, changed) {
+	if githubRepoMetadataUnchanged(prev, r, changed) {
 		t.Fatal("policy change must force a history rescan")
 	}
 	changed = githubHistoryPolicy(Config{"include_commit_metadata": "false", "include_git_archives": "false", "skip_merge_commits": "true"})
-	if githubRepoUnchanged(prev, r, changed) {
+	if githubRepoMetadataUnchanged(prev, r, changed) {
 		t.Fatal("merge policy change must force a history rescan")
 	}
 	changed = githubHistoryPolicy(Config{"include_commit_metadata": "false", "include_git_archives": "false", "trufflehog_compatible": "true"})
-	if githubRepoUnchanged(prev, r, changed) {
+	if githubRepoMetadataUnchanged(prev, r, changed) {
 		t.Fatal("trufflehog compatibility policy change must force a history rescan")
+	}
+	prev.PullRefHeads = nil
+	if githubRepoMetadataUnchanged(prev, r, policy) {
+		t.Fatal("legacy state without a pull-ref snapshot must force a history rescan")
 	}
 }
 
