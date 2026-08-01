@@ -20,6 +20,8 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
+	archivepkg "github.com/plenoai/pleno-dlp/pkg/archive"
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
@@ -250,6 +252,110 @@ func TestGitHubHistoryScanEmitsAllBranches(t *testing.T) {
 	}
 }
 
+func TestGitHubHistoryCloneScansTagAndPullRequestRefs(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	sig := func(when time.Time) *object.Signature {
+		return &object.Signature{Name: "Test", Email: "test@example.com", When: when}
+	}
+	commit := func(file, content, message string, when time.Time) plumbing.Hash {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o600); err != nil {
+			t.Fatalf("write %s: %v", file, err)
+		}
+		if _, err := wt.Add(file); err != nil {
+			t.Fatalf("add %s: %v", file, err)
+		}
+		hash, err := wt.Commit(message, &gogit.CommitOptions{Author: sig(when), Committer: sig(when)})
+		if err != nil {
+			t.Fatalf("commit %s: %v", message, err)
+		}
+		return hash
+	}
+	baseHash := commit("main.txt", "main", "base", base)
+	head, err := repo.Head()
+	if err != nil {
+		t.Fatalf("Head: %v", err)
+	}
+	mainBranch := head.Name()
+	refOnlyCommit := func(branch, file string, when time.Time) plumbing.Hash {
+		t.Helper()
+		branchRef := plumbing.NewBranchReferenceName(branch)
+		if err := wt.Checkout(&gogit.CheckoutOptions{Branch: branchRef, Create: true}); err != nil {
+			t.Fatalf("checkout %s: %v", branch, err)
+		}
+		hash := commit(file, branch, branch, when)
+		if err := wt.Checkout(&gogit.CheckoutOptions{Branch: mainBranch}); err != nil {
+			t.Fatalf("checkout %s: %v", mainBranch, err)
+		}
+		if err := repo.Storer.RemoveReference(branchRef); err != nil {
+			t.Fatalf("remove branch %s: %v", branch, err)
+		}
+		return hash
+	}
+
+	tagHash := refOnlyCommit("tag-fixture", "tag-only.txt", base.Add(time.Minute))
+	if _, err := repo.CreateTag("tag-only", tagHash, &gogit.CreateTagOptions{
+		Tagger: sig(base.Add(2 * time.Minute)), Message: "annotated tag fixture",
+	}); err != nil {
+		t.Fatalf("CreateTag: %v", err)
+	}
+	prHash := refOnlyCommit("pr-fixture", "pr-only.txt", base.Add(3*time.Minute))
+	for _, name := range []plumbing.ReferenceName{"refs/pull/42/head", "refs/pull/42/merge"} {
+		if err := repo.Storer.SetReference(plumbing.NewHashReference(name, prHash)); err != nil {
+			t.Fatalf("set %s: %v", name, err)
+		}
+	}
+	pseudoHash := refOnlyCommit("pseudo-fixture", "pseudo-only.txt", base.Add(4*time.Minute))
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/replace/"+baseHash.String()), pseudoHash)); err != nil {
+		t.Fatalf("set replace ref: %v", err)
+	}
+
+	repoRef := githubRepoRef{Name: "widget", Visibility: "private"}
+	repoRef.Owner.Login = "acme"
+	counts := map[string]int{}
+	next, err := scanGitHubGitHistory(context.Background(), Config{}, staticGitHubToken(""), "github.com", dir, repoRef, githubRepoIncrementalState{}, false, nil, func(_ []byte, meta sources.Metadata) error {
+		if meta.GitHub != nil {
+			counts[meta.GitHub.File]++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scanGitHubGitHistory: %v", err)
+	}
+	for _, file := range []string{"main.txt", "tag-only.txt", "pr-only.txt"} {
+		if counts[file] != 1 {
+			t.Errorf("%s emitted %d time(s), want exactly once; counts=%v", file, counts[file], counts)
+		}
+	}
+	if counts["pseudo-only.txt"] != 0 {
+		t.Fatalf("unsafe refs/replace content was scanned; counts=%v", counts)
+	}
+	for name, want := range map[string]string{
+		"refs/tags/tag-only": tagHash.String(),
+		"refs/pull/42/head":  prHash.String(),
+		"refs/pull/42/merge": prHash.String(),
+	} {
+		if got := next.RefHeads[name]; got != want {
+			t.Errorf("checkpoint %s = %q, want peeled commit %q; refs=%v", name, got, want, next.RefHeads)
+		}
+	}
+	if _, ok := next.RefHeads["refs/replace/"+baseHash.String()]; ok {
+		t.Fatalf("unsafe pseudo ref entered checkpoint: %v", next.RefHeads)
+	}
+}
+
 func TestGitHubHistoryRepoWalkTimeout(t *testing.T) {
 	fixture, _ := buildFixtureRepo(t)
 	repo := githubRepoRef{Name: "widget", Visibility: "private"}
@@ -430,6 +536,60 @@ func TestGitHubHistoryScansOptInArchive(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("GitHub archive history missed nested secret")
+	}
+}
+
+func TestGitHubHistoryArchiveLimitReturnsDegradedCoverage(t *testing.T) {
+	var zipped bytes.Buffer
+	zw := zip.NewWriter(&zipped)
+	f, err := zw.CreateHeader(&zip.FileHeader{Name: "large.txt", Method: zip.Store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("larger than the configured expanded-byte budget")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "payload.zip"), zipped.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wt.Add("payload.zip"); err != nil {
+		t.Fatal(err)
+	}
+	when := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := wt.Commit("archive", &gogit.CommitOptions{Author: &object.Signature{Name: "T", Email: "t@example.com", When: when}, Committer: &object.Signature{Name: "T", Email: "t@example.com", When: when}}); err != nil {
+		t.Fatal(err)
+	}
+	repoRef := githubRepoRef{Name: "widget", Visibility: "private"}
+	repoRef.Owner.Login = "acme"
+	next, err := scanGitHubGitHistory(context.Background(), Config{
+		"include_git_archives":       "true",
+		"git_artifact_max_bytes":     "1048576",
+		"archive_max_expanded_bytes": "8",
+	}, staticGitHubToken(""), "github.com", dir, repoRef, githubRepoIncrementalState{}, false, nil, func([]byte, sources.Metadata) error {
+		return nil
+	})
+	var degraded *engine.DegradedError
+	if !errors.As(err, &degraded) || degraded.Total != 1 {
+		t.Fatalf("history error = %#v, want one degraded coverage failure", err)
+	}
+	var partial *archivepkg.PartialError
+	if !errors.As(err, &partial) || partial.Kind != "max-expanded-bytes" {
+		t.Fatalf("history error = %v, want max-expanded-bytes PartialError", err)
+	}
+	if len(next.RefHeads) != 0 {
+		t.Fatalf("degraded archive scan advanced checkpoint: %v", next.RefHeads)
 	}
 }
 
@@ -628,18 +788,12 @@ func TestGitHubHistoryPushedAtSkipsUnchangedRepo(t *testing.T) {
 	}
 }
 
-// fingerprint は repo list のメタデータ (pushed_at / updated_at) だけで
-// 決まる。 push が pushed_at を動かせば fingerprint が変わり、 skip
-// fast-path が外れて scan 本体が走る。 per-repo の git / comment アクセスは
-// fingerprint 段階では発生しない (unexpected REST path を Fatalf で防ぐ)。
-func TestGitHubHistoryFingerprintTracksPushedAt(t *testing.T) {
-	pushedAt := "2026-05-01T00:00:00Z"
+// Repository metadata cannot prove that synthetic pull refs are unchanged.
+// The whole-source fast path must therefore opt out without making a duplicate
+// API call; the per-repository scan owns the advertised-ref freshness probe.
+func TestGitHubHistoryFingerprintOptsOutForPullRefFreshness(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/repos/acme/widget" {
-			writeJSON(t, w, githubRepoRef{Name: "widget", DefaultBranch: "master", PushedAt: pushedAt})
-			return
-		}
-		t.Fatalf("fingerprint must not hit unexpected REST path: %s", r.URL.String())
+		t.Errorf("GitHub fingerprint must not call the API, got %s", r.URL.String())
 	}))
 	t.Cleanup(srv.Close)
 
@@ -648,20 +802,12 @@ func TestGitHubHistoryFingerprintTracksPushedAt(t *testing.T) {
 		"repo":     "acme/widget",
 		"api_base": srv.URL,
 	}
-	first, err := fingerprintGitHub(context.Background(), cfg)
+	fingerprint, err := fingerprintGitHub(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("first fingerprint: %v", err)
+		t.Fatalf("fingerprint: %v", err)
 	}
-	if first == "" {
-		t.Fatal("fingerprint must be non-empty without include_comments")
-	}
-	pushedAt = "2026-05-01T01:00:00Z"
-	second, err := fingerprintGitHub(context.Background(), cfg)
-	if err != nil {
-		t.Fatalf("second fingerprint: %v", err)
-	}
-	if first == second {
-		t.Fatalf("fingerprint did not change after pushed_at moved: %s", first)
+	if fingerprint != "" {
+		t.Fatalf("GitHub fingerprint must opt out with empty string, got %q", fingerprint)
 	}
 }
 
@@ -785,39 +931,4 @@ func keys(m map[string]sources.GitHubMeta) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// repo list の増減は fingerprint を変える (= repo の追加/削除で skip
-// fast-path が外れる)。
-func TestGitHubHistoryFingerprintTracksRepoSet(t *testing.T) {
-	repos := []githubRepoRef{
-		{Name: "repo1", Visibility: "public", PushedAt: "2026-05-01T00:00:00Z"},
-		{Name: "repo2", Visibility: "public", PushedAt: "2026-05-01T00:00:00Z"},
-	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/orgs/test-org/repos" {
-			writeJSON(t, w, repos)
-			return
-		}
-		t.Errorf("unexpected REST path: %s", r.URL.String())
-	}))
-	t.Cleanup(srv.Close)
-
-	cfg := Config{
-		"org":      "test-org",
-		"token":    "ghp_test",
-		"api_base": srv.URL,
-	}
-	both, err := fingerprintGitHub(context.Background(), cfg)
-	if err != nil {
-		t.Fatalf("fingerprintGitHub (2 repos): %v", err)
-	}
-	repos = repos[:1]
-	one, err := fingerprintGitHub(context.Background(), cfg)
-	if err != nil {
-		t.Fatalf("fingerprintGitHub (1 repo): %v", err)
-	}
-	if both == one {
-		t.Fatalf("fingerprint must differ when the repo set changes; got identical %q", both)
-	}
 }

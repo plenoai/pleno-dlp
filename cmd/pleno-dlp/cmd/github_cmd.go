@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/plenoai/pleno-dlp/pkg/connectors"
+	gitsource "github.com/plenoai/pleno-dlp/pkg/sources/git"
 )
 
 // githubFlags collects the subset of GitHub Config that surfaces as CLI
@@ -64,7 +65,7 @@ var scanGitHubCmd = &cobra.Command{
 	Short: "Scan a GitHub org or single repo (full commit history by default)",
 	Long: "Scan a GitHub org or single repo. Reads --token, falling back to the GITHUB_TOKEN env var.\n" +
 		"--org and --repo are mutually exclusive; one is required. Use --api-base for GitHub Enterprise.\n" +
-		"Each repo is cloned and its full commit history across every branch is scanned. Repository history costs zero REST calls per repo; optional collaboration and gist surfaces use REST.",
+		"Each repo is cloned and its full commit history across branches, tags, and GitHub pull-request refs is scanned. Repository history costs zero REST calls per repo; optional collaboration and gist surfaces use REST.",
 	Args: cobra.NoArgs,
 	RunE: runScanGitHub,
 }
@@ -99,8 +100,8 @@ func init() {
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.trufflehogCompatible, "trufflehog-compatible", false, "match trufflehog's Git diff surface (omit merge/rename diffs and blank unchanged context)")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeGitArchives, "include-git-archives", false, "expand and scan recognized archives in Git history within strict resource budgets")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeGitBinaries, "include-git-binaries", false, "scan otherwise-binary blobs in Git history within strict resource budgets")
-	scanGitHubCmd.Flags().Int64Var(&scanGitHubOpts.gitArtifactMaxBytes, "git-artifact-max-bytes", 10<<20, "maximum compressed archive or raw binary blob bytes")
-	scanGitHubCmd.Flags().Int64Var(&scanGitHubOpts.archiveMaxExpandedBytes, "git-archive-max-expanded-bytes", 50<<20, "maximum total expanded archive bytes per changed blob")
+	scanGitHubCmd.Flags().Int64Var(&scanGitHubOpts.gitArtifactMaxBytes, "git-artifact-max-bytes", gitsource.DefaultGitArtifactMaxBytes, "maximum compressed archive or raw binary blob bytes (hard cap 2 GiB)")
+	scanGitHubCmd.Flags().Int64Var(&scanGitHubOpts.archiveMaxExpandedBytes, "git-archive-max-expanded-bytes", gitsource.DefaultArchiveMaxExpandedBytes, "maximum total expanded archive bytes per changed blob (hard cap 2 GiB)")
 	scanGitHubCmd.Flags().IntVar(&scanGitHubOpts.archiveMaxFiles, "git-archive-max-files", 1000, "maximum expanded files per changed archive")
 	scanGitHubCmd.Flags().IntVar(&scanGitHubOpts.archiveMaxDepth, "git-archive-max-depth", 3, "maximum nested archive recursion depth")
 	scanGitHubCmd.Flags().DurationVar(&scanGitHubOpts.archiveTimeout, "git-archive-timeout", 5*time.Second, "maximum archive expansion time per changed blob")
@@ -235,10 +236,10 @@ func scanGitHubConfig(opts githubFlags) (connectors.Config, error) {
 		return nil, fmt.Errorf("github: --repo-walk-timeout must be non-negative, got %s", opts.repoWalkTimeout)
 	}
 	if opts.gitArtifactMaxBytes == 0 {
-		opts.gitArtifactMaxBytes = 10 << 20
+		opts.gitArtifactMaxBytes = gitsource.DefaultGitArtifactMaxBytes
 	}
 	if opts.archiveMaxExpandedBytes == 0 {
-		opts.archiveMaxExpandedBytes = 50 << 20
+		opts.archiveMaxExpandedBytes = gitsource.DefaultArchiveMaxExpandedBytes
 	}
 	if opts.archiveMaxFiles == 0 {
 		opts.archiveMaxFiles = 1000
@@ -252,7 +253,7 @@ func scanGitHubConfig(opts githubFlags) (connectors.Config, error) {
 	if opts.gitArtifactMaxBytes < 0 || opts.archiveMaxExpandedBytes < 0 || opts.archiveMaxFiles < 0 || opts.archiveMaxDepth < 0 || opts.archiveTimeout < 0 {
 		return nil, errors.New("github: artifact limits must be positive")
 	}
-	if opts.gitArtifactMaxBytes > 50<<20 || opts.archiveMaxExpandedBytes > 200<<20 || opts.archiveMaxFiles > 10000 || opts.archiveMaxDepth > 8 || opts.archiveTimeout > time.Minute {
+	if opts.gitArtifactMaxBytes > gitsource.MaxGitArtifactBytes || opts.archiveMaxExpandedBytes > gitsource.MaxArchiveExpandedBytes || opts.archiveMaxFiles > 10000 || opts.archiveMaxDepth > 8 || opts.archiveTimeout > time.Minute {
 		return nil, errors.New("github: artifact limits exceed hard caps")
 	}
 	if opts.collabTimeframeDays < 0 {

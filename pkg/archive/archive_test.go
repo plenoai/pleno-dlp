@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -197,6 +198,286 @@ func TestWalk_PartialBudgetsPathsCorruptionAndCancellation(t *testing.T) {
 			t.Fatalf("err=%v", err)
 		}
 	})
+}
+
+func TestWalkStreamContextSpills0600AndCleansEveryPath(t *testing.T) {
+	buildStoredZip := func(data []byte) []byte {
+		t.Helper()
+		var buffer bytes.Buffer
+		writer := zip.NewWriter(&buffer)
+		header := &zip.FileHeader{Name: "large.bin", Method: zip.Store}
+		entry, err := writer.CreateHeader(header)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write(data); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return buffer.Bytes()
+	}
+
+	payload := bytes.Repeat([]byte("bounded-spool-"), 64)
+	archiveData := buildStoredZip(payload)
+	for _, tc := range []struct {
+		name      string
+		callback  error
+		wantError bool
+	}{
+		{name: "success"},
+		{name: "callback error", callback: errors.New("stop callback"), wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			visited := 0
+			err := walkStreamContext(context.Background(), "large.zip", bytes.NewReader(archiveData), int64(len(archiveData)), Limits{}, func(entry StreamEntry) error {
+				visited++
+				files, err := os.ReadDir(tempDir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(files) < 2 {
+					t.Fatalf("active spool files=%d, want root and expanded entry", len(files))
+				}
+				for _, file := range files {
+					info, err := file.Info()
+					if err != nil {
+						t.Fatal(err)
+					}
+					if got := info.Mode().Perm(); got != 0o600 {
+						t.Fatalf("spool mode=%#o, want 0600", got)
+					}
+				}
+				got, err := io.ReadAll(entry.Reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Equal(got, payload) {
+					t.Fatalf("spooled payload length=%d, want %d", len(got), len(payload))
+				}
+				return tc.callback
+			}, spoolOptions{threshold: 64, tempDir: tempDir})
+			if (err != nil) != tc.wantError {
+				t.Fatalf("walk error=%v, wantError=%t", err, tc.wantError)
+			}
+			if visited != 1 {
+				t.Fatalf("visited=%d, want 1", visited)
+			}
+			files, readErr := os.ReadDir(tempDir)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if len(files) != 0 {
+				t.Fatalf("spool files leaked after return: %v", files)
+			}
+		})
+	}
+}
+
+func TestWalkStreamContextCountsNestedIntermediateBytes(t *testing.T) {
+	leaf := []byte("leaf data counts after its containing archive")
+	inner := buildZipBytes(t, map[string][]byte{"leaf.txt": leaf})
+	outer := buildZipBytes(t, map[string][]byte{"inner.zip": inner})
+	limit := int64(len(inner) + len(leaf) - 1)
+	emitted := 0
+	err := WalkStreamContext(context.Background(), "outer.zip", bytes.NewReader(outer), int64(len(outer)), Limits{
+		MaxEntryBytes:    int64(len(inner) + 1),
+		MaxExpandedBytes: limit,
+	}, func(StreamEntry) error {
+		emitted++
+		return nil
+	})
+	var partial *PartialError
+	if !errors.As(err, &partial) || partial.Kind != "max-expanded-bytes" {
+		t.Fatalf("error=%v, want max-expanded-bytes", err)
+	}
+	if emitted != 0 {
+		t.Fatalf("emitted=%d, want 0", emitted)
+	}
+}
+
+func TestWalkStreamContextAppliesFileLimitAfterZipPreflight(t *testing.T) {
+	archiveData := buildZip(t, map[string]string{"a": "a", "b": "b", "c": "c"})
+	emitted := 0
+	err := WalkStreamContext(context.Background(), "many.zip", bytes.NewReader(archiveData), int64(len(archiveData)), Limits{MaxFiles: 2}, func(StreamEntry) error {
+		emitted++
+		return nil
+	})
+	var partial *PartialError
+	if !errors.As(err, &partial) || partial.Kind != "max-files" {
+		t.Fatalf("error=%v, want max-files", err)
+	}
+	if emitted != 2 {
+		t.Fatalf("emitted=%d, want 2 validated partial entries", emitted)
+	}
+}
+
+func TestWalkStreamContextRejectsZipHardHeaderCapBeforeEmission(t *testing.T) {
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+	for i := 0; i <= maxArchiveHeaders; i++ {
+		entry, err := writer.Create(fmt.Sprintf("%05d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte("x")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	emitted := 0
+	err := WalkStreamContext(context.Background(), "headers.zip", bytes.NewReader(buffer.Bytes()), int64(buffer.Len()), Limits{MaxFiles: maxArchiveHeaders + 1}, func(StreamEntry) error {
+		emitted++
+		return nil
+	})
+	var partial *PartialError
+	if !errors.As(err, &partial) || partial.Kind != "max-headers" {
+		t.Fatalf("error=%v, want max-headers", err)
+	}
+	if emitted != 0 {
+		t.Fatalf("emitted=%d, want preflight rejection", emitted)
+	}
+}
+
+func TestWalkStreamContextEnforcesInputLimit(t *testing.T) {
+	archiveData := buildZip(t, map[string]string{"a": "a"})
+	err := WalkStreamContext(context.Background(), "input.zip", bytes.NewReader(archiveData), int64(len(archiveData)), Limits{MaxInputBytes: int64(len(archiveData) - 1)}, func(StreamEntry) error {
+		return errors.New("unexpected emission")
+	})
+	var partial *PartialError
+	if !errors.As(err, &partial) || partial.Kind != "max-input-bytes" {
+		t.Fatalf("error=%v, want max-input-bytes", err)
+	}
+}
+
+func TestWalkStreamContextRejectsOversizedTarMetadataBeforeEmission(t *testing.T) {
+	var buffer bytes.Buffer
+	writer := tar.NewWriter(&buffer)
+	for i := 0; i < 2; i++ {
+		header := &tar.Header{
+			Name:   strings.Repeat(string(rune('a'+i)), 600<<10),
+			Size:   1,
+			Mode:   0o600,
+			Format: tar.FormatPAX,
+		}
+		if err := writer.WriteHeader(header); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.Write([]byte("x")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	emitted := 0
+	err := WalkStreamContext(context.Background(), "metadata.tar", bytes.NewReader(buffer.Bytes()), int64(buffer.Len()), Limits{}, func(StreamEntry) error {
+		emitted++
+		return nil
+	})
+	var partial *PartialError
+	if !errors.As(err, &partial) || partial.Kind != "metadata-bytes" {
+		t.Fatalf("error=%v, want metadata-bytes", err)
+	}
+	if emitted != 0 {
+		t.Fatalf("emitted=%d, want preflight rejection", emitted)
+	}
+}
+
+func TestWalkStreamContextCorruptZipEntryIsNeverEmitted(t *testing.T) {
+	archiveData := buildZip(t, map[string]string{"secret.txt": "validated only after CRC"})
+	corrupt := append([]byte(nil), archiveData...)
+	if len(corrupt) < 30 || !bytes.Equal(corrupt[:4], []byte{'P', 'K', 3, 4}) {
+		t.Fatal("fixture has no local ZIP header")
+	}
+	nameLen := int(corrupt[26]) | int(corrupt[27])<<8
+	extraLen := int(corrupt[28]) | int(corrupt[29])<<8
+	dataOffset := 30 + nameLen + extraLen
+	if dataOffset >= len(corrupt) {
+		t.Fatal("fixture has no entry body")
+	}
+	corrupt[dataOffset] ^= 0xff
+
+	emitted := 0
+	err := WalkStreamContext(context.Background(), "corrupt.zip", bytes.NewReader(corrupt), int64(len(corrupt)), Limits{}, func(StreamEntry) error {
+		emitted++
+		return nil
+	})
+	var partial *PartialError
+	if !errors.As(err, &partial) || partial.Kind != "corrupt-entry" {
+		t.Fatalf("error=%v, want corrupt-entry", err)
+	}
+	if emitted != 0 {
+		t.Fatalf("emitted=%d, want 0", emitted)
+	}
+}
+
+func TestWalkTarCancellationInterruptsRejectedEntryDiscard(t *testing.T) {
+	var archiveData bytes.Buffer
+	writer := tar.NewWriter(&archiveData)
+	body := bytes.Repeat([]byte("x"), 4096)
+	if err := writer.WriteHeader(&tar.Header{Name: "oversized", Size: int64(len(body)), Mode: 0o600}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write(body); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.WriteHeader(&tar.Header{Name: "later", Size: 1, Mode: 0o600}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	input := &cancelAfterReader{
+		reader:    bytes.NewReader(archiveData.Bytes()),
+		remaining: 512 + 16, // one header, then part of tar.Next's body discard
+		cancel:    cancel,
+	}
+	state := &walkState{
+		ctx: ctx,
+		limits: Limits{
+			MaxDepth:         4,
+			MaxEntryBytes:    1,
+			MaxExpandedBytes: 1 << 20,
+			MaxFiles:         10,
+		},
+		visit: func(StreamEntry) error { return errors.New("unexpected emission") },
+	}
+	err := state.walkTarReader("payload.tar", contextReader{ctx: ctx, r: input}, 0)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error=%v, want cancellation during implicit discard", err)
+	}
+}
+
+type cancelAfterReader struct {
+	reader    io.Reader
+	remaining int
+	cancel    context.CancelFunc
+}
+
+func (r *cancelAfterReader) Read(buffer []byte) (int, error) {
+	if r.remaining <= 0 {
+		r.cancel()
+		return 0, context.Canceled
+	}
+	if len(buffer) > r.remaining {
+		buffer = buffer[:r.remaining]
+	}
+	n, err := r.reader.Read(buffer)
+	r.remaining -= n
+	if r.remaining == 0 {
+		r.cancel()
+	}
+	return n, err
 }
 
 func TestWalk_TarBz2ExpandsThroughBzip2ThenTar(t *testing.T) {

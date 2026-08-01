@@ -5,9 +5,12 @@ repository. There is a single scan mode.
 
 ## How it works
 
-For each enumerated repository the connector performs a
-single complete mirror clone over git smart-HTTP and then walks **every commit
-reachable from every branch** locally. The mirror is self-contained: clone
+For each cold or changed repository the connector performs a single complete
+mirror clone over git smart-HTTP and then walks **every commit reachable from
+branches, tags, and GitHub pull-request head/merge refs** locally. Unchanged
+incremental repositories use the lightweight ref check described below.
+Pseudo refs such as replace, notes, stash, and bisect refs are not history
+roots. The mirror is self-contained: clone
 credentials are not persisted and the subsequent walk performs no lazy network
 fetch. The default text-history path streams one bounded, context-cancellable
 native `git log --patch` process, diffing each commit against its first parent
@@ -32,7 +35,10 @@ pleno-dlp scan github --org acme
 REST is
 used only for repository enumeration and, optionally, the comments surface.
 
-Coverage: HEAD plus all `refs/heads/` and `refs/remotes/` refs.
+Coverage: HEAD plus `refs/heads/`, `refs/remotes/`, commit-targeting
+`refs/tags/`, and numeric `refs/pull/<number>/{head,merge}` refs. Tags that peel
+to a blob or tree are not history roots. Commit hashes and their reachable
+histories are deduplicated across refs.
 
 ## Comments
 
@@ -138,11 +144,20 @@ streaming also requires native git and fails visibly if it is unavailable.
 Binary history remains excluded by default. `--include-git-archives` expands
 ZIP, TAR, gzip, and bzip2 blobs; `--include-git-binaries` scans other binary
 bytes. Both are opt-in. Defaults are 10 MiB compressed/raw and per entry,
-50 MiB total expanded, 1,000 files, depth 3, and 5 seconds per archive.
+50 MiB total expanded, 1,000 leaf files, depth 3, and 5 seconds per archive.
 Override them with the `--git-artifact-max-bytes`,
 `--git-archive-max-expanded-bytes`, `--git-archive-max-files`,
 `--git-archive-max-depth`, and `--git-archive-timeout` flags. Budget breaches
-are reported as incomplete scans. See ADR 0004.
+are reported as incomplete scans. Compressed/raw and total-expanded byte
+limits each accept an explicit value up to 2 GiB. Values above 16 MiB are
+spooled to `0600` temporary files and removed on every return path. Nested
+intermediate expansion counts toward the total-expanded limit. Before standard
+archive parsing, ZIP and physical TAR headers are capped at 10,000, ZIP central
+directories at 16 MiB, and TAR PAX/GNU metadata at 1 MiB. Archive work remains
+serialized process-wide to bound decompression CPU and temporary-disk pressure.
+Large ceilings therefore require matching temporary disk capacity even though
+they no longer require blob-sized heap allocations; see ADR 0004 for the exact
+residual bounds.
 
 ## Bounding and profiling long walks
 
@@ -224,16 +239,26 @@ head is never re-emitted, even across branches). Legacy tree-mode state written
 by pre-removal builds is ignored once (one full rescan), then replaced with
 history state.
 
-The state also records the repo's `pushed_at` as observed at enumeration time.
-When an `--incremental` rerun reports the same `pushed_at` **and the persisted history-policy
-fingerprint still matches**, the main clone and walk are skipped and prior
-state is carried forward. Enabling metadata/artifact surfaces or changing their
-budgets changes that fingerprint and forces the required rescan. On a large org
-where most repos see no pushes between daily runs, this removes most of the
-clone traffic. The `--include-comments` pass still runs for skipped repos,
-since issue/PR comments move without touching `pushed_at`. A push racing the
-scan lands after the recorded timestamp, so the next run picks it up with a
-forced re-walk; it is never missed.
+The state also records the repo's `pushed_at` and the exact advertised
+`refs/pull/<number>/{head,merge}` snapshot observed by the completed clone.
+When an `--incremental` rerun reports the same `pushed_at` **and the persisted
+history-policy fingerprint still matches**, the connector performs one
+smart-Git ref advertisement restricted to those pull-request patterns. An
+identical snapshot skips the main clone and walk; an added, updated, or deleted
+pull ref forces the incremental clone and walk even when `pushed_at` did not
+move. Notes, replace refs, and other pseudo refs are excluded from both the
+comparison and its checkpoint.
+
+This freshness check uses zero additional REST calls and one small smart-Git
+request only for otherwise-unchanged repositories. It runs inside the existing
+bounded repository-worker pool. GitHub opts out of the outer metadata-only
+resource fingerprint so a daily run always reaches this check. If the ref
+advertisement fails, the connector does not trust the old snapshot: it falls
+back to the regular clone, and retains the prior completed history checkpoint
+if that scan also fails. Enabling metadata/artifact surfaces or changing their
+budgets changes the history-policy fingerprint and forces the required rescan.
+The `--include-comments` pass still runs for clone-skipped repos because
+comments also move without touching `pushed_at`.
 
 State is namespaced by surface: `repository-history`, `repository-wiki`,
 `gist-history`, and `gist-comments`. Main repositories, wikis, and gists keep

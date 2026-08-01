@@ -26,6 +26,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/output"
 	"github.com/plenoai/pleno-dlp/pkg/piidb"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
+	gitsource "github.com/plenoai/pleno-dlp/pkg/sources/git"
 	"github.com/plenoai/pleno-dlp/pkg/sources/stdin"
 	"github.com/plenoai/pleno-dlp/pkg/verify"
 )
@@ -91,7 +92,7 @@ var scanCmd = &cobra.Command{
 		"  git         walk the commit history of a local git repo\n" +
 		"  s3          walk objects in an S3 bucket (or S3-compatible store)\n" +
 		"  stdin       read input from os.Stdin (e.g. `cat file | pleno-dlp scan stdin`)\n" +
-		"  github      walk full commit history across every branch; optional REST issues/PRs/comments/gists and opt-in wikis/artifacts\n" +
+		"  github      walk full commit history across safe advertised refs; optional REST issues/PRs/comments/gists and opt-in wikis/artifacts\n" +
 		"  gitlab      walk GitLab API blobs; --include-comments scans MR notes/discussions\n" +
 		"  forgejo|gitea|gogs|gitbucket|codeberg  scan issue comments via forge API\n" +
 		"  onedev|codebase|pagure                  scan issue/PR comments via forge API\n" +
@@ -261,7 +262,7 @@ func init() {
 	scanFilesystemCmd.Flags().BoolVar(&fsOpts.disableDefaultExcludes, "no-default-excludes", false, "disable default excludes (.git, node_modules, vendor, target, ...)")
 
 	scanGitCmd.Flags().StringVar(&gitOpts.repo, "repo", "", "absolute or relative path to a local git repository")
-	scanGitCmd.Flags().StringVar(&gitOpts.branch, "branch", "", "branch to walk (default: HEAD)")
+	scanGitCmd.Flags().StringVar(&gitOpts.branch, "branch", "", "branch to walk (default: all safe advertised history refs)")
 	scanGitCmd.Flags().StringVar(&gitOpts.since, "since", "", "RFC3339 cutoff; commits older than this are skipped")
 	scanGitCmd.Flags().IntVar(&gitOpts.maxDepth, "max-depth", 0, "cap on commits walked (0 = unbounded)")
 	scanGitCmd.Flags().StringSliceVar(&gitOpts.include, "include", nil, "glob(s) to include (matched against repo-relative paths)")
@@ -272,8 +273,8 @@ func init() {
 	scanGitCmd.Flags().BoolVar(&gitOpts.trufflehogCompatible, "trufflehog-compatible", false, "match trufflehog's Git diff surface (omit merge/rename diffs and blank unchanged context)")
 	scanGitCmd.Flags().BoolVar(&gitOpts.includeGitArchives, "include-git-archives", false, "expand and scan recognized archives in Git history within strict resource budgets")
 	scanGitCmd.Flags().BoolVar(&gitOpts.includeGitBinaries, "include-git-binaries", false, "scan otherwise-binary blobs in Git history within strict resource budgets")
-	scanGitCmd.Flags().Int64Var(&gitOpts.gitArtifactMaxBytes, "git-artifact-max-bytes", 10<<20, "maximum compressed archive or raw binary blob bytes")
-	scanGitCmd.Flags().Int64Var(&gitOpts.archiveMaxExpandedBytes, "git-archive-max-expanded-bytes", 50<<20, "maximum total expanded archive bytes per changed blob")
+	scanGitCmd.Flags().Int64Var(&gitOpts.gitArtifactMaxBytes, "git-artifact-max-bytes", gitsource.DefaultGitArtifactMaxBytes, "maximum compressed archive or raw binary blob bytes (hard cap 2 GiB)")
+	scanGitCmd.Flags().Int64Var(&gitOpts.archiveMaxExpandedBytes, "git-archive-max-expanded-bytes", gitsource.DefaultArchiveMaxExpandedBytes, "maximum total expanded archive bytes per changed blob (hard cap 2 GiB)")
 	scanGitCmd.Flags().IntVar(&gitOpts.archiveMaxFiles, "git-archive-max-files", 1000, "maximum expanded files per changed archive")
 	scanGitCmd.Flags().IntVar(&gitOpts.archiveMaxDepth, "git-archive-max-depth", 3, "maximum nested archive recursion depth")
 	scanGitCmd.Flags().DurationVar(&gitOpts.archiveTimeout, "git-archive-timeout", 5*time.Second, "maximum archive expansion time per changed blob")
@@ -355,10 +356,10 @@ func runScanGit(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	if gitOpts.gitArtifactMaxBytes == 0 {
-		gitOpts.gitArtifactMaxBytes = 10 << 20
+		gitOpts.gitArtifactMaxBytes = gitsource.DefaultGitArtifactMaxBytes
 	}
 	if gitOpts.archiveMaxExpandedBytes == 0 {
-		gitOpts.archiveMaxExpandedBytes = 50 << 20
+		gitOpts.archiveMaxExpandedBytes = gitsource.DefaultArchiveMaxExpandedBytes
 	}
 	if gitOpts.archiveMaxFiles == 0 {
 		gitOpts.archiveMaxFiles = 1000
@@ -372,12 +373,13 @@ func runScanGit(cmd *cobra.Command, _ []string) error {
 	if gitOpts.gitArtifactMaxBytes < 0 || gitOpts.archiveMaxExpandedBytes < 0 || gitOpts.archiveMaxFiles < 0 || gitOpts.archiveMaxDepth < 0 || gitOpts.archiveTimeout < 0 {
 		return errors.New("git: artifact limits must be positive")
 	}
-	if gitOpts.gitArtifactMaxBytes > 50<<20 || gitOpts.archiveMaxExpandedBytes > 200<<20 || gitOpts.archiveMaxFiles > 10000 || gitOpts.archiveMaxDepth > 8 || gitOpts.archiveTimeout > time.Minute {
+	if gitOpts.gitArtifactMaxBytes > gitsource.MaxGitArtifactBytes || gitOpts.archiveMaxExpandedBytes > gitsource.MaxArchiveExpandedBytes || gitOpts.archiveMaxFiles > 10000 || gitOpts.archiveMaxDepth > 8 || gitOpts.archiveTimeout > time.Minute {
 		return errors.New("git: artifact limits exceed hard caps")
 	}
 	cfg, err := json.Marshal(map[string]any{
 		"repo":                       gitOpts.repo,
 		"branch":                     gitOpts.branch,
+		"all_branches":               gitOpts.branch == "",
 		"since":                      gitOpts.since,
 		"max_depth":                  gitOpts.maxDepth,
 		"include":                    gitOpts.include,

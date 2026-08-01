@@ -20,10 +20,25 @@ func TestScanGitHubHelpDocumentsSurfacesDefaultsAndCosts(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := out.String()
-	for _, want := range []string{"full commit history", "zero REST calls", "--include-comments", "--include-issues", "--include-pull-requests", "--include-wikis", "--gist", "--include-authenticated-gists", "--include-gist-comments", "--repo-concurrency", "default 1", "--repo-walk-timeout", "--include-commit-metadata", "--skip-merge-commits", "--trufflehog-compatible", "--include-git-archives", "--include-git-binaries", "--include-forks", "default true", "--include-archived"} {
+	for _, want := range []string{"full commit history", "pull-request refs", "zero REST calls", "--include-comments", "--include-issues", "--include-pull-requests", "--include-wikis", "--gist", "--include-authenticated-gists", "--include-gist-comments", "--repo-concurrency", "default 1", "--repo-walk-timeout", "--include-commit-metadata", "--skip-merge-commits", "--trufflehog-compatible", "--include-git-archives", "--include-git-binaries", "hard cap 2 GiB", "--include-forks", "default true", "--include-archived"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("help missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestScanGitHubConfigAcceptsTwoGiBArchiveCeiling(t *testing.T) {
+	cfg, err := scanGitHubConfig(githubFlags{
+		repo:                    "example/project",
+		token:                   "token",
+		gitArtifactMaxBytes:     2 << 30,
+		archiveMaxExpandedBytes: 2 << 30,
+	})
+	if err != nil {
+		t.Fatalf("2 GiB ceiling rejected: %v", err)
+	}
+	if cfg["git_artifact_max_bytes"] != "2147483648" || cfg["archive_max_expanded_bytes"] != "2147483648" {
+		t.Fatalf("2 GiB limits were not preserved: %#v", cfg)
 	}
 }
 

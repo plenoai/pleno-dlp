@@ -776,7 +776,7 @@ func TestScanGitHelp(t *testing.T) {
 		t.Fatalf("scan git --help: %v", err)
 	}
 	got := out.String()
-	for _, want := range []string{"--repo", "--branch", "--since", "--max-depth", "--include", "--exclude", "--include-commit-metadata", "--skip-merge-commits", "--trufflehog-compatible", "--include-git-archives", "--include-git-binaries", "--git-archive-timeout"} {
+	for _, want := range []string{"--repo", "--branch", "all safe advertised history refs", "--since", "--max-depth", "--include", "--exclude", "--include-commit-metadata", "--skip-merge-commits", "--trufflehog-compatible", "--include-git-archives", "--include-git-binaries", "hard cap 2 GiB", "--git-archive-timeout"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("scan git help missing %q in:\n%s", want, got)
 		}

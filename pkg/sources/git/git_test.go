@@ -18,6 +18,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
+	archivepkg "github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
@@ -587,6 +588,93 @@ func TestChunks_GitArchiveAndBinaryAreBoundedOptIn(t *testing.T) {
 	}
 }
 
+func TestChunks_ArchiveExpandedLimitReturnsDegradedCoverage(t *testing.T) {
+	var zipped bytes.Buffer
+	zw := zip.NewWriter(&zipped)
+	f, err := zw.CreateHeader(&zip.FileHeader{Name: "inside.txt", Method: zip.Store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("content beyond the configured expanded-byte limit")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	repoPath, _ := buildRepo(t, []commitSpec{{files: map[string]string{"payload.zip": zipped.String()}, msg: "archive"}})
+
+	s := &Source{}
+	mustInit(t, s, Config{
+		Repo:                    repoPath,
+		IncludeGitArchives:      true,
+		GitArtifactMaxBytes:     1 << 20,
+		ArchiveMaxExpandedBytes: 8,
+	})
+	got, err := drain(t, s, 10*time.Second)
+	var degraded *engine.DegradedError
+	if !errors.As(err, &degraded) || degraded.Total != 1 {
+		t.Fatalf("Chunks error = %#v, want one degraded coverage failure", err)
+	}
+	var partial *archivepkg.PartialError
+	if !errors.As(err, &partial) || partial.Kind != "max-expanded-bytes" {
+		t.Fatalf("Chunks error = %v, want max-expanded-bytes PartialError", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("over-limit archive emitted %d chunk(s), want none", len(got))
+	}
+	if state := s.IncrementalState(); len(state) != 0 {
+		t.Fatalf("degraded archive scan advanced checkpoint: %s", state)
+	}
+
+	blobLimited := &Source{}
+	mustInit(t, blobLimited, Config{
+		Repo:                repoPath,
+		IncludeGitArchives:  true,
+		GitArtifactMaxBytes: 8,
+	})
+	got, err = drain(t, blobLimited, 10*time.Second)
+	degraded = nil
+	if !errors.As(err, &degraded) || degraded.Total != 1 {
+		t.Fatalf("compressed-limit error = %#v, want one degraded coverage failure", err)
+	}
+	partial = nil
+	if !errors.As(err, &partial) || partial.Kind != "max-blob-bytes" {
+		t.Fatalf("compressed-limit error = %v, want max-blob-bytes PartialError", err)
+	}
+	if len(got) != 0 || len(blobLimited.IncrementalState()) != 0 {
+		t.Fatalf("compressed-limit failure emitted chunks or advanced checkpoint: chunks=%d state=%s", len(got), blobLimited.IncrementalState())
+	}
+}
+
+func TestInit_ArchiveByteLimitsAllowTwoGiBCeiling(t *testing.T) {
+	repoPath, _ := buildRepo(t, []commitSpec{{files: map[string]string{"safe.txt": "safe"}, msg: "base"}})
+	exact := &Source{}
+	raw, err := json.Marshal(Config{
+		Repo:                    repoPath,
+		GitArtifactMaxBytes:     MaxGitArtifactBytes,
+		ArchiveMaxExpandedBytes: MaxArchiveExpandedBytes,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := exact.Init(context.Background(), "test", 1, 2, false, raw, 1); err != nil {
+		t.Fatalf("2 GiB ceiling rejected: %v", err)
+	}
+
+	for _, cfg := range []Config{
+		{Repo: repoPath, GitArtifactMaxBytes: MaxGitArtifactBytes + 1},
+		{Repo: repoPath, ArchiveMaxExpandedBytes: MaxArchiveExpandedBytes + 1},
+	} {
+		raw, err := json.Marshal(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := (&Source{}).Init(context.Background(), "test", 1, 2, false, raw, 1); err == nil {
+			t.Fatalf("over-ceiling config accepted: %+v", cfg)
+		}
+	}
+}
+
 func TestChunks_CommitMetadataHasPerCommitDedupIdentity(t *testing.T) {
 	const secret = "github_pat_11REPEATED_abcdefghijklmnopqrstuvwxyz0123456789"
 	repoPath, _ := buildRepo(t, []commitSpec{
@@ -780,6 +868,54 @@ func TestGitArchiveAllocationCeiling(t *testing.T) {
 	}
 }
 
+func TestOpenBoundedRepositoryUsesLazyLargeObjects(t *testing.T) {
+	repoPath, hashes := buildRepo(t, []commitSpec{{files: map[string]string{"artifact.bin": "more-than-one-byte"}, msg: "artifact"}})
+	repo, err := openBoundedRepository(repoPath, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit, err := repo.CommitObject(plumbing.NewHash(hashes[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := commit.Tree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := tree.File("artifact.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := repo.Storer.EncodedObject(plumbing.BlobObject, file.Hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, hydrated := encoded.(*plumbing.MemoryObject); hydrated {
+		t.Fatalf("large blob storage=%T, want lazy filesystem object", encoded)
+	}
+}
+
+func TestStreamBlobMatchesStableSplitOrderAndOverlap(t *testing.T) {
+	data := bytes.Repeat([]byte("line-with-data\n"), (2*maxDiffChunkSize)/len("line-with-data\n")+100)
+	want := splitBlob(data)
+	var got []diffSegment
+	err := streamBlob(context.Background(), bytes.NewReader(data), int64(len(data)), func(segment diffSegment) error {
+		got = append(got, segment)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("segments=%d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i].line != want[i].line || !bytes.Equal(got[i].data, want[i].data) {
+			t.Fatalf("segment %d differs: line=%d/%d bytes=%d/%d", i, got[i].line, want[i].line, len(got[i].data), len(want[i].data))
+		}
+	}
+}
+
 func TestAggregateArtifactBudgetBackpressuresAndCancels(t *testing.T) {
 	release, _, err := acquireArtifactBudget(context.Background(), 200<<20)
 	if err != nil {
@@ -790,6 +926,49 @@ func TestAggregateArtifactBudgetBackpressuresAndCancels(t *testing.T) {
 	defer cancel()
 	if _, _, err := acquireArtifactBudget(ctx, 1<<20); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("blocked acquisition error=%v", err)
+	}
+}
+
+func TestArtifactBudgetWeightSerializesArchivesAndAccountsForBinaryCopies(t *testing.T) {
+	if got := artifactBudgetWeight(true, DefaultGitArtifactMaxBytes); got != artifactBudgetCapacity {
+		t.Fatalf("archive budget weight = %d, want full capacity %d", got, artifactBudgetCapacity)
+	}
+	if got := artifactBudgetWeight(false, 10<<20); got != 20<<20 {
+		t.Fatalf("binary budget weight = %d, want two buffered copies", got)
+	}
+	if got := artifactBudgetWeight(false, MaxGitArtifactBytes); got != artifactBudgetCapacity {
+		t.Fatalf("large binary budget weight = %d, want clamped capacity %d", got, artifactBudgetCapacity)
+	}
+}
+
+func TestArchiveOptInDoesNotReserveArtifactBudgetForTextOnlyCommit(t *testing.T) {
+	repoPath, _ := buildRepo(t, []commitSpec{{files: map[string]string{"plain.txt": "text only"}, msg: "text"}})
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath, IncludeGitArchives: true})
+
+	release, _, err := acquireArtifactBudget(context.Background(), artifactBudgetCapacity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	chunks := make(chan *sources.Chunk, 8)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- s.Chunks(ctx, chunks)
+		close(chunks)
+	}()
+	count := 0
+	for range chunks {
+		count++
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("text-only scan blocked on artifact budget: %v", err)
+	}
+	if count == 0 {
+		t.Fatal("text-only scan emitted no chunks")
 	}
 }
 
@@ -1051,6 +1230,148 @@ func filesOf(chunks []*sources.Chunk) map[string]bool {
 		}
 	}
 	return out
+}
+
+func commitOnTemporaryBranch(t *testing.T, repo *gogit.Repository, branch, file, content string, when time.Time) plumbing.Hash {
+	t.Helper()
+	head, err := repo.Head()
+	if err != nil {
+		t.Fatalf("Head: %v", err)
+	}
+	baseBranch := head.Name()
+	checkoutNewBranch(t, repo, branch)
+	hash := plumbing.NewHash(commitOn(t, repo, map[string]string{file: content}, branch, when))
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	if err := wt.Checkout(&gogit.CheckoutOptions{Branch: baseBranch}); err != nil {
+		t.Fatalf("checkout %s: %v", baseBranch, err)
+	}
+	if err := repo.Storer.RemoveReference(plumbing.NewBranchReferenceName(branch)); err != nil {
+		t.Fatalf("remove temporary branch %s: %v", branch, err)
+	}
+	return hash
+}
+
+func TestChunks_AllBranchesIncludesTagAndGitHubPullRefsOnly(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	base := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	baseHash := plumbing.NewHash(commitOn(t, repo, map[string]string{"main.txt": "main"}, "base", base))
+
+	tagHash := commitOnTemporaryBranch(t, repo, "tag-fixture", "tag-only.txt", "tag-only", base.Add(time.Minute))
+	if _, err := repo.CreateTag("tag-only", tagHash, &gogit.CreateTagOptions{
+		Tagger:  &object.Signature{Name: "Test", Email: "test@example.com", When: base.Add(2 * time.Minute)},
+		Message: "annotated tag fixture",
+	}); err != nil {
+		t.Fatalf("CreateTag: %v", err)
+	}
+
+	prHash := commitOnTemporaryBranch(t, repo, "pr-fixture", "pr-only.txt", "pr-only", base.Add(3*time.Minute))
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/pull/42/head"), prHash)); err != nil {
+		t.Fatalf("set pull ref: %v", err)
+	}
+
+	pseudoHash := commitOnTemporaryBranch(t, repo, "pseudo-fixture", "pseudo-only.txt", "must-not-scan", base.Add(4*time.Minute))
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.ReferenceName("refs/replace/"+baseHash.String()), pseudoHash)); err != nil {
+		t.Fatalf("set replace ref: %v", err)
+	}
+
+	modes := []struct {
+		name  string
+		noGit bool
+	}{{name: "go-git fallback", noGit: true}}
+	if _, err := exec.LookPath("git"); err == nil {
+		modes = append([]struct {
+			name  string
+			noGit bool
+		}{{name: "native git"}}, modes...)
+	}
+	for _, mode := range modes {
+		t.Run(mode.name, func(t *testing.T) {
+			if mode.noGit {
+				t.Setenv("PATH", t.TempDir())
+			}
+			s := &Source{}
+			mustInit(t, s, Config{Repo: dir, AllBranches: true})
+			got, err := drain(t, s, 10*time.Second)
+			if err != nil {
+				t.Fatalf("Chunks: %v", err)
+			}
+			files := filesOf(got)
+			for _, want := range []string{"main.txt", "tag-only.txt", "pr-only.txt"} {
+				if !files[want] {
+					t.Errorf("history missing %s; files=%v", want, files)
+				}
+			}
+			if files["pseudo-only.txt"] {
+				t.Fatalf("unsafe refs/replace pseudo ref was scanned; files=%v", files)
+			}
+		})
+	}
+}
+
+func TestIsGitHubPullRefAllowsOnlyNumericHeadAndMergeRefs(t *testing.T) {
+	for name, want := range map[string]bool{
+		"refs/pull/1/head":        true,
+		"refs/pull/42/merge":      true,
+		"refs/pull/0/head":        false,
+		"refs/pull/not-id/head":   false,
+		"refs/pull/42/comments":   false,
+		"refs/pull/42/head/extra": false,
+		"refs/replace/42":         false,
+	} {
+		if got := IsGitHubPullRequestRef(plumbing.ReferenceName(name)); got != want {
+			t.Errorf("IsGitHubPullRequestRef(%q) = %t, want %t", name, got, want)
+		}
+	}
+}
+
+func TestAdvertisedHistoryRefCommitSkipsNonCommitTags(t *testing.T) {
+	repoPath, hashes := buildRepo(t, []commitSpec{{files: map[string]string{"artifact.bin": "content"}, msg: "base"}})
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit, err := repo.CommitObject(plumbing.NewHash(hashes[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := commit.Tree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := tree.File("artifact.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateTag("blob-target", file.Hash, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CreateTag("tree-target", tree.Hash, &gogit.CreateTagOptions{
+		Tagger:  &object.Signature{Name: "Test", Email: "test@example.com", When: time.Date(2026, 5, 1, 1, 0, 0, 0, time.UTC)},
+		Message: "tree target",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"blob-target", "tree-target"} {
+		ref, err := repo.Reference(plumbing.NewTagReferenceName(name), true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hash, include, err := AdvertisedHistoryRefCommit(repo, ref)
+		if err != nil {
+			t.Fatalf("tag %s: %v", name, err)
+		}
+		if include || hash != plumbing.ZeroHash {
+			t.Fatalf("tag %s included non-commit target %s", name, hash)
+		}
+	}
 }
 
 func TestChunks_AllBranchesEmitsSideBranchCommit(t *testing.T) {

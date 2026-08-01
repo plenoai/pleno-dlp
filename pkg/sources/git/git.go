@@ -22,9 +22,13 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/format/diff"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	gitfilesystem "github.com/go-git/go-git/v5/storage/filesystem"
+	"github.com/go-git/go-git/v5/utils/merkletrie"
+	"golang.org/x/sync/semaphore"
 
 	archivepkg "github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
@@ -35,8 +39,19 @@ const binarySniffLen = 512
 
 const maxBlobSize int64 = 50 * 1024 * 1024 // 50 MiB
 
-// ErrNoBranchHeads identifies repositories with no commit-bearing branch refs.
-var ErrNoBranchHeads = errors.New("git: no branch heads to walk")
+// Git artifact defaults remain conservative; callers may opt into larger
+// work ceilings up to the TruffleHog-compatible 2 GiB values. Large artifact
+// values are disk-spooled; see ADR 0004.
+const (
+	DefaultGitArtifactMaxBytes     int64 = 10 << 20
+	DefaultArchiveMaxExpandedBytes int64 = 50 << 20
+	MaxGitArtifactBytes            int64 = 2 << 30
+	MaxArchiveExpandedBytes        int64 = 2 << 30
+)
+
+// ErrNoBranchHeads identifies repositories with no safe commit-bearing
+// history refs. The name is retained for compatibility with existing callers.
+var ErrNoBranchHeads = errors.New("git: no history refs to walk")
 
 // maxDiffBlobSize bounds the blob size (either side) that firstChangedLine
 // and addedHunks will run a diff over. change.Patch() reads both blob sides
@@ -58,37 +73,55 @@ const maxDiffChunkSize = 1 << 20 // 1 MiB
 
 const diffChunkOverlap = 512
 
-const artifactBudgetUnit = 1 << 20
+const (
+	artifactBudgetUnit     int64 = 1 << 20
+	artifactBudgetCapacity int64 = 200 << 20
+)
 
-var aggregateArtifactBudget = make(chan struct{}, 200) // 200 MiB process-wide
+var aggregateArtifactBudget = semaphore.NewWeighted(artifactBudgetCapacity / artifactBudgetUnit)
 
 func acquireArtifactBudget(ctx context.Context, bytes int64) (func(), time.Duration, error) {
-	units := int((bytes + artifactBudgetUnit - 1) / artifactBudgetUnit)
+	units := (bytes + artifactBudgetUnit - 1) / artifactBudgetUnit
 	if units < 1 {
 		units = 1
 	}
-	if units > cap(aggregateArtifactBudget) {
-		units = cap(aggregateArtifactBudget)
+	capacity := artifactBudgetCapacity / artifactBudgetUnit
+	if units > capacity {
+		units = capacity
 	}
 	start := time.Now()
-	acquired := 0
-	for acquired < units {
-		select {
-		case aggregateArtifactBudget <- struct{}{}:
-			acquired++
-		case <-ctx.Done():
-			for acquired > 0 {
-				<-aggregateArtifactBudget
-				acquired--
-			}
-			return nil, time.Since(start), ctx.Err()
-		}
+	if err := aggregateArtifactBudget.Acquire(ctx, units); err != nil {
+		return nil, time.Since(start), err
 	}
-	return func() {
-		for i := 0; i < units; i++ {
-			<-aggregateArtifactBudget
-		}
-	}, time.Since(start), nil
+	return func() { aggregateArtifactBudget.Release(units) }, time.Since(start), nil
+}
+
+func artifactBudgetWeight(includeArchives bool, blobBytes int64) int64 {
+	if includeArchives {
+		// Keep archive expansion serialized process-wide. Spooling bounds heap,
+		// while serialization also bounds adversarial decompression CPU and disk
+		// pressure across repository workers.
+		return artifactBudgetCapacity
+	}
+	// Binary reads stream after go-git's large-object threshold. Retain the
+	// conservative reservation to bound aggregate scan and spool pressure.
+	if blobBytes >= artifactBudgetCapacity/2 {
+		return artifactBudgetCapacity
+	}
+	return 2 * blobBytes
+}
+
+func withArtifactBudget(ctx context.Context, archive bool, blobBytes int64, fn func() error) error {
+	weight := artifactBudgetWeight(archive, blobBytes)
+	release, waited, err := acquireArtifactBudget(ctx, weight)
+	if err != nil {
+		return fmt.Errorf("git: artifact budget wait: %w", err)
+	}
+	defer release()
+	if waited > 10*time.Millisecond {
+		fmt.Fprintf(os.Stderr, "git: artifact budget waited %s for %d bytes\n", waited.Round(time.Millisecond), weight)
+	}
+	return fn()
 }
 
 // diffContextLines is the number of unchanged lines kept on either side of
@@ -108,10 +141,11 @@ type Config struct {
 	Since    string   `json:"since,omitempty"`
 	Include  []string `json:"include,omitempty"`
 	Exclude  []string `json:"exclude,omitempty"`
-	// AllBranches walks every reachable commit on every ref (HEAD plus all
-	// refs/heads/ and refs/remotes/), not just the single resolved start.
-	// This is trufflehog-parity full-history mode. Off by default so the
-	// existing single-branch contract is byte-identical.
+	// AllBranches walks every reachable commit on safe advertised history
+	// refs (HEAD, branches, remotes, tags, and GitHub pull-request refs), not
+	// just the single resolved start. Pseudo refs such as replace/notes/stash
+	// are excluded. Off by default so the existing single-branch contract is
+	// byte-identical.
 	AllBranches bool `json:"all_branches,omitempty"`
 	// IncludeCommitMetadata emits one synthetic commit:metadata chunk per
 	// commit containing the message, identities, and default git notes.
@@ -226,14 +260,14 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, _
 	s.includeGitBinaries = cfg.IncludeGitBinaries
 	s.gitArtifactMaxBytes = cfg.GitArtifactMaxBytes
 	if s.gitArtifactMaxBytes <= 0 {
-		s.gitArtifactMaxBytes = 10 << 20
+		s.gitArtifactMaxBytes = DefaultGitArtifactMaxBytes
 	}
-	s.archiveLimits = archivepkg.Limits{MaxDepth: cfg.ArchiveMaxDepth, MaxEntryBytes: s.gitArtifactMaxBytes, MaxExpandedBytes: cfg.ArchiveMaxExpandedBytes, MaxFiles: cfg.ArchiveMaxFiles}
+	s.archiveLimits = archivepkg.Limits{MaxDepth: cfg.ArchiveMaxDepth, MaxInputBytes: s.gitArtifactMaxBytes, MaxEntryBytes: s.gitArtifactMaxBytes, MaxExpandedBytes: cfg.ArchiveMaxExpandedBytes, MaxFiles: cfg.ArchiveMaxFiles}
 	if s.archiveLimits.MaxDepth <= 0 {
 		s.archiveLimits.MaxDepth = 3
 	}
 	if s.archiveLimits.MaxExpandedBytes <= 0 {
-		s.archiveLimits.MaxExpandedBytes = 50 << 20
+		s.archiveLimits.MaxExpandedBytes = DefaultArchiveMaxExpandedBytes
 	}
 	if s.archiveLimits.MaxFiles <= 0 {
 		s.archiveLimits.MaxFiles = 1000
@@ -242,8 +276,8 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, _
 	if s.archiveTimeout <= 0 {
 		s.archiveTimeout = 5 * time.Second
 	}
-	if s.gitArtifactMaxBytes > 50<<20 || s.archiveLimits.MaxExpandedBytes > 200<<20 || s.archiveLimits.MaxFiles > 10000 || s.archiveLimits.MaxDepth > 8 || s.archiveTimeout > time.Minute {
-		return errors.New("git: artifact limits exceed hard caps (blob 50MiB, expanded 200MiB, files 10000, depth 8, timeout 1m)")
+	if s.gitArtifactMaxBytes > MaxGitArtifactBytes || s.archiveLimits.MaxExpandedBytes > MaxArchiveExpandedBytes || s.archiveLimits.MaxFiles > 10000 || s.archiveLimits.MaxDepth > 8 || s.archiveTimeout > time.Minute {
+		return errors.New("git: artifact limits exceed hard caps (blob 2GiB, expanded 2GiB, files 10000, depth 8, timeout 1m)")
 	}
 	return nil
 }
@@ -252,7 +286,7 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	if s.trufflehogCompatible {
 		fmt.Fprintln(os.Stderr, "git: diff surface: trufflehog-compatible")
 	}
-	repo, err := git.PlainOpen(s.repoAbs)
+	repo, err := openBoundedRepository(s.repoAbs, archivepkg.SpillThreshold)
 	if err != nil {
 		return fmt.Errorf("git: reopen repo: %w", err)
 	}
@@ -345,6 +379,24 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	return nil
 }
 
+// openBoundedRepository replaces PlainOpen's unlimited filesystem object
+// hydration with go-git's lazy large-object reader. This applies to loose and
+// packed (including delta-compressed) objects before any Blob.Reader call.
+func openBoundedRepository(path string, threshold int64) (*git.Repository, error) {
+	repo, err := git.PlainOpen(path)
+	if err != nil {
+		return nil, err
+	}
+	storage, ok := repo.Storer.(*gitfilesystem.Storage)
+	if !ok {
+		return nil, fmt.Errorf("git: unsupported repository storage %T", repo.Storer)
+	}
+	repo.Storer = gitfilesystem.NewStorageWithOptions(storage.Filesystem(), cache.NewObjectLRUDefault(), gitfilesystem.Options{
+		LargeObjectThreshold: threshold,
+	})
+	return repo, nil
+}
+
 func (s *Source) SetIncrementalState(previous json.RawMessage) error {
 	s.hasPreviousState = false
 	s.previousState = nil
@@ -422,9 +474,9 @@ func (s *Source) resolveStart(repo *git.Repository) (plumbing.Hash, error) {
 // resolveStarts returns the ordered, de-duplicated set of commit hashes the
 // walk begins from. With AllBranches=false (and no branch override) this is
 // exactly [HEAD] — byte-identical to the legacy single-start behaviour. With
-// AllBranches=true it is HEAD plus every ref under refs/heads/ and
-// refs/remotes/, identical hashes collapsed. A branch override always pins to
-// that one branch regardless of AllBranches.
+// AllBranches=true it is HEAD plus every safe advertised history ref, with
+// annotated tags peeled to commits and identical commit hashes collapsed. A
+// branch override always pins to that one branch regardless of AllBranches.
 func (s *Source) resolveStarts(repo *git.Repository) ([]plumbing.Hash, error) {
 	if s.branch != "" || !s.allBranches {
 		h, err := s.resolveStart(repo)
@@ -458,14 +510,14 @@ func (s *Source) resolveStarts(repo *git.Repository) ([]plumbing.Hash, error) {
 	}
 	defer refs.Close()
 	err = refs.ForEach(func(ref *plumbing.Reference) error {
-		if ref.Type() != plumbing.HashReference {
-			return nil // skip symbolic refs
+		hash, include, err := AdvertisedHistoryRefCommit(repo, ref)
+		if err != nil {
+			return err
 		}
-		name := ref.Name().String()
-		if !strings.HasPrefix(name, "refs/heads/") && !strings.HasPrefix(name, "refs/remotes/") {
+		if !include {
 			return nil
 		}
-		add(ref.Hash())
+		add(hash)
 		return nil
 	})
 	if err != nil {
@@ -475,6 +527,72 @@ func (s *Source) resolveStarts(repo *git.Repository) ([]plumbing.Hash, error) {
 		return nil, ErrNoBranchHeads
 	}
 	return starts, nil
+}
+
+// AdvertisedHistoryRefCommit returns the commit selected by a ref that is
+// safe to use as a full-history root. The allowlist deliberately excludes
+// pseudo refs such as refs/replace, refs/notes, refs/stash, and bisect refs.
+// Tags are peeled so annotated-tag object IDs never enter commit walks or
+// incremental stop sets; tags whose final target is not a commit are skipped.
+func AdvertisedHistoryRefCommit(repo *git.Repository, ref *plumbing.Reference) (plumbing.Hash, bool, error) {
+	if ref == nil || ref.Type() != plumbing.HashReference {
+		return plumbing.ZeroHash, false, nil
+	}
+	name := ref.Name().String()
+	allowed := strings.HasPrefix(name, "refs/heads/") ||
+		strings.HasPrefix(name, "refs/remotes/") ||
+		strings.HasPrefix(name, "refs/tags/") ||
+		IsGitHubPullRequestRef(ref.Name())
+	if !allowed {
+		return plumbing.ZeroHash, false, nil
+	}
+	if strings.HasPrefix(name, "refs/tags/") {
+		hash := ref.Hash()
+		seen := make(map[plumbing.Hash]struct{})
+		for depth := 0; depth < 64; depth++ {
+			if _, duplicate := seen[hash]; duplicate {
+				return plumbing.ZeroHash, false, fmt.Errorf("git: cyclic tag history ref %q", name)
+			}
+			seen[hash] = struct{}{}
+			peeled, err := repo.Storer.EncodedObject(plumbing.AnyObject, hash)
+			if err != nil {
+				return plumbing.ZeroHash, false, fmt.Errorf("git: load history ref %q: %w", name, err)
+			}
+			switch peeled.Type() {
+			case plumbing.CommitObject:
+				return hash, true, nil
+			case plumbing.TagObject:
+				tag, err := repo.TagObject(hash)
+				if err != nil {
+					return plumbing.ZeroHash, false, fmt.Errorf("git: peel history ref %q: %w", name, err)
+				}
+				hash = tag.Target
+			default:
+				return plumbing.ZeroHash, false, nil
+			}
+		}
+		return plumbing.ZeroHash, false, fmt.Errorf("git: tag history ref %q exceeds peel depth 64", name)
+	}
+	if _, err := repo.CommitObject(ref.Hash()); err != nil {
+		return plumbing.ZeroHash, false, fmt.Errorf("git: resolve history ref %q: %w", name, err)
+	}
+	return ref.Hash(), true, nil
+}
+
+// IsGitHubPullRequestRef reports whether name is an exact GitHub-advertised
+// pull-request head or merge ref. It intentionally rejects adjacent pseudo
+// refs so callers can safely filter an untrusted remote advertisement.
+func IsGitHubPullRequestRef(name plumbing.ReferenceName) bool {
+	rest, ok := strings.CutPrefix(name.String(), "refs/pull/")
+	if !ok {
+		return false
+	}
+	number, kind, ok := strings.Cut(rest, "/")
+	if !ok || strings.Contains(kind, "/") || (kind != "head" && kind != "merge") {
+		return false
+	}
+	id, err := strconv.ParseUint(number, 10, 64)
+	return err == nil && id > 0
 }
 
 // commitRef is the minimal record kept for a collected commit: enough to
@@ -618,20 +736,6 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 		return nil
 	}
 	var partialErrs []error
-	if s.includeGitArchives || s.includeGitBinaries {
-		weight := s.gitArtifactMaxBytes
-		if s.includeGitArchives && s.archiveLimits.MaxExpandedBytes > weight {
-			weight = s.archiveLimits.MaxExpandedBytes
-		}
-		release, waited, err := acquireArtifactBudget(ctx, weight)
-		if err != nil {
-			return fmt.Errorf("git: artifact budget wait: %w", err)
-		}
-		defer release()
-		if waited > 10*time.Millisecond {
-			fmt.Fprintf(os.Stderr, "git: artifact budget waited %s for %d bytes\n", waited.Round(time.Millisecond), weight)
-		}
-	}
 	newTree, err := c.Tree()
 	if err != nil {
 		return fmt.Errorf("git: load tree for commit %s: %w", c.Hash, err)
@@ -690,70 +794,23 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 		}
 
 		bin, err := to.IsBinary()
-		if err == nil && bin {
-			if !s.includeGitArchives && !s.includeGitBinaries {
-				continue
-			}
+		if err != nil {
+			partialErrs = append(partialErrs, fmt.Errorf("git: classify %s at %s: %w", path, c.Hash, err))
+			continue
 		}
-		// A from==nil change (file added, or the insert half of a rename
-		// under DetectRenames:false above) has no prior version to diff
-		// against — the whole file IS the new content, so full-blob
-		// emission here is a one-time cost, not the repeated-rescan
-		// blowup #264 targets. A genuine modification instead emits only
-		// the added hunks (+ context): the full new blob would otherwise
-		// be re-emitted on every commit that touches the file.
-		var segments []diffSegment
-		if bin {
-			data, ok := readBlobLimit(to, s.gitArtifactMaxBytes)
-			if !ok {
-				return fmt.Errorf("git: artifact %s at %s: %w", path, c.Hash, &archivepkg.PartialError{Kind: "max-blob-bytes", Entry: path, Err: fmt.Errorf("exceeds %d-byte limit", s.gitArtifactMaxBytes)})
-			}
-			if s.includeGitArchives && archivepkg.LooksLikeArchive(data) {
-				archiveCtx, cancel := context.WithTimeout(ctx, s.archiveTimeout)
-				entries, walkErr := archivepkg.WalkContext(archiveCtx, path, data, s.archiveLimits)
-				cancel()
-				if walkErr != nil {
-					partialErrs = append(partialErrs, fmt.Errorf("git: expand archive %s at %s: %w", path, c.Hash, walkErr))
-				}
-				for _, entry := range entries {
-					parts := splitBlob(entry.Data)
-					for i := range parts {
-						parts[i].path = entry.Path
-					}
-					segments = append(segments, parts...)
-				}
-			} else if s.includeGitBinaries {
-				segments = splitBlob(data)
-			}
-		} else if from == nil {
-			data, ok := readBlob(to)
-			if ok {
-				segments = splitBlob(data)
-			}
-		} else if from.Size <= maxDiffBlobSize && to.Size <= maxDiffBlobSize {
-			data, ok := addedHunks(change, from, to, s.trufflehogCompatible)
-			if ok {
-				segments = []diffSegment{{data: data, line: firstChangedLine(change, from, to)}}
-			}
-		} else {
-			segments, err = s.nativeAddedHunks(ctx, c, path)
-			if err != nil {
-				return fmt.Errorf("git: stream large diff for %s at %s: %w", path, c.Hash, err)
-			}
-		}
-		if len(segments) == 0 {
+		if bin && !s.includeGitArchives && !s.includeGitBinaries {
 			continue
 		}
 		commitMsg := c.Message
 		if nl := strings.IndexByte(commitMsg, '\n'); nl >= 0 {
 			commitMsg = commitMsg[:nl]
 		}
-		for _, segment := range segments {
+		emitSegment := func(sendCtx context.Context, segment diffSegment) error {
 			// Belt-and-suspenders: go-git's IsBinary uses sniff bytes, but a few
 			// blob types (UTF-16 BOM-less) slip through. The NUL-byte test
 			// matches what the filesystem source applies.
 			if !bin && isBinary(segment.data) {
-				continue
+				return nil
 			}
 			segmentPath := path
 			if segment.path != "" {
@@ -779,8 +836,103 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 			}
 			select {
 			case ch <- chunk:
-			case <-ctx.Done():
-				return ctx.Err()
+				return nil
+			case <-sendCtx.Done():
+				return sendCtx.Err()
+			}
+		}
+		// A from==nil change (file added, or the insert half of a rename
+		// under DetectRenames:false above) has no prior version to diff
+		// against — the whole file IS the new content, so full-blob
+		// emission here is a one-time cost, not the repeated-rescan
+		// blowup #264 targets. A genuine modification instead emits only
+		// the added hunks (+ context): the full new blob would otherwise
+		// be re-emitted on every commit that touches the file.
+		var segments []diffSegment
+		if bin {
+			if to.Size < 0 || to.Size > s.gitArtifactMaxBytes {
+				return fmt.Errorf("git: artifact %s at %s: %w", path, c.Hash, &archivepkg.PartialError{Kind: "max-blob-bytes", Entry: path, Err: fmt.Errorf("exceeds %d-byte limit", s.gitArtifactMaxBytes)})
+			}
+			isArchive := false
+			if s.includeGitArchives {
+				isArchive, err = blobLooksLikeArchive(ctx, to)
+				if err != nil {
+					return fmt.Errorf("git: inspect artifact %s at %s: %w", path, c.Hash, &archivepkg.PartialError{Kind: "corrupt-blob", Entry: path, Err: err})
+				}
+			}
+			if !isArchive && !s.includeGitBinaries {
+				continue
+			}
+			artifactErr := withArtifactBudget(ctx, isArchive, to.Size, func() error {
+				if isArchive {
+					reader, err := to.Reader()
+					if err != nil {
+						return fmt.Errorf("git: open archive %s at %s: %w", path, c.Hash, err)
+					}
+					archiveCtx, cancel := context.WithTimeout(ctx, s.archiveTimeout)
+					walkErr := archivepkg.WalkStreamContext(archiveCtx, path, reader, to.Size, s.archiveLimits, func(entry archivepkg.StreamEntry) error {
+						return streamBlob(archiveCtx, entry.Reader, entry.Size, func(segment diffSegment) error {
+							segment.path = entry.Path
+							return emitSegment(archiveCtx, segment)
+						})
+					})
+					closeErr := reader.Close()
+					cancel()
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+					if walkErr != nil {
+						partialErrs = append(partialErrs, fmt.Errorf("git: expand archive %s at %s: %w", path, c.Hash, walkErr))
+					}
+					if closeErr != nil {
+						partialErrs = append(partialErrs, fmt.Errorf("git: close archive %s at %s: %w", path, c.Hash, closeErr))
+					}
+					return nil
+				}
+				reader, err := to.Reader()
+				if err != nil {
+					return fmt.Errorf("git: open binary %s at %s: %w", path, c.Hash, err)
+				}
+				spoolErr := archivepkg.WithSpoolContext(ctx, reader, to.Size, s.gitArtifactMaxBytes, func(validated io.Reader) error {
+					return streamBlob(ctx, validated, to.Size, func(segment diffSegment) error {
+						return emitSegment(ctx, segment)
+					})
+				})
+				closeErr := reader.Close()
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if spoolErr != nil || closeErr != nil {
+					return fmt.Errorf("git: stream binary %s at %s: %w", path, c.Hash, &archivepkg.PartialError{Kind: "corrupt-blob", Entry: path, Err: errors.Join(spoolErr, closeErr)})
+				}
+				return nil
+			})
+			if artifactErr != nil {
+				return artifactErr
+			}
+			continue
+		} else if from == nil {
+			data, ok := readBlob(to)
+			if ok {
+				segments = splitBlob(data)
+			}
+		} else if from.Size <= maxDiffBlobSize && to.Size <= maxDiffBlobSize {
+			data, ok := addedHunks(change, from, to, s.trufflehogCompatible)
+			if ok {
+				segments = []diffSegment{{data: data, line: firstChangedLine(change, from, to)}}
+			}
+		} else {
+			segments, err = s.nativeAddedHunks(ctx, c, path)
+			if err != nil {
+				return fmt.Errorf("git: stream large diff for %s at %s: %w", path, c.Hash, err)
+			}
+		}
+		if len(segments) == 0 {
+			continue
+		}
+		for _, segment := range segments {
+			if err := emitSegment(ctx, segment); err != nil {
+				return err
 			}
 		}
 	}
@@ -796,6 +948,84 @@ type diffSegment struct {
 	data []byte
 	line int
 	path string
+}
+
+func blobLooksLikeArchive(ctx context.Context, file *object.File) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	reader, err := file.Reader()
+	if err != nil {
+		return false, err
+	}
+	prefix := make([]byte, 512)
+	n, readErr := io.ReadFull(reader, prefix)
+	closeErr := reader.Close()
+	if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+		return false, errors.Join(readErr, closeErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if closeErr != nil {
+		return false, closeErr
+	}
+	return archivepkg.LooksLikeArchive(prefix[:n]), nil
+}
+
+// streamBlob emits one owned chunk at a time with the same 1 MiB windows and
+// 512-byte overlap as splitBlob. Callers validate and spool the complete input
+// before invoking this helper, so no corrupt partial value is emitted.
+func streamBlob(ctx context.Context, reader io.Reader, expected int64, emit func(diffSegment) error) error {
+	if reader == nil || emit == nil || expected < 0 {
+		return errors.New("git: invalid blob stream")
+	}
+	windowCapacity := int64(maxDiffChunkSize + 1)
+	if expected < int64(maxDiffChunkSize) {
+		windowCapacity = expected + 1
+	}
+	window := make([]byte, 0, int(windowCapacity))
+	var readBytes int64
+	line := 1
+	eof := false
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !eof {
+			oldLen := len(window)
+			window = window[:cap(window)]
+			n, err := io.ReadFull(reader, window[oldLen:])
+			window = window[:oldLen+n]
+			readBytes += int64(n)
+			switch err {
+			case nil:
+			case io.EOF, io.ErrUnexpectedEOF:
+				eof = true
+			default:
+				return err
+			}
+		}
+		if eof && readBytes != expected {
+			return fmt.Errorf("git: blob stream size %d, want %d", readBytes, expected)
+		}
+		if len(window) == 0 {
+			return nil
+		}
+		if eof && len(window) <= maxDiffChunkSize {
+			return emit(diffSegment{data: append([]byte(nil), window...), line: line})
+		}
+
+		chunk := append([]byte(nil), window[:maxDiffChunkSize]...)
+		if err := emit(diffSegment{data: chunk, line: line}); err != nil {
+			return err
+		}
+		next := maxDiffChunkSize - diffChunkOverlap
+		line += bytes.Count(window[:next], []byte{'\n'})
+		carry := make([]byte, len(window)-next, maxDiffChunkSize+1)
+		copy(carry, window[next:])
+		window = carry
+	}
 }
 
 // splitBlob bounds newly-added text files just like streamed modification
@@ -1048,6 +1278,9 @@ func readBlob(f *object.File) ([]byte, bool) {
 }
 
 func readBlobLimit(f *object.File, limit int64) ([]byte, bool) {
+	if f == nil || f.Size > limit {
+		return nil, false
+	}
 	rdr, err := f.Reader()
 	if err != nil {
 		return nil, false
@@ -1083,6 +1316,7 @@ func detectTrufflehogRenames(changes object.Changes) (object.Changes, error) {
 	fromModes := make(map[string]filemode.FileMode, len(changes))
 	toModes := make(map[string]filemode.FileMode, len(changes))
 	normalized := make(object.Changes, 0, len(changes))
+	contentRenameBounded := true
 	for _, change := range changes {
 		copy := *change
 		if copy.From.Name != "" {
@@ -1093,9 +1327,33 @@ func detectTrufflehogRenames(changes object.Changes) (object.Changes, error) {
 			toModes[copy.To.Name] = copy.To.TreeEntry.Mode
 			copy.To.TreeEntry.Mode = normalizeGitBlobMode(copy.To.TreeEntry.Mode)
 		}
+		action, err := copy.Action()
+		if err != nil {
+			return nil, err
+		}
+		if action == merkletrie.Insert || action == merkletrie.Delete {
+			from, to, err := copy.Files()
+			if err != nil {
+				return nil, err
+			}
+			candidate := to
+			if candidate == nil {
+				candidate = from
+			}
+			if candidate != nil && candidate.Size > maxDiffBlobSize {
+				contentRenameBounded = false
+			}
+		}
 		normalized = append(normalized, &copy)
 	}
-	detected, err := object.DetectRenames(normalized, gitRenameOptions(true))
+	options := gitRenameOptions(true)
+	if !contentRenameBounded {
+		// go-git's similarity index streams bytes but can grow with distinct
+		// blocks. Exact-hash rename detection is metadata-only and still catches
+		// ordinary moves; large modified moves remain additions (safe over-scan).
+		options.OnlyExactRenames = true
+	}
+	detected, err := object.DetectRenames(normalized, options)
 	if err != nil {
 		return nil, err
 	}

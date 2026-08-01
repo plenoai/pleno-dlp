@@ -1,17 +1,18 @@
 // GitHub connector. Single-file Lambda-handler shape: auth, fetch, emit.
 //
-// Scanning is always full-history: per repo, perform ONE bare git clone over
-// smart HTTP and walk every reachable commit on every ref locally, diffing
-// each commit against its first parent (trufflehog parity). Git smart-HTTP
-// does NOT consume the GitHub REST rate limit, so the per-repo REST cost of a
-// scan is ZERO. REST is used only for repo enumeration and (optionally) the
-// comments surface. The history walk itself lives in github_history.go.
+// Scanning is always full-history: a changed repo gets ONE bare git clone over
+// smart HTTP, followed by a local walk of every safe history ref. Incremental
+// repos with unchanged REST metadata first receive a lightweight smart-Git
+// pull-ref advertisement; identical snapshots skip clone and walk. Git smart
+// HTTP does NOT consume the GitHub REST rate limit. The history walk itself
+// lives in github_history.go.
 //
 // API-call accounting:
 //   - Repo enumeration: 1 REST call (single repo) or N paginated REST calls
 //     (org listing).
-//   - Per repo: 0 REST calls for code (1 smart-HTTP clone, then local walk).
-//     Fingerprint uses 1 smart-HTTP ref advertisement, 0 REST.
+//   - Per repo: 0 REST calls for code. Cold/changed metadata: 1 smart-HTTP
+//     clone. Unchanged metadata: 1 ref advertisement, plus a clone only when
+//     GitHub pull refs changed or the advertisement failed.
 //   - include_comments: REST issue-comment + pull-review-comment pagination.
 //
 // Comments: GitHub models pull requests as issues, so issue comments cover PR
@@ -48,7 +49,6 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -253,14 +253,17 @@ type githubRepoIncrementalState struct {
 	Mode       string            `json:"mode,omitempty"`
 	Visibility string            `json:"visibility,omitempty"`
 	RefHeads   map[string]string `json:"ref_heads,omitempty"`
+	// PullRefHeads is the exact advertised refs/pull/<number>/{head,merge}
+	// snapshot observed by the completed history scan. Unlike RefHeads, an
+	// empty non-nil map is meaningful: it proves the remote advertisement was
+	// checked and contained no pull refs. Missing legacy state stays nil and
+	// forces one full clone before unchanged skipping is allowed.
+	PullRefHeads map[string]string `json:"pull_ref_heads"`
 	// PushedAt is the repo's pushed_at as observed in the enumeration that
-	// drove the walk which produced RefHeads. A later run whose enumeration
-	// reports the same pushed_at skips the clone+walk entirely (see
-	// githubRepoUnchanged). Recording the enumeration-time value is what makes
-	// the skip safe: a push racing the walk lands after this timestamp, so the
-	// next enumeration reports a newer pushed_at and forces a re-walk — races
-	// cause harmless re-walks, never misses. Empty for state written by builds
-	// predating this field, which disables the skip until one walk records it.
+	// drove the walk which produced RefHeads. A later run with the same value
+	// still verifies PullRefHeads through a lightweight smart-Git advertisement
+	// before skipping clone+walk, because fork PR refs can move independently
+	// of the base repository's pushed_at. Empty legacy state disables the skip.
 	PushedAt           string                                   `json:"pushed_at,omitempty"`
 	Policy             string                                   `json:"policy,omitempty"`
 	IssueComments      map[string]githubCommentIncrementalState `json:"issue_comments,omitempty"`
@@ -278,7 +281,10 @@ type githubStateTombstone struct {
 
 func githubHistoryPolicy(cfg Config) string {
 	h := sha256.New()
-	writeFingerprint(h, "github-history-policy-v1")
+	// v2 adds tags and GitHub pull-request refs to the advertised history
+	// roots. Invalidate v1 checkpoints once so incremental callers do not skip
+	// the first scan that can discover commits reachable only from those refs.
+	writeFingerprint(h, "github-history-policy-v2")
 	for _, key := range []string{
 		"include_commit_metadata", "skip_merge_commits", "trufflehog_compatible", "include_git_archives", "include_git_binaries",
 		"git_artifact_max_bytes", "archive_max_expanded_bytes", "archive_max_files",
@@ -758,55 +764,14 @@ func emitGitHubEntityPartsChanged(repo githubRepoRef, entity string, number int,
 	return nil
 }
 
-// fingerprintGitHub digests the repo list (name, default branch, pushed_at,
-// updated_at) as the whole-resource fingerprint. Earlier versions advertised
-// every repo's refs and paged through every issue/PR comment here, which
-// doubled the scan's API cost and could spend hours against a rate-limited
-// org before the actual scan even started — for a fast-path whose only effect
-// is skipping the scan when nothing at all changed. Per-repo change detection
-// does not live here; the scan itself diffs per-repo state incrementally.
-//
-// With include_comments the repo list cannot see comment edits, so no cheap
-// whole-org fingerprint exists. Returning "" opts out of the skip fast-path
-// (correctness over the optimization); the per-repo incremental scan still
-// keeps the rerun cheap.
-func fingerprintGitHub(ctx context.Context, cfg Config) (string, error) {
-	auth, err := newGitHubAuthProvider(cfg)
-	if err != nil {
-		return "", err
-	}
-	org, repo := cfg["org"], cfg["repo"]
-	if org == "" && repo == "" {
-		return "", errors.New("github: either org or repo must be set")
-	}
-	if org != "" && repo != "" {
-		return "", errors.New("github: org and repo are mutually exclusive")
-	}
-	if parseBool(cfg["include_comments"]) || parseBool(cfg["include_issues"]) || parseBool(cfg["include_pull_requests"]) || parseBool(cfg["include_wikis"]) {
-		return "", nil
-	}
-	apiBase := cfg.Get("api_base", githubDefaultAPIBase)
-	cli := newGitHubClient(apiBase, auth)
-	repos, _, _, err := githubEnumerateRepos(ctx, cli, cfg, org, repo)
-	if err != nil {
-		return "", err
-	}
-	sort.Slice(repos, func(i, j int) bool {
-		return repos[i].Owner.Login+"/"+repos[i].Name < repos[j].Owner.Login+"/"+repos[j].Name
-	})
-
-	h := sha256.New()
-	writeFingerprint(h, "github-v2")
-	writeFingerprint(h, apiBase)
-	writeFingerprint(h, org)
-	writeFingerprint(h, repo)
-	for _, r := range repos {
-		writeFingerprint(h, r.Owner.Login+"/"+r.Name)
-		writeFingerprint(h, r.DefaultBranch)
-		writeFingerprint(h, r.PushedAt)
-		writeFingerprint(h, r.UpdatedAt)
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+// fingerprintGitHub opts out of the whole-source unchanged fast path. GitHub's
+// synthetic pull refs can move without changing repository REST metadata, so
+// no metadata-only fingerprint can safely prove full-history coverage. The
+// connector performs one normal repository enumeration instead, then checks a
+// lightweight pull-ref advertisement only for repositories whose pushed_at is
+// unchanged; identical snapshots still skip their clone and history walk.
+func fingerprintGitHub(context.Context, Config) (string, error) {
+	return "", nil
 }
 
 func writeFingerprint(h hash.Hash, s string) {
