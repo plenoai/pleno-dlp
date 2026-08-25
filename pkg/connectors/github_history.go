@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
@@ -332,14 +333,21 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 		Next       githubRepoIncrementalState
 		StateValid bool
 	}
+	// Walk repositories concurrently, but keep the downstream callback serial.
+	// Checkpoints still commit in input order below.
+	var emitMu sync.Mutex
+	serializedEmit := func(data []byte, meta sources.Metadata) error {
+		emitMu.Lock()
+		defer emitMu.Unlock()
+		return emit(data, meta)
+	}
 	unitOrder := make(map[string]int, len(units))
 	for i, u := range units {
 		unitOrder[u.Key()] = i
 	}
-	orderedEmit := newGitHubOrderedEmitter(ctx, len(units), emit)
+	orderedEmit := newGitHubOrderedEmitter(ctx, len(units), serializedEmit)
 	produce := func(ctx context.Context, unit githubSourceUnit) githubUnitResult[repoOutcome] {
 		order := unitOrder[unit.Key()]
-		walkControl := &githubOrderedWalkControl{emitter: orderedEmit, index: order}
 		unitEmit := orderedEmit.EmitContext(ctx, order)
 		r := reposByKey[unit.ID]
 		repoKey := unit.ID
@@ -349,7 +357,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 				return githubUnitResult[repoOutcome]{State: repoOutcome{Next: prevWiki, StateValid: prevWiki.Mode == githubScanModeHistory}, Stats: githubUnitStats{Skipped: "wiki-disabled"}}
 			}
 			seed := githubHistoryWalkSeed(prevWiki, historyPolicy)
-			nextWiki, err := scanGitHubWikiHistory(ctx, cfg, auth, apiBase, host, wikiTemplate, r, seed, walkControl, unitEmit)
+			nextWiki, err := scanGitHubWikiHistory(ctx, cfg, auth, apiBase, host, wikiTemplate, r, seed, nil, serializedEmit)
 			if err != nil {
 				if isMissingWikiError(err) {
 					return githubUnitResult[repoOutcome]{State: repoOutcome{Next: prevWiki, StateValid: prevWiki.Mode == githubScanModeHistory}, Stats: githubUnitStats{Skipped: "wiki-missing"}}
@@ -392,7 +400,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 		} else {
 			var err error
 			seed := githubHistoryWalkSeed(prevRepo, historyPolicy)
-			nextRepo, err = scanGitHubRepoHistory(ctx, cfg, auth, apiBase, host, template, r, seed, walkControl, unitEmit)
+			nextRepo, err = scanGitHubRepoHistory(ctx, cfg, auth, apiBase, host, template, r, seed, nil, serializedEmit)
 			if err != nil {
 				if ctx.Err() != nil {
 					return githubUnitResult[repoOutcome]{Err: ctx.Err()}
