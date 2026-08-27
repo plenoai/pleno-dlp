@@ -956,7 +956,7 @@ func normalizeGitTreeDiffError(err error) error {
 		return &archivepkg.PartialError{
 			Kind:  "invalid-tree-path",
 			Entry: "redacted",
-			Err:   errors.New("Git tree path contains a control character"),
+			Err:   errors.New("git tree path contains a control character"),
 		}
 	}
 	return err
