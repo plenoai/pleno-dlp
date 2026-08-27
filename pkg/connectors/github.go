@@ -95,6 +95,7 @@ func init() {
 //     deriveCloneURL. Use "{owner}" and "{repo}" placeholders, or a bare local
 //     path for tests injecting a fixture repo.
 func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
+	delete(cfg, configKeyIncrementalPartialSafe)
 	auth, err := newGitHubAuthProvider(cfg)
 	if err != nil {
 		return err
@@ -130,6 +131,10 @@ func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
 	var gistErr error
 	if hasGists {
 		gistErr = scanGitHubGists(ctx, cfg, auth, apiBase, emit)
+	}
+	if hasGists {
+		// Repository state safety does not certify independent gist surfaces.
+		delete(cfg, configKeyIncrementalPartialSafe)
 	}
 	return errors.Join(historyErr, gistErr)
 }
@@ -382,6 +387,20 @@ func githubListRepos(ctx context.Context, cli *githubClient, org, repo string) (
 }
 
 func githubEnumerateRepos(ctx context.Context, cli *githubClient, cfg Config, org, repo string) ([]githubRepoRef, []githubRepoRef, map[string]int, error) {
+	if repo == "" {
+		if exactRepos, ok := githubExactIncludedRepos(cfg); ok {
+			var repos []githubRepoRef
+			for _, exactRepo := range exactRepos {
+				listed, err := githubListRepos(ctx, cli, org, exactRepo)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+				repos = append(repos, listed...)
+			}
+			selected, skipped, err := githubFilterRepos(cfg, repos)
+			return selected, repos, skipped, err
+		}
+	}
 	repos, err := githubListRepos(ctx, cli, org, repo)
 	if err != nil {
 		return nil, nil, nil, err
@@ -401,6 +420,20 @@ func githubEnumerateRepos(ctx context.Context, cli *githubClient, cfg Config, or
 	}
 	selected, skipped, err := githubFilterRepos(cfg, repos)
 	return selected, repos, skipped, err
+}
+
+func githubExactIncludedRepos(cfg Config) ([]string, bool) {
+	includes := splitNonEmptyLines(cfg["include_repo_globs"])
+	if len(includes) == 0 {
+		return nil, false
+	}
+	for _, include := range includes {
+		parts := strings.Split(include, "/")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" || strings.ContainsAny(include, `*?[\`) {
+			return nil, false
+		}
+	}
+	return includes, true
 }
 
 func githubListMembers(ctx context.Context, cli *githubClient, org string) ([]githubMemberRef, error) {
@@ -1105,7 +1138,7 @@ func (c *githubClient) do(ctx context.Context, method, path string, body io.Read
 		// で投げ捨てる損が大きすぎる。 rate-limit と同じ backoff で retry する。
 		// POST/PATCH 等の副作用ありは重複生成リスクがあるので GET に限定。
 		if method == http.MethodGet && resp.StatusCode >= 500 && resp.StatusCode < 600 {
-			wait := githubBackoff(resp, attempt)
+			wait := githubTransientBackoff(resp, attempt)
 			_, _ = io.Copy(io.Discard, resp.Body)
 			_ = resp.Body.Close()
 			if c.testSleep != nil {
@@ -1413,6 +1446,27 @@ func githubRateLimited(resp *http.Response) bool {
 // legitimately exceeds this; anything larger is a clock skew or a bogus
 // header, and sleeping on it would wedge the scan for hours.
 const githubBackoffCap = 65 * time.Minute
+
+// githubTransientBackoff is intentionally separate from rate-limit backoff.
+// Successful and 5xx GitHub responses routinely carry X-RateLimit-Reset as
+// quota metadata; treating that header as a retry instruction can turn one
+// 502 into an hour-long sleep. Only an explicit Retry-After controls a 5xx
+// retry, and transient waits stay bounded like TruffleHog's retry client.
+func githubTransientBackoff(resp *http.Response, attempt int) time.Duration {
+	const cap = time.Minute
+	if v := resp.Header.Get("Retry-After"); v != "" {
+		if secs, err := strconv.Atoi(v); err == nil && secs >= 0 {
+			return minDuration(time.Duration(secs)*time.Second, cap)
+		}
+		if t, err := http.ParseTime(v); err == nil {
+			if d := time.Until(t); d > 0 {
+				return minDuration(d, cap)
+			}
+		}
+	}
+	d := time.Duration(1<<attempt) * time.Second
+	return minDuration(d, cap)
+}
 
 func githubBackoff(resp *http.Response, attempt int) time.Duration {
 	if v := resp.Header.Get("Retry-After"); v != "" {

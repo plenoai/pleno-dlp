@@ -758,7 +758,7 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 		changes, err = detectTrufflehogRenames(changes)
 	}
 	if err != nil {
-		return fmt.Errorf("git: diff tree for commit %s: %w", c.Hash, err)
+		return fmt.Errorf("git: diff tree for commit %s: %w", c.Hash, normalizeGitTreeDiffError(err))
 	}
 
 	for _, change := range changes {
@@ -942,6 +942,69 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 		}
 	}
 	return errors.Join(partialErrs...)
+}
+
+func normalizeGitTreeDiffError(err error) error {
+	if err == nil {
+		return nil
+	}
+	message := err.Error()
+	if strings.HasSuffix(message, `": contains control character`) &&
+		(strings.HasPrefix(message, `from: invalid path "`) || strings.HasPrefix(message, `to: invalid path "`)) {
+		// The path is attacker-controlled repository data. Keep it out of logs
+		// while preserving a typed, immutable coverage gap for explicit policy.
+		return &archivepkg.PartialError{
+			Kind:  "invalid-tree-path",
+			Entry: "redacted",
+			Err:   errors.New("Git tree path contains a control character"),
+		}
+	}
+	return err
+}
+
+// CorruptArchiveGapOnly reports whether every failed coverage leaf is an
+// explicitly classifiable corrupt archive or archive symlink policy skip.
+// Budget, depth, invalid-path, timeout, cleanup, and detector errors remain
+// fail-closed and must not advance repository checkpoints.
+func CorruptArchiveGapOnly(err error) bool {
+	if err == nil {
+		return false
+	}
+	if partial, ok := err.(*archivepkg.PartialError); ok {
+		switch partial.Kind {
+		case "corrupt-archive", "corrupt-entry", "symlink":
+			return true
+		default:
+			return false
+		}
+	}
+	if degraded, ok := err.(*engine.DegradedError); ok {
+		if degraded.Total == 0 || degraded.Total != len(degraded.Failures) {
+			return false
+		}
+		for _, failure := range degraded.Failures {
+			if failure.Kind == engine.FailureDetector || !CorruptArchiveGapOnly(failure.Err) {
+				return false
+			}
+		}
+		return true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		children := joined.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !CorruptArchiveGapOnly(child) {
+				return false
+			}
+		}
+		return true
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return CorruptArchiveGapOnly(wrapped.Unwrap())
+	}
+	return false
 }
 
 type diffSegment struct {

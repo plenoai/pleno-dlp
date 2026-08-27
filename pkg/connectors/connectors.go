@@ -14,6 +14,7 @@ import (
 const (
 	configKeyIncrementalPreviousState = "_pleno_incremental_previous_state"
 	configKeyIncrementalNextState     = "_pleno_incremental_next_state"
+	configKeyIncrementalPartialSafe   = "_pleno_incremental_partial_safe"
 )
 
 type Config map[string]string
@@ -155,6 +156,7 @@ func (s *sourceAdapter) SetIncrementalState(previous json.RawMessage) error {
 		s.cfg = Config{}
 	}
 	delete(s.cfg, configKeyIncrementalNextState)
+	delete(s.cfg, configKeyIncrementalPartialSafe)
 	if len(previous) > 0 {
 		s.cfg[configKeyIncrementalPreviousState] = string(previous)
 	} else {
@@ -162,6 +164,12 @@ func (s *sourceAdapter) SetIncrementalState(previous json.RawMessage) error {
 	}
 	return nil
 }
+
+func (s *sourceAdapter) PartialIncrementalStateSafe() bool {
+	return s.cfg != nil && parseBool(s.cfg[configKeyIncrementalPartialSafe])
+}
+
+var _ sources.PartialIncrementalStateSource = (*sourceAdapter)(nil)
 
 func (s *sourceAdapter) IncrementalState() json.RawMessage {
 	if s.cfg != nil {

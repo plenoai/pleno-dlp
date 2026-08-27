@@ -93,6 +93,44 @@ func TestGitHubEnumerateReposExpandsMembersAndDeduplicates(t *testing.T) {
 	}
 }
 
+func TestGitHubEnumerateReposFetchesExactIncludesDirectly(t *testing.T) {
+	ref := func(owner, name string) githubRepoRef {
+		r := githubRepoRef{Name: name}
+		r.Owner.Login = owner
+		return r
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/acme/core":
+			writeJSON(t, w, ref("acme", "core"))
+		case "/repos/alice/personal":
+			writeJSON(t, w, ref("alice", "personal"))
+		default:
+			t.Fatalf("unexpected enumeration path: %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	repos, all, skipped, err := githubEnumerateRepos(context.Background(), newGitHubClient(srv.URL, staticGitHubToken("test")), Config{
+		"expand_members":     "true",
+		"include_repo_globs": "acme/core\nalice/personal",
+	}, "acme", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repos) != 2 || len(all) != 2 || len(skipped) != 0 {
+		t.Fatalf("repos=%v all=%v skipped=%v", repos, all, skipped)
+	}
+}
+
+func TestGitHubExactIncludedReposRejectsGlobs(t *testing.T) {
+	for _, raw := range []string{"", "acme/*", "acme/[ab]", "acme/one\ninvalid"} {
+		if got, ok := githubExactIncludedRepos(Config{"include_repo_globs": raw}); ok || got != nil {
+			t.Fatalf("exact includes %q = (%v, %v), want no direct enumeration", raw, got, ok)
+		}
+	}
+}
+
 func TestGitHubCommentsSince(t *testing.T) {
 	now := time.Date(2026, 7, 10, 12, 0, 0, 0, time.FixedZone("JST", 9*60*60))
 	got, err := githubCommentsSince(Config{"comments_timeframe_days": "7"}, now)
@@ -342,6 +380,7 @@ func TestGitHubHistoryConcurrentReposIsolateFailureAndPersistNamespacedState(t *
 	cfg := Config{
 		"token": "ghp_test", "org": "acme", "api_base": srv.URL,
 		"repo_concurrency": "2", "clone_url_template": filepath.Join(root, "{owner}", "{repo}"),
+		"publish_partial_repository_state": "true",
 	}
 	seen := map[string]bool{}
 	var mu sync.Mutex
@@ -382,6 +421,9 @@ func TestGitHubHistoryConcurrentReposIsolateFailureAndPersistNamespacedState(t *
 	}
 	if len(flushed) == 0 || string(flushed) != cfg[configKeyIncrementalNextState] {
 		t.Fatalf("final degraded state was not flushed deterministically: flush=%s next=%s", flushed, cfg[configKeyIncrementalNextState])
+	}
+	if !parseBool(cfg[configKeyIncrementalPartialSafe]) {
+		t.Fatal("degraded repository run did not certify its retained partial checkpoint")
 	}
 
 	// Resume after the failed unit becomes available. Successful checkpoints

@@ -17,42 +17,45 @@ import (
 // githubFlags collects the subset of GitHub Config that surfaces as CLI
 // flags.
 type githubFlags struct {
-	org                       string
-	repo                      string
-	token                     string
-	apiBase                   string
-	appID                     string
-	appInstallationID         string
-	appPrivateKey             string
-	appPrivateKeyFile         string
-	includeComments           bool
-	repoConcurrency           int
-	repoWalkTimeout           time.Duration
-	includeCommitMetadata     bool
-	skipMergeCommits          bool
-	trufflehogCompatible      bool
-	includeGitArchives        bool
-	includeGitBinaries        bool
-	gitArtifactMaxBytes       int64
-	archiveMaxExpandedBytes   int64
-	archiveMaxFiles           int
-	archiveMaxDepth           int
-	archiveTimeout            time.Duration
-	includeRepoGlobs          []string
-	excludeRepoGlobs          []string
-	includeForks              bool
-	includeArchived           bool
-	expandMembers             bool
-	commentsTimeframeDays     int
-	includeIssues             bool
-	includePullRequests       bool
-	collabTimeframeDays       int
-	includeWikis              bool
-	gistURLs                  []string
-	includeAuthenticatedGists bool
-	includeGistComments       bool
-	stateRetentionDays        int
-	stateRetentionRuns        int
+	org                           string
+	repo                          string
+	token                         string
+	apiBase                       string
+	appID                         string
+	appInstallationID             string
+	appPrivateKey                 string
+	appPrivateKeyFile             string
+	includeComments               bool
+	repoConcurrency               int
+	repoWalkTimeout               time.Duration
+	includeCommitMetadata         bool
+	skipMergeCommits              bool
+	trufflehogCompatible          bool
+	includeGitArchives            bool
+	includeGitBinaries            bool
+	gitArtifactMaxBytes           int64
+	archiveMaxExpandedBytes       int64
+	archiveMaxFiles               int
+	archiveMaxDepth               int
+	archiveTimeout                time.Duration
+	allowCorruptArchives          bool
+	allowRepoWalkTimeouts         bool
+	publishPartialRepositoryState bool
+	includeRepoGlobs              []string
+	excludeRepoGlobs              []string
+	includeForks                  bool
+	includeArchived               bool
+	expandMembers                 bool
+	commentsTimeframeDays         int
+	includeIssues                 bool
+	includePullRequests           bool
+	collabTimeframeDays           int
+	includeWikis                  bool
+	gistURLs                      []string
+	includeAuthenticatedGists     bool
+	includeGistComments           bool
+	stateRetentionDays            int
+	stateRetentionRuns            int
 }
 
 var (
@@ -105,6 +108,9 @@ func init() {
 	scanGitHubCmd.Flags().IntVar(&scanGitHubOpts.archiveMaxFiles, "git-archive-max-files", 1000, "maximum expanded files per changed archive")
 	scanGitHubCmd.Flags().IntVar(&scanGitHubOpts.archiveMaxDepth, "git-archive-max-depth", 3, "maximum nested archive recursion depth")
 	scanGitHubCmd.Flags().DurationVar(&scanGitHubOpts.archiveTimeout, "git-archive-timeout", 5*time.Second, "maximum archive expansion time per changed blob")
+	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.allowCorruptArchives, "allow-corrupt-archives", false, "accept typed corrupt-archive gaps and intentionally skipped archive symlinks while retaining partial incremental progress")
+	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.allowRepoWalkTimeouts, "allow-repo-walk-timeouts", false, "accept typed per-repository Git history walk timeouts while retaining completed repository progress for the next incremental run")
+	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.publishPartialRepositoryState, "publish-partial-repository-state", false, "publish successful repository checkpoints while failed repositories retain their previous checkpoints for the next incremental run")
 	scanGitHubCmd.Flags().StringSliceVar(&scanGitHubOpts.includeRepoGlobs, "include-repo", nil, "repository glob to include (repeatable; matches owner/name)")
 	scanGitHubCmd.Flags().StringSliceVar(&scanGitHubOpts.excludeRepoGlobs, "exclude-repo", nil, "repository glob to exclude (repeatable; matches owner/name)")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeForks, "include-forks", true, "include fork repositories")
@@ -168,14 +174,13 @@ func runScanGitHub(cmd *cobra.Command, _ []string) error {
 
 func githubScannerFingerprintConfig(cfg connectors.Config) ([]byte, error) {
 	keys := []string{
-		"org", "repo", "api_base",
+		"api_base",
 		"include_comments", "comments_timeframe_days",
 		"include_commit_metadata", "skip_merge_commits", "trufflehog_compatible",
 		"include_git_archives", "include_git_binaries",
 		"git_artifact_max_bytes", "archive_max_expanded_bytes", "archive_max_files",
 		"archive_max_depth", "archive_timeout",
-		"include_repo_globs", "exclude_repo_globs", "include_forks", "include_archived",
-		"expand_members", "include_issues", "include_pull_requests", "collab_timeframe_days",
+		"include_issues", "include_pull_requests", "collab_timeframe_days",
 		"include_wikis", "gist_urls", "include_authenticated_gists", "include_gist_comments",
 	}
 	safe := make(connectors.Config, len(keys))
@@ -260,37 +265,39 @@ func scanGitHubConfig(opts githubFlags) (connectors.Config, error) {
 		return nil, fmt.Errorf("github: --collaboration-timeframe-days must be non-negative, got %d", opts.collabTimeframeDays)
 	}
 	cfg := connectors.Config{
-		"org":                         opts.org,
-		"repo":                        opts.repo,
-		"api_base":                    opts.apiBase,
-		"include_comments":            fmt.Sprintf("%t", opts.includeComments),
-		"repo_concurrency":            fmt.Sprintf("%d", repoConcurrency),
-		"repo_walk_timeout":           opts.repoWalkTimeout.String(),
-		"include_commit_metadata":     fmt.Sprintf("%t", opts.includeCommitMetadata),
-		"skip_merge_commits":          fmt.Sprintf("%t", opts.skipMergeCommits),
-		"trufflehog_compatible":       fmt.Sprintf("%t", opts.trufflehogCompatible),
-		"include_git_archives":        fmt.Sprintf("%t", opts.includeGitArchives),
-		"include_git_binaries":        fmt.Sprintf("%t", opts.includeGitBinaries),
-		"git_artifact_max_bytes":      fmt.Sprintf("%d", opts.gitArtifactMaxBytes),
-		"archive_max_expanded_bytes":  fmt.Sprintf("%d", opts.archiveMaxExpandedBytes),
-		"archive_max_files":           fmt.Sprintf("%d", opts.archiveMaxFiles),
-		"archive_max_depth":           fmt.Sprintf("%d", opts.archiveMaxDepth),
-		"archive_timeout":             opts.archiveTimeout.String(),
-		"include_repo_globs":          strings.Join(opts.includeRepoGlobs, "\n"),
-		"exclude_repo_globs":          strings.Join(opts.excludeRepoGlobs, "\n"),
-		"include_forks":               fmt.Sprintf("%t", opts.includeForks),
-		"include_archived":            fmt.Sprintf("%t", opts.includeArchived),
-		"expand_members":              fmt.Sprintf("%t", opts.expandMembers),
-		"comments_timeframe_days":     fmt.Sprintf("%d", opts.commentsTimeframeDays),
-		"include_issues":              fmt.Sprintf("%t", opts.includeIssues),
-		"include_pull_requests":       fmt.Sprintf("%t", opts.includePullRequests),
-		"collab_timeframe_days":       fmt.Sprintf("%d", opts.collabTimeframeDays),
-		"include_wikis":               fmt.Sprintf("%t", opts.includeWikis),
-		"gist_urls":                   strings.Join(opts.gistURLs, "\n"),
-		"include_authenticated_gists": fmt.Sprintf("%t", opts.includeAuthenticatedGists),
-		"include_gist_comments":       fmt.Sprintf("%t", opts.includeGistComments),
-		"state_retention_days":        fmt.Sprintf("%d", opts.stateRetentionDays),
-		"state_retention_runs":        fmt.Sprintf("%d", opts.stateRetentionRuns),
+		"org":                              opts.org,
+		"repo":                             opts.repo,
+		"api_base":                         opts.apiBase,
+		"include_comments":                 fmt.Sprintf("%t", opts.includeComments),
+		"repo_concurrency":                 fmt.Sprintf("%d", repoConcurrency),
+		"repo_walk_timeout":                opts.repoWalkTimeout.String(),
+		"include_commit_metadata":          fmt.Sprintf("%t", opts.includeCommitMetadata),
+		"skip_merge_commits":               fmt.Sprintf("%t", opts.skipMergeCommits),
+		"trufflehog_compatible":            fmt.Sprintf("%t", opts.trufflehogCompatible),
+		"include_git_archives":             fmt.Sprintf("%t", opts.includeGitArchives),
+		"include_git_binaries":             fmt.Sprintf("%t", opts.includeGitBinaries),
+		"git_artifact_max_bytes":           fmt.Sprintf("%d", opts.gitArtifactMaxBytes),
+		"archive_max_expanded_bytes":       fmt.Sprintf("%d", opts.archiveMaxExpandedBytes),
+		"archive_max_files":                fmt.Sprintf("%d", opts.archiveMaxFiles),
+		"archive_max_depth":                fmt.Sprintf("%d", opts.archiveMaxDepth),
+		"archive_timeout":                  opts.archiveTimeout.String(),
+		"allow_corrupt_archives":           fmt.Sprintf("%t", opts.allowCorruptArchives),
+		"publish_partial_repository_state": fmt.Sprintf("%t", opts.publishPartialRepositoryState),
+		"include_repo_globs":               strings.Join(opts.includeRepoGlobs, "\n"),
+		"exclude_repo_globs":               strings.Join(opts.excludeRepoGlobs, "\n"),
+		"include_forks":                    fmt.Sprintf("%t", opts.includeForks),
+		"include_archived":                 fmt.Sprintf("%t", opts.includeArchived),
+		"expand_members":                   fmt.Sprintf("%t", opts.expandMembers),
+		"comments_timeframe_days":          fmt.Sprintf("%d", opts.commentsTimeframeDays),
+		"include_issues":                   fmt.Sprintf("%t", opts.includeIssues),
+		"include_pull_requests":            fmt.Sprintf("%t", opts.includePullRequests),
+		"collab_timeframe_days":            fmt.Sprintf("%d", opts.collabTimeframeDays),
+		"include_wikis":                    fmt.Sprintf("%t", opts.includeWikis),
+		"gist_urls":                        strings.Join(opts.gistURLs, "\n"),
+		"include_authenticated_gists":      fmt.Sprintf("%t", opts.includeAuthenticatedGists),
+		"include_gist_comments":            fmt.Sprintf("%t", opts.includeGistComments),
+		"state_retention_days":             fmt.Sprintf("%d", opts.stateRetentionDays),
+		"state_retention_runs":             fmt.Sprintf("%d", opts.stateRetentionRuns),
 	}
 	if repoConcurrency < 1 || repoConcurrency > 32 {
 		return nil, fmt.Errorf("github: --repo-concurrency must be between 1 and 32, got %d", repoConcurrency)

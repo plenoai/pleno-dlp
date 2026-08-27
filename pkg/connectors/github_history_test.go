@@ -593,6 +593,60 @@ func TestGitHubHistoryArchiveLimitReturnsDegradedCoverage(t *testing.T) {
 	}
 }
 
+func TestGitHubHistoryCorruptArchiveReturnsHeadsForExplicitOuterPolicy(t *testing.T) {
+	var archive bytes.Buffer
+	writer := zip.NewWriter(&archive)
+	entry, err := writer.CreateHeader(&zip.FileHeader{Name: "payload.txt", Method: zip.Store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write([]byte("ordinary fixture data")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	corrupt := archive.Bytes()
+	if len(corrupt) < 12 {
+		t.Fatal("ZIP fixture is unexpectedly short")
+	}
+	corrupt = corrupt[:len(corrupt)-10]
+
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "broken.zip"), corrupt, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wt.Add("broken.zip"); err != nil {
+		t.Fatal(err)
+	}
+	when := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := wt.Commit("corrupt archive", &gogit.CommitOptions{Author: &object.Signature{Name: "T", Email: "t@example.com", When: when}, Committer: &object.Signature{Name: "T", Email: "t@example.com", When: when}}); err != nil {
+		t.Fatal(err)
+	}
+	repoRef := githubRepoRef{Name: "widget", Visibility: "private"}
+	repoRef.Owner.Login = "acme"
+	next, err := scanGitHubGitHistory(context.Background(), Config{
+		"include_git_archives": "true",
+	}, staticGitHubToken(""), "github.com", dir, repoRef, githubRepoIncrementalState{}, false, nil, func([]byte, sources.Metadata) error {
+		return nil
+	})
+	var degraded *engine.DegradedError
+	if !errors.As(err, &degraded) || degraded.Total != 1 {
+		t.Fatalf("history error = %#v, want one immutable degraded coverage failure", err)
+	}
+	if len(next.RefHeads) == 0 || next.Mode != githubScanModeHistory {
+		t.Fatalf("immutable archive gap did not return completed heads: %+v", next)
+	}
+}
+
 func TestGitHubHistoryIncrementalEmitsOnlyNewCommits(t *testing.T) {
 	dir := t.TempDir()
 	repo, err := gogit.PlainInit(dir, false)

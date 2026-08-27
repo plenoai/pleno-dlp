@@ -362,6 +362,15 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 				if isMissingWikiError(err) {
 					return githubUnitResult[repoOutcome]{State: repoOutcome{Next: prevWiki, StateValid: prevWiki.Mode == githubScanModeHistory}, Stats: githubUnitStats{Skipped: "wiki-missing"}}
 				}
+				if nextWiki.Mode == githubScanModeHistory {
+					acceptedGap := parseBool(cfg["allow_corrupt_archives"]) && gitsource.CorruptArchiveGapOnly(err)
+					if !acceptedGap {
+						nextWiki = prevWiki
+					}
+					nextWiki.StableID = githubStableRepoID(r, repoKey)
+					nextWiki.LastSeen = time.Now().UTC().Format(time.RFC3339)
+					return githubUnitResult[repoOutcome]{State: repoOutcome{Next: nextWiki, StateValid: nextWiki.Mode == githubScanModeHistory}, Stats: githubUnitStats{CostItems: 1}, Err: err}
+				}
 				return githubUnitResult[repoOutcome]{State: repoOutcome{Next: prevWiki, StateValid: prevWiki.Mode == githubScanModeHistory}, Err: err}
 			}
 			nextWiki.StableID = githubStableRepoID(r, repoKey)
@@ -405,7 +414,11 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 				if ctx.Err() != nil {
 					return githubUnitResult[repoOutcome]{Err: ctx.Err()}
 				}
-				nextRepo = prevRepo
+				retainedImmutableHeads := nextRepo.Mode == githubScanModeHistory
+				acceptedImmutableGap := retainedImmutableHeads && parseBool(cfg["allow_corrupt_archives"]) && gitsource.CorruptArchiveGapOnly(err)
+				if !acceptedImmutableGap {
+					nextRepo = prevRepo
+				}
 				if errors.Is(err, gitsource.ErrNoBranchHeads) {
 					empty = true
 					nextRepo.Mode = githubScanModeHistory
@@ -415,8 +428,14 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 					nextRepo.RefHeads = nil
 					nextRepo.PullRefHeads = map[string]string{}
 					fmt.Fprintf(os.Stderr, "github: scan %s has no history refs, history skipped\n", repoKey)
+				} else if acceptedImmutableGap {
+					fmt.Fprintf(os.Stderr, "WARN: github: scan completed with explicitly allowed immutable coverage gaps for %s after %s; retaining ref heads: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
+				} else if retainedImmutableHeads {
+					fmt.Fprintf(os.Stderr, "WARN: github: scan completed with non-allowed immutable coverage gaps for %s after %s; retaining previous ref heads: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
 				} else {
 					fmt.Fprintf(os.Stderr, "WARN: github: scan failed for %s after %s, skipping: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
+				}
+				if !errors.Is(err, gitsource.ErrNoBranchHeads) {
 					surfaceFailures = append(surfaceFailures, githubSurfaceFailure{Surface: "repository-history", Err: err})
 				}
 			}
@@ -550,6 +569,9 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 	var finalFlushErr error
 	if data, err := json.Marshal(nextState); err == nil {
 		cfg[configKeyIncrementalNextState] = string(data)
+		if parseBool(cfg["publish_partial_repository_state"]) {
+			cfg[configKeyIncrementalPartialSafe] = "true"
+		}
 		if flush := IncrementalFlushFromContext(ctx); flush != nil {
 			if ferr := flush(data); ferr != nil {
 				finalFlushErr = fmt.Errorf("github: final incremental flush: %w", ferr)
@@ -808,11 +830,16 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 			emitErr = err
 		}
 	}
+	var corruptArchiveCoverageGap error
 	if err := <-walkErr; err != nil {
-		return githubRepoIncrementalState{}, normalizeGitHubRepoWalkError(ctx, repoKey, walkTimeout, err)
+		normalized := normalizeGitHubRepoWalkError(ctx, repoKey, walkTimeout, err)
+		if !gitsource.CorruptArchiveGapOnly(normalized) {
+			return githubRepoIncrementalState{}, normalized
+		}
+		corruptArchiveCoverageGap = normalized
 	}
 	if emitErr != nil {
-		return githubRepoIncrementalState{}, emitErr
+		return githubRepoIncrementalState{}, errors.Join(corruptArchiveCoverageGap, emitErr)
 	}
 	if err := walkCtx.Err(); err != nil {
 		return githubRepoIncrementalState{}, normalizeGitHubRepoWalkError(ctx, repoKey, walkTimeout, err)
@@ -830,13 +857,13 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 	}
 	heads, err := gitRefHeads(gitRepo)
 	if err != nil {
-		return githubRepoIncrementalState{}, err
+		return githubRepoIncrementalState{}, errors.Join(corruptArchiveCoverageGap, err)
 	}
 	next.RefHeads = heads
 	if !wiki {
 		next.PullRefHeads = githubPullRefHeads(heads)
 	}
-	return next, nil
+	return next, corruptArchiveCoverageGap
 }
 
 func normalizeGitHubRepoWalkError(parent context.Context, repoKey string, timeout time.Duration, err error) error {

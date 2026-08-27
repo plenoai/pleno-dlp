@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	archivepkg "github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/detectors/custom"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
@@ -819,6 +821,19 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 			)
 		}
 	}
+	acceptCoverage, acceptedCorruptArchives, acceptedRepoWalkTimeouts := false, 0, 0
+	partialRepositoryState := false
+	if coverageErr != nil && kind == "github" {
+		acceptCoverage, acceptedCorruptArchives, acceptedRepoWalkTimeouts = acceptedGitHubCoverage(
+			coverageErr,
+			scanGitHubOpts.allowCorruptArchives,
+			scanGitHubOpts.allowRepoWalkTimeouts,
+		)
+		if !acceptCoverage && scanGitHubOpts.publishPartialRepositoryState && githubPartialRepositoryStateSafe(coverageErr, src) {
+			acceptCoverage = true
+			partialRepositoryState = true
+		}
+	}
 	if incrementalKey != "" {
 		entry := incrementalStateEntry{
 			ResourceFingerprint: incrementalState.PendingResourceFingerprint,
@@ -829,7 +844,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 			Failing:             counter.failing.Load(),
 			UpdatedAt:           time.Now().UTC().Format(time.RFC3339),
 		}
-		if coverageErr != nil {
+		if coverageErr != nil && !acceptCoverage {
 			// Findings are not persisted with the source checkpoint. Advancing
 			// source state after incomplete engine/source coverage would make
 			// the retry skip bytes whose findings were only in the failed run.
@@ -841,6 +856,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 			entry.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 		} else if iss, ok := src.(sources.IncrementalStateSource); ok {
 			entry.SourceState = iss.IncrementalState()
+			if acceptCoverage {
+				entry.ResourceFingerprint = ""
+			}
 		}
 		incrementalState.Entries[incrementalKey] = entry
 		if err := saveIncrementalState(scanOpts.incrementalState, incrementalState); err != nil {
@@ -850,13 +868,110 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	if coverageErr != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "coverage: status=degraded failures=%d source=%d archive=%d detector=%d\n",
 			coverageErr.Total, coverageErr.Counts[engine.FailureSource], coverageErr.Counts[engine.FailureArchive], coverageErr.Counts[engine.FailureDetector])
-		return fmt.Errorf("scan: %w", coverageErr)
+		if acceptCoverage {
+			if partialRepositoryState {
+				fmt.Fprintf(cmd.ErrOrStderr(), "coverage: partial-repository-state=%d checkpoint=failed-repositories-retained retry=next-incremental-run\n", coverageErr.Total)
+			}
+			if acceptedCorruptArchives > 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(), "coverage: accepted-corrupt-archives=%d retry=on-repository-change\n", acceptedCorruptArchives)
+			}
+			if acceptedRepoWalkTimeouts > 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(), "coverage: accepted-repo-walk-timeouts=%d retry=next-incremental-run\n", acceptedRepoWalkTimeouts)
+			}
+		} else {
+			return fmt.Errorf("scan: %w", coverageErr)
+		}
 	}
 
 	if counter.failing.Load() > 0 {
 		return errFindingsFound
 	}
 	return nil
+}
+
+func githubPartialRepositoryStateSafe(coverage *engine.DegradedError, src sources.Source) bool {
+	if coverage == nil || coverage.Total == 0 || coverage.Counts[engine.FailureSource] != coverage.Total || coverage.Counts[engine.FailureArchive] != 0 || coverage.Counts[engine.FailureDetector] != 0 {
+		return false
+	}
+	partial, ok := src.(sources.PartialIncrementalStateSource)
+	return ok && partial.PartialIncrementalStateSafe()
+}
+
+func acceptedGitHubCoverage(coverage *engine.DegradedError, allowCorruptArchives, allowRepoWalkTimeouts bool) (bool, int, int) {
+	if coverage == nil || coverage.Total == 0 || coverage.Total != len(coverage.Failures) {
+		return false, 0, 0
+	}
+	corruptArchives, repoWalkTimeouts := 0, 0
+	for _, failure := range coverage.Failures {
+		if allowRepoWalkTimeouts && repositoryWalkTimeoutFailure(failure) {
+			repoWalkTimeouts++
+			continue
+		}
+		if failure.Kind == engine.FailureDetector {
+			return false, 0, 0
+		}
+		if !corruptArchiveErrorOnly(failure.Err) || !allowCorruptArchives {
+			return false, 0, 0
+		}
+		corruptArchives++
+	}
+	return true, corruptArchives, repoWalkTimeouts
+}
+
+func corruptArchiveCoverageOnly(coverage *engine.DegradedError) bool {
+	accepted, corruptArchives, repoWalkTimeouts := acceptedGitHubCoverage(coverage, true, false)
+	return accepted && corruptArchives == coverage.Total && repoWalkTimeouts == 0
+}
+
+func corruptArchiveErrorOnly(err error) bool {
+	if err == nil {
+		return false
+	}
+	if partial, ok := err.(*archivepkg.PartialError); ok {
+		switch partial.Kind {
+		case "corrupt-archive", "corrupt-entry", "symlink":
+			return true
+		default:
+			return false
+		}
+	}
+	if degraded, ok := err.(*engine.DegradedError); ok {
+		if degraded.Total == 0 || degraded.Total != len(degraded.Failures) {
+			return false
+		}
+		for _, failure := range degraded.Failures {
+			if failure.Kind == engine.FailureDetector || !corruptArchiveErrorOnly(failure.Err) {
+				return false
+			}
+		}
+		return true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		children := joined.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !corruptArchiveErrorOnly(child) {
+				return false
+			}
+		}
+		return true
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return corruptArchiveErrorOnly(wrapped.Unwrap())
+	}
+	return false
+}
+
+func repositoryWalkTimeoutFailure(failure engine.ScanFailure) bool {
+	if failure.Kind != engine.FailureSource || !strings.HasPrefix(failure.Source, "repository-history:") || failure.Err == nil {
+		return false
+	}
+	message := failure.Err.Error()
+	return errors.Is(failure.Err, context.DeadlineExceeded) &&
+		strings.HasPrefix(message, "github: repository walk ") &&
+		strings.Contains(message, " exceeded ")
 }
 
 func startCPUProfile(path string) (func() error, error) {
@@ -1126,6 +1241,15 @@ func prepareIncremental(ctx context.Context, kind string, cfg []byte, src source
 	}
 	key := kind + ":" + scannerFP
 	entry, ok := state.Entries[key]
+	if !ok && kind == "github" {
+		migrated, found, err := largestGitHubIncrementalEntry(state.Entries)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		if found {
+			entry, ok = migrated, true
+		}
+	}
 	// 空 fingerprint は「安価な全体 fingerprint が存在しない」という
 	// source からの opt-out。 skip
 	// fast-path だけを諦め、 per-unit incremental は SourceState 経由で
@@ -1145,6 +1269,36 @@ func prepareIncremental(ctx context.Context, kind string, cfg []byte, src source
 	state.PendingResourceFingerprint = resourceFP
 	state.PendingScannerFingerprint = scannerFP
 	return key, nil, state, nil
+}
+
+func largestGitHubIncrementalEntry(entries map[string]incrementalStateEntry) (incrementalStateEntry, bool, error) {
+	type githubStateSummary struct {
+		Version  int                                   `json:"version"`
+		Surfaces map[string]map[string]json.RawMessage `json:"surfaces"`
+	}
+	var selected incrementalStateEntry
+	selectedCount := 0
+	for key, entry := range entries {
+		if !strings.HasPrefix(key, "github:") || len(entry.SourceState) == 0 {
+			continue
+		}
+		var state githubStateSummary
+		if err := json.Unmarshal(entry.SourceState, &state); err != nil || state.Version != 3 {
+			continue
+		}
+		count := len(state.Surfaces["repository-history"])
+		if count == 0 {
+			continue
+		}
+		if count > selectedCount {
+			selected, selectedCount = entry, count
+			continue
+		}
+		if count == selectedCount && !bytes.Equal(entry.SourceState, selected.SourceState) {
+			return incrementalStateEntry{}, false, fmt.Errorf("incremental: ambiguous GitHub state migration candidates with %d repositories", count)
+		}
+	}
+	return selected, selectedCount > 0, nil
 }
 
 func scannerFingerprint(kind string, cfg []byte) (string, error) {

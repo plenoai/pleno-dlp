@@ -275,6 +275,15 @@ type IncrementalStateSource interface {
 	IncrementalState() json.RawMessage
 }
 
+// PartialIncrementalStateSource certifies that IncrementalState contains only
+// completed resource progress after a degraded scan. Failed resources must
+// retain their previous checkpoint (or remain absent), so publishing this
+// state cannot make the next incremental run skip incomplete coverage.
+type PartialIncrementalStateSource interface {
+	IncrementalStateSource
+	PartialIncrementalStateSafe() bool
+}
+
 // IncrementalFlushFunc は partial に処理が進んだ時点の source state を
 // 呼び出し元 (cmd 層) に流すための callback。 cmd 層は受け取った
 // sourceState を incremental state file に wrap して atomic に persist

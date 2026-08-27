@@ -18,6 +18,7 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 
+	archivepkg "github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
@@ -30,13 +31,14 @@ const (
 	nativePathLimit         = 64 << 10
 	nativeSegmentLimit      = 64 << 10
 	nativePrettyFormat      = "%x1e%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00"
+	nativeMetadataFormat    = "%x1e%H%x00%an%x00%ae%x00%cn%x00%ce%x00%aI%x00%B%x00%N%x00"
+	nativeMetadataFields    = 8
 )
 
 var nativeCapabilityCache sync.Map
 
 func (s *Source) nativeFastPathEligible(startCount int) bool {
-	return !s.includeCommitMetadata && !s.includeGitArchives && !s.includeGitBinaries &&
-		(s.maxDepth == 0 || startCount == 1)
+	return s.maxDepth == 0 || startCount == 1
 }
 
 // nativeFastPathSupported probes required git-log flags before any chunk can
@@ -188,7 +190,9 @@ func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBi
 	if mergePass != nil {
 		mergeCloseErr = mergePass.closeInput()
 	}
-	if parseErr != nil && cmd.Process != nil {
+	var parseCoverage *engine.DegradedError
+	parseOnlyCoverage := errors.As(parseErr, &parseCoverage)
+	if parseErr != nil && !parseOnlyCoverage && cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	}
 	waitErr := cmd.Wait()
@@ -198,7 +202,7 @@ func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBi
 		}
 		return err
 	}
-	if parseErr != nil {
+	if parseErr != nil && !parseOnlyCoverage {
 		if mergePass != nil {
 			mergePass.abort()
 		}
@@ -210,18 +214,190 @@ func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBi
 		}
 		detail := strings.TrimSpace(stderr.String())
 		if detail != "" {
-			return parser.walkError(fmt.Errorf("git: native log: %w: %s", waitErr, detail))
+			return errors.Join(parseErr, parser.walkError(fmt.Errorf("git: native log: %w: %s", waitErr, detail)))
 		}
-		return parser.walkError(fmt.Errorf("git: native log: %w", waitErr))
+		return errors.Join(parseErr, parser.walkError(fmt.Errorf("git: native log: %w", waitErr)))
 	}
 	if mergeCloseErr != nil {
 		mergePass.abort()
-		return fmt.Errorf("git: close native merge input: %w", mergeCloseErr)
+		return errors.Join(parseErr, fmt.Errorf("git: close native merge input: %w", mergeCloseErr))
 	}
-	if mergePass == nil {
-		return nil
+	var mergeErr error
+	if mergePass != nil {
+		mergeErr = mergePass.finish(ctx, s, repo, gitBin, ch)
 	}
-	return mergePass.finish(ctx, s, repo, gitBin, ch)
+	var metadataErr error
+	if s.includeCommitMetadata {
+		metadataErr = s.chunksNativeMetadata(ctx, gitBin, starts, stops, ch)
+	}
+	return errors.Join(parseErr, mergeErr, metadataErr)
+}
+
+func (s *Source) chunksNativeMetadata(ctx context.Context, gitBin string, starts, stops []plumbing.Hash, ch chan<- *sources.Chunk) error {
+	noteRefs, err := s.nativeNoteRefs(ctx, gitBin)
+	if err != nil {
+		return err
+	}
+	args := []string{
+		"-C", s.repoAbs,
+		"log",
+		"--no-patch",
+		"--reverse",
+		"--topo-order",
+		"--full-history",
+		"--no-show-signature",
+		"--notes=*",
+		"--format=" + nativeMetadataFormat,
+	}
+	if s.maxDepth > 0 {
+		args = append(args, "--max-count="+strconv.Itoa(s.maxDepth))
+	}
+	if !s.since.IsZero() {
+		args = append(args, "--since-as-filter=@"+strconv.FormatInt(s.since.Unix(), 10))
+	}
+	args = append(args, "--stdin", "--")
+	cmd := exec.CommandContext(ctx, gitBin, args...)
+	cmd.Stdin = strings.NewReader(nativeRevisionInput(starts, stops))
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("git: native metadata stdout: %w", err)
+	}
+	var stderr limitedWriter
+	stderr.limit = nativeStderrLimit
+	cmd.Stderr = &stderr
+	cmd.Env = nativeGitEnv()
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("git: start native metadata: %w", err)
+	}
+	parseErr := s.parseNativeMetadata(ctx, stdout, noteRefs, ch)
+	if parseErr != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+	waitErr := cmd.Wait()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if parseErr != nil {
+		return fmt.Errorf("git: parse native metadata: %w", parseErr)
+	}
+	if waitErr != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail != "" {
+			return fmt.Errorf("git: native metadata: %w: %s", waitErr, detail)
+		}
+		return fmt.Errorf("git: native metadata: %w", waitErr)
+	}
+	return nil
+}
+
+func (s *Source) nativeNoteRefs(ctx context.Context, gitBin string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, gitBin, "-C", s.repoAbs, "for-each-ref", "--format=%(refname)", "refs/notes")
+	cmd.Env = nativeGitEnv()
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git: list native note refs: %w", err)
+	}
+	if len(out) > nativeStderrLimit {
+		return nil, fmt.Errorf("git: native note refs exceed %d-byte limit", nativeStderrLimit)
+	}
+	refs := strings.Fields(string(out))
+	for _, ref := range refs {
+		if !strings.HasPrefix(ref, "refs/notes/") {
+			return nil, errors.New("git: invalid native note ref")
+		}
+	}
+	return refs, nil
+}
+
+func (s *Source) parseNativeMetadata(ctx context.Context, input io.Reader, noteRefs []string, ch chan<- *sources.Chunk) error {
+	reader := bufio.NewReaderSize(input, 256<<10)
+	for {
+		fields := make([][]byte, nativeMetadataFields)
+		for i := range fields {
+			field, eof, err := readNativeNULField(reader, int(maxBlobSize))
+			if err != nil {
+				return err
+			}
+			if eof {
+				if i == 0 && len(bytes.TrimSpace(field)) == 0 {
+					return nil
+				}
+				return errors.New("truncated native metadata record")
+			}
+			fields[i] = field
+		}
+		first := bytes.TrimLeft(fields[0], "\r\n")
+		if len(first) != 41 || first[0] != nativeRecordSeparator {
+			return errors.New("malformed native metadata commit field")
+		}
+		hash := string(first[1:])
+		if _, err := hex.DecodeString(hash); err != nil {
+			return fmt.Errorf("malformed native metadata commit hash: %w", err)
+		}
+		authored, err := time.Parse(time.RFC3339, string(fields[5]))
+		if err != nil {
+			return fmt.Errorf("malformed native metadata authored date: %w", err)
+		}
+		body := strings.TrimSpace(string(fields[6]))
+		notes := strings.TrimSpace(string(fields[7]))
+		var data strings.Builder
+		fmt.Fprintf(&data, "message: %s\nauthor: %s <%s>\ncommitter: %s <%s>\n",
+			body, fields[1], fields[2], fields[3], fields[4])
+		if notes != "" {
+			if len(noteRefs) > 0 {
+				fmt.Fprintf(&data, "notes-refs: %s\n", strings.Join(noteRefs, ","))
+			}
+			fmt.Fprintf(&data, "notes: %s\n", notes)
+		}
+		message := body
+		if firstLine, _, ok := strings.Cut(message, "\n"); ok {
+			message = firstLine
+		}
+		chunk := &sources.Chunk{
+			SourceID: s.sourceID, SourceType: sources.SourceGit, SourceName: s.name,
+			Data: []byte(data.String()),
+			SourceMetadata: sources.Metadata{Git: &sources.GitMeta{
+				Repository: s.repoAbs, Commit: hash, File: "commit:metadata/" + hash, Line: 1,
+				Email: string(fields[2]), Author: string(fields[1]),
+				AuthoredDate: authored.UTC().Format(time.RFC3339), Message: message,
+			}},
+		}
+		select {
+		case ch <- chunk:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func readNativeNULField(reader *bufio.Reader, limit int) ([]byte, bool, error) {
+	if limit < 1 {
+		return nil, false, errors.New("native metadata field limit must be positive")
+	}
+	field := make([]byte, 0, min(limit, 256<<10))
+	for {
+		fragment, err := reader.ReadSlice(nativeFieldSeparator)
+		terminated := len(fragment) > 0 && fragment[len(fragment)-1] == nativeFieldSeparator
+		if terminated {
+			fragment = fragment[:len(fragment)-1]
+		}
+		if len(field)+len(fragment) > limit {
+			return nil, false, fmt.Errorf("native metadata field exceeds %d-byte limit", limit)
+		}
+		field = append(field, fragment...)
+		if terminated {
+			return field, false, nil
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return field, true, nil
+			}
+			if errors.Is(err, bufio.ErrBufferFull) {
+				continue
+			}
+			return nil, false, err
+		}
+	}
 }
 
 func (s *Source) nativeLogArgs() []string {
@@ -406,7 +582,7 @@ func (s *Source) parseNativeMergeResults(ctx context.Context, repo *gogit.Reposi
 				}
 				if readErr != nil {
 					if errors.Is(readErr, io.EOF) {
-						return parser.flushFile()
+						return parser.finish()
 					}
 					return readErr
 				}
@@ -476,7 +652,7 @@ func (s *Source) parseNativeMergeResults(ctx context.Context, repo *gogit.Reposi
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				return parser.flushFile()
+				return parser.finish()
 			}
 			return err
 		}
@@ -681,16 +857,18 @@ type nativeLogParser struct {
 	gitBin string
 	ch     chan<- *sources.Chunk
 
-	commit       *nativeCommit
-	file         nativeFilePatch
-	hunk         nativeHunk
-	inHunk       bool
-	rawPaths     []string
-	rawDeleted   []bool
-	rawPathBytes int64
-	rawIndex     int
-	bufferLimit  int64
-	mergeInput   io.Writer
+	commit        *nativeCommit
+	file          nativeFilePatch
+	hunk          nativeHunk
+	inHunk        bool
+	rawPaths      []string
+	rawDeleted    []bool
+	rawPathBytes  int64
+	rawIndex      int
+	bufferLimit   int64
+	mergeInput    io.Writer
+	coverage      []engine.ScanFailure
+	coverageTotal int
 }
 
 func (p *nativeLogParser) walkError(err error) error {
@@ -771,7 +949,33 @@ func (p *nativeLogParser) parse(r io.Reader) error {
 			return err
 		}
 	}
-	return p.flushFile()
+	return p.finish()
+}
+
+func (p *nativeLogParser) finish() error {
+	if err := p.flushFile(); err != nil {
+		return err
+	}
+	if p.coverageTotal == 0 {
+		return nil
+	}
+	return &engine.DegradedError{
+		Total:    p.coverageTotal,
+		Counts:   map[engine.FailureKind]int{engine.FailureSource: p.coverageTotal},
+		Failures: p.coverage,
+	}
+}
+
+func (p *nativeLogParser) recordCoverage(stage string, err error) {
+	p.coverageTotal++
+	if len(p.coverage) >= 32 {
+		return
+	}
+	source := p.source.repoAbs + "@native-log:" + stage
+	if p.commit != nil {
+		source = fmt.Sprintf("%s@%s:%s", p.source.repoAbs, p.commit.hash, stage)
+	}
+	p.coverage = append(p.coverage, engine.ScanFailure{Kind: engine.FailureSource, Source: source, Err: err})
 }
 
 func readNativeLine(reader *bufio.Reader, limit int) ([]byte, bool, error) {
@@ -1287,6 +1491,16 @@ func (p *nativeLogParser) handleBinaryPatch() error {
 		p.file.binary = true
 		return nil
 	}
+	if p.source.includeGitArchives || p.source.includeGitBinaries {
+		p.file.binary = true
+		if err := p.emitNativeArtifact(p.file.path); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			p.recordCoverage("artifact", err)
+		}
+		return nil
+	}
 	binary, err := p.currentFileBinary()
 	if err != nil {
 		return err
@@ -1296,6 +1510,90 @@ func (p *nativeLogParser) handleBinaryPatch() error {
 		return nil
 	}
 	return p.emitForcedTextPatch(p.file.path)
+}
+
+func (p *nativeLogParser) emitNativeArtifact(path string) error {
+	if path == "" || p.commit == nil || !p.source.pathAllowed(path) {
+		return nil
+	}
+	object := p.commit.hash + ":" + path
+	sizeCmd := exec.CommandContext(p.ctx, p.gitBin, "-C", p.source.repoAbs, "cat-file", "-s", object)
+	sizeCmd.Env = nativeGitEnv()
+	sizeBytes, err := sizeCmd.Output()
+	if err != nil {
+		return fmt.Errorf("git: native artifact size for %s: %w", path, err)
+	}
+	size, err := strconv.ParseInt(strings.TrimSpace(string(sizeBytes)), 10, 64)
+	if err != nil || size < 0 {
+		return fmt.Errorf("git: invalid native artifact size for %s", path)
+	}
+	if size > p.source.gitArtifactMaxBytes {
+		return fmt.Errorf("git: artifact %s at %s: %w", path, p.commit.hash, &archivepkg.PartialError{Kind: "max-blob-bytes", Entry: path, Err: fmt.Errorf("exceeds %d-byte limit", p.source.gitArtifactMaxBytes)})
+	}
+
+	cmd := exec.CommandContext(p.ctx, p.gitBin, "-C", p.source.repoAbs, "cat-file", "blob", object)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("git: native artifact stdout for %s: %w", path, err)
+	}
+	var stderr limitedWriter
+	stderr.limit = nativeStderrLimit
+	cmd.Stderr = &stderr
+	cmd.Env = nativeGitEnv()
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("git: start native artifact for %s: %w", path, err)
+	}
+	waited := false
+	wait := func(kill bool) error {
+		if waited {
+			return nil
+		}
+		waited = true
+		if kill && cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		return cmd.Wait()
+	}
+	defer func() { _ = wait(true) }()
+
+	prefix := make([]byte, binarySniffLen)
+	n, readErr := io.ReadFull(stdout, prefix)
+	if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
+		return fmt.Errorf("git: read native artifact prefix for %s: %w", path, readErr)
+	}
+	prefix = prefix[:n]
+	isArchive := p.source.includeGitArchives && archivepkg.LooksLikeArchive(prefix)
+	if !isArchive && !p.source.includeGitBinaries {
+		return nil
+	}
+	reader := io.MultiReader(bytes.NewReader(prefix), stdout)
+	artifactErr := withArtifactBudget(p.ctx, isArchive, size, func() error {
+		if isArchive {
+			archiveCtx, cancel := context.WithTimeout(p.ctx, p.source.archiveTimeout)
+			defer cancel()
+			return archivepkg.WalkStreamContext(archiveCtx, path, reader, size, p.source.archiveLimits, func(entry archivepkg.StreamEntry) error {
+				return streamBlob(archiveCtx, entry.Reader, entry.Size, func(segment diffSegment) error {
+					return p.emitSegments(entry.Path, []diffSegment{segment})
+				})
+			})
+		}
+		return archivepkg.WithSpoolContext(p.ctx, reader, size, p.source.gitArtifactMaxBytes, func(validated io.Reader) error {
+			return streamBlob(p.ctx, validated, size, func(segment diffSegment) error {
+				return p.emitSegments(path, []diffSegment{segment})
+			})
+		})
+	})
+	if artifactErr != nil {
+		return fmt.Errorf("git: process native artifact %s at %s: %w", path, p.commit.hash, artifactErr)
+	}
+	if waitErr := wait(false); waitErr != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail != "" {
+			return fmt.Errorf("git: native artifact %s: %w: %s", path, waitErr, detail)
+		}
+		return fmt.Errorf("git: native artifact %s: %w", path, waitErr)
+	}
+	return nil
 }
 
 func (p *nativeLogParser) emitForcedTextPatch(path string) error {
