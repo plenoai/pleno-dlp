@@ -27,7 +27,20 @@ jobs:
         run: go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
       - run: go vet ./...
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+        run: |
+          report="$(mktemp)"
+          trap 'rm -f "$report"' EXIT
+          go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 -json ./... > "$report"
+          # ponytail: GO-2026-5932 has no fixed version and only a module-level
+          # trace; remove this exception when x/crypto or go-git ships a fix.
+          unexpected="$(
+            jq -r 'select(.finding and .finding.osv != "GO-2026-5932") | .finding.osv' "$report" |
+              sort -u
+          )"
+          if [ -n "$unexpected" ]; then
+            printf 'Unexpected govulncheck findings:\n%s\n' "$unexpected"
+            exit 1
+          fi
       - run: go build ./...
       - run: bash tests/ci/full-race.sh
       - name: Source-to-detector prefilter boundary
