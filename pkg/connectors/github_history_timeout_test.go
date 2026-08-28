@@ -145,7 +145,7 @@ func TestGitHubHistoryRepoWalkTimeoutIsolatesUnitAndRetries(t *testing.T) {
 	}
 }
 
-func TestGitHubHistoryRepoWalkTimeoutStartsAfterOrderedTurn(t *testing.T) {
+func TestGitHubHistoryRepoWalksOverlap(t *testing.T) {
 	const (
 		slowKey = "acme/a-slow"
 		peerKey = "acme/b-peer"
@@ -153,27 +153,15 @@ func TestGitHubHistoryRepoWalkTimeoutStartsAfterOrderedTurn(t *testing.T) {
 
 	_, _, cfg := newGitHubTimeoutHarness(t, "2", githubTimeoutRepoRef)
 
-	peerCloned := make(chan struct{})
-	var peerCloneOnce sync.Once
-	githubCloneBytesObserver = func(repoKey string, _ int64) {
-		if repoKey == peerKey {
-			peerCloneOnce.Do(func() { close(peerCloned) })
-		}
-	}
-	t.Cleanup(func() { githubCloneBytesObserver = nil })
-
-	slowCancelReady := make(chan context.CancelFunc, 1)
 	peerWalkStarted := make(chan struct{})
 	var peerWalkOnce sync.Once
 	githubRepoWalkTestHook = func(walkCtx context.Context, repoKey string) (context.Context, context.CancelFunc) {
 		switch repoKey {
 		case slowKey:
-			ctx, cancel := context.WithCancel(walkCtx)
-			slowCancelReady <- cancel
-			return ctx, func() {}
+			return walkCtx, func() {}
 		case peerKey:
 			peerWalkOnce.Do(func() { close(peerWalkStarted) })
-			return context.WithTimeout(walkCtx, 100*time.Millisecond)
+			return walkCtx, func() {}
 		default:
 			return walkCtx, func() {}
 		}
@@ -204,43 +192,25 @@ func TestGitHubHistoryRepoWalkTimeoutStartsAfterOrderedTurn(t *testing.T) {
 	}()
 
 	select {
-	case <-peerCloned:
-	case <-time.After(10 * time.Second):
-		t.Fatal("peer clone did not finish")
-	}
-	select {
 	case <-slowEmissionStarted:
 	case <-time.After(10 * time.Second):
-		t.Fatal("slow repository did not reach ordered emission")
+		t.Fatal("slow repository did not emit")
 	}
-	var cancelSlow context.CancelFunc
-	select {
-	case cancelSlow = <-slowCancelReady:
-	case <-time.After(10 * time.Second):
-		t.Fatal("slow repository walk did not start")
-	}
-	cancelSlow()
 
 	select {
 	case <-peerWalkStarted:
-		t.Fatal("peer walk started before its ordered output turn")
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(10 * time.Second):
+		t.Fatal("peer walk did not start while slow repository was emitting")
 	}
 	close(releaseSlowEmission)
 
 	select {
 	case err := <-errCh:
-		var degraded *engine.DegradedError
-		if !errors.As(err, &degraded) || degraded.Total != 1 {
-			t.Fatalf("scan error = %v, want one degraded repository", err)
+		if err != nil {
+			t.Fatalf("scan error = %v", err)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("scan did not finish")
-	}
-	select {
-	case <-peerWalkStarted:
-	default:
-		t.Fatal("peer walk never received its ordered output turn")
 	}
 	emittedMu.Lock()
 	peerEmissions := emitted[peerKey]

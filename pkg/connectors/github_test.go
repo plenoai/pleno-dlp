@@ -358,6 +358,19 @@ func TestGitHubClientRetriesTransient5xxOnGet(t *testing.T) {
 	}
 }
 
+func TestGitHubClientTransient5xxIgnoresRateLimitReset(t *testing.T) {
+	reset := time.Now().Add(time.Hour).Unix()
+	resp := &http.Response{Header: make(http.Header)}
+	resp.Header.Set("X-RateLimit-Reset", strconv.FormatInt(reset, 10))
+	if got := githubTransientBackoff(resp, 2); got != 4*time.Second {
+		t.Fatalf("transient 5xx backoff = %s, want 4s", got)
+	}
+	resp.Header.Set("Retry-After", "3600")
+	if got := githubTransientBackoff(resp, 0); got != time.Minute {
+		t.Fatalf("server-directed transient backoff = %s, want 1m cap", got)
+	}
+}
+
 // 副作用ありの POST は同じ idempotency 保証が無いので 5xx でも retry せず、
 // 上位に resp をそのまま戻す。 上位の getJSON 等が status を見て err 化する。
 func TestGitHubClientDoesNotRetry5xxOnPost(t *testing.T) {

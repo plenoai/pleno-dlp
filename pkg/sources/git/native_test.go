@@ -1,6 +1,7 @@
 package git
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"context"
@@ -982,6 +983,45 @@ func TestChunks_NativeSkipsEverySegmentOfBinaryFile(t *testing.T) {
 	}
 }
 
+func TestChunks_NativeStreamsOptInBinaryAndArchiveArtifacts(t *testing.T) {
+	requireNativeGit(t)
+	const binaryMarker = "native-binary-marker"
+	const archiveMarker = "native-archive-marker"
+	var zipped bytes.Buffer
+	zw := zip.NewWriter(&zipped)
+	entry, err := zw.Create("inside.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write([]byte(archiveMarker)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	repoPath, _ := buildRepo(t, []commitSpec{{files: map[string]string{
+		"payload.bin": "\x00" + binaryMarker,
+		"payload.zip": zipped.String(),
+	}, msg: "artifacts"}})
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath, IncludeGitArchives: true, IncludeGitBinaries: true})
+	if !s.nativeFastPathEligible(1) {
+		t.Fatal("artifact coverage unexpectedly disabled the native history stream")
+	}
+	got, err := drain(t, s, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var binaryFound, archiveFound bool
+	for _, chunk := range got {
+		binaryFound = binaryFound || strings.Contains(string(chunk.Data), binaryMarker)
+		archiveFound = archiveFound || strings.Contains(string(chunk.Data), archiveMarker)
+	}
+	if !binaryFound || !archiveFound {
+		t.Fatalf("native artifact coverage: binary=%t archive=%t", binaryFound, archiveFound)
+	}
+}
+
 func TestChunks_NativeDisablesExternalDiff(t *testing.T) {
 	requireNativeGit(t)
 	const secret = "github_pat_11NOEXTDIFF_abcdefghijklmnopqrstuvwxyz0123456789"
@@ -1327,12 +1367,91 @@ func TestNativeLogParserBoundsRawPathMetadata(t *testing.T) {
 }
 
 func TestNativeFastPathFallsBackForMultiHeadMaxDepth(t *testing.T) {
-	s := &Source{maxDepth: 10}
+	s := &Source{maxDepth: 10, includeCommitMetadata: true, includeGitArchives: true, includeGitBinaries: true}
 	if s.nativeFastPathEligible(2) {
 		t.Fatal("multi-head max-depth walk must use the canonical Go traversal")
 	}
 	if !s.nativeFastPathEligible(1) {
-		t.Fatal("single-head max-depth walk should remain native-eligible")
+		t.Fatal("production coverage options should remain native-eligible for a single head")
+	}
+}
+
+func TestChunks_NativeProductionOptionsRemainIncremental(t *testing.T) {
+	requireNativeGit(t)
+	const oldMarker = "old-history-marker"
+	const newMarker = "new-history-marker"
+	repoPath, _ := buildRepo(t, []commitSpec{{
+		files: map[string]string{"old.txt": oldMarker + "\n"},
+		msg:   "old commit",
+	}})
+	productionConfig := Config{
+		Repo:                  repoPath,
+		AllBranches:           true,
+		TrufflehogCompatible:  true,
+		IncludeCommitMetadata: true,
+		IncludeGitArchives:    true,
+		IncludeGitBinaries:    true,
+	}
+	first := &Source{}
+	mustInit(t, first, productionConfig)
+	if !first.nativeFastPathEligible(1) {
+		t.Fatal("production options did not select the native path")
+	}
+	if _, err := drain(t, first, 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	previous := first.IncrementalState()
+	if len(previous) == 0 {
+		t.Fatal("first production-options scan did not checkpoint")
+	}
+
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoPath, "new.txt"), []byte(newMarker+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wt.Add("new.txt"); err != nil {
+		t.Fatal(err)
+	}
+	newHash, err := wt.Commit("new commit", &gogit.CommitOptions{
+		Author:    &object.Signature{Name: "Test", Email: "test@example.com", When: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)},
+		Committer: &object.Signature{Name: "Test", Email: "test@example.com", When: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	second := &Source{}
+	mustInit(t, second, productionConfig)
+	if err := second.SetIncrementalState(previous); err != nil {
+		t.Fatal(err)
+	}
+	got, err := drain(t, second, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newFound := false
+	for _, chunk := range got {
+		if chunk.SourceMetadata.Git == nil || chunk.SourceMetadata.Git.Commit != newHash.String() {
+			t.Fatalf("incremental scan re-emitted an old commit: %+v", chunk.SourceMetadata.Git)
+		}
+		data := string(chunk.Data)
+		if strings.Contains(data, oldMarker) {
+			t.Fatal("incremental scan re-emitted old content")
+		}
+		newFound = newFound || strings.Contains(data, newMarker)
+	}
+	if !newFound {
+		t.Fatal("incremental scan missed new content")
+	}
+	if bytes.Equal(second.IncrementalState(), previous) {
+		t.Fatal("incremental checkpoint did not advance")
 	}
 }
 

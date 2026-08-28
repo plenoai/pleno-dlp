@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -22,6 +23,7 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
+	archivepkg "github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/audit"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
@@ -33,9 +35,53 @@ import (
 
 type degradedFindingSource struct{}
 
+type allowedArchiveSource struct {
+	next     json.RawMessage
+	previous string
+}
+
+func (*allowedArchiveSource) Init(context.Context, string, int64, int64, bool, []byte, int) error {
+	return nil
+}
+func (*allowedArchiveSource) Type() sources.SourceType { return sources.SourceGitHub }
+func (*allowedArchiveSource) ResourceFingerprint(context.Context) (string, error) {
+	return "changed", nil
+}
+func (s *allowedArchiveSource) SetIncrementalState(state json.RawMessage) error {
+	s.previous = string(state)
+	return nil
+}
+func (s *allowedArchiveSource) IncrementalState() json.RawMessage { return s.next }
+func (*allowedArchiveSource) Chunks(context.Context, chan<- *sources.Chunk) error {
+	partial := &archivepkg.PartialError{Kind: "corrupt-archive", Entry: "model.pt", Err: io.ErrUnexpectedEOF}
+	archiveFailure := &engine.DegradedError{
+		Total: 1, Counts: map[engine.FailureKind]int{engine.FailureArchive: 1},
+		Failures: []engine.ScanFailure{{Kind: engine.FailureArchive, Source: "model.pt", Err: partial}},
+	}
+	nested := &engine.DegradedError{
+		Total: 1, Counts: map[engine.FailureKind]int{engine.FailureSource: 1},
+		Failures: []engine.ScanFailure{{Kind: engine.FailureSource, Source: "tree-diff", Err: fmt.Errorf("expand archive: %w", archiveFailure)}},
+	}
+	return &engine.DegradedError{
+		Total: 1, Counts: map[engine.FailureKind]int{engine.FailureSource: 1},
+		Failures: []engine.ScanFailure{{Kind: engine.FailureSource, Source: "repository-history:acme/model", Err: nested}},
+	}
+}
+
+type allowedRepoWalkTimeoutSource struct{ allowedArchiveSource }
+
+func (*allowedRepoWalkTimeoutSource) Chunks(context.Context, chan<- *sources.Chunk) error {
+	timeout := fmt.Errorf("github: repository walk acme/slow exceeded 2h0m0s: %w", context.DeadlineExceeded)
+	return &engine.DegradedError{
+		Total: 1, Counts: map[engine.FailureKind]int{engine.FailureSource: 1},
+		Failures: []engine.ScanFailure{{Kind: engine.FailureSource, Source: "repository-history:acme/slow", Err: timeout}},
+	}
+}
+
 type retryAfterDegradedSource struct {
 	degraded    bool
 	fatal       bool
+	partialSafe bool
 	fingerprint string
 	previous    string
 	calls       int
@@ -101,6 +147,7 @@ func (s *retryAfterDegradedSource) IncrementalState() json.RawMessage {
 	}
 	return json.RawMessage(`"complete"`)
 }
+func (s *retryAfterDegradedSource) PartialIncrementalStateSafe() bool { return s.partialSafe }
 func (s *retryAfterDegradedSource) SetIncrementalFlush(flush sources.IncrementalFlushFunc) {
 	s.flush = flush
 }
@@ -540,6 +587,139 @@ func TestRunScanCommonDegradedIncrementalRunPreservesPriorCheckpoint(t *testing.
 	}
 }
 
+func TestRunScanCommonPublishesSafePartialRepositoryCheckpoint(t *testing.T) {
+	resetCommandFlags(t)
+	scanOpts.noVerify, scanOpts.quiet, scanOpts.incremental = true, true, true
+	scanOpts.format, scanOpts.failOn = "json", "critical"
+	scanOpts.incrementalState = filepath.Join(t.TempDir(), "state.json")
+	scanGitHubOpts.publishPartialRepositoryState = true
+	scanGitHubCmd.SetContext(context.Background())
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+
+	src := &retryAfterDegradedSource{degraded: true, partialSafe: true, fingerprint: "after"}
+	if err := runScanCommon(scanGitHubCmd, src, nil, "github"); err != nil {
+		t.Fatalf("partial run: %v", err)
+	}
+	state, err := loadIncrementalState(scanOpts.incrementalState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Entries) != 1 {
+		t.Fatalf("partial run entries=%d, want 1", len(state.Entries))
+	}
+	var entry incrementalStateEntry
+	for _, candidate := range state.Entries {
+		entry = candidate
+	}
+	if entry.ResourceFingerprint != "" || string(entry.SourceState) != `"partial"` {
+		t.Fatalf("partial checkpoint = %+v", entry)
+	}
+	if !strings.Contains(out.String(), "partial-repository-state=1 checkpoint=failed-repositories-retained") {
+		t.Fatalf("missing partial checkpoint diagnostic: %s", out.String())
+	}
+}
+
+func TestGitHubPartialRepositoryStateRejectsDetectorFailure(t *testing.T) {
+	coverage := &engine.DegradedError{
+		Total:    1,
+		Counts:   map[engine.FailureKind]int{engine.FailureDetector: 1},
+		Failures: []engine.ScanFailure{{Kind: engine.FailureDetector, Source: "fixture", Err: errors.New("detector failure")}},
+	}
+	src := &retryAfterDegradedSource{partialSafe: true}
+	if githubPartialRepositoryStateSafe(coverage, src) {
+		t.Fatal("detector failure must not publish partial repository state")
+	}
+}
+
+func TestLargestGitHubIncrementalEntrySelectsMostRepositoryHistory(t *testing.T) {
+	entries := map[string]incrementalStateEntry{
+		"github:small": {
+			UpdatedAt:   "small",
+			SourceState: json.RawMessage(`{"version":3,"surfaces":{"repository-history":{"acme/one":{}}}}`),
+		},
+		"github:largest": {
+			UpdatedAt:   "largest",
+			SourceState: json.RawMessage(`{"version":3,"surfaces":{"repository-history":{"acme/one":{},"acme/two":{}}}}`),
+		},
+		"github:old-version": {
+			UpdatedAt:   "old-version",
+			SourceState: json.RawMessage(`{"version":2,"surfaces":{"repository-history":{"acme/one":{},"acme/two":{},"acme/three":{}}}}`),
+		},
+		"filesystem:unrelated": {
+			UpdatedAt:   "unrelated",
+			SourceState: json.RawMessage(`{"version":3,"surfaces":{"repository-history":{"acme/one":{},"acme/two":{},"acme/three":{}}}}`),
+		},
+	}
+
+	got, found, err := largestGitHubIncrementalEntry(entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || got.UpdatedAt != "largest" {
+		t.Fatalf("selected entry = (%q, %v), want largest", got.UpdatedAt, found)
+	}
+}
+
+func TestLargestGitHubIncrementalEntryRejectsAmbiguousLargest(t *testing.T) {
+	entries := map[string]incrementalStateEntry{
+		"github:first": {
+			SourceState: json.RawMessage(`{"version":3,"surfaces":{"repository-history":{"acme/one":{},"acme/two":{}}}}`),
+		},
+		"github:second": {
+			SourceState: json.RawMessage(`{"version":3,"surfaces":{"repository-history":{"acme/one":{},"acme/other":{}}}}`),
+		},
+	}
+
+	if _, _, err := largestGitHubIncrementalEntry(entries); err == nil {
+		t.Fatal("expected ambiguous migration candidates to fail closed")
+	}
+}
+
+func TestLargestGitHubIncrementalEntryIgnoresEmptyAndInvalidState(t *testing.T) {
+	entries := map[string]incrementalStateEntry{
+		"github:empty":   {SourceState: json.RawMessage(`{"version":3,"surfaces":{"repository-history":{}}}`)},
+		"github:invalid": {SourceState: json.RawMessage(`not-json`)},
+	}
+
+	if _, found, err := largestGitHubIncrementalEntry(entries); err != nil || found {
+		t.Fatalf("empty migration result = (%v, %v), want no candidate", found, err)
+	}
+}
+
+func TestPrepareIncrementalMigratesLargestGitHubSourceState(t *testing.T) {
+	resetCommandFlags(t)
+	scanOpts.incremental, scanOpts.quiet = true, true
+	scanOpts.incrementalState = filepath.Join(t.TempDir(), "state.json")
+	want := json.RawMessage(`{"version":3,"surfaces":{"repository-history":{"acme/one":{},"acme/two":{}}}}`)
+	state := &incrementalStateFile{
+		Version: 1,
+		Entries: map[string]incrementalStateEntry{
+			"github:legacy": {SourceState: want},
+		},
+	}
+	if err := saveIncrementalState(scanOpts.incrementalState, state); err != nil {
+		t.Fatal(err)
+	}
+	src := &retryAfterDegradedSource{fingerprint: "changed"}
+
+	key, entry, loaded, err := prepareIncremental(context.Background(), "github", []byte(`{}`), src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key == "" || entry != nil || loaded == nil {
+		t.Fatalf("prepare result = (%q, %#v, %#v), want pending migrated scan", key, entry, loaded)
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, []byte(src.previous)); err != nil {
+		t.Fatal(err)
+	}
+	if compact.String() != string(want) {
+		t.Fatalf("configured source state = %s, want migrated state", src.previous)
+	}
+}
+
 func TestRunScanCommonArchiveFailureRestoresPriorCheckpoint(t *testing.T) {
 	resetCommandFlags(t)
 	scanOpts.noVerify, scanOpts.quiet, scanOpts.incremental = true, true, true
@@ -575,6 +755,241 @@ func TestRunScanCommonArchiveFailureRestoresPriorCheckpoint(t *testing.T) {
 		if entry.ResourceFingerprint != "" || string(entry.SourceState) != `"prior-complete"` {
 			t.Fatalf("archive failure advanced checkpoint = %+v, want prior complete state", entry)
 		}
+	}
+}
+
+func TestRunScanCommonAllowedCorruptArchiveRetainsPartialCheckpoint(t *testing.T) {
+	resetCommandFlags(t)
+	scanOpts.noVerify, scanOpts.quiet, scanOpts.incremental = true, true, true
+	scanOpts.format, scanOpts.failOn = "json", "critical"
+	scanOpts.incrementalState = filepath.Join(t.TempDir(), "state.json")
+	scanGitHubOpts.allowCorruptArchives = true
+	scanGitHubCmd.SetContext(context.Background())
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+
+	failed := &allowedArchiveSource{next: json.RawMessage(`"partial-progress"`)}
+	if err := runScanCommon(scanGitHubCmd, failed, nil, "github"); err != nil {
+		t.Fatalf("allowed corrupt archive run: %v", err)
+	}
+	state, err := loadIncrementalState(scanOpts.incrementalState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range state.Entries {
+		if entry.ResourceFingerprint != "" || string(entry.SourceState) != `"partial-progress"` {
+			t.Fatalf("partial checkpoint = %+v", entry)
+		}
+	}
+	if !strings.Contains(out.String(), "accepted-corrupt-archives=1") {
+		t.Fatalf("missing accepted coverage diagnostic: %s", out.String())
+	}
+}
+
+func TestRunScanCommonAllowedRepoWalkTimeoutRetainsPartialCheckpoint(t *testing.T) {
+	resetCommandFlags(t)
+	scanOpts.noVerify, scanOpts.quiet, scanOpts.incremental = true, true, true
+	scanOpts.format, scanOpts.failOn = "json", "critical"
+	scanOpts.incrementalState = filepath.Join(t.TempDir(), "state.json")
+	scanGitHubOpts.allowRepoWalkTimeouts = true
+	scanGitHubCmd.SetContext(context.Background())
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+
+	timedOut := &allowedRepoWalkTimeoutSource{allowedArchiveSource{next: json.RawMessage(`"partial-progress"`)}}
+	if err := runScanCommon(scanGitHubCmd, timedOut, nil, "github"); err != nil {
+		t.Fatalf("allowed repository timeout run: %v", err)
+	}
+	state, err := loadIncrementalState(scanOpts.incrementalState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range state.Entries {
+		if entry.ResourceFingerprint != "" || string(entry.SourceState) != `"partial-progress"` {
+			t.Fatalf("partial checkpoint = %+v", entry)
+		}
+	}
+	if !strings.Contains(out.String(), "accepted-repo-walk-timeouts=1") {
+		t.Fatalf("missing accepted timeout diagnostic: %s", out.String())
+	}
+}
+
+func TestRepositoryWalkTimeoutFailureRejectsGenericDeadline(t *testing.T) {
+	for _, failure := range []engine.ScanFailure{
+		{Kind: engine.FailureSource, Source: "repository-history:acme/slow", Err: context.DeadlineExceeded},
+		{Kind: engine.FailureSource, Source: "repository-history:acme/slow", Err: fmt.Errorf("provider timeout: %w", context.DeadlineExceeded)},
+		{Kind: engine.FailureSource, Source: "collaboration:acme/slow", Err: fmt.Errorf("github: repository walk acme/slow exceeded 2h0m0s: %w", context.DeadlineExceeded)},
+	} {
+		if repositoryWalkTimeoutFailure(failure) {
+			t.Fatalf("generic deadline accepted: %+v", failure)
+		}
+	}
+}
+
+func TestAcceptedGitHubCoverageAllowsExplicitMixedRetryableFailures(t *testing.T) {
+	partial := &archivepkg.PartialError{Kind: "corrupt-entry", Entry: "broken.tar", Err: io.ErrUnexpectedEOF}
+	timeout := fmt.Errorf("github: repository walk acme/slow exceeded 2h0m0s: %w", context.DeadlineExceeded)
+	coverage := &engine.DegradedError{
+		Total:  2,
+		Counts: map[engine.FailureKind]int{engine.FailureArchive: 1, engine.FailureSource: 1},
+		Failures: []engine.ScanFailure{
+			{Kind: engine.FailureArchive, Source: "broken.tar", Err: partial},
+			{Kind: engine.FailureSource, Source: "repository-history:acme/slow", Err: timeout},
+		},
+	}
+	accepted, corruptArchives, repoWalkTimeouts := acceptedGitHubCoverage(coverage, true, true)
+	if !accepted || corruptArchives != 1 || repoWalkTimeouts != 1 {
+		t.Fatalf("mixed coverage = (%v, %d, %d), want (true, 1, 1)", accepted, corruptArchives, repoWalkTimeouts)
+	}
+}
+
+func TestAcceptedGitHubCoverageRejectsImmutableHistoryPolicyGaps(t *testing.T) {
+	corrupt := &archivepkg.PartialError{Kind: "corrupt-archive", Entry: "broken.zip", Err: io.ErrUnexpectedEOF}
+	maxDepth := &archivepkg.PartialError{Kind: "max-depth", Entry: "nested.zip", Err: errors.New("depth exceeds 3")}
+	invalidPath := &archivepkg.PartialError{Kind: "invalid-tree-path", Entry: "redacted", Err: errors.New("Git tree path contains a control character")}
+	nested := &engine.DegradedError{
+		Total:  3,
+		Counts: map[engine.FailureKind]int{engine.FailureSource: 3},
+		Failures: []engine.ScanFailure{
+			{Kind: engine.FailureSource, Err: fmt.Errorf("git archive: %w", corrupt)},
+			{Kind: engine.FailureSource, Err: fmt.Errorf("git archive: %w", maxDepth)},
+			{Kind: engine.FailureSource, Err: fmt.Errorf("git tree: %w", invalidPath)},
+		},
+	}
+	coverage := &engine.DegradedError{
+		Total:    1,
+		Counts:   map[engine.FailureKind]int{engine.FailureSource: 1},
+		Failures: []engine.ScanFailure{{Kind: engine.FailureSource, Source: "repository-history:acme/repo", Err: nested}},
+	}
+	if accepted, _, _ := acceptedGitHubCoverage(coverage, true, false); accepted {
+		t.Fatal("immutable history gap was accepted")
+	}
+	coverage.Failures[0].Err = errors.New(`to: invalid path "untyped": contains control character`)
+	if accepted, _, _ := acceptedGitHubCoverage(coverage, true, false); accepted {
+		t.Fatal("untyped lookalike invalid-path error was accepted")
+	}
+}
+
+func TestCorruptArchiveCoverageOnlyRejectsOtherPartialKinds(t *testing.T) {
+	partial := &archivepkg.PartialError{Kind: "budget", Entry: "large.zip", Err: context.DeadlineExceeded}
+	coverage := &engine.DegradedError{
+		Total: 1, Counts: map[engine.FailureKind]int{engine.FailureArchive: 1},
+		Failures: []engine.ScanFailure{{Kind: engine.FailureArchive, Source: "large.zip", Err: partial}},
+	}
+	if corruptArchiveCoverageOnly(coverage) {
+		t.Fatal("budget partial error must remain fatal")
+	}
+}
+
+func TestCorruptArchiveCoverageOnlyAcceptsSymlinkPolicySkip(t *testing.T) {
+	partial := &archivepkg.PartialError{Kind: "symlink", Entry: "link", Err: errors.New("symlink entries are not scanned")}
+	coverage := &engine.DegradedError{
+		Total: 1, Counts: map[engine.FailureKind]int{engine.FailureArchive: 1},
+		Failures: []engine.ScanFailure{{Kind: engine.FailureArchive, Source: "link", Err: partial}},
+	}
+	if !corruptArchiveCoverageOnly(coverage) {
+		t.Fatal("immutable archive symlink policy skip must be accepted")
+	}
+}
+
+func TestCorruptArchiveCoverageOnlyRejectsTruncatedFailures(t *testing.T) {
+	partial := &archivepkg.PartialError{Kind: "corrupt-entry", Entry: "broken.tar", Err: io.ErrUnexpectedEOF}
+	coverage := &engine.DegradedError{
+		Total: 2, Counts: map[engine.FailureKind]int{engine.FailureArchive: 2},
+		Failures: []engine.ScanFailure{{Kind: engine.FailureArchive, Source: "broken.tar", Err: partial}},
+	}
+	if corruptArchiveCoverageOnly(coverage) {
+		t.Fatal("truncated failure details must remain fatal")
+	}
+}
+
+func TestCorruptArchiveCoverageOnlyRejectsJoinedFatalError(t *testing.T) {
+	partial := &archivepkg.PartialError{Kind: "corrupt-entry", Entry: "broken.tar", Err: io.ErrUnexpectedEOF}
+	coverage := &engine.DegradedError{
+		Total: 1, Counts: map[engine.FailureKind]int{engine.FailureSource: 1},
+		Failures: []engine.ScanFailure{{
+			Kind: engine.FailureSource,
+			Err:  errors.Join(partial, errors.New("provider failure")),
+		}},
+	}
+	if corruptArchiveCoverageOnly(coverage) {
+		t.Fatal("joined fatal error must remain fatal")
+	}
+}
+
+func TestCorruptArchiveCoverageOnlyAcceptsCorruptEntryWithSymlinkSiblings(t *testing.T) {
+	var archiveData bytes.Buffer
+	writer := zip.NewWriter(&archiveData)
+	brokenHeader := &zip.FileHeader{Name: "broken.txt", Method: zip.Store}
+	broken, err := writer.CreateHeader(brokenHeader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := broken.Write([]byte("ordinary fixture data")); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 6; i++ {
+		header := &zip.FileHeader{Name: fmt.Sprintf("link-%d", i), Method: zip.Store}
+		header.SetMode(os.ModeSymlink | 0o777)
+		entry, err := writer.CreateHeader(header)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte("target")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	corrupt := append([]byte(nil), archiveData.Bytes()...)
+	if len(corrupt) < 30 || !bytes.Equal(corrupt[:4], []byte{'P', 'K', 3, 4}) {
+		t.Fatal("fixture has no local ZIP header")
+	}
+	nameLen := int(corrupt[26]) | int(corrupt[27])<<8
+	extraLen := int(corrupt[28]) | int(corrupt[29])<<8
+	dataOffset := 30 + nameLen + extraLen
+	if dataOffset >= len(corrupt) {
+		t.Fatal("fixture has no entry body")
+	}
+	corrupt[dataOffset] ^= 0xff
+
+	archiveErr := archivepkg.WalkStreamContext(
+		context.Background(),
+		"fixture.zip",
+		bytes.NewReader(corrupt),
+		int64(len(corrupt)),
+		archivepkg.Limits{},
+		func(archivepkg.StreamEntry) error { return nil },
+	)
+	if archiveErr == nil {
+		t.Fatal("fixture must produce archive degradation")
+	}
+	gitCoverage := &engine.DegradedError{
+		Total:  1,
+		Counts: map[engine.FailureKind]int{engine.FailureSource: 1},
+		Failures: []engine.ScanFailure{{
+			Kind: engine.FailureSource,
+			Err:  fmt.Errorf("git: expand archive: %w", archiveErr),
+		}},
+	}
+	githubCoverage := &engine.DegradedError{
+		Total:  1,
+		Counts: map[engine.FailureKind]int{engine.FailureSource: 1},
+		Failures: []engine.ScanFailure{{
+			Kind: engine.FailureSource,
+			Err:  gitCoverage,
+		}},
+	}
+	coverage, residual := engine.PartitionDegradedErrors(errors.Join(githubCoverage))
+	if residual != nil {
+		t.Fatalf("residual error = %v", residual)
+	}
+	if !corruptArchiveCoverageOnly(coverage) {
+		t.Fatal("immutable corrupt entry with safely skipped symlinks must be accepted")
 	}
 }
 

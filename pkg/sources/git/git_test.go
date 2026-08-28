@@ -33,6 +33,45 @@ type commitSpec struct {
 	when  time.Time
 }
 
+func TestNormalizeGitTreeDiffErrorTypesAndRedactsControlCharacterPath(t *testing.T) {
+	path := "private-name\\x01payload"
+	normalized := normalizeGitTreeDiffError(fmt.Errorf(`to: invalid path %q: contains control character`, path))
+	var partial *archivepkg.PartialError
+	if !errors.As(normalized, &partial) || partial.Kind != "invalid-tree-path" {
+		t.Fatalf("normalized error = %v, want typed invalid-tree-path", normalized)
+	}
+	if strings.Contains(normalized.Error(), path) || strings.Contains(normalized.Error(), "private-name") {
+		t.Fatalf("normalized error leaked attacker-controlled path: %v", normalized)
+	}
+
+	ordinary := errors.New("to: object not found")
+	if got := normalizeGitTreeDiffError(ordinary); got != ordinary {
+		t.Fatalf("ordinary diff error changed: %v", got)
+	}
+}
+
+func TestCorruptArchiveGapOnlyRejectsOtherAndTruncatedCoverage(t *testing.T) {
+	corrupt := &archivepkg.PartialError{Kind: "corrupt-entry", Entry: "nested.zip", Err: errors.New("truncated")}
+	if !CorruptArchiveGapOnly(fmt.Errorf("wrapped: %w", corrupt)) {
+		t.Fatal("typed corrupt archive gap was rejected")
+	}
+	if CorruptArchiveGapOnly(errors.Join(corrupt, errors.New("provider failure"))) {
+		t.Fatal("mixed fatal error was accepted")
+	}
+	immutable := &archivepkg.PartialError{Kind: "max-depth", Entry: "nested.zip", Err: errors.New("depth exceeded")}
+	if CorruptArchiveGapOnly(immutable) {
+		t.Fatal("max-depth coverage gap was accepted")
+	}
+	truncated := &engine.DegradedError{
+		Total:    2,
+		Counts:   map[engine.FailureKind]int{engine.FailureSource: 2},
+		Failures: []engine.ScanFailure{{Kind: engine.FailureSource, Err: corrupt}},
+	}
+	if CorruptArchiveGapOnly(truncated) {
+		t.Fatal("truncated coverage evidence was accepted")
+	}
+}
+
 func buildRepo(t *testing.T, specs []commitSpec) (repoPath string, hashes []string) {
 	t.Helper()
 	dir := t.TempDir()

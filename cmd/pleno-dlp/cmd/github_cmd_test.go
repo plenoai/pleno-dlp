@@ -161,6 +161,25 @@ func TestGitHubScannerFingerprintConfigTracksSurfaceWithoutCredentials(t *testin
 	if baseFP == changedFP {
 		t.Fatal("trufflehog compatibility change did not change scanner fingerprint")
 	}
+
+	scoped := connectors.Config{}
+	for key, value := range base {
+		scoped[key] = value
+	}
+	scoped["org"] = "other"
+	scoped["repo"] = "other/repo"
+	scoped["include_repo_globs"] = "other/a,other/b"
+	scoped["exclude_repo_globs"] = "other/ignored"
+	scoped["include_forks"] = "false"
+	scoped["include_archived"] = "true"
+	scoped["expand_members"] = "true"
+	scopedEncoded, err := githubScannerFingerprintConfig(scoped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(encoded) != string(scopedEncoded) {
+		t.Fatalf("scope-only change changed scanner fingerprint config: %s != %s", encoded, scopedEncoded)
+	}
 }
 
 func TestScanGitHubConfigRejectsTokenAndGitHubApp(t *testing.T) {
