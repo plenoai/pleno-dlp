@@ -135,6 +135,13 @@ pleno-dlp scan filesystem ./repo --fail-on high
 pleno-dlp scan filesystem ./repo --fail-on any
 ```
 
+`scan stdin` is the exception: it always exits 0, with or without
+findings. Stdin is a pipe interface (`git diff | pleno-dlp scan stdin`)
+whose consumer decides what findings mean; the scan reports them on
+stdout and leaves gating to the caller's own logic. Use a non-stdin kind
+(`filesystem`, `git`, or a SaaS connector) when you want the exit code
+to gate CI.
+
 The default is `high`, which suits an audit-first rollout. A first scan of an unfamiliar repo
 routinely turns up noise — generic high-entropy strings, JWTs, PEM
 blocks, PII — that the severity table above already classifies as
@@ -220,7 +227,7 @@ It is mutually exclusive with `--only-verified`. This is what the
 [`docs/hooks.md`](hooks.md)), but it applies to any scan kind:
 
 ```sh
-pleno-dlp scan stdin --no-verify --quiet --fail-on any --format json < diff.txt
+pleno-dlp scan stdin --no-verify --quiet --format json < diff.txt
 ```
 
 GitHub scans accept either a PAT / installation token through `--token`

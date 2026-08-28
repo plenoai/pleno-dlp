@@ -2149,11 +2149,14 @@ func TestScanStdin_FindsSecretFromPipe(t *testing.T) {
 	Root.SetArgs([]string{"scan", "--format", "json", "stdin", "--label", "test-pipe"})
 
 	err := Root.Execute()
-	if !IsFindingsError(err) {
-		t.Fatalf("expected findings error from stdin scan; got %v\noutput:\n%s", err, out.String())
+	if err != nil {
+		t.Fatalf("stdin scans must exit 0 even with findings; got %v\noutput:\n%s", err, out.String())
 	}
 	if !strings.Contains(out.String(), "test-pipe") {
 		t.Errorf("expected --label to ride through to output:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "AKIA1234567890ABCDEF") {
+		t.Errorf("expected the finding to still be reported on stdout:\n%s", out.String())
 	}
 }
 
@@ -2194,8 +2197,8 @@ func TestScanStdin_NoVerifySkipsNetworkCall(t *testing.T) {
 	Root.SetArgs([]string{"scan", "--rules", rules, "--no-verify", "--format", "json", "stdin"})
 
 	err := Root.Execute()
-	if !IsFindingsError(err) {
-		t.Fatalf("expected findings error; got %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
+	if err != nil {
+		t.Fatalf("stdin scans must exit 0 even with findings; got %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
 	}
 
 	if n := requests.Load(); n != 0 {
@@ -2387,14 +2390,17 @@ func TestScanStdin_TruncatedButFoundStillReportsFindings(t *testing.T) {
 	Root.SetArgs([]string{"scan", "--format", "json", "stdin", "--max-bytes", "40"})
 
 	err := Root.Execute()
-	if !IsFindingsError(err) {
-		t.Fatalf("truncated stdin with a finding must return errFindingsFound, not the truncation error; got %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
+	if err != nil {
+		t.Fatalf("truncated stdin with a finding must still exit 0 — stdin findings never gate the exit code; got %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
 	}
 	if !strings.Contains(errBuf.String(), "max_bytes") {
 		t.Errorf("expected truncation warning on stderr; got:\n%s", errBuf.String())
 	}
 	if !strings.Contains(errBuf.String(), "finding(s)") {
 		t.Errorf("expected end-of-scan summary on stderr; got:\n%s", errBuf.String())
+	}
+	if !strings.Contains(out.String(), "AKIA1234567890ABCDEF") {
+		t.Errorf("expected the finding to still be reported on stdout:\n%s", out.String())
 	}
 }
 

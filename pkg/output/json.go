@@ -1,6 +1,7 @@
 package output
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -37,6 +38,17 @@ type jsonRecord struct {
 	// entirely for every finding that reached this sink normally, so
 	// existing consumers parsing the schema are unaffected (issue #290).
 	SuppressedBy string `json:"suppressed_by,omitempty"`
+	// Start/End are UTF-8 byte offsets of the matched secret within the
+	// scanned chunk's data, when locatable. Emitted for machine
+	// consumers (the Presidio recognizer integration) that need span
+	// positions; Raw itself is never serialized, so the offsets let a
+	// downstream consumer slice the span from its own copy of the text
+	// without pleno-dlp leaking the secret. Omitted when the raw bytes
+	// cannot be located (defensive: engine guarantees Raw ⊆ chunk data
+	// for secret detectors, but PII engines may emit spans from a
+	// different coordinate space).
+	Start *int `json:"start,omitempty"`
+	End   *int `json:"end,omitempty"`
 }
 
 type jsonSource struct {
@@ -119,7 +131,27 @@ func toJSONRecord(f engine.Finding) jsonRecord {
 		rec.VerificationError = f.Result.VerificationErr.Error()
 	}
 	rec.Source = jsonSourceOf(f.Chunk)
+	rec.Start, rec.End = rawSpan(f)
 	return rec
+}
+
+// rawSpan locates Result.Raw inside the chunk data and returns the
+// [start, end) byte offsets. nil when Raw is empty or absent from the
+// chunk — the field pair is omitted rather than emitting a wrong span.
+// First-occurrence semantics: a secret repeated in one chunk reports
+// the first copy's offsets; engine dedup keys on Raw so consumers
+// treat all copies as one finding anyway.
+func rawSpan(f engine.Finding) (*int, *int) {
+	raw := f.Result.Raw
+	if len(raw) == 0 || f.Chunk == nil {
+		return nil, nil
+	}
+	start := bytes.Index(f.Chunk.Data, raw)
+	if start < 0 {
+		return nil, nil
+	}
+	end := start + len(raw)
+	return &start, &end
 }
 
 func hashSecret(raw []byte) string {

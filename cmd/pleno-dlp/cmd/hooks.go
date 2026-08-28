@@ -200,17 +200,16 @@ func writeJSONObject(path string, obj map[string]json.RawMessage) error {
 var scanOfflineFunc = scanOffline
 
 // scanOffline shells out to this same pleno-dlp binary (`scan stdin
-// --no-verify --fail-on any`) against data and reports how many findings
-// it emitted. Deliberately does not reimplement engine wiring: reusing
-// the CLI path means hook behaviour — dedup, allowlist discovery, output
-// shape — never drifts from `pleno-dlp scan stdin --no-verify` run by
-// hand.
+// --no-verify`) against data and reports how many findings it emitted.
+// Deliberately does not reimplement engine wiring: reusing the CLI path
+// means hook behaviour — dedup, allowlist discovery, output shape —
+// never drifts from `pleno-dlp scan stdin --no-verify` run by hand.
 func scanOffline(data []byte) (int, error) {
 	exe := resolveExecutable()
 	if exe == "" {
 		return 0, fmt.Errorf("could not resolve pleno-dlp's own executable path")
 	}
-	c := exec.Command(exe, "scan", "stdin", "--no-verify", "--quiet", "--fail-on", "any", "--format", "json")
+	c := exec.Command(exe, "scan", "stdin", "--no-verify", "--quiet", "--format", "json")
 	c.Stdin = bytes.NewReader(data)
 	var stdout, stderr bytes.Buffer
 	c.Stdout = &stdout
@@ -221,11 +220,10 @@ func scanOffline(data []byte) (int, error) {
 		if !errors.As(runErr, &exitErr) {
 			return 0, fmt.Errorf("run scan stdin: %w", runErr)
 		}
-		// Exit 1 is errFindingsFound (main.go) — the expected "secrets
-		// found" path, not a failure. Anything else is a real error.
-		if exitErr.ExitCode() != 1 {
-			return 0, fmt.Errorf("scan stdin exited %d: %s", exitErr.ExitCode(), stderr.String())
-		}
+		// Stdin scans always exit 0 — findings are reported on stdout,
+		// never via the exit code (that gating is reserved for
+		// file/git/SaaS kinds). Any non-zero exit is a real error.
+		return 0, fmt.Errorf("scan stdin exited %d: %s", exitErr.ExitCode(), stderr.String())
 	}
 	if len(bytes.TrimSpace(stdout.Bytes())) == 0 {
 		return 0, nil

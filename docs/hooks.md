@@ -106,5 +106,9 @@ Reproduce:
 ```sh
 go build -o /tmp/pleno-dlp ./cmd/pleno-dlp
 printf '...' > /tmp/sample.txt   # your representative content
-time /tmp/pleno-dlp scan stdin --no-verify --quiet --fail-on any --format json < /tmp/sample.txt
+time /tmp/pleno-dlp scan stdin --no-verify --quiet --format json < /tmp/sample.txt
 ```
+
+Note: `scan stdin` always exits 0, with or without findings (the hook's
+allow/deny verdict comes from the finding count on stdout, not the exit
+code).
