@@ -207,7 +207,7 @@ func init() {
 	scanCmd.PersistentFlags().StringVar(&scanOpts.failOn, "fail-on", "high", "minimum severity that triggers exit 1: any|info|low|medium|high|critical "+
 		"(default high: audit-first rollout — verified/critical and named unverified-secret findings gate CI; "+
 		"generic-entropy, JWT, PEM, and PII findings default to medium and do not; pass any to gate on every finding, "+
-		"including that lower tier, once the repo's baseline is clean)")
+		"including that lower tier, once the repo's baseline is clean; ignored for stdin — stdin scans always exit 0)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file that mutes known false positives (auto-discovers .pleno-allow.json from the repo root)")
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated, case-insensitive Type names; see `pleno-dlp detectors list`). Custom rules from --rules count as GenericHighEntropy.")
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.excludeDetectors, "exclude-detectors", nil, "skip these detectors (comma-separated, case-insensitive Type names). Applied after --include-detectors.")
@@ -283,7 +283,7 @@ func init() {
 	_ = scanGitCmd.MarkFlagRequired("repo")
 
 	scanStdinCmd.Flags().StringVar(&stdinOpts.label, "label", "", "label for the stdin input (rendered in output; default \"<stdin>\")")
-	scanStdinCmd.Flags().Int64Var(&stdinOpts.maxBytes, "max-bytes", 0, "buffer cap for stdin (0 = default 64 MiB); excess input is truncated and the run exits non-zero")
+	scanStdinCmd.Flags().Int64Var(&stdinOpts.maxBytes, "max-bytes", 0, "buffer cap for stdin (0 = default 64 MiB); excess input is truncated and a warning is printed to stderr")
 
 	scanSQLDumpCmd.Flags().StringVar(&sqldumpOpts.format, "dump-format", "auto", "dump format: auto, mysql, postgres, sqlite")
 	scanSQLDumpCmd.Flags().StringSliceVar(&sqldumpOpts.includeTables, "include-tables", nil, "only scan these tables (case-insensitive)")
@@ -509,6 +509,13 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		return err
 	}
 
+	// Stdin scans report findings in the output but never gate the exit
+	// code: exit 1 is reserved for real failures, since stdin is a pipe
+	// interface (`git diff | pleno-dlp scan stdin`) whose consumer
+	// decides what findings mean. protect — which uses the stdin source
+	// internally — still gates; file/git/SaaS kinds keep --fail-on.
+	findingsGate := kind != "stdin"
+
 	allowlist, err := loadAllowlistMaybe(scanOpts.allowlistPath)
 	if err != nil {
 		return err
@@ -543,7 +550,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 				incrementalEntry.Chunks, incrementalEntry.Bytes, incrementalEntry.Findings,
 			)
 		}
-		if incrementalEntry.Failing > 0 {
+		if findingsGate && incrementalEntry.Failing > 0 {
 			return errFindingsFound
 		}
 		return nil
@@ -800,12 +807,16 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		// this, "exit 0 despite findings" reads as the scan silently
 		// missing something rather than a deliberate, tunable policy.
 		// In --fail-on=any mode every finding meets the gate, so below
-		// is always 0 there and this never fires.
-		if below := counter.count.Load() - counter.failing.Load(); below > 0 {
-			fmt.Fprintf(cmd.ErrOrStderr(),
-				"exit gate: --fail-on=%s (%d %s finding(s) did not affect exit code; use --fail-on=any to block on all)\n",
-				scanOpts.failOn, below, gateBelowLabel(threshold),
-			)
+		// is always 0 there and this never fires. Skipped for stdin:
+		// findings never gate the exit code there, so the hint would
+		// wrongly suggest --fail-on=any as an escape hatch.
+		if findingsGate {
+			if below := counter.count.Load() - counter.failing.Load(); below > 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"exit gate: --fail-on=%s (%d %s finding(s) did not affect exit code; use --fail-on=any to block on all)\n",
+					scanOpts.failOn, below, gateBelowLabel(threshold),
+				)
+			}
 		}
 		if revoker != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(),
@@ -883,7 +894,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		}
 	}
 
-	if counter.failing.Load() > 0 {
+	if findingsGate && counter.failing.Load() > 0 {
 		return errFindingsFound
 	}
 	return nil

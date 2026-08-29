@@ -1,0 +1,13 @@
+[project]
+name = "pleno-dlp-presidio"
+version = "0.1.0"
+description = "Use pleno-dlp as a Presidio recognizer (context boost, score threshold, allow list)"
+requires-python = ">=3.10"
+dependencies = ["presidio-analyzer>=2.2.358"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pleno_dlp_presidio*"]

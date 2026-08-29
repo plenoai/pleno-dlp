@@ -436,6 +436,48 @@ func TestTableSinkVerdictGlyph(t *testing.T) {
 	}
 }
 
+func TestJSONSinkEmitsRawSpanOffsets(t *testing.T) {
+	f := sample()
+	f.Chunk.Data = []byte("prefix AKIAIOSFODNN7EXAMPLE suffix")
+	var buf bytes.Buffer
+	s, err := NewSink("json", &buf, "test")
+	if err != nil {
+		t.Fatalf("NewSink: %v", err)
+	}
+	s.Emit(f)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	var got []map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, buf.String())
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 record, got %d", len(got))
+	}
+	if got[0]["start"] != float64(7) || got[0]["end"] != float64(27) {
+		t.Errorf("start/end: got %v/%v, want 7/28", got[0]["start"], got[0]["end"])
+	}
+}
+
+func TestJSONSinkOmitsSpanWhenRawNotInChunk(t *testing.T) {
+	f := sample()
+	f.Chunk.Data = []byte("no secret here")
+	var buf bytes.Buffer
+	s, err := NewSink("json", &buf, "test")
+	if err != nil {
+		t.Fatalf("NewSink: %v", err)
+	}
+	s.Emit(f)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if strings.Contains(buf.String(), "\"start\"") || strings.Contains(buf.String(), "\"end\"") {
+		t.Errorf("start/end must be omitted when Raw is not locatable: %s", buf.String())
+	}
+}
+
 func TestTableSinkEmptyOutput(t *testing.T) {
 	var buf bytes.Buffer
 	s, _ := NewSink("table", &buf, "test")

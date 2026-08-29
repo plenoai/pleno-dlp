@@ -510,7 +510,7 @@ observed behavior, not documentation.
 | Base64-encoded secret (decode-then-detect) | ✓ (`extra_data.decoded_from=base64`) | ✗ (decoder exists; generic AWS-secret line not re-detected) | ✓ (`decoded:base64` tag) |
 | UTF-16 encoded secret | ✓ stdin/git (engine UTF-16 decoder); ✗ filesystem files (NUL-byte binary gate) | ✓ (UTF16 decoder) | ✗ |
 | SARIF output | ✓ valid 2.1.0 | ✗ (no SARIF format) | ✓ valid 2.1.0 |
-| Exit-code gating | exit 1 on findings at/above the `--fail-on` threshold (default `high`) | exit 0 by default; opt-in `--fail` → 183 | exit 1 on findings; `--exit-code N`; no severity concept |
+| Exit-code gating | exit 1 on findings at/above the `--fail-on` threshold (default `high`); `scan stdin` always exit 0 | exit 0 by default; opt-in `--fail` → 183 | exit 1 on findings; `--exit-code N`; no severity concept |
 | Custom rules | ✓ (`--rules` JSON) | ✓ (`--config` YAML CustomRegex) | ✓ (`--config` TOML `[[rules]]`) |
 | Machine-clean stdout | ✓ JSON array; `--quiet` suppresses the end-of-scan summary line (suppression-count and trust-signal notices still print) | ✓ NDJSON; logs on stderr | ✓ report file; logs on stderr |
 
