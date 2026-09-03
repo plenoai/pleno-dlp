@@ -14,7 +14,7 @@
 # Usage: bench/scripts/fetch-tools.sh
 set -euo pipefail
 
-TRUFFLEHOG_VERSION="3.96.0"
+TRUFFLEHOG_VERSION="3.97.2"
 GITLEAKS_VERSION="8.30.1"
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -36,10 +36,10 @@ esac
 # checksum below in the same diff — see bench/CONTRIBUTING.md.
 trufflehog_sha256() {
   case "${os}_${arch}" in
-    darwin_arm64) echo "87478306b95ca2420cfb844b7582383ac60b922e262350a0088e797f328d2e62" ;;
-    darwin_amd64) echo "a30d8f1095e031a81a668e1582f2ed479c3b50476cef86317e0fb74210c33617" ;;
-    linux_arm64) echo "50acd4c7a3b8ebfe5083d8350956057030c44be3515dedd55b45263495c490b2" ;;
-    linux_amd64) echo "7105f1cd6577f058a9e39d0578f1a99c8a1e481e4d3512cd8a09acfe22a0fdc0" ;;
+    darwin_arm64) echo "8d4e7a3d28785de0a8ccee14d195e9e387b3e664f80c41437cb7a74708a542f5" ;;
+    darwin_amd64) echo "cf6b9b0df4dfd183722fd55a580dedd402439d88ea5a1d72c4ae5509ea334982" ;;
+    linux_arm64) echo "7c2e9f9dd77874f7e622d3e4b801c88507b500326e1fd01bbd5932d49948c7f7" ;;
+    linux_amd64) echo "6a767a0ae95ba0c51628b37a6bb938765be17b9b6d7ad8b9a810da56f63656c1" ;;
     *) return 1 ;;
   esac
 }
