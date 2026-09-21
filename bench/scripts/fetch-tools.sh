@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Downloads the pinned trufflehog + gitleaks releases (versions defined
+# Downloads the pinned trufflehog + gitleaks + betterleaks releases (versions defined
 # once in bench/harness/tools.go's pinnedVersion, mirrored here since
 # shell can't import Go) into bench/.tools/, verifying each archive's
 # sha256 before extracting. This is the reproduction path for anyone
-# (including CI) without a local trufflehog/gitleaks install — see
-# bench/README.md and issue #298's "pinned 3-tool re-run" requirement.
+# (including CI) without a local competitor install — see
+# bench/README.md and the pinned competitor re-run requirement.
 #
 # Written against bash 3.2 (macOS's shipped default, no `declare -A`) —
 # case statements instead of associative arrays — since this needs to
@@ -14,8 +14,9 @@
 # Usage: bench/scripts/fetch-tools.sh
 set -euo pipefail
 
-TRUFFLEHOG_VERSION="3.96.0"
+TRUFFLEHOG_VERSION="3.97.5"
 GITLEAKS_VERSION="8.30.1"
+BETTERLEAKS_VERSION="1.8.1"
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
@@ -26,20 +27,21 @@ case "$arch" in
 esac
 case "$os" in
   darwin|linux) ;;
-  *) echo "fetch-tools: unsupported OS $os — install trufflehog/gitleaks manually and point -trufflehog-bin/-gitleaks-bin at them" >&2; exit 1 ;;
+  *) echo "fetch-tools: unsupported OS $os — install competitor binaries manually" >&2; exit 1 ;;
 esac
 
 # sha256 of each release's platform tarball, copied from the upstream
-# release's own *_checksums.txt (trufflesecurity/trufflehog and
-# gitleaks/gitleaks GitHub Releases for the versions pinned above).
+# release's checksum asset (trufflesecurity/trufflehog and gitleaks/gitleaks
+# use *_checksums.txt; betterleaks/betterleaks uses checksums.txt) for the
+# versions pinned above.
 # Bumping a pinned version requires updating both the version and every
 # checksum below in the same diff — see bench/CONTRIBUTING.md.
 trufflehog_sha256() {
   case "${os}_${arch}" in
-    darwin_arm64) echo "87478306b95ca2420cfb844b7582383ac60b922e262350a0088e797f328d2e62" ;;
-    darwin_amd64) echo "a30d8f1095e031a81a668e1582f2ed479c3b50476cef86317e0fb74210c33617" ;;
-    linux_arm64) echo "50acd4c7a3b8ebfe5083d8350956057030c44be3515dedd55b45263495c490b2" ;;
-    linux_amd64) echo "7105f1cd6577f058a9e39d0578f1a99c8a1e481e4d3512cd8a09acfe22a0fdc0" ;;
+    darwin_arm64) echo "b4e5fd54aaea368342b226cbea228e7a33898b177598d1d8cd66edb14f87444e" ;;
+    darwin_amd64) echo "cc8b12f8120fe47d7de929928e9183285b7a39eba60b3ac01f085f522ec19e50" ;;
+    linux_arm64) echo "e5c8b2418b0a7c78cf4c47ac783c52c63f989e4e536cfe328b5271e819b6d52d" ;;
+    linux_amd64) echo "e3d97199c565c37ca6152750197f667e08ae6a1edf5911fbdec168622b28620c" ;;
     *) return 1 ;;
   esac
 }
@@ -52,12 +54,22 @@ gitleaks_sha256() {
     *) return 1 ;;
   esac
 }
-# gitleaks names its amd64 darwin/linux asset "x64", trufflehog names it
-# "amd64" — normalize our lookup, not upstream's inconsistent naming.
-gitleaks_arch_name() {
+# gitleaks and betterleaks name their amd64 darwin/linux assets "x64",
+# while trufflehog names them "amd64" — normalize our lookup, not
+# upstream's inconsistent naming.
+x64_arch_name() {
   case "$arch" in
     amd64) echo "x64" ;;
     arm64) echo "arm64" ;;
+  esac
+}
+betterleaks_sha256() {
+  case "${os}_${arch}" in
+    darwin_arm64) echo "8e80f33b5f2a7426b390347b9fd466033723cb94b6bdffa7572632e2eaec964e" ;;
+    darwin_amd64) echo "6abc37df76f881cffae406aa2cec72bea6e6ae64b4e771b3ed21b4aac472ed10" ;;
+    linux_arm64) echo "bbb578b12a2f65d7082ab436abf37724232bc71d8a078e3c41336574420f1b48" ;;
+    linux_amd64) echo "efa407244e1ea8e35f582b8a42becdeac08bdead04f68eb752adda722d583c2a" ;;
+    *) return 1 ;;
   esac
 }
 
@@ -87,7 +99,7 @@ mv "$work/trufflehog" "$out_dir/trufflehog"
 chmod +x "$out_dir/trufflehog"
 
 # gitleaks
-gl_arch="$(gitleaks_arch_name)"
+gl_arch="$(x64_arch_name)"
 gl_sha="$(gitleaks_sha256)" || { echo "fetch-tools: no pinned gitleaks checksum for ${os}_${arch} — add one (see this script's header)" >&2; exit 1; }
 gl_archive="gitleaks_${GITLEAKS_VERSION}_${os}_${gl_arch}.tar.gz"
 fetch_verify "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${gl_archive}" "$gl_sha" "$gl_archive"
@@ -95,4 +107,13 @@ tar -xzf "$work/$gl_archive" -C "$work" gitleaks
 mv "$work/gitleaks" "$out_dir/gitleaks"
 chmod +x "$out_dir/gitleaks"
 
-echo "fetch-tools: installed trufflehog $TRUFFLEHOG_VERSION and gitleaks $GITLEAKS_VERSION to $out_dir"
+# betterleaks
+bl_arch="$(x64_arch_name)"
+bl_sha="$(betterleaks_sha256)" || { echo "fetch-tools: no pinned betterleaks checksum for ${os}_${arch} — add one (see this script's header)" >&2; exit 1; }
+bl_archive="betterleaks_${BETTERLEAKS_VERSION}_${os}_${bl_arch}.tar.gz"
+fetch_verify "https://github.com/betterleaks/betterleaks/releases/download/v${BETTERLEAKS_VERSION}/${bl_archive}" "$bl_sha" "$bl_archive"
+tar -xzf "$work/$bl_archive" -C "$work" betterleaks
+mv "$work/betterleaks" "$out_dir/betterleaks"
+chmod +x "$out_dir/betterleaks"
+
+echo "fetch-tools: installed trufflehog $TRUFFLEHOG_VERSION, gitleaks $GITLEAKS_VERSION, and betterleaks $BETTERLEAKS_VERSION to $out_dir"

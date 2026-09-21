@@ -267,12 +267,22 @@ type Hit struct {
 // out is appended to; the (possibly grown) slice is returned. Pass nil
 // to let MatchHitsInto allocate.
 func (m *Matcher) MatchHitsInto(data []byte, out []Hit) []Hit {
+	m.VisitHits(data, func(hit Hit) {
+		out = append(out, hit)
+	})
+	return out
+}
+
+// VisitHits walks data in input order and calls visit for every pattern
+// occurrence. It avoids retaining the complete hit list when callers can
+// consume matches immediately.
+func (m *Matcher) VisitHits(data []byte, visit func(Hit)) {
 	state := int32(0)
 	for i, b := range data {
 		state = m.next[int(state)*m.stride+int(m.symbols[b])]
 		for s := state; s > 0; {
 			for _, id := range m.patternsAt[s] {
-				out = append(out, Hit{PatternID: id, End: i})
+				visit(Hit{PatternID: id, End: i})
 			}
 			s = m.dictLink[s]
 			if s < 0 {
@@ -280,7 +290,6 @@ func (m *Matcher) MatchHitsInto(data []byte, out []Hit) []Hit {
 			}
 		}
 	}
-	return out
 }
 
 // NumPatterns reports the upper bound on pattern IDs the matcher will emit.

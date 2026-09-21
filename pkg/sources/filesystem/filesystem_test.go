@@ -124,6 +124,76 @@ func TestChunks_SkipsBinaryFile(t *testing.T) {
 	}
 }
 
+func TestChunks_EmitsUTF16Text(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		little bool
+	}{
+		{name: "utf16le", little: true},
+		{name: "utf16be", little: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			want := encodeUTF16("CONFIG_CREDENTIAL=filesystem-utf16-fixture", tc.little, true)
+			path := filepath.Join(dir, tc.name+".txt")
+			if err := os.WriteFile(path, want, 0o600); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			s := &Source{}
+			mustInit(t, s, Config{Paths: []string{dir}})
+
+			got, err := drain(t, s, 5*time.Second)
+			if err != nil {
+				t.Fatalf("Chunks: %v", err)
+			}
+			if len(got) != 1 || !bytes.Equal(got[0].Data, want) {
+				t.Fatalf("UTF-16 file was dropped or changed: chunks=%d", len(got))
+			}
+		})
+	}
+}
+
+func TestChunks_EmitsBOMlessUTF16Text(t *testing.T) {
+	dir := t.TempDir()
+	want := encodeUTF16("CONFIG_CREDENTIAL=filesystem-utf16-no-bom", true, false)
+	if err := os.WriteFile(filepath.Join(dir, "utf16.txt"), want, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Paths: []string{dir}})
+
+	got, err := drain(t, s, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks: %v", err)
+	}
+	if len(got) != 1 || !bytes.Equal(got[0].Data, want) {
+		t.Fatalf("BOM-less UTF-16 file was dropped or changed: chunks=%d", len(got))
+	}
+}
+
+func TestChunks_SkipsNULBinaryWithUTF16LikeShape(t *testing.T) {
+	dir := t.TempDir()
+	data := make([]byte, 128)
+	for i := range data {
+		if i%2 == 0 {
+			data[i] = 0xff
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "blob.bin"), data, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Paths: []string{dir}})
+
+	got, err := drain(t, s, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("NUL binary was admitted as UTF-16 text: %d chunks", len(got))
+	}
+}
+
 func TestChunks_EmitsArchiveAfterPrefixSniff(t *testing.T) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
@@ -391,4 +461,24 @@ func TestRegistry_FilesystemRegistered(t *testing.T) {
 	if s.Type() != sources.SourceFilesystem {
 		t.Fatalf("Type mismatch: %v", s.Type())
 	}
+}
+
+func encodeUTF16(s string, little, bom bool) []byte {
+	data := make([]byte, 0, len(s)*2+2)
+	if bom {
+		if little {
+			data = append(data, 0xff, 0xfe)
+		} else {
+			data = append(data, 0xfe, 0xff)
+		}
+	}
+	for _, r := range s {
+		u := uint16(r)
+		if little {
+			data = append(data, byte(u), byte(u>>8))
+		} else {
+			data = append(data, byte(u>>8), byte(u))
+		}
+	}
+	return data
 }

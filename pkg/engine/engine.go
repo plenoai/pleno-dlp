@@ -82,8 +82,6 @@ type Engine struct {
 	prefilter             *ahocorasick.Matcher
 	detectorIdxByPattern  [][]int
 	lowerBufPool          sync.Pool
-	hitsBufPool           sync.Pool
-	decodeBufPool         sync.Pool
 	sink                  Sink
 	verificationCache     *verificationCache
 	verificationFlights   singleflight.Group
@@ -268,14 +266,6 @@ func (e *Engine) buildPrefilter() {
 	}
 	e.prefilter = ahocorasick.New(patterns)
 	e.detectorIdxByPattern = detectorIdxByPattern
-	e.decodeBufPool.New = func() any {
-		buffer := make([]byte, maxWindowSize)
-		return &buffer
-	}
-	e.hitsBufPool.New = func() any {
-		hits := make([]ahocorasick.Hit, 0, 64)
-		return &hits
-	}
 	e.lowerBufPool.New = func() any {
 		b := make([]byte, 0, 4096)
 		return &b
@@ -300,7 +290,10 @@ func (e *Engine) RunWithStats(ctx context.Context, src sources.Source) (Stats, e
 	start := time.Now()
 	before := e.AggregateStats()
 	e.resetFailures()
-	ch := make(chan *sources.Chunk, e.opts.Concurrency*2)
+	// Keep chunk ownership at the source/worker hand-off. A buffered queue
+	// lets each source worker retain a full chunk while workers are already
+	// holding their own chunks, multiplying peak RSS for large files.
+	ch := make(chan *sources.Chunk)
 
 	var wg sync.WaitGroup
 	for i := 0; i < e.opts.Concurrency; i++ {
@@ -485,21 +478,55 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 	lowerPtr := e.lowerBufPool.Get().(*[]byte)
 	defer e.lowerBufPool.Put(lowerPtr)
 
-	// FullChunkDetector opt-ins see the entire chunk independent of
-	// the windowing loop below. BEGIN/END
-	// anchored regexes don't survive being split across a 32 KiB
-	// window boundary even with overlap, so we pay the per-chunk
-	// regex cost once on the whole chunk for that small set.
-	e.runFullChunkDetectors(ctx, c, archivePath)
+	// Decode once per chunk before slicing windows. Decoding each raw window
+	// independently resets base64/hex run alignment at every boundary and can
+	// lose a credential that starts in an earlier window. The decoded variants
+	// are already owned for the duration of this loop, so detector results do
+	// not need the old scratch-buffer clone path.
+	variants := decoder.Variants(c.Data)
+	for _, v := range variants {
+		if ctx.Err() != nil {
+			return
+		}
+		e.runFullChunkDetectors(ctx, c, v, archivePath)
+		e.scanVariantWindows(ctx, c, v, archivePath, lowerPtr)
+	}
+}
 
-	data := c.Data
+// runFullChunkDetectors dispatches every detector that opted in via
+// FullChunkDetector against the whole chunk in one pass — bypassing
+// both the windowing loop and the vicinity-slice dispatch. The
+// scanVariantWindows path then SKIPs these detectors, so each
+// FullChunk detector emits exactly once per chunk regardless of how
+// many windows the chunk is split into.
+func (e *Engine) runFullChunkDetectors(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string) {
+	if !slices.Contains(e.wantsFull, true) {
+		return
+	}
+	// FullChunkDetector opt-ins see every whole-chunk decoded variant once.
+	// The window path below skips these detectors, preserving the previous
+	// exactly-once-per-variant contract.
+	for di := range e.dets {
+		if !e.wantsFull[di] {
+			continue
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		e.runDetectorOn(ctx, c, v, archivePath, di, v.Data)
+	}
+}
+
+// scanVariantWindows dispatches one already-decoded variant in bounded
+// windows. Keeping decoder state outside this loop preserves encoded-run
+// alignment while retaining the regex work bound for large variants.
+func (e *Engine) scanVariantWindows(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, lowerPtr *[]byte) {
+	data := v.Data
 	if len(data) <= maxWindowSize {
-		e.scanWindow(ctx, c, data, archivePath, lowerPtr)
+		e.dispatch(ctx, c, v, archivePath, lowerPtr)
 		return
 	}
 	for start := 0; start < len(data); start += windowStepSize {
-		// A cancelled scan stops sliding the window; remaining windows
-		// of this chunk go unscanned by design.
 		if ctx.Err() != nil {
 			return
 		}
@@ -507,54 +534,12 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 		if end > len(data) {
 			end = len(data)
 		}
-		e.scanWindow(ctx, c, data[start:end], archivePath, lowerPtr)
+		window := v
+		window.Data = data[start:end]
+		e.dispatch(ctx, c, window, archivePath, lowerPtr)
 		if end == len(data) {
 			break
 		}
-	}
-}
-
-// runFullChunkDetectors dispatches every detector that opted in via
-// FullChunkDetector against the whole chunk in one pass — bypassing
-// both the windowing loop and the vicinity-slice dispatch. The
-// scanWindow path then SKIPs these detectors, so each
-// FullChunk detector emits exactly once per chunk regardless of how
-// many windows the chunk is split into.
-func (e *Engine) runFullChunkDetectors(ctx context.Context, c *sources.Chunk, archivePath string) {
-	if !slices.Contains(e.wantsFull, true) {
-		return
-	}
-	// Decode variants from the whole chunk so an encoded PEM inside a
-	// base64 blob still reaches the detector. Cheap when the chunk
-	// has no candidate runs.
-	variants := decoder.Variants(c.Data)
-	for _, v := range variants {
-		// Stop dispatching full-chunk detectors once the scan is
-		// cancelled — same forfeit-completeness contract as the
-		// windowed dispatch path.
-		if ctx.Err() != nil {
-			return
-		}
-		for di := range e.dets {
-			if !e.wantsFull[di] {
-				continue
-			}
-			e.runDetectorOn(ctx, c, v, archivePath, di, v.Data, false)
-		}
-	}
-}
-
-// scanWindow runs the variant fan-out + dispatch for a single window of
-// chunk bytes.
-func (e *Engine) scanWindow(ctx context.Context, c *sources.Chunk, window []byte, archivePath string, lowerPtr *[]byte) {
-	// Variants[0] is always window unchanged (Source=""). Subsequent
-	// entries are base64/percent/hex decode results, included only when
-	// the window contained candidate runs.
-	scratch := e.decodeBufPool.Get().(*[]byte)
-	defer e.decodeBufPool.Put(scratch)
-	variants := decoder.VariantsWithScratch(window, *scratch)
-	for _, v := range variants {
-		e.dispatch(ctx, c, v, archivePath, lowerPtr)
 	}
 }
 
@@ -584,20 +569,14 @@ const vicinityRadius = 2048
 func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, lowerPtr *[]byte) {
 	lower := lowerCaseInto((*lowerPtr)[:0], v.Data)
 	*lowerPtr = lower
-	hitsPtr := e.hitsBufPool.Get().(*[]ahocorasick.Hit)
-	defer e.hitsBufPool.Put(hitsPtr)
-	hits := e.prefilter.MatchHitsInto(lower, (*hitsPtr)[:0])
-	*hitsPtr = hits
-	if len(hits) == 0 {
-		return
-	}
 	// Group hits by detector: each detector sees the union of its
 	// keyword-hit vicinities. Accumulate start/end byte ranges per
 	// detector, merge overlapping ranges, then run FromData once per
-	// merged range.
-	dets := make(map[int][]vicinitySpan)
+	// merged range. VisitHits preserves the global input order while
+	// avoiding an unbounded hit slice on repeated keywords.
+	var dets map[int][]vicinitySpan
 	var detectorOrder []int
-	for _, h := range hits {
+	e.prefilter.VisitHits(lower, func(h ahocorasick.Hit) {
 		for _, di := range e.detectorIdxByPattern[h.PatternID] {
 			// FullChunkDetector opt-ins are handled once per chunk
 			// by runFullChunkDetectors. Skip them here so they don't
@@ -605,6 +584,9 @@ func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Varia
 			// findings into dedup.
 			if e.wantsFull[di] {
 				continue
+			}
+			if dets == nil {
+				dets = make(map[int][]vicinitySpan)
 			}
 			start := h.End - vicinityRadius
 			if start < 0 {
@@ -624,12 +606,14 @@ func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Varia
 			// they arrive instead of allocating and sorting every occurrence.
 			spans := dets[di]
 			if len(spans) > 0 && start <= spans[len(spans)-1].end {
-				spans[len(spans)-1].end = end
+				if end > spans[len(spans)-1].end {
+					spans[len(spans)-1].end = end
+				}
 			} else {
 				dets[di] = append(spans, vicinitySpan{start, end})
 			}
 		}
-	}
+	})
 	sort.Ints(detectorOrder)
 	for _, di := range detectorOrder {
 		spans := dets[di]
@@ -639,7 +623,7 @@ func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Varia
 			return
 		}
 		for _, sp := range spans {
-			e.runDetectorOn(ctx, c, v, archivePath, di, v.Data[sp.start:sp.end], v.Source == "base64")
+			e.runDetectorOn(ctx, c, v, archivePath, di, v.Data[sp.start:sp.end])
 		}
 	}
 }
@@ -655,7 +639,7 @@ type vicinitySpan struct{ start, end int }
 // see a slice that covers every keyword hit + vicinityRadius bytes on
 // each side, which is the radius the credential regexes are written
 // against.
-func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte, borrowed bool) {
+func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte) {
 	d := e.dets[di]
 	// Verification defaults to unconditional-true: the bool is the
 	// trufflehog Detector contract, not normally a configurable option.
@@ -675,11 +659,6 @@ func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.
 		return
 	}
 	for _, r := range results {
-		if borrowed {
-			// Sinks may retain results after the window scratch is reused.
-			r.Raw = bytes.Clone(r.Raw)
-			r.RawV2 = bytes.Clone(r.RawV2)
-		}
 		if v.Source != "" {
 			if r.ExtraData == nil {
 				r.ExtraData = map[string]string{}

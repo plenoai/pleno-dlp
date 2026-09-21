@@ -43,9 +43,12 @@ var (
 	)
 )
 
-// Match only the suffix of a keyword candidate. The original expressions still
-// decide whether its prefix and value are valid.
-var assignmentTailRe = regexp.MustCompile(`^(?:(?:[^a-z0-9_][^\n=]*)?\s*=|[a-z0-9_]*\s*:)`)
+// Match the complete assignment suffix in one RE2 pass. The previous
+// implementation called an anchored regexp once per keyword occurrence;
+// repeated non-assignments could rescan the same tail quadratically.
+var assignmentHeadRe = regexp.MustCompile(
+	`(?:password|passwd|pwd)(?:(?:[^a-z0-9_][^\n=]*)?\s*=|[a-z0-9_]*\s*:)`,
+)
 
 func hasAssignmentHead(str string) bool {
 	for i := range str {
@@ -55,23 +58,7 @@ func hasAssignmentHead(str string) bool {
 		}
 	}
 	lower := strings.ToLower(str)
-	if strings.Contains(lower, "variable") {
-		return true
-	}
-	for _, keyword := range []string{"password", "passwd", "pwd"} {
-		rest := lower
-		for {
-			i := strings.Index(rest, keyword)
-			if i < 0 {
-				break
-			}
-			rest = rest[i+len(keyword):]
-			if assignmentTailRe.MatchString(rest) {
-				return true
-			}
-		}
-	}
-	return false
+	return strings.Contains(lower, "variable") || assignmentHeadRe.MatchString(lower)
 }
 
 var placeholders = func() map[string]struct{} {

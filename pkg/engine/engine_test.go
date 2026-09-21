@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
@@ -99,6 +100,70 @@ func TestRunWithStats_CountsChunksBytesFindings(t *testing.T) {
 	}
 	if got := sink.Findings(); len(got) != 2 {
 		t.Errorf("sink got %d findings, want 2", len(got))
+	}
+}
+
+type blockedDispatchDetector struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (*blockedDispatchDetector) Type() detectors.DetectorType { return detectors.AWS }
+func (*blockedDispatchDetector) Keywords() []string           { return []string{"trigger"} }
+func (d *blockedDispatchDetector) FromData(context.Context, bool, []byte) ([]detectors.Result, error) {
+	d.once.Do(func() { close(d.entered) })
+	<-d.release
+	return nil, nil
+}
+
+type backpressureSource struct {
+	secondSent chan struct{}
+}
+
+func (*backpressureSource) Init(context.Context, string, int64, int64, bool, []byte, int) error {
+	return nil
+}
+func (*backpressureSource) Type() sources.SourceType { return sources.SourceFilesystem }
+func (s *backpressureSource) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
+	for i := range 2 {
+		select {
+		case ch <- &sources.Chunk{Data: []byte("trigger"), SourceType: sources.SourceFilesystem}:
+			if i == 1 {
+				close(s.secondSent)
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
+func TestRunWithStats_BackpressuresChunkQueue(t *testing.T) {
+	det := &blockedDispatchDetector{entered: make(chan struct{}), release: make(chan struct{})}
+	src := &backpressureSource{secondSent: make(chan struct{})}
+	eng := NewWithDetectors([]detectors.Detector{det}, Options{Concurrency: 1}, &engineRecordingSink{})
+	done := make(chan error, 1)
+	go func() { done <- eng.Run(context.Background(), src) }()
+
+	select {
+	case <-det.entered:
+	case <-time.After(time.Second):
+		t.Fatal("detector did not receive the first chunk")
+	}
+	select {
+	case <-src.secondSent:
+		t.Fatal("source sent a second chunk while the worker was blocked")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(det.release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("run: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("run did not finish after releasing the worker")
 	}
 }
 
@@ -867,6 +932,42 @@ func TestDispatchMergesOrderedHits(t *testing.T) {
 		if !bytes.Equal(findings[i].Result.Raw, want[i]) {
 			t.Fatalf("region %d: got %d bytes, want %d", i, len(findings[i].Result.Raw), len(want[i]))
 		}
+	}
+}
+
+type multiKeywordDet struct {
+	mu    sync.Mutex
+	parts [][]byte
+}
+
+func (*multiKeywordDet) Type() detectors.DetectorType { return detectors.AWS }
+func (*multiKeywordDet) Keywords() []string           { return []string{"zeta", "alpha"} }
+func (d *multiKeywordDet) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	d.mu.Lock()
+	d.parts = append(d.parts, bytes.Clone(data))
+	d.mu.Unlock()
+	return nil, nil
+}
+
+func TestDispatchPreservesOrderAcrossKeywords(t *testing.T) {
+	data := bytes.Repeat([]byte{' '}, 20_000)
+	copy(data[100:], "alpha")
+	copy(data[16_000:], "zeta")
+	detector := &multiKeywordDet{}
+	eng := NewWithDetectors([]detectors.Detector{detector}, Options{Concurrency: 1}, &engineRecordingSink{})
+	if err := eng.Run(context.Background(), &stubSource{chunks: []*sources.Chunk{{Data: data}}}); err != nil {
+		t.Fatal(err)
+	}
+	detector.mu.Lock()
+	defer detector.mu.Unlock()
+	if len(detector.parts) != 2 {
+		t.Fatalf("detector calls = %d, want 2 disjoint keyword regions", len(detector.parts))
+	}
+	if !bytes.Contains(detector.parts[0], []byte("alpha")) || bytes.Contains(detector.parts[0], []byte("zeta")) {
+		t.Fatalf("first region = %q, want alpha only", detector.parts[0])
+	}
+	if !bytes.Contains(detector.parts[1], []byte("zeta")) || bytes.Contains(detector.parts[1], []byte("alpha")) {
+		t.Fatalf("second region = %q, want zeta only", detector.parts[1])
 	}
 }
 

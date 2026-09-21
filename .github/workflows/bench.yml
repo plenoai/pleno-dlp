@@ -16,10 +16,16 @@ on:
       - "cmd/pleno-dlp/cmd/scan.go"
       - "go.mod"
       - "go.sum"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Benchmark suite
+        type: choice
+        options: [all, performance]
+        default: all
   # Weekly, not on every main push: pleno-dlp's own recall only moves
   # when a detector changes (already covered by pull_request above), but
-  # trufflehog/gitleaks release new rule sets independently of this repo
+  # trufflehog/gitleaks/betterleaks release new rule sets independently of this repo
   # — a schedule catches upstream drift on the pinned real-world corpus
   # (leaky-repo is pinned by commit, so this is about the *tools*, not
   # the corpus, changing).
@@ -31,6 +37,7 @@ permissions:
 
 jobs:
   bench:
+    if: inputs.suite != 'performance'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,6 +58,9 @@ jobs:
       - name: make bench and git history smoke
         if: github.event_name == 'pull_request'
         run: make bench bench-git-history
+      - name: performance contract tests
+        if: github.event_name == 'pull_request'
+        run: make bench-performance-contract
       - name: results summary
         run: |
           cat bench/results/results.md >> "$GITHUB_STEP_SUMMARY"
@@ -65,7 +75,7 @@ jobs:
           retention-days: 90
 
   git-history:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.suite != 'performance')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -96,7 +106,11 @@ jobs:
   performance:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        concurrency: [1, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -105,10 +119,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - run: make bench-performance
+      - name: all workload shapes at concurrency ${{ matrix.concurrency }}
+        run: >-
+          make bench-performance
+          BENCH_PERFORMANCE_ARGS="--concurrency ${{ matrix.concurrency }}
+          --runs 7 --warmups 2
+          --out bench/results/performance-${{ matrix.concurrency }}.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: subsystem-performance
-          path: bench/results/performance.json
+          name: subsystem-performance-${{ matrix.concurrency }}
+          path: bench/results/performance-${{ matrix.concurrency }}.json
           retention-days: 90

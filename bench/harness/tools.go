@@ -17,8 +17,9 @@ import (
 // bench/scripts/fetch-tools.sh downloads exactly these versions with a
 // pinned checksum for anyone without a local install (CI's path).
 var pinnedVersion = map[string]string{
-	"trufflehog": "3.96.0",
-	"gitleaks":   "8.30.1",
+	"trufflehog":  "3.97.5",
+	"gitleaks":    "8.30.1",
+	"betterleaks": "1.8.1",
 }
 
 // resolveBinary finds tool's executable: explicit override (the

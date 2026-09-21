@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 
 	"github.com/plenoai/pleno-dlp/pkg/archive"
+	"github.com/plenoai/pleno-dlp/pkg/decoder"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 	"golang.org/x/sync/errgroup"
 )
@@ -23,6 +24,8 @@ import (
 const defaultMaxSizeBytes int64 = 10 * 1024 * 1024 // 10 MiB
 
 const binarySniffLen = 512
+
+const filesystemReadChunk = 1 << 20
 
 func init() {
 	sources.Register(sources.SourceFilesystem, func() sources.Source { return &Source{} })
@@ -376,13 +379,14 @@ func (s *Source) readFile(ctx context.Context, f *os.File, size int64) ([]byte, 
 	if sniffLen > maxInt {
 		sniffLen = maxInt
 	}
-	prefix := make([]byte, int(sniffLen))
-	n, err := io.ReadFull(f, prefix)
+	var sniff [binarySniffLen]byte
+	prefix := sniff[:int(sniffLen)]
+	n, err := readPrefix(f, prefix)
 	prefix = prefix[:n]
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 		return nil, err
 	}
-	if !archive.LooksLikeArchive(prefix) && isBinary(prefix) {
+	if !archive.LooksLikeArchive(prefix) && isBinary(prefix) && !decoder.LooksLikeUTF16Text(prefix) {
 		return nil, nil
 	}
 
@@ -390,11 +394,8 @@ func (s *Source) readFile(ctx context.Context, f *os.File, size int64) ([]byte, 
 	// detects a file that grew after WalkDir and keeps the configured ceiling
 	// intact without letting a raced write allocate an unbounded buffer.
 	capacity := size
-	minRead := int64(bytes.MinRead)
-	if capacity <= maxInt-minRead {
-		capacity += minRead
-	} else {
-		capacity = maxInt
+	if capacity < maxInt {
+		capacity++
 	}
 	if capacity < int64(len(prefix)) {
 		capacity = int64(len(prefix))
@@ -402,17 +403,58 @@ func (s *Source) readFile(ctx context.Context, f *os.File, size int64) ([]byte, 
 	if capacity > limit {
 		capacity = limit
 	}
-	var data bytes.Buffer
-	data.Grow(int(capacity))
-	_, _ = data.Write(prefix)
-	_, err = data.ReadFrom(io.LimitReader(f, limit-int64(len(prefix))))
-	if err != nil {
-		return nil, err
+	data := make([]byte, len(prefix), int(capacity))
+	copy(data, prefix)
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if len(data) == cap(data) {
+			if int64(len(data)) >= limit {
+				return nil, nil
+			}
+			next := int64(cap(data)) * 2
+			if next < int64(cap(data))+32*1024 {
+				next = int64(cap(data)) + 32*1024
+			}
+			if next > limit {
+				next = limit
+			}
+			grown := make([]byte, len(data), int(next))
+			copy(grown, data)
+			data = grown
+		}
+		readBuffer := data[len(data):cap(data)]
+		if len(readBuffer) > filesystemReadChunk {
+			readBuffer = readBuffer[:filesystemReadChunk]
+		}
+		n, err := io.ReadFull(f, readBuffer)
+		data = data[:len(data)+n]
+		if int64(len(data)) > s.cfg.MaxSizeBytes {
+			return nil, nil
+		}
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return data, nil
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
-	if int64(data.Len()) > s.cfg.MaxSizeBytes {
-		return nil, nil
+}
+
+func readPrefix(f *os.File, dst []byte) (int, error) {
+	n := 0
+	for n < len(dst) {
+		read, err := f.Read(dst[n:])
+		n += read
+		if err != nil {
+			return n, err
+		}
+		if read == 0 {
+			return n, io.ErrNoProgress
+		}
 	}
-	return data.Bytes(), nil
+	return n, nil
 }
 
 // excluded returns true when name OR rel matches any exclude glob. We

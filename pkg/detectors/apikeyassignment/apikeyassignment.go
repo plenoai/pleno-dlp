@@ -118,7 +118,17 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		})
 	}
 
-	for _, re := range []*regexp.Regexp{assignEqRe, assignColonRe} {
+	// Avoid running the second full-file regexp when its assignment syntax is
+	// absent. Near-match fixtures are dense in `api_key=` references but can be
+	// megabytes long; a cheap byte scan is enough to skip the colon grammar.
+	res := []*regexp.Regexp{}
+	if strings.Contains(str, "=") {
+		res = append(res, assignEqRe)
+	}
+	if strings.Contains(str, ":") {
+		res = append(res, assignColonRe)
+	}
+	for _, re := range res {
 		for _, m := range re.FindAllStringSubmatch(str, -1) {
 			if len(m) < 2 {
 				continue

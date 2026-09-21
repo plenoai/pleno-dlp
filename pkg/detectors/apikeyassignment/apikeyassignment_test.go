@@ -28,6 +28,14 @@ func TestFromData_IniEqualsForm(t *testing.T) {
 	}
 }
 
+func TestFromData_EqualSyntaxWithoutColonStillMatches(t *testing.T) {
+	data := []byte("noise api_key=3b6311afca5bd8aac647b316704e9c6d\n")
+	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	if len(res) != 1 {
+		t.Fatalf("expected equals assignment without colon to match, got %d: %+v", len(res), res)
+	}
+}
+
 func TestFromData_HyphenAndBareVariants(t *testing.T) {
 	cases := []string{
 		"api-key: 3b6311afca5bd8aac647b316704e9c6d\n",

@@ -12,28 +12,30 @@ benchmarks covered recall and Git history but did not gate these subsystems.
 ## Decision
 
 Keep the existing detector registry and standard-library regular expressions.
-Compile the keyword trie into a compact byte DFA; reuse hit buffers and merge
-ordered vicinity spans while collecting them. Reject impossible candidates
+Compile the keyword trie into a compact byte DFA; visit hits in input order
+and merge vicinity spans without retaining every occurrence. Reject impossible candidates
 using necessary syntax only, leaving the original detector grammar in charge.
 Sniff binary inputs before reading their bodies, preallocate known file sizes,
 and visit validated archive leaves through the existing streaming API.
 Archive extraction retains its cumulative time budget, excluding detection and
-remote verification time. Window Base64 decoding borrows a pooled buffer;
-result bytes are detached before emission. The existing decoder API retains
-owned outputs.
+remote verification time. Decode each chunk once before windowing so Base64
+phase and hex-byte alignment cannot reset at an arbitrary window boundary.
+Decoded outputs remain owned for the complete detector pass.
 
-`make bench-performance` measures five fixed workloads against checksum-pinned
-Gitleaks and TruffleHog. Each primary median must be at most 1.20 times the
-better competitor. Every scan must find every unique canary; when a baseline
+`make bench-performance` measures the input-shape matrix in
+`bench/performance/run.py` against checksum-pinned Gitleaks, TruffleHog, and
+Betterleaks. Both wall-time and peak-RSS medians must be at most 1.20 times the
+best competitor for that metric. Every scan must find every unique canary; when a baseline
 binary is supplied, all pleno-dlp finding signatures must remain identical.
-Metrics are selected before tuning. Both wall time and RSS remain available in
-the raw report even when only one is the task's primary gate.
+Missing coverage, invalid output, timeouts, or incomplete samples invalidate
+acceptance even when the measured cost is low. The earlier five-workload,
+single-metric gate did not establish this contract.
 
 ## Consequences
 
 The DFA spends bounded construction memory to avoid hash lookups per byte.
-Hit buffers are reused across windows; dense keyword input still requires work
-proportional to its matches. Archive callbacks release each scanned entry
+Dense keyword input still requires work proportional to its matches, without
+retaining a hit-sized allocation. Archive callbacks release each scanned entry
 instead of retaining the archive's complete expanded body. Correctness, race,
 CLI and detector-unit checks remain release gates. Machine-sensitive performance
 thresholds run separately on scheduled/manual CI, with raw artifacts retained.

@@ -7,7 +7,7 @@
 
 .PHONY: bench bench-fixtures bench-tools bench-run bench-offline bench-git-history bench-git-history-large bench-clean bench-docsync
 
-# Full reproduction: fresh fixtures, pinned tool binaries, live 3-tool
+# Full reproduction: fresh fixtures, pinned competitor binaries, live
 # re-run against both the synthetic and leaky-repo corpora.
 bench: bench-fixtures bench-tools bench-run
 
@@ -16,9 +16,9 @@ bench: bench-fixtures bench-tools bench-run
 bench-fixtures:
 	go run ./bench/gen -out bench/fixtures/synthetic/generated
 
-# Downloads trufflehog + gitleaks at the versions pinned in
+# Downloads trufflehog + gitleaks + betterleaks at the versions pinned in
 # bench/harness/tools.go (checksum-verified). Skipped automatically by
-# the harness if both are already on $PATH.
+# the harness if the binaries are already on $PATH.
 bench-tools:
 	bash bench/scripts/fetch-tools.sh
 
@@ -90,9 +90,16 @@ opf-native-test: opf-native-lib
 opf-native-clean:
 	rm -rf $(OPF_NATIVE_SRC) $(OPF_NATIVE_CDEPS) bin/pleno-dlp-opf
 
-# Five subsystem gates against both checksum-pinned competitors.
-.PHONY: bench-performance
-bench-performance: bench-tools
-	go build -trimpath -o bench/.tools/pleno-dlp ./cmd/pleno-dlp
+# Contract checks for the performance harness. Keep this separate from the
+# timed gate so pull requests validate the parser and budget logic cheaply.
+.PHONY: bench-performance-contract
+bench-performance-contract:
 	python3 -m unittest discover -s bench/performance
+
+# Workload-shape gates against all checksum-pinned competitors. Each
+# shape records both wall time and peak RSS; BENCH_PERFORMANCE_ARGS may select
+# concurrency, repeat count, and output path without dropping any default task.
+.PHONY: bench-performance
+bench-performance: bench-tools bench-performance-contract
+	go build -trimpath -o bench/.tools/pleno-dlp ./cmd/pleno-dlp
 	python3 bench/performance/run.py --pleno-dlp-bin bench/.tools/pleno-dlp $(BENCH_PERFORMANCE_ARGS) --enforce
