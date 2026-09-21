@@ -44,7 +44,7 @@ var (
 	// expression remains authoritative after this conservative prefilter.
 	assignEqCandidateRe = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(
-			`(?i)api[_-]?key[a-zA-Z0-9_]*\s*=\s*["']?[^"'\n\r${}<>%\[\]{} #]{4}`,
+			`api[_-]?key[a-zA-Z0-9_]*\s*=\s*["']?[^"'\n\r${}<>%\[\]{} #]{4}`,
 		)
 	})
 	assignColonRe = sync.OnceValue(func() *regexp.Regexp {
@@ -65,7 +65,7 @@ func hasEqualCandidate(data []byte) bool {
 			return true
 		}
 	}
-	return assignEqCandidateRe().Match(data)
+	return assignEqCandidateRe().Match(bytes.ToLower(data))
 }
 
 var placeholders = map[string]struct{}{
