@@ -63,10 +63,46 @@ func TestFromData_RejectsKeywordTooFar(t *testing.T) {
 	}
 }
 
-func TestSecretShapeMatchesPreservesGlobalRegexpAlignment(t *testing.T) {
-	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-	run := strings.Repeat(alphabet, 16)
-	data := append([]byte(run), []byte("token=")...)
+func TestSecretShapeMatchesDifferential(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "run lengths",
+			data: shapeLengthFixture([]int{0, 19, 20, 127, 128, 129, 147, 148, 255, 256, 257}),
+		},
+		{
+			name: "non-ASCII",
+			data: append(append(bytes.Repeat([]byte{'A'}, 24), []byte("é")...), bytes.Repeat([]byte{'B'}, 24)...),
+		},
+		{
+			name: "invalid UTF-8",
+			data: append(append(bytes.Repeat([]byte{'A'}, 24), 0xff, 0xfe), bytes.Repeat([]byte{'B'}, 24)...),
+		},
+		{
+			name: "delimiters",
+			data: []byte(strings.Repeat("A", 20) + "=" + strings.Repeat("B", 128) + ":" + strings.Repeat("C", 19) + " " + strings.Repeat("D", 129) + "." + strings.Repeat("E", 20)),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertSecretShapeMatchesRegexp(t, test.data)
+		})
+	}
+}
+
+func shapeLengthFixture(lengths []int) []byte {
+	var data []byte
+	for _, length := range lengths {
+		data = append(data, bytes.Repeat([]byte{'A'}, length)...)
+		data = append(data, '!')
+	}
+	return data
+}
+
+func assertSecretShapeMatchesRegexp(t *testing.T, data []byte) {
+	t.Helper()
 	want := regexp.MustCompile(`[A-Za-z0-9+/_\-]{20,128}`).FindAllIndex(data, -1)
 	got := secretShapeMatches(data)
 	if len(got) != len(want) {

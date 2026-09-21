@@ -74,8 +74,10 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GenericHighEntro
 func (Scanner) Keywords() []string { return keywords }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	matches := secretShapeMatches(data)
-	if len(matches) == 0 {
+	// Keep the cheap no-shape gate before allocating match offsets. A long
+	// allowed-character run without a credential keyword is common source
+	// text and must not materialize every 128-byte candidate.
+	if !hasSecretShapeRun(data) {
 		return nil, nil
 	}
 	lower := strings.ToLower(string(data))
@@ -83,6 +85,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if len(keywordSpans) == 0 {
 		return nil, nil
 	}
+	matches := secretShapeMatches(data)
 
 	out := make([]detectors.Result, 0, len(matches))
 	seen := make(map[string]struct{}, len(matches))
@@ -174,8 +177,8 @@ func nearKeyword(secretStart, secretEnd int, keywordStarts []int) bool {
 // each match anchored at the same byte where the regexp would begin; splitting
 // a run into independent vicinity slices would change the 128-byte match
 // boundaries and therefore the reported secret bytes.
-func secretShapeMatches(data []byte) [][]int {
-	var matches [][]int
+func secretShapeMatches(data []byte) [][2]int {
+	var matches [][2]int
 	runStart := -1
 	for i, c := range data {
 		if isSecretShapeByte(c) {
@@ -190,7 +193,7 @@ func secretShapeMatches(data []byte) [][]int {
 	return appendSecretShapeMatches(matches, runStart, len(data))
 }
 
-func appendSecretShapeMatches(matches [][]int, start, end int) [][]int {
+func appendSecretShapeMatches(matches [][2]int, start, end int) [][2]int {
 	if start < 0 {
 		return matches
 	}
@@ -199,10 +202,25 @@ func appendSecretShapeMatches(matches [][]int, start, end int) [][]int {
 		if matchEnd > end {
 			matchEnd = end
 		}
-		matches = append(matches, []int{start, matchEnd})
+		matches = append(matches, [2]int{start, matchEnd})
 		start = matchEnd
 	}
 	return matches
+}
+
+func hasSecretShapeRun(data []byte) bool {
+	run := 0
+	for _, c := range data {
+		if isSecretShapeByte(c) {
+			run++
+			if run >= secretShapeMinLength {
+				return true
+			}
+			continue
+		}
+		run = 0
+	}
+	return false
 }
 
 func isSecretShapeByte(c byte) bool {
