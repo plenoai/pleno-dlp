@@ -42,6 +42,12 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def go_version(binary):
+    info = subprocess.run(["go", "version", "-m", str(binary)], capture_output=True, text=True)
+    # Some official release binaries do not expose readable Go build metadata.
+    return info.stdout.splitlines()[0].split(": ", 1)[1] if info.returncode == 0 else "unavailable from release binary"
+
+
 def command(tool, binary, path):
     # Same detection-only profile as bench/performance, frozen for this study.
     if tool == "pleno-dlp":
@@ -307,7 +313,7 @@ def main():
     for name, binary in tools.items():
         result["tools"][name] = {"sha256": digest(binary.read_bytes()),
             "version": subprocess.check_output([str(binary), "--version"], stderr=subprocess.STDOUT).decode().strip(),
-            "go_version": subprocess.check_output(["go", "version", "-m", str(binary)], text=True).splitlines()[0].split(": ", 1)[1],
+            "go_version": go_version(binary),
             "command": command(name, binary.name, Path("CORPUS"))}
     for entry in json.loads((HERE / "inventory.json").read_text()):
         repo = entry["repo"]

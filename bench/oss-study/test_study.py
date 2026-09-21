@@ -1,13 +1,21 @@
 """Run with python3 -m unittest discover -s bench/oss-study."""
 from pathlib import Path
+import subprocess
 import unittest
+from unittest.mock import patch
 
 from accuracy import DATA, score
-from study import command, competing_work, safe_path
+from study import command, competing_work, go_version, safe_path
 from report import summarize
 
 
 class StudyTest(unittest.TestCase):
+    def test_release_without_go_build_info_is_still_measurable(self):
+        with patch("study.subprocess.run", return_value=subprocess.CompletedProcess([], 1, "", "not a Go executable")):
+            self.assertEqual(go_version("release"), "unavailable from release binary")
+        with patch("study.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "release: go1.26.8\n", "")):
+            self.assertEqual(go_version("release"), "go1.26.8")
+
     def test_scoring_deduplicates_and_does_not_invent_labels(self):
         labels = {
             ("a", 1): [{"GroundTruth": "T", "Category": "Token"}],

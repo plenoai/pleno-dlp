@@ -70,7 +70,7 @@ def main():
     lines = [
         "# pleno-dlp / TruffleHog 大規模OSS比較レポート",
         "",
-        "計測日: 2026-09-21。対象: pleno-dlp v0.65.0相当のソースビルド / TruffleHog v3.97.5公式バイナリ。",
+        f"計測日（UTC）: {datetime.fromtimestamp(min(times), timezone.utc).date()}。対象: pleno-dlp v0.65.0相当のソースビルド / TruffleHog v3.97.5公式バイナリ。",
         f"性能用50スナップショットと精度用100スナップショットを合わせ、重複を除いて{unique_repos}リポジトリを調べた。",
         "",
         f"50リポジトリの **{summary['files']:,}ファイル・{summary['bytes']/2**30:.2f} GiB** を両ツールで実測した。"
@@ -78,7 +78,7 @@ def main():
         f"速度倍率（TruffleHog時間 ÷ pleno-dlp時間）は **{summary['aggregate_speedup']:.2f}倍** だった。"
         f"pleno-dlpのほうが速いリポジトリは **{summary['pleno_faster_repositories']}/50**、ピークRSSが小さいものは **{summary['pleno_lower_rss_repositories']}/50** だった。",
         "",
-        f"独立したCredDataの100リポジトリでは、正解ラベル付き開始行に限定した再現率はpleno-dlp **{percent(pa['recall_on_labelled_lines'])}**、"
+        f"第三者データセットCredDataの100スナップショットでは、正解ラベル付き開始行に限定した再現率はpleno-dlp **{percent(pa['recall_on_labelled_lines'])}**、"
         f"TruffleHog **{percent(ta['recall_on_labelled_lines'])}**、同じ評価範囲での適合率はそれぞれ **{percent(pa['precision_on_labelled_lines'])}**、"
         f"**{percent(ta['precision_on_labelled_lines'])}** だった。これは秘密値単位の精度や、有効な認証情報の発見率ではない。",
         "",
@@ -100,9 +100,9 @@ def main():
         "- 各回は別プロセス。起動、ファイル読取り、検出、JSONのファイル出力を含む。取得・ビルド・出力の解析は所要時間に含めない。",
         "- 手元のMacで別作業と重なった予備計測は採用しなかった。本計測は別のGitHub Actionsジョブで実施した。0.5秒間隔で他のスキャナーとGoビルド・テストを監視し、競合を検知した試行は破棄・再実行する。ホスト側の物理CPU競合までは制御していない。",
         *([f"- 実行ログ: [GitHub Actions]({results['workflow_run']})。", ""] if results.get('workflow_run') else []),
-        "- 各入力に54バイトの無効なGitHubトークン用ファイルを1個追加し、全実行で検出を確認した。候補件数からこの1件を除いた。",
+        "- 各入力に54バイトの合成GitHubトークン用ファイルを1個追加し、全実行で検出を確認した。候補件数からこの1件を除いた。",
         "- 最新ツリーのソースアーカイブから、1 MiB以下・UTF-8・NULなしの通常ファイルを抽出した。履歴、サブモジュール本体、LFS本体は対象外。GitHubアーカイブのexport-ignoreも適用される。",
-        f"- アーカイブ内の除外: 非通常ファイル {excluded['non_regular']:,}、NULあり {excluded['nul_byte']:,}、非UTF-8 {excluded['non_utf8']:,}、1 MiB超 {excluded['over_1_mib']:,}。条件はこの順で排他的に計数した。",
+        f"- アーカイブ内の除外: 非通常ファイル {excluded['non_regular']:,}、1 MiB超 {excluded['over_1_mib']:,}、NULあり {excluded['nul_byte']:,}、非UTF-8 {excluded['non_utf8']:,}。条件はこの順で排他的に計数した。",
         "- 50件は言語・用途の幅を確保するために選んだ有名プロジェクトで、GitHub全体の無作為標本ではない。検出器の種類・フィルタ・重複排除は各製品の既定設定を使う。",
         f"- vendor等に共通コードを含む。内容SHA-256で重複を除くと **{integrity['unique_file_contents']:,}種類・{integrity['unique_content_bytes']/2**30:.2f} GiB**。測定では実ツリーの重複を残したため、ファイル数を独立標本数として扱わない。測定後の全入力は取得時ハッシュと一致した。",
         f"- 保存した測定サンプルの開始範囲（UTC）: {datetime.fromtimestamp(min(times), timezone.utc).isoformat()} ～ {datetime.fromtimestamp(max(times), timezone.utc).isoformat()}。",
@@ -140,7 +140,8 @@ def main():
         "100件すべてのメタデータ対象ファイルが存在することを確認した。",
         "",
         f"評価単位は同じファイルの同じ開始行。Tを正例、F/Xを負例とし、同じ行の重複候補をまとめた。正負が混在する **{pa.get('ambiguous_lines_excluded', 0)}行** は除外した。"
-        f"評価対象は正例 **{positive:,}行**、負例 **{negative:,}行**。異なる値が同じ行にある場合の個別抽出精度や、複数行の値の開始位置のずれは評価できない。",
+        f"評価対象は正例 **{positive:,}行**、負例 **{negative:,}行**。異なる値が同じ行にある場合の個別抽出精度は評価しない。複数行の値も開始行の完全一致を要求し、別の行で検出した場合は正解に数えない。",
+        "行をまとめたmicro集計であり、ラベルが多いリポジトリほど全体値への影響が大きい。リポジトリごとの均等平均ではない。",
         "両ツールを交互に3回実行し、以下は事前に定めた最初の実行の集計を示す。"
         f"カテゴリ別を含む全集計が3回一致したか: pleno-dlp **{accuracy['tools']['pleno-dlp']['score_stable']}**、TruffleHog **{accuracy['tools']['trufflehog']['score_stable']}**。全反復はaccuracy.jsonに保存した。",
         "",

@@ -4,7 +4,8 @@
 
 This study compares a binary built from pleno-dlp v0.65.0
 (`3c525ce46a98f4eaa88cf27ba53491f25612bf41`) with the official TruffleHog
-v3.97.5 Darwin arm64 release. It does not measure subsequent scanner changes.
+v3.97.5 Linux amd64 release on a GitHub Actions Ubuntu 24.04 runner. It does
+not measure subsequent scanner changes.
 `manifest.json` pins 50 purposefully selected, well-known projects spanning
 systems, infrastructure, web frameworks and scientific computing. This is not
 a random sample of GitHub. Downloads use source archives without Git history.
@@ -23,8 +24,9 @@ peak reported by `/usr/bin/time`; CPU time is user plus system time.
 The initial exploratory pass overlapped other development benchmarks and was
 discarded. The published pass polls the process list every 0.5 seconds, waits
 for other scanner processes and Go builds/tests, and discards a trial if one
-appears during it. The guard does not isolate the OS, browser, thermal state or
-workloads it does not recognize; this remains a development-machine experiment.
+appears during it. The published pass runs in its own GitHub Actions job; the
+guard does not control contention on the underlying physical host or workloads
+it does not recognize.
 Retry counts are stored with each sample. Polling runs in the harness, outside
 the scanner's process RSS and CPU counters, but shares the machine with it.
 
@@ -61,45 +63,52 @@ key. No private-key values enter its public result.
 
 ## Reproduce
 
-Run from the repository root. Git, Go, Python, curl and GitHub CLI are needed;
-`uv` supplies CredData's pinned Python dependency. Allow about 7 GiB of disk
+Run from the repository root on Linux amd64. Git, Go 1.26.8, Python 3.12,
+OpenSSL, curl and GitHub CLI are needed. Allow at least 12 GiB of free disk
 for the selected input and acquisition caches. Raw output stays under the
 gitignored cache, in private files; do not upload it.
 
 ```sh
 mkdir -p bench/.tools/oss-study bench/.cache/oss-study
+chmod 700 bench/.cache/oss-study
 gh release download v3.97.5 --repo trufflesecurity/trufflehog \
-  --pattern trufflehog_3.97.5_darwin_arm64.tar.gz \
+  --pattern trufflehog_3.97.5_linux_amd64.tar.gz \
   --dir bench/.tools/oss-study
-echo 'b4e5fd54aaea368342b226cbea228e7a33898b177598d1d8cd66edb14f87444e  bench/.tools/oss-study/trufflehog_3.97.5_darwin_arm64.tar.gz' | shasum -a 256 -c -
-tar -xzf bench/.tools/oss-study/trufflehog_3.97.5_darwin_arm64.tar.gz \
+echo 'e3d97199c565c37ca6152750197f667e08ae6a1edf5911fbdec168622b28620c  bench/.tools/oss-study/trufflehog_3.97.5_linux_amd64.tar.gz' | sha256sum -c -
+tar -xzf bench/.tools/oss-study/trufflehog_3.97.5_linux_amd64.tar.gz \
   -C bench/.tools/oss-study trufflehog
 
 # Build the measured revision in an isolated worktree; never reset your checkout.
 git worktree add --detach bench/.cache/oss-study/pleno-source \
   3c525ce46a98f4eaa88cf27ba53491f25612bf41
 (cd bench/.cache/oss-study/pleno-source && \
-  go build -o ../../../.tools/oss-study/pleno-dlp ./cmd/pleno-dlp)
+  go build -trimpath -o ../../../.tools/oss-study/pleno-dlp ./cmd/pleno-dlp)
 
 git clone https://github.com/Samsung/CredData.git bench/.cache/oss-study/creddata
 git -C bench/.cache/oss-study/creddata checkout c09c0c52fc6dae4ae5438ae69ba486f9f8059f0d
-python3 bench/oss-study/study.py prepare
-uv run --python 3.12 --with pybase62==1.0.0 python bench/oss-study/accuracy.py prepare
-python3 -m unittest discover -s bench/oss-study
+python3.12 -m venv bench/.cache/oss-study/_venv
+bench/.cache/oss-study/_venv/bin/pip install pybase62==1.0.0
+study_python="$PWD/bench/.cache/oss-study/_venv/bin/python"
+"$study_python" bench/oss-study/study.py prepare
+# Upstream obfuscation warnings may contain values; keep this log private.
+"$study_python" bench/oss-study/accuracy.py prepare >bench/.cache/oss-study/prepare.log 2>&1
+"$study_python" -m unittest discover -s bench/oss-study
 
 # Run serially on an otherwise idle machine.
-python3 bench/oss-study/study.py scan
-python3 bench/oss-study/study.py verify
-python3 bench/oss-study/accuracy.py scan
-uv run --python 3.12 --with pybase62==1.0.0 python bench/oss-study/accuracy.py probe
-python3 bench/oss-study/report.py
+"$study_python" bench/oss-study/study.py scan
+"$study_python" bench/oss-study/accuracy.py scan
+"$study_python" bench/oss-study/accuracy.py probe
+"$study_python" bench/oss-study/study.py verify
+"$study_python" bench/oss-study/report.py
 # Optional static figures (the numeric report requires only the standard library):
-uv run --with matplotlib python bench/oss-study/plot.py
+bench/.cache/oss-study/_venv/bin/pip install matplotlib
+"$study_python" bench/oss-study/plot.py
+"$study_python" bench/oss-study/report.py
 ```
 
 The reproduction overwrites the public aggregate results. Preserve the dated
 snapshot or run in a separate worktree when comparing another machine. On
-Linux, fetch and verify the corresponding TruffleHog release asset instead.
+other platforms, fetch and verify the corresponding TruffleHog release asset.
 Changing the input, binaries or tool flags creates a new comparison.
 
 ## Evidence
@@ -109,6 +118,7 @@ Changing the input, binaries or tool flags creates a new comparison.
 - `results.json`: every timed sample, CPU time, RSS and aggregate detections.
 - `creddata-inventory.json`: all 100 selected repositories and acquisition status.
 - `accuracy.json`: labelled-line confusion matrices and category counts.
+- `pem-probe.json`: generated-key parsing and detection counts, without key values.
 - `summary.json`: derived metrics used in the report.
 
 Sources and findings are not redistributed. CredData source files retain their
