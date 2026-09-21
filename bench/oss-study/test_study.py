@@ -9,11 +9,20 @@ import unittest
 from unittest.mock import patch
 
 from accuracy import DATA, score
-from study import busy, command, competing_work, go_version, prepare_one, safe_path
+from study import busy, check_resume, command, competing_work, go_version, prepare_one, safe_path
 from report import summarize
 
 
 class StudyTest(unittest.TestCase):
+    def test_resume_rejects_changed_input_or_measurement_condition(self):
+        result = {"platform": "macOS-arm64", "cpu_count": 8, "gomaxprocs": 8, "source_commit": "same",
+                  "runs": 3, "warmups": 1, "measurement_condition": "shared load reference",
+                  "input_inventories": [{"repo": "repo", "sha256": "hash"}], "tools": {}}
+        check_resume(result, result)
+        for key, changed in (("measurement_condition", "contention guarded"), ("input_inventories", {"repo": "other"})):
+            with self.assertRaises(AssertionError):
+                check_resume({**result, key: changed}, result)
+
     def test_inventory_counts_materialized_files_after_case_collisions(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

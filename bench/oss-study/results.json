@@ -8052,5 +8052,207 @@
     "webpack/webpack",
     "expressjs/express",
     "nestjs/nest"
+  ],
+  "input_inventories": [
+    {
+      "repo": "torvalds/linux",
+      "sha256": "9e1c590b3f7ee15714d0fb47bbdc6e3881e2ef9ebbe0428a5130076ea7082810"
+    },
+    {
+      "repo": "kubernetes/kubernetes",
+      "sha256": "4298d31c3ab78aa77bc216d5fd6c39d2f8fc5494f13ef1bd536419ceb2d1c455"
+    },
+    {
+      "repo": "microsoft/vscode",
+      "sha256": "872242fd98efd3afbe9f9cc7c89c79485e6337dfb482637808a01444be2a0ae9"
+    },
+    {
+      "repo": "python/cpython",
+      "sha256": "35a6e51d90ac08a22805a85efc82ef361563c5e9630ca0791f93c90210e9d389"
+    },
+    {
+      "repo": "nodejs/node",
+      "sha256": "04865b52f191db9c53bc2c00069f5ebb0ce21bc374a3677990284c1d065a63db"
+    },
+    {
+      "repo": "golang/go",
+      "sha256": "766be3f22528895ab5d97d8471c1dc23ac9d855833de456418f7e68af741ad00"
+    },
+    {
+      "repo": "rust-lang/rust",
+      "sha256": "70be0abf78e15b49fc2b4d639b228a2f35ce032228b9ef076a061cc65e881901"
+    },
+    {
+      "repo": "django/django",
+      "sha256": "ed16aacb519f884a875b7d967c27c990c21a0b12a1545e14e7c56cdc59a098bc"
+    },
+    {
+      "repo": "pallets/flask",
+      "sha256": "0e196795e7b972f5c058672b97c6e61ba21206d026431291bad6745fd042c768"
+    },
+    {
+      "repo": "fastapi/fastapi",
+      "sha256": "64af39fba23bf11592713add3ac6112d48cf79397184261198d55a325637b3a7"
+    },
+    {
+      "repo": "psf/requests",
+      "sha256": "37fc170f1b7791fefdbadd7bde243c7b9977b96bcbd5f61c2b809b7763016d7a"
+    },
+    {
+      "repo": "numpy/numpy",
+      "sha256": "3ccb439d287452be729c285bd91641b2d5854401442fe18ef0dc1c7a9a2c94af"
+    },
+    {
+      "repo": "pandas-dev/pandas",
+      "sha256": "ad46f5376487a2bc39340ca56b9c6e11b945ac08c07b5ed5a06bf791e81cbf58"
+    },
+    {
+      "repo": "scikit-learn/scikit-learn",
+      "sha256": "4a1e6b570f07236372ef4a8584f92c9bd6ffa17f3e131f5ed7adf8845353acdc"
+    },
+    {
+      "repo": "scipy/scipy",
+      "sha256": "bd9865b7fd7cea95e9b2450d2fd42241933af4faf326c0471308bb17d072f675"
+    },
+    {
+      "repo": "facebook/react",
+      "sha256": "9d05afc08c3f45404d610af0e138f92089db35e2fe992b5a42055e5d7e69c3fd"
+    },
+    {
+      "repo": "vuejs/core",
+      "sha256": "4f81e777e9f32ec309dbe8528c29613f1d6cd56dbb4affb280b97f5af50ba583"
+    },
+    {
+      "repo": "sveltejs/svelte",
+      "sha256": "c1aade628246610bdf4ad1078f37acc531e1687611aaf185f6aface339e6071a"
+    },
+    {
+      "repo": "angular/angular",
+      "sha256": "bd1b6a3b214db1511d3fd4937f88733b03a44e39b8f10d3c9c884f58828c0f63"
+    },
+    {
+      "repo": "vitejs/vite",
+      "sha256": "4eca7771167baebbacf5b2583f8df41757eb54a01e324c8419da4d5ed47c1a4e"
+    },
+    {
+      "repo": "webpack/webpack",
+      "sha256": "9a098c9b2dbd16beae02d77a755f9bb98ff14bb7ede93bb59251fc832f11bf45"
+    },
+    {
+      "repo": "expressjs/express",
+      "sha256": "4e6406565e06dea8c85bd39598107f89ed040de41fa7225d524bedf492b8bfa3"
+    },
+    {
+      "repo": "nestjs/nest",
+      "sha256": "8f5427033f8f8e4f17d2ccfa7f346c47c8edfe8c611ff2e39a45cfbbd201f5ac"
+    },
+    {
+      "repo": "denoland/deno",
+      "sha256": "b478ecf2bb28c558a485ca17b1f3a62bd2f9017353e0aa7260dd1d6ae36fdfeb"
+    },
+    {
+      "repo": "oven-sh/bun",
+      "sha256": "d77c95b1e435fffedae65130d8eac62fabbdb253233d9a50647b64300aea4dd5"
+    },
+    {
+      "repo": "rails/rails",
+      "sha256": "230952c3943617a14e80674c7d974820f3e3e9b7a07df1c6dfdd4c851ac83b2b"
+    },
+    {
+      "repo": "laravel/framework",
+      "sha256": "0e9d0f443617a0867a85f00c5ac95afe1060cc7fa13c38e51ffb9a1354800091"
+    },
+    {
+      "repo": "symfony/symfony",
+      "sha256": "9bf00052a83d97ba33b2024022074c653b8b67440c354f76528982a8978fa9fb"
+    },
+    {
+      "repo": "spring-projects/spring-boot",
+      "sha256": "a0f384acacff7564a0a4329679807670de0ba9f316db348d2c06cf6fa8dcdfa2"
+    },
+    {
+      "repo": "elastic/elasticsearch",
+      "sha256": "2b9f66c3448d037b61ea7b8fc19b9562eb4d2b3dc3f6c3d0808e1c45cf39b607"
+    },
+    {
+      "repo": "apache/kafka",
+      "sha256": "0830762242ba9c847ca9136520397313c940b19148ef70009497f1ced56a4085"
+    },
+    {
+      "repo": "apache/spark",
+      "sha256": "7c34509f8e7840a8a31ea4da521a5b7e4f10fe5043d6b5a530397938d06caa5f"
+    },
+    {
+      "repo": "apache/httpd",
+      "sha256": "d315decb1c79c81353b2631b5d0563b1e0f55bca8a108ba90a81d03c59d637b3"
+    },
+    {
+      "repo": "nginx/nginx",
+      "sha256": "ab5bdf48034068aa2ca16a3e195338450e59cbe03d504f9a789b4a31ac11af05"
+    },
+    {
+      "repo": "curl/curl",
+      "sha256": "f2c9aa8434bf60f2e0ee10f6e6cf2a3e0fa62d85ebfbb7b6b8f836e1740853bc"
+    },
+    {
+      "repo": "openssl/openssl",
+      "sha256": "3c6a83bcd41f985ba11d192739dc771207399263a2a15c6d22c679342229f077"
+    },
+    {
+      "repo": "git/git",
+      "sha256": "b1bba447d7529c329a061f01c582b956e6ac50229a0b32a3a33f7b727d8df1df"
+    },
+    {
+      "repo": "redis/redis",
+      "sha256": "be68d3cb2c579b39f3fb32e8993a6a4c19872be2f1a041bc79aadfd007998189"
+    },
+    {
+      "repo": "valkey-io/valkey",
+      "sha256": "f99bf04705b9c50b219b45c3be80403caeb359cf8032eacd8099471e48785240"
+    },
+    {
+      "repo": "postgres/postgres",
+      "sha256": "8154345329de9110816c7f86a82d29ce994b63f755c61113082d2e850ee8efd0"
+    },
+    {
+      "repo": "sqlite/sqlite",
+      "sha256": "47346ab4ffda395a4873b75656917edc2ed32e80e5645cf53870d99dfec61c77"
+    },
+    {
+      "repo": "prometheus/prometheus",
+      "sha256": "dd06ae3163d1ee0f2e9373116540eeae444c72f1c14291d1c87b7711a5558959"
+    },
+    {
+      "repo": "grafana/grafana",
+      "sha256": "51bf55e97d617e1469c76a37d3c6d2abed5759abf8c4ed718b6e9ab83f9f3ead"
+    },
+    {
+      "repo": "envoyproxy/envoy",
+      "sha256": "f0374fdf4deb94ca632e8068e56e51e6e18eaca9bd3cbf9b498fcc5dbc671db4"
+    },
+    {
+      "repo": "caddyserver/caddy",
+      "sha256": "dcc372eafcc89bb44e4fa81eee8b6d3237f774908f2d8b89d0471b223bfd4b97"
+    },
+    {
+      "repo": "moby/moby",
+      "sha256": "5a23f436e8382829a11d75b2d49894235766d2ce399cfd44274c0ba7afb25653"
+    },
+    {
+      "repo": "containerd/containerd",
+      "sha256": "caf7d4d29d6ebdcb71fe4d8b58eecaf4a3f83e236984b15490d5a50f52c01534"
+    },
+    {
+      "repo": "helm/helm",
+      "sha256": "d8264f9dd375c624bbcea4795d981ab14655b30830455138f658dec6aee9a9fe"
+    },
+    {
+      "repo": "ansible/ansible",
+      "sha256": "8962ced42cca9686c4ada3615b5c1d96749738b5d32ec0e3b431908f17499eab"
+    },
+    {
+      "repo": "neovim/neovim",
+      "sha256": "87c2dd6261ef9d9afe6f56382e6925ea8b6cdd98b476e5fa7c070f30e739353a"
+    }
   ]
 }

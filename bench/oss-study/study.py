@@ -271,6 +271,16 @@ def read_records(tool, output):
     return normalized
 
 
+def check_resume(prior, current):
+    # Python versions differ in whether platform() appends the Mach-O suffix.
+    assert prior["platform"].removesuffix("-Mach-O") == current["platform"].removesuffix("-Mach-O"), "resume platform changed"
+    for key in ("cpu_count", "gomaxprocs", "source_commit", "runs", "warmups", "measurement_condition", "input_inventories"):
+        assert prior.get(key) == current[key], f"resume configuration changed: {key}"
+    for tool in current["tools"]:
+        for key in ("sha256", "version", "command"):
+            assert prior["tools"][tool][key] == current["tools"][tool][key], f"resume tool changed: {tool} {key}"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("phase", choices=["prepare", "scan", "verify"])
@@ -317,7 +327,9 @@ def main():
     revision = re.search(r"vcs.revision=([0-9a-f]{40})", build_info)
     if not revision:
         raise ValueError("pleno-dlp binary must contain source revision metadata")
+    inventory = json.loads((HERE / "inventory.json").read_text())
     result = {**environment(), "gomaxprocs": 8,
+              "input_inventories": [{"repo": entry["repo"], "sha256": entry["inventory_sha256"]} for entry in inventory],
               "measurement_condition": "shared load reference" if os.environ.get("OSS_STUDY_ALLOW_CONTENTION") == "1" else "contention guarded",
               "source_commit": revision[1],
               "runs": args.runs, "warmups": 1, "tools": {}, "repositories": {}}
@@ -328,16 +340,10 @@ def main():
             "command": command(name, binary.name, Path("CORPUS"))}
     if args.resume and result_path.exists():
         prior = json.loads(result_path.read_text())
-        # Python versions differ in whether platform() appends the Mach-O suffix.
-        assert prior["platform"].removesuffix("-Mach-O") == result["platform"].removesuffix("-Mach-O"), "resume platform changed"
-        for key in ("cpu_count", "gomaxprocs", "source_commit", "runs", "warmups"):
-            assert prior[key] == result[key], f"resume configuration changed: {key}"
-        for tool in tools:
-            for key in ("sha256", "version", "command"):
-                assert prior["tools"][tool][key] == result["tools"][tool][key], f"resume tool changed: {tool} {key}"
+        check_resume(prior, result)
         result["repositories"] = prior["repositories"]
         result["resumed_repositories"] = list(prior["repositories"])
-    for entry in json.loads((HERE / "inventory.json").read_text()):
+    for entry in inventory:
         repo = entry["repo"]
         if repo in result["repositories"]:
             continue

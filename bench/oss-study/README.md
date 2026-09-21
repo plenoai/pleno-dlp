@@ -127,7 +127,8 @@ snapshot or run in a separate worktree when comparing another machine. On
 other platforms, fetch and verify the corresponding TruffleHog release asset.
 Changing the input, binaries or tool flags creates a new comparison.
 `study.py scan --resume` reuses completed repositories only after checking
-binary hashes, commands, platform and CPU count. `study.py verify` checks
+binary hashes, commands, platform, CPU count, measurement condition and input
+inventory hashes. `study.py verify` checks
 the retained input; CredData scoring also verifies its obfuscated corpus hash.
 
 ## Evidence
