@@ -19,8 +19,8 @@ import (
 	"sync"
 )
 
-// SpillThreshold is the largest value retained in memory by WithSpoolContext
-// and Git binary source streaming. Archive walkers use archiveSpillThreshold.
+// SpillThreshold is the in-memory cutoff for WithSpoolContext and Git object
+// buffering. Archive walkers use archiveSpillThreshold.
 const SpillThreshold int64 = 1 << 20
 
 // Archive walkers spill expanded values earlier because their callers already
