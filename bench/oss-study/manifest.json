@@ -1,0 +1,202 @@
+[
+  {
+    "repo": "torvalds/linux",
+    "commit": "93f51579e7df248780214094418f205253383cc5"
+  },
+  {
+    "repo": "kubernetes/kubernetes",
+    "commit": "7efbf84f8988482e76a0b4f7e96bb8b205700533"
+  },
+  {
+    "repo": "microsoft/vscode",
+    "commit": "923ba2830a8b08c8c83bd3178fdd5d58f326d668"
+  },
+  {
+    "repo": "python/cpython",
+    "commit": "a6ad448237755cfd2d52d6002f7c38f5f67b5ab2"
+  },
+  {
+    "repo": "nodejs/node",
+    "commit": "67a44165dbc46b912f1b3b4c0ca3346f9b6a1765"
+  },
+  {
+    "repo": "golang/go",
+    "commit": "f043823a99a4118989a34afec015d23b5d54d01e"
+  },
+  {
+    "repo": "rust-lang/rust",
+    "commit": "f45772eb69d6ed3cc23be40625411a75f9f32c9d"
+  },
+  {
+    "repo": "django/django",
+    "commit": "dd6f6b1531984823e3dc56740dfa93f3ceb09357"
+  },
+  {
+    "repo": "pallets/flask",
+    "commit": "d73fa1cdcbd8b1465c151db8924ba58b1dd14e35"
+  },
+  {
+    "repo": "fastapi/fastapi",
+    "commit": "50113da16fec53b66b80d75e80a89296de4fa5a5"
+  },
+  {
+    "repo": "psf/requests",
+    "commit": "dae7ef63b4df6eded86637f251fc4e3a06c3b479"
+  },
+  {
+    "repo": "numpy/numpy",
+    "commit": "e5cae0a6e296ee71007016d4cd7af82d1acc52f6"
+  },
+  {
+    "repo": "pandas-dev/pandas",
+    "commit": "db853051c2460f2101d887cd594f869b8028bc40"
+  },
+  {
+    "repo": "scikit-learn/scikit-learn",
+    "commit": "5f2263132d0cef0bf8ea147162c9326c1470eec1"
+  },
+  {
+    "repo": "scipy/scipy",
+    "commit": "a1afb791419e31e82b2286eafe7901f2b67e01cc"
+  },
+  {
+    "repo": "facebook/react",
+    "commit": "59aff3e18cb5b3a336c280bbfa57ec37999511b9"
+  },
+  {
+    "repo": "vuejs/core",
+    "commit": "4ab865a848a1da3d10fb674f857e5fff13094644"
+  },
+  {
+    "repo": "sveltejs/svelte",
+    "commit": "636eaaaa6f064b55072e7d192bb76dc9d8c4516e"
+  },
+  {
+    "repo": "angular/angular",
+    "commit": "7569a02d2961155cc32b9491918bde8ae4c47616"
+  },
+  {
+    "repo": "vitejs/vite",
+    "commit": "9abd99bfdd3117149d6faf87fc37bc9899b1c998"
+  },
+  {
+    "repo": "webpack/webpack",
+    "commit": "bb2c8dd88b81e3add958f330002f968b61914273"
+  },
+  {
+    "repo": "expressjs/express",
+    "commit": "9a34acf03cb818ff3f8bc40e44176e277a25cbb9"
+  },
+  {
+    "repo": "nestjs/nest",
+    "commit": "2dfba680522ddf74ace234f02b4022782c031a71"
+  },
+  {
+    "repo": "denoland/deno",
+    "commit": "abd22074e47c6a5cd14e9e4e84743f084aa5a575"
+  },
+  {
+    "repo": "oven-sh/bun",
+    "commit": "a2b69f7b0618cdcb1b5800247fb17452a31c0eb7"
+  },
+  {
+    "repo": "rails/rails",
+    "commit": "f54d6ac4c70675a0e6a9c3a5ddbb01945d2e828d"
+  },
+  {
+    "repo": "laravel/framework",
+    "commit": "606f3594d5a319d38a7c5dd45cad1233ff648c72"
+  },
+  {
+    "repo": "symfony/symfony",
+    "commit": "838edaa88158e271aa4bac53e74c17c492f540b2"
+  },
+  {
+    "repo": "spring-projects/spring-boot",
+    "commit": "adbbf047320013ee42284d6957293aaf75a56ad7"
+  },
+  {
+    "repo": "elastic/elasticsearch",
+    "commit": "68b97aef647e1b1be97260e9fdc206452e3270c6"
+  },
+  {
+    "repo": "apache/kafka",
+    "commit": "419c082ae8a6740a52cdebe6607e8ffd8311e8be"
+  },
+  {
+    "repo": "apache/spark",
+    "commit": "c250b8e04d88fdeb290dd6b1be711e61b20a20c8"
+  },
+  {
+    "repo": "apache/httpd",
+    "commit": "54730cc725526344aeb340a8eeb990bcbc978d64"
+  },
+  {
+    "repo": "nginx/nginx",
+    "commit": "ef0aa967dce9d30b824d4c839d3579d2a17e0666"
+  },
+  {
+    "repo": "curl/curl",
+    "commit": "d1317b5d4a5c8430133a588fb812d5c5fa327b79"
+  },
+  {
+    "repo": "openssl/openssl",
+    "commit": "63c7eba73dd20e77507472285a8ea2ec582110da"
+  },
+  {
+    "repo": "git/git",
+    "commit": "d38352cd43ab9745686d697872408bc3249a153f"
+  },
+  {
+    "repo": "redis/redis",
+    "commit": "0d6266f2deb9c401b686898e263ebd6fe35bc2b0"
+  },
+  {
+    "repo": "valkey-io/valkey",
+    "commit": "7945915f537b87e35392725b2f4e9de57ba7e2d9"
+  },
+  {
+    "repo": "postgres/postgres",
+    "commit": "d39fda1cc404834781458376173e5293f870e83a"
+  },
+  {
+    "repo": "sqlite/sqlite",
+    "commit": "3a81fb982969439fe0bdf9a0442ce1ba1fa3ace9"
+  },
+  {
+    "repo": "prometheus/prometheus",
+    "commit": "d0f112a9073869b6e12cdf2a00474084d6372c7d"
+  },
+  {
+    "repo": "grafana/grafana",
+    "commit": "b96a727fcc0192993c4d00168a92b82f2754ffc5"
+  },
+  {
+    "repo": "envoyproxy/envoy",
+    "commit": "612692a55cc6115a9d56584ec05d1c1f63e793c4"
+  },
+  {
+    "repo": "caddyserver/caddy",
+    "commit": "128b9e75e0f30e853cb20c9a97ce06f9c9fe90a6"
+  },
+  {
+    "repo": "moby/moby",
+    "commit": "caf672f59abe81f27acba1918f1ab4c65a14802d"
+  },
+  {
+    "repo": "containerd/containerd",
+    "commit": "b0a37b632b22993f9a85ea7583b8ae0102d3d4a2"
+  },
+  {
+    "repo": "helm/helm",
+    "commit": "e9f1921aa53369bd18d87ff39c56a345c767970a"
+  },
+  {
+    "repo": "ansible/ansible",
+    "commit": "1a4c6636245e72e64422f3e83e264f32c304fb65"
+  },
+  {
+    "repo": "neovim/neovim",
+    "commit": "8894b96ec8ea893bc0f9620c99b06070bca4efdb"
+  }
+]
