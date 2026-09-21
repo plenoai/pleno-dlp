@@ -64,7 +64,7 @@ func newGitHubOrderedEmitter(ctx context.Context, n int, downstream Emit) *githu
 					failed := o.err != nil
 					o.mu.Unlock()
 					if failed {
-						item.ack <- o.error()
+						item.ack <- o.error(o.ctx)
 						continue
 					}
 					if err := o.downstream(item.data, item.meta); err != nil {
@@ -96,17 +96,17 @@ func (o *githubOrderedEmitter) EmitContext(ctx context.Context, index int) Emit 
 		select {
 		case o.channels[index] <- item:
 		case <-ctx.Done():
-			return ctx.Err()
+			return o.error(ctx)
 		case <-o.ctx.Done():
-			return o.error()
+			return o.error(o.ctx)
 		}
 		select {
 		case err := <-item.ack:
 			return err
 		case <-ctx.Done():
-			return ctx.Err()
+			return o.error(ctx)
 		case <-o.ctx.Done():
-			return o.error()
+			return o.error(o.ctx)
 		}
 	}
 }
@@ -115,29 +115,30 @@ func (o *githubOrderedEmitter) WaitTurn(ctx context.Context, index int) error {
 	case <-o.unitReady[index]:
 		return nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return o.error(ctx)
 	case <-o.ctx.Done():
-		return o.error()
+		return o.error(o.ctx)
 	}
 }
 func (o *githubOrderedEmitter) Close(index int) error {
 	close(o.channels[index])
 	select {
 	case <-o.unitDone[index]:
-		return o.error()
+		return o.error(o.ctx)
 	case <-o.ctx.Done():
-		return o.error()
+		return o.error(o.ctx)
 	}
 }
-func (o *githubOrderedEmitter) error() error {
+func (o *githubOrderedEmitter) error(ctx context.Context) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.err != nil {
 		return o.err
 	}
-	return o.ctx.Err()
+	return ctx.Err()
 }
-func (o *githubOrderedEmitter) Wait() error { <-o.done; return o.error() }
+
+func (o *githubOrderedEmitter) Wait() error { <-o.done; return o.error(o.ctx) }
 
 const (
 	githubDefaultRepoConcurrency = 1

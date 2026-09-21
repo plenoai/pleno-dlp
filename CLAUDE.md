@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-09-22 | Codex, connector-engineer, qa | Preserve ordered GitHub sink errors across cancellation branches while retaining caller cancellation and deadline errors. |
 | 2026-09-22 | architect, core-engineer, detector-engineer, connector-engineer | Build compact keyword DFA tables without temporary trie maps, borrow buffered archive roots, preallocate bounded gzip bodies, and reject impossible detector candidates while preserving match alignment. |
 | 2026-09-22 | architect, core-engineer, detector-engineer, connector-engineer, qa | Stream large bodies, batch finding-span searches, reduce archive buffers, and preserve source errors and checkpoints; source consumers must handle optional `Chunk.Open` payloads. |
 | 2026-09-22 | Codex, architect | Moved benchmark tooling and research to the private pleno-dlp-reports repository; product builds and tests remain here. |
