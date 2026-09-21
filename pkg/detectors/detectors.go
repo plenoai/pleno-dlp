@@ -111,6 +111,8 @@ const (
 	Zoom
 	Klaviyo
 	// batch 7 — append-only.
+	// Deprecated: AlibabaCloud (aliyun) retired — the only verify endpoint
+	// (ecs.aliyuncs.com) is China-hosted; no live registration remains.
 	AlibabaCloud
 	AzureApp
 	Databricks
@@ -123,6 +125,9 @@ const (
 	Ngrok
 	Opsgenie
 	Snowflake
+	// Deprecated: TencentCloud (tencentcloud) retired — the only verify
+	// endpoint (sts.tencentcloudapi.com) is China-hosted; no live
+	// registration remains.
 	TencentCloud
 	TerraformCloudTeam
 	Zendesk
@@ -675,7 +680,7 @@ const (
 	Workday
 	Qualys
 	// batch 31 — appended in wire-stable order, never reorder. AI / inference
-	// (Nebius, DashScope, ModelScope, Dify, LobeHub), identity (FusionAuth,
+	// (Nebius, Dify, LobeHub), identity (FusionAuth,
 	// Casdoor), DBaaS / search / DB cloud (EdgeDBCloud, PrismaData,
 	// OpenSearchCloud, ChromaCloud), web3 (Biconomy), enterprise (SAPAriba,
 	// OracleNetSuite), CI (TravisCI). LobeHub / FusionAuth / Casdoor /
@@ -684,7 +689,11 @@ const (
 	// per-tenant / per-account value not present in the chunk; verify
 	// only fires when an apiBase override is supplied.
 	Nebius
+	// Deprecated: DashScope (dashscope) retired — verify endpoint
+	// (dashscope.aliyuncs.com) is China-hosted; no live registration remains.
 	DashScope
+	// Deprecated: ModelScope (modelscope) retired — verify endpoint
+	// (api-inference.modelscope.cn) is China-hosted; no live registration remains.
 	ModelScope
 	Dify
 	LobeHub

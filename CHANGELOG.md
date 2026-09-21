@@ -13,6 +13,15 @@ publishing, archives, SLSA provenance, and SBOM generation.
 - GitHub scans can bound each repository history walk with
   `--repo-walk-timeout`; every scan command can write a `--cpu-profile`.
 
+### Removed
+
+- Alibaba Cloud (`aliyun`), Tencent Cloud (`tencentcloud`), DashScope, and
+  ModelScope detectors: their only verify endpoints are China-hosted
+  (`ecs.aliyuncs.com`, `sts.tencentcloudapi.com`, `dashscope.aliyuncs.com`,
+  `api-inference.modelscope.cn`), so verification could send suspected
+  secrets to China. Removed to leave no live egress path to those hosts.
+  Detector-type ordinals stay pinned for wire compatibility.
+
 ### Changed
 
 - Default Git history scans stream bounded native Git patches instead of
