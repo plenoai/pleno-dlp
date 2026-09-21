@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
@@ -45,6 +46,56 @@ func TestGitHubOrderedEmitterSinkFailurePreventsCheckpointAndResumes(t *testing.
 	}
 	if err := run(false); err != nil || checkpoint != 3 {
 		t.Fatalf("resume err=%v checkpoint=%d", err, checkpoint)
+	}
+}
+
+func TestGitHubOrderedEmitterCallerCancellationPreservesSinkError(t *testing.T) {
+	sinkErr := errors.New("sink failed")
+	for _, phase := range []string{"enqueue", "acknowledge", "wait-turn"} {
+		for _, failed := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/sink-failed=%t", phase, failed), func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				// Hold the state between recording a sink failure and canceling
+				// the emitter, so only the caller's cancellation branch is ready.
+				o := &githubOrderedEmitter{
+					ctx:       context.Background(),
+					channels:  []chan githubUnitEmission{make(chan githubUnitEmission)},
+					unitReady: []chan struct{}{make(chan struct{})},
+				}
+				want := context.Canceled
+				if failed {
+					o.err = sinkErr
+					want = sinkErr
+				}
+				if phase == "acknowledge" {
+					go func() {
+						<-o.channels[0]
+						cancel()
+					}()
+				} else {
+					cancel()
+				}
+				var err error
+				if phase == "wait-turn" {
+					err = o.WaitTurn(ctx, 0)
+				} else {
+					err = o.EmitContext(ctx, 0)(nil, sources.Metadata{})
+				}
+				if !errors.Is(err, want) {
+					t.Fatalf("error = %v, want %v", err, want)
+				}
+			})
+		}
+	}
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	o := &githubOrderedEmitter{ctx: context.Background(), channels: []chan githubUnitEmission{nil}, unitReady: []chan struct{}{nil}}
+	if err := o.EmitContext(ctx, 0)(nil, sources.Metadata{}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("emit error = %v, want deadline exceeded", err)
+	}
+	if err := o.WaitTurn(ctx, 0); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("wait error = %v, want deadline exceeded", err)
 	}
 }
 
