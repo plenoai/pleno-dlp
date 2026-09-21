@@ -406,6 +406,22 @@ func TestWalkStreamContextEnforcesInputLimit(t *testing.T) {
 	}
 }
 
+func TestWalkBytesContextEnforcesInputLimit(t *testing.T) {
+	archiveData := buildZip(t, map[string]string{"a": "a"})
+	emitted := false
+	err := WalkBytesContext(context.Background(), "input.zip", archiveData, Limits{MaxInputBytes: int64(len(archiveData) - 1)}, func(StreamEntry) error {
+		emitted = true
+		return nil
+	})
+	var partial *PartialError
+	if !errors.As(err, &partial) || partial.Kind != "max-input-bytes" {
+		t.Fatalf("error=%v, want max-input-bytes", err)
+	}
+	if emitted {
+		t.Fatal("input over the limit emitted an entry")
+	}
+}
+
 func TestWalkStreamContextRejectsOversizedTarMetadataBeforeEmission(t *testing.T) {
 	var buffer bytes.Buffer
 	writer := tar.NewWriter(&buffer)

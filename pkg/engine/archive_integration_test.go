@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
@@ -138,6 +139,18 @@ func TestScanArchive_ExpiredBudgetReportsCoverageFailure(t *testing.T) {
 	eng.scanArchive(context.Background(), &sources.Chunk{SourceName: "expired.zip", Data: buf.Bytes()}, -time.Second)
 	err = eng.takeFailures()
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("coverage error = %v, want context deadline exceeded", err)
+	}
+}
+
+func TestScanArchiveWithPassesBudgetContextToWalker(t *testing.T) {
+	eng := NewWithDetectors(nil, Options{Concurrency: 1}, &engineRecordingSink{})
+	eng.resetFailures()
+	eng.scanArchiveWith(context.Background(), &sources.Chunk{SourceName: "budget.zip"}, 10*time.Millisecond, func(walkCtx context.Context, _ archive.Limits, _ func(archive.StreamEntry) error) error {
+		<-walkCtx.Done()
+		return walkCtx.Err()
+	})
+	if err := eng.takeFailures(); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("coverage error = %v, want context deadline exceeded", err)
 	}
 }

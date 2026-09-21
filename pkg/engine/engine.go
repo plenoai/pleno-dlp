@@ -593,16 +593,24 @@ func readerLooksLikeArchive(reader io.ReaderAt, size int64) (bool, error) {
 // scanArchive visits one validated leaf at a time. The expansion budget excludes
 // detector/verification time, as it did when expansion preceded all detection.
 func (e *Engine) scanArchive(ctx context.Context, c *sources.Chunk, budget time.Duration) {
-	e.scanArchiveReader(ctx, c, bytes.NewReader(c.Data), int64(len(c.Data)), budget)
+	e.scanArchiveWith(ctx, c, budget, func(walkCtx context.Context, limits archive.Limits, visit func(archive.StreamEntry) error) error {
+		return archive.WalkBytesContext(walkCtx, archiveRootName(c), c.Data, limits, visit)
+	})
 }
 
 func (e *Engine) scanArchiveReader(ctx context.Context, c *sources.Chunk, input io.Reader, size int64, budget time.Duration) {
+	e.scanArchiveWith(ctx, c, budget, func(walkCtx context.Context, limits archive.Limits, visit func(archive.StreamEntry) error) error {
+		return archive.WalkStreamContext(walkCtx, archiveRootName(c), input, size, limits, visit)
+	})
+}
+
+func (e *Engine) scanArchiveWith(ctx context.Context, c *sources.Chunk, budget time.Duration, walk func(context.Context, archive.Limits, func(archive.StreamEntry) error) error) {
 	archiveCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	started := time.Now()
 	timer := time.AfterFunc(budget, func() { cancel(context.DeadlineExceeded) })
 	defer timer.Stop()
-	err := archive.WalkStreamContext(archiveCtx, archiveRootName(c), input, size, archive.Limits{
+	err := walk(archiveCtx, archive.Limits{
 		MaxDepth: 3, MaxEntryBytes: 10 << 20, MaxExpandedBytes: 50 << 20, MaxFiles: 1000,
 	}, func(entry archive.StreamEntry) error {
 		if entry.Size < 0 || entry.Size > int64(^uint(0)>>1) {

@@ -114,7 +114,7 @@ func WalkContext(ctx context.Context, rootName string, data []byte, limits Limit
 		return nil, nil
 	}
 	var entries []Entry
-	err := WalkStreamContext(ctx, rootName, bytes.NewReader(data), int64(len(data)), limits, func(entry StreamEntry) error {
+	err := WalkBytesContext(ctx, rootName, data, limits, func(entry StreamEntry) error {
 		body, err := io.ReadAll(entry.Reader)
 		if err != nil {
 			return err
@@ -123,6 +123,13 @@ func WalkContext(ctx context.Context, rootName string, data []byte, limits Limit
 		return nil
 	})
 	return entries, err
+}
+
+// WalkBytesContext validates and expands one archive while borrowing data for
+// the outer archive spool. The callback runs synchronously; callers must keep
+// data unchanged until WalkBytesContext returns.
+func WalkBytesContext(ctx context.Context, rootName string, data []byte, limits Limits, visit func(StreamEntry) error) error {
+	return walkBytesContext(ctx, rootName, data, limits, visit, spoolOptions{threshold: SpillThreshold})
 }
 
 // WalkStreamContext validates and expands one archive, invoking visit in
@@ -161,17 +168,43 @@ func walkStreamContext(ctx context.Context, rootName string, input io.Reader, si
 		rootName = "<archive>"
 	}
 	err := withSpool(ctx, input, size, limits.MaxInputBytes, opts, func(root *spool) error {
-		kind, err := root.kind()
-		if err != nil {
-			return &PartialError{Kind: "corrupt-archive", Entry: rootName, Err: err}
-		}
-		if kind == kindNone {
-			return nil
-		}
-		state := &walkState{ctx: ctx, limits: limits, visit: visit, spool: opts}
-		err = state.walk(rootName, root, 0)
-		return errors.Join(append(state.errs, err)...)
+		return walkRoot(ctx, rootName, root, limits, visit, opts)
 	})
+	return normalizeWalkError(rootName, err)
+}
+
+func walkBytesContext(ctx context.Context, rootName string, data []byte, limits Limits, visit func(StreamEntry) error, opts spoolOptions) error {
+	if visit == nil {
+		return errors.New("archive: nil callback")
+	}
+	limits.withDefaults()
+	if rootName == "" {
+		rootName = "<archive>"
+	}
+	if int64(len(data)) > limits.MaxInputBytes {
+		return normalizeWalkError(rootName, &spoolLimitError{limit: limits.MaxInputBytes})
+	}
+	root := &spool{opts: opts, mem: *bytes.NewBuffer(data), size: int64(len(data))}
+	return normalizeWalkError(rootName, walkRoot(ctx, rootName, root, limits, visit, opts))
+}
+
+func walkRoot(ctx context.Context, rootName string, root *spool, limits Limits, visit func(StreamEntry) error, opts spoolOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	kind, err := root.kind()
+	if err != nil {
+		return &PartialError{Kind: "corrupt-archive", Entry: rootName, Err: err}
+	}
+	if kind == kindNone {
+		return nil
+	}
+	state := &walkState{ctx: ctx, limits: limits, visit: visit, spool: opts}
+	err = state.walk(rootName, root, 0)
+	return errors.Join(append(state.errs, err)...)
+}
+
+func normalizeWalkError(rootName string, err error) error {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
