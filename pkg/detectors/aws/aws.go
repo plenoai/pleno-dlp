@@ -36,7 +36,7 @@ import (
 // AKIA[0-9A-Z]{16} is the canonical access-key-id shape. ASIA covers temporary
 // credentials but is intentionally out of scope for the MVP.
 var (
-	idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(AKIA[0-9A-Z]{16})\b`) })
+	idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`AKIA[0-9A-Z]{16}\b`) })
 	// Secret access key: 40 chars from the base64-ish set. The boundary `\b`
 	// would treat `+` and `/` as boundaries, so we anchor with a negative
 	// lookbehind-equivalent via byte class on the surrounding chars manually.
@@ -84,7 +84,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AWS }
 func (Scanner) Keywords() []string { return []string{"AKIA"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	idMatches := idRe().FindAllSubmatchIndex(data, -1)
+	idMatches := detectors.FindAllLeftWordBoundary(idRe(), data)
 	if len(idMatches) == 0 {
 		return nil, nil
 	}
@@ -95,8 +95,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 
 	results := make([]detectors.Result, 0, len(idMatches))
 	for _, m := range idMatches {
-		id := string(data[m[2]:m[3]])
-		secret, ok := nearestSecret(m[2], data, secretMatches)
+		id := string(data[m[0]:m[1]])
+		secret, ok := nearestSecret(m[0], data, secretMatches)
 		extra := map[string]string{"access_key_id": id}
 		res := detectors.Result{
 			DetectorType: detectors.AWS,

@@ -17,7 +17,9 @@ var apiBase = "https://api.github.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Fine-grained PAT layout: github_pat_<22 base62>_<59 base62>
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(github_pat_[A-Za-z0-9_]{82})\b`) })
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`github_pat_[A-Za-z0-9_]{82}\b`) })
+
+const fineGrainedTokenLen = len("github_pat_") + 82
 
 type Scanner struct{}
 
@@ -26,14 +28,17 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GitHubFineGraine
 func (Scanner) Keywords() []string { return []string{"github_pat_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe().FindAllSubmatchIndex(data, -1)
+	if len(data) < fineGrainedTokenLen {
+		return nil, nil
+	}
+	hits := detectors.FindAllLeftWordBoundary(tokenRe(), data)
 	if len(hits) == 0 {
 		return nil, nil
 	}
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
 	for _, h := range hits {
-		token := string(data[h[2]:h[3]])
+		token := string(data[h[0]:h[1]])
 		if _, dup := seen[token]; dup {
 			continue
 		}

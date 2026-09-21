@@ -14,15 +14,28 @@ benchmarks covered recall and Git history but did not gate these subsystems.
 Keep the existing detector registry and standard-library regular expressions.
 Initialize detector regexes with `sync.OnceValue` on first use, so keyword
 dispatch does not require compiling unrelated providers at process startup.
-Compile the keyword trie into a compact byte DFA; visit hits in input order
-and merge vicinity spans without retaining every occurrence. Reject impossible candidates
+Compile the keyword trie into a byte DFA with no unused alphabet columns;
+visit hits in input order and merge vicinity spans without retaining every
+occurrence. Reject impossible candidates
 using necessary syntax only, leaving the original detector grammar in charge.
-Sniff binary inputs before reading their bodies, preallocate known file sizes,
-and visit validated archive leaves through the existing streaming API.
+Sniff binary inputs before reading their bodies. Files above 1 MiB expose
+`Chunk.Open`, returning a replayable reader that the engine opens and closes
+inside its worker. Consumers of `Source.Chunks` must handle this optional
+payload; existing sources may continue supplying `Chunk.Data`.
+Visit validated archive leaves through the existing streaming API.
 Archive extraction retains its cumulative time budget, excluding detection and
-remote verification time. Decode each chunk once before windowing so Base64
-phase and hex-byte alignment cannot reset at an arbitrary window boundary.
-Decoded outputs remain owned for the complete detector pass.
+remote verification time. Decode complete runs or variants before windowing so
+Base64 phase, hex-byte alignment, and printability decisions cannot reset at
+an arbitrary window boundary. Large decoded variants use 0600 temporary files
+removed after their synchronous detector pass, including error paths.
+
+`ReaderDetector` lets whole-content secret detectors consume replayable inputs
+without retaining unrelated bytes. External detectors without this optional
+method retain their existing `FromData` semantics. Disabled PII detectors do
+not read the input; enabled PII detectors still receive the complete variant.
+Finding byte spans refer to the original input, even when detector windows
+reuse their buffers. A source read or close failure prevents the CLI from
+advancing its durable incremental checkpoint.
 
 `make bench-performance` measures the input-shape matrix in
 `bench/performance/run.py` against checksum-pinned Gitleaks, TruffleHog, and
@@ -38,7 +51,10 @@ single-metric gate did not establish this contract.
 The DFA spends bounded construction memory to avoid hash lookups per byte.
 Dense keyword input still requires work proportional to its matches, without
 retaining a hit-sized allocation. Archive callbacks release each scanned entry
-instead of retaining the archive's complete expanded body. Correctness, race,
+instead of retaining the archive's complete expanded body. Whole-content
+fallbacks and the actual secret bytes required by findings still consume memory
+proportional to their input or output; this is not a universal constant-memory
+guarantee. Correctness, race,
 CLI and detector-unit checks remain release gates. Machine-sensitive performance
 thresholds run separately on scheduled/manual CI, with raw artifacts retained.
 These controlled synthetic workloads do not establish general recall parity

@@ -54,5 +54,6 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-09-22 | architect, core-engineer, detector-engineer, connector-engineer, qa | Stream large filesystem and decoded bodies, retain original finding spans, and preserve checkpoints on deferred read failures; consumers must support `Chunk.Open` ([ADR-0006](docs/adr/0006-performance-budgets.md)). |
 | 2026-09-21 | architect, core-engineer, detector-engineer, connector-engineer, qa | Repair encoded-input coverage, lazily compile detector regexes, and enforce time plus RSS across 34 input shapes against three scanners; [contract](docs/performance.md). |
 | 2026-09-21 | architect, core-engineer, detector-engineer, connector-engineer, qa | Five subsystem performance budgets and scanner allocation reductions; [method and evidence](docs/performance.md). |

@@ -37,6 +37,7 @@ package privatekey
 import (
 	"context"
 	"errors"
+	"io"
 	"regexp"
 	"strconv"
 	"strings"
@@ -111,6 +112,25 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		out = append(out, res)
 	}
 	return out, nil
+}
+
+// FromReader finds complete PEM records without retaining the surrounding
+// file. The shared reader matcher keeps invalid or unterminated candidates
+// streaming, then allocates only the complete PEM bytes needed by deriveResult.
+func (s Scanner) FromReader(ctx context.Context, verify bool, r io.ReaderAt, size int64) ([]detectors.Result, error) {
+	var out []detectors.Result
+	err := detectors.ForEachReaderPrefixedSubmatch(ctx, r, size, blockRe(), []byte("-----BEGIN "), []int{0}, func(match [][]byte) error {
+		if len(match) == 0 {
+			return nil
+		}
+		res := s.deriveResult(match[0])
+		if verify {
+			s.applyCTLookup(ctx, &res)
+		}
+		out = append(out, res)
+		return nil
+	})
+	return out, err
 }
 
 // Verify is the Verifier-interface entry point used by callers that
@@ -286,3 +306,5 @@ func stringOrUnknown(s string) string {
 func init() {
 	detectors.Register(Scanner{})
 }
+
+var _ detectors.ReaderDetector = Scanner{}

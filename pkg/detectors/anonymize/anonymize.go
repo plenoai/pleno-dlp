@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -102,6 +103,25 @@ func (Scanner) Keywords() []string { return keywords }
 // as openaipf.Scanner: NER finds PII anywhere in prose, not only within
 // ±vicinityRadius of a keyword hit.
 func (Scanner) WantsFullChunk() bool { return true }
+
+// FromReader skips disabled analyzers before allocating their full input.
+// Enabled analyzers retain the whole-content FromData contract.
+func (s Scanner) FromReader(ctx context.Context, verify bool, r io.ReaderAt, size int64) ([]detectors.Result, error) {
+	if fetchAnalyzer() == nil || size == 0 {
+		return nil, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if r == nil || size < 0 || uint64(size) > uint64(^uint(0)>>1) {
+		return nil, fmt.Errorf("anonymize: invalid reader size")
+	}
+	data := make([]byte, int(size))
+	if _, err := io.ReadFull(io.NewSectionReader(r, 0, size), data); err != nil {
+		return nil, err
+	}
+	return s.FromData(ctx, verify, data)
+}
 
 // FromData runs the chunk through the registered Analyzer and maps
 // each returned Finding to a detectors.Result.

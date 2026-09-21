@@ -135,9 +135,9 @@ func toJSONRecord(f engine.Finding) jsonRecord {
 	return rec
 }
 
-// rawSpan locates Result.Raw inside the chunk data and returns the
-// [start, end) byte offsets. nil when Raw is empty or absent from the
-// chunk — the field pair is omitted rather than emitting a wrong span.
+// rawSpan uses the engine's replayable-input span or locates Result.Raw in
+// the chunk data, returning [start, end) byte offsets. The fields are omitted
+// when Raw is empty or absent from the chunk.
 // First-occurrence semantics: a secret repeated in one chunk reports
 // the first copy's offsets; engine dedup keys on Raw so consumers
 // treat all copies as one finding anyway.
@@ -145,6 +145,9 @@ func rawSpan(f engine.Finding) (*int, *int) {
 	raw := f.Result.Raw
 	if len(raw) == 0 || f.Chunk == nil {
 		return nil, nil
+	}
+	if f.RawSpan != nil {
+		return &f.RawSpan[0], &f.RawSpan[1]
 	}
 	start := bytes.Index(f.Chunk.Data, raw)
 	if start < 0 {
