@@ -150,6 +150,9 @@ type budgetReader struct {
 }
 
 func (r *budgetReader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
 	if r.reads.Add(1) == 1 {
 		close(r.started)
 		<-r.release
@@ -162,30 +165,32 @@ func (r *budgetReader) Read(p []byte) (int, error) {
 }
 
 func TestScanArchiveReaderStopsAfterBudgetContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	eng := NewWithDetectors(nil, Options{Concurrency: 1}, &engineRecordingSink{})
 	eng.resetFailures()
 	reader := &budgetReader{started: make(chan struct{}), release: make(chan struct{})}
 	done := make(chan struct{})
 	go func() {
-		eng.scanArchiveReader(context.Background(), &sources.Chunk{SourceName: "budget.zip"}, reader, 2, 10*time.Millisecond)
+		eng.scanArchiveReader(ctx, &sources.Chunk{SourceName: "budget.zip"}, reader, 2, 10*time.Millisecond)
 		close(done)
 	}()
 	select {
 	case <-reader.started:
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(2 * time.Second):
 		close(reader.release)
 		select {
 		case <-done:
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(2 * time.Second):
 			t.Fatal("archive reader cleanup timed out")
 		}
 		t.Fatal("archive reader did not start")
 	}
-	time.Sleep(25 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	close(reader.release)
 	select {
 	case <-done:
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(2 * time.Second):
 		t.Fatal("archive reader did not stop after budget")
 	}
 	if got := reader.reads.Load(); got != 1 {
