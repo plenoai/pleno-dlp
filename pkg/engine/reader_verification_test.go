@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync/atomic"
 	"testing"
 
+	"github.com/plenoai/pleno-dlp/pkg/decoder"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
@@ -199,5 +201,221 @@ func TestReaderNormalizedRawPreservesOriginalLineWhenRawIsAbsent(t *testing.T) {
 		if want != base || got != want {
 			t.Fatalf("base=%d: buffered line=%d streamed line=%d", base, want, got)
 		}
+	}
+}
+
+type countingReaderAt struct {
+	reader io.ReaderAt
+	calls  atomic.Int64
+	bytes  atomic.Int64
+}
+
+func (r *countingReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	r.calls.Add(1)
+	r.bytes.Add(int64(len(p)))
+	return r.reader.ReadAt(p, off)
+}
+
+func TestStreamMatchBatchBoundsDistinctRawReadAmplification(t *testing.T) {
+	const (
+		size  = 2 << 20
+		count = 512
+	)
+	data := bytes.Repeat([]byte{' '}, size)
+	raws := make([][]byte, count+1)
+	for i := 0; i < count; i++ {
+		raws[i] = []byte(fmt.Sprintf("BATCH_TOKEN_%03d", i))
+		copy(data[i*(size/count):], raws[i])
+	}
+	raws[count] = []byte("BATCH_TOKEN_MISSING")
+	reader := &countingReaderAt{reader: bytes.NewReader(data)}
+	cache := newStreamMatchCache(reader, int64(len(data)))
+	if err := cache.resolve(context.Background(), raws); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if reader.bytes.Load() >= 3<<20 || reader.calls.Load() > 40 {
+		t.Fatalf("batched reads: calls=%d bytes=%d, want bounded near one source pass", reader.calls.Load(), reader.bytes.Load())
+	}
+	t.Logf("batched reads: calls=%d bytes=%d", reader.calls.Load(), reader.bytes.Load())
+	for i, raw := range raws[:count] {
+		match, ok := cache.lookup(raw)
+		want := int64(i * (size / count))
+		if !ok || !match.found || match.offset != want {
+			t.Fatalf("raw %q = %#v/%v, want offset %d", raw, match, ok, want)
+		}
+	}
+	missing, ok := cache.lookup(raws[count])
+	if !ok || missing.found || missing.offset != -1 {
+		t.Fatalf("missing raw = %#v/%v, want cached negative result", missing, ok)
+	}
+	readsAfterFirst := reader.bytes.Load()
+	if err := cache.resolve(context.Background(), raws); err != nil {
+		t.Fatalf("cached resolve: %v", err)
+	}
+	if reader.bytes.Load() != readsAfterFirst {
+		t.Fatalf("negative/positive cache was bypassed: bytes before=%d after=%d", readsAfterFirst, reader.bytes.Load())
+	}
+}
+
+func TestStreamMatchBatchFindsRawAcrossReadBlockBoundary(t *testing.T) {
+	const size = 2 * (64 << 10)
+	data := bytes.Repeat([]byte("x\n"), size/2)
+	raw := []byte("BATCH_BOUNDARY_TOKEN")
+	offset := (64 << 10) - 3
+	copy(data[offset:], raw)
+	reader := bytes.NewReader(data)
+	cache := newStreamMatchCache(reader, int64(len(data)))
+	if err := cache.resolve(context.Background(), [][]byte{raw}); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	match, ok := cache.lookup(raw)
+	wantLines := bytes.Count(data[:offset], []byte{'\n'})
+	if !ok || !match.found || match.offset != int64(offset) || match.newlineCount != wantLines {
+		t.Fatalf("boundary match = %#v/%v, want offset=%d lines=%d", match, ok, offset, wantLines)
+	}
+}
+
+type failingReaderAt struct{ err error }
+
+func (r failingReaderAt) ReadAt([]byte, int64) (int, error) { return 0, r.err }
+
+func streamBatchTestFinding(line int) Finding {
+	return Finding{
+		Result: detectors.Result{DetectorType: detectors.AWS, Raw: []byte("batch-partial-token")},
+		Chunk: &sources.Chunk{
+			SourceType: sources.SourceFilesystem,
+			SourceMetadata: sources.Metadata{
+				Filesystem: &sources.FilesystemMeta{Path: "/fixture/batch.txt", Line: line},
+			},
+		},
+		Detector: detectors.AWS,
+	}
+}
+
+func TestStreamFindingBatchEmitsFindingWhenSpanReadFails(t *testing.T) {
+	readErr := errors.New("span read failed")
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors(nil, Options{Concurrency: 1}, sink)
+	eng.resetFailures()
+	cache := newStreamMatchCache(failingReaderAt{err: readErr}, 1)
+	batch := &streamFindingBatch{}
+	batch.append(streamBatchTestFinding(3))
+	chunk := batch.findings[0].finding.Chunk
+	batch.flush(context.Background(), eng, chunk, cache)
+	findings := sink.Findings()
+	if len(findings) != 1 || string(findings[0].Result.Raw) != "batch-partial-token" || findings[0].RawSpan != nil {
+		t.Fatalf("partial findings = %#v, want one unspanned finding", findings)
+	}
+	var degraded *DegradedError
+	if err := eng.takeFailures(); !errors.As(err, &degraded) || !errors.Is(err, readErr) {
+		t.Fatalf("span failure = %v, want source degradation wrapping read error", err)
+	}
+}
+
+func TestStreamFindingBatchEmitsFindingAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors(nil, Options{Concurrency: 1}, sink)
+	eng.resetFailures()
+	cache := newStreamMatchCache(bytes.NewReader([]byte("batch-partial-token")), int64(len("batch-partial-token")))
+	batch := &streamFindingBatch{}
+	batch.append(streamBatchTestFinding(0))
+	chunk := batch.findings[0].finding.Chunk
+	batch.flush(ctx, eng, chunk, cache)
+	findings := sink.Findings()
+	if len(findings) != 1 || findings[0].RawSpan != nil || findings[0].Chunk.SourceMetadata.Filesystem.Line != 0 {
+		t.Fatalf("cancelled findings = %#v, want one original-line unspanned finding", findings)
+	}
+	if err := eng.takeFailures(); err != nil {
+		t.Fatalf("cancellation recorded as source failure: %v", err)
+	}
+}
+
+type windowOwnedRawDetector struct{}
+
+func (*windowOwnedRawDetector) Type() detectors.DetectorType { return detectors.AWS }
+
+func (*windowOwnedRawDetector) Keywords() []string { return []string{"owned-stream-token"} }
+
+func (*windowOwnedRawDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	return []detectors.Result{{DetectorType: detectors.AWS, Raw: data}}, nil
+}
+
+func TestStreamFindingBatchOwnsWindowRawBeforeFlush(t *testing.T) {
+	data := append([]byte("owned-stream-token"), bytes.Repeat([]byte{'x'}, 2*maxWindowSize)...)
+	chunk := lazyReaderChunk(data, "/fixture/window-owned.txt")
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{&windowOwnedRawDetector{}}, Options{Concurrency: 1}, sink)
+	if _, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{chunk}}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	findings := sink.Findings()
+	if len(findings) != 1 || !bytes.HasPrefix(findings[0].Result.Raw, []byte("owned-stream-token")) {
+		t.Fatalf("owned stream raw = %#v, want one token-prefixed finding", findings)
+	}
+	if findings[0].RawSpan == nil || findings[0].RawSpan[0] != 0 {
+		t.Fatalf("owned stream span = %#v, want first source offset", findings[0].RawSpan)
+	}
+}
+
+func TestStreamFindingBatchOwnsExtraDataBeforeFlush(t *testing.T) {
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{&normalizedRawDetector{}}, Options{Concurrency: 1}, sink)
+	data := []byte("metadata-token metadata-token")
+	cache := newStreamMatchCache(bytes.NewReader(data), int64(len(data)))
+	batch := &streamFindingBatch{}
+	cache.pending = batch
+	chunk := &sources.Chunk{
+		SourceType: sources.SourceFilesystem,
+		SourceMetadata: sources.Metadata{
+			Filesystem: &sources.FilesystemMeta{Path: "/fixture/metadata.txt", Line: 1},
+		},
+	}
+	shared := map[string]string{"marker": "first"}
+	result := detectors.Result{
+		DetectorType: detectors.AWS,
+		Raw:          []byte("metadata-token"),
+		ExtraData:    shared,
+	}
+	eng.emitDetectorResult(context.Background(), chunk, decoder.Variant{}, "", 0, true, result, cache)
+	shared["marker"] = "second"
+	eng.emitDetectorResult(context.Background(), chunk, decoder.Variant{}, "", 0, true, result, cache)
+	cache.pending = nil
+	batch.flush(context.Background(), eng, chunk, cache)
+
+	findings := sink.Findings()
+	if len(findings) != 2 {
+		t.Fatalf("findings=%d, want 2", len(findings))
+	}
+	if got := findings[0].Result.ExtraData["marker"]; got != "first" {
+		t.Fatalf("first ExtraData marker=%q, want first", got)
+	}
+	if got := findings[1].Result.ExtraData["marker"]; got != "second" {
+		t.Fatalf("second ExtraData marker=%q, want second", got)
+	}
+}
+
+func TestStreamFindingBatchFlushesAtLimitAndReusesSpanCache(t *testing.T) {
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{&normalizedRawDetector{}}, Options{Concurrency: 1}, sink)
+	raw := []byte("batch-limit-token")
+	cache := newStreamMatchCache(bytes.NewReader(raw), int64(len(raw)))
+	batch := &streamFindingBatch{}
+	cache.pending = batch
+	chunk := &sources.Chunk{SourceType: sources.SourceFilesystem}
+	for i := 0; i < streamFindingBatchLimit+1; i++ {
+		eng.emitDetectorResult(context.Background(), chunk, decoder.Variant{}, "", 0, true, detectors.Result{
+			DetectorType: detectors.AWS,
+			Raw:          raw,
+		}, cache)
+	}
+	if got := len(sink.Findings()); got != streamFindingBatchLimit {
+		t.Fatalf("findings before final flush=%d, want %d", got, streamFindingBatchLimit)
+	}
+	cache.pending = nil
+	batch.flush(context.Background(), eng, chunk, cache)
+	if got := len(sink.Findings()); got != streamFindingBatchLimit+1 {
+		t.Fatalf("findings after final flush=%d, want %d", got, streamFindingBatchLimit+1)
 	}
 }

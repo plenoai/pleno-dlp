@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"reflect"
 	"slices"
 	"sort"
@@ -103,9 +104,10 @@ type streamMatch struct {
 }
 
 type streamMatchCache struct {
-	reader io.ReaderAt
-	size   int64
-	values map[string]streamMatch
+	reader  io.ReaderAt
+	size    int64
+	values  map[string]streamMatch
+	pending *streamFindingBatch
 }
 
 func newStreamMatchCache(reader io.ReaderAt, size int64) *streamMatchCache {
@@ -113,6 +115,63 @@ func newStreamMatchCache(reader io.ReaderAt, size int64) *streamMatchCache {
 		return nil
 	}
 	return &streamMatchCache{reader: reader, size: size, values: make(map[string]streamMatch)}
+}
+
+type streamPendingFinding struct {
+	finding Finding
+	raw     []byte
+}
+
+type streamFindingBatch struct {
+	findings      []streamPendingFinding
+	resolveFailed bool
+}
+
+func (b *streamFindingBatch) append(finding Finding) {
+	if b == nil {
+		return
+	}
+	b.findings = append(b.findings, streamPendingFinding{
+		finding: finding,
+		raw:     finding.Result.Raw,
+	})
+}
+
+func (b *streamFindingBatch) flush(ctx context.Context, e *Engine, c *sources.Chunk, cache *streamMatchCache) {
+	if b == nil || len(b.findings) == 0 {
+		return
+	}
+	if !b.resolveFailed {
+		raws := make([][]byte, 0, len(b.findings))
+		for _, pending := range b.findings {
+			raws = append(raws, pending.raw)
+		}
+		resolveErr := cache.resolve(ctx, raws)
+		if resolveErr != nil {
+			b.resolveFailed = true
+			if ctx.Err() == nil {
+				e.recordFailure(ScanFailure{Kind: FailureSource, Source: archiveFailureSource(c), Err: resolveErr})
+			}
+		}
+	}
+	for i := range b.findings {
+		pending := &b.findings[i]
+		if match, ok := cache.lookup(pending.raw); ok && match.found {
+			if hasSourceLine(pending.finding.Chunk) {
+				base := sourceLine(pending.finding.Chunk)
+				if base <= 0 {
+					base = 1
+				}
+				pending.finding.Chunk = chunkForFinding(pending.finding.Chunk, base+match.newlineCount, true)
+			}
+			if uint64(match.offset) <= uint64(^uint(0)>>1)-uint64(len(pending.raw)) {
+				start := int(match.offset)
+				pending.finding.RawSpan = &[2]int{start, start + len(pending.raw)}
+			}
+		}
+		e.sink.Emit(pending.finding)
+	}
+	b.findings = b.findings[:0]
 }
 
 func (c *streamMatchCache) match(ctx context.Context, raw []byte) (streamMatch, error) {
@@ -129,6 +188,64 @@ func (c *streamMatchCache) match(ctx context.Context, raw []byte) (streamMatch, 
 		c.values[key] = match
 	}
 	return match, err
+}
+
+func (c *streamMatchCache) lookup(raw []byte) (streamMatch, bool) {
+	if c == nil || len(raw) == 0 {
+		return streamMatch{offset: -1}, false
+	}
+	match, ok := c.values[string(raw)]
+	return match, ok
+}
+
+const streamBatchMaxRaw = 32 << 10
+
+// Keep detector output bounded while retaining enough findings to resolve
+// their raw spans in one pass. The cache survives each flush, so repeated raw
+// values do not cause another source read; a reader failure also stops retrying
+// for the rest of this variant after the first reported error. A variant with
+// more distinct raw values than the limit can require another bounded pass;
+// that CPU/read cost follows emitted finding diversity rather than source size.
+const streamFindingBatchLimit = 1024
+
+// resolve finds all short, uncached raw values in one bounded forward pass.
+// Long values keep the exact single-pattern fallback because making the block
+// overlap as large as an arbitrary detector result would defeat the stream
+// memory bound.
+func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte) error {
+	if c == nil {
+		return nil
+	}
+	short := make(map[string]struct{}, len(raws))
+	long := make([][]byte, 0)
+	for _, raw := range raws {
+		if len(raw) == 0 {
+			continue
+		}
+		key := string(raw)
+		if _, ok := c.values[key]; ok {
+			continue
+		}
+		if len(raw) <= streamBatchMaxRaw {
+			short[key] = struct{}{}
+		} else {
+			long = append(long, raw)
+		}
+	}
+	if err := findReaderMatches(ctx, c.reader, c.size, short, c.values); err != nil {
+		return err
+	}
+	for _, raw := range long {
+		if _, ok := c.values[string(raw)]; ok {
+			continue
+		}
+		match, err := c.match(ctx, raw)
+		if err != nil {
+			return err
+		}
+		c.values[string(raw)] = match
+	}
+	return nil
 }
 
 type redactedArchiveCoverageError struct {
@@ -649,6 +766,12 @@ func (e *Engine) scanChunkLeafReader(ctx context.Context, c *sources.Chunk, arch
 	windowBuf := make([]byte, maxWindowSize)
 	matchCache := newStreamMatchCache(reader, size)
 	err := decoder.WalkVariants(ctx, reader, size, func(source string, variant io.ReaderAt, variantSize int64) error {
+		batch := &streamFindingBatch{}
+		matchCache.pending = batch
+		defer func() {
+			matchCache.pending = nil
+			batch.flush(ctx, e, c, matchCache)
+		}()
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -972,9 +1095,11 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 	if stream {
 		// Stream windows are reused for every subsequent ReadAt. Detectors are
 		// allowed to return slices into their input, so findings must own their
-		// secret bytes before the next window overwrites that buffer.
+		// secret bytes and metadata before the next window overwrites or reuses
+		// those values.
 		r.Raw = bytes.Clone(r.Raw)
 		r.RawV2 = bytes.Clone(r.RawV2)
+		r.ExtraData = maps.Clone(r.ExtraData)
 	}
 	if v.Source != "" {
 		if r.ExtraData == nil {
@@ -994,6 +1119,18 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 	}
 	tagBlastRadius(&r)
 	e.stats.findings.Add(1)
+	if stream && matchCache != nil && matchCache.pending != nil {
+		if len(matchCache.pending.findings) >= streamFindingBatchLimit {
+			matchCache.pending.flush(ctx, e, c, matchCache)
+		}
+		matchCache.pending.append(Finding{
+			Result:         r,
+			Chunk:          chunkForFinding(c, sourceLine(c), true),
+			Detector:       d.Type(),
+			VerifierBacked: e.isVerifier[di],
+		})
+		return
+	}
 	line := 0
 	if stream {
 		// Preserve the source's original line when a detector normalizes Raw
@@ -1118,6 +1255,135 @@ func sourceLine(c *sources.Chunk) int {
 	default:
 		return 0
 	}
+}
+
+type streamRawGroupKey struct {
+	first  byte
+	length int
+}
+
+type streamRawGroup struct {
+	length   int
+	patterns map[string]string
+}
+
+// findReaderMatches resolves short raw values in one forward pass. The scan
+// visits only offsets whose first byte is wanted, then uses an exact string
+// map within each length group. The overlap keeps matches crossing a block
+// boundary visible without retaining the source body.
+func findReaderMatches(ctx context.Context, reader io.ReaderAt, size int64, wanted map[string]struct{}, values map[string]streamMatch) error {
+	if len(wanted) == 0 {
+		return nil
+	}
+	if reader == nil || size < 0 {
+		return errors.New("engine: invalid batched raw lookup input")
+	}
+	var groupsByFirst [256][]*streamRawGroup
+	groups := make(map[streamRawGroupKey]*streamRawGroup, len(wanted))
+	maxLength := 0
+	for raw := range wanted {
+		if raw == "" {
+			continue
+		}
+		key := streamRawGroupKey{first: raw[0], length: len(raw)}
+		group := groups[key]
+		if group == nil {
+			group = &streamRawGroup{length: len(raw), patterns: make(map[string]string)}
+			groups[key] = group
+			groupsByFirst[key.first] = append(groupsByFirst[key.first], group)
+		}
+		// Keep the caller's stable string as the map value. The compiler can
+		// use the []byte slice directly for a string-key lookup, so misses do
+		// not allocate; a real hit reuses this stored key.
+		group.patterns[raw] = raw
+		if len(raw) > maxLength {
+			maxLength = len(raw)
+		}
+	}
+	if maxLength == 0 {
+		return nil
+	}
+	const blockSize = 64 << 10
+	overlap := maxLength - 1
+	buffer := make([]byte, blockSize+overlap)
+	var lineCount int
+	foundCount := 0
+scan:
+	for start := int64(0); start < size; {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		want := int64(len(buffer))
+		if remaining := size - start; remaining < want {
+			want = remaining
+		}
+		got, err := reader.ReadAt(buffer[:int(want)], start)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		if got != int(want) {
+			return io.ErrUnexpectedEOF
+		}
+		data := buffer[:got]
+		for first, firstGroups := range groupsByFirst {
+			if len(firstGroups) == 0 {
+				continue
+			}
+			for from := 0; from < len(data); {
+				offset := bytes.IndexByte(data[from:], byte(first))
+				if offset < 0 {
+					break
+				}
+				offset += from
+				for groupIndex, group := range firstGroups {
+					if groupIndex&31 == 0 {
+						if err := ctx.Err(); err != nil {
+							return err
+						}
+					}
+					end := offset + group.length
+					if end > len(data) {
+						continue
+					}
+					key, matched := group.patterns[string(data[offset:end])]
+					if !matched {
+						continue
+					}
+					if _, alreadyFound := values[key]; alreadyFound {
+						continue
+					}
+					values[key] = streamMatch{
+						offset:       start + int64(offset),
+						newlineCount: lineCount + bytes.Count(data[:offset], []byte{'\n'}),
+						found:        true,
+					}
+					foundCount++
+					if foundCount == len(wanted) {
+						break scan
+					}
+				}
+				from = offset + 1
+			}
+		}
+		if start+int64(got) == size {
+			break
+		}
+		advance := got - overlap
+		if advance <= 0 {
+			return io.ErrUnexpectedEOF
+		}
+		lineCount += bytes.Count(data[:advance], []byte{'\n'})
+		start += int64(advance)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for raw := range wanted {
+		if _, ok := values[raw]; !ok {
+			values[raw] = streamMatch{offset: -1}
+		}
+	}
+	return nil
 }
 
 // findReaderMatch returns the first raw match and the number of newlines
