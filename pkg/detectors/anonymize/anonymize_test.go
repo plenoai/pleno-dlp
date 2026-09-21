@@ -239,3 +239,23 @@ func TestRegistered(t *testing.T) {
 	}
 	t.Fatal("Scanner was not registered against detectors.PIIAnonymize via init()")
 }
+
+func TestFromReaderSkipsDisabledAndPreservesEnabledInput(t *testing.T) {
+	withAnalyzer(t, nil)
+	// A disabled analyzer must not read or allocate the declared large body.
+	if results, err := (Scanner{}).FromReader(context.Background(), false, nil, 64<<20); err != nil || len(results) != 0 {
+		t.Fatalf("disabled reader: results=%v error=%v", results, err)
+	}
+	analyzer := &fakeAnalyzer{}
+	fetchAnalyzer = func() Analyzer { return analyzer }
+	text := "contact: alice@example.com"
+	if _, err := (Scanner{}).FromReader(context.Background(), false, strings.NewReader(text), int64(len(text))); err != nil {
+		t.Fatal(err)
+	}
+	if analyzer.lastText != text {
+		t.Fatalf("input changed: %q", analyzer.lastText)
+	}
+	if _, err := (Scanner{}).FromReader(context.Background(), false, strings.NewReader(text), int64(len(text)+1)); err == nil {
+		t.Fatal("truncated reader silently accepted")
+	}
+}

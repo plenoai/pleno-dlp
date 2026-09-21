@@ -132,8 +132,8 @@ func (m *Matcher) buildFailure() {
 
 // buildTransitions compiles the sparse trie plus failure links into a DFA
 // over only bytes that occur in patterns. The extra final column handles all
-// other bytes with a single root transition. The row stride is rounded up to
-// a power of two to keep the hot row arithmetic compact.
+// other bytes with a single root transition. Rows have exactly one column per
+// symbol; padding them to a power of two only enlarges the resident table.
 func (m *Matcher) buildTransitions() {
 	var present [256]bool
 	for _, edges := range m.transitions {
@@ -162,10 +162,7 @@ func (m *Matcher) buildTransitions() {
 		for i, b := range alphabet {
 			m.symbols[b] = uint16(i)
 		}
-		m.stride = 1
-		for m.stride < len(alphabet)+1 {
-			m.stride <<= 1
-		}
+		m.stride = len(alphabet) + 1
 	}
 	m.next = make([]int32, len(m.transitions)*m.stride)
 

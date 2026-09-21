@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/decoder"
@@ -26,6 +27,12 @@ const defaultMaxSizeBytes int64 = 10 * 1024 * 1024 // 10 MiB
 const binarySniffLen = 512
 
 const filesystemReadChunk = 1 << 20
+
+// Files larger than one read window stay replayable until the engine worker
+// opens them. Smaller files keep the established in-memory Chunk path.
+const filesystemLazyThreshold = filesystemReadChunk
+
+var errFileChangedDuringScan = errors.New("filesystem: file changed during scan")
 
 func init() {
 	sources.Register(sources.SourceFilesystem, func() sources.Source { return &Source{} })
@@ -51,6 +58,24 @@ type Source struct {
 	hasPreviousState bool
 	previousState    *incrementalState
 	nextState        *incrementalState
+}
+
+type fileReaderAtCloser struct {
+	file    *os.File
+	size    int64
+	modTime time.Time
+}
+
+func (c *fileReaderAtCloser) Close() error {
+	var checkErr error
+	info, err := c.file.Stat()
+	if err != nil {
+		checkErr = fmt.Errorf("filesystem: stat after scan: %w", err)
+	} else if info.Size() != c.size || !info.ModTime().Equal(c.modTime) {
+		checkErr = fmt.Errorf("%w: size %d -> %d, modtime %s -> %s", errFileChangedDuringScan,
+			c.size, info.Size(), c.modTime, info.ModTime())
+	}
+	return errors.Join(checkErr, c.file.Close())
 }
 
 type incrementalState struct {
@@ -321,6 +346,26 @@ func (s *Source) emitFile(ctx context.Context, absPath string, size int64, ch ch
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if size > filesystemLazyThreshold {
+		maxSize := s.cfg.MaxSizeBytes
+		chunk := &sources.Chunk{
+			SourceID:   s.sourceID,
+			SourceType: sources.SourceFilesystem,
+			SourceName: s.name,
+			Open: func(openCtx context.Context) (io.ReaderAt, io.Closer, int64, error) {
+				return openFileReaderAt(openCtx, absPath, maxSize)
+			},
+			SourceMetadata: sources.Metadata{
+				Filesystem: &sources.FilesystemMeta{Path: absPath, Line: 1},
+			},
+		}
+		select {
+		case ch <- chunk:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	f, err := os.Open(absPath)
 	if err != nil {
 		// Permission / vanished files are skipped, not fatal.
@@ -354,6 +399,53 @@ func (s *Source) emitFile(ctx context.Context, absPath string, size int64, ch ch
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// openFileReaderAt performs the same admission checks as readFile without
+// retaining the body. The engine owns the returned file and closes it after
+// scanning; nil reader means that a raced file, binary, or over-limit input
+// was skipped before any detector saw it.
+func openFileReaderAt(ctx context.Context, path string, maxSize int64) (io.ReaderAt, io.Closer, int64, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, 0, err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsPermission(err) || errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, 0, nil
+		}
+		return nil, nil, 0, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, nil, 0, err
+	}
+	if !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > maxSize {
+		_ = f.Close()
+		return nil, nil, 0, nil
+	}
+
+	var sniff [binarySniffLen]byte
+	sniffLen := info.Size()
+	if sniffLen > int64(len(sniff)) {
+		sniffLen = int64(len(sniff))
+	}
+	n, err := f.ReadAt(sniff[:int(sniffLen)], 0)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		_ = f.Close()
+		return nil, nil, 0, err
+	}
+	prefix := sniff[:n]
+	if !archive.LooksLikeArchive(prefix) && isBinary(prefix) && !decoder.LooksLikeUTF16Text(prefix) {
+		_ = f.Close()
+		return nil, nil, 0, nil
+	}
+	if err := ctx.Err(); err != nil {
+		_ = f.Close()
+		return nil, nil, 0, err
+	}
+	return f, &fileReaderAtCloser{file: f, size: info.Size(), modTime: info.ModTime()}, info.Size(), nil
 }
 
 // readFile sniffs before allocating the full file. Binary files are common in

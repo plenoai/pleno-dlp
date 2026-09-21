@@ -21,6 +21,7 @@
 package apikeyassignment
 
 import (
+	"bytes"
 	"context"
 	"regexp"
 	"strings"
@@ -38,12 +39,34 @@ var (
 			`(?im)(?:^|[^a-zA-Z])[a-zA-Z0-9_]*api[_-]?key[a-zA-Z0-9_]*\s*=\s*["']?([^"'\n\r${}<>%\[\]{} #]{4,128})`,
 		)
 	})
+	// This is a necessary-syntax gate for the expensive equality grammar. It
+	// deliberately omits the leading boundary and capture limit: the full
+	// expression remains authoritative after this conservative prefilter.
+	assignEqCandidateRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(
+			`api[_-]?key[a-zA-Z0-9_]*\s*=\s*["']?[^"'\n\r${}<>%\[\]{} #]{4}`,
+		)
+	})
 	assignColonRe = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(
 			`(?im)(?:^|\s)[a-zA-Z0-9_]*api[_-]?key[a-zA-Z0-9_]*\s*:\s*["']?([^"'\n\r${}<>%\[\]{} #]{4,128})`,
 		)
 	})
 )
+
+func hasEqualCandidate(data []byte) bool {
+	if bytes.IndexByte(data, '=') < 0 {
+		return false
+	}
+	for _, b := range data {
+		if b >= 0x80 {
+			// Keep the original case-folding regexp authoritative for Unicode
+			// input instead of making a prefilter assumption about its folds.
+			return true
+		}
+	}
+	return assignEqCandidateRe().Match(bytes.ToLower(data))
+}
 
 var placeholders = map[string]struct{}{
 	"changeme":          {},
@@ -127,7 +150,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	// absent. Near-match fixtures are dense in `api_key=` references but can be
 	// megabytes long; a cheap byte scan is enough to skip the colon grammar.
 	res := []*regexp.Regexp{}
-	if strings.Contains(str, "=") {
+	if hasEqualCandidate(data) {
 		res = append(res, assignEqRe())
 	}
 	if strings.Contains(str, ":") {

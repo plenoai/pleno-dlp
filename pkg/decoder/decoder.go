@@ -484,10 +484,8 @@ func hexValue(c byte) byte {
 }
 
 // decodeHex finds hex runs >= 40 chars and concatenates their printable
-// decodes. Mixed-case runs are excluded; that's intentional — they're
-// nearly always misclassified base64. Run detection is a linear byte
-// scan to skip the RE2 setup cost the original hexRun regex paid on
-// every chunk.
+// decodes. Run detection is a linear byte scan over maximal runs,
+// preserving alignment even when the hexadecimal letter case changes.
 func decodeHex(data []byte) []byte {
 	var out []byte
 	walkHexRuns(data, func(run []byte) {

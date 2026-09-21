@@ -3,6 +3,7 @@ package detectors
 
 import (
 	"context"
+	"io"
 	"time"
 )
 
@@ -1288,6 +1289,16 @@ type FullChunkDetector interface {
 	// window. Returning false is equivalent to not implementing the
 	// interface.
 	WantsFullChunk() bool
+}
+
+// ReaderDetector is the bounded-memory companion to FullChunkDetector.
+// FromReader receives one complete decoded variant through a replayable
+// ReaderAt. Implementations must consume at most size bytes and preserve the
+// candidate semantics of FromData. Existing detectors and external plugins
+// remain source-compatible because this is an optional interface.
+// Reader calls honor verify but bypass the engine's byte-slice verification cache.
+type ReaderDetector interface {
+	FromReader(ctx context.Context, verify bool, r io.ReaderAt, size int64) ([]Result, error)
 }
 
 // Revoker is optionally implemented by detectors (and SaaS connectors via

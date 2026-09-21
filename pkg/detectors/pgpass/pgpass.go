@@ -27,6 +27,7 @@ package pgpass
 import (
 	"bytes"
 	"context"
+	"io"
 	"regexp"
 	"strings"
 	"sync"
@@ -106,53 +107,82 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		} else {
 			start = len(data)
 		}
-		colonCount := 0
-		for _, c := range line {
-			if c == ':' {
-				colonCount++
-				if colonCount > 4 {
-					break
-				}
-			}
-		}
-		if colonCount != 4 {
-			continue
-		}
-		m := pgpassLineRe().FindStringSubmatch(string(line))
-		if len(m) < 6 {
-			continue
-		}
-		host, port, db, user, pass := m[1], m[2], m[3], m[4], m[5]
-		if isPlaceholder(pass) {
-			continue
-		}
-		// The password field equalling any of the other fields verbatim
-		// is a strong signal of a templated example row rather than a
-		// real credential (e.g. `host:5432:host:host:host`).
-		if pass == host || pass == db || pass == user {
-			continue
-		}
-		key := host + ":" + port + ":" + db + ":" + user + ":" + pass
-		if _, dup := seen[key]; dup {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, detectors.Result{
-			DetectorType: detectors.Pgpass,
-			Raw:          []byte(pass),
-			Redacted:     redact(pass),
-			ExtraData: map[string]string{
-				"host":     host,
-				"port":     port,
-				"database": db,
-				"user":     user,
-			},
-			Severity: detectors.SeverityHigh,
-		})
+		scanLine(line, seen, &out)
 	}
 
 	return out, nil
 }
+
+// FromReader preserves the line grammar of FromData without retaining the
+// complete file. The shared reader matcher lets RE2 discard arbitrarily long
+// invalid lines while only allocating the actual match and captures.
+func (s Scanner) FromReader(ctx context.Context, _ bool, r io.ReaderAt, size int64) ([]detectors.Result, error) {
+	seen := map[string]struct{}{}
+	var out []detectors.Result
+	err := detectors.ForEachReaderLineSubmatch(ctx, r, size, pgpassLineRe(), []byte(":"), 4, []int{1, 2, 3, 4, 5}, func(match [][]byte) error {
+		scanMatch(match, seen, &out)
+		return nil
+	})
+	return out, err
+}
+
+func scanMatch(match [][]byte, seen map[string]struct{}, out *[]detectors.Result) {
+	if len(match) < 5 {
+		return
+	}
+	appendResult(string(match[0]), string(match[1]), string(match[2]), string(match[3]), string(match[4]), seen, out)
+}
+
+func scanLine(line []byte, seen map[string]struct{}, out *[]detectors.Result) {
+	colonCount := 0
+	for _, c := range line {
+		if c == ':' {
+			colonCount++
+			if colonCount > 4 {
+				break
+			}
+		}
+	}
+	if colonCount != 4 {
+		return
+	}
+	m := pgpassLineRe().FindStringSubmatch(string(line))
+	if len(m) < 6 {
+		return
+	}
+	appendResult(m[1], m[2], m[3], m[4], m[5], seen, out)
+}
+
+func appendResult(host, port, db, user, pass string, seen map[string]struct{}, out *[]detectors.Result) {
+	if isPlaceholder(pass) {
+		return
+	}
+	// The password field equalling any of the other fields verbatim
+	// is a strong signal of a templated example row rather than a
+	// real credential (e.g. `host:5432:host:host:host`).
+	if pass == host || pass == db || pass == user {
+		return
+	}
+	key := host + ":" + port + ":" + db + ":" + user + ":" + pass
+	if _, dup := seen[key]; dup {
+		return
+	}
+	seen[key] = struct{}{}
+	*out = append(*out, detectors.Result{
+		DetectorType: detectors.Pgpass,
+		Raw:          []byte(pass),
+		Redacted:     redact(pass),
+		ExtraData: map[string]string{
+			"host":     host,
+			"port":     port,
+			"database": db,
+			"user":     user,
+		},
+		Severity: detectors.SeverityHigh,
+	})
+}
+
+var _ detectors.ReaderDetector = Scanner{}
 
 func redact(s string) string {
 	if len(s) <= 4 {

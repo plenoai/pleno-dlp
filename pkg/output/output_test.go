@@ -478,6 +478,16 @@ func TestJSONSinkOmitsSpanWhenRawNotInChunk(t *testing.T) {
 	}
 }
 
+func TestJSONRecordUsesAbsoluteStreamSpan(t *testing.T) {
+	f := sample()
+	f.Chunk.Data = nil
+	f.RawSpan = &[2]int{70000, 70020}
+	record := toJSONRecord(f)
+	if record.Start == nil || record.End == nil || *record.Start != 70000 || *record.End != 70020 {
+		t.Fatalf("replayable-input location lost: %v/%v", record.Start, record.End)
+	}
+}
+
 func TestTableSinkEmptyOutput(t *testing.T) {
 	var buf bytes.Buffer
 	s, _ := NewSink("table", &buf, "test")

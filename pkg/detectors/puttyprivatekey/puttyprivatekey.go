@@ -36,6 +36,7 @@ package puttyprivatekey
 
 import (
 	"context"
+	"io"
 	"regexp"
 	"sync"
 
@@ -83,6 +84,20 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	return out, nil
 }
 
+// FromReader finds complete PPK records with the same regexp grammar as
+// FromData. Reader matching preserves headers and Private-MAC markers that
+// cross arbitrary read boundaries while allocating only complete matches.
+func (s Scanner) FromReader(ctx context.Context, _ bool, r io.ReaderAt, size int64) ([]detectors.Result, error) {
+	var out []detectors.Result
+	err := detectors.ForEachReaderPrefixedSubmatch(ctx, r, size, blockRe(), []byte("PuTTY-User-Key-File-"), []int{0}, func(match [][]byte) error {
+		if len(match) > 0 {
+			out = append(out, deriveResult(match[0]))
+		}
+		return nil
+	})
+	return out, err
+}
+
 func deriveResult(block []byte) detectors.Result {
 	extra := map[string]string{}
 	if am := algRe().FindSubmatch(block); len(am) >= 2 {
@@ -120,3 +135,5 @@ func deriveResult(block []byte) detectors.Result {
 func init() {
 	detectors.Register(Scanner{})
 }
+
+var _ detectors.ReaderDetector = Scanner{}

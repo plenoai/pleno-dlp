@@ -30,8 +30,12 @@
 package railsmasterkey
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"fmt"
+	"io"
+	"unicode"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -64,25 +68,87 @@ func (Scanner) WantsFullChunk() bool { return true }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	trimmed := bytes.TrimSpace(data)
-	if len(trimmed) != 32 {
-		return nil, nil
+	return resultForKey(trimmed), nil
+}
+
+// FromReader keeps only the 32-byte candidate and the Unicode whitespace
+// decoder state. bytes.TrimSpace uses unicode.IsSpace for non-ASCII input;
+// ReadRune gives the same invalid-UTF-8 behaviour (RuneError is not space).
+func (s Scanner) FromReader(ctx context.Context, _ bool, r io.ReaderAt, size int64) ([]detectors.Result, error) {
+	if r == nil || size < 0 {
+		return nil, fmt.Errorf("railsmasterkey: invalid reader or size")
 	}
-	for _, c := range trimmed {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+	br := bufio.NewReaderSize(io.NewSectionReader(r, 0, size), 32*1024)
+	var key [32]byte
+	keyLen := 0
+	started := false
+	var consumed int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		run, n, err := br.ReadRune()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		consumed += int64(n)
+		if !started {
+			if unicode.IsSpace(run) {
+				continue
+			}
+			started = true
+		}
+		if keyLen < len(key) {
+			if n != 1 || !isLowerHex(byte(run)) {
+				return nil, nil
+			} else {
+				key[keyLen] = byte(run)
+			}
+			keyLen++
+			continue
+		}
+		if !unicode.IsSpace(run) {
 			return nil, nil
 		}
 	}
-	if isDegenerate(trimmed) {
+	if consumed != size {
+		return nil, fmt.Errorf("railsmasterkey: reader size %d, want %d", consumed, size)
+	}
+	if keyLen != len(key) {
 		return nil, nil
+	}
+	return resultForKey(key[:]), nil
+}
+
+func resultForKey(trimmed []byte) []detectors.Result {
+	if len(trimmed) != 32 {
+		return nil
+	}
+	for _, c := range trimmed {
+		if !isLowerHex(c) {
+			return nil
+		}
+	}
+	if isDegenerate(trimmed) {
+		return nil
 	}
 	return []detectors.Result{{
 		DetectorType: detectors.RailsMasterKey,
 		Raw:          bytes.Clone(trimmed),
 		Redacted:     string(trimmed[:4]) + "...",
 		Severity:     detectors.SeverityHigh,
-	}}, nil
+	}}
+}
+
+func isLowerHex(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
 }
 
 func init() {
 	detectors.Register(Scanner{})
 }
+
+var _ detectors.ReaderDetector = Scanner{}
