@@ -89,3 +89,10 @@ opf-native-test: opf-native-lib
 
 opf-native-clean:
 	rm -rf $(OPF_NATIVE_SRC) $(OPF_NATIVE_CDEPS) bin/pleno-dlp-opf
+
+# Five subsystem gates against both checksum-pinned competitors.
+.PHONY: bench-performance
+bench-performance: bench-tools
+	go build -trimpath -o bench/.tools/pleno-dlp ./cmd/pleno-dlp
+	python3 -m unittest discover -s bench/performance
+	python3 bench/performance/run.py --pleno-dlp-bin bench/.tools/pleno-dlp $(BENCH_PERFORMANCE_ARGS) --enforce

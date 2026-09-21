@@ -26,6 +26,7 @@
 package gitcredentialsurl
 
 import (
+	"bytes"
 	"context"
 	"net/url"
 	"regexp"
@@ -82,6 +83,9 @@ func (Scanner) Keywords() []string { return []string{"://"} }
 func (Scanner) WantsFullChunk() bool { return true }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	if !bytes.Contains(data, []byte("://")) {
+		return nil, nil
+	}
 	str := string(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result

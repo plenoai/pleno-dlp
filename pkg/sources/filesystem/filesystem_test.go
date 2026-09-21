@@ -1,6 +1,7 @@
 package filesystem
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
@@ -78,6 +80,26 @@ func TestChunks_EmitsTextFile(t *testing.T) {
 	}
 }
 
+func TestChunks_EmitsEmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "empty.txt"), nil, 0o600); err != nil {
+		t.Fatalf("write empty file: %v", err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Paths: []string{dir}})
+
+	got, err := drain(t, s, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks returned %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 empty-file chunk, got %d", len(got))
+	}
+	if got[0].Data == nil || len(got[0].Data) != 0 {
+		t.Fatalf("empty-file data = %#v, want non-nil empty slice", got[0].Data)
+	}
+}
+
 func TestChunks_SkipsBinaryFile(t *testing.T) {
 	dir := t.TempDir()
 	bin := append([]byte("hello\x00world"), bytes.Repeat([]byte{0x42}, 100)...)
@@ -99,6 +121,111 @@ func TestChunks_SkipsBinaryFile(t *testing.T) {
 	}
 	if !strings.HasSuffix(got[0].SourceMetadata.Filesystem.Path, "ok.txt") {
 		t.Fatalf("expected ok.txt, got %s", got[0].SourceMetadata.Filesystem.Path)
+	}
+}
+
+func TestChunks_EmitsArchiveAfterPrefixSniff(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	entry, err := zw.Create("secret.txt")
+	if err != nil {
+		t.Fatalf("create zip entry: %v", err)
+	}
+	if _, err := entry.Write([]byte("archive content")); err != nil {
+		t.Fatalf("write zip entry: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+	data := buf.Bytes()
+	if !isBinary(data) || !archive.LooksLikeArchive(data) {
+		t.Fatal("fixture must exercise binary archive prefix")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fixture.zip")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write archive: %v", err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Paths: []string{dir}})
+
+	got, err := drain(t, s, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks: %v", err)
+	}
+	if len(got) != 1 || !bytes.Equal(got[0].Data, data) {
+		t.Fatalf("archive chunk lost after prefix sniff: chunks=%d", len(got))
+	}
+}
+
+func TestReadFile_DropsGrowthPastMaxSize(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "growing.txt")
+	if err := os.WriteFile(path, []byte("0123456789"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer f.Close()
+
+	s := &Source{cfg: Config{MaxSizeBytes: 4}}
+	data, err := s.readFile(context.Background(), f, 2)
+	if err != nil {
+		t.Fatalf("readFile: %v", err)
+	}
+	if data != nil {
+		t.Fatalf("readFile returned %d bytes after crossing max size", len(data))
+	}
+}
+
+func TestReadFile_SniffsBeyondStaleSizeHint(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "grown.bin")
+	if err := os.WriteFile(path, []byte("prefix\x00binary"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer f.Close()
+
+	s := &Source{cfg: Config{MaxSizeBytes: 1024}}
+	data, err := s.readFile(context.Background(), f, 0)
+	if err != nil {
+		t.Fatalf("readFile: %v", err)
+	}
+	if data != nil {
+		t.Fatalf("stale size hint bypassed binary sniff: %d bytes", len(data))
+	}
+}
+
+func TestReadFile_ExactSizeKeepsBufferBounded(t *testing.T) {
+	dir := t.TempDir()
+	payload := bytes.Repeat([]byte("x"), 4096)
+	path := filepath.Join(dir, "text.txt")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer f.Close()
+
+	s := &Source{cfg: Config{MaxSizeBytes: 1 << 20}}
+	data, err := s.readFile(context.Background(), f, int64(len(payload)))
+	if err != nil {
+		t.Fatalf("readFile: %v", err)
+	}
+	if !bytes.Equal(data, payload) {
+		t.Fatal("readFile changed payload")
+	}
+	if cap(data) >= 2*len(data) {
+		t.Fatalf("buffer capacity %d doubled payload size %d", cap(data), len(data))
 	}
 }
 

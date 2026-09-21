@@ -52,6 +52,68 @@ func TestMatch_EmptyPatternSkipped(t *testing.T) {
 	}
 }
 
+func TestMatch_SparseIDsPreserved(t *testing.T) {
+	m := New([][]byte{nil, nil, []byte("token")})
+	if got := m.Match([]byte("token")); !slices.Equal(got, []int32{2}) {
+		t.Fatalf("got %v want [2]", got)
+	}
+	if got := m.NumPatterns(); got != 3 {
+		t.Fatalf("NumPatterns=%d want 3", got)
+	}
+	seen := make([]bool, m.NumPatterns())
+	if got := m.MatchInto([]byte("token"), seen, nil); !slices.Equal(got, []int32{2}) {
+		t.Fatalf("MatchInto got %v want [2]", got)
+	}
+}
+
+func TestMatch_ArbitraryBytes(t *testing.T) {
+	m := New([][]byte{
+		{0x00, 0xff},
+		{0xff},
+		{0x7f},
+	})
+	data := []byte{0x01, 0x00, 0xff, 0x7f}
+	if got := m.Match(data); !slices.Equal(got, []int32{0, 1, 2}) {
+		t.Fatalf("Match got %v want [0 1 2]", got)
+	}
+	want := []Hit{
+		{PatternID: 0, End: 2},
+		{PatternID: 1, End: 2},
+		{PatternID: 2, End: 3},
+	}
+	if got := m.MatchHitsInto(data, nil); !slices.Equal(got, want) {
+		t.Fatalf("MatchHitsInto got %v want %v", got, want)
+	}
+}
+
+func TestMatch_FullByteAlphabet(t *testing.T) {
+	patterns := make([][]byte, 256)
+	data := make([]byte, 256)
+	for i := range patterns {
+		patterns[i] = []byte{byte(i)}
+		data[i] = byte(i)
+	}
+	m := New(patterns)
+	got := m.Match(data)
+	if len(got) != len(patterns) {
+		t.Fatalf("Match returned %d IDs want %d", len(got), len(patterns))
+	}
+	for i, id := range got {
+		if id != int32(i) {
+			t.Fatalf("Match ID[%d]=%d want %d", i, id, i)
+		}
+	}
+	hits := m.MatchHitsInto(data, nil)
+	if len(hits) != len(patterns) {
+		t.Fatalf("MatchHitsInto returned %d hits want %d", len(hits), len(patterns))
+	}
+	for i, hit := range hits {
+		if hit.PatternID != int32(i) || hit.End != i {
+			t.Fatalf("hit[%d]=%+v want {PatternID:%d End:%d}", i, hit, i, i)
+		}
+	}
+}
+
 func TestMatch_OverlappingTerminals(t *testing.T) {
 	// "ab" terminates inside "cabd"; "abd" terminates at the next position.
 	// Both should fire. Without dictionary-suffix links "ab" would be

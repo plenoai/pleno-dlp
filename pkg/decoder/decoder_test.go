@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -37,6 +38,15 @@ func TestPercentEncodedJWT(t *testing.T) {
 	variants := Variants(chunk)
 	if !containsBytes(variants, []byte(jwt)) {
 		t.Fatalf("expected percent-decoded JWT; got %d variants", len(variants))
+	}
+}
+
+func TestPercentDecoderRequiresAdjacentEscapes(t *testing.T) {
+	variants := Variants([]byte("first=%41 and second=%42"))
+	for _, v := range variants {
+		if v.Source == "percent" {
+			t.Fatal("separated percent escapes should not produce a variant")
+		}
 	}
 }
 
@@ -265,6 +275,146 @@ func TestUnicodeEscape_NoVariantWhenNoEscapes(t *testing.T) {
 	}
 }
 
+func TestUnicodeEscapeRequiresAdjacentEscapes(t *testing.T) {
+	chunk := []byte(`prefix=\u0041 separator \u0042`)
+	variants := Variants(chunk)
+	for _, v := range variants {
+		if v.Source == "unicode-escape" {
+			t.Fatal("separated unicode escapes should not produce a variant")
+		}
+	}
+}
+
+func TestBase64MultipleRunsKeepOrder(t *testing.T) {
+	first := []byte(strings.Repeat("first printable payload ", 3))
+	second := []byte(strings.Repeat("second printable payload ", 3))
+	chunk := []byte(base64.StdEncoding.EncodeToString(first) + "!" + base64.StdEncoding.EncodeToString(second))
+	variants := Variants(chunk)
+	for _, v := range variants {
+		if v.Source == "base64" {
+			want := append(append([]byte{}, first...), '\n')
+			want = append(want, second...)
+			if !bytes.Equal(v.Data, want) {
+				t.Fatalf("base64 variant = %q, want %q", v.Data, want)
+			}
+			return
+		}
+	}
+	t.Fatal("expected base64 variant")
+}
+
+func TestVariantsWithScratchEquivalentToVariants(t *testing.T) {
+	raw := []byte(strings.Repeat("base64 payload with credential-shaped text ", 3))
+	chunk := []byte("payload=" + base64.StdEncoding.EncodeToString(raw) + "&value=%41%42")
+	want := Variants(chunk)
+	got := VariantsWithScratch(chunk, make([]byte, 0, len(raw)+1))
+	if len(got) != len(want) {
+		t.Fatalf("variant count = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i].Source != want[i].Source || !bytes.Equal(got[i].Data, want[i].Data) {
+			t.Fatalf("variant %d = (%q, %q), want (%q, %q)", i, got[i].Source, got[i].Data, want[i].Source, want[i].Data)
+		}
+	}
+}
+
+func TestVariantsWithScratchMultipleRunsAndRejectedRun(t *testing.T) {
+	first := []byte(strings.Repeat("first printable payload ", 3))
+	second := []byte(strings.Repeat("second printable payload ", 3))
+	rejected := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0xff}, 64))
+	chunk := []byte(base64.StdEncoding.EncodeToString(first) + "!" + rejected + "@" + base64.StdEncoding.EncodeToString(second))
+	scratch := make([]byte, 0, len(first)+len(second)+1)
+	variants := VariantsWithScratch(chunk, scratch)
+	for _, v := range variants {
+		if v.Source != "base64" {
+			continue
+		}
+		want := append(append([]byte{}, first...), '\n')
+		want = append(want, second...)
+		if !bytes.Equal(v.Data, want) {
+			t.Fatalf("base64 variant = %q, want %q", v.Data, want)
+		}
+		return
+	}
+	t.Fatal("expected base64 variant")
+}
+
+func TestVariantsWithScratchUsesProvidedCapacity(t *testing.T) {
+	raw := []byte(strings.Repeat("scratch-backed payload ", 3))
+	chunk := []byte(base64.StdEncoding.EncodeToString(raw))
+	scratch := make([]byte, 0, base64DecodedLen(chunk))
+	variants := VariantsWithScratch(chunk, scratch)
+	for _, v := range variants {
+		if v.Source != "base64" {
+			continue
+		}
+		if len(v.Data) == 0 || &v.Data[0] != &scratch[:cap(scratch)][0] {
+			t.Fatal("base64 result did not use sufficient scratch capacity")
+		}
+		return
+	}
+	t.Fatal("expected base64 variant")
+}
+
+func TestVariantsWithScratchCanReuseBuffer(t *testing.T) {
+	first := []byte(strings.Repeat("first reusable payload ", 3))
+	second := []byte(strings.Repeat("second reusable payload ", 3))
+	scratch := make([]byte, 0, base64DecodedLen([]byte(base64.StdEncoding.EncodeToString(second))))
+	_ = VariantsWithScratch([]byte(base64.StdEncoding.EncodeToString(first)), scratch)
+	got := VariantsWithScratch([]byte(base64.StdEncoding.EncodeToString(second)), scratch)
+	for _, v := range got {
+		if v.Source == "base64" {
+			if !bytes.Equal(v.Data, second) {
+				t.Fatalf("reused base64 result = %q, want %q", v.Data, second)
+			}
+			return
+		}
+	}
+	t.Fatal("expected base64 variant")
+}
+
+func TestVariantsWithScratchRejectedRunDoesNotEmitEmptyVariant(t *testing.T) {
+	data := []byte(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0xff}, 64)))
+	variants := VariantsWithScratch(data, make([]byte, 0, 1))
+	for _, v := range variants {
+		if v.Source == "base64" {
+			t.Fatalf("rejected base64 run emitted empty variant: %q", v.Data)
+		}
+	}
+}
+
+func TestVariantsWithScratchInsufficientCapacityOwnsResult(t *testing.T) {
+	raw := []byte(strings.Repeat("owned after scratch exhaustion ", 4))
+	chunk := []byte(base64.StdEncoding.EncodeToString(raw))
+	scratch := make([]byte, 0, 8)
+	variants := VariantsWithScratch(chunk, scratch)
+	var decoded []byte
+	for _, v := range variants {
+		if v.Source == "base64" {
+			decoded = v.Data
+			break
+		}
+	}
+	if decoded == nil {
+		t.Fatal("expected base64 variant")
+	}
+	backing := scratch[:cap(scratch)]
+	for i := range backing {
+		backing[i] = '!'
+	}
+	if !bytes.Equal(decoded, raw) {
+		t.Fatalf("owned base64 result changed after scratch reuse: got %q, want %q", decoded, raw)
+	}
+}
+
+func TestUTF16UnpairedSurrogateUsesReplacementRune(t *testing.T) {
+	data := []byte{0x00, 0xD8, 'A', 0x00}
+	got := decodeUTF16(data, true)
+	if want := []byte("\uFFFDA"); !bytes.Equal(got, want) {
+		t.Fatalf("decodeUTF16 = %q, want %q", got, want)
+	}
+}
+
 // unicodeEscapeASCII encodes each character of s as a \uXXXX sequence.
 // Used in tests to construct chunks with literal escape sequences without
 // relying on the editor to keep them as-is.
@@ -274,4 +424,33 @@ func unicodeEscapeASCII(s string) string {
 		fmt.Fprintf(&b, "\\u%04X", c)
 	}
 	return b.String()
+}
+
+func BenchmarkVariantsCold(b *testing.B) {
+	data := []byte(strings.Repeat("ordinary source text with no encoded runs or credential-shaped data.\n", 512))
+	b.SetBytes(int64(len(data)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = Variants(data)
+	}
+}
+
+func BenchmarkVariantsBase64(b *testing.B) {
+	raw := []byte(strings.Repeat("encoded log line with a stable printable payload and no binary bytes.\n", 4096))
+	data := []byte(base64.StdEncoding.EncodeToString(raw))
+	b.ReportMetric(float64(len(data)), "input-bytes")
+	b.SetBytes(int64(len(data)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = Variants(data)
+	}
+}
+
+func BenchmarkVariantsPercent(b *testing.B) {
+	data := []byte("token=" + strings.Repeat("%41", 4096) + "&" + strconv.Itoa(1))
+	b.SetBytes(int64(len(data)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = Variants(data)
+	}
 }

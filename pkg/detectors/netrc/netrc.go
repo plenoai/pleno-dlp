@@ -71,6 +71,9 @@ func (Scanner) Keywords() []string { return []string{"password", "machine"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	str := string(data)
+	if !strings.Contains(strings.ToLower(str), "login") {
+		return nil, nil
+	}
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 

@@ -8,6 +8,7 @@
 package twilio
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -36,6 +37,9 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Twilio }
 func (Scanner) Keywords() []string { return []string{"AC", "twilio"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
+	if !bytes.Contains(data, []byte("AC")) {
+		return nil, nil
+	}
 	sids := sidRe.FindAllSubmatchIndex(data, -1)
 	if len(sids) == 0 {
 		return nil, nil

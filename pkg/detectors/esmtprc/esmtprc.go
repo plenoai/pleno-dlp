@@ -85,6 +85,9 @@ func (Scanner) Keywords() []string { return []string{"password"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	str := string(data)
+	if !strings.Contains(str, "hostname") && !strings.Contains(str, "username") && !strings.Contains(str, "mda") && !strings.Contains(str, "starttls") {
+		return nil, nil
+	}
 
 	// No sibling esmtprc directive in the chunk: this isn't an
 	// .esmtprc file, whatever the password line looks like.

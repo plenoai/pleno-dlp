@@ -12,6 +12,7 @@ package engine
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"sync"
@@ -117,7 +118,7 @@ func BenchmarkKeywordMatch(b *testing.B) {
 		b.Fatalf("expected prefilter to be built")
 	}
 	lower := make([]byte, 0, len(chunk))
-	seen := make([]bool, len(eng.dets))
+	seen := make([]bool, eng.prefilter.NumPatterns())
 	out := make([]int32, 0, 16)
 
 	b.SetBytes(int64(len(chunk)))
@@ -130,4 +131,17 @@ func BenchmarkKeywordMatch(b *testing.B) {
 		out = eng.prefilter.MatchInto(lower, seen, out[:0])
 	}
 	_ = out
+}
+
+func BenchmarkScanEncoded(b *testing.B) {
+	body := strings.Repeat("2026-09-21 INFO request=GET /healthz status=200 latency_ms=12.4\n", 40000)
+	src := &benchSource{chunks: 8, template: []byte("payload=" + base64.StdEncoding.EncodeToString([]byte(body)))}
+	eng := NewWithDetectors(detectors.All(), Options{Concurrency: 8, NoVerify: true}, &nullSink{})
+	b.SetBytes(int64(src.chunks * len(src.template)))
+	b.ResetTimer()
+	for b.Loop() {
+		if err := eng.Run(context.Background(), src); err != nil {
+			b.Fatal(err)
+		}
+	}
 }

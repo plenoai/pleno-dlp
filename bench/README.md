@@ -184,3 +184,29 @@ detector-engineer's scope, not a bench-tooling change's.
 ## Private holdout
 
 See [`HOLDOUT.md`](HOLDOUT.md).
+
+## Five subsystem performance budgets
+
+```sh
+make bench-performance
+# Include a pre-change binary to verify every pleno-dlp finding is unchanged:
+make bench-performance BENCH_PERFORMANCE_ARGS='--baseline-bin /tmp/pleno-dlp-before'
+```
+
+The Python standard-library harness runs on macOS and Linux (GNU `time` on
+Linux). It generates deterministic sparse logs, keyword-dense documentation,
+binary assets, ZIP archives, and Base64 payloads. The first two gate median wall
+time; the others gate median peak RSS. All five must be at most 1.20 times the
+better of the two checksum-pinned competitors. The full raw samples, both
+metrics, canary counts, fixture digests, binary digests, versions, and environment
+are saved to `bench/results/performance.json`. Warmups and interleaved tool order
+reduce startup/cache bias. Each scan checks every unique seeded GitHub token;
+comparison with a baseline additionally checks the complete pleno-dlp finding
+signature, including source metadata. No credential values enter the report.
+
+All tools use their default secret rule sets. Remote verification and PII are
+disabled, decode depth is one, archive depth is three, and binaries are skipped.
+These are matched benchmark settings, not each competitor's defaults. The
+catalogs differ, so canary parity is a coverage guard for these workloads, not a
+claim that the scanners have equivalent detection capability. Results and the
+technical investigation are in [the performance report](../docs/performance.md).

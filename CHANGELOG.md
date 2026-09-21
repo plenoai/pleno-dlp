@@ -8,6 +8,8 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+## [v0.65.0] - 2026-09-21
+
 ### Added
 
 - GitHub scans can bound each repository history walk with
@@ -24,6 +26,8 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Changed
 
+- Reduced keyword dispatch, decoder, binary-input and archive memory overhead;
+  added reproducible five-workload performance gates against Gitleaks and TruffleHog.
 - Default Git history scans stream bounded native Git patches instead of
   repeatedly decoding and diffing trees through go-git.
 - GitHub history scans use complete, self-contained mirror clones so an

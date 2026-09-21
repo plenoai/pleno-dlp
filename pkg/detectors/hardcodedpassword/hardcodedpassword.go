@@ -43,6 +43,37 @@ var (
 	)
 )
 
+// Match only the suffix of a keyword candidate. The original expressions still
+// decide whether its prefix and value are valid.
+var assignmentTailRe = regexp.MustCompile(`^(?:(?:[^a-z0-9_][^\n=]*)?\s*=|[a-z0-9_]*\s*:)`)
+
+func hasAssignmentHead(str string) bool {
+	for i := range str {
+		if str[i] >= 0x80 {
+			// RE2 also folds Unicode letters such as long s; let it decide.
+			return true
+		}
+	}
+	lower := strings.ToLower(str)
+	if strings.Contains(lower, "variable") {
+		return true
+	}
+	for _, keyword := range []string{"password", "passwd", "pwd"} {
+		rest := lower
+		for {
+			i := strings.Index(rest, keyword)
+			if i < 0 {
+				break
+			}
+			rest = rest[i+len(keyword):]
+			if assignmentTailRe.MatchString(rest) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 var placeholders = func() map[string]struct{} {
 	words := []string{
 		"example", "changeme", "change_me", "changeit", "change-me",
@@ -155,6 +186,9 @@ func (Scanner) Keywords() []string {
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	str := string(data)
+	if !hasAssignmentHead(str) {
+		return nil, nil
+	}
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 

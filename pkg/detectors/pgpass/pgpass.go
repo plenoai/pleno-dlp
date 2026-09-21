@@ -25,6 +25,7 @@
 package pgpass
 
 import (
+	"bytes"
 	"context"
 	"regexp"
 	"strings"
@@ -91,11 +92,30 @@ func (Scanner) Keywords() []string { return []string{"pgpass"} }
 func (Scanner) WantsFullChunk() bool { return true }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	str := string(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
-	for _, m := range pgpassLineRe.FindAllStringSubmatch(str, -1) {
+	for start := 0; start < len(data); {
+		line := data[start:]
+		if end := bytes.IndexByte(line, '\n'); end >= 0 {
+			line = line[:end]
+			start += end + 1
+		} else {
+			start = len(data)
+		}
+		colonCount := 0
+		for _, c := range line {
+			if c == ':' {
+				colonCount++
+				if colonCount > 4 {
+					break
+				}
+			}
+		}
+		if colonCount != 4 {
+			continue
+		}
+		m := pgpassLineRe.FindStringSubmatch(string(line))
 		if len(m) < 6 {
 			continue
 		}

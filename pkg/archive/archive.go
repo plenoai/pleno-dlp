@@ -691,6 +691,10 @@ func spoolFromReader(ctx context.Context, input io.Reader, expected, limit int64
 		if err := value.spill(); err != nil {
 			return nil, err
 		}
+	} else if expected > 0 {
+		// Validated sizes below the spill limit need one allocation, not a
+		// sequence of growing buffers while decompressing the same entry.
+		value.mem.Grow(int(expected))
 	}
 	reader := io.LimitReader(contextReader{ctx: ctx, r: input}, limit+1)
 	buffer := spoolCopyBufferPool.Get().(*[]byte)

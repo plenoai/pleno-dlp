@@ -6,11 +6,29 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
+
+type slowArchiveDetector struct {
+	delay time.Duration
+	calls atomic.Int32
+}
+
+func (*slowArchiveDetector) Type() detectors.DetectorType { return detectors.AWS }
+func (*slowArchiveDetector) Keywords() []string           { return []string{"TRIGGER"} }
+func (d *slowArchiveDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	d.calls.Add(1)
+	time.Sleep(d.delay)
+	if !bytes.Contains(data, []byte("TRIGGER")) {
+		return nil, nil
+	}
+	return []detectors.Result{{DetectorType: detectors.AWS, Raw: []byte("TRIGGER")}}, nil
+}
 
 // TestArchiveIntegration_FindsSecretInsideZip drives the full engine
 // path with a chunk whose payload is a zip containing a leaked secret.
@@ -60,6 +78,67 @@ func TestArchiveIntegration_FindsSecretInsideZip(t *testing.T) {
 	// Path should mention both the source filename and the inner entry.
 	if !bytes.Contains([]byte(gotPath), []byte("config.env")) {
 		t.Errorf("archive_path missing inner entry: %q", gotPath)
+	}
+}
+
+func TestScanArchive_PausesExpansionBudgetDuringLeafScan(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, name := range []string{"first.txt", "second.txt"} {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("zip Create %s: %v", name, err)
+		}
+		if _, err := w.Write([]byte("TRIGGER\n")); err != nil {
+			t.Fatalf("zip Write %s: %v", name, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zip Close: %v", err)
+	}
+
+	det := &slowArchiveDetector{delay: 150 * time.Millisecond}
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{det}, Options{Concurrency: 1}, sink)
+	eng.resetFailures()
+	eng.scanArchive(context.Background(), &sources.Chunk{SourceName: "bundle.zip", Data: buf.Bytes()}, 100*time.Millisecond)
+	if err := eng.takeFailures(); err != nil {
+		t.Fatalf("slow leaf scan should not consume expansion budget: %v", err)
+	}
+	if got := det.calls.Load(); got != 2 {
+		t.Fatalf("detector calls = %d, want both archive leaves scanned", got)
+	}
+	findings := sink.Findings()
+	if len(findings) != 2 {
+		t.Fatalf("findings = %d, want one per archive leaf", len(findings))
+	}
+	for _, finding := range findings {
+		if path := finding.Result.ExtraData["archive_path"]; !strings.Contains(path, "!") {
+			t.Errorf("archive_path = %q, want inner entry path", path)
+		}
+	}
+}
+
+func TestScanArchive_ExpiredBudgetReportsCoverageFailure(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("payload.txt")
+	if err != nil {
+		t.Fatalf("zip Create: %v", err)
+	}
+	if _, err := w.Write([]byte("payload")); err != nil {
+		t.Fatalf("zip Write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zip Close: %v", err)
+	}
+
+	eng := NewWithDetectors(nil, Options{Concurrency: 1}, &engineRecordingSink{})
+	eng.resetFailures()
+	eng.scanArchive(context.Background(), &sources.Chunk{SourceName: "expired.zip", Data: buf.Bytes()}, -time.Second)
+	err = eng.takeFailures()
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("coverage error = %v, want context deadline exceeded", err)
 	}
 }
 
