@@ -54,6 +54,6 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
-| 2026-09-22 | architect, core-engineer, connector-engineer | Pack keyword DFA transitions, preallocate bounded gzip bodies, and replace the generic regex sweep while preserving match alignment. |
+| 2026-09-22 | architect, core-engineer, detector-engineer, connector-engineer | Pack keyword DFA transitions, preallocate bounded gzip bodies, skip impossible detector candidates before copying input, and preserve generic match alignment with byte scans. |
 | 2026-09-22 | architect, core-engineer, detector-engineer, connector-engineer, qa | Stream large bodies, batch finding-span searches, reduce archive buffers, and preserve source errors and checkpoints; source consumers must handle optional `Chunk.Open` payloads. |
 | 2026-09-22 | Codex, architect | Moved benchmark tooling and research to the private pleno-dlp-reports repository; product builds and tests remain here. |

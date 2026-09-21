@@ -62,7 +62,10 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		out = append(out, res)
 	}
 
-	lower := strings.ToLower(string(data))
+	lower := ""
+	if detectors.HasWordRunCandidate(data, "key", len("key")+14) {
+		lower = strings.ToLower(string(data))
+	}
 	var legacyHits [][]int
 	if hasContextKeyword(lower) {
 		legacyHits = legacyRe().FindAllSubmatchIndex(data, -1)

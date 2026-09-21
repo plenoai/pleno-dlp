@@ -32,6 +32,9 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Close }
 func (Scanner) Keywords() []string { return []string{"close", "api_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
+	if !detectors.HasWordRunCandidate(data, "api_", len("api_")+40) {
+		return nil, nil
+	}
 	lower := strings.ToLower(string(data))
 	if !hasContextKeyword(lower) {
 		return nil, nil

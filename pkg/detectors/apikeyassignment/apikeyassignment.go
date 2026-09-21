@@ -44,7 +44,7 @@ var (
 	// expression remains authoritative after this conservative prefilter.
 	assignEqCandidateRe = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(
-			`api[_-]?key[a-zA-Z0-9_]*\s*=\s*["']?[^"'\n\r${}<>%\[\]{} #]{4}`,
+			`(?i)api[_-]?key[a-zA-Z0-9_]*\s*=\s*["']?[^"'\n\r${}<>%\[\]{} #]{4}`,
 		)
 	})
 	assignColonRe = sync.OnceValue(func() *regexp.Regexp {
@@ -65,7 +65,7 @@ func hasEqualCandidate(data []byte) bool {
 			return true
 		}
 	}
-	return assignEqCandidateRe().Match(bytes.ToLower(data))
+	return assignEqCandidateRe().Match(data)
 }
 
 var placeholders = map[string]struct{}{
@@ -119,7 +119,6 @@ func (Scanner) Type() detectors.DetectorType { return detectors.APIKeyAssignment
 func (Scanner) Keywords() []string { return []string{"api_key", "api-key", "apikey"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	str := string(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
@@ -153,15 +152,15 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if hasEqualCandidate(data) {
 		res = append(res, assignEqRe())
 	}
-	if strings.Contains(str, ":") {
+	if bytes.IndexByte(data, ':') >= 0 {
 		res = append(res, assignColonRe())
 	}
 	for _, re := range res {
-		for _, m := range re.FindAllStringSubmatch(str, -1) {
+		for _, m := range re.FindAllSubmatch(data, -1) {
 			if len(m) < 2 {
 				continue
 			}
-			add(m[1])
+			add(string(m[1]))
 		}
 	}
 

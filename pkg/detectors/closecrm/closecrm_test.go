@@ -42,6 +42,14 @@ func TestFromData_UppercaseContext(t *testing.T) {
 	}
 }
 
+func TestFromData_UnicodeLongSContextRemainsUnmatched(t *testing.T) {
+	body := []byte("CLOſE.COM api_key=" + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("strings.ToLower-compatible Unicode context should remain unmatched, got %d", len(res))
+	}
+}
+
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)
