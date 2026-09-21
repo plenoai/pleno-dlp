@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -26,13 +27,13 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // 32 lowercase alphanumeric per upstream trufflehog (`[a-z0-9]{32}`). No
 // prefix to anchor on, so the arm regex + entropy floor carry the
 // false-positive load.
-var tokenRe = regexp.MustCompile(`\b([a-z0-9]{32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z0-9]{32})\b`) })
 
 // armRe is the assignment-style TaxJar reference that must appear within the
 // proximity window. A bare "taxjar" substring (dependency names, doc URLs,
 // comments) is too weak; "taxjar_api_token" / "taxjar-key" / "taxjartoken"
 // is the shape a real token assignment or config key takes.
-var armRe = regexp.MustCompile(`(?i)taxjar[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)taxjar[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // minEntropy rejects low-variety 32-char runs that clear the lowercase-alnum
 // regex but are not random tokens. The charset is hex-like (low variety, caps
@@ -47,7 +48,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.TaxJar }
 func (Scanner) Keywords() []string { return []string{"taxjar"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -100,7 +101,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

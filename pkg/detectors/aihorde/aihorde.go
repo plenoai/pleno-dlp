@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // AI Horde keys are UUID-shaped (8-4-4-4-12 hex with dashes) or 22-26
 // alnum compact form. We accept either.
-var tokenRe = regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[A-Za-z0-9]{22,26})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[A-Za-z0-9]{22,26})\b`)
+})
 
 var contextKeywords = []string{"aihorde", "stablehorde", "ai-horde", "stable-horde", "horde"}
 
@@ -30,7 +33,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AIHorde }
 func (Scanner) Keywords() []string { return []string{"horde"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

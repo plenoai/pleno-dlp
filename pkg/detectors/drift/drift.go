@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -30,19 +31,23 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // We narrow to this JWT shape because the prior `[A-Za-z0-9_-]{32,80}`
 // collided with virtually every base64-encoded blob (commit-shaped
 // hashes, npm sha512 fragments, base32 UUIDs, JWT-mid-segments).
-var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{20,200}\.[A-Za-z0-9_\-]{10,300}\.[A-Za-z0-9_\-]{10,300})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{20,200}\.[A-Za-z0-9_\-]{10,300}\.[A-Za-z0-9_\-]{10,300})\b`)
+})
 
 // keywordRe requires an explicit separator so words like `drifted`,
 // `drifting`, `adrift` no longer qualify. Case-insensitive.
-var keywordRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`drift[_\-]api(?:[_\-]token)?` +
-	`|drift[_\-]token` +
-	`|drift[_\-]access[_\-]token` +
-	`|\bdrift\.com\b` +
-	`|\bdriftapi\.com\b` +
-	`|\bdrift[ \t]*[:=][ \t]*` +
-	`)`)
+var keywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`drift[_\-]api(?:[_\-]token)?` +
+		`|drift[_\-]token` +
+		`|drift[_\-]access[_\-]token` +
+		`|\bdrift\.com\b` +
+		`|\bdriftapi\.com\b` +
+		`|\bdrift[ \t]*[:=][ \t]*` +
+		`)`)
+})
 
 type Scanner struct{}
 
@@ -51,11 +56,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Drift }
 func (Scanner) Keywords() []string { return []string{"drift"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	kwSpans := keywordRe.FindAllIndex(data, -1)
+	kwSpans := keywordRe().FindAllIndex(data, -1)
 	if len(kwSpans) == 0 {
 		return nil, nil
 	}

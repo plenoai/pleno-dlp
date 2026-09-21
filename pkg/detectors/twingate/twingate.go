@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,7 +22,7 @@ var apiBase = ""
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Twingate API tokens: tk_<32-base64url> or tkt_<...>.
-var tokenRe = regexp.MustCompile(`\b(tkt?_[A-Za-z0-9_-]{20,200})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(tkt?_[A-Za-z0-9_-]{20,200})\b`) })
 
 type Scanner struct{}
 
@@ -30,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Twingate }
 func (Scanner) Keywords() []string { return []string{"tk_", "tkt_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

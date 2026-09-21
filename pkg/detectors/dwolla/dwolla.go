@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -25,14 +26,14 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // github.com/trufflesecurity/trufflehog pkg/detectors/dwolla/dwolla.go.
 // We mirror the exact length rather than the previous open-ended `{50,}`,
 // which would over-match any longer alnum run.
-var credRe = regexp.MustCompile(`\b([A-Za-z0-9]{50})\b`)
+var credRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{50})\b`) })
 
 // armRe is the assignment-style Dwolla reference that must appear within the
 // proximity window. A bare "dwolla" substring (URLs, package names, prose) is
 // too weak; "dwolla_key" / "dwolla-secret" / "dwollaapitoken" is the shape a
 // real credential assignment or config key takes. The bare "dwolla" keyword
 // remains the engine prefilter via Keywords().
-var armRe = regexp.MustCompile(`(?i)dwolla[_\-]?(api[_\-]?)?(key|secret|token)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)dwolla[_\-]?(api[_\-]?)?(key|secret|token)`) })
 
 // minEntropy rejects low-entropy 50-char runs that clear the alnum regex but
 // are not random credentials (e.g. padded identifiers, repeated patterns).
@@ -46,7 +47,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Dwolla }
 func (Scanner) Keywords() []string { return []string{"dwolla"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := credRe.FindAllSubmatchIndex(data, -1)
+	hits := credRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}
@@ -99,7 +100,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

@@ -56,6 +56,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -97,10 +98,12 @@ var tenantUUIDKeywords = []string{
 // every random 40-char base64 string. Shape-level filler exclusion (mono-class
 // runs, slug-like separator density, low entropy) is enforced in plausibleSecret
 // rather than in the regex, where it would be unreadable and hard to test.
-var secretRe = regexp.MustCompile(`\b([A-Za-z0-9~._-]{2,}~[A-Za-z0-9~._-]{30,})\b`)
+var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9~._-]{2,}~[A-Za-z0-9~._-]{30,})\b`) })
 
 // Application (client) id: lowercase hex UUID.
-var appIDRe = regexp.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+var appIDRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+})
 
 var contextKeywords = []string{"azure", "azuread", "client_secret", "client_id", "appid", "tenant", "entra"}
 
@@ -115,11 +118,11 @@ func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 func (Scanner) Keywords() []string { return []string{"azure", "client_secret"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := secretRe.FindAllSubmatchIndex(data, -1)
+	hits := secretRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	apps := appIDRe.FindAllSubmatchIndex(data, -1)
+	apps := appIDRe().FindAllSubmatchIndex(data, -1)
 	lower := strings.ToLower(string(data))
 
 	out := make([]detectors.Result, 0, len(hits))
@@ -247,7 +250,9 @@ func verifyOAuth2(ctx context.Context, tenantID, clientID, clientSecret string) 
 }
 
 // uuidRe validates that a string is a standard 8-4-4-4-12 hex UUID.
-var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+var uuidRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+})
 
 // extractTenantID attempts to locate the Azure tenant_id in the chunk data.
 // It first tries direct key-value extraction (AZURE_TENANT_ID=xxx,
@@ -260,7 +265,7 @@ func extractTenantID(data []byte, anchorStart, anchorEnd int, clientID string) (
 	for _, key := range tenantKeyNames {
 		if val, ok := contextextract.FindNearbyKeyValue(data, key, 512); ok {
 			// Validate that the extracted value looks like a UUID.
-			if uuidRe.MatchString(val) && val != clientID {
+			if uuidRe().MatchString(val) && val != clientID {
 				return val, true
 			}
 		}

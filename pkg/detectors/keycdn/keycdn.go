@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -32,7 +33,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // destroy recall on any non-24-char key). The prefix is the false-positive
 // gate; an entropy floor is unnecessary because `sk_prod_` does not occur
 // in arbitrary text.
-var tokenRe = regexp.MustCompile(`\b(sk_prod_[A-Za-z0-9]{16,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk_prod_[A-Za-z0-9]{16,64})\b`) })
 
 type Scanner struct{}
 
@@ -44,7 +45,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.KeyCDN }
 func (Scanner) Keywords() []string { return []string{"keycdn"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatch(data, -1)
+	hits := tokenRe().FindAllSubmatch(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

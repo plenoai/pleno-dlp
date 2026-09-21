@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -38,7 +39,7 @@ var (
 
 // Zendesk API tokens are documented as 40 base62 chars — the token portion
 // of the Basic-auth credential `<email>/token:<api_token>`.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`) })
 
 // minEntropy rejects low-information 40-char base62 runs that satisfy the
 // length+charset regex but are not random tokens (commit SHAs are hex/40 and
@@ -60,13 +61,17 @@ const minEntropy = 3.5
 //
 // The whole detector only runs after the "zendesk" Keywords() prefilter matches
 // the chunk, so the `/token:` arm is already scoped to a Zendesk context.
-var armRe = regexp.MustCompile(`(?i)(zendesk[_\-]?(api[_\-]?)?(token|key|secret)|/token:)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(zendesk[_\-]?(api[_\-]?)?(token|key|secret)|/token:)`)
+})
 
 // RFC5322-ish email shape — kept conservative so we don't chase malformed
 // addresses. We pair the operator email with the token via Basic auth.
-var emailRe = regexp.MustCompile(`\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b`)
+var emailRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b`)
+})
 
-var hostRe = regexp.MustCompile(`\b([a-z0-9-]+\.zendesk\.com)\b`)
+var hostRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z0-9-]+\.zendesk\.com)\b`) })
 
 type Scanner struct{}
 
@@ -76,12 +81,12 @@ func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 func (Scanner) Keywords() []string { return []string{"zendesk"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	emails := emailRe.FindAllSubmatchIndex(data, -1)
-	host := hostRe.FindString(string(data))
+	emails := emailRe().FindAllSubmatchIndex(data, -1)
+	host := hostRe().FindString(string(data))
 	lower := strings.ToLower(string(data))
 
 	out := make([]detectors.Result, 0, len(hits))
@@ -213,7 +218,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func abs(x int) int {

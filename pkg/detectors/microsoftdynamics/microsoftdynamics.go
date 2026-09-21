@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,7 +23,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Dynamics access tokens are AAD-issued JWTs (3 dot-separated base64url
 // segments). We anchor on the JWT shape rather than free alnum to keep
 // false positives bounded.
-var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,})\b`)
+})
 
 var contextKeywords = []string{"dynamics", "crm.dynamics.com", "dataverse"}
 
@@ -33,7 +36,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.MicrosoftDynamic
 func (Scanner) Keywords() []string { return []string{"dynamics", "dataverse"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,7 @@ var apiBase = "https://api.bitfinex.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Bitfinex keys are 43 alnum chars (newer API v2 keys).
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{43})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{43})\b`) })
 
 var contextKeywords = []string{"bitfinex"}
 
@@ -31,7 +32,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Bitfinex }
 func (Scanner) Keywords() []string { return []string{"bitfinex"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}

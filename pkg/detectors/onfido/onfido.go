@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,9 @@ var apiBase = "https://api.onfido.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Onfido tokens: api_(live|sandbox)_(us|eu|ca)_ + 40 alnum.
-var tokenRe = regexp.MustCompile(`\b(api_(?:live|sandbox)_(?:us|eu|ca)_[A-Za-z0-9_-]{32,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(api_(?:live|sandbox)_(?:us|eu|ca)_[A-Za-z0-9_-]{32,80})\b`)
+})
 
 type Scanner struct{}
 
@@ -28,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Onfido }
 func (Scanner) Keywords() []string { return []string{"api_live_", "api_sandbox_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

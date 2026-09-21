@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -37,11 +38,13 @@ var apiBase = "https://hub.docker.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Token shape per the Docker Hub PAT issuance docs.
-var tokenRe = regexp.MustCompile(`\b(dckr_pat_[A-Za-z0-9_-]{20,40})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dckr_pat_[A-Za-z0-9_-]{20,40})\b`) })
 
 // Capture a likely username if present near a `docker_username` /
 // `DOCKER_USER` style key.
-var usernameRe = regexp.MustCompile(`(?i)(?:docker[_-]?(?:hub[_-]?)?(?:user(?:name)?|login))\s*[:=]\s*["']?([A-Za-z0-9][A-Za-z0-9_.-]{1,38})`)
+var usernameRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(?:docker[_-]?(?:hub[_-]?)?(?:user(?:name)?|login))\s*[:=]\s*["']?([A-Za-z0-9][A-Za-z0-9_.-]{1,38})`)
+})
 
 // pairSep joins username and token into the single secret string that the
 // engine-level Verify path receives. NUL can never appear in a Docker Hub
@@ -57,12 +60,12 @@ func (Scanner) Type() detectors.DetectorType { return detectors.DockerHub }
 func (Scanner) Keywords() []string { return []string{"dckr_pat_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}
 	username := ""
-	if um := usernameRe.FindSubmatch(data); len(um) == 2 {
+	if um := usernameRe().FindSubmatch(data); len(um) == 2 {
 		username = strings.ToLower(string(um[1]))
 	}
 	out := make([]detectors.Result, 0, len(matches))

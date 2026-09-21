@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,7 +22,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 //
 // Both use "1" (or "2" for forward-compat) as the version prefix.
 // GID minimum length is 16 to exclude short numeric path segments.
-var tokenRe = regexp.MustCompile(`\b([12]/[0-9]{16,}[/:]([a-f0-9]{32}))\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([12]/[0-9]{16,}[/:]([a-f0-9]{32}))\b`) })
 
 type Scanner struct{}
 
@@ -32,7 +33,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Asana }
 func (Scanner) Keywords() []string { return []string{"asana"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

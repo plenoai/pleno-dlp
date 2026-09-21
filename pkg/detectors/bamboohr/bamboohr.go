@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -30,7 +31,7 @@ var apiBase = ""
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // 40 hex chars = 160-bit secret expressed in hexadecimal form (cited above).
-var tokenRe = regexp.MustCompile(`\b([a-fA-F0-9]{40})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-fA-F0-9]{40})\b`) })
 
 // minEntropy rejects degenerate hex runs (repeated/sequential digits) that
 // clear the regex but lack key-grade randomness. 3.0, not 3.5: hex's 16-symbol
@@ -41,7 +42,7 @@ const minEntropy = 3.0
 // in Keywords() as the cheap prefilter; this arm regex anchors on the
 // assignment-style forms so a random 40-hex SHA merely co-located with the word
 // "bamboohr" within radius 64 is not promoted to a finding.
-var contextRe = regexp.MustCompile(`(?i)bamboohr[_-]?(api[_-]?)?(token|key|secret)`)
+var contextRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)bamboohr[_-]?(api[_-]?)?(token|key|secret)`) })
 
 type Scanner struct{}
 
@@ -50,7 +51,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.BambooHR }
 func (Scanner) Keywords() []string { return []string{"bamboohr"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -98,7 +99,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	return contextRe.MatchString(window)
+	return contextRe().MatchString(window)
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

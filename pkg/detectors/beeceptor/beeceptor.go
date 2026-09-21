@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -39,14 +40,14 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // (https://beeceptor.com/docs/api-overview/); we keep a >=32 lower bound rather
 // than pinning 40 because the hex branch of the key-format playbook treats hex
 // length-pinning as recall-hostile.
-var tokenRe = regexp.MustCompile(`\b([a-fA-F0-9]{32,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-fA-F0-9]{32,})\b`) })
 
 // armRe is the assignment-style Beeceptor reference that must appear within the
 // proximity window. A bare "beeceptor" substring (mock-server URLs, package
 // names, prose) is too weak to gate a generic hex run; the
 // `beeceptor[_-]?(api[_-]?)?(token|key|secret)` shape is what a real credential
 // assignment or config key looks like.
-var armRe = regexp.MustCompile(`(?i)beeceptor[_-]?(api[_-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)beeceptor[_-]?(api[_-]?)?(token|key|secret)`) })
 
 // minEntropy rejects low-information hex runs (repeated/structured digits,
 // padded identifiers) that clear the regex but lack key-grade randomness. Hex
@@ -61,7 +62,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Beeceptor }
 func (Scanner) Keywords() []string { return []string{"beeceptor"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -114,7 +115,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

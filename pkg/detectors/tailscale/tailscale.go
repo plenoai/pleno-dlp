@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -32,7 +33,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // sub-types. The body is base32/base62 of varying length and may contain
 // underscores; mirror trufflehog's `tskey-[a-z]+-[0-9A-Za-z_]+-[0-9A-Za-z_]+`
 // shape so verifiable OAuth/underscore tokens are not dropped.
-var tokenRe = regexp.MustCompile(`\b(tskey-[a-z]+-[0-9A-Za-z_]{6,32}-[0-9A-Za-z_]{16,96})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(tskey-[a-z]+-[0-9A-Za-z_]{6,32}-[0-9A-Za-z_]{16,96})\b`)
+})
 
 var (
 	verifyAcceptCodes = []int{http.StatusNoContent}
@@ -46,7 +49,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Tailscale }
 func (Scanner) Keywords() []string { return []string{"tskey-"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAll(data, -1)
+	hits := tokenRe().FindAll(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

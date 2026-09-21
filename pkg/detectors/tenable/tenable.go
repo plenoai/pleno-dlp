@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,8 +20,12 @@ var apiBase = "https://cloud.tenable.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
-	accessRe = regexp.MustCompile(`(?i)access[_\.\-]?key\s*[:=]\s*["']?([a-f0-9]{64})["']?`)
-	secretRe = regexp.MustCompile(`(?i)secret[_\.\-]?key\s*[:=]\s*["']?([a-f0-9]{64})["']?`)
+	accessRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)access[_\.\-]?key\s*[:=]\s*["']?([a-f0-9]{64})["']?`)
+	})
+	secretRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)secret[_\.\-]?key\s*[:=]\s*["']?([a-f0-9]{64})["']?`)
+	})
 )
 
 type Scanner struct{}
@@ -33,8 +38,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if !strings.Contains(strings.ToLower(string(data)), "tenable") {
 		return nil, nil
 	}
-	access := accessRe.FindAllSubmatch(data, -1)
-	secrets := secretRe.FindAllSubmatch(data, -1)
+	access := accessRe().FindAllSubmatch(data, -1)
+	secrets := secretRe().FindAllSubmatch(data, -1)
 	if len(access) == 0 || len(secrets) == 0 {
 		return nil, nil
 	}

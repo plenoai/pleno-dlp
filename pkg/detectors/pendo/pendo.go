@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -24,7 +25,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // 32-char hex (pendo track API key) — collides with md5 digests, so the
 // keyword gate is mandatory. The integration-key JWT is left to the JWT
 // detector since both shapes are documented as valid.
-var keyRe = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
 
 var contextKeywords = []string{"pendo", "pendo_api", "pendo_key", "pendo_integration"}
 
@@ -35,7 +36,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Pendo }
 func (Scanner) Keywords() []string { return []string{"pendo"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := keyRe.FindAllSubmatchIndex(data, -1)
+	hits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

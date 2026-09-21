@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -30,10 +31,10 @@ const authPath = "/b2api/v2/b2_authorize_account"
 
 var (
 	// Key ID: "K00" + 22-30 base64url-ish chars.
-	keyIDRe = regexp.MustCompile(`\b(K00[A-Za-z0-9]{22,30})\b`)
+	keyIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(K00[A-Za-z0-9]{22,30})\b`) })
 	// Application key: ~31 chars of base64 (alnum, +, /), no K00 prefix.
 	// Loosened from the old K00-anchored regex per real-world shape.
-	keyRe = regexp.MustCompile(`\b([A-Za-z0-9+/]{27,40})\b`)
+	keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9+/]{27,40})\b`) })
 )
 
 var contextKeywords = []string{"b2_", "backblaze", "b2_application_key", "b2_app_key", "b2_key_id"}
@@ -45,8 +46,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.BackblazeB2 }
 func (Scanner) Keywords() []string { return []string{"b2_", "backblaze"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	ids := keyIDRe.FindAllSubmatchIndex(data, -1)
-	keys := keyRe.FindAllSubmatchIndex(data, -1)
+	ids := keyIDRe().FindAllSubmatchIndex(data, -1)
+	keys := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(ids) == 0 || len(keys) == 0 {
 		return nil, nil
 	}

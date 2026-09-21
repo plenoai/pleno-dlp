@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,8 +21,10 @@ var apiBase = "https://marketplace.walmartapis.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var idRe = regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
-var secretRe = regexp.MustCompile(`\b([A-Za-z0-9+/=_-]{40,300})\b`)
+var idRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+})
+var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9+/=_-]{40,300})\b`) })
 
 var contextKeywords = []string{"walmart"}
 
@@ -32,8 +35,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Walmart }
 func (Scanner) Keywords() []string { return []string{"walmart"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	idHits := idRe.FindAllSubmatchIndex(data, -1)
-	secHits := secretRe.FindAllSubmatchIndex(data, -1)
+	idHits := idRe().FindAllSubmatchIndex(data, -1)
+	secHits := secretRe().FindAllSubmatchIndex(data, -1)
 	if len(idHits) == 0 || len(secHits) == 0 {
 		return nil, nil
 	}

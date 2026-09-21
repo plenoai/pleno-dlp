@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,9 @@ var apiBase = "https://api.cloudinary.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var urlRe = regexp.MustCompile(`cloudinary://([0-9]{6,18}):([A-Za-z0-9_\-]{20,80})@([A-Za-z0-9_\-]{2,64})`)
+var urlRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`cloudinary://([0-9]{6,18}):([A-Za-z0-9_\-]{20,80})@([A-Za-z0-9_\-]{2,64})`)
+})
 
 type Scanner struct{}
 
@@ -30,7 +33,7 @@ func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 func (Scanner) Keywords() []string { return []string{"cloudinary"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := urlRe.FindAllSubmatch(data, -1)
+	hits := urlRe().FindAllSubmatch(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

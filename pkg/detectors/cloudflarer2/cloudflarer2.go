@@ -37,13 +37,14 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 var (
-	idRe     = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
-	secretRe = regexp.MustCompile(`\b([a-f0-9]{64})\b`)
+	idRe     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{64})\b`) })
 )
 
 // minHexEntropy is the Shannon-entropy floor (bits/char) for both the
@@ -81,11 +82,11 @@ func (Scanner) Keywords() []string {
 }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	ids := idRe.FindAllSubmatchIndex(data, -1)
+	ids := idRe().FindAllSubmatchIndex(data, -1)
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	secrets := secretRe.FindAllSubmatchIndex(data, -1)
+	secrets := secretRe().FindAllSubmatchIndex(data, -1)
 	if len(secrets) == 0 {
 		return nil, nil
 	}

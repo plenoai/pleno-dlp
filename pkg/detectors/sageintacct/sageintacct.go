@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -31,7 +32,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // assignment-anchor keyword gate below.
 //
 //	https://developer.intacct.com/web-services/ (no format published, 2026-06)
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{12,32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{12,32})\b`) })
 
 // armRe is the assignment-style Intacct reference that must appear within the
 // proximity window. A bare "intacct" substring (doc links, package names, log
@@ -39,7 +40,9 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{12,32})\b`)
 // `intacct[_-]?(sender|user|api)?[_-]?(id|password|token|key|secret)` shape is
 // what a real credential assignment or config key takes. The bare keyword
 // stays in Keywords() as the cheap engine prefilter.
-var armRe = regexp.MustCompile(`(?i)(intacct|sender|user)[_\-]?(api[_\-]?)?(id|password|token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(intacct|sender|user)[_\-]?(api[_\-]?)?(id|password|token|key|secret)`)
+})
 
 // minEntropy is a CONSERVATIVE 3.0 floor (not 3.5). Because no authoritative
 // format pins the charset, the run may be a short low-variety password; a 3.5
@@ -54,7 +57,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.SageIntacct }
 func (Scanner) Keywords() []string { return []string{"intacct"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -108,7 +111,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

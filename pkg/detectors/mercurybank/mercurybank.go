@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -41,7 +42,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // underscore segment separators Mercury uses; the token closes on the literal
 // "_yrucrem" suffix. Anchoring on this prefix is the false-positive gate, so no
 // entropy floor or keyword-proximity window is required.
-var tokenRe = regexp.MustCompile(`secret-token:mercury_(?:production|sandbox)_[A-Za-z0-9]+_[A-Za-z0-9_]+_yrucrem`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`secret-token:mercury_(?:production|sandbox)_[A-Za-z0-9]+_[A-Za-z0-9_]+_yrucrem`)
+})
 
 type Scanner struct{}
 
@@ -52,7 +55,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.MercuryBank }
 func (Scanner) Keywords() []string { return []string{"mercury"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAll(data, -1)
+	hits := tokenRe().FindAll(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,9 @@ var apiBase = "https://app.neptune.ai"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Neptune tokens are JWTs (eyJ + base64url payload + signature).
-var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{20,200}\.[A-Za-z0-9_-]{20,400}\.[A-Za-z0-9_-]{20,200})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{20,200}\.[A-Za-z0-9_-]{20,400}\.[A-Za-z0-9_-]{20,200})\b`)
+})
 
 var contextKeywords = []string{"neptune", "neptune_api_token", "neptune-api-token", "neptune.ai"}
 
@@ -30,7 +33,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.NeptuneAI }
 func (Scanner) Keywords() []string { return []string{"neptune"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

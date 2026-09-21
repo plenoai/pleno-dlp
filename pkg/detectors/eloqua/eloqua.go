@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -38,14 +39,16 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // placeholders like `a1b2c3d4`). With no authoritative format to pin, this
 // stays a wide alphanumeric range and the gate carries the FP load. See the
 // research note in the package-level doc comment.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24,128})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24,128})\b`) })
 
 // armRe is the assignment-style Eloqua reference that must appear within the
 // proximity window. A bare "eloqua" substring (doc links, the per-pod
 // `secure.pNN.eloqua.com` host, dependency names) is far too weak a gate
 // against a generic 24-128 alphanumeric run; the shape an actual credential
 // assignment or config key takes is `eloqua[_-]?(client[_-]?)?(id|secret|token|key)`.
-var armRe = regexp.MustCompile(`(?i)eloqua[_\-]?(client[_\-]?)?(id|secret|token|key)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)eloqua[_\-]?(client[_\-]?)?(id|secret|token|key)`)
+})
 
 // minEntropy rejects low-entropy 24-128 char runs that clear the alnum regex
 // but are not random credentials (e.g. padded placeholders, repeated runs).
@@ -59,7 +62,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Eloqua }
 func (Scanner) Keywords() []string { return []string{"eloqua"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}
@@ -116,7 +119,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

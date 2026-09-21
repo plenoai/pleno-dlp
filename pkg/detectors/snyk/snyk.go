@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,7 +19,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // UUID lowercase hex; not anchored to v4 because Snyk doesn't guarantee v4
 // in their token-mint contract.
-var tokenRe = regexp.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+})
 
 var contextKeywords = []string{"snyk", "snyk_token", "snyk_api_token"}
 
@@ -29,7 +32,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Snyk }
 func (Scanner) Keywords() []string { return []string{"snyk"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

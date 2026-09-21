@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -26,7 +27,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // 80 base64url chars. Both halves share this shape — identification of which
 // is "id" vs "secret" relies on positional ordering + keyword window.
-var idRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{80})\b`)
+var idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{80})\b`) })
 
 var contextKeywords = []string{"paypal", "paypal_client", "client_id", "client_secret"}
 
@@ -37,7 +38,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.PayPal }
 func (Scanner) Keywords() []string { return []string{"paypal"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := idRe.FindAllSubmatchIndex(data, -1)
+	hits := idRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

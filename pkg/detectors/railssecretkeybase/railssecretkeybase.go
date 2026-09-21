@@ -27,15 +27,18 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 // lineRe matches a `secret_key_base:` YAML line and captures the
 // (possibly quoted) value token.
-var lineRe = regexp.MustCompile(
-	`(?im)^[ \t]*secret_key_base:[ \t]+(\S+)[ \t]*$`,
-)
+var lineRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?im)^[ \t]*secret_key_base:[ \t]+(\S+)[ \t]*$`,
+	)
+})
 
 var placeholders = map[string]struct{}{
 	"changeme":    {},
@@ -79,7 +82,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
-	for _, m := range lineRe.FindAllStringSubmatch(str, -1) {
+	for _, m := range lineRe().FindAllStringSubmatch(str, -1) {
 		if len(m) < 2 {
 			continue
 		}

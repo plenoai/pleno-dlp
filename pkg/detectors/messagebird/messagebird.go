@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -28,14 +29,16 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // (pkg/detectors/messagebird) and consistent with the documented key body.
 // No prefix to anchor on, so the keyword gate and entropy floor carry the
 // false-positive load.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{25})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{25})\b`) })
 
 // armRe is the assignment-style MessageBird reference that must appear within
 // the proximity window. A bare "messagebird" substring (doc links, the
 // messagebird.com host, dependency names) is too weak a gate against a generic
 // 25-char run; `messagebird[_-]?(api[_-]?)?(access[_-]?)?(token|key|secret)`
 // is the shape a real credential assignment or config key takes.
-var armRe = regexp.MustCompile(`(?i)messagebird[_\-]?(api[_\-]?)?(access[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)messagebird[_\-]?(api[_\-]?)?(access[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-entropy 25-char runs that clear the charset regex but
 // are not random tokens (e.g. structured identifiers, padded names). The body
@@ -49,7 +52,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.MessageBird }
 func (Scanner) Keywords() []string { return []string{"messagebird"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -129,7 +132,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func redact(t string) string {

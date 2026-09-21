@@ -52,6 +52,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -61,31 +62,37 @@ import (
 // client.authentication.k8s.io group appears in exec-credential plugin
 // stanzas embedded in real kubeconfigs.
 var (
-	kindRe       = regexp.MustCompile(`(?im)^\s*kind\s*:\s*Config\s*$`)
-	apiVersionRe = regexp.MustCompile(`(?im)^\s*apiVersion\s*:\s*["']?(v1|client\.authentication\.k8s\.io/[^\s"']+)["']?\s*$`)
+	kindRe       = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?im)^\s*kind\s*:\s*Config\s*$`) })
+	apiVersionRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?im)^\s*apiVersion\s*:\s*["']?(v1|client\.authentication\.k8s\.io/[^\s"']+)["']?\s*$`)
+	})
 )
 
 // usersBlockRe locates `users:` / `user:` block markers. A credential
 // field only counts when it falls within usersVicinity bytes AFTER one
 // of these markers — the inline vicinity check that ties the credential
 // to a users block rather than an unrelated object.
-var usersBlockRe = regexp.MustCompile(`(?im)^\s*-?\s*users?\s*:\s*$`)
+var usersBlockRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?im)^\s*-?\s*users?\s*:\s*$`) })
 
 const usersVicinity = 200
 
 // One result per credential field. We anchor on YAML line shape (key
 // indented under `user:`) and require a non-empty value.
 var (
-	clientCertRe = regexp.MustCompile(`(?m)^\s*client-certificate-data\s*:\s*([A-Za-z0-9+/=]{40,})\s*$`)
-	clientKeyRe  = regexp.MustCompile(`(?m)^\s*client-key-data\s*:\s*([A-Za-z0-9+/=]{40,})\s*$`)
-	tokenRe      = regexp.MustCompile(`(?m)^\s*token\s*:\s*([A-Za-z0-9._\-+/=]{20,})\s*$`)
-	nameRe       = regexp.MustCompile(`(?m)^[\s-]*name\s*:\s*([^\s]+)\s*$`)
+	clientCertRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?m)^\s*client-certificate-data\s*:\s*([A-Za-z0-9+/=]{40,})\s*$`)
+	})
+	clientKeyRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?m)^\s*client-key-data\s*:\s*([A-Za-z0-9+/=]{40,})\s*$`)
+	})
+	tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^\s*token\s*:\s*([A-Za-z0-9._\-+/=]{20,})\s*$`) })
+	nameRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[\s-]*name\s*:\s*([^\s]+)\s*$`) })
 )
 
 // serverRe extracts the cluster server URL from a kubeconfig YAML.
 // The server: field sits under a `clusters:` block and always carries
 // an https:// (or occasionally http://) URL.
-var serverRe = regexp.MustCompile(`(?m)^\s*server\s*:\s*(https?://[^\s]+)`)
+var serverRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^\s*server\s*:\s*(https?://[^\s]+)`) })
 
 // verifyTimeout caps the time spent probing a single cluster endpoint.
 const verifyTimeout = 5 * time.Second
@@ -129,7 +136,7 @@ func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 func (Scanner) Keywords() []string { return []string{"kind: Config", "kind:Config"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	if !kindRe.Match(data) || !apiVersionRe.Match(data) {
+	if !kindRe().Match(data) || !apiVersionRe().Match(data) {
 		return nil, nil
 	}
 
@@ -139,7 +146,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	// and extends usersVicinity bytes. A credential field is accepted only
 	// if its match start falls inside one of these windows.
 	var windows []window
-	for _, m := range usersBlockRe.FindAllStringIndex(str, -1) {
+	for _, m := range usersBlockRe().FindAllStringIndex(str, -1) {
 		windows = append(windows, window{start: m[0], end: m[0] + usersVicinity})
 	}
 	if len(windows) == 0 {
@@ -206,7 +213,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		// credential field. We grab the LAST `name:` before the credential.
 		if idx := strings.Index(str, value); idx > 0 {
 			head := str[:idx]
-			if matches := nameRe.FindAllStringSubmatch(head, -1); len(matches) > 0 {
+			if matches := nameRe().FindAllStringSubmatch(head, -1); len(matches) > 0 {
 				extra["user_name"] = matches[len(matches)-1][1]
 			}
 		}
@@ -259,9 +266,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		}
 	}
 
-	scan(clientCertRe, "client-certificate-data", false)
-	scan(clientKeyRe, "client-key-data", false)
-	scan(tokenRe, "token", true)
+	scan(clientCertRe(), "client-certificate-data", false)
+	scan(clientKeyRe(), "client-key-data", false)
+	scan(tokenRe(), "token", true)
 
 	if len(out) == 0 {
 		return nil, nil
@@ -332,7 +339,7 @@ type serverMatch struct {
 // extractServers returns all cluster server URLs found in the chunk,
 // preserving document order.
 func extractServers(doc string) []serverMatch {
-	matches := serverRe.FindAllStringSubmatchIndex(doc, -1)
+	matches := serverRe().FindAllStringSubmatchIndex(doc, -1)
 	out := make([]serverMatch, 0, len(matches))
 	for _, m := range matches {
 		out = append(out, serverMatch{

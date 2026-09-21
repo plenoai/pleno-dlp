@@ -49,11 +49,15 @@ import (
 // Match the begin marker, the body, and the end marker in one go. Use [\s\S]
 // (any char including newline) since Go regexp's `.` excludes \n by default.
 // The optional ` BLOCK` suffix covers PGP armor: `-----BEGIN PGP PRIVATE KEY BLOCK-----`.
-var blockRe = regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----`)
+var blockRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----`)
+})
 
 // Used to pull the algorithm token out of the BEGIN line as a fallback when
 // the PEM body fails to parse (corrupted block, truncated paste).
-var algRe = regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----`)
+var algRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----`)
+})
 
 // Scanner is the privatekey detector. The struct carries a CT client and
 // passphrase wordlist that are wired up lazily — the zero value works
@@ -94,7 +98,7 @@ func (Scanner) WantsFullChunk() bool { return true }
 // the discovered domains into ExtraData. The CT call is per-block —
 // each block hits crt.sh at most once.
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := blockRe.FindAll(data, -1)
+	matches := blockRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}
@@ -261,7 +265,7 @@ func (s Scanner) ctClient() *blastradius.CTClient {
 }
 
 func extractAlg(block []byte) string {
-	m := algRe.FindSubmatch(block)
+	m := algRe().FindSubmatch(block)
 	if len(m) < 2 {
 		return ""
 	}

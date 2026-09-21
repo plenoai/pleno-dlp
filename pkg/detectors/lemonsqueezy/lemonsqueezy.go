@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Lemon Squeezy API tokens are JWT-like (3 dot-separated base64url segments).
 // Accept anything matching that JWT pattern with a wide length range. The
 // keyword gate keeps FP rate bounded.
-var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+})
 
 var contextKeywords = []string{"lemonsqueezy", "lemon_squeezy", "lemonsqueezy_api"}
 
@@ -31,7 +34,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.LemonSqueezy }
 func (Scanner) Keywords() []string { return []string{"lemonsqueezy", "lemon_squeezy"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

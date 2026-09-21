@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -33,7 +34,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // No documented prefix or fixed length; keep the wide alnum range and rely on
 // the keyword gate + entropy floor to disambiguate.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24,64})\b`) })
 
 // minEntropy rejects low-information runs that clear the loose alnum regex
 // but are not tokens. 3.0 is the conservative hex-grade floor — high enough
@@ -46,7 +47,9 @@ const minEntropy = 3.0
 // (smartsheet[_-]?(api[_-]?)?(token|key|secret)) keeps the env/config-style
 // fixtures armed, while the bare \bsmartsheet\b match preserves recall for
 // tokens introduced by a nearby plain "smartsheet" mention.
-var contextRe = regexp.MustCompile(`(?i)smartsheet[_-]?(api[_-]?)?(token|key|secret)|\bsmartsheet\b`)
+var contextRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)smartsheet[_-]?(api[_-]?)?(token|key|secret)|\bsmartsheet\b`)
+})
 
 type Scanner struct{}
 
@@ -55,7 +58,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Smartsheet }
 func (Scanner) Keywords() []string { return []string{"smartsheet"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -128,7 +131,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	return contextRe.MatchString(window)
+	return contextRe().MatchString(window)
 }
 
 func redact(t string) string {

@@ -33,6 +33,7 @@ package datadogapp
 import (
 	"context"
 	"regexp"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -44,18 +45,22 @@ import (
 // This replaces the previous free-floating `\b[a-fA-F0-9]{40}\b` + "keyword
 // anywhere in a 256-byte window" approach, which surfaced any SHA-1 that
 // happened to sit near a DD_APP_KEY doc comment.
-var anchoredRe = regexp.MustCompile(
-	`(?i)(?:dd[-_]?application[-_]?key|dd[-_]?app[-_]?key|datadog[-_]?app(?:lication)?[-_]?key)["` + "`" + `']?\s*[:=]?\s*["` + "`" + `']?\s*([a-fA-F0-9]{40})\b`,
-)
+var anchoredRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?i)(?:dd[-_]?application[-_]?key|dd[-_]?app[-_]?key|datadog[-_]?app(?:lication)?[-_]?key)["` + "`" + `']?\s*[:=]?\s*["` + "`" + `']?\s*([a-fA-F0-9]{40})\b`,
+	)
+})
 
 // 32-hex API keys nearby — used to skip the App key when the existing
 // datadog detector will already surface the pair.
-var apiRe = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
+var apiRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
 
 // Tokens in a SHA-1 / commit / checksum context are excluded even when a
 // Datadog keyword is present, because git commit SHAs and action-pin SHAs
 // share the 40-hex shape. We look at the bytes immediately before the token.
-var shaContextRe = regexp.MustCompile(`(?i)(sha1|sha-1|sha\b|commit|checksum|revision|digest|@)[\s:="'` + "`" + `]*$`)
+var shaContextRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(sha1|sha-1|sha\b|commit|checksum|revision|digest|@)[\s:="'` + "`" + `]*$`)
+})
 
 // minHexEntropy: floor over the 16-symbol hex alphabet (ceiling ≈ 4.0
 // bits/char). 3.0 drops all-zero / repeated-nibble placeholders and
@@ -73,11 +78,11 @@ func (Scanner) Keywords() []string {
 }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := anchoredRe.FindAllSubmatchIndex(data, -1)
+	hits := anchoredRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	apis := apiRe.FindAllSubmatchIndex(data, -1)
+	apis := apiRe().FindAllSubmatchIndex(data, -1)
 
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
@@ -149,7 +154,7 @@ func inSHAContext(data []byte, tokenStart int) bool {
 	if from < 0 {
 		from = 0
 	}
-	return shaContextRe.Match(data[from:tokenStart])
+	return shaContextRe().Match(data[from:tokenStart])
 }
 
 func abs(x int) int {

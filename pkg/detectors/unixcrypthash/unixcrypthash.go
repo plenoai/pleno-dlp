@@ -27,6 +27,7 @@ package unixcrypthash
 import (
 	"context"
 	"regexp"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -37,13 +38,15 @@ import (
 // captured. The username charset covers typical POSIX account names;
 // the hash alternation covers glibc/Apache modular crypt ($id$salt$hash),
 // bcrypt ($2[aby]$rounds$payload), and legacy Apache curly-brace tags.
-var cryptLineRe = regexp.MustCompile(
-	`(?m)^([A-Za-z0-9_][A-Za-z0-9_.\-]{0,31}):` +
-		`(\$2[aby]\$[0-9]{2}\$[A-Za-z0-9./]{53}` +
-		`|\$(?:1|5|6|apr1)\$[A-Za-z0-9./]{1,16}\$[A-Za-z0-9./]{20,100}` +
-		`|(?i:\{(?:SSHA|SHA|MD5)\})[A-Za-z0-9+/=]{10,100})` +
-		`(?::[^\n]*)?[ \t]*$`,
-)
+var cryptLineRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?m)^([A-Za-z0-9_][A-Za-z0-9_.\-]{0,31}):` +
+			`(\$2[aby]\$[0-9]{2}\$[A-Za-z0-9./]{53}` +
+			`|\$(?:1|5|6|apr1)\$[A-Za-z0-9./]{1,16}\$[A-Za-z0-9./]{20,100}` +
+			`|(?i:\{(?:SSHA|SHA|MD5)\})[A-Za-z0-9+/=]{10,100})` +
+			`(?::[^\n]*)?[ \t]*$`,
+	)
+})
 
 // knownExampleHashes are widely published tutorial/library sample
 // hashes (bcryptjs README, Apache docs, etc.) that get copy-pasted into
@@ -69,7 +72,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
-	for _, m := range cryptLineRe.FindAllStringSubmatch(str, -1) {
+	for _, m := range cryptLineRe().FindAllStringSubmatch(str, -1) {
 		if len(m) < 3 {
 			continue
 		}

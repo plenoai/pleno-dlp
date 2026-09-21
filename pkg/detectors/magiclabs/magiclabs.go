@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var apiBase = "https://api.magic.link"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Magic secret keys are sk_(live|test)_ + 32+ alnum chars.
-var tokenRe = regexp.MustCompile(`\b(sk_(?:live|test)_[A-Za-z0-9]{20,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk_(?:live|test)_[A-Za-z0-9]{20,64})\b`) })
 
 var contextKeywords = []string{"magic", "magiclink", "magic.link", "magiclabs"}
 
@@ -30,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.MagicLabs }
 func (Scanner) Keywords() []string { return []string{"sk_live_", "sk_test_", "magic"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

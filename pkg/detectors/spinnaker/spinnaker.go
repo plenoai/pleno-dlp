@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -22,23 +23,25 @@ import (
 // tokenRe matches the two shapes Spinnaker bearer credentials take: a JWT
 // (eyJ-prefixed) or an opaque 40-80 char base62 string. Both branches are
 // intentionally broad; the FP-bounding work is done post-match in isToken.
-var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_.-]{20,}|[A-Za-z0-9]{40,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_.-]{20,}|[A-Za-z0-9]{40,80})\b`) })
 
 // pureHexRe matches a string that is *only* hex digits — 40-char git SHA-1,
 // 64-char sha256 image digests, md5 sums. These are the dominant base62-branch
 // false positives and carry no Spinnaker credential semantics.
-var pureHexRe = regexp.MustCompile(`^[0-9a-fA-F]+$`)
+var pureHexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-fA-F]+$`) })
 
 // keywordRe is the anchored Spinnaker credential marker. A bare `spinnaker.io`
 // URL reference is deliberately NOT an anchor: URL references co-occur with
 // image digests (`spinnaker.io/clouddriver@sha256:...`), not secrets. Require
 // an assignment-style credential context instead.
-var keywordRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`\bspinnaker[_\-](?:api|token|key|secret|auth)\b` +
-	`|\bgate\.spinnaker\b` +
-	`|\bspinnaker[ \t]*[:=]` +
-	`)`)
+var keywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`\bspinnaker[_\-](?:api|token|key|secret|auth)\b` +
+		`|\bgate\.spinnaker\b` +
+		`|\bspinnaker[ \t]*[:=]` +
+		`)`)
+})
 
 // minEntropy is the bits/char floor for the base62 branch. Repeated YAML keys,
 // dotted identifiers, and structured hex-ish runs fall below ~3.5 for a 62-char
@@ -52,11 +55,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Spinnaker }
 func (Scanner) Keywords() []string { return []string{"spinnaker"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	kwSpans := keywordRe.FindAllIndex(data, -1)
+	kwSpans := keywordRe().FindAllIndex(data, -1)
 	if len(kwSpans) == 0 {
 		return nil, nil
 	}
@@ -93,7 +96,7 @@ func isToken(token string) bool {
 		return isJWT(token)
 	}
 	// base62 branch: reject pure-hex and low-entropy structured identifiers.
-	if pureHexRe.MatchString(token) {
+	if pureHexRe().MatchString(token) {
 		return false
 	}
 	return detectors.HasMinEntropy(token, minEntropy)

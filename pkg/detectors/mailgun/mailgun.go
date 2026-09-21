@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -17,8 +18,8 @@ var apiBase = "https://api.mailgun.net"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
-	legacyRe = regexp.MustCompile(`\b(key-[a-f0-9]{32})\b`)
-	newRe    = regexp.MustCompile(`\b([a-f0-9]{32}-[a-f0-9]{8}-[a-f0-9]{8})\b`)
+	legacyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(key-[a-f0-9]{32})\b`) })
+	newRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32}-[a-f0-9]{8}-[a-f0-9]{8})\b`) })
 )
 
 type Scanner struct{}
@@ -31,7 +32,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	out := make([]detectors.Result, 0, 4)
 	seen := map[string]struct{}{}
 
-	for _, m := range legacyRe.FindAll(data, -1) {
+	for _, m := range legacyRe().FindAll(data, -1) {
 		token := string(m)
 		if _, dup := seen[token]; dup {
 			continue
@@ -39,7 +40,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		seen[token] = struct{}{}
 		out = append(out, makeResult(ctx, s, token, verify))
 	}
-	for _, m := range newRe.FindAll(data, -1) {
+	for _, m := range newRe().FindAll(data, -1) {
 		token := string(m)
 		if _, dup := seen[token]; dup {
 			continue

@@ -15,11 +15,12 @@ package gocd
 import (
 	"context"
 	"regexp"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,64})\b`) })
 
 // hexDigestRe matches a pure-hex run of exactly 40 (git SHA-1) or 64
 // (SHA-256/blake2b) chars. GoCD tokens are mixed-case base62, so any
@@ -28,17 +29,19 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,64})\b`)
 // those regardless of proximity to the `gocd` keyword, killing the
 // dominant FP class (changelog/lockfile/SBOM lines that pin a build
 // image by digest next to a `gocd` mention).
-var hexDigestRe = regexp.MustCompile(`^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
+var hexDigestRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`) })
 
 // strongKeywordRe is an explicit GoCD credential anchor
 // (`gocd_token`, `gocd_api`, `gocd_key`, `gocd_secret`, `gocd_server`,
 // or `gocd:` / `gocd=`). These are intentional config/secret markers,
 // so we allow a moderate proximity window around them.
-var strongKeywordRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`\bgocd[_\-](?:api|token|key|secret|server)` +
-	`|\bgocd[ \t]*[:=]` +
-	`)`)
+var strongKeywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`\bgocd[_\-](?:api|token|key|secret|server)` +
+		`|\bgocd[ \t]*[:=]` +
+		`)`)
+})
 
 // weakKeywordRe is a bare prose mention of GoCD (`gocd` / `go.cd` as a
 // word). Prose mentions appear in docs, changelogs and SBOMs right next
@@ -47,7 +50,7 @@ var strongKeywordRe = regexp.MustCompile(`(?i)` +
 // `mQGNBGB5V8gBDACfWWMs+...GOcDR...`). We only let a weak mention gate a
 // token when it is *immediately* adjacent, not anywhere in a wide
 // window.
-var weakKeywordRe = regexp.MustCompile(`(?i)(?:\bgocd\b|\bgo\.cd\b)`)
+var weakKeywordRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)(?:\bgocd\b|\bgo\.cd\b)`) })
 
 const (
 	// strongRadius bounds an explicit credential anchor to its token.
@@ -68,12 +71,12 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GoCD }
 func (Scanner) Keywords() []string { return []string{"gocd", "go.cd"} }
 
 func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	strongSpans := strongKeywordRe.FindAllIndex(data, -1)
-	weakSpans := weakKeywordRe.FindAllIndex(data, -1)
+	strongSpans := strongKeywordRe().FindAllIndex(data, -1)
+	weakSpans := weakKeywordRe().FindAllIndex(data, -1)
 	if len(strongSpans) == 0 && len(weakSpans) == 0 {
 		return nil, nil
 	}
@@ -84,7 +87,7 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 		if _, dup := seen[token]; dup {
 			continue
 		}
-		if hexDigestRe.MatchString(token) {
+		if hexDigestRe().MatchString(token) {
 			continue
 		}
 		if !detectors.HasMinEntropy(token, minEntropy) {

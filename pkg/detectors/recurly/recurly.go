@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -23,7 +24,7 @@ var apiBase = "https://v3.recurly.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // armRe is the assignment-style Recurly reference that must appear within the
 // proximity window. A bare "recurly" substring (script-src URLs, doc links,
@@ -38,7 +39,7 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
 // length is left unchanged (not re-pinned on an unverified claim) and only the
 // recall-safe gate is tightened here: arm regex + tighter radius + conservative
 // entropy floor.
-var armRe = regexp.MustCompile(`(?i)recurly[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)recurly[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // minEntropy rejects low-information 32-char alnum runs that clear the regex but
 // are not random tokens (padded placeholders, repeated characters, slugs). 3.0
@@ -53,7 +54,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Recurly }
 func (Scanner) Keywords() []string { return []string{"recurly"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -104,7 +105,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

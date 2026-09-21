@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -29,22 +30,24 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Lever API keys are documented as 40-char lower-hex strings. This
 // shape is identical to a git SHA-1, so the surrounding keyword
 // regex is the real gate.
-var tokenRe = regexp.MustCompile(`\b([a-f0-9]{40})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40})\b`) })
 
 // keywordRe requires an explicit Lever anchor — `lever_api`,
 // `lever_token`, `lever.co`, `api.lever.co`, or `LEVER` followed by
 // an assignment operator. The bare substring "lever" no longer
 // qualifies, so "leveraged" / "however" / "cleverest" prose is
 // rejected.
-var keywordRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`lever[_\-]api(?:[_\-]key|[_\-]token)?` +
-	`|lever[_\-]token` +
-	`|lever[_\-]key` +
-	`|\bapi\.lever\.co\b` +
-	`|\blever\.co\b` +
-	`|\blever[ \t]*[:=][ \t]*` +
-	`)`)
+var keywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`lever[_\-]api(?:[_\-]key|[_\-]token)?` +
+		`|lever[_\-]token` +
+		`|lever[_\-]key` +
+		`|\bapi\.lever\.co\b` +
+		`|\blever\.co\b` +
+		`|\blever[ \t]*[:=][ \t]*` +
+		`)`)
+})
 
 type Scanner struct{}
 
@@ -53,11 +56,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Lever }
 func (Scanner) Keywords() []string { return []string{"lever"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	kwSpans := keywordRe.FindAllIndex(data, -1)
+	kwSpans := keywordRe().FindAllIndex(data, -1)
 	if len(kwSpans) == 0 {
 		return nil, nil
 	}

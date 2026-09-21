@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -25,8 +26,8 @@ var apiBase = "https://api.kraken.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Kraken API keys are 56 base64-ish chars; secrets are 88 base64 chars.
-var keyRe = regexp.MustCompile(`\b([A-Za-z0-9+/]{56})\b`)
-var secretRe = regexp.MustCompile(`\b([A-Za-z0-9+/]{86,88}={0,2})`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9+/]{56})\b`) })
+var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9+/]{86,88}={0,2})`) })
 
 var contextKeywords = []string{"kraken"}
 
@@ -37,8 +38,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Kraken }
 func (Scanner) Keywords() []string { return []string{"kraken"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	keyHits := keyRe.FindAllSubmatchIndex(data, -1)
-	secretHits := secretRe.FindAllSubmatchIndex(data, -1)
+	keyHits := keyRe().FindAllSubmatchIndex(data, -1)
+	secretHits := secretRe().FindAllSubmatchIndex(data, -1)
 	if len(keyHits) == 0 || len(secretHits) == 0 {
 		return nil, nil
 	}

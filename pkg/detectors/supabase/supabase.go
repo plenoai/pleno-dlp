@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -23,9 +24,11 @@ var (
 	verifyRejectCodes = []int{http.StatusUnauthorized, http.StatusForbidden}
 )
 
-var jwtRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,})\b`)
+var jwtRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,})\b`)
+})
 
-var projectRe = regexp.MustCompile(`\bhttps?://([a-z0-9-]{20})\.supabase\.co\b`)
+var projectRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bhttps?://([a-z0-9-]{20})\.supabase\.co\b`) })
 
 var contextKeywords = []string{"supabase", "supabase_url", "supabase_anon", "supabase_service_role", "service_role"}
 
@@ -37,14 +40,14 @@ func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 func (Scanner) Keywords() []string { return []string{"supabase", "service_role"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := jwtRe.FindAllSubmatchIndex(data, -1)
+	matches := jwtRe().FindAllSubmatchIndex(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}
 	lower := strings.ToLower(string(data))
 
 	projectRef := ""
-	if pm := projectRe.FindStringSubmatch(string(data)); len(pm) == 2 {
+	if pm := projectRe().FindStringSubmatch(string(data)); len(pm) == 2 {
 		projectRef = pm[1]
 	}
 

@@ -12,6 +12,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,7 +23,7 @@ var apiBase = "https://api.github.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // ghs_ + 36 base62 chars — same suffix shape as ghp_, distinct prefix.
-var keyRe = regexp.MustCompile(`\b(ghs_[A-Za-z0-9]{36})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(ghs_[A-Za-z0-9]{36})\b`) })
 
 type Scanner struct{}
 
@@ -31,7 +32,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GitHubApp }
 func (Scanner) Keywords() []string { return []string{"ghs_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAll(data, -1)
+	matches := keyRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

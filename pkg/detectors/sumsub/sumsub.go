@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -35,7 +36,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // does not formally publish the segment lengths, so the ranges stay generous
 // and the env prefix carries the distinguishing weight (per the key-format
 // rubric, an entropy floor on a prefix-anchored token is unnecessary).
-var keyRe = regexp.MustCompile(`\b((?:prd|tst|sbx):[A-Za-z0-9]{20,40}[.:][A-Za-z0-9]{8,40})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b((?:prd|tst|sbx):[A-Za-z0-9]{20,40}[.:][A-Za-z0-9]{8,40})\b`)
+})
 
 // secretRe matches the Sumsub secret key: an alphanumeric run. The two real
 // examples observed in Sumsub's docs/usage repo are 32 chars
@@ -43,14 +46,14 @@ var keyRe = regexp.MustCompile(`\b((?:prd|tst|sbx):[A-Za-z0-9]{20,40}[.:][A-Za-z
 // the floor is 32 (NOT documented as fixed). A bare alnum run is a heavy
 // false-positive shape, so the secret is additionally gated on proximity to a
 // `sumsub` arm reference and on Shannon entropy before being paired.
-var secretRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // armRe is the assignment-style Sumsub reference that must appear within a
 // tight window of a candidate. A bare "sumsub" substring anywhere in the
 // chunk is too weak a gate; `sumsub` / `sum-sub` / `sumsub_secret` etc. is
 // the shape a real credential assignment or config key takes. The bare
 // keyword stays in Keywords() as the engine prefilter.
-var armRe = regexp.MustCompile(`(?i)sum[_-]?sub`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)sum[_-]?sub`) })
 
 // minEntropy rejects low-information 32-64 char runs that clear the alnum
 // regex but are not random secrets. All known-good Sumsub secrets measure
@@ -68,12 +71,12 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Sumsub }
 func (Scanner) Keywords() []string { return []string{"sumsub", "sum-sub"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	keyHits := keyRe.FindAllSubmatchIndex(data, -1)
+	keyHits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(keyHits) == 0 {
 		return nil, nil
 	}
 	lower := strings.ToLower(string(data))
-	secretHits := secretRe.FindAllSubmatchIndex(data, -1)
+	secretHits := secretRe().FindAllSubmatchIndex(data, -1)
 	if len(secretHits) == 0 {
 		return nil, nil
 	}
@@ -149,7 +152,7 @@ func nearArm(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 // Verify expects "key:secret".

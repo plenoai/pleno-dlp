@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -28,7 +29,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Application Key: exactly 32 mixed-case alphanumeric chars, no prefix
 // (per SAP-samples). The bare shape collides with many random secrets, so
 // the entropy floor and the assignment-anchored keyword gate disambiguate.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // minEntropy rejects git-SHA-shaped / low-information 32-char runs that
 // clear the regex but lack key-grade randomness. 3.5 bits/char is the
@@ -40,7 +41,7 @@ const minEntropy = 3.5
 // contextRe is the windowed assignment-anchor gate. Replaces a bare
 // strings.Contains(window, "ariba") which matched prose; this requires an
 // assignment-style ariba api/token/key/secret form near the token.
-var contextRe = regexp.MustCompile(`(?i)ariba[_-]?(api[_-]?)?(token|key|secret)`)
+var contextRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)ariba[_-]?(api[_-]?)?(token|key|secret)`) })
 
 type Scanner struct{}
 
@@ -49,7 +50,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.SAPAriba }
 func (Scanner) Keywords() []string { return []string{"ariba"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -97,7 +98,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	return contextRe.MatchString(window)
+	return contextRe().MatchString(window)
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

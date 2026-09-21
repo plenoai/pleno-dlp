@@ -21,6 +21,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -28,7 +29,7 @@ import (
 // Crisp plugin keys are documented as fixed-length lowercase-hex tokens
 // (64 chars in practice). Narrowing to lowercase-hex of >=40 excludes the
 // mixed-case base64 used by SRI integrity attributes and webpack chunk names.
-var tokenRe = regexp.MustCompile(`\b([a-f0-9]{40,128})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40,128})\b`) })
 
 // minEntropy rejects low-entropy runs (repeated chars, dictionary-ish or
 // structured-but-non-random hex) that clear the length floor but are not keys.
@@ -72,7 +73,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.CrispChat }
 func (Scanner) Keywords() []string { return []string{"crisp"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

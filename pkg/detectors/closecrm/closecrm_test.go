@@ -34,6 +34,14 @@ func TestFromData_Found(t *testing.T) {
 	}
 }
 
+func TestFromData_UppercaseContext(t *testing.T) {
+	body := []byte("CLOSE.COM api_key=" + dummyToken)
+	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	if len(res) == 0 {
+		t.Fatal("expected case-insensitive close context to match")
+	}
+}
+
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)

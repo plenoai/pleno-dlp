@@ -12,6 +12,8 @@ benchmarks covered recall and Git history but did not gate these subsystems.
 ## Decision
 
 Keep the existing detector registry and standard-library regular expressions.
+Initialize detector regexes with `sync.OnceValue` on first use, so keyword
+dispatch does not require compiling unrelated providers at process startup.
 Compile the keyword trie into a compact byte DFA; visit hits in input order
 and merge vicinity spans without retaining every occurrence. Reject impossible candidates
 using necessary syntax only, leaving the original detector grammar in charge.

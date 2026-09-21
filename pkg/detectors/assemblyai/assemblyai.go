@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,7 +19,7 @@ var apiBase = "https://api.assemblyai.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // AssemblyAI keys are documented as 32-char hex.
-var tokenRe = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
 
 var contextKeywords = []string{"assemblyai", "assembly_ai", "assembly_api"}
 
@@ -29,7 +30,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AssemblyAI }
 func (Scanner) Keywords() []string { return []string{"assemblyai", "assembly"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

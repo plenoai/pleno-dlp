@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -25,21 +26,23 @@ var apiBase = "https://api.pagerduty.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{20})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{20})\b`) })
 
 // keywordRe is the anchored PagerDuty marker. The bare keyword
 // `pagerduty` is unique enough on its own but the prefilter may admit
 // chunks where `pagerduty` occurs only as a substring of an unrelated
 // English word; require word-bounded `\bpagerduty\b` plus credential
 // anchors to be sure.
-var keywordRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`\bpagerduty\b` +
-	`|\bpd_api_key\b` +
-	`|\bpd_token\b` +
-	`|\bapi\.pagerduty\.com\b` +
-	`|\bpagerduty[_\-](?:api|token|key|secret)` +
-	`)`)
+var keywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`\bpagerduty\b` +
+		`|\bpd_api_key\b` +
+		`|\bpd_token\b` +
+		`|\bapi\.pagerduty\.com\b` +
+		`|\bpagerduty[_\-](?:api|token|key|secret)` +
+		`)`)
+})
 
 // PagerDuty roles that can mutate account-wide configuration: rotations,
 // services, integrations, billing. A leaked token at any of these is
@@ -59,12 +62,12 @@ func (Scanner) Type() detectors.DetectorType { return detectors.PagerDuty }
 func (Scanner) Keywords() []string { return []string{"pagerduty", "PD_API_KEY", "PD_TOKEN"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
 
-	kwSpans := keywordRe.FindAllIndex(data, -1)
+	kwSpans := keywordRe().FindAllIndex(data, -1)
 	if len(kwSpans) == 0 {
 		return nil, nil
 	}

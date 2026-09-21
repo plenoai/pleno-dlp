@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -25,8 +26,8 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Zoom client_id is 22 base64url chars; client_secret is 32 base64url chars.
 // Both sit alongside the `zoom` keyword in source.
 var (
-	idRe     = regexp.MustCompile(`\b([A-Za-z0-9_-]{22})\b`)
-	secretRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{32})\b`)
+	idRe     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{22})\b`) })
+	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{32})\b`) })
 )
 
 var contextKeywords = []string{"zoom", "zoom_client_id", "zoom_client_secret", "zoom_oauth"}
@@ -38,11 +39,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Zoom }
 func (Scanner) Keywords() []string { return []string{"zoom"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	idHits := idRe.FindAllSubmatchIndex(data, -1)
+	idHits := idRe().FindAllSubmatchIndex(data, -1)
 	if len(idHits) == 0 {
 		return nil, nil
 	}
-	secHits := secretRe.FindAllSubmatchIndex(data, -1)
+	secHits := secretRe().FindAllSubmatchIndex(data, -1)
 	lower := strings.ToLower(string(data))
 
 	out := make([]detectors.Result, 0, len(idHits))

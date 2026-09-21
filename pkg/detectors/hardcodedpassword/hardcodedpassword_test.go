@@ -4,8 +4,22 @@ package hardcodedpassword
 
 import (
 	"context"
+	"regexp"
+	"strings"
 	"testing"
 )
+
+var legacyAssignmentHeadRe = regexp.MustCompile(
+	`(?:password|passwd|pwd)(?:(?:[^a-z0-9_][^\n=]*)?\s*=|[a-z0-9_]*\s*:)`,
+)
+
+func legacyHasAssignmentHeadASCII(s string) bool {
+	if !strings.ContainsAny(s, "=:") {
+		return false
+	}
+	lower := strings.ToLower(s)
+	return strings.Contains(lower, "variable") || legacyAssignmentHeadRe.MatchString(lower)
+}
 
 func TestFromData_TerraformDefault(t *testing.T) {
 	data := []byte(`variable "db_password" {
@@ -124,11 +138,64 @@ func TestAssignmentHeadPreservesGrammar(t *testing.T) {
 		"db_password_suffix\n : 'R8!actualValue'",
 		"variable \"db_password\" {\n default = \"R8!actualValue\"\n}",
 	} {
-		if !assignEqRe.MatchString(input) && !yamlValueRe.MatchString(input) && !tfVariableRe.MatchString(input) {
+		if !assignEqRe().MatchString(input) && !yamlValueRe().MatchString(input) && !tfVariableRe().MatchString(input) {
 			t.Fatalf("fixture does not match original grammar: %q", input)
 		}
-		if !hasAssignmentHead(input) {
+		if !hasAssignmentHead([]byte(input)) {
 			t.Fatalf("prefilter rejected original grammar: %q", input)
 		}
+	}
+}
+
+func TestHasAssignmentHeadASCIIEquivalent(t *testing.T) {
+	inputs := []string{
+		"password = 'R8!actualValue'",
+		"PASSWORD=R8!actualValue",
+		"db_password: 'R8!actualValue'",
+		"passwd\n\n = 'R8!actualValue'",
+		"pwd_suffix\n : 'R8!actualValue'",
+		"variable \"db_password\" {\n default = \"R8!actualValue\"\n}",
+		"variable: a prose label",
+		"password words with no assignment",
+		"prefix password? and unrelated: punctuation",
+	}
+	for _, input := range inputs {
+		if !isASCII(input) {
+			t.Fatalf("differential fixture is not ASCII: %q", input)
+		}
+		want := legacyHasAssignmentHeadASCII(input)
+		if got := hasAssignmentHead([]byte(input)); got != want {
+			t.Errorf("hasAssignmentHead(%q) = %v, legacy = %v", input, got, want)
+		}
+	}
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+func TestHasAssignmentHeadRequiresSeparator(t *testing.T) {
+	cases := []struct {
+		name string
+		data string
+		want bool
+	}{
+		{"keyword storm prose", strings.Repeat("secret key token password access api auth ", 32), false},
+		{"terraform variable default", "variable \"db_password\" {\n default = \"R8!actualValue\"\n}", true},
+		{"colon mapping", "Password: \"R8!actualValue\"", true},
+		{"equals assignment", "DB_PASSWORD=R8!actualValue", true},
+		{"unicode keyword without separator", "Paſſword R8!actualValue", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasAssignmentHead([]byte(tc.data)); got != tc.want {
+				t.Fatalf("hasAssignmentHead(%q) = %v, want %v", tc.data, got, tc.want)
+			}
+		})
 	}
 }

@@ -37,6 +37,7 @@ package puttyprivatekey
 import (
 	"context"
 	"regexp"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -46,13 +47,15 @@ import (
 // alone (`PuTTY-User-Key-File-2:`/`-3:`) is specific enough that a
 // non-greedy body match to the first `Private-MAC:` line is safe — real
 // .ppk files contain exactly one such block.
-var blockRe = regexp.MustCompile(
-	`(?s)PuTTY-User-Key-File-[23]:[ \t]*\S+.*?Private-MAC:[ \t]*[0-9a-fA-F]+`,
-)
+var blockRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?s)PuTTY-User-Key-File-[23]:[ \t]*\S+.*?Private-MAC:[ \t]*[0-9a-fA-F]+`,
+	)
+})
 
-var algRe = regexp.MustCompile(`PuTTY-User-Key-File-[23]:[ \t]*(\S+)`)
-var encryptionRe = regexp.MustCompile(`(?m)^Encryption:[ \t]*(\S+)[ \t]*$`)
-var formatVersionRe = regexp.MustCompile(`PuTTY-User-Key-File-([23]):`)
+var algRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`PuTTY-User-Key-File-[23]:[ \t]*(\S+)`) })
+var encryptionRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^Encryption:[ \t]*(\S+)[ \t]*$`) })
+var formatVersionRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`PuTTY-User-Key-File-([23]):`) })
 
 type Scanner struct{}
 
@@ -69,7 +72,7 @@ func (Scanner) Keywords() []string {
 func (Scanner) WantsFullChunk() bool { return true }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	matches := blockRe.FindAll(data, -1)
+	matches := blockRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}
@@ -82,14 +85,14 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 
 func deriveResult(block []byte) detectors.Result {
 	extra := map[string]string{}
-	if am := algRe.FindSubmatch(block); len(am) >= 2 {
+	if am := algRe().FindSubmatch(block); len(am) >= 2 {
 		extra["algorithm"] = string(am[1])
 	}
-	if vm := formatVersionRe.FindSubmatch(block); len(vm) >= 2 {
+	if vm := formatVersionRe().FindSubmatch(block); len(vm) >= 2 {
 		extra["format_version"] = string(vm[1])
 	}
 	encrypted := "false"
-	if em := encryptionRe.FindSubmatch(block); len(em) >= 2 {
+	if em := encryptionRe().FindSubmatch(block); len(em) >= 2 {
 		if string(em[1]) != "none" {
 			encrypted = "true"
 			extra["encryption"] = string(em[1])

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -16,20 +17,22 @@ var apiBase = "https://exp.host"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // tokenRe is intentionally fixed-length at 32 chars.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_\-]{32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_\-]{32})\b`) })
 
 // keywordRe requires an Expo- or EAS-shaped boundary.
-var keywordRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`expo[_\-]token` +
-	`|expo[_\-]access[_\-]token` +
-	`|eas[_\-]token` +
-	`|eas[_\-]access[_\-]token` +
-	`|\bexpo\.dev\b` +
-	`|\beas\.dev\b` +
-	`|\bexpo[ \t]+(?:token|pat|access)\b` +
-	`|\beas[ \t]+(?:token|pat|access)\b` +
-	`)`)
+var keywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`expo[_\-]token` +
+		`|expo[_\-]access[_\-]token` +
+		`|eas[_\-]token` +
+		`|eas[_\-]access[_\-]token` +
+		`|\bexpo\.dev\b` +
+		`|\beas\.dev\b` +
+		`|\bexpo[ \t]+(?:token|pat|access)\b` +
+		`|\beas[ \t]+(?:token|pat|access)\b` +
+		`)`)
+})
 
 type Scanner struct{}
 
@@ -38,11 +41,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Expo }
 func (Scanner) Keywords() []string { return []string{"expo", "eas"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	kwSpans := keywordRe.FindAllIndex(data, -1)
+	kwSpans := keywordRe().FindAllIndex(data, -1)
 	if len(kwSpans) == 0 {
 		return nil, nil
 	}

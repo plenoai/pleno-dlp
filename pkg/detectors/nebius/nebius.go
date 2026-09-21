@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Nebius keys are issued as JWT-like strings starting with "AAAA" (the
 // b64url-encoded `{"alg":"...` header). Length is provider-controlled —
 // require >= 64 alnum/`._-` characters after the prefix.
-var tokenRe = regexp.MustCompile(`\b(AAAA[A-Za-z0-9_\-\.]{60,})`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(AAAA[A-Za-z0-9_\-\.]{60,})`) })
 
 var contextKeywords = []string{"nebius"}
 
@@ -31,7 +32,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Nebius }
 func (Scanner) Keywords() []string { return []string{"nebius"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

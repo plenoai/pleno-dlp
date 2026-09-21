@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -23,7 +24,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Spacelift API key/secret tokens are documented as `s_<32+ base62>`. The
 // `s_` prefix is short — keyword gate adds safety.
-var tokenRe = regexp.MustCompile(`\b(s_[A-Za-z0-9]{32,120})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(s_[A-Za-z0-9]{32,120})\b`) })
 
 var contextKeywords = []string{"spacelift", "spacelift_api"}
 
@@ -34,7 +35,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Spacelift }
 func (Scanner) Keywords() []string { return []string{"spacelift"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -29,13 +30,13 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // tokenRe matches the documented 32-character token. Charset stays broad-alnum
 // (rather than strict hex) so mixed-case fixtures and any non-lowercase
 // provider variants still detect; the entropy floor culls low-variety runs.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // armRe is the assignment-style ZeroTier reference that must appear within the
 // nearKeyword window for a candidate to arm. Replaces the prior bare
 // strings.Contains("zerotier") gate, which fired on any chunk merely mentioning
 // the word near a generic 32-char run.
-var armRe = regexp.MustCompile(`(?i)zerotier[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)zerotier[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // minEntropy is a conservative, hex-appropriate Shannon floor. A 32-char hex
 // token entropy bottoms out around 4.0 bits/char, so 3.0 preserves recall while
@@ -49,7 +50,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.ZeroTier }
 func (Scanner) Keywords() []string { return []string{"zerotier"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -100,7 +101,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

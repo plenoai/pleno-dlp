@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -32,14 +33,16 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // short-id shapes, the ceiling (400) comfortably covers the documented 372,
 // and the base64 charset matches the real token alphabet (a superset of the
 // historical `[A-Za-z0-9]`, so prior matches are preserved).
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9/+=]{32,400})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9/+=]{32,400})\b`) })
 
 // contextRe is the windowed keyword gate. The bare `aiven` substring is kept
 // only as the cheap Keywords() prefilter; this assignment-style arm regex
 // (word-boundaried keyword or `aiven_(api_)?(token|key|secret)`) is what
 // actually arms a hit, so prose mentioning "aiven" near an unrelated
 // high-entropy blob no longer matches.
-var contextRe = regexp.MustCompile(`(?i)\baiven\b|aiven[_-]?(api[_-]?)?(token|key|secret)`)
+var contextRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)\baiven\b|aiven[_-]?(api[_-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-information 372-or-shorter runs that clear the
 // regex but lack key-grade randomness. Aiven tokens are high-variety base64,
@@ -53,7 +56,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Aiven }
 func (Scanner) Keywords() []string { return []string{"aiven"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -126,7 +129,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return contextRe.MatchString(lower[from:to])
+	return contextRe().MatchString(lower[from:to])
 }
 
 func redact(t string) string {

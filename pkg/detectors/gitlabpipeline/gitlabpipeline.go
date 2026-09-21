@@ -24,22 +24,25 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 // 40-char lowercase hex branch (vs. UUID). Used to decide whether the Git-SHA
 // negative exclusion applies.
-var hex40Re = regexp.MustCompile(`^[a-f0-9]{40}$`)
+var hex40Re = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-f0-9]{40}$`) })
 
 // Assignment-form anchor: the token must appear as the RHS of a recognised
 // trigger keyword (with an optional small gap for quoting / spacing) rather
 // than merely co-occurring in a 256-byte vicinity. Anchored so that an
 // unrelated UUID/SHA near a trigger_token key holding a *different* value is
 // not cross-matched.
-var assignRe = regexp.MustCompile(
-	`(?i)(?:pipeline_trigger|trigger_token|ci_pipeline_trigger|gitlab_trigger)["' ]{0,4}[:=]["' ]{0,4}([a-f0-9]{40}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})`,
-)
+var assignRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?i)(?:pipeline_trigger|trigger_token|ci_pipeline_trigger|gitlab_trigger)["' ]{0,4}[:=]["' ]{0,4}([a-f0-9]{40}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})`,
+	)
+})
 
 // Vicinity words that mark a 40-hex value as a Git object / checksum rather
 // than a trigger token. Only consulted on the hex branch.
@@ -58,7 +61,7 @@ func (Scanner) Keywords() []string { return []string{"pipeline_trigger", "trigge
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	// Cheap prefilter: bail before regex unless an assignment-form anchor
 	// can possibly exist.
-	hits := assignRe.FindAllSubmatchIndex(data, -1)
+	hits := assignRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -77,7 +80,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		// Git-SHA negative exclusion: a bare 40-char lowercase hex is
 		// indistinguishable from a commit SHA, so reject when the immediate
 		// vicinity carries git/commit/sha/checksum/revision context.
-		if hex40Re.MatchString(token) && nearGitContext(lower, h[0], h[1]) {
+		if hex40Re().MatchString(token) && nearGitContext(lower, h[0], h[1]) {
 			continue
 		}
 		seen[token] = struct{}{}

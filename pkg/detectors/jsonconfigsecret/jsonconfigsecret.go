@@ -31,9 +31,11 @@
 package jsonconfigsecret
 
 import (
+	"bytes"
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -43,9 +45,11 @@ import (
 // vocabulary words as a substring (case-insensitive), covering
 // camelCase (userPassword), snake_case (db_password), and
 // SCREAMING_SNAKE (HEROKU_API_KEY) key styles alike.
-var jsonKeyValueRe = regexp.MustCompile(
-	`(?i)"((?:[A-Za-z0-9_]*(?:password|passwd|pwd|passphrase|secret|api_key|apikey)[A-Za-z0-9_]*)|pass)"\s*:\s*"([^"]{0,500})"`,
-)
+var jsonKeyValueRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?i)"((?:[A-Za-z0-9_]*(?:password|passwd|pwd|passphrase|secret|api_key|apikey)[A-Za-z0-9_]*)|pass)"\s*:\s*"([^"]{0,500})"`,
+	)
+})
 
 var placeholders = map[string]struct{}{
 	"password":           {},
@@ -93,11 +97,14 @@ func (Scanner) Keywords() []string {
 }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	if bytes.IndexByte(data, '"') < 0 {
+		return nil, nil
+	}
 	str := string(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
-	for _, m := range jsonKeyValueRe.FindAllStringSubmatch(str, -1) {
+	for _, m := range jsonKeyValueRe().FindAllStringSubmatch(str, -1) {
 		if len(m) < 3 {
 			continue
 		}

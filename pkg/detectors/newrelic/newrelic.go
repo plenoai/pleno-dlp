@@ -12,6 +12,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,9 +23,9 @@ var apiBase = "https://api.newrelic.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
-	licenseRe = regexp.MustCompile(`\b(NRRA-[a-zA-Z0-9-]{42})\b`)
-	ingestRe  = regexp.MustCompile(`\b(NRAK-[A-Z0-9]{27})\b`)
-	insertRe  = regexp.MustCompile(`\b(NRII-[A-Za-z0-9-]{32})\b`)
+	licenseRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(NRRA-[a-zA-Z0-9-]{42})\b`) })
+	ingestRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(NRAK-[A-Z0-9]{27})\b`) })
+	insertRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(NRII-[A-Za-z0-9-]{32})\b`) })
 )
 
 type Scanner struct{}
@@ -37,7 +38,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	out := make([]detectors.Result, 0, 4)
 	seen := map[string]struct{}{}
 
-	for _, m := range licenseRe.FindAll(data, -1) {
+	for _, m := range licenseRe().FindAll(data, -1) {
 		token := string(m)
 		if _, dup := seen[token]; dup {
 			continue
@@ -62,7 +63,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	// NRAK / NRII are regex-only. We mark them ExtraData["kind"] so reviewers
 	// can tell them apart and so the engine doesn't flatten them into a
 	// generic NewRelic finding.
-	for _, m := range ingestRe.FindAll(data, -1) {
+	for _, m := range ingestRe().FindAll(data, -1) {
 		token := string(m)
 		if _, dup := seen[token]; dup {
 			continue
@@ -75,7 +76,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			ExtraData:    map[string]string{"kind": "ingest"},
 		})
 	}
-	for _, m := range insertRe.FindAll(data, -1) {
+	for _, m := range insertRe().FindAll(data, -1) {
 		token := string(m)
 		if _, dup := seen[token]; dup {
 			continue

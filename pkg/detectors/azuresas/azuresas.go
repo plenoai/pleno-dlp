@@ -13,6 +13,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -24,7 +25,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // We anchor on a `sig=` query because that's the cryptographic parameter; sv
 // (service version) and other params are present too but sig is mandatory.
 // The capture is the full URL up to whitespace / quote.
-var sasURLRe = regexp.MustCompile(`https://[a-z0-9]{3,24}\.(?:blob|file|queue|table|dfs)\.core\.windows\.net/[^\s"'<>]*[?&]sig=[^\s"'<>&]+[^\s"'<>]*`)
+var sasURLRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`https://[a-z0-9]{3,24}\.(?:blob|file|queue|table|dfs)\.core\.windows\.net/[^\s"'<>]*[?&]sig=[^\s"'<>&]+[^\s"'<>]*`)
+})
 
 type Scanner struct{}
 
@@ -35,7 +38,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AzureSAS }
 func (Scanner) Keywords() []string { return []string{"core.windows.net"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := sasURLRe.FindAll(data, -1)
+	hits := sasURLRe().FindAll(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

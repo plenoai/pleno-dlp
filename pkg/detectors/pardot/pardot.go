@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -25,7 +26,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // charset [A-Za-z0-9]. The `0Uv` prefix is the distinguishing anchor, so this
 // half needs no entropy gate.
 // Source: developer.salesforce.com/docs/marketing/pardot/guide/authentication.html
-var buRe = regexp.MustCompile(`\b(0Uv[A-Za-z0-9]{15})\b`)
+var buRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(0Uv[A-Za-z0-9]{15})\b`) })
 
 // tokenRe matches the Salesforce OAuth access token used as the Bearer
 // credential. A real Salesforce access token is shaped `00D<15-char-orgid>!`
@@ -43,14 +44,18 @@ var buRe = regexp.MustCompile(`\b(0Uv[A-Za-z0-9]{15})\b`)
 // fallback for environments/fixtures that strip the `!`-separated session
 // material. The `00D` anchor + entropy 3.5 replaces the previous unanchored
 // `[A-Za-z0-9]{18,256}`.
-var tokenRe = regexp.MustCompile(`\b(00D[A-Za-z0-9]{12,18}![A-Za-z0-9._\-]{20,}|00D[A-Za-z0-9]{15,253}\b)`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(00D[A-Za-z0-9]{12,18}![A-Za-z0-9._\-]{20,}|00D[A-Za-z0-9]{15,253}\b)`)
+})
 
 // armRe is the assignment-style Pardot reference that must appear within the
 // proximity window. A bare "pardot" substring (script-src URLs, doc links,
 // tracker JS) is too weak a gate; `pardot[_-]?(business[_-]?unit[_-]?id|
 // (api[_-]?)?(token|key|secret|bu))` is the shape a real credential
 // assignment or config key takes.
-var armRe = regexp.MustCompile(`(?i)pardot[_\-]?(business[_\-]?unit[_\-]?id|(api[_\-]?)?(token|key|secret|bu|id))`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)pardot[_\-]?(business[_\-]?unit[_\-]?id|(api[_\-]?)?(token|key|secret|bu|id))`)
+})
 
 // minTokenEntropy rejects low-information runs that clear the token regex but
 // lack key-grade randomness. The access-token charset is high-variety, so 3.5
@@ -64,8 +69,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Pardot }
 func (Scanner) Keywords() []string { return []string{"pardot"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	buHits := buRe.FindAllSubmatchIndex(data, -1)
-	tokHits := tokenRe.FindAllSubmatchIndex(data, -1)
+	buHits := buRe().FindAllSubmatchIndex(data, -1)
+	tokHits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(buHits) == 0 || len(tokHits) == 0 {
 		return nil, nil
 	}
@@ -130,7 +135,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

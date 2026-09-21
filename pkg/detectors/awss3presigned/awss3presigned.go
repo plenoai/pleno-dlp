@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -27,10 +28,14 @@ import (
 // S3 presigned URLs end with the X-Amz-Signature query parameter — the
 // full URL must include host, the AWS4-HMAC-SHA256 algorithm marker, and
 // the credential / signature pair.
-var urlRe = regexp.MustCompile(`https?://[^\s"'<>]+\.(?:s3|s3-[a-z0-9-]+|s3\.[a-z0-9-]+)\.amazonaws\.com/[^\s"'<>]*?X-Amz-Algorithm=AWS4-HMAC-SHA256[^\s"'<>]*`)
+var urlRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`https?://[^\s"'<>]+\.(?:s3|s3-[a-z0-9-]+|s3\.[a-z0-9-]+)\.amazonaws\.com/[^\s"'<>]*?X-Amz-Algorithm=AWS4-HMAC-SHA256[^\s"'<>]*`)
+})
 
 // Path-style host (s3.amazonaws.com/bucket/key?…) — same algo marker.
-var pathStyleRe = regexp.MustCompile(`https?://s3(?:\.[a-z0-9-]+)?\.amazonaws\.com/[^\s"'<>]*?X-Amz-Algorithm=AWS4-HMAC-SHA256[^\s"'<>]*`)
+var pathStyleRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`https?://s3(?:\.[a-z0-9-]+)?\.amazonaws\.com/[^\s"'<>]*?X-Amz-Algorithm=AWS4-HMAC-SHA256[^\s"'<>]*`)
+})
 
 type Scanner struct{}
 
@@ -39,7 +44,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AWSS3PresignedUR
 func (Scanner) Keywords() []string { return []string{"X-Amz-Algorithm=AWS4-HMAC-SHA256"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := append(urlRe.FindAll(data, -1), pathStyleRe.FindAll(data, -1)...)
+	hits := append(urlRe().FindAll(data, -1), pathStyleRe().FindAll(data, -1)...)
 	if len(hits) == 0 {
 		return nil, nil
 	}

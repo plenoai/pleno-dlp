@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Codefresh user tokens are JWT-shaped 3-segment dot-separated, but legacy
 // API keys can be a 40+ char alphanumeric. Match the broader shape and gate
 // on the keyword.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9._-]{40,200})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9._-]{40,200})\b`) })
 
 var contextKeywords = []string{"codefresh", "codefresh_token", "cf_api_key"}
 
@@ -31,7 +32,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Codefresh }
 func (Scanner) Keywords() []string { return []string{"codefresh"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

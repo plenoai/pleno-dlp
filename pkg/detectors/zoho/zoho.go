@@ -5,23 +5,24 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = regexp.MustCompile(`\b1000\.([A-Za-z0-9]{32,})\.([A-Za-z0-9]{32,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b1000\.([A-Za-z0-9]{32,})\.([A-Za-z0-9]{32,})\b`) })
 
 var contextKeywords = []string{"zoho", "zoho_refresh", "zoho_token", "zoho_oauth"}
 
 const minSegmentEntropy = 3.5
 
 var (
-	allDecimalRe = regexp.MustCompile(`^[0-9]+$`)
-	allHexRe     = regexp.MustCompile(`^[0-9a-f]+$`)
+	allDecimalRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9]+$`) })
+	allHexRe     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-f]+$`) })
 )
 
 func plausibleSegment(seg string) bool {
-	if allDecimalRe.MatchString(seg) || allHexRe.MatchString(seg) {
+	if allDecimalRe().MatchString(seg) || allHexRe().MatchString(seg) {
 		return false
 	}
 	return detectors.HasMinEntropy(seg, minSegmentEntropy)
@@ -34,7 +35,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Zoho }
 func (Scanner) Keywords() []string { return []string{"zoho"} }
 
 func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

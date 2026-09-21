@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,11 +21,11 @@ var apiBase = "https://gateway.idnow.de"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // armRe requires an assignment-style context so a stray "idnow" mention in
 // prose no longer arms the detector; the bare keyword stays the engine prefilter.
-var armRe = regexp.MustCompile(`(?i)idnow[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)idnow[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // minEntropy rejects low-information 32-64 char runs that clear the regex. Held
 // at 3.0 because the charset is undocumented; a higher floor risks real keys.
@@ -37,7 +38,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.IDnow }
 func (Scanner) Keywords() []string { return []string{"idnow"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -82,7 +83,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	return armRe.MatchString(window)
+	return armRe().MatchString(window)
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,12 +20,12 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // ID + Secret Key credentials, so pinning either would risk destroying
 // recall; the regex is left as a generic 40-80 char run and only the
 // recall-safe gates below are tightened.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe requires an assignment-style Forter reference in the proximity
 // window; a bare "forter" substring (script-src URLs, doc links, the portal
 // host) is too weak a gate against a generic 40-80 alphanumeric run.
-var armRe = regexp.MustCompile(`(?i)forter[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)forter[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // 3.0 is a conservative floor for an undocumented charset; 3.5 would
 // over-cull a possibly hex/low-variety key.
@@ -37,7 +38,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Forter }
 func (Scanner) Keywords() []string { return []string{"forter"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -52,7 +53,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !detectors.HasMinEntropy(token, minEntropy) {
 			continue
 		}
-		if !detectors.NearPattern(lower, h[2], h[3], 64, armRe) {
+		if !detectors.NearPattern(lower, h[2], h[3], 64, armRe()) {
 			continue
 		}
 		seen[token] = struct{}{}

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -26,13 +27,13 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // tokenRe matches the documented 64-char lowercase-hex auth token. Length and
 // charset are both authoritatively documented (docs.workato.com auth-token),
 // so pinning them does not risk recall.
-var tokenRe = regexp.MustCompile(`\b([a-f0-9]{64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{64})\b`) })
 
 // armRe is the assignment-style Workato reference that must appear within the
 // proximity window. A bare "workato" substring (dependency names, doc URLs,
 // comments) is too weak a gate; the shape a real token assignment or config
 // key takes is `workato_token` / `workato-api-key` / `workatoSecret` etc.
-var armRe = regexp.MustCompile(`(?i)workato[_-]?(api[_-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)workato[_-]?(api[_-]?)?(token|key|secret)`) })
 
 // minEntropy rejects low-information 64-char hex runs that clear the regex but
 // are not random tokens (e.g. repeated/structured digests). Hex tops out near
@@ -48,7 +49,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Workato }
 func (Scanner) Keywords() []string { return []string{"workato"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -130,7 +131,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func redact(t string) string {

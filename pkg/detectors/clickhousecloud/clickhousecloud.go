@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -30,8 +31,8 @@ var apiBase = "https://api.clickhouse.cloud"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
-	idRe     = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
-	secretRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{40,80})\b`)
+	idRe     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
+	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40,80})\b`) })
 )
 
 // minEntropy is a conservative floor (alphanumeric/base64url charset, not hex).
@@ -44,7 +45,9 @@ const minEntropy = 3.0
 // Keywords() as the cheap prefilter; this regex demands the vendor keyword sit
 // next to a credential-assignment word inside the (now tightened) window, which
 // kills "clickhouse.cloud" appearing in unrelated prose/URLs far from a token.
-var armRe = regexp.MustCompile(`(?i)clickhouse[._-](cloud|api)([._-](key|secret|token|id))?|chc_`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)clickhouse[._-](cloud|api)([._-](key|secret|token|id))?|chc_`)
+})
 
 type Scanner struct{}
 
@@ -55,11 +58,11 @@ func (Scanner) Keywords() []string {
 }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	ids := idRe.FindAllSubmatchIndex(data, -1)
+	ids := idRe().FindAllSubmatchIndex(data, -1)
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	secrets := secretRe.FindAllSubmatchIndex(data, -1)
+	secrets := secretRe().FindAllSubmatchIndex(data, -1)
 	if len(secrets) == 0 {
 		return nil, nil
 	}
@@ -182,7 +185,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func abs(x int) int {

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -31,14 +32,14 @@ var (
 // "freshdesk". The only reliable cut is the length bound, so we cap at 32:
 // well clear of the documented 20, and with `\b` anchors a 40-hex run cannot
 // match a 32-char sub-slice.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{20,32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{20,32})\b`) })
 
-var hostRe = regexp.MustCompile(`\b([a-z0-9-]+\.freshdesk\.com)\b`)
+var hostRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z0-9-]+\.freshdesk\.com)\b`) })
 
 // A bare "freshdesk" substring anywhere in a 256-byte window is too weak to
 // arm a generic 20..32 alnum token; we require either this anchor OR a
 // freshdesk.com host actually present in the chunk.
-var assignAnchorRe = regexp.MustCompile(`(?i)fresh(?:desk|works)[a-z0-9_-]*\s*[:=]`)
+var assignAnchorRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)fresh(?:desk|works)[a-z0-9_-]*\s*[:=]`) })
 
 // minEntropy only rejects degenerate low-information runs; see the note on
 // tokenRe for why it intentionally does NOT — and cannot — exclude git SHAs.
@@ -52,11 +53,11 @@ func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 func (Scanner) Keywords() []string { return []string{"freshdesk", "freshworks"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	host := hostRe.FindString(string(data))
+	host := hostRe().FindString(string(data))
 	// A freshdesk.com host anywhere in the chunk is itself a strong tenant
 	// signal; otherwise we fall back to a per-token assignment anchor.
 	hasHost := host != ""
@@ -155,7 +156,7 @@ func nearAssignAnchor(lower string, start int) bool {
 		from = 0
 	}
 	window := lower[from:start]
-	return assignAnchorRe.MatchString(window)
+	return assignAnchorRe().MatchString(window)
 }
 
 func redact(t string) string {

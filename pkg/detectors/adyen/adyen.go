@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -42,7 +43,9 @@ var (
 // Adyen keys typically start with AQE (live) or AQF (test) and are long
 // base64url-ish strings (64+ chars). Tighten on the AQ prefix to avoid
 // generic base64 noise.
-var tokenRe = regexp.MustCompile(`\b(AQE[A-Za-z0-9+/=]{40,200}|AQF[A-Za-z0-9+/=]{40,200})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(AQE[A-Za-z0-9+/=]{40,200}|AQF[A-Za-z0-9+/=]{40,200})\b`)
+})
 
 var contextKeywords = []string{"adyen", "adyen_api_key", "adyen_key"}
 
@@ -53,7 +56,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Adyen }
 func (Scanner) Keywords() []string { return []string{"adyen"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

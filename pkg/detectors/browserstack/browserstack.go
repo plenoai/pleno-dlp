@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,8 +23,12 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var (
 	// Browserstack usernames are alphanumeric, typically 8-24 chars; access
 	// keys are exactly 20 chars (alnum) per current dashboard issuance.
-	userRe = regexp.MustCompile(`(?i)browserstack[_\.\-]?user(?:name)?\s*[:=]\s*["']?([A-Za-z0-9_\-]{4,32})["']?`)
-	keyRe  = regexp.MustCompile(`(?i)browserstack[_\.\-]?(?:access[_\.\-]?)?key\s*[:=]\s*["']?([A-Za-z0-9]{20})["']?`)
+	userRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)browserstack[_\.\-]?user(?:name)?\s*[:=]\s*["']?([A-Za-z0-9_\-]{4,32})["']?`)
+	})
+	keyRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)browserstack[_\.\-]?(?:access[_\.\-]?)?key\s*[:=]\s*["']?([A-Za-z0-9]{20})["']?`)
+	})
 )
 
 type Scanner struct{}
@@ -33,8 +38,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Browserstack }
 func (Scanner) Keywords() []string { return []string{"browserstack"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	users := userRe.FindAllSubmatch(data, -1)
-	keys := keyRe.FindAllSubmatch(data, -1)
+	users := userRe().FindAllSubmatch(data, -1)
+	keys := keyRe().FindAllSubmatch(data, -1)
 	if len(users) == 0 || len(keys) == 0 {
 		return nil, nil
 	}

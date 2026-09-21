@@ -43,6 +43,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -56,17 +57,19 @@ var (
 	// Key: 8-char alnum. No authoritative length spec exists, so this is left
 	// unchanged from the original — it serves as the assignment anchor for the
 	// pair, not the entropy carrier.
-	keyRe = regexp.MustCompile(`\b([A-Za-z0-9]{8})\b`)
+	keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{8})\b`) })
 	// Secret: documented 8-25 char mixed-case alphanumeric. Composition
 	// (upper+lower+digit) and entropy are enforced separately in FromData.
-	secretRe = regexp.MustCompile(`\b([A-Za-z0-9]{8,25})\b`)
+	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{8,25})\b`) })
 )
 
 // armRe is the assignment-style Vonage/Nexmo reference that must appear within
 // the proximity window. A bare "vonage"/"nexmo" substring (npm deps, comments,
 // URLs) is too weak; "vonage_api_secret", "nexmo-api-key", "vonageApiToken"
 // etc. is the shape a real credential assignment or config key takes.
-var armRe = regexp.MustCompile(`(?i)(vonage|nexmo)[_\- ]?(api[_\- ]?)?(key|secret|token)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(vonage|nexmo)[_\- ]?(api[_\- ]?)?(key|secret|token)`)
+})
 
 // minSecretEntropy rejects low-entropy 8-25 char runs that clear the regex and
 // composition check but are not random secrets. Documented secrets are
@@ -81,11 +84,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Vonage }
 func (Scanner) Keywords() []string { return []string{"vonage", "nexmo"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	keys := keyRe.FindAllSubmatchIndex(data, -1)
+	keys := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(keys) == 0 {
 		return nil, nil
 	}
-	secrets := secretRe.FindAllSubmatchIndex(data, -1)
+	secrets := secretRe().FindAllSubmatchIndex(data, -1)
 	if len(secrets) == 0 {
 		return nil, nil
 	}
@@ -224,7 +227,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func abs(x int) int {

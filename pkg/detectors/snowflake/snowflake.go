@@ -17,11 +17,14 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var jwtRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+var jwtRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+})
 
 type Scanner struct{}
 
@@ -30,7 +33,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Snowflake }
 func (Scanner) Keywords() []string { return []string{"eyJ"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	matches := jwtRe.FindAll(data, -1)
+	matches := jwtRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

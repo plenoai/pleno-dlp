@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,11 +20,13 @@ var apiBase = "https://api.hyperproof.app"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // armRe requires an assignment-style reference in the proximity window; a bare
 // "hyperproof" substring is too weak a gate against a generic 32-64 alnum run.
-var armRe = regexp.MustCompile(`(?i)hyperproof[_\-]?(api[_\-]?)?(client[_\-]?)?(token|key|secret|id)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)hyperproof[_\-]?(api[_\-]?)?(client[_\-]?)?(token|key|secret|id)`)
+})
 
 // minEntropy rejects low-information 32-64 char runs that clear the alnum
 // regex. Held at 3.0: the charset is undocumented and could be hex-leaning,
@@ -37,7 +40,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Hyperproof }
 func (Scanner) Keywords() []string { return []string{"hyperproof"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -86,7 +89,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

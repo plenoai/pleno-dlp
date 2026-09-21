@@ -29,9 +29,11 @@
 package esmtprc
 
 import (
+	"bytes"
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -41,18 +43,22 @@ import (
 // whitespace-delimited token, alone on its line (start-to-end
 // anchored, so leading/trailing text on the same line disqualifies
 // it).
-var passwordLineRe = regexp.MustCompile(
-	`(?m)^[ \t]*password[ \t]+(?:"([^"\r\n]*)"|(\S+))[ \t]*$`,
-)
+var passwordLineRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?m)^[ \t]*password[ \t]+(?:"([^"\r\n]*)"|(\S+))[ \t]*$`,
+	)
+})
 
 // contextDirectiveRe matches a sibling esmtprc directive
 // (hostname/username/mda/starttls) using the same self-contained,
 // single-token-value, lowercase-keyword grammar as passwordLineRe. A
 // `password` line with no sibling directive line anywhere in the chunk
 // is not an `.esmtprc` file — it is coincidence.
-var contextDirectiveRe = regexp.MustCompile(
-	`(?m)^[ \t]*(?:hostname|username|mda|starttls)[ \t]+(?:"[^"\r\n]*"|\S+)[ \t]*$`,
-)
+var contextDirectiveRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?m)^[ \t]*(?:hostname|username|mda|starttls)[ \t]+(?:"[^"\r\n]*"|\S+)[ \t]*$`,
+	)
+})
 
 var placeholders = map[string]struct{}{
 	"password":    {},
@@ -84,21 +90,21 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Esmtprc }
 func (Scanner) Keywords() []string { return []string{"password"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	str := string(data)
-	if !strings.Contains(str, "hostname") && !strings.Contains(str, "username") && !strings.Contains(str, "mda") && !strings.Contains(str, "starttls") {
+	if !bytes.Contains(data, []byte("hostname")) && !bytes.Contains(data, []byte("username")) && !bytes.Contains(data, []byte("mda")) && !bytes.Contains(data, []byte("starttls")) {
 		return nil, nil
 	}
+	str := string(data)
 
 	// No sibling esmtprc directive in the chunk: this isn't an
 	// .esmtprc file, whatever the password line looks like.
-	if !contextDirectiveRe.MatchString(str) {
+	if !contextDirectiveRe().MatchString(str) {
 		return nil, nil
 	}
 
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
-	for _, m := range passwordLineRe.FindAllStringSubmatch(str, -1) {
+	for _, m := range passwordLineRe().FindAllStringSubmatch(str, -1) {
 		if len(m) < 3 {
 			continue
 		}

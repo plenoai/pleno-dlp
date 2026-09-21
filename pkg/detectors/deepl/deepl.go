@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,7 +22,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // DeepL Free key: 36-char UUID + ":fx" suffix.
 // DeepL Pro key: 36-char UUID, identical shape to many UUIDs, so we
 // require the keyword "deepl" nearby for the bare-UUID case.
-var tokenRe = regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?::fx)?)\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?::fx)?)\b`)
+})
 
 var contextKeywords = []string{"deepl"}
 
@@ -32,7 +35,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.DeepL }
 func (Scanner) Keywords() []string { return []string{"deepl"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

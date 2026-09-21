@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,7 @@ var apiBase = "https://api.telnyx.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // KEY + 32+ alnum chars (Telnyx V2 keys observed at 56-char base64url).
-var keyRe = regexp.MustCompile(`\b(KEY[A-Za-z0-9_]{32,})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(KEY[A-Za-z0-9_]{32,})\b`) })
 
 var contextKeywords = []string{"telnyx", "telnyx_api", "telnyx_key"}
 
@@ -31,7 +32,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Telnyx }
 func (Scanner) Keywords() []string { return []string{"telnyx"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := keyRe.FindAllSubmatchIndex(data, -1)
+	hits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

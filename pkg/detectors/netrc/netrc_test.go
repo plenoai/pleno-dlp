@@ -4,8 +4,41 @@ package netrc
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
+
+func TestLoginPrefilterPreservesCaseVariants(t *testing.T) {
+	keywords := []string{"logİn", "loġin", "llll", "LOGIN"}
+	for mask := 0; mask < 1<<len("login"); mask++ {
+		keyword := []byte("login")
+		for i := range keyword {
+			if mask&(1<<i) != 0 {
+				keyword[i] -= 'a' - 'A'
+			}
+		}
+		keywords = append(keywords, string(keyword))
+	}
+	for _, keyword := range keywords {
+		data := []byte("machine host " + keyword + " 運用担当 password Qx7-Trout-Ferry-42")
+		got, err := (Scanner{}).FromData(context.Background(), false, data)
+		if err != nil || (len(got) == 1) != netrcEntryRe().Match(data) {
+			t.Fatalf("keyword %q: findings=%d, err=%v", keyword, len(got), err)
+		}
+	}
+}
+
+func BenchmarkRejectKeywordProse(b *testing.B) {
+	data := []byte(strings.Repeat("// API documentation: access token, password, secret key.\nconst status = 200; // health check\n", 8192))
+	b.ReportAllocs()
+	b.SetBytes(int64(len(data)))
+	b.ResetTimer()
+	for b.Loop() {
+		if got, err := (Scanner{}).FromData(context.Background(), false, data); err != nil || len(got) != 0 {
+			b.Fatalf("findings=%d, err=%v", len(got), err)
+		}
+	}
+}
 
 func TestFromData_LoginThenPassword(t *testing.T) {
 	data := []byte("machine imap.example.com login ops@example.com password " + "Qx7-Trout-Ferry-42\n")

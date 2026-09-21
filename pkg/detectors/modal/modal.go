@@ -22,13 +22,14 @@ package modal
 import (
 	"context"
 	"regexp"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 var (
-	idRe     = regexp.MustCompile(`\b(ak-[A-Za-z0-9]{20,})\b`)
-	secretRe = regexp.MustCompile(`\b(as-[A-Za-z0-9]{20,})\b`)
+	idRe     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(ak-[A-Za-z0-9]{20,})\b`) })
+	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(as-[A-Za-z0-9]{20,})\b`) })
 )
 
 // minBodyEntropy is the Shannon-entropy floor (bits/char) applied to the
@@ -72,11 +73,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Modal }
 func (Scanner) Keywords() []string { return []string{"ak-", "as-"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	ids := idRe.FindAllSubmatchIndex(data, -1)
+	ids := idRe().FindAllSubmatchIndex(data, -1)
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	secrets := secretRe.FindAllSubmatchIndex(data, -1)
+	secrets := secretRe().FindAllSubmatchIndex(data, -1)
 	if len(secrets) == 0 {
 		// Without a companion secret the pair is unverifiable AND a bare
 		// `ak-` shape is high false-positive (any short alphanumeric label).

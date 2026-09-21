@@ -101,5 +101,5 @@ bench-performance-contract:
 # concurrency, repeat count, and output path without dropping any default task.
 .PHONY: bench-performance
 bench-performance: bench-tools bench-performance-contract
-	go build -trimpath -o bench/.tools/pleno-dlp ./cmd/pleno-dlp
+	CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o bench/.tools/pleno-dlp ./cmd/pleno-dlp
 	python3 bench/performance/run.py --pleno-dlp-bin bench/.tools/pleno-dlp $(BENCH_PERFORMANCE_ARGS) --enforce

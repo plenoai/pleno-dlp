@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -27,7 +28,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Airbrake user API keys are exactly 40 alphanumeric chars, no prefix.
 // Source: upstream trufflehog pkg/detectors/airbrakeuserkey keyPat
 // `[a-zA-Z-0-9]{40}`.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`) })
 
 // armRe is the assignment-style Airbrake reference that must appear within the
 // proximity window. A bare "airbrake" substring is too weak; the shape a real
@@ -35,7 +36,9 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`)
 // takes is `airbrake`, `airbrake_token`, `airbrake-api-key`, `airbrake_project`,
 // etc. The token/key/project/id suffix is optional so a bare `airbrake=<key>`
 // assignment still arms.
-var armRe = regexp.MustCompile(`(?i)airbrake[_-]?(api[_-]?)?(token|key|secret|project|id)?`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)airbrake[_-]?(api[_-]?)?(token|key|secret|project|id)?`)
+})
 
 // minEntropy rejects low-information 40-char runs that clear the alnum regex
 // but are not random keys. 40-char alphanumeric is a high-variety charset, so
@@ -50,7 +53,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Airbrake }
 func (Scanner) Keywords() []string { return []string{"airbrake"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -103,7 +106,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

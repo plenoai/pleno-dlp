@@ -10,11 +10,12 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = regexp.MustCompile(`\b(secret-(?:test|live)-[A-Za-z0-9_=\-]{32,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(secret-(?:test|live)-[A-Za-z0-9_=\-]{32,})\b`) })
 
 var contextKeywords = []string{"stytch", "stytch_secret", "stytch_project"}
 
@@ -25,7 +26,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Stytch }
 func (Scanner) Keywords() []string { return []string{"stytch", "secret-test-", "secret-live-"} }
 
 func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

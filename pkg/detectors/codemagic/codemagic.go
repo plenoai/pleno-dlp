@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,7 +19,7 @@ var apiBase = "https://api.codemagic.io"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Codemagic API tokens are 32-64 alnum chars; anchored on `codemagic`.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{32,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{32,64})\b`) })
 
 var contextKeywords = []string{"codemagic", "code-magic"}
 
@@ -29,7 +30,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Codemagic }
 func (Scanner) Keywords() []string { return []string{"codemagic"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

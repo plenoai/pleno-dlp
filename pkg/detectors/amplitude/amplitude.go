@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,7 @@ var apiBase = "https://amplitude.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // 32-char lowercase hex matches both Amplitude API keys and secret keys.
-var hexRe = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
+var hexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
 
 var contextKeywords = []string{"amplitude", "amplitude_api", "amplitude_key", "amplitude_secret"}
 
@@ -31,7 +32,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Amplitude }
 func (Scanner) Keywords() []string { return []string{"amplitude"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := hexRe.FindAllSubmatchIndex(data, -1)
+	hits := hexRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}

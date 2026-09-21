@@ -22,9 +22,11 @@
 package netrc
 
 import (
+	"bytes"
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -33,11 +35,13 @@ import (
 // followed by `login`/`password` in either order within the same
 // entry. `\S+` for the host/login/password values stops at the next
 // token boundary, so this cannot bleed into a following entry.
-var netrcEntryRe = regexp.MustCompile(
-	`(?i)(?:\bmachine[ \t]+\S+|\bdefault\b)[ \t\r\n]+` +
-		`(?:login[ \t]+(\S+)[ \t\r\n]+password[ \t]+(\S+)` +
-		`|password[ \t]+(\S+)[ \t\r\n]+login[ \t]+(\S+))`,
-)
+var netrcEntryRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?i)(?:\bmachine[ \t]+\S+|\bdefault\b)[ \t\r\n]+` +
+			`(?:login[ \t]+(\S+)[ \t\r\n]+password[ \t]+(\S+)` +
+			`|password[ \t]+(\S+)[ \t\r\n]+login[ \t]+(\S+))`,
+	)
+})
 
 var placeholders = map[string]struct{}{
 	"password":    {},
@@ -69,15 +73,31 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Netrc }
 
 func (Scanner) Keywords() []string { return []string{"password", "machine"} }
 
+// The required login keyword uses only ASCII case pairs in the regexp.
+// Search candidate starts without allocating a lowercase copy of the input.
+func hasLogin(data []byte) bool {
+	for len(data) >= len("login") {
+		i := bytes.IndexAny(data, "lL")
+		if i < 0 || len(data)-i < len("login") {
+			return false
+		}
+		if bytes.EqualFold(data[i:i+len("login")], []byte("login")) {
+			return true
+		}
+		data = data[i+1:]
+	}
+	return false
+}
+
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	str := string(data)
-	if !strings.Contains(strings.ToLower(str), "login") {
+	if !hasLogin(data) {
 		return nil, nil
 	}
+	str := string(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
-	for _, m := range netrcEntryRe.FindAllStringSubmatch(str, -1) {
+	for _, m := range netrcEntryRe().FindAllStringSubmatch(str, -1) {
 		if len(m) < 5 {
 			continue
 		}

@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -26,8 +27,8 @@ var apiBase = "https://api.trello.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
-	keyRe   = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
-	tokenRe = regexp.MustCompile(`\b([a-f0-9]{64})\b`)
+	keyRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+	tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{64})\b`) })
 )
 
 var contextKeywords = []string{"trello", "trello_key", "trello_token", "trello_api"}
@@ -39,11 +40,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Trello }
 func (Scanner) Keywords() []string { return []string{"trello"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	keys := keyRe.FindAllSubmatchIndex(data, -1)
+	keys := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(keys) == 0 {
 		return nil, nil
 	}
-	tokens := tokenRe.FindAllSubmatchIndex(data, -1)
+	tokens := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(tokens) == 0 {
 		return nil, nil
 	}

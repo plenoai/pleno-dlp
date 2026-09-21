@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -35,7 +36,7 @@ var httpClient = &http.Client{Timeout: 5 * time.Second}
 
 // id:secret pair, both URL-safe base64. Lengths chosen to match observed
 // Elastic Cloud API keys (id ~20 chars, secret 22-43 chars).
-var pairRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{16,32}):([A-Za-z0-9_-]{20,48})\b`)
+var pairRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{16,32}):([A-Za-z0-9_-]{20,48})\b`) })
 
 var contextKeywords = []string{
 	"elastic",
@@ -53,7 +54,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.ElasticCloud }
 func (Scanner) Keywords() []string { return []string{"elastic", "elasticsearch"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := pairRe.FindAllSubmatchIndex(data, -1)
+	hits := pairRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

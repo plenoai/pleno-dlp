@@ -12,6 +12,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -28,7 +29,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 //   - glsoat-<20+ chars> SCIM OAuth access token
 //   - glcbt-<20+ chars> CI build / job token (when leaked verbatim)
 //   - glrt-<20+ chars> runner authentication token
-var tokenRe = regexp.MustCompile(`\b((?:gldt|glptt|glagent|glsoat|glcbt|glrt)-[A-Za-z0-9_-]{20,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b((?:gldt|glptt|glagent|glsoat|glcbt|glrt)-[A-Za-z0-9_-]{20,})\b`)
+})
 
 type Scanner struct{}
 
@@ -41,7 +44,7 @@ func (Scanner) Keywords() []string {
 }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAll(data, -1)
+	hits := tokenRe().FindAll(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

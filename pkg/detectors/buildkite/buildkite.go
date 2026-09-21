@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,12 +20,12 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
 	// `bkua_` + 40 hex (agent registration token).
-	agentRe = regexp.MustCompile(`\b(bkua_[a-f0-9]{40})\b`)
+	agentRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(bkua_[a-f0-9]{40})\b`) })
 	// `bka_` + 40 alnum (Buildkite documents this as the API access token
 	// shape on newly-minted tokens).
-	apiRe = regexp.MustCompile(`\b(bka_[A-Za-z0-9]{40})\b`)
+	apiRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(bka_[A-Za-z0-9]{40})\b`) })
 	// Legacy 40-char hex API tokens (no prefix). Keyword-gated.
-	legacyRe = regexp.MustCompile(`\b([a-f0-9]{40})\b`)
+	legacyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40})\b`) })
 )
 
 var contextKeywords = []string{"buildkite", "buildkite_api_token", "buildkite_token"}
@@ -46,7 +47,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	// legacy hex pass doesn't double-count the hex portion of `bkua_<hex>`.
 	claimed := []span{}
 
-	for _, h := range agentRe.FindAllSubmatchIndex(data, -1) {
+	for _, h := range agentRe().FindAllSubmatchIndex(data, -1) {
 		token := string(data[h[2]:h[3]])
 		claimed = append(claimed, span{h[2], h[3]})
 		if _, dup := seen[token]; dup {
@@ -62,7 +63,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		})
 	}
 
-	for _, h := range apiRe.FindAllSubmatchIndex(data, -1) {
+	for _, h := range apiRe().FindAllSubmatchIndex(data, -1) {
 		token := string(data[h[2]:h[3]])
 		claimed = append(claimed, span{h[2], h[3]})
 		if _, dup := seen[token]; dup {
@@ -82,7 +83,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		out = append(out, res)
 	}
 
-	legacyHits := legacyRe.FindAllSubmatchIndex(data, -1)
+	legacyHits := legacyRe().FindAllSubmatchIndex(data, -1)
 	if len(legacyHits) > 0 {
 		lower := strings.ToLower(string(data))
 		for _, h := range legacyHits {

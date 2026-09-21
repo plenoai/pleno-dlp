@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,13 +19,15 @@ var apiBase = "https://api.fivetran.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Fivetran API keys/secrets are 20 alnum each. We pair them by proximity.
-var keyRe = regexp.MustCompile(`\b([A-Za-z0-9]{20})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{20})\b`) })
 
 // anchorRe is an assignment-style Fivetran reference (env/config/source shape)
 // that must sit within anchorRadius bytes of one half of a candidate pair.
 // Without it, the bare keyword "fivetran" anywhere in a 256B window paired any
 // two adjacent 20-char alnum runs — README hashes, git SHAs, build IDs, etc.
-var anchorRe = regexp.MustCompile(`(?i)fivetran[_\- ]?(?:api[_\- ]?key|key|secret|token)\s*[:=]`)
+var anchorRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)fivetran[_\- ]?(?:api[_\- ]?key|key|secret|token)\s*[:=]`)
+})
 
 // minEntropy is a SECONDARY gate. Fivetran 20-char alnum IDs measure ~3.9
 // bits/char, so the floor is deliberately 3.0 (not 3.5) to reject only runs
@@ -39,12 +42,12 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Fivetran }
 func (Scanner) Keywords() []string { return []string{"fivetran"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := keyRe.FindAllSubmatchIndex(data, -1)
+	hits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}
 	// Anchor positions: assignment-style fivetran references in the chunk.
-	anchors := anchorRe.FindAllIndex(data, -1)
+	anchors := anchorRe().FindAllIndex(data, -1)
 	if len(anchors) == 0 {
 		return nil, nil
 	}

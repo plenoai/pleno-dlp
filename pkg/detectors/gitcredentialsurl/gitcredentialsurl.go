@@ -31,6 +31,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -38,7 +39,7 @@ import (
 // lineRe matches one bare scheme://... URL occupying an entire line
 // (git-credentials convention: one credential per line, no
 // surrounding text). \S+ forbids embedded whitespace.
-var lineRe = regexp.MustCompile(`(?m)^[ \t]*((?:https?|ftp)://\S+)[ \t]*$`)
+var lineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*((?:https?|ftp)://\S+)[ \t]*$`) })
 
 var placeholders = map[string]struct{}{
 	"password":      {},
@@ -90,7 +91,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
-	for _, m := range lineRe.FindAllStringSubmatch(str, -1) {
+	for _, m := range lineRe().FindAllStringSubmatch(str, -1) {
 		if len(m) < 2 {
 			continue
 		}

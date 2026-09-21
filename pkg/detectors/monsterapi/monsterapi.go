@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -17,7 +18,7 @@ var apiBase = "https://api.monsterapi.ai"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style MonsterAPI reference that must appear within a
 // tight window of the candidate. No authoritative source pins the token
@@ -25,7 +26,7 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
 // placeholder), so the regex length stays as-is and recall is preserved by
 // gate-tightening rather than format-narrowing. The bare keywords below remain
 // the engine prefilter via Keywords().
-var armRe = regexp.MustCompile(`(?i)monster[_\-]?api[_\-]?(token|key|secret)?`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)monster[_\-]?api[_\-]?(token|key|secret)?`) })
 
 type Scanner struct{}
 
@@ -34,7 +35,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.MonsterAPI }
 func (Scanner) Keywords() []string { return []string{"monsterapi", "monster_api"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -90,7 +91,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

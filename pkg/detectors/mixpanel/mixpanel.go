@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,9 +22,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var (
 	// Service account name: lowercase slug (>=10 chars to skip generic
 	// hostnames) + dot + 8-char base62 id.
-	accountRe = regexp.MustCompile(`\b([a-z]{10,}\.[a-zA-Z0-9]{8})\b`)
+	accountRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z]{10,}\.[a-zA-Z0-9]{8})\b`) })
 	// Secret: 32 lowercase hex.
-	secretRe = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
+	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
 )
 
 type Scanner struct{}
@@ -33,11 +34,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Mixpanel }
 func (Scanner) Keywords() []string { return []string{"mixpanel"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	accounts := accountRe.FindAllSubmatchIndex(data, -1)
+	accounts := accountRe().FindAllSubmatchIndex(data, -1)
 	if len(accounts) == 0 {
 		return nil, nil
 	}
-	secrets := secretRe.FindAllSubmatchIndex(data, -1)
+	secrets := secretRe().FindAllSubmatchIndex(data, -1)
 
 	lower := strings.ToLower(string(data))
 	out := make([]detectors.Result, 0, len(accounts))

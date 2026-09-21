@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,9 @@ var apiBase = "https://api.stripe.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // sk_live_, sk_test_, and rk_live_ share the same suffix shape.
-var keyRe = regexp.MustCompile(`\b((?:sk_live_|sk_test_|rk_live_)[A-Za-z0-9]{20,247})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b((?:sk_live_|sk_test_|rk_live_)[A-Za-z0-9]{20,247})\b`)
+})
 
 type Scanner struct{}
 
@@ -29,7 +32,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Stripe }
 func (Scanner) Keywords() []string { return []string{"sk_live_", "sk_test_", "rk_live_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAll(data, -1)
+	matches := keyRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -33,11 +34,13 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // No public prefix exists to anchor on, so the keyword arm regex plus
 // the entropy floor carry the false-positive load.
-var tokenRe = regexp.MustCompile(`\b([a-f0-9]{64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{64})\b`) })
 
 // armRe covers WEBEX_TOKEN, webex-access-token, webexApiKey,
 // ciscospark_token, and similar assignment-style references.
-var armRe = regexp.MustCompile(`(?i)(?:webex|ciscospark)[_\-]?(?:access[_\-]?)?(?:api[_\-]?)?(?:token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(?:webex|ciscospark)[_\-]?(?:access[_\-]?)?(?:api[_\-]?)?(?:token|key|secret)`)
+})
 
 const minEntropy = 3.0
 
@@ -48,7 +51,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Webex }
 func (Scanner) Keywords() []string { return []string{"webex"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -97,7 +100,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

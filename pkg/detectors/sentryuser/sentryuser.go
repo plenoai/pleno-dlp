@@ -11,6 +11,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,7 +22,7 @@ var apiBase = "https://sentry.io"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // sntryu_ + 64 lowercase hex.
-var keyRe = regexp.MustCompile(`\b(sntryu_[a-f0-9]{64})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sntryu_[a-f0-9]{64})\b`) })
 
 type Scanner struct{}
 
@@ -30,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.SentryUser }
 func (Scanner) Keywords() []string { return []string{"sntryu_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAll(data, -1)
+	matches := keyRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

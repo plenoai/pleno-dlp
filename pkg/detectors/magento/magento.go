@@ -23,21 +23,24 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = regexp.MustCompile(`\b([a-z0-9]{32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z0-9]{32})\b`) })
 
 // hasNonHexLetter reports whether the token contains at least one letter
 // in [g-z]. MD5/SHA hex digests live entirely in [a-f0-9]; a real
 // admin/integration token uses the full [a-z0-9] alphabet and in
 // practice contains such a letter. This rejects hash lookalikes.
-var hasNonHexLetter = regexp.MustCompile(`[g-z]`)
+var hasNonHexLetter = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[g-z]`) })
 
 // credentialContext matches a term that signals an actual credential
 // assignment near the token, on top of the mandatory `magento` keyword.
-var credentialContext = regexp.MustCompile(`(?i)token|access|api[_-]?key|bearer|integration|secret`)
+var credentialContext = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)token|access|api[_-]?key|bearer|integration|secret`)
+})
 
 // minEntropy is the bits/char floor for a 32-char alnum token. Pure
 // structured/low-entropy strings (e.g. repeated runs) fall below this.
@@ -58,7 +61,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Magento }
 func (Scanner) Keywords() []string { return []string{"magento"} }
 
 func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -71,7 +74,7 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 			continue
 		}
 		// Negative-lookalike exclusion: drop MD5/SHA hex digests.
-		if !hasNonHexLetter.MatchString(token) {
+		if !hasNonHexLetter().MatchString(token) {
 			continue
 		}
 		// Entropy floor: drop low-information structured strings.
@@ -115,7 +118,7 @@ func nearKeyword(lower string, start, end int, kw string, radius int) bool {
 
 func nearContext(lower string, start, end, radius int) bool {
 	from, to := windowBounds(len(lower), start, end, radius)
-	return credentialContext.MatchString(lower[from:to])
+	return credentialContext().MatchString(lower[from:to])
 }
 
 func redact(t string) string {

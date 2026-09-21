@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // xoxp-<workspace>-<user>-<num>-<secret>. Trailing run is base62-ish; require
 // at least 24 chars to avoid latching on truncated samples.
-var tokenRe = regexp.MustCompile(`\b(xoxp-\d+-\d+-\d+-[A-Za-z0-9]{24,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(xoxp-\d+-\d+-\d+-[A-Za-z0-9]{24,})\b`) })
 
 type Scanner struct{}
 
@@ -29,7 +30,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.SlackUserToken }
 func (Scanner) Keywords() []string { return []string{"xoxp-"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

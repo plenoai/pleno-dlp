@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -26,8 +27,8 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // SID: AC + 32 hex. Auth token: 32 hex (no provider prefix, so we always
 // require pairing with a SID to emit verified=true).
 var (
-	sidRe   = regexp.MustCompile(`\b(AC[a-f0-9]{32})\b`)
-	tokenRe = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
+	sidRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(AC[a-f0-9]{32})\b`) })
+	tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
 )
 
 type Scanner struct{}
@@ -40,11 +41,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if !bytes.Contains(data, []byte("AC")) {
 		return nil, nil
 	}
-	sids := sidRe.FindAllSubmatchIndex(data, -1)
+	sids := sidRe().FindAllSubmatchIndex(data, -1)
 	if len(sids) == 0 {
 		return nil, nil
 	}
-	tokens := tokenRe.FindAllSubmatchIndex(data, -1)
+	tokens := tokenRe().FindAllSubmatchIndex(data, -1)
 	// The 32-hex tail of every SID also matches tokenRe; filter those out so
 	// we don't pair a SID with its own tail.
 	tokens = excludeOverlap(tokens, sids)

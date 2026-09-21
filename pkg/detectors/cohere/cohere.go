@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,7 +23,7 @@ var apiBase = "https://api.cohere.ai"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // 40 base62 chars. Generic shape — keyword gate disambiguates.
-var keyRe = regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`) })
 
 // minEntropy rejects git-SHA-shaped and other low-information 40-char runs
 // that clear the regex but are not real keys.
@@ -31,7 +32,7 @@ const minEntropy = 3.5
 // contextRe is the windowed keyword gate. A bare "cohere" substring matched
 // English words like "coherent"/"coherence"; the word boundary kills those
 // while the _api_key forms keep the assignment-style fixtures armed.
-var contextRe = regexp.MustCompile(`(?i)\bcohere\b|co_api_key|cohere_api_key`)
+var contextRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\bcohere\b|co_api_key|cohere_api_key`) })
 
 type Scanner struct{}
 
@@ -40,7 +41,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Cohere }
 func (Scanner) Keywords() []string { return []string{"cohere"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := keyRe.FindAllSubmatchIndex(data, -1)
+	hits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -90,7 +91,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	return contextRe.MatchString(window)
+	return contextRe().MatchString(window)
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

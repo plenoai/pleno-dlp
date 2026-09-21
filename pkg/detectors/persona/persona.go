@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,9 @@ var apiBase = "https://api.withpersona.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Persona API keys: persona_(production|sandbox)_ + 32-128 alnum.
-var tokenRe = regexp.MustCompile(`\b(persona_(?:production|sandbox)_[A-Za-z0-9]{32,128})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(persona_(?:production|sandbox)_[A-Za-z0-9]{32,128})\b`)
+})
 
 type Scanner struct{}
 
@@ -28,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Persona }
 func (Scanner) Keywords() []string { return []string{"persona_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

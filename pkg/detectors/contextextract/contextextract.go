@@ -9,16 +9,19 @@ import (
 	"math"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode"
 )
 
 // uuidPat matches standard 8-4-4-4-12 hex UUIDs.
-var uuidPat = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+var uuidPat = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+})
 
 // FindNearbyUUID scans for a UUID near the anchor position associated with one of the keywords.
 func FindNearbyUUID(data []byte, anchorStart, anchorEnd int, keywords []string, maxRadius int) (string, bool) {
 	window, offset := extractWindow(data, anchorStart, anchorEnd, maxRadius)
-	matches := uuidPat.FindAllIndex(window, -1)
+	matches := uuidPat().FindAllIndex(window, -1)
 	if len(matches) == 0 {
 		return "", false
 	}
@@ -71,14 +74,16 @@ func FindNearbyKeyValue(data []byte, key string, maxRadius int) (string, bool) {
 	escapedKey := regexp.QuoteMeta(key)
 
 	// Try JSON pattern first: "key": "value"
-	jsonPat := regexp.MustCompile(`(?i)"` + escapedKey + `"\s*:\s*"([^"]*)"`)
-	if m := jsonPat.FindSubmatch(data); m != nil {
+	jsonPat := sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)"` + escapedKey + `"\s*:\s*"([^"]*)"`) })
+	if m := jsonPat().FindSubmatch(data); m != nil {
 		return string(m[1]), true
 	}
 
 	// Try assignment pattern: key=value, key: value, key="value"
-	eqPat := regexp.MustCompile(`(?i)(?:^|[\s;,])` + escapedKey + `\s*[:=]\s*"?([^\s,;"'\r\n]+)"?`)
-	if m := eqPat.FindSubmatch(data); m != nil {
+	eqPat := sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)(?:^|[\s;,])` + escapedKey + `\s*[:=]\s*"?([^\s,;"'\r\n]+)"?`)
+	})
+	if m := eqPat().FindSubmatch(data); m != nil {
 		val := string(m[1])
 		// Trim trailing quote if we captured one.
 		val = strings.TrimRight(val, `"'`)
@@ -91,10 +96,12 @@ func FindNearbyKeyValue(data []byte, key string, maxRadius int) (string, bool) {
 // FindNearbyHost scans for hostnames matching *.<suffix> within maxRadius bytes of the anchor.
 func FindNearbyHost(data []byte, anchorStart int, suffix string, maxRadius int) (string, bool) {
 	escapedSuffix := regexp.QuoteMeta(suffix)
-	pat := regexp.MustCompile(`[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*` + escapedSuffix)
+	pat := sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*` + escapedSuffix)
+	})
 
 	window, offset := extractWindow(data, anchorStart, anchorStart, maxRadius)
-	matches := pat.FindAllIndex(window, -1)
+	matches := pat().FindAllIndex(window, -1)
 	if len(matches) == 0 {
 		return "", false
 	}

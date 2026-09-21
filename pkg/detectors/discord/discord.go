@@ -11,6 +11,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,7 +23,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // `<24+>.<6+>.<27+>` base64url segments. We allow a wider lower bound on the
 // last segment because Discord rotated to longer HMACs in late 2023.
-var keyRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{24,28}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([A-Za-z0-9_-]{24,28}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,})\b`)
+})
 
 type Scanner struct{}
 
@@ -31,7 +34,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Discord }
 func (Scanner) Keywords() []string { return []string{"discord", "DISCORD_TOKEN", "DISCORD_BOT"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAll(data, -1)
+	matches := keyRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

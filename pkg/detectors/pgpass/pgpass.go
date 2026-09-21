@@ -29,6 +29,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -42,9 +43,11 @@ import (
 // exactly four colons with a numeric-or-`*` second field). The password
 // field itself only excludes the field separator and newlines — pgpass
 // passwords may contain punctuation the other fields cannot.
-var pgpassLineRe = regexp.MustCompile(
-	`(?m)^[ \t]*([A-Za-z0-9_.\-\*]{1,255}):([0-9]{1,5}|\*):([A-Za-z0-9_.\-\*]{1,63}):([A-Za-z0-9_.\-\*]{1,63}):([^:\r\n]{1,255})[ \t]*$`,
-)
+var pgpassLineRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?m)^[ \t]*([A-Za-z0-9_.\-\*]{1,255}):([0-9]{1,5}|\*):([A-Za-z0-9_.\-\*]{1,63}):([A-Za-z0-9_.\-\*]{1,63}):([^:\r\n]{1,255})[ \t]*$`,
+	)
+})
 
 // placeholders are values with no real-world credential signal:
 // documentation fillers, and the pgpass spec's own field-name ("password")
@@ -115,7 +118,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		if colonCount != 4 {
 			continue
 		}
-		m := pgpassLineRe.FindStringSubmatch(string(line))
+		m := pgpassLineRe().FindStringSubmatch(string(line))
 		if len(m) < 6 {
 			continue
 		}

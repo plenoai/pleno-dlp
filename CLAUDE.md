@@ -54,4 +54,5 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-09-21 | architect, core-engineer, detector-engineer, connector-engineer, qa | Repair encoded-input coverage, lazily compile detector regexes, and enforce time plus RSS across 34 input shapes against three scanners; [contract](docs/performance.md). |
 | 2026-09-21 | architect, core-engineer, detector-engineer, connector-engineer, qa | Five subsystem performance budgets and scanner allocation reductions; [method and evidence](docs/performance.md). |

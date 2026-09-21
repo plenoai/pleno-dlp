@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -28,7 +29,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Source: github.com/livekit/protocol utils/guid/id.go (APIKeyPrefix="API",
 // Size=12) and livekit/livekit cmd/server/commands.go (generateKeys:
 // apiKey := guid.New(utils.APIKeyPrefix)).
-var keyRe = regexp.MustCompile(`\b(API[A-Za-z0-9]{12})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(API[A-Za-z0-9]{12})\b`) })
 
 // API secret is `utils.RandomSecret()` = base62 of 32 random bytes. base62 of a
 // 32-byte buffer is NOT a fixed 43 chars: empirically (jxskiss/base62
@@ -40,7 +41,7 @@ var keyRe = regexp.MustCompile(`\b(API[A-Za-z0-9]{12})\b`)
 // Source: github.com/livekit/protocol utils/secret.go (RandomSecret: 32-byte
 // crypto/rand buffer, base62.EncodeToString) + server >=32-char minimum
 // (livekit/livekit issue #2582).
-var secretRe = regexp.MustCompile(`\b([A-Za-z0-9]{43,45})\b`)
+var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{43,45})\b`) })
 
 // minSecretEntropy rejects 43-45-char alnum runs that clear secretRe but are
 // not random 256-bit secrets (structured identifiers, padded names). 43+ random
@@ -55,7 +56,7 @@ const minSecretEntropy = 3.5
 // docs) is too weak a gate for a fixed-length alnum secret; the shape a real
 // credential assignment / config key takes is `livekit[_-]?(api[_-]?)(key|
 // secret|token)`.
-var armRe = regexp.MustCompile(`(?i)livekit[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)livekit[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 type Scanner struct{}
 
@@ -64,11 +65,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.LiveKit }
 func (Scanner) Keywords() []string { return []string{"livekit"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	keyHits := keyRe.FindAllSubmatchIndex(data, -1)
+	keyHits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(keyHits) == 0 {
 		return nil, nil
 	}
-	secretHits := secretRe.FindAllSubmatch(data, -1)
+	secretHits := secretRe().FindAllSubmatch(data, -1)
 	if len(secretHits) == 0 {
 		return nil, nil
 	}
@@ -132,7 +133,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (s Scanner) Verify(ctx context.Context, secret string) (bool, error) {

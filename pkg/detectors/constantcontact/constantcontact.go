@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Constant Contact mints JWT-shaped access tokens; we accept either a JWT or
 // a 32-char base62 long-lived token (legacy v2).
-var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_.-]{20,}|[A-Za-z0-9]{32,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_.-]{20,}|[A-Za-z0-9]{32,80})\b`) })
 
 var contextKeywords = []string{
 	"constant_contact",
@@ -36,7 +37,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.ConstantContact 
 func (Scanner) Keywords() []string { return []string{"constantcontact", "constant_contact"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

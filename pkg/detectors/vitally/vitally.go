@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -24,7 +25,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // and trufflehog ships no Vitally detector to mirror. With no authoritative
 // format to pin, we keep the broad length range and lean on the assignment
 // anchor + entropy floor to bound false positives without harming recall.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // armRe is the assignment-style Vitally reference that must appear within the
 // proximity window. A bare "vitally" substring (doc links, the vitally.io host,
@@ -32,7 +33,7 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
 // `vitally[_-]?(api[_-]?)?(token|key|secret)` is the shape a real credential
 // assignment or config key takes. The bare keyword stays in Keywords() as the
 // engine prefilter.
-var armRe = regexp.MustCompile(`(?i)vitally[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)vitally[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // minEntropy is a conservative floor: with no documented charset we cannot
 // assume key-grade variety, so 3.0 only rejects clearly low-information runs
@@ -46,7 +47,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Vitally }
 func (Scanner) Keywords() []string { return []string{"vitally"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -97,7 +98,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

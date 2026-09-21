@@ -13,6 +13,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -24,7 +25,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // `dp.cli.` + 40+ base64url chars. Anchored to the new prefix so it doesn't
 // overlap with the existing doppler detector.
-var tokenRe = regexp.MustCompile(`\b(dp\.cli\.[A-Za-z0-9_-]{40,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dp\.cli\.[A-Za-z0-9_-]{40,})\b`) })
 
 type Scanner struct{}
 
@@ -33,7 +34,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.DopplerCLI }
 func (Scanner) Keywords() []string { return []string{"dp.cli."} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

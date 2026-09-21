@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -23,7 +24,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // (pkg/detectors/box: `\b([0-9a-zA-Z]{32})\b`). The length is pinned to the
 // documented 32 rather than a {32,64} range; widening it past the
 // authoritative shape only invents recall the format does not support.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // minEntropy rejects 32-char low-information runs (padded hex, repeated
 // patterns) that clear the alnum regex but lack key-grade randomness. 3.5 is
@@ -34,7 +35,9 @@ const minEntropy = 3.5
 // bare strings.Contains over the keyword list, which fired on any prose
 // mention of "box.com". The arm regex requires a box token/key/secret
 // assignment-style identifier near the candidate.
-var contextRe = regexp.MustCompile(`(?i)box[_-]?(developer[_-]?)?(api[_-]?)?(access[_-]?)?(token|key|secret)`)
+var contextRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)box[_-]?(developer[_-]?)?(api[_-]?)?(access[_-]?)?(token|key|secret)`)
+})
 
 type Scanner struct{}
 
@@ -46,7 +49,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Box }
 func (Scanner) Keywords() []string { return []string{"box_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -121,7 +124,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	return contextRe.MatchString(window)
+	return contextRe().MatchString(window)
 }
 
 func redact(t string) string {

@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -38,7 +39,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 //
 // Source: trufflehog pkg/detectors/twitch/twitch.go (`[0-9a-z]{30}`);
 // twitchdev/twitch-cli#4 (exactly-30 validation).
-var tokenRe = regexp.MustCompile(`\b([0-9a-z]{30})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([0-9a-z]{30})\b`) })
 
 // minEntropy rejects low-information 30-char lowercase runs that clear the
 // charset+length regex but lack secret-grade randomness. Base36 entropy caps
@@ -53,7 +54,9 @@ const minEntropy = 3.5
 // generic 30-char lowercase run; this is the shape a real client_secret
 // assignment or config key takes. The bare `twitch` keyword is kept in
 // Keywords() as the cheap prefilter.
-var armRe = regexp.MustCompile(`(?i)twitch[_\-.]?(client[_\-]?)?(api[_\-]?)?(token|key|secret|client[_\-]?secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)twitch[_\-.]?(client[_\-]?)?(api[_\-]?)?(token|key|secret|client[_\-]?secret)`)
+})
 
 type Scanner struct{}
 
@@ -62,7 +65,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Twitch }
 func (Scanner) Keywords() []string { return []string{"twitch"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAllSubmatchIndex(data, -1)
+	matches := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}
@@ -146,7 +149,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func redact(t string) string {

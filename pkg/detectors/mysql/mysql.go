@@ -24,12 +24,15 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var uriRe = regexp.MustCompile(`\b(mysqlx?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
+var uriRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(mysqlx?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
+})
 
 // skipVerifyHosts lists hosts that the Verify probe must never contact.
 var skipVerifyHosts = map[string]struct{}{
@@ -51,7 +54,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.MySQL }
 func (Scanner) Keywords() []string { return []string{"mysql://", "mysqlx://"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := uriRe.FindAllSubmatch(data, -1)
+	hits := uriRe().FindAllSubmatch(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

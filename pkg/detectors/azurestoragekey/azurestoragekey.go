@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -33,11 +34,13 @@ const dialTimeout = 8 * time.Second
 // connRe matches the AccountName and AccountKey fields in an Azure Storage
 // connection string in either order. The AccountKey value is an 88-character
 // base64 string (64 decoded bytes, always ending with ==).
-var connRe = regexp.MustCompile(
-	`(?i)AccountName\s*=\s*([a-z0-9]{3,24})[^;]{0,200}AccountKey\s*=\s*([A-Za-z0-9+/]{86}==)` +
-		`|` +
-		`(?i)AccountKey\s*=\s*([A-Za-z0-9+/]{86}==)[^;]{0,200}AccountName\s*=\s*([a-z0-9]{3,24})`,
-)
+var connRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?i)AccountName\s*=\s*([a-z0-9]{3,24})[^;]{0,200}AccountKey\s*=\s*([A-Za-z0-9+/]{86}==)` +
+			`|` +
+			`(?i)AccountKey\s*=\s*([A-Za-z0-9+/]{86}==)[^;]{0,200}AccountName\s*=\s*([a-z0-9]{3,24})`,
+	)
+})
 
 var httpClient = &http.Client{Timeout: dialTimeout}
 
@@ -49,7 +52,7 @@ func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 func (Scanner) Keywords() []string { return []string{"AccountKey="} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := connRe.FindAllSubmatch(data, -1)
+	hits := connRe().FindAllSubmatch(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -24,8 +25,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 const maxVerifyResponseBytes = 1 << 20
 
 var (
-	prefixedRe = regexp.MustCompile(`\b(sq[apu]_[A-Za-z0-9]{40})\b`)
-	legacyRe   = regexp.MustCompile(`\b([a-f0-9]{40})\b`)
+	prefixedRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sq[apu]_[A-Za-z0-9]{40})\b`) })
+	legacyRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40})\b`) })
 )
 
 var contextKeywords = []string{"sonar", "sonarqube", "sonarcloud", "sonar_token", "sonar_login"}
@@ -41,7 +42,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	out := make([]detectors.Result, 0)
 	seen := map[string]struct{}{}
 
-	for _, h := range prefixedRe.FindAllSubmatchIndex(data, -1) {
+	for _, h := range prefixedRe().FindAllSubmatchIndex(data, -1) {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
 			continue
@@ -49,7 +50,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		seen[token] = struct{}{}
 		out = append(out, s.build(ctx, token, verify))
 	}
-	for _, h := range legacyRe.FindAllSubmatchIndex(data, -1) {
+	for _, h := range legacyRe().FindAllSubmatchIndex(data, -1) {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
 			continue

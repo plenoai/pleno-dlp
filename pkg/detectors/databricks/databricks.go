@@ -36,6 +36,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -57,10 +58,12 @@ var (
 // `dapi` + 32 lowercase hex. Older PATs exist as 32 hex without the `dapi`
 // prefix but those collide with md5/sha1 shapes; we reject them and only
 // surface the unambiguous prefixed variant.
-var tokenRe = regexp.MustCompile(`\b(dapi[a-f0-9]{32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dapi[a-f0-9]{32})\b`) })
 
 // Optional workspace host capture for ExtraData / host derivation.
-var hostRe = regexp.MustCompile(`\b([a-z0-9-]+\.cloud\.databricks\.com|adb-[0-9]+\.[0-9]+\.azuredatabricks\.net)\b`)
+var hostRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([a-z0-9-]+\.cloud\.databricks\.com|adb-[0-9]+\.[0-9]+\.azuredatabricks\.net)\b`)
+})
 
 type Scanner struct{}
 
@@ -71,11 +74,11 @@ func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 func (Scanner) Keywords() []string { return []string{"dapi"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}
-	host := hostRe.FindString(string(data))
+	host := hostRe().FindString(string(data))
 	out := make([]detectors.Result, 0, len(matches))
 	seen := map[string]struct{}{}
 	for _, m := range matches {

@@ -10,6 +10,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,7 @@ var apiBase = "https://db.fauna.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // fnA[dk] + base64url body. Fauna keys are mostly base64url and 40+ chars.
-var tokenRe = regexp.MustCompile(`\b(fnA[dk][A-Za-z0-9_-]{30,200})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(fnA[dk][A-Za-z0-9_-]{30,200})\b`) })
 
 type Scanner struct{}
 
@@ -29,7 +30,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Fauna }
 func (Scanner) Keywords() []string { return []string{"fnAd", "fnAk"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

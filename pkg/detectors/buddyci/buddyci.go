@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -34,13 +35,15 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Source: buddy.works API docs (Hello World / Personal Access Token pages)
 // show literal example tokens like 732e9e20-50ba-4047-8a7b-c9b17259a2a2. The
 // UUID structure is itself the anchor; we accept upper- or lower-case hex.
-var tokenRe = regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b`)
+})
 
 // armRe is the assignment-style Buddy reference that must appear within the
 // proximity window. A bare "buddy" substring is too weak; "buddy_token" /
 // "buddy-api-key" / "buddysecret" is the shape a real credential assignment
 // or config key takes.
-var armRe = regexp.MustCompile(`(?i)buddy[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)buddy[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // minEntropy rejects degenerate UUIDs (all-zero, repeated nibbles) that clear
 // the structural regex but carry no secret material. Real v4 UUIDs sit
@@ -55,7 +58,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.BuddyCI }
 func (Scanner) Keywords() []string { return []string{"buddy"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -110,7 +113,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

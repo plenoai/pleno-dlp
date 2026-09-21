@@ -24,15 +24,16 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 // Property-style: `sasl.password=…`. Value runs to whitespace, quote, or
 // line end.
-var propPasswordRe = regexp.MustCompile(`(?i)sasl\.password\s*=\s*["']?([^\s"'<>;]+)`)
-var propUsernameRe = regexp.MustCompile(`(?i)sasl\.username\s*=\s*["']?([^\s"'<>;]+)`)
-var bootstrapRe = regexp.MustCompile(`(?i)bootstrap\.servers\s*=\s*["']?([^\s"'<>;]+)`)
+var propPasswordRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)sasl\.password\s*=\s*["']?([^\s"'<>;]+)`) })
+var propUsernameRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)sasl\.username\s*=\s*["']?([^\s"'<>;]+)`) })
+var bootstrapRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)bootstrap\.servers\s*=\s*["']?([^\s"'<>;]+)`) })
 
 // JAAS-style: `password="…"` and `username="…"` that live *inside* a
 // LoginModule directive's clause. JAAS config is a single logical line
@@ -41,9 +42,9 @@ var bootstrapRe = regexp.MustCompile(`(?i)bootstrap\.servers\s*=\s*["']?([^\s"'<
 // (between the directive and the next ';', capped at jaasClauseWindow
 // bytes). This excludes co-located but unrelated password="…" fields
 // (JDBC, Spring datasource, other beans) sharing the same chunk.
-var jaasPasswordRe = regexp.MustCompile(`(?i)password\s*=\s*"([^"]+)"`)
-var jaasUsernameRe = regexp.MustCompile(`(?i)username\s*=\s*"([^"]+)"`)
-var jaasModuleRe = regexp.MustCompile(`(?i)(?:Plain|Scram)LoginModule`)
+var jaasPasswordRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)password\s*=\s*"([^"]+)"`) })
+var jaasUsernameRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)username\s*=\s*"([^"]+)"`) })
+var jaasModuleRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)(?:Plain|Scram)LoginModule`) })
 
 // jaasClauseWindow bounds how far after a LoginModule directive we will
 // still treat a password/username field as belonging to its clause when
@@ -67,12 +68,12 @@ var placeholderValues = map[string]struct{}{
 // interpolationRe matches values that are purely a templating token, e.g.
 // ${KAFKA_PASSWORD} or {{ kafka.password }}, so they are never emitted as
 // live secrets.
-var interpolationRe = regexp.MustCompile(`^\s*(?:\$\{[^}]*\}|\{\{[^}]*\}\})\s*$`)
+var interpolationRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\s*(?:\$\{[^}]*\}|\{\{[^}]*\}\})\s*$`) })
 
 // isPlaceholder reports whether v is a templating token or a well-known
 // non-secret default.
 func isPlaceholder(v string) bool {
-	if interpolationRe.MatchString(v) {
+	if interpolationRe().MatchString(v) {
 		return true
 	}
 	_, ok := placeholderValues[strings.ToLower(strings.TrimSpace(v))]
@@ -92,7 +93,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	seen := map[string]struct{}{}
 	str := string(data)
 
-	for _, m := range propPasswordRe.FindAllStringSubmatch(str, -1) {
+	for _, m := range propPasswordRe().FindAllStringSubmatch(str, -1) {
 		password := m[1]
 		if password == "" {
 			continue
@@ -103,11 +104,11 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		seen[password] = struct{}{}
 		extra := map[string]string{"style": "property"}
 		var username string
-		if um := propUsernameRe.FindStringSubmatch(str); len(um) == 2 {
+		if um := propUsernameRe().FindStringSubmatch(str); len(um) == 2 {
 			username = um[1]
 			extra["username"] = username
 		}
-		if bs := bootstrapRe.FindStringSubmatch(str); len(bs) == 2 {
+		if bs := bootstrapRe().FindStringSubmatch(str); len(bs) == 2 {
 			extra["bootstrap_servers"] = bs[1]
 		}
 		res := detectors.Result{
@@ -128,7 +129,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	// next ';') (bounded by jaasClauseWindow) and only accept password/
 	// username fields whose match start lies inside that clause. This keeps
 	// unrelated password="…" fields elsewhere in the chunk out of Kafka.
-	for _, mod := range jaasModuleRe.FindAllStringIndex(str, -1) {
+	for _, mod := range jaasModuleRe().FindAllStringIndex(str, -1) {
 		clauseStart := mod[0]
 		clauseEnd := len(str)
 		if semi := strings.IndexByte(str[clauseStart:], ';'); semi >= 0 {
@@ -140,11 +141,11 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		clause := str[clauseStart:clauseEnd]
 
 		var username string
-		if um := jaasUsernameRe.FindStringSubmatch(clause); len(um) == 2 {
+		if um := jaasUsernameRe().FindStringSubmatch(clause); len(um) == 2 {
 			username = um[1]
 		}
 
-		for _, m := range jaasPasswordRe.FindAllStringSubmatch(clause, -1) {
+		for _, m := range jaasPasswordRe().FindAllStringSubmatch(clause, -1) {
 			password := m[1]
 			if password == "" {
 				continue
@@ -163,7 +164,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			if username != "" {
 				extra["username"] = username
 			}
-			if bs := bootstrapRe.FindStringSubmatch(str); len(bs) == 2 {
+			if bs := bootstrapRe().FindStringSubmatch(str); len(bs) == 2 {
 				extra["bootstrap_servers"] = bs[1]
 			}
 			res := detectors.Result{

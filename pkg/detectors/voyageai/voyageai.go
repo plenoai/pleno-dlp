@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,7 +22,7 @@ var apiBase = "https://api.voyageai.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Production keys are typically 35 chars total.
-var keyRe = regexp.MustCompile(`\b(pa-[A-Za-z0-9_-]{24,})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pa-[A-Za-z0-9_-]{24,})\b`) })
 
 var contextKeywords = []string{"voyage", "voyageai", "voyage_api", "voyage_key"}
 
@@ -35,7 +36,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.VoyageAI }
 func (Scanner) Keywords() []string { return []string{"voyage"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := keyRe.FindAllSubmatchIndex(data, -1)
+	hits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

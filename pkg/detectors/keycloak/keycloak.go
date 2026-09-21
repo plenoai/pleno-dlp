@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -38,21 +39,25 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // 48- or 64-char run is matched by the corresponding alternative rather than
 // truncated to 32. No prefix exists, so length + entropy + the arm-regex keyword
 // gate carry the false-positive load.
-var secretRe = regexp.MustCompile(`\b([A-Za-z0-9]{64}|[A-Za-z0-9]{48}|[A-Za-z0-9]{32})\b`)
+var secretRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([A-Za-z0-9]{64}|[A-Za-z0-9]{48}|[A-Za-z0-9]{32})\b`)
+})
 
 // idRe matches the admin-chosen client_id. This has no documented format
 // (operators pick arbitrary identifiers like "my-app" or "backend-service"),
 // so it is intentionally NOT length-pinned to the secret's 32 — pinning a
 // free-form field would destroy recall. We accept a permissive identifier
 // shape and rely on the keyword gate + secret-half rigor.
-var idRe = regexp.MustCompile(`\b([A-Za-z0-9][A-Za-z0-9._\-]{2,127})\b`)
+var idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9][A-Za-z0-9._\-]{2,127})\b`) })
 
 // armRe is the assignment-style Keycloak reference that must appear within the
 // proximity window. A bare "keycloak" substring (script-src URLs, doc links,
 // the realm host) is too weak a gate against a generic 32-char alphanumeric
 // run; `keycloak[_-]?(client[_-]?)?(secret|id|key|token)` is the shape a real
 // credential assignment or config key takes.
-var armRe = regexp.MustCompile(`(?i)keycloak[_\-]?(client[_\-]?)?(secret|id|key|token)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)keycloak[_\-]?(client[_\-]?)?(secret|id|key|token)`)
+})
 
 // minEntropy rejects low-entropy 32-char runs that clear the alnum regex but
 // are not random secrets (e.g. padded placeholders, repeated characters,
@@ -69,7 +74,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.KeyCloak }
 func (Scanner) Keywords() []string { return []string{"keycloak"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	secretHits := secretRe.FindAllSubmatchIndex(data, -1)
+	secretHits := secretRe().FindAllSubmatchIndex(data, -1)
 	if len(secretHits) == 0 {
 		return nil, nil
 	}
@@ -99,7 +104,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	// from the secret. Falls back to "" — the pair is best-effort; the secret
 	// is the load-bearing half.
 	var id string
-	for _, h := range idRe.FindAllSubmatchIndex(data, -1) {
+	for _, h := range idRe().FindAllSubmatchIndex(data, -1) {
 		// Skip the exact span of the secret match.
 		if h[2] == secretStart && h[3] == secretEnd {
 			continue
@@ -147,7 +152,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

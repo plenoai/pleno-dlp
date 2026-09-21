@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -33,6 +34,50 @@ func TestFromData_Negative(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, []byte("no token here, ghp shorter"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
+	}
+}
+
+func TestFromData_RegexBoundaries(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"word prefix", "x" + dummyClassic, 0},
+		{"underscore prefix", "_" + dummyClassic, 0},
+		{"unicode prefix", "é" + dummyClassic, 1},
+		{"word suffix", dummyClassic + "x", 0},
+		{"adjacent classic", dummyClassic + dummyClassic, 0},
+		{"separated classic and fine", dummyClassic + " " + dummyFine, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := Scanner{}.FromData(context.Background(), false, []byte(tc.body))
+			if err != nil {
+				t.Fatalf("FromData err: %v", err)
+			}
+			if len(res) != tc.want {
+				t.Fatalf("got %d results, want %d: %+v", len(res), tc.want, res)
+			}
+		})
+	}
+}
+
+func TestFromData_RegexesKeepLiteralPrefixes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		re   *regexp.Regexp
+		want string
+	}{
+		{"classic", classicRe(), "ghp_"},
+		{"fine-grained", fineRe(), "github_pat_"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _ := tc.re.LiteralPrefix()
+			if got != tc.want {
+				t.Fatalf("LiteralPrefix = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

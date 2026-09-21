@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -30,8 +31,8 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // FP load is carried by the arm-regex keyword gate + entropy floor, not the
 // length. The API key (X-SCOUT-API header / `key` query arg) has no documented
 // format at all, so it keeps a wide base64url range.
-var agentKeyRe = regexp.MustCompile(`\b([A-Za-z0-9]{16,30})\b`)
-var apiKeyRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{40,128})\b`)
+var agentKeyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{16,30})\b`) })
+var apiKeyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40,128})\b`) })
 
 // minEntropy rejects degenerate runs that clear the length regex but are not
 // real keys — e.g. the all-zeros (`00000000000000000000`, entropy 0.0) and
@@ -49,7 +50,9 @@ const minEntropy = 3.0
 // `scout_apm_agent_key`, `scoutapm_api_key`, `scout-apm-token`, etc. The
 // optional `apm`/`agent`/`api` segments are what distinguish an assignment from
 // the bare vendor word.
-var armRe = regexp.MustCompile(`(?i)scout[_-]?(apm)?[_-]?(agent[_-]?)?(api[_-]?)?(key|token|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)scout[_-]?(apm)?[_-]?(agent[_-]?)?(api[_-]?)?(key|token|secret)`)
+})
 
 type Scanner struct{}
 
@@ -58,8 +61,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.ScoutAPM }
 func (Scanner) Keywords() []string { return []string{"scoutapm", "scout_apm"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	akHits := agentKeyRe.FindAllSubmatchIndex(data, -1)
-	apiHits := apiKeyRe.FindAllSubmatchIndex(data, -1)
+	akHits := agentKeyRe().FindAllSubmatchIndex(data, -1)
+	apiHits := apiKeyRe().FindAllSubmatchIndex(data, -1)
 	if len(akHits) == 0 || len(apiHits) == 0 {
 		return nil, nil
 	}
@@ -131,7 +134,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 // Verify accepts the combined `agentKey:apiKey` pair.

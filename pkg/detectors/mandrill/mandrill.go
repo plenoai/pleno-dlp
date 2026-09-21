@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Mandrill API keys are 22-char URL-safe alphanumeric (sometimes 32-char
 // historic). Match 22..36 to cover both shapes.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{22,36})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{22,36})\b`) })
 
 var contextKeywords = []string{"mandrill", "mandrill_key", "mandrill_api"}
 
@@ -30,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Mandrill }
 func (Scanner) Keywords() []string { return []string{"mandrill"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

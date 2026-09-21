@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -26,14 +27,14 @@ var apiBase = "https://app.arize.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style Arize reference that must appear within the
 // proximity window. A bare "arize" substring is too weak a gate against a
 // generic 40-80 alphanumeric run; `arize[_-]?(api[_-]?)?(token|key|secret)` is
 // the shape a real credential assignment or config key takes. The bare "arize"
 // keyword stays in Keywords() as the engine prefilter.
-var armRe = regexp.MustCompile(`(?i)arize[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)arize[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // minEntropy is a conservative floor: Arize does not document the key's
 // prefix, length, or charset (see package note), so we cannot pin a length
@@ -49,7 +50,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.ArizeAI }
 func (Scanner) Keywords() []string { return []string{"arize"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -102,7 +103,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

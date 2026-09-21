@@ -49,6 +49,10 @@ remains visible through canary checks. pleno-dlp explicitly allows files up to
 actually scanned. Tool configuration environment variables are removed and the
 working directory is the generated fixture root.
 
+The benchmark builds pleno-dlp with the portable release settings from
+`.goreleaser.yaml`: `CGO_ENABLED=0`, `-trimpath`, and `-ldflags '-s -w'`.
+Optional native PII builds are outside this secret-only comparison.
+
 Two warmups precede seven measured runs. Starting order rotates each round.
 GOMAXPROCS equals the requested concurrency; pleno-dlp and TruffleHog receive
 that worker count, while Gitleaks and Betterleaks keep their own worker policy.

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,20 +19,22 @@ var apiBase = "https://api.portkey.ai"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Portkey API keys are 32-64 base64url chars, anchored on `portkey`.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9+/_=-]{32,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9+/_=-]{32,64})\b`) })
 
 // keywordRe is the anchored Portkey.ai marker. The bare `portkey`
 // substring matches inside other words (`ExportKey`, `importKey`),
 // so word-bounded `\bportkey\b` plus credential anchors are required.
-var keywordRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`\bportkey[_\-](?:api|token|key|secret)` +
-	`|\bportkey\.ai\b` +
-	`|\bapi\.portkey\.ai\b` +
-	`|\bx-portkey-api-key\b` +
-	`|\bportkey[ \t]*[:=]` +
-	`|\bportkey\b` +
-	`)`)
+var keywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`\bportkey[_\-](?:api|token|key|secret)` +
+		`|\bportkey\.ai\b` +
+		`|\bapi\.portkey\.ai\b` +
+		`|\bx-portkey-api-key\b` +
+		`|\bportkey[ \t]*[:=]` +
+		`|\bportkey\b` +
+		`)`)
+})
 
 type Scanner struct{}
 
@@ -40,11 +43,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Portkey }
 func (Scanner) Keywords() []string { return []string{"portkey"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	kwSpans := keywordRe.FindAllIndex(data, -1)
+	kwSpans := keywordRe().FindAllIndex(data, -1)
 	if len(kwSpans) == 0 {
 		return nil, nil
 	}

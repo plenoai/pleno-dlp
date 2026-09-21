@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,7 +23,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // a fixed length, which would risk destroying recall on non-UUID shapes. We
 // keep a loose 32-64 alnum candidate regex and lean on the entropy floor +
 // arm-regex keyword gate to suppress false positives.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // 3.0 is the conservative hex floor (a UUID-without-dashes is hex, ceiling
 // ≈ 4.0); 3.5 would over-cull a hex-only key.
@@ -30,7 +31,9 @@ const minEntropy = 3.0
 
 // armRe replaces a bare strings.Contains(window, "gainsight") so the mere
 // word "gainsight" in unrelated prose no longer arms a high-entropy candidate.
-var armRe = regexp.MustCompile(`(?i)gainsight[_\-]?(api[_\-]?)?(access[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)gainsight[_\-]?(api[_\-]?)?(access[_\-]?)?(token|key|secret)`)
+})
 
 type Scanner struct{}
 
@@ -39,7 +42,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GainSight }
 func (Scanner) Keywords() []string { return []string{"gainsight"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -89,7 +92,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

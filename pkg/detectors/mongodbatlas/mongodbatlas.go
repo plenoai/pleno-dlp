@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -34,8 +35,10 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // co-occurring "mongodb" / "atlas" / "MONGODB_ATLAS_" keyword in the
 // surrounding 256-byte window.
 var (
-	pubRe  = regexp.MustCompile(`\b([a-z]{8})\b`)
-	privRe = regexp.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+	pubRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z]{8})\b`) })
+	privRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+	})
 )
 
 var contextKeywords = []string{"mongodb", "atlas", "mongodb_atlas"}
@@ -47,11 +50,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.MongoDBAtlas }
 func (Scanner) Keywords() []string { return []string{"mongodb", "atlas"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	privs := privRe.FindAllSubmatchIndex(data, -1)
+	privs := privRe().FindAllSubmatchIndex(data, -1)
 	if len(privs) == 0 {
 		return nil, nil
 	}
-	pubs := pubRe.FindAllSubmatchIndex(data, -1)
+	pubs := pubRe().FindAllSubmatchIndex(data, -1)
 
 	lower := strings.ToLower(string(data))
 

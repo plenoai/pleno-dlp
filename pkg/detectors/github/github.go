@@ -103,8 +103,8 @@ func loadRevokeMode(clientID, clientSecret string) string {
 }
 
 var (
-	classicRe = regexp.MustCompile(`\b(ghp_[A-Za-z0-9]{36})\b`)
-	fineRe    = regexp.MustCompile(`\b(github_pat_[A-Za-z0-9_]{82})\b`)
+	classicRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`ghp_[A-Za-z0-9]{36}\b`) })
+	fineRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`github_pat_[A-Za-z0-9_]{82}\b`) })
 )
 
 type Scanner struct{}
@@ -114,8 +114,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GitHub }
 func (Scanner) Keywords() []string { return []string{"ghp_", "github_pat_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := classicRe.FindAll(data, -1)
-	matches = append(matches, fineRe.FindAll(data, -1)...)
+	matches := findBoundedTokens(classicRe(), data)
+	matches = append(matches, findBoundedTokens(fineRe(), data)...)
 	if len(matches) == 0 {
 		return nil, nil
 	}
@@ -143,6 +143,34 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		out = append(out, res)
 	}
 	return out, nil
+}
+
+// findBoundedTokens keeps the ASCII \b semantics of the original patterns
+// while letting RE2 search for the literal token prefixes. Go's regexp package
+// cannot use a literal prefix when \b leads the pattern; checking the left
+// boundary after FindAllIndex restores the exact grammar and avoids a full
+// regex state-machine scan through near matches.
+func findBoundedTokens(re *regexp.Regexp, data []byte) [][]byte {
+	indices := re.FindAllIndex(data, -1)
+	if len(indices) == 0 {
+		return nil
+	}
+	matches := make([][]byte, 0, len(indices))
+	for _, index := range indices {
+		if !hasRE2LeftWordBoundary(data, index[0]) {
+			continue
+		}
+		matches = append(matches, data[index[0]:index[1]])
+	}
+	return matches
+}
+
+func hasRE2LeftWordBoundary(data []byte, start int) bool {
+	return start == 0 || !isRE2WordByte(data[start-1])
+}
+
+func isRE2WordByte(c byte) bool {
+	return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_'
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

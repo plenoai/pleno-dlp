@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var apiBase = "https://api.livechatinc.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // LiveChat PAT shape: dal:<account-id>:<secret> (id is uuid-ish, secret is base64url).
-var tokenRe = regexp.MustCompile(`\b(dal:[A-Za-z0-9_-]{6,40}:[A-Za-z0-9_-]{20,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dal:[A-Za-z0-9_-]{6,40}:[A-Za-z0-9_-]{20,80})\b`) })
 
 type Scanner struct{}
 
@@ -28,7 +29,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.LiveChat }
 func (Scanner) Keywords() []string { return []string{"dal:"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

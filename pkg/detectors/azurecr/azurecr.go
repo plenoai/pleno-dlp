@@ -36,6 +36,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -43,14 +44,16 @@ import (
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{10,400}\.[A-Za-z0-9_\-]{10,800}\.[A-Za-z0-9_\-]{10,400})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{10,400}\.[A-Za-z0-9_\-]{10,800}\.[A-Za-z0-9_\-]{10,400})\b`)
+})
 
 var contextKeywords = []string{"azurecr", ".azurecr.io", "acr_token", "acr_refresh", "acr_access", "acr_password"}
 
 // azurecrHostRe matches a `<name>.azurecr.io` host inside the decoded JWT
 // payload. Anchored on the literal ACR domain so an unrelated string can't
 // satisfy it.
-var azurecrHostRe = regexp.MustCompile(`[a-z0-9][a-z0-9\-]{0,49}\.azurecr\.io`)
+var azurecrHostRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[a-z0-9][a-z0-9\-]{0,49}\.azurecr\.io`) })
 
 // azureADHosts are negative lookalikes: a JWT whose decoded payload points at
 // these endpoints is an Azure AD / Graph token, not an ACR token, and is
@@ -64,7 +67,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AzureContainerRe
 func (Scanner) Keywords() []string { return []string{"azurecr", "acr_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -127,7 +130,7 @@ func extractACRHost(token string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	m := azurecrHostRe.FindString(strings.ToLower(payload))
+	m := azurecrHostRe().FindString(strings.ToLower(payload))
 	if m == "" {
 		return "", false
 	}
@@ -264,7 +267,7 @@ func payloadIsACR(token string) bool {
 			return false
 		}
 	}
-	return azurecrHostRe.MatchString(lower)
+	return azurecrHostRe().MatchString(lower)
 }
 
 // decodeSegment base64url-decodes a JWT segment, tolerating the missing

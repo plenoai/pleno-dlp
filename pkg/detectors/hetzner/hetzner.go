@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,12 +20,14 @@ var apiBase = "https://api.hetzner.cloud"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`) })
 
 // armRe requires an assignment-style Hetzner reference in the proximity window:
 // a bare "hcloud"/"hetzner" substring is too weak a gate for a generic 64-char
 // run. The bare keywords stay in Keywords() as the cheap prefilter.
-var armRe = regexp.MustCompile(`(?i)(hcloud|hetzner)[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(hcloud|hetzner)[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-information 64-char runs that clear the alnum regex but
 // lack key-grade randomness. A real base62 token sits well above the 3.5 floor.
@@ -37,7 +40,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Hetzner }
 func (Scanner) Keywords() []string { return []string{"hcloud", "hetzner"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -86,7 +89,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -28,7 +29,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // 40 chars from the URL-safe alphabet. The shape is generic, so we only emit
 // matches when a co-occurring "cloudflare" / CF_API_TOKEN keyword is in the
 // surrounding 256-byte window.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{40})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40})\b`) })
 
 var contextKeywords = []string{"cloudflare", "CF_API_TOKEN", "CF_TOKEN"}
 
@@ -39,7 +40,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Cloudflare }
 func (Scanner) Keywords() []string { return []string{"cloudflare", "CF_API_TOKEN", "CF_TOKEN"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

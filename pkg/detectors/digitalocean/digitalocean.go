@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -25,7 +26,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // dop_v1_ prefix + 64 hex chars. The provider-specific prefix means the regex
 // is precise enough that we don't need a co-occurring keyword.
-var tokenRe = regexp.MustCompile(`\b(dop_v1_[a-f0-9]{64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dop_v1_[a-f0-9]{64})\b`) })
 
 type Scanner struct{}
 
@@ -34,7 +35,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.DigitalOcean }
 func (Scanner) Keywords() []string { return []string{"dop_v1_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

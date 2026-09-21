@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -26,13 +27,13 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // format to pin, we keep the broad length window and lean on the armed keyword
 // gate plus a conservative entropy floor to suppress false positives — pinning
 // a guessed length here would silently destroy recall.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style Aikido reference that must appear within the
 // proximity window. A bare "aikido" substring is too weak; an
 // `aikido[_-]?(api[_-]?)?(token|key|secret)` shape is what a real credential
 // assignment or config key looks like.
-var armRe = regexp.MustCompile(`(?i)aikido[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)aikido[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // minEntropy rejects low-information 40-80 char runs that clear the base62
 // regex but are not random credentials (padded identifiers, repeated fillers).
@@ -48,7 +49,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AikidoSecurity }
 func (Scanner) Keywords() []string { return []string{"aikido"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -127,7 +128,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func redact(t string) string {

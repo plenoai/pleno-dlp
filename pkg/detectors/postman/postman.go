@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -16,7 +17,7 @@ var apiBase = "https://api.getpostman.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // PMAK- prefix + 24 hex + dash + 34 hex.
-var tokenRe = regexp.MustCompile(`\b(PMAK-[a-f0-9]{24}-[a-f0-9]{34})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(PMAK-[a-f0-9]{24}-[a-f0-9]{34})\b`) })
 
 type Scanner struct{}
 
@@ -25,7 +26,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Postman }
 func (Scanner) Keywords() []string { return []string{"PMAK-"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

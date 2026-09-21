@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -34,7 +35,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // (the existing `{40,50}` window is the shipped contract) and instead apply
 // recall-safe gate-tightening: a conservative entropy floor + a tighter
 // proximity radius.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,50})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,50})\b`) })
 
 // minEntropy is the conservative recall-safe floor mandated for the
 // inconclusive-format case. The candidate charset is alnum (no authoritative
@@ -48,13 +49,15 @@ const minEntropy = 3.0
 // `buffer` is ubiquitous in source code; paired with a 40-char alnum
 // token shape it matches every git SHA-1 in a repo. The regex demands a
 // Buffer-app anchor so unrelated buffers in code don't pull the trigger.
-var keywordRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`\bbufferapp\b` +
-	`|\bbuffer\.com\b` +
-	`|\bapi\.bufferapp\.com\b` +
-	`|\bbuffer[_\-](?:api|token|access[_\-]?token|app)\b` +
-	`)`)
+var keywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`\bbufferapp\b` +
+		`|\bbuffer\.com\b` +
+		`|\bapi\.bufferapp\.com\b` +
+		`|\bbuffer[_\-](?:api|token|access[_\-]?token|app)\b` +
+		`)`)
+})
 
 type Scanner struct{}
 
@@ -63,11 +66,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Buffer }
 func (Scanner) Keywords() []string { return []string{"buffer"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	kwSpans := keywordRe.FindAllIndex(data, -1)
+	kwSpans := keywordRe().FindAllIndex(data, -1)
 	if len(kwSpans) == 0 {
 		return nil, nil
 	}

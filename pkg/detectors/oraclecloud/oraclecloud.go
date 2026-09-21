@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -27,7 +28,7 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`) })
 
 // minEntropy is a CONSERVATIVE floor. Oracle does not publicly document the
 // OCI Auth Token length or charset (only an obfuscated console example), so we
@@ -44,7 +45,9 @@ const minEntropy = 3.0
 // as the real-world `OCI_TENANCY_KEY` / `oci_auth_token` shapes). The `ocid1.`
 // OCID prefix is also accepted directly as a strongly distinctive OCI marker.
 // Keywords() keeps the bare stems as the engine prefilter.
-var armRe = regexp.MustCompile(`(?i)(oci|oraclecloud)[_\-]?(\w+[_\-])?(auth|api)?[_\-]?(token|key|secret)|ocid1\.`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(oci|oraclecloud)[_\-]?(\w+[_\-])?(auth|api)?[_\-]?(token|key|secret)|ocid1\.`)
+})
 
 type Scanner struct{}
 
@@ -53,7 +56,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.OracleCloud }
 func (Scanner) Keywords() []string { return []string{"oraclecloud", "ocid1.", "oci_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -107,7 +110,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

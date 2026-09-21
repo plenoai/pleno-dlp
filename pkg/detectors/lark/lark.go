@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,13 +22,13 @@ var apiBase = "https://open.larksuite.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var appIDRe = regexp.MustCompile(`\b(cli_[a-f0-9]{16})\b`)
+var appIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(cli_[a-f0-9]{16})\b`) })
 
 // app_secret is a 32-char alphanumeric string with no prefix. Length and
 // charset are authoritative from the upstream trufflehog larksuiteapikey
 // detector (`[a-z0-9A-Z]{32}`):
 // https://github.com/trufflesecurity/trufflehog/blob/main/pkg/detectors/larksuiteapikey/larksuiteapikey.go
-var secretRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
+var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // minSecretEntropy rejects 32-char runs that clear the regex but lack
 // key-grade randomness (e.g. an MD5 hex digest or a repetitive build id near
@@ -40,7 +41,9 @@ const minSecretEntropy = 3.5
 // bare strings.Contains(window,"lark"|"feishu"|"cli_") which matched any
 // document merely mentioning Lark within 256 bytes. The bare keyword stays in
 // Keywords() as the cheap prefilter.
-var contextRe = regexp.MustCompile(`(?i)(lark|feishu)[_-]?(app[_-]?)?(id|secret|token|key)|cli_[a-f0-9]{16}`)
+var contextRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(lark|feishu)[_-]?(app[_-]?)?(id|secret|token|key)|cli_[a-f0-9]{16}`)
+})
 
 type Scanner struct{}
 
@@ -49,11 +52,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Lark }
 func (Scanner) Keywords() []string { return []string{"cli_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	idHits := appIDRe.FindAllSubmatchIndex(data, -1)
+	idHits := appIDRe().FindAllSubmatchIndex(data, -1)
 	if len(idHits) == 0 {
 		return nil, nil
 	}
-	secHits := secretRe.FindAllSubmatchIndex(data, -1)
+	secHits := secretRe().FindAllSubmatchIndex(data, -1)
 	if len(secHits) == 0 {
 		return nil, nil
 	}
@@ -118,7 +121,7 @@ func nearKeyword(lower string, start, end int) bool {
 	}
 	// Require an assignment-style Lark/Feishu credential marker (or the cli_
 	// app_id shape) within the window, not a bare provider mention.
-	return contextRe.MatchString(lower[from:to])
+	return contextRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

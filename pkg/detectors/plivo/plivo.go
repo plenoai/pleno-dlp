@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,10 +21,10 @@ var apiBase = "https://api.plivo.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // MA / SA + 18 uppercase alnum
-var authIDRe = regexp.MustCompile(`\b((?:MA|SA)[A-Z0-9]{18})\b`)
+var authIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:MA|SA)[A-Z0-9]{18})\b`) })
 
 // Auth tokens are 40+ base64url
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{40,128})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40,128})\b`) })
 
 type Scanner struct{}
 
@@ -32,11 +33,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Plivo }
 func (Scanner) Keywords() []string { return []string{"MA", "SA", "plivo"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	idHits := authIDRe.FindAllSubmatch(data, -1)
+	idHits := authIDRe().FindAllSubmatch(data, -1)
 	if len(idHits) == 0 {
 		return nil, nil
 	}
-	tHits := tokenRe.FindAllSubmatch(data, -1)
+	tHits := tokenRe().FindAllSubmatch(data, -1)
 	if len(tHits) == 0 {
 		return nil, nil
 	}

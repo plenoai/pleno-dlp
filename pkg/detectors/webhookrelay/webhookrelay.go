@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -17,7 +18,9 @@ var apiBase = "https://my.webhookrelay.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var idRe = regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+var idRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+})
 
 var contextKeywords = []string{"webhookrelay", "relay_key", "relay_secret"}
 
@@ -28,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.WebhookRelay }
 func (Scanner) Keywords() []string { return []string{"webhookrelay"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := idRe.FindAllSubmatchIndex(data, -1)
+	hits := idRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}

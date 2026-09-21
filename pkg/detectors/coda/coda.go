@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,7 +22,7 @@ var apiBase = "https://coda.io"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Coda tokens are 36-char UUID-with-hyphens or 40-char alnum.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{36,48})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{36,48})\b`) })
 
 var contextKeywords = []string{"coda", "coda_token", "coda_api", "coda.io"}
 
@@ -32,7 +33,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Coda }
 func (Scanner) Keywords() []string { return []string{"coda"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAllSubmatchIndex(data, -1)
+	matches := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

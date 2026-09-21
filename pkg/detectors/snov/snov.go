@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,7 +19,7 @@ var apiBase = "https://api.snov.io"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var idRe = regexp.MustCompile(`\b([a-f0-9]{32,40})\b`)
+var idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32,40})\b`) })
 
 var contextKeywords = []string{"snov"}
 
@@ -29,7 +30,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Snov }
 func (Scanner) Keywords() []string { return []string{"snov"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := idRe.FindAllSubmatchIndex(data, -1)
+	hits := idRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}

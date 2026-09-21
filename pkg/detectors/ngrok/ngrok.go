@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // ngrok tokens look like `<24 base62>_<27 base62>` totalling 52 chars,
 // always starting with `2` (the version digit). We accept 40..80 and
 // require an internal `_` to disambiguate from random base62 runs.
-var tokenRe = regexp.MustCompile(`\b(2[A-Za-z0-9]{20,40}_[A-Za-z0-9]{20,40})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(2[A-Za-z0-9]{20,40}_[A-Za-z0-9]{20,40})\b`) })
 
 var contextKeywords = []string{"ngrok"}
 
@@ -31,7 +32,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Ngrok }
 func (Scanner) Keywords() []string { return []string{"ngrok"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

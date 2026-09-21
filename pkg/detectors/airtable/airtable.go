@@ -3,10 +3,12 @@
 package airtable
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,10 +21,10 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var (
 	// PAT shape per Airtable docs: `pat` + 14 alnum + `.` + 64 hex. Distinct
 	// enough to skip the keyword gate.
-	patRe = regexp.MustCompile(`\b(pat[A-Za-z0-9]{14}\.[a-f0-9]{64})\b`)
+	patRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pat[A-Za-z0-9]{14}\.[a-f0-9]{64})\b`) })
 	// Legacy API key: `key` + 14 alnum. The 17-char "key…" prefix is shared
 	// by other systems, so we keyword-gate this branch.
-	legacyRe = regexp.MustCompile(`\b(key[A-Za-z0-9]{14})\b`)
+	legacyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(key[A-Za-z0-9]{14})\b`) })
 )
 
 var contextKeywords = []string{"airtable", "airtable_api_key"}
@@ -37,7 +39,11 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	out := []detectors.Result{}
 	seen := map[string]struct{}{}
 
-	for _, m := range patRe.FindAll(data, -1) {
+	var patHits [][]byte
+	if bytes.IndexByte(data, '.') >= 0 {
+		patHits = patRe().FindAll(data, -1)
+	}
+	for _, m := range patHits {
 		token := string(m)
 		if _, dup := seen[token]; dup {
 			continue
@@ -56,9 +62,12 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		out = append(out, res)
 	}
 
-	legacyHits := legacyRe.FindAllSubmatchIndex(data, -1)
+	lower := strings.ToLower(string(data))
+	var legacyHits [][]int
+	if hasContextKeyword(lower) {
+		legacyHits = legacyRe().FindAllSubmatchIndex(data, -1)
+	}
 	if len(legacyHits) > 0 {
-		lower := strings.ToLower(string(data))
 		for _, h := range legacyHits {
 			token := string(data[h[2]:h[3]])
 			if _, dup := seen[token]; dup {
@@ -86,6 +95,15 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		return nil, nil
 	}
 	return out, nil
+}
+
+func hasContextKeyword(lower string) bool {
+	for _, kw := range contextKeywords {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 func nearKeyword(lower string, start, end int) bool {

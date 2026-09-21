@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -26,13 +27,13 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // floor rather than a hard length pin.
 // Source: goauthentik/authentik authentik/lib/generators.py (generate_id)
 // and authentik/tenants/models.py (DEFAULT_TOKEN_LENGTH = 60).
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{60,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{60,})\b`) })
 
 // armRe is the assignment-style authentik reference that must appear
 // within the radius window — it replaces a bare strings.Contains over
 // radius 256, which let any high-entropy 60+ alnum string near the word
 // "authentik" match.
-var armRe = regexp.MustCompile(`(?i)authentik[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)authentik[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // minEntropy guards against low-variety 60+ alnum runs. authentik keys
 // draw from a 62-char alphabet (~5.95 bits/char ceiling), so a 3.5
@@ -46,7 +47,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Authentik }
 func (Scanner) Keywords() []string { return []string{"authentik"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -95,7 +96,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

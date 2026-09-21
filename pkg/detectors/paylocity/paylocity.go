@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -27,13 +28,15 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // permissive [A-Za-z0-9]{32,64} charset/length rather than pin to hex-32 and
 // silently drop the undocumented secret half. The false-positive load is
 // instead carried by the assignment-anchor arm regex + entropy floor below.
-var credRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+var credRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // armRe is the assignment-style Paylocity reference that must appear within the
 // proximity window. A bare "paylocity" substring (dependency names, doc URLs,
 // comments) is too weak; a `paylocity[_-]?(client[_-]?)?(id|secret|key|token)`
 // reference is the shape a real credential assignment / config key takes.
-var armRe = regexp.MustCompile(`(?i)paylocity[_\-]?(client[_\-]?)?(id|secret|key|token)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)paylocity[_\-]?(client[_\-]?)?(id|secret|key|token)`)
+})
 
 // minEntropy rejects low-variety 32-64 char runs that clear the alnum regex but
 // are not random credentials. Held at 3.0 (not 3.5): the documented hex
@@ -52,7 +55,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Paylocity }
 func (Scanner) Keywords() []string { return []string{"paylocity"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := credRe.FindAllSubmatchIndex(data, -1)
+	hits := credRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}
@@ -113,7 +116,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

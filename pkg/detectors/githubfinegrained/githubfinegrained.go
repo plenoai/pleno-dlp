@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -16,7 +17,7 @@ var apiBase = "https://api.github.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Fine-grained PAT layout: github_pat_<22 base62>_<59 base62>
-var tokenRe = regexp.MustCompile(`\b(github_pat_[A-Za-z0-9_]{82})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(github_pat_[A-Za-z0-9_]{82})\b`) })
 
 type Scanner struct{}
 
@@ -25,7 +26,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GitHubFineGraine
 func (Scanner) Keywords() []string { return []string{"github_pat_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

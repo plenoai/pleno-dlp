@@ -12,6 +12,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -23,7 +24,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // `relay-proxy-` + UUID. Same UUID body as access keys but the prefix is
 // distinctive.
-var tokenRe = regexp.MustCompile(`\b(relay-proxy-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(relay-proxy-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+})
 
 type Scanner struct{}
 
@@ -32,7 +35,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.LaunchDarklyRela
 func (Scanner) Keywords() []string { return []string{"relay-proxy-"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

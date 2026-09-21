@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Telegram bot tokens are <8-10 digit bot id>:<35-char base64url-ish>. The
 // 35-char run is the documented length; we accept 30+ to absorb future
 // variations without a regex churn.
-var tokenRe = regexp.MustCompile(`\b([0-9]{6,12}:[A-Za-z0-9_-]{30,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([0-9]{6,12}:[A-Za-z0-9_-]{30,})\b`) })
 
 type Scanner struct{}
 
@@ -30,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Telegram }
 func (Scanner) Keywords() []string { return []string{"telegram", "bot"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}
