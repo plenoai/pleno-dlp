@@ -146,8 +146,8 @@ func WithSpoolContext(ctx context.Context, input io.Reader, size, limit int64, f
 }
 
 type spoolOptions struct {
-	threshold    int64
-	tempDir      string
+	threshold int64
+	tempDir   string
 	// capacityHint is advisory; it must not change limits or validation.
 	capacityHint int64
 }
