@@ -696,10 +696,10 @@ const (
 	maxWindowSize  = 32 * 1024
 	windowOverlap  = 1024
 	windowStepSize = maxWindowSize - windowOverlap
-	// Keep archive leaves at or below the filesystem source's 1 MiB lazy-open
-	// cutoff on the historical buffered path. Small members are cheaper to
-	// scan from one byte slice than to create a decoder/read-window pipeline.
-	archiveBufferedLeafThreshold = 1 << 20
+	// Keep only small archive leaves on the historical buffered path. Larger
+	// replayable leaves stay in the archive spool and use the bounded reader
+	// scanner, avoiding a second body-sized allocation.
+	archiveBufferedLeafThreshold = 128 << 10
 )
 
 // scanChunkLeaf runs every detector against a single chunk after archive

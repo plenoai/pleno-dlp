@@ -19,9 +19,10 @@ import (
 	"sync"
 )
 
-// SpillThreshold is the largest archive value retained in memory by the
-// streaming API. Larger inputs and expanded entries use 0600 temporary files.
-const SpillThreshold int64 = 16 << 20
+// SpillThreshold is the largest value retained in memory by archive and Git
+// source streaming. Larger inputs and expanded entries use lazy readers or
+// 0600 temporary files.
+const SpillThreshold int64 = 1 << 20
 
 const (
 	maxRetainedErrors    = 32

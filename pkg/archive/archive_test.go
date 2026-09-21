@@ -276,6 +276,33 @@ func TestWalkStreamContextSpills0600AndCleansEveryPath(t *testing.T) {
 	}
 }
 
+func TestSpoolDefaultThresholdBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		size     int64
+		wantFile bool
+	}{
+		{name: "at threshold", size: SpillThreshold},
+		{name: "above threshold", size: SpillThreshold + 1, wantFile: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := bytes.Repeat([]byte{'x'}, int(tc.size))
+			value, err := spoolFromReader(context.Background(), bytes.NewReader(data), tc.size, tc.size, spoolOptions{tempDir: t.TempDir()})
+			if err != nil {
+				t.Fatalf("spoolFromReader: %v", err)
+			}
+			gotFile := value.file != nil
+			closeErr := value.close()
+			if closeErr != nil {
+				t.Fatalf("close: %v", closeErr)
+			}
+			if gotFile != tc.wantFile {
+				t.Fatalf("file-backed = %t, want %t", gotFile, tc.wantFile)
+			}
+		})
+	}
+}
+
 func TestWalkStreamContextCountsNestedIntermediateBytes(t *testing.T) {
 	leaf := []byte("leaf data counts after its containing archive")
 	inner := buildZipBytes(t, map[string][]byte{"leaf.txt": leaf})

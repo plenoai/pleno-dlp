@@ -35,9 +35,9 @@ successful complete scan.
 
 The raw-input ceiling is passed explicitly to the archive reader; a caller
 cannot turn an untrusted declared size into an uncapped spool. The go-git
-filesystem store switches objects larger than 16 MiB to its lazy
+filesystem store switches objects larger than 1 MiB to its lazy
 reader. Raw blobs and expanded archive values are validated into a bounded
-spool: at most 16 MiB stays in memory and larger values use `0600` temporary
+spool: at most 1 MiB stays in memory and larger values use `0600` temporary
 files. Git consumes that spool one chunk at a time rather than constructing a
 blob-sized byte slice or retaining all expanded leaves. Temporary files are
 removed on success, rejection, corruption, timeout, cancellation, and callback
@@ -71,7 +71,7 @@ copies of the actual blob size, clamped to the budget capacity.
 
 Configured byte ceilings now bound work and temporary-disk use without making
 heap proportional to a multi-GiB blob. Peak artifact-stage heap is instead
-bounded by the 16 MiB spool threshold along the permitted nesting depth, the
+bounded by the 1 MiB spool threshold along the permitted nesting depth, the
 go-git large-object threshold, ZIP metadata below its independent ceiling, and
 one 1 MiB output window. A single 2 GiB blob can still require roughly its raw
 size plus its permitted expanded intermediates in temporary disk space and can

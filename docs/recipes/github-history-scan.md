@@ -149,7 +149,7 @@ Override them with the `--git-artifact-max-bytes`,
 `--git-archive-max-expanded-bytes`, `--git-archive-max-files`,
 `--git-archive-max-depth`, and `--git-archive-timeout` flags. Budget breaches
 are reported as incomplete scans. Compressed/raw and total-expanded byte
-limits each accept an explicit value up to 2 GiB. Values above 16 MiB are
+limits each accept an explicit value up to 2 GiB. Values above 1 MiB are
 spooled to `0600` temporary files and removed on every return path. Nested
 intermediate expansion counts toward the total-expanded limit. Before standard
 archive parsing, ZIP and physical TAR headers are capped at 10,000, ZIP central
