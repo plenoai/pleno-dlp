@@ -7,9 +7,8 @@ on:
   issue_comment:
     types: [created]
 
-# Vouch manages the trust list only. PR quality checks, content security
-# scans, and contributor reports are handled by the metsuke GitHub App
-# (external to this repo, tamper-proof).
+# Vouch manages the trust list only: it auto-closes PRs and issues from
+# unvouched contributors. It performs no code or content inspection.
 
 permissions:
   contents: write
