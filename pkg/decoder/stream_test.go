@@ -14,6 +14,45 @@ import (
 	"testing"
 )
 
+type countedRunReader struct {
+	io.ReaderAt
+	calls int
+}
+
+func (r *countedRunReader) ReadAt(p []byte, offset int64) (int, error) {
+	r.calls++
+	return r.ReaderAt.ReadAt(p, offset)
+}
+
+func TestWalkVariantsCoalescesLargeRunReads(t *testing.T) {
+	body := bytes.Repeat([]byte("printable log record\n"), 8000)
+	for source, encoded := range map[string]string{
+		"base64": base64.StdEncoding.EncodeToString(body),
+		"hex":    hex.EncodeToString(body),
+	} {
+		r := &countedRunReader{ReaderAt: strings.NewReader(encoded)}
+		found := false
+		err := WalkVariants(context.Background(), r, int64(len(encoded)), func(name string, reader io.ReaderAt, size int64) error {
+			if name == source {
+				found = true
+				if size != int64(len(body)) {
+					t.Fatalf("%s decoded size = %d, want %d", source, size, len(body))
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !found {
+			t.Fatalf("%s variant is missing", source)
+		}
+		if r.calls > len(encoded)/4096+32 {
+			t.Fatalf("%s: %d reads for %d bytes; decoder reads were not coalesced", source, r.calls, len(encoded))
+		}
+	}
+}
+
 func TestWalkVariantsMatchesBuffered(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)

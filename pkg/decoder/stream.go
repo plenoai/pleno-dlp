@@ -286,7 +286,12 @@ func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bo
 			encoding = base64Encoding(padding[:pad], alphabet)
 		}
 		newReader := func() io.Reader {
-			r := io.NewSectionReader(input, start, end-start)
+			var r io.Reader = io.NewSectionReader(input, start, end-start)
+			if end-start > int64(len(decode)) {
+				// The standard decoders read about 1 KiB at a time; coalesce
+				// those reads only for runs large enough to use the buffer.
+				r = bufio.NewReaderSize(r, len(decode))
+			}
 			if b64 {
 				return base64.NewDecoder(encoding, r)
 			}
