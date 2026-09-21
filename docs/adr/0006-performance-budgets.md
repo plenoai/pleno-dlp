@@ -22,7 +22,9 @@ Sniff binary inputs before reading their bodies. Files above 1 MiB expose
 `Chunk.Open`, returning a replayable reader that the engine opens and closes
 inside its worker. Consumers of `Source.Chunks` must handle this optional
 payload; existing sources may continue supplying `Chunk.Data`.
-Visit validated archive leaves through the existing streaming API.
+Visit validated archive leaves through the existing streaming API. Archive
+values above 1 MiB spill to temporary files; leaves above 128 KiB use readers
+instead of allocating a second body-sized slice.
 Archive extraction retains its cumulative time budget, excluding detection and
 remote verification time. Decode complete runs or variants before windowing so
 Base64 phase, hex-byte alignment, and printability decisions cannot reset at
@@ -34,7 +36,10 @@ without retaining unrelated bytes. External detectors without this optional
 method retain their existing `FromData` semantics. Disabled PII detectors do
 not read the input; enabled PII detectors still receive the complete variant.
 Finding byte spans refer to the original input, even when detector windows
-reuse their buffers. A source read or close failure prevents the CLI from
+reuse their buffers. Resolve up to 1,024 pending findings in one source pass
+and cache the first occurrence of each raw value, avoiding one full scan per
+finding. Long raw values retain the existing search path. Source failures
+remain visible when a decoder rejects a non-printable run. A read or close failure prevents the CLI from
 advancing its durable incremental checkpoint.
 
 `make bench-performance` measures the input-shape matrix in
@@ -52,7 +57,7 @@ The DFA spends bounded construction memory to avoid hash lookups per byte.
 Dense keyword input still requires work proportional to its matches, without
 retaining a hit-sized allocation. Archive callbacks release each scanned entry
 instead of retaining the archive's complete expanded body. Whole-content
-fallbacks and the actual secret bytes required by findings still consume memory
+fallbacks, cached raw spans, and the actual secret bytes required by findings still consume memory
 proportional to their input or output; this is not a universal constant-memory
 guarantee. Correctness, race,
 CLI and detector-unit checks remain release gates. Machine-sensitive performance
