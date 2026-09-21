@@ -76,7 +76,30 @@ func hasAssignmentHead(data []byte) bool {
 		}
 	}
 	lower := bytes.ToLower(data)
-	return bytes.Contains(lower, []byte("variable")) || assignmentHeadRe().Match(lower)
+	return bytes.Contains(lower, []byte("variable")) ||
+		(hasAssignmentCandidate(lower) && assignmentHeadRe().Match(lower))
+}
+
+// Each separator is visited once. After removing RE2 whitespace, an assignment
+// needs a keyword on the remaining last line, or immediately before its newline
+// (the optional non-word byte in assignmentHeadRe can consume that newline).
+func hasAssignmentCandidate(lower []byte) bool {
+	for len(lower) > 0 {
+		end := bytes.IndexAny(lower, "=:")
+		if end < 0 {
+			return false
+		}
+		head := bytes.TrimRight(lower[:end], " \t\n\f\r")
+		line := bytes.LastIndexByte(head, '\n') + 1
+		for _, keyword := range []string{"password", "passwd", "pwd"} {
+			if bytes.Contains(head[line:], []byte(keyword)) ||
+				(line > 0 && bytes.HasSuffix(head[:line-1], []byte(keyword))) {
+				return true
+			}
+		}
+		lower = lower[end+1:]
+	}
+	return false
 }
 
 var placeholders = func() map[string]struct{} {

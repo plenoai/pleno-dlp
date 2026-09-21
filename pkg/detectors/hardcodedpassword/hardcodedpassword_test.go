@@ -158,6 +158,13 @@ func TestHasAssignmentHeadASCIIEquivalent(t *testing.T) {
 		"variable: a prose label",
 		"password words with no assignment",
 		"prefix password? and unrelated: punctuation",
+		"// API documentation: access token, password, secret key.\nconst status = 200;",
+		"password\nname = 'R8!actualValue'",
+		"password#note\n\t = 'R8!actualValue'",
+		"password\r\nname = 'R8!actualValue'",
+		"password\r\n = 'R8!actualValue'",
+		"password_suffix\n\n\t: 'R8!actualValue'",
+		"password=metadata=R8!actualValue",
 	}
 	for _, input := range inputs {
 		if !isASCII(input) {
