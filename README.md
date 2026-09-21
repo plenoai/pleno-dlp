@@ -48,10 +48,8 @@ pleno-dlp sources list
 
 ## Detectors
 
-615 built-in detector types ([counting method](docs/counts.md)),
-[benchmarked against trufflehog and gitleaks](docs/comparison.md) for
-recall, noise, and verification value. Table, JSON, or SARIF output;
-allowlists and org-specific rules via config.
+615 built-in detector types ([counting method](docs/counts.md)).
+Table, JSON, or SARIF output; allowlists and org-specific rules via config.
 
 ```sh
 pleno-dlp detectors list
@@ -112,8 +110,8 @@ before running it.
 
 `pleno-dlp hooks install claude-code|cursor` runs an offline
 `scan stdin --no-verify` inside the agent's own hook, flagging a
-credential before it is written or committed. Latency numbers are in
-[`docs/hooks.md`](docs/hooks.md).
+credential before it is written or committed. Setup and behavior are documented
+in [`docs/hooks.md`](docs/hooks.md).
 
 ```sh
 pleno-dlp hooks install claude-code

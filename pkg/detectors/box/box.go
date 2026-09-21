@@ -27,7 +27,7 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
 
 // minEntropy rejects 32-char low-information runs (padded hex, repeated
 // patterns) that clear the alnum regex but lack key-grade randomness. 3.5 is
-// the high-variety-charset floor from docs/detector-key-formats.md.
+// the high-variety-charset floor for this detector.
 const minEntropy = 3.5
 
 // contextRe is the windowed assignment-anchor gate. It replaces the previous

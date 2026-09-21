@@ -34,7 +34,7 @@ var sourcesListCmd = &cobra.Command{
 	Long: "List every registered core source and SaaS connector. CLI-WIRED " +
 		"marks whether a `pleno-dlp scan <name>` subcommand exists; entries " +
 		"without one are registered in pkg/connectors but not yet reachable " +
-		"from the CLI (tracked as planned in docs/comparison.md).",
+		"from the CLI (tracked as planned in docs/counts.md).",
 	Args: cobra.NoArgs,
 	RunE: runSourcesList,
 }

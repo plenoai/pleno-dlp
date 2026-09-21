@@ -169,20 +169,7 @@ h2 {
 .term .ok { color: var(--green); font-weight: 600; }
 .term .no { color: var(--red); }
 
-/* ---------- benchmark bars ---------- */
-.bench { display: grid; gap: 14px; }
-.bench-row { display: grid; grid-template-columns: 150px 1fr 90px; gap: 14px; align-items: center; font-family: var(--mono); font-size: 14px; }
-.bench-row .name { color: var(--text); }
-.bench-row .name small { display: block; color: var(--text-dim); font-size: 11px; }
-.bar { height: 22px; border-radius: 4px; background: var(--bg-raise); border: 1px solid var(--border); position: relative; overflow: hidden; }
-.bar i { position: absolute; inset: 0; border-radius: 3px; }
-.bar.me i    { width: 11.3%; background: linear-gradient(90deg, var(--green-dim), var(--green)); }
-.bar.th i    { width: 100%;  background: #3a4a3e; }
-.bar.gl i    { width: 2.2%;  background: #3a4a3e; min-width: 6px; }
-.bench-row .ms { text-align: right; color: var(--text); }
-.bench-row.dim .ms, .bench-row.dim .name { color: var(--text-dim); }
 .fn { font-size: 13px; color: var(--text-dim); margin-top: 18px; max-width: 640px; }
-@media (max-width: 560px) { .bench-row { grid-template-columns: 110px 1fr 70px; } }
 
 /* ---------- chips ---------- */
 .chips { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -230,7 +217,6 @@ footer .note { width: 100%; margin-top: 10px; font-size: 13px; }
   <div class="wrap">
     <span class="wordmark"><span class="prompt">$_</span> pleno-dlp</span>
     <span class="links">
-      <a href="#bench">Benchmarks</a>
       <a href="https://github.com/plenoai/pleno-dlp/tree/main/docs">Docs</a>
       <a href="https://github.com/plenoai/pleno-dlp">GitHub</a>
     </span>
@@ -297,35 +283,6 @@ GitHub    <span class="no">no</span>        scripts/old-deploy.sh:3        ghp_.
 <span class="p">$</span> echo $? <span class="d"># exit 1 — gate your CI on it</span>
 1</pre>
     </div>
-  </div>
-</section>
-
-<section id="bench">
-  <div class="wrap">
-    <h2>Fast enough for every commit</h2>
-    <p class="lede">Median wall-clock, 20 runs, 9.6 MiB clean corpus — the path every green CI run pays. Snapshot measured 2026-05-12, not live.</p>
-    <div class="bench">
-      <div class="bench-row">
-        <span class="name">pleno-dlp<small>615 detectors</small></span>
-        <span class="bar me"><i></i></span>
-        <span class="ms">118 ms</span>
-      </div>
-      <div class="bench-row dim">
-        <span class="name">trufflehog<small>870 detectors</small></span>
-        <span class="bar th"><i></i></span>
-        <span class="ms">1,042 ms</span>
-      </div>
-      <div class="bench-row dim">
-        <span class="name">gitleaks<small>222 regex rules</small></span>
-        <span class="bar gl"><i></i></span>
-        <span class="ms">23 ms</span>
-      </div>
-    </div>
-    <p class="fn">Yes, gitleaks wins this corpus — with no verification, no revocation, and a quarter of the rules.
-    Detector/rule counts measured 2026-06-10 against released tags — see
-    <a href="https://github.com/plenoai/pleno-dlp/blob/main/docs/comparison.md">docs/comparison.md</a>.
-    Full methodology, raw samples, and threats to validity:
-    <a href="https://github.com/plenoai/pleno-dlp/blob/main/docs/benchmarks.md">docs/benchmarks.md</a>.</p>
   </div>
 </section>
 

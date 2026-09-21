@@ -47,6 +47,15 @@ pleno-dlp scan filesystem ./src --pii-engine=openai-pf-native
 pleno-dlp scan stdin --pii-engine=openai-pf-native --pii-model-path ./privacy-filter-f16.gguf
 ```
 
+To build the native binary from source, install Go, CMake, and a C/C++ toolchain,
+then run the following from the repository root. On macOS, install Xcode Command
+Line Tools (`xcode-select --install`). The build downloads checksum-pinned C sources.
+
+```sh
+make opf-native-build
+./bin/pleno-dlp-opf scan filesystem ./src --pii-engine=openai-pf-native
+```
+
 For `openai-pf-native`, `extra_data.start`/`extra_data.end` are UTF-8 byte
 offsets relative to the scanned chunk. `anonymize` does not emit offsets.
 

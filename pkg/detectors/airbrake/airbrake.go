@@ -39,8 +39,7 @@ var armRe = regexp.MustCompile(`(?i)airbrake[_-]?(api[_-]?)?(token|key|secret|pr
 
 // minEntropy rejects low-information 40-char runs that clear the alnum regex
 // but are not random keys. 40-char alphanumeric is a high-variety charset, so
-// 3.5 is the appropriate floor (per docs/detector-key-formats.md: no-prefix,
-// fixed-length, high-variety).
+// 3.5 is the appropriate floor for this no-prefix, fixed-length format.
 const minEntropy = 3.5
 
 type Scanner struct{}

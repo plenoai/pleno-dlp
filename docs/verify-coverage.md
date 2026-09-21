@@ -11,8 +11,7 @@ detector constants (and the retired China-hosted providers
 reserved for wire compatibility, but are not listed because they are
 no longer registered. See
 [`docs/counts.md`](counts.md) for the repo-wide definition this total
-feeds (README, website, `docs/comparison.md`) and the drift test that
-enforces it.
+feeds (README and website) and the drift test that enforces it.
 
 ## Severity model recap
 

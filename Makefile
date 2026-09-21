@@ -1,57 +1,8 @@
-# dlp-bench (issue #298): reproduces docs/comparison.md's methodology as
-# a runnable target instead of a frozen snapshot. See bench/README.md.
-#
-# `make bench` is the one command a third party needs; the finer-grained
-# targets exist so CI can cache the tool-download step separately from
-# the (network-dependent) leaky-repo clone.
+.PHONY: build
+build:
+	go build -trimpath -o bin/pleno-dlp ./cmd/pleno-dlp
 
-.PHONY: bench bench-fixtures bench-tools bench-run bench-offline bench-git-history bench-git-history-large bench-clean bench-docsync
-
-# Full reproduction: fresh fixtures, pinned tool binaries, live 3-tool
-# re-run against both the synthetic and leaky-repo corpora.
-bench: bench-fixtures bench-tools bench-run
-
-# Generates the synthetic recall corpus fresh every run (bench/gen) —
-# fixtures are never committed, see bench/README.md.
-bench-fixtures:
-	go run ./bench/gen -out bench/fixtures/synthetic/generated
-
-# Downloads trufflehog + gitleaks at the versions pinned in
-# bench/harness/tools.go (checksum-verified). Skipped automatically by
-# the harness if both are already on $PATH.
-bench-tools:
-	bash bench/scripts/fetch-tools.sh
-
-bench-run:
-	go run ./bench/harness
-
-# Offline variant: skips the leaky-repo clone (needs network) — useful
-# for iterating on the synthetic corpus without a network round-trip.
-bench-offline:
-	go run ./bench/harness -skip-leaky-repo
-
-# Deterministic 4k-commit smoke; BENCH_GIT_HISTORY_ARGS can override local sampling.
-bench-git-history: bench-tools
-	go run ./bench/git-history $(BENCH_GIT_HISTORY_ARGS)
-
-# Scheduled/manual performance gate: 200k commits x 5 objects = exactly 1M objects.
-bench-git-history-large: bench-tools
-	go run ./bench/git-history $(BENCH_GIT_HISTORY_ARGS) -commits 200000 -files 4096 -window 10000 -enforce
-
-bench-clean:
-	rm -rf bench/fixtures/synthetic/generated bench/fixtures/synthetic/labels.json bench/.cache bench/.tools bench/results/*.json bench/results/*.md
-
-# Regenerates docs/comparison.md's "Live re-measurement" box from
-# bench/results/results.json (issue #299) — run after `make bench`.
-# .github/workflows/comparison-refresh.yml is the automated caller;
-# this target is the equivalent local reproduction step.
-bench-docsync:
-	go run ./bench/docsync -trigger "local run ($$(date -u +%Y-%m-%dT%H:%M:%SZ))"
-
-# --- native openai-pf engine (opf_native, ADR-0005) -------------------------
-# Opt-in cgo build of the in-process privacy-filter.cpp PII engine. None of
-# these targets run on the default pure-Go (CGO_ENABLED=0) path — the default
-# release and CI stay free of C sources and a cgo toolchain.
+# Opt-in in-process privacy-filter.cpp engine; requires cgo and CMake.
 .PHONY: opf-native-deps opf-native-lib opf-native-build opf-native-test opf-native-clean
 
 OPF_NATIVE_SRC := build/opf-native
@@ -89,10 +40,3 @@ opf-native-test: opf-native-lib
 
 opf-native-clean:
 	rm -rf $(OPF_NATIVE_SRC) $(OPF_NATIVE_CDEPS) bin/pleno-dlp-opf
-
-# Five subsystem gates against both checksum-pinned competitors.
-.PHONY: bench-performance
-bench-performance: bench-tools
-	go build -trimpath -o bench/.tools/pleno-dlp ./cmd/pleno-dlp
-	python3 -m unittest discover -s bench/performance
-	python3 bench/performance/run.py --pleno-dlp-bin bench/.tools/pleno-dlp $(BENCH_PERFORMANCE_ARGS) --enforce

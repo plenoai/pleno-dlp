@@ -45,9 +45,9 @@ var secretRe = regexp.MustCompile(`\b([A-Za-z0-9]{43,45})\b`)
 // minSecretEntropy rejects 43-45-char alnum runs that clear secretRe but are
 // not random 256-bit secrets (structured identifiers, padded names). 43+ random
 // base62 chars sit well above 3.5; this floor only culls non-random runs and is
-// the load-bearing false-positive gate now that the length range is wider. Per
-// docs/detector-key-formats.md (no-prefix, fixed length, high-variety charset
-// -> pin length + HasMinEntropy 3.5).
+// the load-bearing false-positive gate now that the length range is wider. For
+// this no-prefix, fixed-length, high-variety format, pin length and apply
+// HasMinEntropy 3.5.
 const minSecretEntropy = 3.5
 
 // armRe is the assignment-style LiveKit reference that must appear within the
@@ -120,8 +120,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 // candidate. The window spans both directions (not strict precedence) so a
 // key/secret pair defined alongside a nearby LIVEKIT_API_KEY reference still
 // arms. The old gate was a bare strings.Contains("livekit") over radius 256 —
-// far too loose for a generic alnum secret. Per docs/detector-key-formats.md:
-// replace bare Contains over radius 256 with an arm regex within radius 64.
+// far too loose for a generic alnum secret. Replace bare Contains over radius
+// 256 with an arm regex within radius 64.
 func nearKeyword(lower string, start, end int) bool {
 	const radius = 64
 	from := start - radius
