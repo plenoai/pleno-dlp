@@ -243,6 +243,16 @@ func transformStream(input io.ReaderAt, size int64, source string, out *bufio.Wr
 	}
 }
 
+// Keep the byte predicates shared with the buffered decoder, but classify a
+// stream byte with one lookup instead of repeating range checks in the hot loop.
+var streamRunBytes = func() (table [2][256]bool) {
+	for i := range table[0] {
+		table[0][i] = isHexByte(byte(i))
+		table[1][i] = isBase64Byte(byte(i))
+	}
+	return
+}()
+
 func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bool, output *variantFile) error {
 	var scan [64 * 1024]byte
 	var decode [32 * 1024]byte
@@ -251,8 +261,10 @@ func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bo
 	start := int64(-1)
 	var alphabet byte
 	minimum := int64(minHexRun)
+	validBytes := &streamRunBytes[0]
 	if b64 {
 		minimum = minBase64Run
+		validBytes = &streamRunBytes[1]
 	}
 	flush := func(end int64) error {
 		if start < 0 || end-start < minimum {
@@ -326,11 +338,7 @@ func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bo
 			return io.ErrUnexpectedEOF
 		}
 		for i, c := range block {
-			valid := isHexByte(c)
-			if b64 {
-				valid = isBase64Byte(c)
-			}
-			if valid {
+			if validBytes[c] {
 				if start < 0 {
 					start, alphabet = offset+int64(i), 0
 				}
