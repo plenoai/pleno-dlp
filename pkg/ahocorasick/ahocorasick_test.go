@@ -1,9 +1,32 @@
 package ahocorasick
 
 import (
+	"bytes"
 	"slices"
 	"testing"
 )
+
+func TestTransitionWidthBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		patternLen int
+		narrow     bool
+	}{
+		{name: "maximum narrow state count", patternLen: maxNarrowStates - 1, narrow: true},
+		{name: "first wide state count", patternLen: maxNarrowStates, narrow: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pattern := bytes.Repeat([]byte{'a'}, tc.patternLen)
+			m := New([][]byte{pattern})
+			if narrow := m.next16 != nil; narrow != tc.narrow {
+				t.Fatalf("narrow table=%v want %v", narrow, tc.narrow)
+			}
+			if got := m.Match(pattern); !slices.Equal(got, []int32{0}) {
+				t.Fatalf("Match=%v want [0]", got)
+			}
+		})
+	}
+}
 
 func TestMatch_BasicHits(t *testing.T) {
 	m := New([][]byte{

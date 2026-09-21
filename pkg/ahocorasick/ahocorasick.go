@@ -41,12 +41,14 @@ type Matcher struct {
 	// symbols maps input bytes to a compact alphabet. The final symbol is
 	// reserved for bytes absent from every pattern and always returns root.
 	symbols [256]uint16
-	// next is a fully resolved DFA: one row per trie node and one column per
-	// compact symbol. It removes per-byte map lookups and failure walks from
-	// the query path.
+	// next is the wide fallback DFA for catalogs with more than 65,536 trie
+	// states. Built-in catalogs use next16 to halve the common table.
 	next   []int32
+	next16 []uint16
 	stride int
 }
+
+const maxNarrowStates = 1 << 16
 
 // New compiles patterns into an automaton. patterns[i] becomes pattern ID i.
 // Empty patterns are ignored — they would match everywhere and aren't a
@@ -164,7 +166,11 @@ func (m *Matcher) buildTransitions() {
 		}
 		m.stride = len(alphabet) + 1
 	}
-	m.next = make([]int32, len(m.transitions)*m.stride)
+	if len(m.transitions) <= maxNarrowStates {
+		m.next16 = make([]uint16, len(m.transitions)*m.stride)
+	} else {
+		m.next = make([]int32, len(m.transitions)*m.stride)
+	}
 
 	// Trie node indexes are not guaranteed to be breadth-first because
 	// patterns are inserted in caller order. Build rows in BFS order so every
@@ -188,12 +194,28 @@ func (m *Matcher) buildTransitions() {
 		row := int(node) * m.stride
 		for i, b := range alphabet {
 			if child, ok := m.transitions[node][b]; ok {
-				m.next[row+i] = child
+				m.setTransition(row+i, child)
 			} else if node != 0 {
-				m.next[row+i] = m.next[int(m.failure[node])*m.stride+i]
+				m.setTransition(row+i, m.transition(m.failure[node], uint16(i)))
 			}
 		}
 	}
+}
+
+func (m *Matcher) transition(state int32, symbol uint16) int32 {
+	index := int(state)*m.stride + int(symbol)
+	if m.next16 != nil {
+		return int32(m.next16[index])
+	}
+	return m.next[index]
+}
+
+func (m *Matcher) setTransition(index int, state int32) {
+	if m.next16 != nil {
+		m.next16[index] = uint16(state)
+		return
+	}
+	m.next[index] = state
 }
 
 // Match walks data through the automaton and returns every pattern ID that
@@ -228,7 +250,7 @@ func (m *Matcher) MatchInto(data []byte, seen []bool, out []int32) []int32 {
 func (m *Matcher) walk(data []byte, seen []bool, out *[]int32) {
 	state := int32(0)
 	for _, b := range data {
-		state = m.next[int(state)*m.stride+int(m.symbols[b])]
+		state = m.transition(state, m.symbols[b])
 		// Emit terminals at the current node, then walk the dictionary
 		// suffix chain to emit any shorter pattern matches that overlap.
 		for s := state; s > 0; {
@@ -276,7 +298,7 @@ func (m *Matcher) MatchHitsInto(data []byte, out []Hit) []Hit {
 func (m *Matcher) VisitHits(data []byte, visit func(Hit)) {
 	state := int32(0)
 	for i, b := range data {
-		state = m.next[int(state)*m.stride+int(m.symbols[b])]
+		state = m.transition(state, m.symbols[b])
 		for s := state; s > 0; {
 			for _, id := range m.patternsAt[s] {
 				visit(Hit{PatternID: id, End: i})
