@@ -1,0 +1,1165 @@
+{
+  "commit": "c09c0c52fc6dae4ae5438ae69ba486f9f8059f0d",
+  "selection": "lowest 100 SHA256(snapshot key)",
+  "repositories": [
+    {
+      "repo": "alibaba/canal",
+      "commit": "474063af3b51c86b173bd6753ff98727aca1e44a",
+      "repo_id": "bbb4193f",
+      "files": 46,
+      "labels": {
+        "T": 32,
+        "F": 72,
+        "X": 5
+      },
+      "archive_sha256": "bd814731b92b1e4ef30ee5fc79eafe8f35dff82871eac49f886019224f679255"
+    },
+    {
+      "repo": "testcontainers/testcontainers-java",
+      "commit": "9a8df79f847dbcca833680e69f8b4ea1ace310bf",
+      "repo_id": "43e1f4ea",
+      "files": 41,
+      "labels": {
+        "F": 28,
+        "X": 24,
+        "T": 17
+      },
+      "archive_sha256": "950c890d7e088a3b14e0ca61706387f7190b8fb918dc0738a5ab1f88085128a2"
+    },
+    {
+      "repo": "brianc/node-postgres",
+      "commit": "7667e7c9e730f6bf9e23682cfbd653674f040a67",
+      "repo_id": "90aebe4a",
+      "files": 23,
+      "labels": {
+        "F": 49,
+        "T": 30,
+        "X": 9
+      },
+      "archive_sha256": "d3f4fe7895cf756085f0319d05aba93558b0a19eb5fc6426cbcf23acfdae3362"
+    },
+    {
+      "repo": "cloudskiff/driftctl",
+      "commit": "7604577ba78d12fc2f39a38f3792d3bfd2ba22f3",
+      "repo_id": "71455799",
+      "files": 43,
+      "labels": {
+        "F": 98,
+        "T": 105
+      },
+      "archive_sha256": "912f8fd4589d6ecf63a06c608a92ad8fe44c6b8003525d3a6ee9bd530f95a987"
+    },
+    {
+      "repo": "yinxin630/fiora",
+      "commit": "72c21a8a19a4e6d0329a9be1919ecc15eb9cd3c7",
+      "repo_id": "cecc6b48",
+      "files": 33,
+      "labels": {
+        "F": 75,
+        "T": 2
+      },
+      "archive_sha256": "7bbf90a613e92ea5bba19ed7543abaec5b7f12092e7b6d23b5587af4a22126df"
+    },
+    {
+      "repo": "huginn/huginn",
+      "commit": "f3c91515f2d672c6595521f84a49985a6c9d8c38",
+      "repo_id": "255bae6f",
+      "files": 89,
+      "labels": {
+        "F": 206,
+        "X": 81,
+        "T": 53
+      },
+      "archive_sha256": "fea53721f9329d4ad48ed43965775639330e56fe64fbc9f6c0e6d5902b56d168"
+    },
+    {
+      "repo": "phpseclib/phpseclib",
+      "commit": "b6988f8ced123b20e27c845df66a134f67d1ba1b",
+      "repo_id": "894e3377",
+      "files": 61,
+      "labels": {
+        "F": 344,
+        "T": 63,
+        "X": 10
+      },
+      "archive_sha256": "bae5e43e522be8bf3b5adf834e7c6a3fe6bf13beb4f3b2a33fdcc5913d68b3a9"
+    },
+    {
+      "repo": "request/request",
+      "commit": "3c0cddc7c8eb60b470e9519da85896ed7ee0081e",
+      "repo_id": "f295f04f",
+      "files": 21,
+      "labels": {
+        "F": 98,
+        "X": 37,
+        "T": 123
+      },
+      "archive_sha256": "374f4731b1950be1fb074a7ae70479dd5a31c249b52564255267ec1b2bb5e084"
+    },
+    {
+      "repo": "dbcli/pgcli",
+      "commit": "e0a4c18c4a074016beef46886b03e456102e2db1",
+      "repo_id": "41d10ede",
+      "files": 11,
+      "labels": {
+        "F": 43,
+        "X": 11,
+        "T": 6
+      },
+      "archive_sha256": "b74a6526f90b9e74f72009562fbf242f051820c23efa5c88f67b4ee7bd25bf94"
+    },
+    {
+      "repo": "yahoo/mysql_perf_analyzer",
+      "commit": "94a9292bd4cf07062ec6211e8da9077079db0f79",
+      "repo_id": "c145598e",
+      "files": 22,
+      "labels": {
+        "F": 59,
+        "T": 4
+      },
+      "archive_sha256": "875b5b07f3e062519db7af56199dc60173fb58cbf714c57f2190bc070663a3af"
+    },
+    {
+      "repo": "nats-io/nats-server",
+      "commit": "59b27a7a7a7a495ee86dfcb2053583ead5633704",
+      "repo_id": "6c73b80a",
+      "files": 100,
+      "labels": {
+        "F": 340,
+        "T": 302,
+        "X": 210
+      },
+      "archive_sha256": "6cbd4b2866ef9bb252e893671151f2a1e07769c048990d7d51ce515b09826c43"
+    },
+    {
+      "repo": "FredrikNoren/ungit",
+      "commit": "eef7995773c5a4d77f070a916e2b126827dd90df",
+      "repo_id": "826a020b",
+      "files": 6,
+      "labels": {
+        "F": 6,
+        "T": 3
+      },
+      "archive_sha256": "fc4531dc994e739784af9964c6e296eb7a47e45f7e0bf52314a30a509c1c7166"
+    },
+    {
+      "repo": "postmanlabs/postman-collection-transformer",
+      "commit": "724d6b35a6d36a618da1e095c84780bfea177377",
+      "repo_id": "e08ff555",
+      "files": 19,
+      "labels": {
+        "T": 633,
+        "F": 333
+      },
+      "archive_sha256": "4824487b4c7dfaaeaa8e7729cdd255ed4b6f077f47b76ef0ea31c60874c40152"
+    },
+    {
+      "repo": "googlearchive/android-credentials",
+      "commit": "b16282a49f3ce3977f326ad697bdd19d28bd66af",
+      "repo_id": "4ac7004a",
+      "files": 4,
+      "labels": {
+        "F": 6
+      },
+      "archive_sha256": "0e4d40ea35cd5282a38763320bb82d831346e45efa2d822da6908b309db75707"
+    },
+    {
+      "repo": "github/platform-samples",
+      "commit": "9cd70d42d533b4088ec80d2afa42bb3ed80557b6",
+      "repo_id": "654956e7",
+      "files": 33,
+      "labels": {
+        "F": 91,
+        "X": 3,
+        "T": 8
+      },
+      "archive_sha256": "c926adbe167dead1c09c1ad01bdd3a6722f2858167a40d923ba2a2fac6631d06"
+    },
+    {
+      "repo": "logaretm/vee-validate",
+      "commit": "a54a8d3c21579865baff1c64fed2707f24710164",
+      "repo_id": "3adfbe9d",
+      "files": 14,
+      "labels": {
+        "F": 76,
+        "X": 7,
+        "T": 9
+      },
+      "archive_sha256": "aed70e0e7c8a2c64c299e053d1a1db6e4d1ced7f6c39d91deefb443f62daa829"
+    },
+    {
+      "repo": "ziahamza/webui-aria2",
+      "commit": "dddf776a18b095ac373a22b28135c5dd6858496b",
+      "repo_id": "3f5c0c63",
+      "files": 3,
+      "labels": {
+        "F": 43,
+        "X": 1,
+        "T": 1
+      },
+      "archive_sha256": "4ed1b0778941c648536a099f5d99bfc24bf80e04ff64fe94b7d9b8666d376a36"
+    },
+    {
+      "repo": "django-extensions/django-extensions",
+      "commit": "af38fc5e6f3a3ad28b81d11f6d1104f1ef5daafe",
+      "repo_id": "9069e3a1",
+      "files": 28,
+      "labels": {
+        "F": 60,
+        "X": 32,
+        "T": 3
+      },
+      "archive_sha256": "8e71a424825e4a094f702f974f0382bbed0797e273a1bbc2e956e2eae6be9a43"
+    },
+    {
+      "repo": "qibaoguang/Spring-Boot-Reference-Guide",
+      "commit": "551191a804084a355232bc214d8211b96dec14c7",
+      "repo_id": "a59f7e20",
+      "files": 18,
+      "labels": {
+        "F": 29,
+        "X": 17,
+        "T": 2
+      },
+      "archive_sha256": "c1337bdbbb0af57587f1de4236b8a016b205ca7b2a2fc055e26b4b33b36fd85b"
+    },
+    {
+      "repo": "xuwujing/springBoot-study",
+      "commit": "784c4663f5c72e4c2790fb071489e5ed42c8aaca",
+      "repo_id": "e411c101",
+      "files": 20,
+      "labels": {
+        "F": 39,
+        "T": 3,
+        "X": 8
+      },
+      "archive_sha256": "3e88ebd0e163b2aa787f2b203cb93caed5898d3c7b726bcff6a0960cc33a1ddf"
+    },
+    {
+      "repo": "rest-client/rest-client",
+      "commit": "2c72a2e77e2e87d25ff38feba0cf048d51bd5eca",
+      "repo_id": "9ccb72ee",
+      "files": 8,
+      "labels": {
+        "F": 29,
+        "X": 14,
+        "T": 5
+      },
+      "archive_sha256": "1a48db7b73a9b2dbc7e41dba36411b9ed634abd12b53cde61aa46206dbf0f4f9"
+    },
+    {
+      "repo": "postmanlabs/har-to-postman",
+      "commit": "0c418df659611b4e13a1071dae8c900cc6c3a58d",
+      "repo_id": "f129be24",
+      "files": 7,
+      "labels": {
+        "T": 14,
+        "F": 4
+      },
+      "archive_sha256": "0edec9a116ae8ae1a6162acb376fb00669788c5360c0fd13e7bd7869246b6eed"
+    },
+    {
+      "repo": "aws/chalice",
+      "commit": "bd6e2a29f1bc23e56c8cd35612e2567764e5085e",
+      "repo_id": "db218f09",
+      "files": 47,
+      "labels": {
+        "F": 331,
+        "T": 37,
+        "X": 3
+      },
+      "archive_sha256": "724373d17c0ee38915fa896fad4a9971eaa4c690872d722a14a991813f0d683c"
+    },
+    {
+      "repo": "gobuffalo/buffalo",
+      "commit": "22aa4f9b4689f65a8f16affc5ff2dc886e10f4a5",
+      "repo_id": "b82c1b9d",
+      "files": 11,
+      "labels": {
+        "F": 15,
+        "T": 5,
+        "X": 3
+      },
+      "archive_sha256": "d8732085c831cd36f40c4998c25ce2b18940ab1a328668fc4d358fc3242e8d98"
+    },
+    {
+      "repo": "hussien89aa/KotlinUdemy",
+      "commit": "29056bcd11c9c22b063370acc20876fa4c77cf30",
+      "repo_id": "4f40bf46",
+      "files": 8,
+      "labels": {
+        "F": 4,
+        "T": 17
+      },
+      "archive_sha256": "59f9b1bd73f034f7c739e755a8d4a4d92ef1b1846d3daf93ddb0fd2d64bef8e7"
+    },
+    {
+      "repo": "LibreSprite/LibreSprite",
+      "commit": "4fc8d5370db0ed7ecad70182b97171a717de7817",
+      "repo_id": "00408ef6",
+      "files": 55,
+      "labels": {
+        "F": 171,
+        "T": 5
+      },
+      "archive_sha256": "a6706db4a80ec22af753203bdf80b9b1d88bb365c1fd60a599a0afd27785e192"
+    },
+    {
+      "repo": "django/django",
+      "commit": "faba5b702a9c5bb9452a543100928bcb5f66ebcf",
+      "repo_id": "f710ac3c",
+      "files": 68,
+      "labels": {
+        "F": 359,
+        "T": 149,
+        "X": 300
+      },
+      "archive_sha256": "55aadaa29ef886450ba0ea72be6291b93f4cca28f6bd9346e50d26ea0f77fd9e"
+    },
+    {
+      "repo": "tomakehurst/wiremock",
+      "commit": "c64957ea9be7d18893fcc4f04e643d8f7ec68554",
+      "repo_id": "e51ae6e8",
+      "files": 30,
+      "labels": {
+        "X": 5,
+        "F": 45,
+        "T": 15
+      },
+      "archive_sha256": "dddd9d30d3d873a5546e1045c57721981ad1c88ae63a9e8d9d73517735714afc"
+    },
+    {
+      "repo": "paseto-standard/test-vectors",
+      "commit": "32d7406591eb022f9eff88abb84106dd9d42c0f2",
+      "repo_id": "060d335b",
+      "files": 31,
+      "labels": {
+        "T": 300,
+        "F": 12
+      },
+      "archive_sha256": "e8d4649559242789446de5b25e7b988b7d3539f7e562a5ff5159c77de4faf76f"
+    },
+    {
+      "repo": "hoto/jenkins-credentials-decryptor",
+      "commit": "a52501b9af023b954b4bfa86bbb40c1efe3f8a27",
+      "repo_id": "0a0d22aa",
+      "files": 5,
+      "labels": {
+        "T": 12,
+        "F": 15,
+        "X": 1
+      },
+      "archive_sha256": "217344abfdb825bfd468c77148861248719179b223f82cad1278886b4ea3db58"
+    },
+    {
+      "repo": "elastic/elasticsearch-js",
+      "commit": "4933e3b9bec474511233f5a05819e493060a86e2",
+      "repo_id": "a09d9e50",
+      "files": 29,
+      "labels": {
+        "F": 376,
+        "T": 111,
+        "X": 21
+      },
+      "archive_sha256": "3b3d9fc6e681d8ebdf6c75bec03d9891b6fb21efea4263ba0796213b2494f189"
+    },
+    {
+      "repo": "xkcoding/spring-boot-demo",
+      "commit": "71bd673772fba3e18105041284a7fe42933c1377",
+      "repo_id": "b91cad30",
+      "files": 38,
+      "labels": {
+        "F": 49,
+        "T": 19,
+        "X": 32
+      },
+      "archive_sha256": "cac780d56c2ef0c4d0c96d00cfb4c505ece194b09173da8d85cf26fd69e5cfa9"
+    },
+    {
+      "repo": "dromara/Sa-Token",
+      "commit": "ecb18f5b45165fc91abda4ae28fa5125f3996d63",
+      "repo_id": "73ae7ce6",
+      "files": 33,
+      "labels": {
+        "T": 41,
+        "F": 30
+      },
+      "archive_sha256": "7d3b38aa02ec117887506bbbb8915d95d658f6806059846403685670aaad286f"
+    },
+    {
+      "repo": "ZipArchive/ZipArchive",
+      "commit": "825ff12a74a94c54e737e279604c27e6740e8a2c",
+      "repo_id": "50595139",
+      "files": 11,
+      "labels": {
+        "F": 281,
+        "T": 12
+      },
+      "archive_sha256": "035583345d4e5f32e6de9228fa99943336ff7ba10667270caf35ad620ca62518"
+    },
+    {
+      "repo": "laradock/laradock",
+      "commit": "3d57064466e3232cecc6c47ebdf9ca164b8773c3",
+      "repo_id": "c2d95db7",
+      "files": 25,
+      "labels": {
+        "F": 54,
+        "T": 30,
+        "X": 32
+      },
+      "archive_sha256": "877b6ff800bf10d1e980193ca7547c996b32b561f082943bcd5f9ba834aec282"
+    },
+    {
+      "repo": "tymondesigns/jwt-auth",
+      "commit": "ab00f2d7cce5f043067aef7849cdc792de2df635",
+      "repo_id": "4638da2b",
+      "files": 21,
+      "labels": {
+        "F": 72,
+        "X": 1,
+        "T": 3
+      },
+      "archive_sha256": "271d0c56ed14a9832a26da80e98a712b1bf5f22f7adea6f54205ea8dd6ba81cf"
+    },
+    {
+      "repo": "davestephens/ansible-nas",
+      "commit": "f08dbd903add1390a2f84a8db0b5558be5c260d6",
+      "repo_id": "cfdcc4f3",
+      "files": 19,
+      "labels": {
+        "F": 75,
+        "T": 22,
+        "X": 6
+      },
+      "archive_sha256": "228a11a8a82d07b2274112824c1cde06ecf4ef4638c73730f3ab20f70e737d32"
+    },
+    {
+      "repo": "symfony/security-core",
+      "commit": "f74111bca26a9d54e925a649826d2fea4bd3f112",
+      "repo_id": "32f5ea73",
+      "files": 26,
+      "labels": {
+        "F": 58,
+        "X": 2,
+        "T": 1
+      },
+      "archive_sha256": "d2869f53f9ab5dac92c13aab94272008653dd84fc79649fa9550d56cd59ea3ec"
+    },
+    {
+      "repo": "graphql-java/graphql-java",
+      "commit": "ba39be3b89d568ddd85997089b1c3dd423b4e52a",
+      "repo_id": "db832824",
+      "files": 8,
+      "labels": {
+        "F": 8,
+        "T": 2
+      },
+      "archive_sha256": "9118c0bfc3d8c74cf8c9452cac1d3ed81bf3f70e753e2e5ca3bc364e3829c890"
+    },
+    {
+      "repo": "redisson/redisson",
+      "commit": "e223321de9e3ad9214722d044c2212733ed06000",
+      "repo_id": "369d561d",
+      "files": 25,
+      "labels": {
+        "F": 57,
+        "T": 1
+      },
+      "archive_sha256": "5429c61762bf3bf90c5d63f16cc81336191dc8477a6cb2180f0c312b414b9b17"
+    },
+    {
+      "repo": "NG-ZORRO/ng-zorro-antd",
+      "commit": "957d02d76b72ceca1c43a1dffe88b8f90aea0b45",
+      "repo_id": "d111114d",
+      "files": 86,
+      "labels": {
+        "F": 278,
+        "T": 1
+      },
+      "archive_sha256": "88cda950d123694418d7e9c854dc4083b71076685067d39d989d82d83c0961bc"
+    },
+    {
+      "repo": "WebKit/WebKit",
+      "commit": "4042ee4bdf7f6adf5231184b578723dcad1d008a",
+      "repo_id": "e72eb979",
+      "files": 76,
+      "labels": {
+        "T": 87,
+        "F": 260
+      },
+      "archive_sha256": null
+    },
+    {
+      "repo": "LycheeOrg/Lychee-v3",
+      "commit": "f78e469b2a2a580926f0abfb88c8fc047d63a6ed",
+      "repo_id": "660708f3",
+      "files": 6,
+      "labels": {
+        "F": 54,
+        "T": 2,
+        "X": 2
+      },
+      "archive_sha256": "8e69be82dc6899e9b897427e3597a7e24075926f9073733666215a37535a8195"
+    },
+    {
+      "repo": "jitsi/jitsi-meet",
+      "commit": "4fc9aed708c58643f5e7c94917a99f662464ff11",
+      "repo_id": "b6b2487d",
+      "files": 126,
+      "labels": {
+        "F": 2051,
+        "X": 10,
+        "T": 7
+      },
+      "archive_sha256": "d8c5cd1d703cc7341db645979105b72e3b54da6c942d71f7aed481408b38ad8c"
+    },
+    {
+      "repo": "xo/usql",
+      "commit": "ff6a33d39fc8fd768774a474131e6b37e7ad6924",
+      "repo_id": "efb4b495",
+      "files": 41,
+      "labels": {
+        "F": 65,
+        "T": 124,
+        "X": 4
+      },
+      "archive_sha256": "b8d1570bc8afe5fbd2213826fa5c86a51208f1686745a23afdd19a2f44e9f011"
+    },
+    {
+      "repo": "eddycjy/go-gin-example",
+      "commit": "28f372bf41f9e67a9cec5980fd1c365363064ebc",
+      "repo_id": "bdf8ad40",
+      "files": 33,
+      "labels": {
+        "F": 129,
+        "X": 13,
+        "T": 32
+      },
+      "archive_sha256": "2f617fcb680c48bdf4cd248e2852b9976987916bf4819f4b7746d1cf5fd3b24f"
+    },
+    {
+      "repo": "postmanlabs/labs-docs",
+      "commit": "dd7f344e5b746c5a634922fd8ae67b7261d5e5e4",
+      "repo_id": "8c9fcde7",
+      "files": 2,
+      "labels": {
+        "T": 5
+      },
+      "archive_sha256": "7845d6c0ba5f0c53eec0b61872756980183480fc9a22fe19e719e3230bc98bd6"
+    },
+    {
+      "repo": "gilesknap/gphotos-sync",
+      "commit": "376fa3a82a76523180f3feb0522a64c47da68cc5",
+      "repo_id": "63800a10",
+      "files": 6,
+      "labels": {
+        "F": 14,
+        "T": 5
+      },
+      "archive_sha256": "4f2472ad2f3309f038f59cd23b612c660a502c58361a414a5e454030a3270533"
+    },
+    {
+      "repo": "grpc-ecosystem/grpc-gateway",
+      "commit": "8f7d393f1971fe3159c55f1ffea74f5feef43c8e",
+      "repo_id": "1a2de400",
+      "files": 19,
+      "labels": {
+        "F": 106,
+        "T": 7
+      },
+      "archive_sha256": "933fd7533957fa22731d6fe514fc98b0093c64b10cebb2eab2817962ab0772d9"
+    },
+    {
+      "repo": "osresearch/heads",
+      "commit": "9339394b699fb1790eea3623d6ad5acf7334297a",
+      "repo_id": "b42cbed0",
+      "files": 17,
+      "labels": {
+        "F": 82,
+        "T": 6
+      },
+      "archive_sha256": "5fb86256533ac15c63716d7b9ebcd3bb42596acaa8844a11ceb4dc5ad056213c"
+    },
+    {
+      "repo": "flant/shell-operator",
+      "commit": "3c2c19fc68765ea17fdc1fe38e94330434aa500d",
+      "repo_id": "6b03222e",
+      "files": 14,
+      "labels": {
+        "F": 28,
+        "T": 4,
+        "X": 1
+      },
+      "archive_sha256": "93cf8384fa27dd9811af43cb9c609bdb14d6b19f8c1132f0060537c703275915"
+    },
+    {
+      "repo": "beyondcode/laravel-credentials",
+      "commit": "417c66e14a924b3e71241e03b001d15be2d9804a",
+      "repo_id": "58ad6cb0",
+      "files": 2,
+      "labels": {
+        "F": 2
+      },
+      "archive_sha256": "525071ccd0ee6b3823b76b9c86e1967085066f852f3682e27a4a54bc11745564"
+    },
+    {
+      "repo": "aqzt/kjyw",
+      "commit": "eb4215d828c74d0b878f021ba698ee3e0a6a7c05",
+      "repo_id": "bd14e9cf",
+      "files": 16,
+      "labels": {
+        "F": 26,
+        "T": 31,
+        "X": 3
+      },
+      "archive_sha256": "fe170b5918dcd467ceaebbbb1bcd494e0b3f5d3118c3825b9e3e99418c6cf09e"
+    },
+    {
+      "repo": "argoproj/gitops-engine",
+      "commit": "6911e599aeab4d0f7b3003a81ad01d0612afdb17",
+      "repo_id": "9068b102",
+      "files": 14,
+      "labels": {
+        "F": 44,
+        "T": 10
+      },
+      "archive_sha256": "8b701836496b8463fd3ba34a87e4f6c6130bf30b91e373e7315db95f6ae7815c"
+    },
+    {
+      "repo": "dromara/shenyu",
+      "commit": "4d5b944a7b430a8253d0c5b6165467244fd1b525",
+      "repo_id": "57c424f8",
+      "files": 33,
+      "labels": {
+        "F": 33,
+        "T": 21,
+        "X": 4
+      },
+      "archive_sha256": "4273bc9a878daae4d39d74179cf0e8cda6e469f680779fb13898bc10261b7489"
+    },
+    {
+      "repo": "git-ecosystem/git-credential-manager",
+      "commit": "87b3a1a746ace2a7439c158348c1e649c30958d3",
+      "repo_id": "0436af4a",
+      "files": 53,
+      "labels": {
+        "T": 92,
+        "F": 130,
+        "X": 2
+      },
+      "archive_sha256": "04f283376c20fd7c972cbfda64ad5fa09dd99f753c4705c69b5c5b97b08b3be3"
+    },
+    {
+      "repo": "bitly/oauth2_proxy",
+      "commit": "fa2771998a98a5bfdfa3c3503757668ac4f1c8ec",
+      "repo_id": "c9201a51",
+      "files": 16,
+      "labels": {
+        "F": 48,
+        "T": 17,
+        "X": 17
+      },
+      "archive_sha256": "822c376a788715dc81dab84d4a50190ca6e9f916e56c0c052e3b33c5d309f3f1"
+    },
+    {
+      "repo": "replikativ/datahike",
+      "commit": "064d7e97d8d73d02be3952e438d8bdf809cdbcf4",
+      "repo_id": "8035fc42",
+      "files": 12,
+      "labels": {
+        "F": 19,
+        "X": 3,
+        "T": 1
+      },
+      "archive_sha256": "bde906032ea86cf451e73c050e4c2032a22650b937f78017774844fdef352dc4"
+    },
+    {
+      "repo": "encode/starlette",
+      "commit": "b6f3578bb2cf6c60e3efe110143409b47f368d36",
+      "repo_id": "3b7cbdd3",
+      "files": 20,
+      "labels": {
+        "F": 87,
+        "X": 1,
+        "T": 7
+      },
+      "archive_sha256": "a6f671007f7340c6d8d14b5961578b5448097963e3069d7a354f7bad917fa85c"
+    },
+    {
+      "repo": "z-song/laravel-admin",
+      "commit": "0ba9c9116178c8c6f2d49cfeed8c819f9a34397e",
+      "repo_id": "597acaac",
+      "files": 28,
+      "labels": {
+        "F": 62,
+        "X": 1,
+        "T": 8
+      },
+      "archive_sha256": "7e97e0393ee624634851fbfbb4d46743c0ecb2206a7e2784615846dea41b81a4"
+    },
+    {
+      "repo": "boto/boto3",
+      "commit": "ee51177d30b40d29e60916adf56ef96e1b0d80f6",
+      "repo_id": "2df212a2",
+      "files": 29,
+      "labels": {
+        "F": 106,
+        "X": 20,
+        "T": 1
+      },
+      "archive_sha256": "bc0bc13dcc2485bf6847d88e4792c75297851dcace7850ca09ca45eb7da2d0d7"
+    },
+    {
+      "repo": "typeorm/typeorm",
+      "commit": "ff28aad27958ef7763a305982f70caeb611f2448",
+      "repo_id": "4997f5e1",
+      "files": 81,
+      "labels": {
+        "F": 155,
+        "X": 81,
+        "T": 22
+      },
+      "archive_sha256": "b1142a0dd1cc5efd9da3c6e691ffe35323725d5584f063d8053673bbf6b764ad"
+    },
+    {
+      "repo": "kataras/iris",
+      "commit": "8f9140b705011eea9a7344466362662f3106cd69",
+      "repo_id": "54f6f35d",
+      "files": 76,
+      "labels": {
+        "F": 179,
+        "T": 58,
+        "X": 12
+      },
+      "archive_sha256": "7eeb4ad15e8a75e828df96360709b9c296cfe67f76342c675a5621dea27d9da1"
+    },
+    {
+      "repo": "aws/aws-sdk-php",
+      "commit": "855bcaaa4c486fc67447bf17cfbff9ff75341ad7",
+      "repo_id": "6ac1fb2d",
+      "files": 32,
+      "labels": {
+        "T": 223,
+        "F": 373,
+        "X": 1
+      },
+      "archive_sha256": "86ef8c28c93334b49fa964250242b7182265a7c60571a4cbb086a9b2991ddb95"
+    },
+    {
+      "repo": "pydanny/cookiecutter-django",
+      "commit": "0adf0d0423865c5ccc5e3ef3c66d427b58109eef",
+      "repo_id": "d518da13",
+      "files": 20,
+      "labels": {
+        "F": 41,
+        "T": 7,
+        "X": 2
+      },
+      "archive_sha256": "f9a9b5a00f05431fd57dc578cb0a050a138614b4bc8c2cfff941c88abd65ca4f"
+    },
+    {
+      "repo": "jly8866/archer",
+      "commit": "a85408ae014b2a84f76e8ec0bcc7c5ee0a9af2c1",
+      "repo_id": "b88a4e51",
+      "files": 18,
+      "labels": {
+        "F": 140,
+        "X": 2,
+        "T": 3
+      },
+      "archive_sha256": "e70a5f496606c82f448fc8e293d240cfacf3398e976de2bd6b079a83ce792b7a"
+    },
+    {
+      "repo": "XiaoMi/soar",
+      "commit": "6ae5c3f5ed37d9ea9895823c467e7d2a5c273709",
+      "repo_id": "850c2319",
+      "files": 21,
+      "labels": {
+        "F": 70,
+        "X": 39,
+        "T": 15
+      },
+      "archive_sha256": "1b29317093fcec1acc72a902b5cadfe7f56b6db35fd7aca81b5a25505a3f7c7b"
+    },
+    {
+      "repo": "jazzband/django-admin2",
+      "commit": "8cee4de75d073a5c57d778929b5e63c2254d8e36",
+      "repo_id": "ff527e6f",
+      "files": 8,
+      "labels": {
+        "F": 8,
+        "T": 3,
+        "X": 21
+      },
+      "archive_sha256": "c42db12dde0c8e915913eeb86f6721a37bc21172af5e4b027256eff3ea2021c9"
+    },
+    {
+      "repo": "curl/curl",
+      "commit": "68720b4837284335b2d63cb358f8f6ce65f5bc55",
+      "repo_id": "e13d78bf",
+      "files": 72,
+      "labels": {
+        "T": 156,
+        "F": 9
+      },
+      "archive_sha256": "93cce13a8f65bf83e27a277916fb69917736fb578a8e6c24630175d506f9d4e5"
+    },
+    {
+      "repo": "TechnoAyanOfficial/TechnoAyanBOT",
+      "commit": "352822cacce1345e12835164148650b0afa1d124",
+      "repo_id": "49da6f24",
+      "files": 3,
+      "labels": {
+        "F": 3
+      },
+      "archive_sha256": "8bc56f9b63ef4fbf28e66824b9a35c8213c06764bc47a3527c6b267ac379adda"
+    },
+    {
+      "repo": "sorry-cypress/sorry-cypress",
+      "commit": "10480dbf75544b96ff1fd37e4f7c3baea783361a",
+      "repo_id": "6482c382",
+      "files": 30,
+      "labels": {
+        "F": 48,
+        "T": 8,
+        "X": 6
+      },
+      "archive_sha256": "f613407b1b8e0160d861c139ddce93baf8d6bd2996b83c7c37b10779512a9197"
+    },
+    {
+      "repo": "Kononnable/typeorm-model-generator",
+      "commit": "787ad5fdec6fcd365ebff9465b459e238b7ae231",
+      "repo_id": "afdd01d8",
+      "files": 9,
+      "labels": {
+        "F": 14,
+        "T": 13,
+        "X": 7
+      },
+      "archive_sha256": "9e2f40522ecdf1081f6e29f58492f8680b6c925313d907e894d3f3b3332ed8c2"
+    },
+    {
+      "repo": "vitalets/x-editable",
+      "commit": "eb7f8d5f7725123edc87c9d66f4c9ddb7b99f1c1",
+      "repo_id": "8ae5e55a",
+      "files": 10,
+      "labels": {
+        "F": 34
+      },
+      "archive_sha256": "aeaa1a6527893331f1b548c7a6a25ce591f2aecfad7164cd8c261718135236bd"
+    },
+    {
+      "repo": "spring-projects/spring-security-oauth",
+      "commit": "265ee115a74cb1eb141b2902e31e3897ba9f73a0",
+      "repo_id": "ec138349",
+      "files": 69,
+      "labels": {
+        "F": 127,
+        "T": 45,
+        "X": 16
+      },
+      "archive_sha256": "cb832d44da1cb1da0b0b6b556e4dc76db9597804b5aecaf479df72157d3eebcd"
+    },
+    {
+      "repo": "francescomalatesta/laravel-api-boilerplate-jwt",
+      "commit": "050a5fb6621a55b391e978243364983ba634ff92",
+      "repo_id": "106c7cd2",
+      "files": 12,
+      "labels": {
+        "F": 25,
+        "X": 4,
+        "T": 10
+      },
+      "archive_sha256": "64eb0dc7d82864c0cf331d9600e2c18aedfcd6effdcc6c934a75e9797c938e87"
+    },
+    {
+      "repo": "nandorojo/solito",
+      "commit": "b414d36ef1db64d3301dbbe035e2db2f9f55f0a4",
+      "repo_id": "69f42949",
+      "files": 3,
+      "labels": {
+        "T": 2,
+        "F": 161
+      },
+      "archive_sha256": "1cdffb78e5254a426228096aea98f8265a1ea153240e6acc1a21298e34936b2a"
+    },
+    {
+      "repo": "tal-tech/go-zero",
+      "commit": "5d86cc2f20a198d410fe94cfdf5d11b3cbfbab8d",
+      "repo_id": "67cb5d24",
+      "files": 39,
+      "labels": {
+        "F": 274,
+        "X": 3,
+        "T": 14
+      },
+      "archive_sha256": "80f4d60e6fc35b226ceab9c24b2aa9fdc68167118c3328671333a39ea9ad472b"
+    },
+    {
+      "repo": "tumobi/nideshop",
+      "commit": "706252cf689ae82218cf36890d4586e176986066",
+      "repo_id": "f85f83c9",
+      "files": 6,
+      "labels": {
+        "F": 4,
+        "T": 2,
+        "X": 1
+      },
+      "archive_sha256": "40742d78d5db566049feac8da2cb087e777cd39d1d55cdc03c1a8ff67ec89700"
+    },
+    {
+      "repo": "perplexityai/api-cookbook",
+      "commit": "89c80bbb7e4f62775b77e10ad4f6f48adebd1925",
+      "repo_id": "8d7b8c14",
+      "files": 2,
+      "labels": {
+        "T": 2,
+        "F": 4
+      },
+      "archive_sha256": "498f8748d74d07bb2e03ab00ffc7b71e7fb8f335a9318d6455655d2adde7e3a4"
+    },
+    {
+      "repo": "postalhq/postal",
+      "commit": "a735219783127cd0495246ccee89422069da1a1c",
+      "repo_id": "4fe048e4",
+      "files": 23,
+      "labels": {
+        "F": 44,
+        "T": 10
+      },
+      "archive_sha256": "7e18f66372828e4421cdb7dccaeb04ad4ee65ff66c61cbd7b424f3808ef5fa17"
+    },
+    {
+      "repo": "spotify/luigi",
+      "commit": "45f51bbefb20b970d8b73c06b5ae0818586e0962",
+      "repo_id": "98800b86",
+      "files": 44,
+      "labels": {
+        "F": 79,
+        "X": 31,
+        "T": 10
+      },
+      "archive_sha256": "8ccb5614e66c7a944d6289ac71ff5ba5ff6aabad3d469387f1460b29ad3adc6f"
+    },
+    {
+      "repo": "boardgameio/boardgame.io",
+      "commit": "5ac35302ee80626d0bf50a451472bbfc127cf696",
+      "repo_id": "4b217473",
+      "files": 30,
+      "labels": {
+        "F": 187,
+        "X": 62,
+        "T": 5
+      },
+      "archive_sha256": "2c06b4c533de3a07687f432a0dc2202dda9f8eabea58ad5fe36ae1f57d4f26ba"
+    },
+    {
+      "repo": "vitalysim/Awesome-Hacking-Resources",
+      "commit": "efd320adaca71cfe78efab92894c2bbaf48d685b",
+      "repo_id": "55f8a676",
+      "files": 1,
+      "labels": {
+        "T": 1
+      },
+      "archive_sha256": "044c54985ba4f853ac103f00fbacfba803f3081936f54a3164ef410dc640a6e3"
+    },
+    {
+      "repo": "shadowsocksr-backup/shadowsocksr",
+      "commit": "1ee344220afce9c8b2d031830d23bc6d8849c39c",
+      "repo_id": "ab473e6e",
+      "files": 14,
+      "labels": {
+        "F": 15,
+        "T": 8,
+        "X": 2
+      },
+      "archive_sha256": "f409c2ad2301517f3de3c6fb5b51f468ad4cbaf2d8f14c0506ef0ad8df748420"
+    },
+    {
+      "repo": "elastic/rally",
+      "commit": "dc66d00dd6b8a8ed38515b2e82701c4be098fcbb",
+      "repo_id": "f80c571b",
+      "files": 30,
+      "labels": {
+        "F": 143,
+        "T": 34,
+        "X": 2
+      },
+      "archive_sha256": "73ebb900a5f17f9109f0d9c634060438fbbbf4e42a8bf676dcafbea20955c8fa"
+    },
+    {
+      "repo": "google/google-authenticator",
+      "commit": "51781910ae2bb1abf8ac51b290272f86f3651235",
+      "repo_id": "c5867a40",
+      "files": 63,
+      "labels": {
+        "F": 508,
+        "T": 7
+      },
+      "archive_sha256": "f453690e3cada35cd1341df340bcbd6b4b61f7e45d8e6128fcd6d4475273ee10"
+    },
+    {
+      "repo": "kubernetes/community",
+      "commit": "cfbbf0d29a8ffa07022df31b145348b5f4f0b9b1",
+      "repo_id": "5aefaef8",
+      "files": 27,
+      "labels": {
+        "T": 38,
+        "F": 11
+      },
+      "archive_sha256": "f086871f3c92ad8a63e0b4bf511b3cb222a91fef8c1ce00b47143f7f4c03e45d"
+    },
+    {
+      "repo": "ArchiveBox/ArchiveBox",
+      "commit": "e0a2b2e2520c62c5a30a53418e84cd225c63087b",
+      "repo_id": "adf34139",
+      "files": 4,
+      "labels": {
+        "F": 11,
+        "T": 2
+      },
+      "archive_sha256": "f416c369e01cc11d3cc6eeaf9f25263390cac7a1655acae02c4129c972d5517d"
+    },
+    {
+      "repo": "zboxfs/zbox",
+      "commit": "5951899a9b778121f7c6fde89b00e28102e0e596",
+      "repo_id": "bdaf1007",
+      "files": 27,
+      "labels": {
+        "F": 165,
+        "X": 6,
+        "T": 1
+      },
+      "archive_sha256": "c3ad597a4a4805ddbe1e9da3749e119fc23ae8292cdfd5d791d2ca7cc7ca3571"
+    },
+    {
+      "repo": "formio/formio",
+      "commit": "86cd6ac13bd958f1d0163e7123f1e10c9ac87111",
+      "repo_id": "4764adaf",
+      "files": 50,
+      "labels": {
+        "F": 412,
+        "X": 11,
+        "T": 35
+      },
+      "archive_sha256": "95f390b1126ca30b60b5592dd6b42e602e793fd93eeec44a8aa8e3606c75cdfe"
+    },
+    {
+      "repo": "containrrr/watchtower",
+      "commit": "b196629d0491fa5c5b81b5e95dcdefbb2d82e711",
+      "repo_id": "e3f8c305",
+      "files": 11,
+      "labels": {
+        "F": 22,
+        "X": 4,
+        "T": 3
+      },
+      "archive_sha256": "d55a9e9235b17e37e512383bea97193d8fb3611f508ced25c9a3b3754cfefee2"
+    },
+    {
+      "repo": "graphile/postgraphile",
+      "commit": "14d3180cc35660e78e0b8162fd027b33d695a6ba",
+      "repo_id": "638eb0c6",
+      "files": 25,
+      "labels": {
+        "F": 66,
+        "X": 38,
+        "T": 32
+      },
+      "archive_sha256": "ab406c10918006fcdaa8c0ebdcbb8dabe5dffe4e7fc4b918f16ea62bf287795f"
+    },
+    {
+      "repo": "microsoft/winfile",
+      "commit": "8995a6e3a72870e750d2b5959e6245884c21a95f",
+      "repo_id": "6ea17253",
+      "files": 1,
+      "labels": {
+        "F": 1,
+        "T": 5
+      },
+      "archive_sha256": "083266fcb7385784cfe4396b432f937883ba39f09008937a355bb309dc950410"
+    },
+    {
+      "repo": "arachnys/cabot",
+      "commit": "eb0b3544f8c8ab2dee4643df191da346a941734f",
+      "repo_id": "02dfa7ec",
+      "files": 15,
+      "labels": {
+        "F": 45,
+        "T": 15,
+        "X": 14
+      },
+      "archive_sha256": "7092209e8e99944a4343b08538a3ce0a30c793115790aaaf709c14457f4ee62f"
+    },
+    {
+      "repo": "nats-io/nats.docs",
+      "commit": "6d4e5fb954276a005b8dda2a878afe384f3645c5",
+      "repo_id": "93ff401b",
+      "files": 37,
+      "labels": {
+        "T": 90,
+        "F": 47
+      },
+      "archive_sha256": "8ec7127f261196e71bc246ce746c16f7ce75eef91f7fff1c9d2675fcff91482d"
+    },
+    {
+      "repo": "JetBrains/Exposed",
+      "commit": "d59247283dc8c1af019e3e2a8c75c7519d1fdb6d",
+      "repo_id": "602d34f9",
+      "files": 19,
+      "labels": {
+        "F": 31,
+        "T": 2,
+        "X": 1
+      },
+      "archive_sha256": "8edb03842c9c2d93a11cde72d69f68baaf5629f64c42b693c585733daee14582"
+    },
+    {
+      "repo": "rabbitmq/rabbitmq-tutorials",
+      "commit": "a0b077109860bfb94684d2693d1b0a7d906308fb",
+      "repo_id": "20b9d2a4",
+      "files": 37,
+      "labels": {
+        "F": 86,
+        "T": 8,
+        "X": 1
+      },
+      "archive_sha256": "5c6c635cdc33c6e060fdca9f21067139b60889b8f6a88f93b54adf4857ef7da8"
+    },
+    {
+      "repo": "awslabs/git-secrets",
+      "commit": "5357e18bc27b42a827b6780564ea873a72ca1f01",
+      "repo_id": "653a7746",
+      "files": 3,
+      "labels": {
+        "T": 5,
+        "F": 18
+      },
+      "archive_sha256": "178048ad463288340e123ecb21194ee7376c49f9236035755d86c15311c0fed3"
+    },
+    {
+      "repo": "zzzprojects/EntityFramework.Extended",
+      "commit": "68876b0464ab6190815fb9d8b1bbb9b4d114a2d7",
+      "repo_id": "f4d22962",
+      "files": 12,
+      "labels": {
+        "F": 42,
+        "T": 4,
+        "X": 1
+      },
+      "archive_sha256": "dea026dfbf03c696f5121e90f79ce350cad54915786d208358d1c58774e6d7d6"
+    },
+    {
+      "repo": "elunez/eladmin",
+      "commit": "48dff8611166038c7a8172e60dd42ef09832786d",
+      "repo_id": "d2926eb1",
+      "files": 35,
+      "labels": {
+        "F": 87,
+        "T": 4,
+        "X": 1
+      },
+      "archive_sha256": "c6a6b794aa9bbc627e2557c1133fc1651f003fe522b2d49f5e6360fb48f25a00"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "creddata_commit": "c09c0c52fc6dae4ae5438ae69ba486f9f8059f0d",
+  "key_type": "generated RSA-2048, never used as a credential",
+  "openssl_check": {
+    "original.pem": 0,
+    "obfuscated.pem": 1
+  },
+  "tools": {
+    "pleno-dlp": {
+      "obfuscated.pem": 1,
+      "original.pem": 1
+    },
+    "trufflehog": {
+      "original.pem": 1
+    }
+  }
+}
