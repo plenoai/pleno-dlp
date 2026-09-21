@@ -97,6 +97,31 @@ func TestWalk_TarGzExpandsThroughGzipThenTar(t *testing.T) {
 	}
 }
 
+func TestWalkStreamContextGzipConcatenatedMembers(t *testing.T) {
+	var compressed bytes.Buffer
+	for _, payload := range [][]byte{[]byte("first member\n"), []byte("second member\n")} {
+		writer := gzip.NewWriter(&compressed)
+		if _, err := writer.Write(payload); err != nil {
+			t.Fatalf("gzip write: %v", err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatalf("gzip close: %v", err)
+		}
+	}
+	var got []byte
+	err := WalkStreamContext(context.Background(), "members.gz", bytes.NewReader(compressed.Bytes()), int64(compressed.Len()), Limits{}, func(entry StreamEntry) error {
+		var err error
+		got, err = io.ReadAll(entry.Reader)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("WalkStreamContext: %v", err)
+	}
+	if want := []byte("first member\nsecond member\n"); !bytes.Equal(got, want) {
+		t.Fatalf("concatenated gzip = %q, want %q", got, want)
+	}
+}
+
 func TestWalk_RecursionCap(t *testing.T) {
 	akia := "AKIAIOSFODNN7EXAMPLE"
 	level3 := buildZip(t, map[string]string{"leak.txt": akia})

@@ -146,8 +146,10 @@ func WithSpoolContext(ctx context.Context, input io.Reader, size, limit int64, f
 }
 
 type spoolOptions struct {
-	threshold int64
-	tempDir   string
+	threshold    int64
+	tempDir      string
+	// capacityHint is a format-specific lower bound; it must not change limits.
+	capacityHint int64
 }
 
 func walkStreamContext(ctx context.Context, rootName string, input io.Reader, size int64, limits Limits, visit func(StreamEntry) error, opts spoolOptions) error {
@@ -297,6 +299,10 @@ func (r contextReader) Read(p []byte) (int, error) {
 }
 
 func (s *walkState) expandedSpool(name string, input io.Reader, declared int64) (*spool, bool, error) {
+	return s.expandedSpoolWithOptions(name, input, declared, s.spool)
+}
+
+func (s *walkState) expandedSpoolWithOptions(name string, input io.Reader, declared int64, opts spoolOptions) (*spool, bool, error) {
 	if declared > s.limits.MaxEntryBytes {
 		s.partial("max-entry-bytes", name, fmt.Errorf("declared size exceeds %d", s.limits.MaxEntryBytes))
 		return nil, false, nil
@@ -312,7 +318,7 @@ func (s *walkState) expandedSpool(name string, input io.Reader, declared int64) 
 		limit = remaining
 		limitKind = "max-expanded-bytes"
 	}
-	value, err := spoolFromReader(s.ctx, input, declared, limit, s.spool)
+	value, err := spoolFromReader(s.ctx, input, declared, limit, opts)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, false, err
@@ -488,7 +494,9 @@ func (s *walkState) walkGzip(name string, data *spool, depth int) error {
 	if err != nil {
 		return &PartialError{Kind: "corrupt-archive", Entry: name, Err: err}
 	}
-	value, accepted, copyErr := s.expandedSpool(name, reader, -1)
+	opts := s.spool
+	opts.capacityHint = gzipSizeHint(data, opts.threshold)
+	value, accepted, copyErr := s.expandedSpoolWithOptions(name, reader, -1, opts)
 	closeErr := reader.Close()
 	if copyErr != nil {
 		return copyErr
@@ -512,6 +520,25 @@ func (s *walkState) walkGzip(name string, data *spool, depth int) error {
 		s.partial("cleanup", innerName, cleanupErr)
 	}
 	return walkErr
+}
+
+// gzipSizeHint is advisory only: the trailer records one member's size modulo
+// 2^32, while gzip.Reader may accept concatenated members. A usable single
+// member hint removes bytes.Buffer growth copies without changing validation.
+func gzipSizeHint(data *spool, threshold int64) int64 {
+	if data == nil || threshold <= 0 || data.size < 4 {
+		return 0
+	}
+	var trailer [4]byte
+	n, err := data.readerAt().ReadAt(trailer[:], data.size-4)
+	if err != nil && !(errors.Is(err, io.EOF) && n == len(trailer)) {
+		return 0
+	}
+	hint := int64(binary.LittleEndian.Uint32(trailer[:]))
+	if hint <= 0 || hint > threshold {
+		return 0
+	}
+	return hint
 }
 
 func (s *walkState) walkBzip2(name string, data *spool, depth int) error {
@@ -696,6 +723,8 @@ func spoolFromReader(ctx context.Context, input io.Reader, expected, limit int64
 		// Validated sizes below the spill limit need one allocation, not a
 		// sequence of growing buffers while decompressing the same entry.
 		value.mem.Grow(int(expected))
+	} else if opts.capacityHint > 0 && opts.capacityHint <= opts.threshold && opts.capacityHint <= limit {
+		value.mem.Grow(int(opts.capacityHint))
 	}
 	reader := io.LimitReader(contextReader{ctx: ctx, r: input}, limit+1)
 	buffer := spoolCopyBufferPool.Get().(*[]byte)
