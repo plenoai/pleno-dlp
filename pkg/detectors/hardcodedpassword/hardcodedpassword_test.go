@@ -114,3 +114,21 @@ func TestLooksLikeCodeReference(t *testing.T) {
 		}
 	}
 }
+
+func TestAssignmentHeadPreservesGrammar(t *testing.T) {
+	for _, input := range []string{
+		"db_password = 'R8!actualValue'",
+		"Paſſword = 'R8!actualValue'",
+		"password\n\n = 'R8!actualValue'",
+		"password:\nname = 'R8!actualValue'",
+		"db_password_suffix\n : 'R8!actualValue'",
+		"variable \"db_password\" {\n default = \"R8!actualValue\"\n}",
+	} {
+		if !assignEqRe.MatchString(input) && !yamlValueRe.MatchString(input) && !tfVariableRe.MatchString(input) {
+			t.Fatalf("fixture does not match original grammar: %q", input)
+		}
+		if !hasAssignmentHead(input) {
+			t.Fatalf("prefilter rejected original grammar: %q", input)
+		}
+	}
+}

@@ -35,6 +35,7 @@
 package phpconfigsecret
 
 import (
+	"bytes"
 	"context"
 	"regexp"
 	"strings"
@@ -149,6 +150,9 @@ func (Scanner) Keywords() []string {
 }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	if !bytes.ContainsAny(data, "\"'") {
+		return nil, nil
+	}
 	str := string(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result

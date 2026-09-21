@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"runtime"
 	"strings"
@@ -841,5 +842,52 @@ func TestEngine_NoVerifyOptionSuppressesVerifyArg(t *testing.T) {
 	}
 	if len(det2.calls) != 1 || !det2.calls[0] {
 		t.Errorf("default Options calls = %v, want [true]", det2.calls)
+	}
+}
+
+// Repeated and overlapping keyword hits must produce the same union of
+// vicinity windows, including a disjoint region late in the input.
+func TestDispatchMergesOrderedHits(t *testing.T) {
+	data := bytes.Repeat([]byte{' '}, 16000)
+	for _, offset := range []int{10, 15, 100, 12000, 15994} {
+		copy(data[offset:], "secret")
+	}
+	detector := &stubKeywordDet{}
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{detector}, Options{NoVerify: true, Concurrency: 1}, sink)
+	if err := eng.Run(context.Background(), &stubSource{chunks: []*sources.Chunk{{Data: data}}}); err != nil {
+		t.Fatal(err)
+	}
+	findings := sink.Findings()
+	want := [][]byte{data[:106+vicinityRadius], data[12005-vicinityRadius:]}
+	if len(findings) != len(want) {
+		t.Fatalf("got %d regions, want %d", len(findings), len(want))
+	}
+	for i := range want {
+		if !bytes.Equal(findings[i].Result.Raw, want[i]) {
+			t.Fatalf("region %d: got %d bytes, want %d", i, len(findings[i].Result.Raw), len(want[i]))
+		}
+	}
+}
+
+func TestDecodedResultsOutliveWindowScratch(t *testing.T) {
+	bodies := []string{"secret " + strings.Repeat("alpha ", 20), "secret " + strings.Repeat("bravo ", 20)}
+	src := &stubSource{}
+	for _, body := range bodies {
+		src.chunks = append(src.chunks, &sources.Chunk{Data: []byte(base64.StdEncoding.EncodeToString([]byte(body)))})
+	}
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{&stubKeywordDet{}}, Options{NoVerify: true, Concurrency: 1}, sink)
+	if err := eng.Run(context.Background(), src); err != nil {
+		t.Fatal(err)
+	}
+	findings := sink.Findings()
+	if len(findings) != len(bodies) {
+		t.Fatalf("got %d findings, want %d", len(findings), len(bodies))
+	}
+	for i, finding := range findings {
+		if string(finding.Result.Raw) != bodies[i] {
+			t.Fatalf("finding %d was overwritten by a later decoded window", i)
+		}
 	}
 }

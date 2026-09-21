@@ -35,6 +35,7 @@
 package djangoconfigsecret
 
 import (
+	"bytes"
 	"context"
 	"regexp"
 	"strings"
@@ -110,6 +111,9 @@ func (Scanner) Type() detectors.DetectorType { return detectors.DjangoConfigSecr
 func (Scanner) Keywords() []string { return []string{"SECRET_KEY", "PASSWORD"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	if !bytes.ContainsAny(data, "\"'") {
+		return nil, nil
+	}
 	str := string(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result

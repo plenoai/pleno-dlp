@@ -199,7 +199,7 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 			sem <- struct{}{}
 			g.Go(func() error {
 				defer func() { <-sem }()
-				return s.emitFile(gctx, absPath, ch)
+				return s.emitFile(gctx, absPath, info.Size(), ch)
 			})
 			return nil
 		}); err != nil {
@@ -311,10 +311,10 @@ func (s *Source) ResourceFingerprint(ctx context.Context) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// emitFile reads path, classifies binary/text, and sends one Chunk. ctx is
-// honoured both for cancellation during read and during channel send so a
-// stalled consumer cannot pin the worker.
-func (s *Source) emitFile(ctx context.Context, absPath string, ch chan<- *sources.Chunk) error {
+// emitFile reads path, classifies binary/text, and sends one Chunk. It checks
+// cancellation before reading and while sending so a stalled consumer cannot
+// pin the worker.
+func (s *Source) emitFile(ctx context.Context, absPath string, size int64, ch chan<- *sources.Chunk) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -328,11 +328,11 @@ func (s *Source) emitFile(ctx context.Context, absPath string, ch chan<- *source
 	}
 	defer f.Close()
 
-	data, err := io.ReadAll(f)
+	data, err := s.readFile(ctx, f, size)
 	if err != nil {
 		return nil
 	}
-	if isBinary(data) && !archive.LooksLikeArchive(data) {
+	if data == nil {
 		return nil
 	}
 
@@ -351,6 +351,68 @@ func (s *Source) emitFile(ctx context.Context, absPath string, ch chan<- *source
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// readFile sniffs before allocating the full file. Binary files are common in
+// dependency trees and never reach the engine, so retaining their bytes until
+// after the read needlessly multiplies peak memory by the source concurrency.
+func (s *Source) readFile(ctx context.Context, f *os.File, size int64) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	maxInt := int64(^uint(0) >> 1)
+	if size < 0 || size > s.cfg.MaxSizeBytes || size > maxInt {
+		return nil, nil
+	}
+	limit := s.cfg.MaxSizeBytes
+	if limit < maxInt {
+		limit++
+	}
+
+	sniffLen := int64(binarySniffLen)
+	if sniffLen > s.cfg.MaxSizeBytes {
+		sniffLen = s.cfg.MaxSizeBytes
+	}
+	if sniffLen > maxInt {
+		sniffLen = maxInt
+	}
+	prefix := make([]byte, int(sniffLen))
+	n, err := io.ReadFull(f, prefix)
+	prefix = prefix[:n]
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return nil, err
+	}
+	if !archive.LooksLikeArchive(prefix) && isBinary(prefix) {
+		return nil, nil
+	}
+
+	// The directory entry size is only a capacity hint. Reading one extra byte
+	// detects a file that grew after WalkDir and keeps the configured ceiling
+	// intact without letting a raced write allocate an unbounded buffer.
+	capacity := size
+	minRead := int64(bytes.MinRead)
+	if capacity <= maxInt-minRead {
+		capacity += minRead
+	} else {
+		capacity = maxInt
+	}
+	if capacity < int64(len(prefix)) {
+		capacity = int64(len(prefix))
+	}
+	if capacity > limit {
+		capacity = limit
+	}
+	var data bytes.Buffer
+	data.Grow(int(capacity))
+	_, _ = data.Write(prefix)
+	_, err = data.ReadFrom(io.LimitReader(f, limit-int64(len(prefix))))
+	if err != nil {
+		return nil, err
+	}
+	if int64(data.Len()) > s.cfg.MaxSizeBytes {
+		return nil, nil
+	}
+	return data.Bytes(), nil
 }
 
 // excluded returns true when name OR rel matches any exclude glob. We

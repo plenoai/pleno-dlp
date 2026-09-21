@@ -30,23 +30,16 @@
 package railsmasterkey
 
 import (
+	"bytes"
 	"context"
-	"regexp"
-	"strings"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// hexRe matches a bare 32-character lowercase hex string spanning the
-// entire (already-trimmed) input. No (?m) flag: Go's default ^/$
-// anchors match start/end of the whole string, not per line, which is
-// exactly the "whole chunk, one line" shape master.key has.
-var hexRe = regexp.MustCompile(`^[0-9a-f]{32}$`)
-
 // isDegenerate rejects a hex string built from a single repeated
 // character (e.g. all-zero or all-`f`), the shape a placeholder or
 // test fixture is most likely to use.
-func isDegenerate(s string) bool {
+func isDegenerate(s []byte) bool {
 	for i := 1; i < len(s); i++ {
 		if s[i] != s[0] {
 			return false
@@ -70,17 +63,22 @@ func (Scanner) Keywords() []string { return []string{"master.key"} }
 func (Scanner) WantsFullChunk() bool { return true }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	trimmed := strings.TrimSpace(string(data))
-	if !hexRe.MatchString(trimmed) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) != 32 {
 		return nil, nil
+	}
+	for _, c := range trimmed {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return nil, nil
+		}
 	}
 	if isDegenerate(trimmed) {
 		return nil, nil
 	}
 	return []detectors.Result{{
 		DetectorType: detectors.RailsMasterKey,
-		Raw:          []byte(trimmed),
-		Redacted:     trimmed[:4] + "...",
+		Raw:          bytes.Clone(trimmed),
+		Redacted:     string(trimmed[:4]) + "...",
 		Severity:     detectors.SeverityHigh,
 	}}, nil
 }

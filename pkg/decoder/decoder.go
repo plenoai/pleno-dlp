@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"net/url"
-	"regexp"
+	"slices"
 	"unicode/utf16"
 	"unicode/utf8"
 )
@@ -17,12 +17,6 @@ const minHexRun = 40
 
 const printableThreshold = 0.8
 
-// percentEncoded matches a substring containing at least two %xx escapes.
-var percentEncoded = regexp.MustCompile(`(?:%[0-9A-Fa-f]{2}){2,}`)
-
-// unicodeEscaped matches a substring containing at least two \uXXXX sequences.
-var unicodeEscaped = regexp.MustCompile(`(?:\\u[0-9A-Fa-f]{4}){2,}`)
-
 // Variant pairs a decoded byte slice with the decoder that produced it.
 type Variant struct {
 	Source string
@@ -31,15 +25,25 @@ type Variant struct {
 
 // Variants returns the original chunk followed by decoded forms worth rescanning.
 func Variants(data []byte) []Variant {
+	return VariantsWithScratch(data, nil)
+}
+
+// VariantsWithScratch is Variants with an optional caller-owned scratch
+// buffer for the base64 result. When scratch has enough capacity, a returned
+// base64 Variant aliases it and is valid only until the caller reuses or
+// overwrites scratch. Other decoded variants remain independently owned.
+// If scratch is too small, the base64 result is copied into an owned buffer.
+// Callers must not pass a scratch buffer that aliases data.
+func VariantsWithScratch(data, scratch []byte) []Variant {
 	out := []Variant{{Data: data}}
 
 	if hasBase64Run(data) {
-		if v := decodeBase64(data); v != nil {
+		if v := decodeBase64WithScratch(data, scratch); v != nil {
 			out = append(out, Variant{Source: "base64", Data: v})
 		}
 	}
-	if hasPercentRun(data) {
-		if v := decodePercent(data); v != nil {
+	if hasPercentEscapePair(data) {
+		if v := decodePercentCandidate(data); v != nil {
 			out = append(out, Variant{Source: "percent", Data: v})
 		}
 	}
@@ -51,7 +55,7 @@ func Variants(data []byte) []Variant {
 	if src, v := tryUTF16(data); v != nil {
 		out = append(out, Variant{Source: src, Data: v})
 	}
-	if unicodeEscaped.Match(data) {
+	if hasUnicodeEscapePair(data) {
 		if v := decodeUnicodeEscape(data); v != nil {
 			out = append(out, Variant{Source: "unicode-escape", Data: v})
 		}
@@ -64,21 +68,22 @@ func Variants(data []byte) []Variant {
 // before encoding. Returns nil when the decoded form is not mostly printable
 // or is identical to the input.
 func decodeUnicodeEscape(data []byte) []byte {
-	s := string(data)
 	out := make([]byte, 0, len(data))
+	changed := false
 	i := 0
-	for i < len(s) {
-		if i+5 < len(s) && s[i] == '\\' && s[i+1] == 'u' {
-			hi, ok := parseHex4(s[i+2 : i+6])
+	for i < len(data) {
+		if i+5 < len(data) && data[i] == '\\' && data[i+1] == 'u' {
+			hi, ok := parseHex4(data[i+2 : i+6])
 			if !ok {
-				out = append(out, s[i])
+				out = append(out, data[i])
 				i++
 				continue
 			}
+			changed = true
 			r := rune(hi)
 			consumed := 6
-			if r >= 0xD800 && r <= 0xDBFF && i+11 < len(s) && s[i+6] == '\\' && s[i+7] == 'u' {
-				lo, ok2 := parseHex4(s[i+8 : i+12])
+			if r >= 0xD800 && r <= 0xDBFF && i+11 < len(data) && data[i+6] == '\\' && data[i+7] == 'u' {
+				lo, ok2 := parseHex4(data[i+8 : i+12])
 				if ok2 && lo >= 0xDC00 && lo <= 0xDFFF {
 					r = utf16.DecodeRune(r, rune(lo))
 					consumed = 12
@@ -89,17 +94,17 @@ func decodeUnicodeEscape(data []byte) []byte {
 			out = append(out, buf[:n]...)
 			i += consumed
 		} else {
-			out = append(out, s[i])
+			out = append(out, data[i])
 			i++
 		}
 	}
-	if bytes.Equal(out, data) || !mostlyPrintable(out) {
+	if !changed || !mostlyPrintable(out) {
 		return nil
 	}
 	return out
 }
 
-func parseHex4(s string) (uint16, bool) {
+func parseHex4(s []byte) (uint16, bool) {
 	if len(s) != 4 {
 		return 0, false
 	}
@@ -118,6 +123,58 @@ func parseHex4(s string) (uint16, bool) {
 		}
 	}
 	return v, true
+}
+
+func isBase64Byte(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+		(c >= '0' && c <= '9') || c == '+' || c == '/' || c == '_' || c == '-'
+}
+
+func isHexByte(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+		(c >= 'A' && c <= 'F')
+}
+
+func isPercentEscapePair(data []byte) bool {
+	return data[0] == '%' && isHexByte(data[1]) && isHexByte(data[2]) &&
+		data[3] == '%' && isHexByte(data[4]) && isHexByte(data[5])
+}
+
+func hasPercentEscapePair(data []byte) bool {
+	for start := 0; start < len(data); {
+		rel := bytes.IndexByte(data[start:], '%')
+		if rel < 0 {
+			return false
+		}
+		i := start + rel
+		if i+5 < len(data) && isPercentEscapePair(data[i:]) {
+			return true
+		}
+		start = i + 1
+	}
+	return false
+}
+
+func isUnicodeEscapePair(data []byte) bool {
+	return data[0] == '\\' && data[1] == 'u' && isHexByte(data[2]) &&
+		isHexByte(data[3]) && isHexByte(data[4]) && isHexByte(data[5]) &&
+		data[6] == '\\' && data[7] == 'u' && isHexByte(data[8]) &&
+		isHexByte(data[9]) && isHexByte(data[10]) && isHexByte(data[11])
+}
+
+func hasUnicodeEscapePair(data []byte) bool {
+	for start := 0; start < len(data); {
+		rel := bytes.IndexByte(data[start:], '\\')
+		if rel < 0 {
+			return false
+		}
+		i := start + rel
+		if i+11 < len(data) && isUnicodeEscapePair(data[i:]) {
+			return true
+		}
+		start = i + 1
+	}
+	return false
 }
 
 // tryUTF16 returns a ("utf16le"|"utf16be", UTF-8 bytes) pair when data looks
@@ -205,32 +262,44 @@ func decodeUTF16(data []byte, isLE bool) []byte {
 		return nil
 	}
 
-	// Decode pairs into runes, handling surrogate pairs.
-	u16 := make([]uint16, len(data)/2)
-	for i := range u16 {
-		lo, hi := data[i*2], data[i*2+1]
+	// Decode pairs directly into UTF-8. This avoids retaining both the UTF-16
+	// units and utf16.Decode's rune slice for the same chunk.
+	out := make([]byte, 0, len(data)/2)
+	var tmp [utf8.UTFMax]byte
+	for i := 0; i < len(data); i += 2 {
+		var u uint16
 		if isLE {
-			u16[i] = uint16(lo) | uint16(hi)<<8
+			u = uint16(data[i]) | uint16(data[i+1])<<8
 		} else {
-			u16[i] = uint16(hi) | uint16(lo)<<8
+			u = uint16(data[i+1]) | uint16(data[i])<<8
 		}
-	}
-	runes := utf16.Decode(u16)
-
-	var buf bytes.Buffer
-	buf.Grow(len(runes) * 3 / 2)
-	tmp := make([]byte, utf8.UTFMax)
-	for _, r := range runes {
+		r := rune(u)
+		if u >= 0xD800 && u <= 0xDBFF && i+3 < len(data) {
+			var lo uint16
+			if isLE {
+				lo = uint16(data[i+2]) | uint16(data[i+3])<<8
+			} else {
+				lo = uint16(data[i+3]) | uint16(data[i+2])<<8
+			}
+			if lo >= 0xDC00 && lo <= 0xDFFF {
+				r = utf16.DecodeRune(r, rune(lo))
+				i += 2
+			} else {
+				r = utf8.RuneError
+			}
+		} else if u >= 0xDC00 && u <= 0xDFFF {
+			r = utf8.RuneError
+		}
 		if r == '\uFEFF' {
 			continue
 		}
-		n := utf8.EncodeRune(tmp, r)
-		buf.Write(tmp[:n])
+		n := utf8.EncodeRune(tmp[:], r)
+		out = append(out, tmp[:n]...)
 	}
-	if buf.Len() == 0 {
+	if len(out) == 0 {
 		return nil
 	}
-	return buf.Bytes()
+	return out
 }
 
 // hasBase64Run reports whether data contains a plausible base64 run.
@@ -274,51 +343,89 @@ func hasHexRun(data []byte) bool {
 	return false
 }
 
-// hasPercentRun reports whether data contains at least two percent escapes.
-func hasPercentRun(data []byte) bool {
-	n := 0
-	for _, c := range data {
-		if c == '%' {
-			n++
-			if n >= 2 {
-				return true
+// decodeBase64WithScratch appends accepted runs in source order. It only
+// commits the separator after a run passes decoding and printability checks,
+// so rejected runs cannot overwrite or corrupt earlier accepted output.
+func decodeBase64WithScratch(data, scratch []byte) []byte {
+	var out []byte
+	owned := false
+	scratch = scratch[:0]
+	walkBase64RunsMeta(data, func(run []byte, alphabet byte) {
+		needed := base64DecodedLen(run)
+		previousLen := len(out)
+		separator := 0
+		if previousLen > 0 {
+			separator = 1
+		}
+		start := previousLen + separator
+		if !owned && start+needed > cap(scratch) {
+			out = append([]byte(nil), out...)
+			owned = true
+		}
+		var dst []byte
+		if owned {
+			out = slices.Grow(out, separator+needed)
+			out = out[:start+needed]
+			dst = out[start:]
+		} else {
+			scratch = scratch[:start+needed]
+			dst = scratch[start:]
+		}
+		decoded, ok := decodeBase64Into(run, alphabet, dst)
+		if !ok || !mostlyPrintable(decoded) {
+			if owned {
+				out = out[:previousLen]
 			}
-		}
-	}
-	return false
-}
-
-// decodeBase64 returns the printable decodes from all base64-like runs.
-func decodeBase64(data []byte) []byte {
-	var buf bytes.Buffer
-	walkBase64Runs(data, func(run []byte) {
-		decoded, ok := tryBase64(run)
-		if !ok {
 			return
 		}
-		if !mostlyPrintable(decoded) {
-			return
+		if owned {
+			out = out[:start+len(decoded)]
+		} else {
+			scratch = scratch[:start+len(decoded)]
+			out = scratch
 		}
-		if buf.Len() > 0 {
-			buf.WriteByte('\n')
+		if separator > 0 {
+			out[start-1] = '\n'
 		}
-		buf.Write(decoded)
 	})
-	if buf.Len() == 0 {
+	if len(out) == 0 {
 		return nil
 	}
-	return buf.Bytes()
+	return out
 }
 
-// walkBase64Runs finds maximal base64-like runs plus trailing padding.
-func walkBase64Runs(data []byte, fn func([]byte)) {
+func base64DecodedLen(run []byte) int {
+	max := 0
+	for _, enc := range []*base64.Encoding{
+		base64.StdEncoding,
+		base64.RawStdEncoding,
+		base64.URLEncoding,
+		base64.RawURLEncoding,
+	} {
+		if n := enc.DecodedLen(len(run)); n > max {
+			max = n
+		}
+	}
+	return max
+}
+
+// walkBase64RunsMeta also carries the alphabet marker found while locating a
+// run, so decoding does not scan every accepted run a second time.
+func walkBase64RunsMeta(data []byte, fn func([]byte, byte)) {
 	start := -1
+	var alphabet byte
 	for i := 0; i < len(data); i++ {
 		c := data[i]
-		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-			c == '+' || c == '/' || c == '_' || c == '-' {
+		if isBase64Byte(c) {
 			if start < 0 {
 				start = i
+				alphabet = 0
+			}
+			switch c {
+			case '-', '_':
+				alphabet = 1
+			case '+', '/':
+				alphabet = 0
 			}
 			continue
 		}
@@ -329,48 +436,18 @@ func walkBase64Runs(data []byte, fn func([]byte)) {
 				for pad < 2 && end+pad < len(data) && data[end+pad] == '=' {
 					pad++
 				}
-				fn(data[start : end+pad])
+				fn(data[start:end+pad], alphabet)
 			}
 			start = -1
 		}
 	}
 	if start >= 0 && len(data)-start >= minBase64Run {
-		fn(data[start:])
+		fn(data[start:], alphabet)
 	}
 }
 
-func tryBase64(s []byte) ([]byte, bool) {
-	// Pick the right encoding from the run's own bytes instead of
-	// trying all four. Std vs URL alphabet is mutually exclusive on
-	// the '+/' vs '-_' axis; padded vs raw is determined by trailing
-	// '='. Profiling on the real-OSS workload showed the four-try
-	// loop dominated the decoder by allocating one DecodedLen slice
-	// per attempt, with three of every four attempts failing.
-	var alphabet byte // 0 = std, 1 = url-safe
-	for _, c := range s {
-		switch c {
-		case '-', '_':
-			alphabet = 1
-		case '+', '/':
-			alphabet = 0
-			// std markers are decisive; '-'/'_' could appear inside
-			// a run that already had '+'/'/', so don't break on alphabet=1
-			// until the scan completes.
-		}
-	}
-	padded := len(s) > 0 && s[len(s)-1] == '='
-	var enc *base64.Encoding
-	switch {
-	case alphabet == 1 && padded:
-		enc = base64.URLEncoding
-	case alphabet == 1:
-		enc = base64.RawURLEncoding
-	case padded:
-		enc = base64.StdEncoding
-	default:
-		enc = base64.RawStdEncoding
-	}
-	dst := make([]byte, enc.DecodedLen(len(s)))
+func decodeBase64Into(s []byte, alphabet byte, dst []byte) ([]byte, bool) {
+	enc := base64Encoding(s, alphabet)
 	n, err := enc.Decode(dst, s)
 	if err == nil && n > 0 {
 		return dst[:n], true
@@ -388,7 +465,6 @@ func tryBase64(s []byte) ([]byte, bool) {
 	case base64.RawURLEncoding:
 		enc = base64.URLEncoding
 	}
-	dst = dst[:cap(dst)]
 	n, err = enc.Decode(dst, s)
 	if err == nil && n > 0 {
 		return dst[:n], true
@@ -396,19 +472,26 @@ func tryBase64(s []byte) ([]byte, bool) {
 	return nil, false
 }
 
-// decodePercent fires when the chunk contains at least one cluster of
-// %xx escapes. We pass the entire chunk through url.QueryUnescape so a
-// secret pasted as a query string survives the round-trip even when it
-// straddles literal characters.
-func decodePercent(data []byte) []byte {
-	if !percentEncoded.Match(data) {
-		return nil
+func base64Encoding(s []byte, alphabet byte) *base64.Encoding {
+	padded := len(s) > 0 && s[len(s)-1] == '='
+	if alphabet == 1 {
+		if padded {
+			return base64.URLEncoding
+		}
+		return base64.RawURLEncoding
 	}
+	if padded {
+		return base64.StdEncoding
+	}
+	return base64.RawStdEncoding
+}
+
+func decodePercentCandidate(data []byte) []byte {
 	decoded, err := url.QueryUnescape(string(data))
 	if err != nil {
 		return nil
 	}
-	if decoded == string(data) {
+	if len(decoded) == len(data) {
 		return nil
 	}
 	if !mostlyPrintable([]byte(decoded)) {
@@ -423,7 +506,7 @@ func decodePercent(data []byte) []byte {
 // scan to skip the RE2 setup cost the original hexRun regex paid on
 // every chunk.
 func decodeHex(data []byte) []byte {
-	var buf bytes.Buffer
+	var out []byte
 	walkHexRuns(data, func(run []byte) {
 		dst := make([]byte, hex.DecodedLen(len(run)))
 		n, err := hex.Decode(dst, run)
@@ -434,15 +517,14 @@ func decodeHex(data []byte) []byte {
 		if !mostlyPrintable(decoded) {
 			return
 		}
-		if buf.Len() > 0 {
-			buf.WriteByte('\n')
+		if out == nil {
+			out = decoded
+			return
 		}
-		buf.Write(decoded)
+		out = append(out, '\n')
+		out = append(out, decoded...)
 	})
-	if buf.Len() == 0 {
-		return nil
-	}
-	return buf.Bytes()
+	return out
 }
 
 // walkHexRuns invokes fn for every maximal run of >=minHexRun bytes

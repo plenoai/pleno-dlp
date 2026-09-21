@@ -49,3 +49,9 @@ without invoking the orchestrator.
   doc — class (a) is the open-set complement.
   Operators query the classification at runtime via
   `pleno-dlp detectors list --verify-status`.
+
+## Change history
+
+| Date | Owners | Change |
+|---|---|---|
+| 2026-09-21 | architect, core-engineer, detector-engineer, connector-engineer, qa | Five subsystem performance budgets and scanner allocation reductions; [method and evidence](docs/performance.md). |
