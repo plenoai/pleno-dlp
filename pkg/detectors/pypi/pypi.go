@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var apiBase = "https://upload.pypi.org"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // PyPI tokens always start "pypi-AgEIc" followed by macaroon body.
-var tokenRe = regexp.MustCompile(`\b(pypi-AgEIc[A-Za-z0-9_-]{50,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pypi-AgEIc[A-Za-z0-9_-]{50,})\b`) })
 
 type Scanner struct{}
 
@@ -28,7 +29,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.PyPI }
 func (Scanner) Keywords() []string { return []string{"pypi-AgEIc"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

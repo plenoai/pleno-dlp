@@ -24,15 +24,18 @@ import (
 	"encoding/base64"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 // npmrcLineRe matches one `.npmrc` auth directive line, with an optional
 // `//<registry>/:` scope prefix ahead of the key.
-var npmrcLineRe = regexp.MustCompile(
-	`(?im)^[ \t]*(?:\/\/\S*\/:)?(_auth|_authToken|_password)\s*=\s*(\S+)[ \t]*$`,
-)
+var npmrcLineRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?im)^[ \t]*(?:\/\/\S*\/:)?(_auth|_authToken|_password)\s*=\s*(\S+)[ \t]*$`,
+	)
+})
 
 var placeholders = map[string]struct{}{
 	"password":    {},
@@ -70,7 +73,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
-	for _, m := range npmrcLineRe.FindAllStringSubmatch(str, -1) {
+	for _, m := range npmrcLineRe().FindAllStringSubmatch(str, -1) {
 		if len(m) < 3 {
 			continue
 		}

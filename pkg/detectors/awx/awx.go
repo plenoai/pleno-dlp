@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -34,7 +35,7 @@ var apiBase = ""
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // 30 base62 chars — the oauthlib generate_token default that AWX/Tower uses.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{30})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{30})\b`) })
 
 // minEntropy rejects low-information 30-char runs (padded hex, repeated
 // fragments, structured identifiers) that clear the bare regex but lack the
@@ -46,7 +47,9 @@ const minEntropy = 3.5
 // strings.Contains over radius 256 matched any incidental "awx_api" substring
 // far from the token; this arm regex requires an AWX/Tower token/key/secret
 // assignment shape, and the bare keywords stay in Keywords() as the prefilter.
-var contextRe = regexp.MustCompile(`(?i)(awx|tower|ansible[_-]?(tower|automation))[_-]?(api[_-]?)?(token|key|secret|oauth)`)
+var contextRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(awx|tower|ansible[_-]?(tower|automation))[_-]?(api[_-]?)?(token|key|secret|oauth)`)
+})
 
 type Scanner struct{}
 
@@ -55,7 +58,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AWX }
 func (Scanner) Keywords() []string { return []string{"awx", "ansible_tower", "ansible_automation"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -103,7 +106,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	return contextRe.MatchString(window)
+	return contextRe().MatchString(window)
 }
 
 // Verify checks the candidate AWX OAuth2 token against the operator's

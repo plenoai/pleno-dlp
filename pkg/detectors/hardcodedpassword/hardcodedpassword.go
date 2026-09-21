@@ -9,9 +9,11 @@
 package hardcodedpassword
 
 import (
+	"bytes"
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -22,54 +24,80 @@ var (
 	// The keyword must be at the start of a word (word boundary or line
 	// start); the boundary only excludes a preceding letter, so keywords
 	// embedded in snake_case names like DB_PASSWORD still match.
-	assignEqRe = regexp.MustCompile(
-		`(?im)(?:^|[^a-zA-Z])(?:password|passwd|pwd)(?:[^a-z0-9_][^\n=]*)?` +
-			`\s*=\s*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
-	)
+	assignEqRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(
+			`(?im)(?:^|[^a-zA-Z])(?:password|passwd|pwd)(?:[^a-z0-9_][^\n=]*)?` +
+				`\s*=\s*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
+		)
+	})
 
-	yamlValueRe = regexp.MustCompile(
-		`(?im)(?:^|\s)(?:[a-z0-9_]*(?:password|passwd|pwd)[a-z0-9_]*)\s*:\s*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
-	)
+	yamlValueRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(
+			`(?im)(?:^|\s)(?:[a-z0-9_]*(?:password|passwd|pwd)[a-z0-9_]*)\s*:\s*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
+		)
+	})
 
 	// The keyword lives in the variable name and the literal `default =`
 	// value on a different line, so assignEqRe cannot see them together;
 	// this pattern captures the block body separately and re-scans it for
 	// the default line.
-	tfVariableRe = regexp.MustCompile(
-		`(?i)variable\s*"[a-z0-9_]*(?:password|passwd|pwd)[a-z0-9_]*"\s*\{([^}]*)\}`,
-	)
-	tfDefaultRe = regexp.MustCompile(
-		`(?im)^\s*default\s*=\s*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
-	)
+	tfVariableRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(
+			`(?i)variable\s*"[a-z0-9_]*(?:password|passwd|pwd)[a-z0-9_]*"\s*\{([^}]*)\}`,
+		)
+	})
+	tfDefaultRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(
+			`(?im)^\s*default\s*=\s*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
+		)
+	})
 )
 
-// Match only the suffix of a keyword candidate. The original expressions still
-// decide whether its prefix and value are valid.
-var assignmentTailRe = regexp.MustCompile(`^(?:(?:[^a-z0-9_][^\n=]*)?\s*=|[a-z0-9_]*\s*:)`)
+// Match the complete assignment suffix in one RE2 pass over lower-cased bytes.
+// The previous implementation called an anchored regexp once per keyword
+// occurrence; repeated non-assignments could rescan the same tail quadratically.
+var assignmentHeadRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?:password|passwd|pwd)(?:(?:[^a-z0-9_][^\n=]*)?\s*=|[a-z0-9_]*\s*:)`,
+	)
+})
 
-func hasAssignmentHead(str string) bool {
-	for i := range str {
-		if str[i] >= 0x80 {
+func hasAssignmentHead(data []byte) bool {
+	// Every accepted grammar branch requires an ASCII assignment or mapping
+	// separator. This cheap reject keeps repeated prose keywords out of the
+	// RE2 scan; it also precedes the Unicode case-fold fallback below.
+	if !bytes.ContainsAny(data, "=:") {
+		return false
+	}
+	for _, b := range data {
+		if b >= 0x80 {
 			// RE2 also folds Unicode letters such as long s; let it decide.
 			return true
 		}
 	}
-	lower := strings.ToLower(str)
-	if strings.Contains(lower, "variable") {
-		return true
-	}
-	for _, keyword := range []string{"password", "passwd", "pwd"} {
-		rest := lower
-		for {
-			i := strings.Index(rest, keyword)
-			if i < 0 {
-				break
-			}
-			rest = rest[i+len(keyword):]
-			if assignmentTailRe.MatchString(rest) {
+	lower := bytes.ToLower(data)
+	return bytes.Contains(lower, []byte("variable")) ||
+		(hasAssignmentCandidate(lower) && assignmentHeadRe().Match(lower))
+}
+
+// Each separator is visited once. After removing RE2 whitespace, an assignment
+// needs a keyword on the remaining last line, or immediately before its newline
+// (the optional non-word byte in assignmentHeadRe can consume that newline).
+func hasAssignmentCandidate(lower []byte) bool {
+	for len(lower) > 0 {
+		end := bytes.IndexAny(lower, "=:")
+		if end < 0 {
+			return false
+		}
+		head := bytes.TrimRight(lower[:end], " \t\n\f\r")
+		line := bytes.LastIndexByte(head, '\n') + 1
+		for _, keyword := range []string{"password", "passwd", "pwd"} {
+			if bytes.Contains(head[line:], []byte(keyword)) ||
+				(line > 0 && bytes.HasSuffix(head[:line-1], []byte(keyword))) {
 				return true
 			}
 		}
+		lower = lower[end+1:]
 	}
 	return false
 }
@@ -185,10 +213,10 @@ func (Scanner) Keywords() []string {
 }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	str := string(data)
-	if !hasAssignmentHead(str) {
+	if !hasAssignmentHead(data) {
 		return nil, nil
 	}
+	str := string(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
@@ -215,7 +243,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		})
 	}
 
-	for _, re := range []*regexp.Regexp{assignEqRe, yamlValueRe} {
+	for _, re := range []*regexp.Regexp{assignEqRe(), yamlValueRe()} {
 		for _, m := range re.FindAllStringSubmatch(str, -1) {
 			if len(m) < 2 {
 				continue
@@ -224,11 +252,11 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		}
 	}
 
-	for _, block := range tfVariableRe.FindAllStringSubmatch(str, -1) {
+	for _, block := range tfVariableRe().FindAllStringSubmatch(str, -1) {
 		if len(block) < 2 {
 			continue
 		}
-		if m := tfDefaultRe.FindStringSubmatch(block[1]); len(m) >= 2 {
+		if m := tfDefaultRe().FindStringSubmatch(block[1]); len(m) >= 2 {
 			add(m[1])
 		}
 	}

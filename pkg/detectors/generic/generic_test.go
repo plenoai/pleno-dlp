@@ -5,6 +5,7 @@ package generic
 import (
 	"bytes"
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -58,6 +59,76 @@ func TestFromData_RejectsKeywordTooFar(t *testing.T) {
 	for _, r := range res {
 		if strings.Contains(string(r.Raw), "Hf83KdjL9qZ8") {
 			t.Errorf("entropy run far from keyword must NOT match; got %q", r.Raw)
+		}
+	}
+}
+
+func TestSecretShapeMatchesDifferential(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "run lengths",
+			data: shapeLengthFixture([]int{0, 19, 20, 127, 128, 129, 147, 148, 255, 256, 257}),
+		},
+		{
+			name: "non-ASCII",
+			data: append(append(bytes.Repeat([]byte{'A'}, 24), []byte("é")...), bytes.Repeat([]byte{'B'}, 24)...),
+		},
+		{
+			name: "invalid UTF-8",
+			data: append(append(bytes.Repeat([]byte{'A'}, 24), 0xff, 0xfe), bytes.Repeat([]byte{'B'}, 24)...),
+		},
+		{
+			name: "delimiters",
+			data: []byte(strings.Repeat("A", 20) + "=" + strings.Repeat("B", 128) + ":" + strings.Repeat("C", 19) + " " + strings.Repeat("D", 129) + "." + strings.Repeat("E", 20)),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertSecretShapeMatchesRegexp(t, test.data)
+		})
+	}
+}
+
+func shapeLengthFixture(lengths []int) []byte {
+	var data []byte
+	for _, length := range lengths {
+		data = append(data, bytes.Repeat([]byte{'A'}, length)...)
+		data = append(data, '!')
+	}
+	return data
+}
+
+func assertSecretShapeMatchesRegexp(t *testing.T, data []byte) {
+	t.Helper()
+	want := regexp.MustCompile(`[A-Za-z0-9+/_\-]{20,128}`).FindAllIndex(data, -1)
+	got := secretShapeMatches(data)
+	if len(got) != len(want) {
+		t.Fatalf("match count = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i][0] != want[i][0] || got[i][1] != want[i][1] {
+			t.Fatalf("match %d = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestFromData_LongRunKeepsGlobalSecretSpans(t *testing.T) {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	data := []byte(strings.Repeat(alphabet, 16) + "ABCDEFGH" + "token=" + strings.Repeat(" ", 1000))
+	results, err := (Scanner{}).FromData(context.Background(), false, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][2]int{{640, 768}, {768, 896}, {896, 1005}}
+	if len(results) != len(want) {
+		t.Fatalf("findings = %d, want %d", len(results), len(want))
+	}
+	for i, span := range want {
+		if got := string(results[i].Raw); got != string(data[span[0]:span[1]]) {
+			t.Fatalf("finding %d = %q, want data[%d:%d]", i, got, span[0], span[1])
 		}
 	}
 }

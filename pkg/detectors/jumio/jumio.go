@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -30,13 +31,15 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var keyRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // anchorRe is the assignment-style Jumio reference that must appear in the
 // proximityRadius bytes preceding a candidate token. Matching this rather
 // than a stray `jumio` substring anywhere in the chunk is what kills the
 // false positives from co-occurring asset hashes / UUIDs.
-var anchorRe = regexp.MustCompile(`jumio[_\-]?(?:api[_\-]?(?:token|secret|key)|token|secret)\s*[:=]`)
+var anchorRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`jumio[_\-]?(?:api[_\-]?(?:token|secret|key)|token|secret)\s*[:=]`)
+})
 
 // minEntropy rejects low-entropy runs (repeated chars, zero-padded blobs,
 // structured-but-non-random alnum) that clear the length floor but are
@@ -54,7 +57,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Jumio }
 func (Scanner) Keywords() []string { return []string{"jumio", "netverify"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := keyRe.FindAllSubmatchIndex(data, -1)
+	hits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}
@@ -108,7 +111,7 @@ func armedByAnchor(lower string, start int) bool {
 		from = 0
 	}
 	window := lower[from:start]
-	return anchorRe.MatchString(window)
+	return anchorRe().MatchString(window)
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

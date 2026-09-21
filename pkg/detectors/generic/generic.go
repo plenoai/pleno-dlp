@@ -7,13 +7,17 @@ import (
 	"math"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var secretShape = regexp.MustCompile(`[A-Za-z0-9+/_\-]{20,128}`)
-
 const keywordRadius = 256
+
+const (
+	secretShapeMinLength = 20
+	secretShapeMaxLength = 128
+)
 
 const minEntropy = 4.0
 
@@ -70,6 +74,9 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GenericHighEntro
 func (Scanner) Keywords() []string { return keywords }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	// Keep the cheap no-shape gate before allocating match offsets. A long
+	// allowed-character run without a credential keyword is common source
+	// text and must not materialize every 128-byte candidate.
 	if !hasSecretShapeRun(data) {
 		return nil, nil
 	}
@@ -78,11 +85,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if len(keywordSpans) == 0 {
 		return nil, nil
 	}
-
-	matches := secretShape.FindAllIndex(data, -1)
-	if len(matches) == 0 {
-		return nil, nil
-	}
+	matches := secretShapeMatches(data)
 
 	out := make([]detectors.Result, 0, len(matches))
 	seen := make(map[string]struct{}, len(matches))
@@ -169,21 +172,60 @@ func nearKeyword(secretStart, secretEnd int, keywordStarts []int) bool {
 	return false
 }
 
+// secretShapeMatches is equivalent to FindAllIndex on
+// `[A-Za-z0-9+/_\-]{20,128}`. Scanning complete allowed-character runs keeps
+// each match anchored at the same byte where the regexp would begin; splitting
+// a run into independent vicinity slices would change the 128-byte match
+// boundaries and therefore the reported secret bytes.
+func secretShapeMatches(data []byte) [][2]int {
+	var matches [][2]int
+	runStart := -1
+	for i, c := range data {
+		if isSecretShapeByte(c) {
+			if runStart < 0 {
+				runStart = i
+			}
+			continue
+		}
+		matches = appendSecretShapeMatches(matches, runStart, i)
+		runStart = -1
+	}
+	return appendSecretShapeMatches(matches, runStart, len(data))
+}
+
+func appendSecretShapeMatches(matches [][2]int, start, end int) [][2]int {
+	if start < 0 {
+		return matches
+	}
+	for end-start >= secretShapeMinLength {
+		matchEnd := start + secretShapeMaxLength
+		if matchEnd > end {
+			matchEnd = end
+		}
+		matches = append(matches, [2]int{start, matchEnd})
+		start = matchEnd
+	}
+	return matches
+}
+
 func hasSecretShapeRun(data []byte) bool {
-	const minLen = 20
 	run := 0
 	for _, c := range data {
-		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-			c == '+' || c == '/' || c == '_' || c == '-' {
+		if isSecretShapeByte(c) {
 			run++
-			if run >= minLen {
+			if run >= secretShapeMinLength {
 				return true
 			}
-		} else {
-			run = 0
+			continue
 		}
+		run = 0
 	}
 	return false
+}
+
+func isSecretShapeByte(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+		c == '+' || c == '/' || c == '_' || c == '-'
 }
 
 // looksLikeIdentifier reports whether s looks like a source-code
@@ -272,7 +314,9 @@ func looksLikeHexDigest(s string) bool {
 // pbkdf2. Wherever one of these appears, the surrounding entropy run is
 // unmistakably a hash literal from a hashing-library test fixture — never
 // a live secret.
-var cryptHashMarkerRE = regexp.MustCompile(`\$(2[abxy]|argon2(?:id|i|d)|1|5|6|pbkdf2(?:-sha\d+)?)\$`)
+var cryptHashMarkerRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\$(2[abxy]|argon2(?:id|i|d)|1|5|6|pbkdf2(?:-sha\d+)?)\$`)
+})
 
 // cryptHashLookback bounds how far back from a candidate's start we scan
 // for a crypt-format marker. bcrypt/argon2 hash literals are at most
@@ -301,7 +345,7 @@ func looksLikeCryptHashFragment(data []byte, start, end int) bool {
 	if lbStart < 0 {
 		lbStart = 0
 	}
-	if cryptHashMarkerRE.Match(data[lbStart:start]) {
+	if cryptHashMarkerRE().Match(data[lbStart:start]) {
 		return true
 	}
 	if start > 0 && end < len(data) && data[start-1] == '$' && data[end] == '$' {
@@ -320,7 +364,9 @@ func looksLikeCryptHashFragment(data []byte, start, end int) bool {
 // for the specific, bounded set of algorithm names rather than loosening
 // the digit tolerance generally, which would swallow real secrets like
 // AKIAIOSFODNN7EXAMPLE or ghp_aBcDeF123XYZ.
-var algoNameTokenRE = regexp.MustCompile(`(?i)sha512|sha384|sha256|sha224|sha1|md5|md4|base64|base58|base32|aes256|aes192|aes128|argon2id|argon2i|argon2d|pbkdf2|utf8|utf16|rsa2048|rsa4096|crc32|hmac256|hmac512`)
+var algoNameTokenRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)sha512|sha384|sha256|sha224|sha1|md5|md4|base64|base58|base32|aes256|aes192|aes128|argon2id|argon2i|argon2d|pbkdf2|utf8|utf16|rsa2048|rsa4096|crc32|hmac256|hmac512`)
+})
 
 // looksLikeIdentifierWithAlgoName strips known algorithm-name tokens from
 // s and re-checks looksLikeIdentifier on what's left. If s contains none
@@ -328,7 +374,7 @@ var algoNameTokenRE = regexp.MustCompile(`(?i)sha512|sha384|sha256|sha224|sha1|m
 // ever narrows an existing gap, never widens looksLikeIdentifier's own
 // behavior for strings that don't mention a known algorithm name.
 func looksLikeIdentifierWithAlgoName(s string) bool {
-	stripped := algoNameTokenRE.ReplaceAllString(s, "")
+	stripped := algoNameTokenRE().ReplaceAllString(s, "")
 	if stripped == s {
 		return false
 	}
@@ -374,10 +420,10 @@ func looksLikeBundlerAssetFilename(secret string, data []byte, end int) bool {
 // right next to Authorization/token keywords in request-header examples,
 // but a real secret is essentially never confined to this all-lowercase,
 // single-slash shape.
-var mimeTypeRE = regexp.MustCompile(`^[a-z][a-z0-9.+-]*/[a-z0-9.+-]*[a-z][a-z0-9.+-]*$`)
+var mimeTypeRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-z][a-z0-9.+-]*/[a-z0-9.+-]*[a-z][a-z0-9.+-]*$`) })
 
 func looksLikeMimeType(s string) bool {
-	return mimeTypeRE.MatchString(s)
+	return mimeTypeRE().MatchString(s)
 }
 
 // decodesToPrintableText reports whether s, interpreted as base64 (padded

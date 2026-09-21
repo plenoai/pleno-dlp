@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,7 +23,7 @@ var apiBase = ""
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // dt0c01.<id>.<secret> — id is 24 base32 chars, secret is 64 base32 chars.
-var tokenRe = regexp.MustCompile(`\b(dt0[a-z][0-9]{2}\.[A-Z0-9]{24}\.[A-Z0-9]{64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dt0[a-z][0-9]{2}\.[A-Z0-9]{24}\.[A-Z0-9]{64})\b`) })
 
 type Scanner struct{}
 
@@ -31,7 +32,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Dynatrace }
 func (Scanner) Keywords() []string { return []string{"dt0c01.", "dt0s16.", "dt0s08."} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

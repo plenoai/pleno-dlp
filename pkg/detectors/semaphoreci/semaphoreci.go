@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -37,14 +38,16 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // tokenRe stays at the original {40,80} alphanumeric range. The official docs
 // do not document a length or charset, so narrowing this would risk recall;
 // the arm regex and entropy floor carry the false-positive load instead.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style Semaphore reference that must appear within the
 // proximity window. A bare "semaphore" substring (the Go sync.Semaphore type,
 // the semaphore CLI library, generic mutex commentary) is too weak;
 // `semaphore_token` / `semaphore-api-key` / `semaphoreci secret` is the shape a
 // real token assignment or config key takes.
-var armRe = regexp.MustCompile(`(?i)semaphore(ci)?[_\- ]?(api[_\- ]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)semaphore(ci)?[_\- ]?(api[_\- ]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-information 40-80 char runs that clear the alnum
 // regex but are not random tokens (padded identifiers, repeated structure).
@@ -59,7 +62,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.SemaphoreCI }
 func (Scanner) Keywords() []string { return []string{"semaphore"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -115,7 +118,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

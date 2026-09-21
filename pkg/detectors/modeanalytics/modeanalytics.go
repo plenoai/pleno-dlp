@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -34,7 +35,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // lengths are not, so we keep a hex-restricted {16,64} range rather than
 // pinning a single length — restricting the charset from the old broad
 // [A-Za-z0-9] alnum to hex alone already removes the bulk of the base62 noise.
-var tokenRe = regexp.MustCompile(`\b([a-fA-F0-9]{16,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-fA-F0-9]{16,64})\b`) })
 
 // minEntropy rejects structured/low-information hex runs (zero-padded ids,
 // repeated-nibble placeholders) that clear the hex regex but are not real
@@ -49,7 +50,9 @@ const minEntropy = 3.0
 // what a real credential assignment or config key takes — including Mode's own
 // `access_key`/`access_secret` naming from the Discovery API docs. The bare
 // keywords stay in Keywords() as the cheap engine prefilter.
-var armRe = regexp.MustCompile(`(?i)mode[_\-]?(analytics|api|access)?[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)mode[_\-]?(analytics|api|access)?[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 type Scanner struct{}
 
@@ -58,7 +61,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.ModeAnalytics }
 func (Scanner) Keywords() []string { return []string{"mode_analytics", "modeanalytics", "mode.com"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}
@@ -114,7 +117,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

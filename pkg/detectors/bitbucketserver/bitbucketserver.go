@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -52,7 +53,7 @@ var (
 	// (pkg/detectors/atlassiandatacenter/bitbucketdatacenter):
 	// `\b(BBDC-[A-Za-z0-9+/@_-]{40,50})`. The `BBDC-` prefix is the
 	// distinguishing anchor, so no entropy floor is needed on this shape.
-	httpAccessRe = regexp.MustCompile(`\b(BBDC-[A-Za-z0-9+/@_-]{40,50})`)
+	httpAccessRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(BBDC-[A-Za-z0-9+/@_-]{40,50})`) })
 	// Some self-hosted deployments expose a prefix-less 40-char base62 PAT.
 	// No authoritative source pins this length/charset (Atlassian docs do
 	// not document a prefix-less format; upstream trufflehog only matches
@@ -60,7 +61,7 @@ var (
 	// assignment-anchor arm regex within a tight window plus an entropy
 	// floor. The bare 40-char shape is otherwise indistinguishable from
 	// commit SHAs, nonces, and object names.
-	patRe = regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`)
+	patRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`) })
 )
 
 // armRe is the assignment-style Bitbucket reference that must appear within the
@@ -69,7 +70,9 @@ var (
 // 40-char run; `bitbucket_token` / `stash-api-key` / `bb_pat secret` is the
 // shape a real credential assignment or config key takes. The bare keywords
 // remain in Keywords() as the engine prefilter.
-var armRe = regexp.MustCompile(`(?i)(?:bitbucket|stash|bbserver|bb)[\s_-]?(?:api[\s_-]?)?(?:token|key|secret|pat)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(?:bitbucket|stash|bbserver|bb)[\s_-]?(?:api[\s_-]?)?(?:token|key|secret|pat)`)
+})
 
 // minEntropy rejects low-entropy 40-char runs that clear the base62 regex but
 // are not random credentials (e.g. structured identifiers, padded names). A
@@ -101,7 +104,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		out = append(out, res)
 	}
 
-	for _, m := range httpAccessRe.FindAll(data, -1) {
+	for _, m := range httpAccessRe().FindAll(data, -1) {
 		token := string(m)
 		if _, dup := seen[token]; dup {
 			continue
@@ -111,7 +114,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	}
 
 	lower := strings.ToLower(string(data))
-	patHits := patRe.FindAllSubmatchIndex(data, -1)
+	patHits := patRe().FindAllSubmatchIndex(data, -1)
 	for _, h := range patHits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
@@ -184,7 +187,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func redact(t string) string {

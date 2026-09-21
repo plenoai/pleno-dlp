@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -29,7 +30,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // (not a fixed {32}) preserves recall for any longer hex-encoded variant
 // while the hex charset already rejects the mixed-case alphanumeric noise
 // the previous bare [A-Za-z0-9] pattern admitted.
-var tokenRe = regexp.MustCompile(`\b([a-f0-9]{32,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32,})\b`) })
 
 // armRe is the assignment-style Greenhouse/Harvest reference that must
 // appear within the proximity window. A bare "greenhouse"/"harvest"
@@ -40,7 +41,9 @@ var tokenRe = regexp.MustCompile(`\b([a-f0-9]{32,})\b`)
 // the bare `GREENHOUSE_API` env-var form (no token/key/secret suffix) is
 // itself a credible anchor and must arm, so the suffix is optional after
 // `api`.
-var armRe = regexp.MustCompile(`(?i)(greenhouse|harvest)[_\-]?(api([_\-]?(token|key|secret))?|token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(greenhouse|harvest)[_\-]?(api([_\-]?(token|key|secret))?|token|key|secret)`)
+})
 
 // minEntropy rejects low-entropy 32+ hex runs that clear the hex regex but
 // are not random tokens (e.g. 00000…/deadbeef-style padded placeholders or
@@ -56,7 +59,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Greenhouse }
 func (Scanner) Keywords() []string { return []string{"greenhouse"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -108,7 +111,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

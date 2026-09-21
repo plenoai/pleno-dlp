@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -26,14 +27,16 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // recall. The false-positive load is carried instead by an assignment-anchor
 // keyword gate (armRe within a tight window) plus a conservative entropy
 // floor. See research record: no authoritative format found.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // armRe is the assignment-style NEAR-RPC reference that must appear within the
 // proximity window. A bare "pagoda"/"fastnear"/"near-rpc" substring (docs
 // links, dependency names, prose) is too weak; the shape a real credential
 // assignment or config key takes is e.g. NEAR_RPC_API_KEY, PAGODA_API_KEY,
 // fastnear-token, nearrpc_secret.
-var armRe = regexp.MustCompile(`(?i)(near[_\-]?rpc|nearrpc|pagoda|fastnear|near[_\-]?protocol|nearprotocol)[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(near[_\-]?rpc|nearrpc|pagoda|fastnear|near[_\-]?protocol|nearprotocol)[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-entropy 32-64-char alnum runs that clear the regex
 // and the keyword gate but are not random tokens (padded identifiers, repeated
@@ -49,7 +52,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.NearRPC }
 func (Scanner) Keywords() []string { return []string{"near-rpc", "nearrpc", "pagoda", "fastnear"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -103,7 +106,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -23,7 +24,7 @@ var apiBase = "https://accounts.spotify.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var idRe = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
+var idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
 
 var contextKeywords = []string{"spotify", "spotify_client", "client_id", "client_secret"}
 
@@ -34,7 +35,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Spotify }
 func (Scanner) Keywords() []string { return []string{"spotify"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := idRe.FindAllSubmatchIndex(data, -1)
+	hits := idRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

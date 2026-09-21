@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -16,9 +17,9 @@ var imsBase = "https://ims-na1.adobelogin.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var keyRe = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
 
-var secretRe = regexp.MustCompile(`\b((?:p8e-)?[A-Za-z0-9_-]{32,64})\b`)
+var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:p8e-)?[A-Za-z0-9_-]{32,64})\b`) })
 
 var contextKeywords = []string{"adobeio", "adobe.io", "adobe_client", "adobe_api"}
 
@@ -29,11 +30,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AdobeIO }
 func (Scanner) Keywords() []string { return []string{"adobeio", "adobe.io"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	keys := keyRe.FindAllSubmatchIndex(data, -1)
+	keys := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(keys) == 0 {
 		return nil, nil
 	}
-	secrets := secretRe.FindAllSubmatchIndex(data, -1)
+	secrets := secretRe().FindAllSubmatchIndex(data, -1)
 	lower := strings.ToLower(string(data))
 
 	out := make([]detectors.Result, 0, len(keys))

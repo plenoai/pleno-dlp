@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -17,7 +18,7 @@ var apiBase = "https://console.anyscale.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b(esct_[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{40,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(esct_[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{40,})\b`) })
 
 var contextKeywords = []string{"anyscale"}
 
@@ -28,7 +29,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Anyscale }
 func (Scanner) Keywords() []string { return []string{"anyscale"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

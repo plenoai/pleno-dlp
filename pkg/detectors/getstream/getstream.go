@@ -21,28 +21,31 @@ package getstream
 import (
 	"context"
 	"regexp"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{12,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{12,80})\b`) })
 
 // hexShaRe matches a 40-char hex run (Git SHA-1) — a common neighbour of a
 // `stream.io migration` commit message that must never be paired as a credential.
-var hexShaRe = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
+var hexShaRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-fA-F0-9]{40}$`) })
 
 // credAnchorRe is the *credential-context* anchor. A bare Stream URL/identifier
 // (`getstream.io`, `stream.io`, `stream_io`, `streamio`) is deliberately
 // excluded: those appear in docs, import paths, table names and commit
 // messages with no real secret nearby, and pairing on them grabs any two
 // adjacent alnum identifiers. We require an explicit key/secret/app marker.
-var credAnchorRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`stream[_\-]?api[_\-]?key` +
-	`|stream[_\-]?api[_\-]?secret` +
-	`|getstream[_\-]?(?:api[_\-]?key|api[_\-]?secret|secret|token|key)` +
-	`|stream[_\-]?(?:secret|app[_\-]?id|app[_\-]?secret)` +
-	`)`)
+var credAnchorRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`stream[_\-]?api[_\-]?key` +
+		`|stream[_\-]?api[_\-]?secret` +
+		`|getstream[_\-]?(?:api[_\-]?key|api[_\-]?secret|secret|token|key)` +
+		`|stream[_\-]?(?:secret|app[_\-]?id|app[_\-]?secret)` +
+		`)`)
+})
 
 type Scanner struct{}
 
@@ -53,11 +56,11 @@ func (Scanner) Keywords() []string {
 }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}
-	anchors := credAnchorRe.FindAllIndex(data, -1)
+	anchors := credAnchorRe().FindAllIndex(data, -1)
 	if len(anchors) == 0 {
 		return nil, nil
 	}
@@ -107,7 +110,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 //     — real Stream credentials are high-variety random strings);
 //   - 40-char hex Git SHA shapes.
 func plausibleCredential(t string) bool {
-	if hexShaRe.MatchString(t) {
+	if hexShaRe().MatchString(t) {
 		return false
 	}
 	if !detectors.HasMinEntropy(t, 3.0) {

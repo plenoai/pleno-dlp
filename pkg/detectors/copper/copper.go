@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,9 @@ var apiBase = "https://api.copper.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var emailRe = regexp.MustCompile(`\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b`)
+var emailRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b`)
+})
 
 // Copper API keys are 32-char lowercase-hex strings, per the upstream
 // trufflehog detector (PrefixRegex(["copper"]) + \b([a-z0-9]{32})\b).
@@ -27,14 +30,14 @@ var emailRe = regexp.MustCompile(`\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z
 // authoritative shape we mirror: fixed length 32, charset [a-z0-9].
 // The previous bare [A-Za-z0-9]{32,128} matched commit SHAs, base64url
 // nonces, k8s object names, and arbitrary high-entropy blobs.
-var tokenRe = regexp.MustCompile(`\b([a-z0-9]{32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z0-9]{32})\b`) })
 
 // armRe is the assignment-style Copper reference that must appear within
 // the proximity window of the token. A bare "copper" substring is far too
 // weak; "copper_api_token" / "copper-key" / "coppersecret" is the shape a
 // real credential assignment or config key takes. The bare "copper" keyword
 // stays in Keywords() as the engine prefilter.
-var armRe = regexp.MustCompile(`(?i)copper[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)copper[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // minEntropy is the hex floor (alphabet 16 → ceiling ~4.0). 3.5 would
 // over-cull legitimate hex tokens; 3.0 still rejects runs of zeros,
@@ -50,8 +53,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Copper }
 func (Scanner) Keywords() []string { return []string{"copper"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	emails := emailRe.FindAllSubmatchIndex(data, -1)
-	tokens := tokenRe.FindAllSubmatchIndex(data, -1)
+	emails := emailRe().FindAllSubmatchIndex(data, -1)
+	tokens := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(emails) == 0 || len(tokens) == 0 {
 		return nil, nil
 	}
@@ -141,7 +144,7 @@ func nearCopper(lower string, start, end int) bool {
 // nearArm gates the token half: a copper[_-]?(api[_-]?)?(token|key|secret)
 // assignment-style reference within the tight window.
 func nearArm(lower string, start, end int) bool {
-	return armRe.MatchString(window(lower, start, end))
+	return armRe().MatchString(window(lower, start, end))
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

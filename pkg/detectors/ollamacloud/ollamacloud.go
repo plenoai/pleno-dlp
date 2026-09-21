@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Ollama Cloud keys are 40-80 alnum / base64url chars (no documented
 // fixed prefix as of 2026); we anchor on length + the `ollama` keyword.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_\-]{40,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_\-]{40,80})\b`) })
 
 var contextKeywords = []string{"ollama", "ollama.com", "ollamacloud"}
 
@@ -30,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.OllamaCloud }
 func (Scanner) Keywords() []string { return []string{"ollama"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

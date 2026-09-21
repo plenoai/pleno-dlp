@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"reflect"
 	"slices"
 	"sort"
@@ -29,6 +30,10 @@ type Finding struct {
 	Chunk          *sources.Chunk
 	Detector       detectors.DetectorType
 	VerifierBacked bool
+	// RawSpan is the absolute byte span of Result.Raw in a replayable raw
+	// source. Buffered findings leave it nil and retain the historical
+	// Chunk.Data lookup in output formatters.
+	RawSpan *[2]int
 	// SuppressedBy names the filter that suppressed this finding when it
 	// is still being forwarded for audit purposes (e.g. --show-suppressed
 	// routing a placeholder-filtered finding straight to the output
@@ -82,8 +87,6 @@ type Engine struct {
 	prefilter             *ahocorasick.Matcher
 	detectorIdxByPattern  [][]int
 	lowerBufPool          sync.Pool
-	hitsBufPool           sync.Pool
-	decodeBufPool         sync.Pool
 	sink                  Sink
 	verificationCache     *verificationCache
 	verificationFlights   singleflight.Group
@@ -92,6 +95,146 @@ type Engine struct {
 	failures              []ScanFailure
 	failureTotal          int
 	failureCounts         map[FailureKind]int
+}
+
+type streamMatch struct {
+	offset       int64
+	newlineCount int
+	found        bool
+}
+
+type streamMatchCache struct {
+	reader  io.ReaderAt
+	size    int64
+	values  map[string]streamMatch
+	pending *streamFindingBatch
+}
+
+func newStreamMatchCache(reader io.ReaderAt, size int64) *streamMatchCache {
+	if reader == nil {
+		return nil
+	}
+	return &streamMatchCache{reader: reader, size: size, values: make(map[string]streamMatch)}
+}
+
+type streamFindingBatch struct {
+	findings      []Finding
+	resolveFailed bool
+}
+
+func (b *streamFindingBatch) append(finding Finding) {
+	if b == nil {
+		return
+	}
+	b.findings = append(b.findings, finding)
+}
+
+func (b *streamFindingBatch) flush(ctx context.Context, e *Engine, c *sources.Chunk, cache *streamMatchCache) {
+	if b == nil || len(b.findings) == 0 {
+		return
+	}
+	if !b.resolveFailed {
+		raws := make([][]byte, 0, len(b.findings))
+		for _, pending := range b.findings {
+			raws = append(raws, pending.Result.Raw)
+		}
+		resolveErr := cache.resolve(ctx, raws)
+		if resolveErr != nil {
+			b.resolveFailed = true
+			if ctx.Err() == nil {
+				e.recordFailure(ScanFailure{Kind: FailureSource, Source: archiveFailureSource(c), Err: resolveErr})
+			}
+		}
+	}
+	for i := range b.findings {
+		pending := &b.findings[i]
+		raw := pending.Result.Raw
+		if match, ok := cache.lookup(raw); ok && match.found {
+			if hasSourceLine(pending.Chunk) {
+				base := sourceLine(pending.Chunk)
+				if base <= 0 {
+					base = 1
+				}
+				pending.Chunk = chunkForFinding(pending.Chunk, base+match.newlineCount, true)
+			}
+			if uint64(match.offset) <= uint64(^uint(0)>>1)-uint64(len(raw)) {
+				start := int(match.offset)
+				pending.RawSpan = &[2]int{start, start + len(raw)}
+			}
+		}
+		e.sink.Emit(*pending)
+	}
+	clear(b.findings)
+	b.findings = b.findings[:0]
+}
+
+func (c *streamMatchCache) match(ctx context.Context, raw []byte) (streamMatch, error) {
+	if c == nil || len(raw) == 0 {
+		return streamMatch{offset: -1}, nil
+	}
+	key := string(raw)
+	if match, ok := c.values[key]; ok {
+		return match, nil
+	}
+	offset, newlineCount, err := findReaderMatch(ctx, c.reader, c.size, raw)
+	match := streamMatch{offset: offset, newlineCount: newlineCount, found: offset >= 0}
+	if err == nil {
+		c.values[key] = match
+	}
+	return match, err
+}
+
+func (c *streamMatchCache) lookup(raw []byte) (streamMatch, bool) {
+	if c == nil || len(raw) == 0 {
+		return streamMatch{offset: -1}, false
+	}
+	match, ok := c.values[string(raw)]
+	return match, ok
+}
+
+const streamBatchMaxRaw = 32 << 10
+
+// Keep detector output bounded while retaining enough findings to resolve
+// their raw spans in one pass. The cache survives each flush, so repeated raw
+// values do not cause another source read; a reader failure also stops retrying
+// for the rest of this variant after the first reported error.
+// ponytail: diverse batches reread the source; raise this limit only when
+// profiling shows those passes dominate and the extra pending memory fits.
+const streamFindingBatchLimit = 1024
+
+// resolve finds all short, uncached raw values in one bounded forward pass.
+// Long values keep the exact single-pattern fallback because making the block
+// overlap as large as an arbitrary detector result would defeat the stream
+// memory bound.
+func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte) error {
+	if c == nil {
+		return nil
+	}
+	short := make(map[string]struct{}, len(raws))
+	long := make([][]byte, 0)
+	for _, raw := range raws {
+		if len(raw) == 0 {
+			continue
+		}
+		key := string(raw)
+		if _, ok := c.values[key]; ok {
+			continue
+		}
+		if len(raw) <= streamBatchMaxRaw {
+			short[key] = struct{}{}
+		} else {
+			long = append(long, raw)
+		}
+	}
+	if err := findReaderMatches(ctx, c.reader, c.size, short, c.values); err != nil {
+		return err
+	}
+	for _, raw := range long {
+		if _, err := c.match(ctx, raw); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type redactedArchiveCoverageError struct {
@@ -268,14 +411,6 @@ func (e *Engine) buildPrefilter() {
 	}
 	e.prefilter = ahocorasick.New(patterns)
 	e.detectorIdxByPattern = detectorIdxByPattern
-	e.decodeBufPool.New = func() any {
-		buffer := make([]byte, maxWindowSize)
-		return &buffer
-	}
-	e.hitsBufPool.New = func() any {
-		hits := make([]ahocorasick.Hit, 0, 64)
-		return &hits
-	}
 	e.lowerBufPool.New = func() any {
 		b := make([]byte, 0, 4096)
 		return &b
@@ -300,7 +435,10 @@ func (e *Engine) RunWithStats(ctx context.Context, src sources.Source) (Stats, e
 	start := time.Now()
 	before := e.AggregateStats()
 	e.resetFailures()
-	ch := make(chan *sources.Chunk, e.opts.Concurrency*2)
+	// Keep chunk ownership at the source/worker hand-off. A buffered queue
+	// lets each source worker retain a full chunk while workers are already
+	// holding their own chunks, multiplying peak RSS for large files.
+	ch := make(chan *sources.Chunk)
 
 	var wg sync.WaitGroup
 	for i := 0; i < e.opts.Concurrency; i++ {
@@ -373,6 +511,13 @@ func (e *Engine) takeFailures() error {
 
 // scanChunk expands archive chunks and dispatches every leaf chunk.
 func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
+	if c == nil {
+		return
+	}
+	if c.Open != nil {
+		e.scanOpenedChunk(ctx, c)
+		return
+	}
 	if archive.LooksLikeArchive(c.Data) {
 		e.scanArchive(ctx, c, 5*time.Second)
 		return
@@ -380,20 +525,96 @@ func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
 	e.scanChunkLeaf(ctx, c, "")
 }
 
+// scanOpenedChunk keeps large source bodies replayable instead of retaining a
+// byte slice in the source queue. The opener owns admission checks (for
+// example binary sniffing); the engine owns the returned closer until all
+// decoder variants and detector passes have completed.
+func (e *Engine) scanOpenedChunk(ctx context.Context, c *sources.Chunk) {
+	reader, closer, size, err := c.Open(ctx)
+	if closer != nil {
+		defer func() {
+			if closeErr := closer.Close(); closeErr != nil && ctx.Err() == nil {
+				e.recordFailure(ScanFailure{Kind: FailureSource, Source: archiveFailureSource(c), Err: closeErr})
+			}
+		}()
+	}
+	if err != nil {
+		if ctx.Err() == nil {
+			e.recordFailure(ScanFailure{Kind: FailureSource, Source: archiveFailureSource(c), Err: err})
+		}
+		return
+	}
+	if reader == nil {
+		// A nil reader with no error is the source's explicit skip result.
+		return
+	}
+	if size < 0 {
+		if ctx.Err() == nil {
+			e.recordFailure(ScanFailure{Kind: FailureSource, Source: archiveFailureSource(c), Err: errors.New("source returned a negative body size")})
+		}
+		return
+	}
+
+	isArchive, err := readerLooksLikeArchive(reader, size)
+	if err != nil {
+		if ctx.Err() == nil {
+			e.recordFailure(ScanFailure{Kind: FailureSource, Source: archiveFailureSource(c), Err: err})
+		}
+		return
+	}
+	if isArchive {
+		// SectionReader supplies the archive walker a bounded view of the
+		// source's replayable body without copying the outer archive.
+		e.scanArchiveReader(ctx, c, io.NewSectionReader(reader, 0, size), size, 5*time.Second)
+		return
+	}
+	e.scanChunkLeafReader(ctx, c, "", reader, size)
+}
+
+func readerLooksLikeArchive(reader io.ReaderAt, size int64) (bool, error) {
+	if size == 0 {
+		return false, nil
+	}
+	n := size
+	if n > 512 {
+		n = 512
+	}
+	prefix := make([]byte, int(n))
+	got, err := reader.ReadAt(prefix, 0)
+	if err != nil && !(errors.Is(err, io.EOF) && got == len(prefix)) {
+		return false, fmt.Errorf("read archive prefix: %w", err)
+	}
+	if got != len(prefix) {
+		return false, io.ErrUnexpectedEOF
+	}
+	return archive.LooksLikeArchive(prefix), nil
+}
+
 // scanArchive visits one validated leaf at a time. The expansion budget excludes
 // detector/verification time, as it did when expansion preceded all detection.
 func (e *Engine) scanArchive(ctx context.Context, c *sources.Chunk, budget time.Duration) {
+	e.scanArchiveWith(ctx, c, budget, func(walkCtx context.Context, limits archive.Limits, visit func(archive.StreamEntry) error) error {
+		return archive.WalkBytesContext(walkCtx, archiveRootName(c), c.Data, limits, visit)
+	})
+}
+
+func (e *Engine) scanArchiveReader(ctx context.Context, c *sources.Chunk, input io.Reader, size int64, budget time.Duration) {
+	e.scanArchiveWith(ctx, c, budget, func(walkCtx context.Context, limits archive.Limits, visit func(archive.StreamEntry) error) error {
+		return archive.WalkStreamContext(walkCtx, archiveRootName(c), input, size, limits, visit)
+	})
+}
+
+func (e *Engine) scanArchiveWith(ctx context.Context, c *sources.Chunk, budget time.Duration, walk func(context.Context, archive.Limits, func(archive.StreamEntry) error) error) {
 	archiveCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	started := time.Now()
 	timer := time.AfterFunc(budget, func() { cancel(context.DeadlineExceeded) })
 	defer timer.Stop()
-	err := archive.WalkStreamContext(archiveCtx, archiveRootName(c), bytes.NewReader(c.Data), int64(len(c.Data)), archive.Limits{
+	err := walk(archiveCtx, archive.Limits{
 		MaxDepth: 3, MaxEntryBytes: 10 << 20, MaxExpandedBytes: 50 << 20, MaxFiles: 1000,
 	}, func(entry archive.StreamEntry) error {
-		data := make([]byte, entry.Size)
-		if _, err := io.ReadFull(entry.Reader, data); err != nil {
-			return err
+		if entry.Size < 0 || entry.Size > int64(^uint(0)>>1) {
+			return fmt.Errorf("archive entry %q has invalid size %d", entry.Path, entry.Size)
 		}
 		if !timer.Stop() {
 			return context.DeadlineExceeded
@@ -403,8 +624,30 @@ func (e *Engine) scanArchive(ctx context.Context, c *sources.Chunk, budget time.
 			return context.DeadlineExceeded
 		}
 		inner := *c
-		inner.Data = data
-		e.scanChunkLeaf(ctx, &inner, entry.Path)
+		inner.Open = nil
+		if readerAt, ok := entry.Reader.(io.ReaderAt); ok {
+			if entry.Size <= archiveBufferedLeafThreshold {
+				data, readErr := readReaderAt(ctx, readerAt, entry.Size)
+				if readErr != nil {
+					return readErr
+				}
+				inner.Data = data
+				e.scanChunkLeaf(ctx, &inner, entry.Path)
+			} else {
+				// archive's spool reader is a bytes.Reader or SectionReader. Keep
+				// large replayable leaves on disk/memory where the archive walker
+				// put them, rather than copying them into a second body.
+				inner.Data = nil
+				e.scanChunkLeafReader(ctx, &inner, entry.Path, readerAt, entry.Size)
+			}
+		} else {
+			data := make([]byte, entry.Size)
+			if _, err := io.ReadFull(entry.Reader, data); err != nil {
+				return err
+			}
+			inner.Data = data
+			e.scanChunkLeaf(ctx, &inner, entry.Path)
+		}
 		started = time.Now()
 		timer.Reset(budget)
 		return ctx.Err()
@@ -461,6 +704,10 @@ const (
 	maxWindowSize  = 32 * 1024
 	windowOverlap  = 1024
 	windowStepSize = maxWindowSize - windowOverlap
+	// Keep only small archive leaves on the historical buffered path. Larger
+	// replayable leaves stay in the archive spool and use the bounded reader
+	// scanner, avoiding a second body-sized allocation.
+	archiveBufferedLeafThreshold = 128 << 10
 )
 
 // scanChunkLeaf runs every detector against a single chunk after archive
@@ -485,21 +732,217 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 	lowerPtr := e.lowerBufPool.Get().(*[]byte)
 	defer e.lowerBufPool.Put(lowerPtr)
 
-	// FullChunkDetector opt-ins see the entire chunk independent of
-	// the windowing loop below. BEGIN/END
-	// anchored regexes don't survive being split across a 32 KiB
-	// window boundary even with overlap, so we pay the per-chunk
-	// regex cost once on the whole chunk for that small set.
-	e.runFullChunkDetectors(ctx, c, archivePath)
+	// Decode once per chunk before slicing windows. Decoding each raw window
+	// independently resets base64/hex run alignment at every boundary and can
+	// lose a credential that starts in an earlier window. The decoded variants
+	// are already owned for the duration of this loop, so detector results do
+	// not need the old scratch-buffer clone path.
+	variants := decoder.Variants(c.Data)
+	for _, v := range variants {
+		if ctx.Err() != nil {
+			return
+		}
+		e.runFullChunkDetectors(ctx, c, v, archivePath)
+		e.scanVariantWindows(ctx, c, v, archivePath, lowerPtr)
+	}
+}
 
-	data := c.Data
+// scanChunkLeafReader is the replayable-input equivalent of
+// scanChunkLeaf. WalkVariants keeps raw and decoded representations alive
+// only for the callback, and each callback scans bounded windows directly
+// from its ReaderAt. No source-sized byte slice is created here.
+func (e *Engine) scanChunkLeafReader(ctx context.Context, c *sources.Chunk, archivePath string, reader io.ReaderAt, size int64) {
+	e.stats.chunks.Add(1)
+	e.stats.bytes.Add(size)
+	if e.prefilter == nil {
+		return
+	}
+
+	lowerPtr := e.lowerBufPool.Get().(*[]byte)
+	defer e.lowerBufPool.Put(lowerPtr)
+	windowBuf := make([]byte, maxWindowSize)
+	matchCache := newStreamMatchCache(reader, size)
+	err := decoder.WalkVariants(ctx, reader, size, func(source string, variant io.ReaderAt, variantSize int64) error {
+		batch := &streamFindingBatch{}
+		matchCache.pending = batch
+		defer func() {
+			matchCache.pending = nil
+			batch.flush(ctx, e, c, matchCache)
+		}()
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := e.runFullChunkReaderDetectors(ctx, c, source, variant, variantSize, archivePath, matchCache); err != nil {
+			return err
+		}
+		return e.scanVariantWindowsReader(ctx, c, source, variant, variantSize, archivePath, lowerPtr, windowBuf, matchCache)
+	})
+	if err != nil && ctx.Err() == nil {
+		e.recordFailure(ScanFailure{Kind: FailureSource, Source: archiveFailureSource(c), Err: err})
+	}
+}
+
+// scanVariantWindowsReader feeds the same dispatch path used by buffered
+// chunks, but reuses one bounded window buffer. Stream line and span metadata
+// are resolved against the raw reader, so overlapping windows need no line
+// bookkeeping of their own.
+func (e *Engine) scanVariantWindowsReader(ctx context.Context, c *sources.Chunk, source string, reader io.ReaderAt, size int64, archivePath string, lowerPtr *[]byte, windowBuf []byte, matchCache *streamMatchCache) error {
+	if size == 0 {
+		return nil
+	}
+	if int64(len(windowBuf)) < min(size, int64(maxWindowSize)) {
+		return errors.New("engine: stream window buffer is too small")
+	}
+	for start := int64(0); start < size; start += windowStepSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		windowSize := min(int64(len(windowBuf)), size-start)
+		window := windowBuf[:int(windowSize)]
+		n, err := reader.ReadAt(window, start)
+		if err != nil && !(errors.Is(err, io.EOF) && n == len(window)) {
+			return fmt.Errorf("read %s variant at %d: %w", sourceName(source), start, err)
+		}
+		if n != len(window) {
+			return fmt.Errorf("read %s variant at %d: got %d bytes, want %d", sourceName(source), start, n, len(window))
+		}
+		v := decoder.Variant{Source: source, Data: window}
+		e.dispatchAt(ctx, c, v, archivePath, lowerPtr, true, matchCache)
+		if start+windowSize == size {
+			break
+		}
+	}
+	return nil
+}
+
+func sourceName(source string) string {
+	if source == "" {
+		return "raw"
+	}
+	return source
+}
+
+// runFullChunkDetectors dispatches every detector that opted in via
+// FullChunkDetector against the whole chunk in one pass — bypassing
+// both the windowing loop and the vicinity-slice dispatch. The
+// scanVariantWindows path then SKIPs these detectors, so each
+// FullChunk detector emits exactly once per chunk regardless of how
+// many windows the chunk is split into.
+func (e *Engine) runFullChunkDetectors(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string) {
+	if !slices.Contains(e.wantsFull, true) {
+		return
+	}
+	// FullChunkDetector opt-ins see every whole-chunk decoded variant once.
+	// The window path below skips these detectors, preserving the previous
+	// exactly-once-per-variant contract.
+	for di := range e.dets {
+		if !e.wantsFull[di] {
+			continue
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		e.runDetectorOn(ctx, c, v, archivePath, di, v.Data)
+	}
+}
+
+func (e *Engine) runFullChunkReaderDetectors(ctx context.Context, c *sources.Chunk, source string, reader io.ReaderAt, size int64, archivePath string, matchCache *streamMatchCache) error {
+	if !slices.Contains(e.wantsFull, true) {
+		return nil
+	}
+	variant := decoder.Variant{Source: source}
+	for di, d := range e.dets {
+		if !e.wantsFull[di] {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		var (
+			results []detectors.Result
+			err     error
+		)
+		verify := e.readerDetectorVerify(di)
+		verifyStarted := time.Now()
+		switch rd := d.(type) {
+		case detectors.ReaderDetector:
+			if verify && e.isVerifier[di] {
+				// ReaderDetector has no byte-slice verification-cache route;
+				// preserve the existing bypass accounting while keeping the
+				// source body bounded.
+				e.stats.verificationCacheBypasses.Add(1)
+			}
+			results, err = rd.FromReader(ctx, verify, reader, size)
+		default:
+			// External FullChunkDetector implementations may not have adopted
+			// the optional stream method. Keep their exact FromData semantics;
+			// this is a bounded compatibility fallback for source limits.
+			data, readErr := readReaderAt(ctx, reader, size)
+			if readErr != nil {
+				return readErr
+			}
+			e.runDetectorOnAt(ctx, c, variant, archivePath, di, data, true, matchCache)
+			continue
+		}
+		if verify && e.isVerifier[di] {
+			e.stats.verifiedDetectorCalls.Add(1)
+			e.stats.verifiedDetectorCallNanos.Add(time.Since(verifyStarted).Nanoseconds())
+		}
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			e.recordFailure(ScanFailure{Kind: FailureDetector, Source: archiveFailureSource(c), Detector: d.Type(), Err: err})
+			continue
+		}
+
+		for _, result := range results {
+			e.emitDetectorResult(ctx, c, variant, archivePath, di, true, result, matchCache)
+		}
+	}
+	return nil
+}
+
+func (e *Engine) readerDetectorVerify(di int) bool {
+	verify := !e.opts.NoVerify
+	if minimum := e.opts.MinimumVerificationAssurance; verify && minimum != detectors.AssuranceUnknown {
+		verify = e.verificationAssurance[di] >= minimum
+	}
+	return verify
+}
+
+func readReaderAt(ctx context.Context, reader io.ReaderAt, size int64) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if size < 0 || uint64(size) > uint64(^uint(0)>>1) {
+		return nil, errors.New("engine: replayable body exceeds addressable memory")
+	}
+	data := make([]byte, int(size))
+	if len(data) == 0 {
+		return data, nil
+	}
+	n, err := reader.ReadAt(data, 0)
+	if err != nil && !(errors.Is(err, io.EOF) && n == len(data)) {
+		return nil, err
+	}
+	if n != len(data) {
+		return nil, io.ErrUnexpectedEOF
+	}
+	return data, nil
+}
+
+// scanVariantWindows dispatches one already-decoded variant in bounded
+// windows. Keeping decoder state outside this loop preserves encoded-run
+// alignment while retaining the regex work bound for large variants.
+func (e *Engine) scanVariantWindows(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, lowerPtr *[]byte) {
+	data := v.Data
 	if len(data) <= maxWindowSize {
-		e.scanWindow(ctx, c, data, archivePath, lowerPtr)
+		e.dispatch(ctx, c, v, archivePath, lowerPtr)
 		return
 	}
 	for start := 0; start < len(data); start += windowStepSize {
-		// A cancelled scan stops sliding the window; remaining windows
-		// of this chunk go unscanned by design.
 		if ctx.Err() != nil {
 			return
 		}
@@ -507,54 +950,12 @@ func (e *Engine) scanChunkLeaf(ctx context.Context, c *sources.Chunk, archivePat
 		if end > len(data) {
 			end = len(data)
 		}
-		e.scanWindow(ctx, c, data[start:end], archivePath, lowerPtr)
+		window := v
+		window.Data = data[start:end]
+		e.dispatch(ctx, c, window, archivePath, lowerPtr)
 		if end == len(data) {
 			break
 		}
-	}
-}
-
-// runFullChunkDetectors dispatches every detector that opted in via
-// FullChunkDetector against the whole chunk in one pass — bypassing
-// both the windowing loop and the vicinity-slice dispatch. The
-// scanWindow path then SKIPs these detectors, so each
-// FullChunk detector emits exactly once per chunk regardless of how
-// many windows the chunk is split into.
-func (e *Engine) runFullChunkDetectors(ctx context.Context, c *sources.Chunk, archivePath string) {
-	if !slices.Contains(e.wantsFull, true) {
-		return
-	}
-	// Decode variants from the whole chunk so an encoded PEM inside a
-	// base64 blob still reaches the detector. Cheap when the chunk
-	// has no candidate runs.
-	variants := decoder.Variants(c.Data)
-	for _, v := range variants {
-		// Stop dispatching full-chunk detectors once the scan is
-		// cancelled — same forfeit-completeness contract as the
-		// windowed dispatch path.
-		if ctx.Err() != nil {
-			return
-		}
-		for di := range e.dets {
-			if !e.wantsFull[di] {
-				continue
-			}
-			e.runDetectorOn(ctx, c, v, archivePath, di, v.Data, false)
-		}
-	}
-}
-
-// scanWindow runs the variant fan-out + dispatch for a single window of
-// chunk bytes.
-func (e *Engine) scanWindow(ctx context.Context, c *sources.Chunk, window []byte, archivePath string, lowerPtr *[]byte) {
-	// Variants[0] is always window unchanged (Source=""). Subsequent
-	// entries are base64/percent/hex decode results, included only when
-	// the window contained candidate runs.
-	scratch := e.decodeBufPool.Get().(*[]byte)
-	defer e.decodeBufPool.Put(scratch)
-	variants := decoder.VariantsWithScratch(window, *scratch)
-	for _, v := range variants {
-		e.dispatch(ctx, c, v, archivePath, lowerPtr)
 	}
 }
 
@@ -582,22 +983,20 @@ const vicinityRadius = 2048
 // is the dominant win on real-OSS workloads where most detectors fire
 // on a single keyword instance.
 func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, lowerPtr *[]byte) {
+	e.dispatchAt(ctx, c, v, archivePath, lowerPtr, false, nil)
+}
+
+func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, lowerPtr *[]byte, stream bool, matchCache *streamMatchCache) {
 	lower := lowerCaseInto((*lowerPtr)[:0], v.Data)
 	*lowerPtr = lower
-	hitsPtr := e.hitsBufPool.Get().(*[]ahocorasick.Hit)
-	defer e.hitsBufPool.Put(hitsPtr)
-	hits := e.prefilter.MatchHitsInto(lower, (*hitsPtr)[:0])
-	*hitsPtr = hits
-	if len(hits) == 0 {
-		return
-	}
 	// Group hits by detector: each detector sees the union of its
 	// keyword-hit vicinities. Accumulate start/end byte ranges per
 	// detector, merge overlapping ranges, then run FromData once per
-	// merged range.
-	dets := make(map[int][]vicinitySpan)
+	// merged range. VisitHits preserves the global input order while
+	// avoiding an unbounded hit slice on repeated keywords.
+	var dets map[int][]vicinitySpan
 	var detectorOrder []int
-	for _, h := range hits {
+	e.prefilter.VisitHits(lower, func(h ahocorasick.Hit) {
 		for _, di := range e.detectorIdxByPattern[h.PatternID] {
 			// FullChunkDetector opt-ins are handled once per chunk
 			// by runFullChunkDetectors. Skip them here so they don't
@@ -605,6 +1004,9 @@ func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Varia
 			// findings into dedup.
 			if e.wantsFull[di] {
 				continue
+			}
+			if dets == nil {
+				dets = make(map[int][]vicinitySpan)
 			}
 			start := h.End - vicinityRadius
 			if start < 0 {
@@ -624,12 +1026,14 @@ func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Varia
 			// they arrive instead of allocating and sorting every occurrence.
 			spans := dets[di]
 			if len(spans) > 0 && start <= spans[len(spans)-1].end {
-				spans[len(spans)-1].end = end
+				if end > spans[len(spans)-1].end {
+					spans[len(spans)-1].end = end
+				}
 			} else {
 				dets[di] = append(spans, vicinitySpan{start, end})
 			}
 		}
-	}
+	})
 	sort.Ints(detectorOrder)
 	for _, di := range detectorOrder {
 		spans := dets[di]
@@ -639,7 +1043,7 @@ func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Varia
 			return
 		}
 		for _, sp := range spans {
-			e.runDetectorOn(ctx, c, v, archivePath, di, v.Data[sp.start:sp.end], v.Source == "base64")
+			e.runDetectorOnAt(ctx, c, v, archivePath, di, v.Data[sp.start:sp.end], stream, matchCache)
 		}
 	}
 }
@@ -655,7 +1059,11 @@ type vicinitySpan struct{ start, end int }
 // see a slice that covers every keyword hit + vicinityRadius bytes on
 // each side, which is the radius the credential regexes are written
 // against.
-func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte, borrowed bool) {
+func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte) {
+	e.runDetectorOnAt(ctx, c, v, archivePath, di, data, false, nil)
+}
+
+func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte, stream bool, matchCache *streamMatchCache) {
 	d := e.dets[di]
 	// Verification defaults to unconditional-true: the bool is the
 	// trufflehog Detector contract, not normally a configurable option.
@@ -675,36 +1083,93 @@ func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.
 		return
 	}
 	for _, r := range results {
-		if borrowed {
-			// Sinks may retain results after the window scratch is reused.
-			r.Raw = bytes.Clone(r.Raw)
-			r.RawV2 = bytes.Clone(r.RawV2)
+		e.emitDetectorResult(ctx, c, v, archivePath, di, stream, r, matchCache)
+	}
+}
+
+func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, stream bool, r detectors.Result, matchCache *streamMatchCache) {
+	d := e.dets[di]
+	if stream {
+		// Stream windows are reused for every subsequent ReadAt. Detectors are
+		// allowed to return slices into their input, so findings must own their
+		// secret bytes and metadata before the next window overwrites or reuses
+		// those values.
+		r.Raw = bytes.Clone(r.Raw)
+		r.RawV2 = bytes.Clone(r.RawV2)
+		r.ExtraData = maps.Clone(r.ExtraData)
+	}
+	if v.Source != "" {
+		if r.ExtraData == nil {
+			r.ExtraData = map[string]string{}
 		}
-		if v.Source != "" {
-			if r.ExtraData == nil {
-				r.ExtraData = map[string]string{}
-			}
-			r.ExtraData["decoded_from"] = v.Source
+		r.ExtraData["decoded_from"] = v.Source
+	}
+	applyVerificationPolicy(d, &r)
+	if r.Severity == detectors.SeverityUnknown {
+		r.Severity = detectors.DefaultSeverityForVerdict(d.Type(), r.Verdict())
+	}
+	if archivePath != "" {
+		if r.ExtraData == nil {
+			r.ExtraData = map[string]string{}
 		}
-		applyVerificationPolicy(d, &r)
-		if r.Severity == detectors.SeverityUnknown {
-			r.Severity = detectors.DefaultSeverityForVerdict(d.Type(), r.Verdict())
+		r.ExtraData["archive_path"] = archivePath
+	}
+	tagBlastRadius(&r)
+	e.stats.findings.Add(1)
+	if stream && matchCache != nil && matchCache.pending != nil {
+		if len(matchCache.pending.findings) >= streamFindingBatchLimit {
+			matchCache.pending.flush(ctx, e, c, matchCache)
 		}
-		if archivePath != "" {
-			if r.ExtraData == nil {
-				r.ExtraData = map[string]string{}
-			}
-			r.ExtraData["archive_path"] = archivePath
-		}
-		tagBlastRadius(&r)
-		e.stats.findings.Add(1)
-		e.sink.Emit(Finding{
+		matchCache.pending.append(Finding{
 			Result:         r,
-			Chunk:          chunkWithMatchLine(c, r.Raw),
+			Chunk:          chunkForFinding(c, sourceLine(c), true),
 			Detector:       d.Type(),
 			VerifierBacked: e.isVerifier[di],
 		})
+		return
 	}
+	line := 0
+	if stream {
+		// Preserve the source's original line when a detector normalizes Raw
+		// and that value cannot be located in the raw body.
+		line = sourceLine(c)
+	}
+	var (
+		cachedMatch streamMatch
+		matchErr    error
+	)
+	if stream && matchCache != nil && len(r.Raw) > 0 {
+		cachedMatch, matchErr = matchCache.match(ctx, r.Raw)
+		if matchErr == nil && cachedMatch.found && hasSourceLine(c) {
+			base := sourceLine(c)
+			if base <= 0 {
+				base = 1
+			}
+			line = base + cachedMatch.newlineCount
+		}
+	}
+	chunk := chunkWithMatchLine(c, r.Raw)
+	if stream {
+		chunk = chunkForFinding(c, line, true)
+	}
+	var rawSpan *[2]int
+	if stream && matchCache != nil && len(r.Raw) > 0 {
+		if matchErr != nil {
+			if ctx.Err() == nil {
+				e.recordFailure(ScanFailure{Kind: FailureSource, Source: archiveFailureSource(c), Err: matchErr})
+			}
+		} else if cachedMatch.found && uint64(cachedMatch.offset) <= uint64(^uint(0)>>1)-uint64(len(r.Raw)) {
+			start := int(cachedMatch.offset)
+			rawSpan = &[2]int{start, start + len(r.Raw)}
+		}
+	}
+	e.sink.Emit(Finding{
+		Result:         r,
+		Chunk:          chunk,
+		Detector:       d.Type(),
+		VerifierBacked: e.isVerifier[di],
+		RawSpan:        rawSpan,
+	})
 }
 
 func applyVerificationPolicy(detector detectors.Detector, result *detectors.Result) {
@@ -756,6 +1221,266 @@ func computeLineFromMatch(data, raw []byte, base int) int {
 		base = 1
 	}
 	return base + bytes.Count(data[:idx], []byte{'\n'})
+}
+
+func hasSourceLine(c *sources.Chunk) bool {
+	if c == nil {
+		return false
+	}
+	md := c.SourceMetadata
+	return md.Filesystem != nil || md.Git != nil || md.GitHub != nil || md.Forge != nil || md.SQLDump != nil || md.DockerImage != nil
+}
+
+func sourceLine(c *sources.Chunk) int {
+	if c == nil {
+		return 0
+	}
+	md := c.SourceMetadata
+	switch {
+	case md.Filesystem != nil:
+		return md.Filesystem.Line
+	case md.Git != nil:
+		return md.Git.Line
+	case md.GitHub != nil:
+		return md.GitHub.Line
+	case md.Forge != nil:
+		return md.Forge.Line
+	case md.SQLDump != nil:
+		return md.SQLDump.Line
+	case md.DockerImage != nil:
+		return md.DockerImage.Line
+	default:
+		return 0
+	}
+}
+
+type streamRawGroupKey struct {
+	first  byte
+	length int
+}
+
+type streamRawGroup struct {
+	length   int
+	patterns map[string]string
+}
+
+// findReaderMatches resolves short raw values in one forward pass. The scan
+// visits only offsets whose first byte is wanted, then uses an exact string
+// map within each length group. The overlap keeps matches crossing a block
+// boundary visible without retaining the source body.
+func findReaderMatches(ctx context.Context, reader io.ReaderAt, size int64, wanted map[string]struct{}, values map[string]streamMatch) error {
+	if len(wanted) == 0 {
+		return nil
+	}
+	if reader == nil || size < 0 {
+		return errors.New("engine: invalid batched raw lookup input")
+	}
+	var groupsByFirst [256][]*streamRawGroup
+	groups := make(map[streamRawGroupKey]*streamRawGroup, len(wanted))
+	maxLength := 0
+	for raw := range wanted {
+		if raw == "" {
+			continue
+		}
+		key := streamRawGroupKey{first: raw[0], length: len(raw)}
+		group := groups[key]
+		if group == nil {
+			group = &streamRawGroup{length: len(raw), patterns: make(map[string]string)}
+			groups[key] = group
+			groupsByFirst[key.first] = append(groupsByFirst[key.first], group)
+		}
+		// Keep the caller's stable string as the map value. The compiler can
+		// use the []byte slice directly for a string-key lookup, so misses do
+		// not allocate; a real hit reuses this stored key.
+		group.patterns[raw] = raw
+		if len(raw) > maxLength {
+			maxLength = len(raw)
+		}
+	}
+	if maxLength == 0 {
+		return nil
+	}
+	const blockSize = 64 << 10
+	overlap := maxLength - 1
+	buffer := make([]byte, blockSize+overlap)
+	var lineCount int
+	foundCount := 0
+scan:
+	for start := int64(0); start < size; {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		want := int64(len(buffer))
+		if remaining := size - start; remaining < want {
+			want = remaining
+		}
+		got, err := reader.ReadAt(buffer[:int(want)], start)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		if got != int(want) {
+			return io.ErrUnexpectedEOF
+		}
+		data := buffer[:got]
+		for first, firstGroups := range groupsByFirst {
+			if len(firstGroups) == 0 {
+				continue
+			}
+			for from := 0; from < len(data); {
+				offset := bytes.IndexByte(data[from:], byte(first))
+				if offset < 0 {
+					break
+				}
+				offset += from
+				for groupIndex, group := range firstGroups {
+					if groupIndex&31 == 0 {
+						if err := ctx.Err(); err != nil {
+							return err
+						}
+					}
+					end := offset + group.length
+					if end > len(data) {
+						continue
+					}
+					key, matched := group.patterns[string(data[offset:end])]
+					if !matched {
+						continue
+					}
+					if _, alreadyFound := values[key]; alreadyFound {
+						continue
+					}
+					values[key] = streamMatch{
+						offset:       start + int64(offset),
+						newlineCount: lineCount + bytes.Count(data[:offset], []byte{'\n'}),
+						found:        true,
+					}
+					foundCount++
+					if foundCount == len(wanted) {
+						break scan
+					}
+				}
+				from = offset + 1
+			}
+		}
+		if start+int64(got) == size {
+			break
+		}
+		advance := got - overlap
+		if advance <= 0 {
+			return io.ErrUnexpectedEOF
+		}
+		lineCount += bytes.Count(data[:advance], []byte{'\n'})
+		start += int64(advance)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for raw := range wanted {
+		if _, ok := values[raw]; !ok {
+			values[raw] = streamMatch{offset: -1}
+		}
+	}
+	return nil
+}
+
+// findReaderMatch returns the first raw match and the number of newlines
+// before it. It deliberately overlaps adjacent ReadAt calls so a result that
+// crosses a buffer boundary has the same first-occurrence semantics as
+// bytes.Index on the historical whole-chunk path.
+func findReaderMatch(ctx context.Context, reader io.ReaderAt, size int64, raw []byte) (int64, int, error) {
+	if len(raw) == 0 || size == 0 {
+		return -1, 0, nil
+	}
+	const blockSize = 64 << 10
+	block := blockSize
+	if len(raw)+1 > block {
+		block = len(raw) + 1
+	}
+	buf := make([]byte, block)
+	var lineCount int
+	for start := int64(0); start < size; {
+		if err := ctx.Err(); err != nil {
+			return -1, 0, err
+		}
+		want := int64(len(buf))
+		if remaining := size - start; remaining < want {
+			want = remaining
+		}
+		got, err := reader.ReadAt(buf[:int(want)], start)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return -1, 0, err
+		}
+		if got != int(want) {
+			return -1, 0, io.ErrUnexpectedEOF
+		}
+		idx := bytes.Index(buf[:got], raw)
+		if idx >= 0 {
+			return start + int64(idx), lineCount + bytes.Count(buf[:idx], []byte{'\n'}), nil
+		}
+		if got < len(raw) {
+			return -1, 0, nil
+		}
+		overlap := len(raw) - 1
+		if overlap > got {
+			overlap = got
+		}
+		advance := got - overlap
+		lineCount += bytes.Count(buf[:advance], []byte{'\n'})
+		start += int64(advance)
+		if err != nil && start >= size {
+			return -1, 0, nil
+		}
+	}
+	return -1, 0, nil
+}
+
+// chunkForFinding detaches a replayable stream body before publishing a
+// finding. The opener may close immediately after the worker returns, and
+// retaining it in a sink would make a finding unexpectedly reopen a path.
+// Stream findings intentionally leave Data nil; a later output layer can use
+// an explicit offset without retaining a source-sized or window-sized body.
+func chunkForFinding(c *sources.Chunk, line int, stream bool) *sources.Chunk {
+	if c == nil || !stream {
+		return c
+	}
+	cp := *c
+	cp.Data = nil
+	cp.Open = nil
+	setChunkLine(&cp, line)
+	return &cp
+}
+
+func setChunkLine(c *sources.Chunk, line int) {
+	if c == nil || line <= 0 {
+		return
+	}
+	md := &c.SourceMetadata
+	switch {
+	case md.Filesystem != nil:
+		m := *md.Filesystem
+		m.Line = line
+		md.Filesystem = &m
+	case md.Git != nil:
+		m := *md.Git
+		m.Line = line
+		md.Git = &m
+	case md.GitHub != nil:
+		m := *md.GitHub
+		m.Line = line
+		md.GitHub = &m
+	case md.Forge != nil:
+		m := *md.Forge
+		m.Line = line
+		md.Forge = &m
+	case md.SQLDump != nil:
+		m := *md.SQLDump
+		m.Line = line
+		md.SQLDump = &m
+	case md.DockerImage != nil:
+		m := *md.DockerImage
+		m.Line = line
+		md.DockerImage = &m
+	}
 }
 
 // chunkWithMatchLine returns a shallow copy of c whose source-metadata line

@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/hex"
-	"net/url"
 	"slices"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -37,20 +36,16 @@ func Variants(data []byte) []Variant {
 func VariantsWithScratch(data, scratch []byte) []Variant {
 	out := []Variant{{Data: data}}
 
-	if hasBase64Run(data) {
-		if v := decodeBase64WithScratch(data, scratch); v != nil {
-			out = append(out, Variant{Source: "base64", Data: v})
-		}
+	if v := decodeBase64WithScratch(data, scratch); v != nil {
+		out = append(out, Variant{Source: "base64", Data: v})
 	}
 	if hasPercentEscapePair(data) {
 		if v := decodePercentCandidate(data); v != nil {
 			out = append(out, Variant{Source: "percent", Data: v})
 		}
 	}
-	if hasHexRun(data) {
-		if v := decodeHex(data); v != nil {
-			out = append(out, Variant{Source: "hex", Data: v})
-		}
+	if v := decodeHex(data); v != nil {
+		out = append(out, Variant{Source: "hex", Data: v})
 	}
 	if src, v := tryUTF16(data); v != nil {
 		out = append(out, Variant{Source: src, Data: v})
@@ -245,6 +240,15 @@ func utf16Encoding(data []byte) (isLE bool, ok bool) {
 	return false, false
 }
 
+// LooksLikeUTF16Text cheaply recognizes UTF-16 text for sources that must
+// decide whether a NUL-containing input is binary before reading its body.
+// It shares the decoder's BOM/alternating-NUL heuristic and printable check;
+// callers still pass the original bytes to Variants for the actual decode.
+func LooksLikeUTF16Text(data []byte) bool {
+	_, decoded := tryUTF16(data)
+	return decoded != nil
+}
+
 // decodeUTF16 transcodes a UTF-16 byte slice (with or without BOM) to UTF-8.
 // If isLE is true the input is treated as little-endian; otherwise big-endian.
 // The BOM codepoint (U+FEFF) is stripped from the output.
@@ -300,47 +304,6 @@ func decodeUTF16(data []byte, isLE bool) []byte {
 		return nil
 	}
 	return out
-}
-
-// hasBase64Run reports whether data contains a plausible base64 run.
-func hasBase64Run(data []byte) bool {
-	run := 0
-	for _, c := range data {
-		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-			c == '+' || c == '/' || c == '_' || c == '-' {
-			run++
-			if run >= minBase64Run {
-				return true
-			}
-		} else {
-			run = 0
-		}
-	}
-	return false
-}
-
-// hasHexRun reports whether data contains a plausible hex run.
-func hasHexRun(data []byte) bool {
-	var lowerRun, upperRun int
-	for _, c := range data {
-		switch {
-		case c >= 'a' && c <= 'f', c >= '0' && c <= '9':
-			lowerRun++
-			upperRun = 0
-			if lowerRun >= minHexRun {
-				return true
-			}
-		case c >= 'A' && c <= 'F':
-			upperRun++
-			lowerRun = 0
-			if upperRun >= minHexRun {
-				return true
-			}
-		default:
-			lowerRun, upperRun = 0, 0
-		}
-	}
-	return false
 }
 
 // decodeBase64WithScratch appends accepted runs in source order. It only
@@ -487,24 +450,42 @@ func base64Encoding(s []byte, alphabet byte) *base64.Encoding {
 }
 
 func decodePercentCandidate(data []byte) []byte {
-	decoded, err := url.QueryUnescape(string(data))
-	if err != nil {
+	decoded := make([]byte, 0, len(data))
+	changed := false
+	for i := 0; i < len(data); i++ {
+		if data[i] == '%' && i+2 < len(data) && isHexByte(data[i+1]) && isHexByte(data[i+2]) {
+			decoded = append(decoded, hexValue(data[i+1])<<4|hexValue(data[i+2]))
+			i += 2
+			changed = true
+			continue
+		}
+		if data[i] == '+' {
+			decoded = append(decoded, ' ')
+			changed = true
+			continue
+		}
+		decoded = append(decoded, data[i])
+	}
+	if !changed || len(decoded) == len(data) || !mostlyPrintable(decoded) {
 		return nil
 	}
-	if len(decoded) == len(data) {
-		return nil
+	return decoded
+}
+
+func hexValue(c byte) byte {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0'
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10
+	default:
+		return c - 'A' + 10
 	}
-	if !mostlyPrintable([]byte(decoded)) {
-		return nil
-	}
-	return []byte(decoded)
 }
 
 // decodeHex finds hex runs >= 40 chars and concatenates their printable
-// decodes. Mixed-case runs are excluded; that's intentional — they're
-// nearly always misclassified base64. Run detection is a linear byte
-// scan to skip the RE2 setup cost the original hexRun regex paid on
-// every chunk.
+// decodes. Run detection is a linear byte scan over maximal runs,
+// preserving alignment even when the hexadecimal letter case changes.
 func decodeHex(data []byte) []byte {
 	var out []byte
 	walkHexRuns(data, func(run []byte) {
@@ -527,59 +508,23 @@ func decodeHex(data []byte) []byte {
 	return out
 }
 
-// walkHexRuns invokes fn for every maximal run of >=minHexRun bytes
-// drawn from a single-case hex alphabet (a-f0-9 or A-F0-9, not mixed).
-// Mirrors the hexRun regex without RE2.
+// walkHexRuns invokes fn for every maximal run of >=minHexRun hexadecimal
+// bytes. Hex encoding is case-insensitive, so mixed-case runs stay intact.
 func walkHexRuns(data []byte, fn func([]byte)) {
-	const (
-		caseNone byte = iota
-		caseLower
-		caseUpper
-	)
 	start := -1
-	cur := caseNone
 	flush := func(end int) {
 		if start >= 0 && end-start >= minHexRun {
 			fn(data[start:end])
 		}
 		start = -1
-		cur = caseNone
 	}
 	for i := 0; i < len(data); i++ {
-		c := data[i]
-		var kind byte
-		switch {
-		case c >= '0' && c <= '9':
-			kind = cur // digits don't force a case
-		case c >= 'a' && c <= 'f':
-			kind = caseLower
-		case c >= 'A' && c <= 'F':
-			kind = caseUpper
-		default:
+		if !isHexByte(data[i]) {
 			flush(i)
 			continue
 		}
 		if start < 0 {
 			start = i
-			if kind == caseNone {
-				kind = caseLower // bias digits to lower; will pivot on first letter
-			}
-			cur = kind
-			continue
-		}
-		if kind == caseNone {
-			// First letter wasn't seen yet; treat as compatible.
-			continue
-		}
-		if cur == caseNone {
-			cur = kind
-			continue
-		}
-		if kind != cur {
-			// Mixed case: end the previous run, start a fresh one at i.
-			flush(i)
-			start = i
-			cur = kind
 		}
 	}
 	flush(len(data))

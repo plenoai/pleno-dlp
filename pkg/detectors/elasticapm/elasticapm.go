@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -24,7 +25,7 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style Elastic APM reference that must appear within
 // the proximity window. The Elastic APM secret token is operator-defined
@@ -33,7 +34,9 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
 // distinguishing signal — a bare "elasticapm" substring (package names, doc
 // URLs, comments) is too weak to gate on. We require the token-assignment shape
 // `elastic[_-]?apm...token|secret` instead.
-var armRe = regexp.MustCompile(`(?i)elastic[_\-]?apm[_\-]?(secret[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)elastic[_\-]?apm[_\-]?(secret[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-information 40-80 char alnum runs that clear the regex
 // but are not random tokens. Conservative 3.0 floor (not 3.5): the token charset
@@ -47,7 +50,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.ElasticAPM }
 func (Scanner) Keywords() []string { return []string{"elastic-apm", "elasticapm", "elastic_apm"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -100,7 +103,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

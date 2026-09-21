@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -29,23 +30,25 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Sift Science accountId/apiKey are documented as 20-80 char
 // alphanumeric strings. We rely on the keywordRe gate to suppress
 // generic blob FPs.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{20,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{20,80})\b`) })
 
 // keywordRe requires an explicit Sift anchor. The bare substring
 // "sift" no longer satisfies, so prose like `sifted`, `sifting`,
 // `shift`, `sifter` is rejected.
-var keywordRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`sift[_\-]api(?:[_\-]key|[_\-]token)?` +
-	`|sift[_\-]account[_\-]id` +
-	`|sift[_\-]account` +
-	`|sift[_\-]key` +
-	`|sift[_\-]token` +
-	`|\bsiftscience\b` +
-	`|\bsift\.com\b` +
-	`|\bapi\.sift\.com\b` +
-	`|\bsift[ \t]*[:=][ \t]*` +
-	`)`)
+var keywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`sift[_\-]api(?:[_\-]key|[_\-]token)?` +
+		`|sift[_\-]account[_\-]id` +
+		`|sift[_\-]account` +
+		`|sift[_\-]key` +
+		`|sift[_\-]token` +
+		`|\bsiftscience\b` +
+		`|\bsift\.com\b` +
+		`|\bapi\.sift\.com\b` +
+		`|\bsift[ \t]*[:=][ \t]*` +
+		`)`)
+})
 
 type Scanner struct{}
 
@@ -54,11 +57,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Sift }
 func (Scanner) Keywords() []string { return []string{"sift"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}
-	kwSpans := keywordRe.FindAllIndex(data, -1)
+	kwSpans := keywordRe().FindAllIndex(data, -1)
 	if len(kwSpans) == 0 {
 		return nil, nil
 	}

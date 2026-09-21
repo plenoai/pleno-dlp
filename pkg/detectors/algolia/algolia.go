@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -25,9 +26,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
 	// 32 lowercase hex.
-	keyRe = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
+	keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
 	// Algolia application ids are documented as 10 uppercase alphanumerics.
-	appIDRe = regexp.MustCompile(`\b([A-Z0-9]{10})\b`)
+	appIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Z0-9]{10})\b`) })
 )
 
 var contextKeywords = []string{"algolia", "algolia_api_key", "algolia_admin_key"}
@@ -39,11 +40,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Algolia }
 func (Scanner) Keywords() []string { return []string{"algolia"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := keyRe.FindAllSubmatchIndex(data, -1)
+	hits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	apps := appIDRe.FindAllSubmatchIndex(data, -1)
+	apps := appIDRe().FindAllSubmatchIndex(data, -1)
 	lower := strings.ToLower(string(data))
 
 	out := make([]detectors.Result, 0, len(hits))

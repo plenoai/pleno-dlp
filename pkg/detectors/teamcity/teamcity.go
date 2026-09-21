@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -34,7 +35,7 @@ var (
 	rejectCodes = []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound}
 )
 
-var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_.-]{20,}|[A-Za-z0-9]{40,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_.-]{20,}|[A-Za-z0-9]{40,80})\b`) })
 
 var contextKeywords = []string{
 	"teamcity",
@@ -51,7 +52,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.TeamCity }
 func (Scanner) Keywords() []string { return []string{"teamcity"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

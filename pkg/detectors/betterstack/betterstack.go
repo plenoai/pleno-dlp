@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,7 +23,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // examples e.g. "FczKcxEhjEDE58dBX7XaeX1q"). The exact upper bound is not
 // authoritatively closed, so the lower bound 24 is sourced and the upper bound
 // stays at 40 to preserve recall on longer dashboard tokens.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24,40})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24,40})\b`) })
 
 // minEntropy rejects git-SHA-shaped and other low-information alnum runs that
 // clear the regex but lack key-grade randomness. 24-40 base62 has ample
@@ -35,7 +36,9 @@ const minEntropy = 3.5
 // of the vendor name. The arm regex requires an assignment-style
 // token/key/secret near the vendor word; bare vendor keywords remain in
 // Keywords() as the engine prefilter.
-var contextRe = regexp.MustCompile(`(?i)(?:better[_-]?stack|better[_-]?uptime|logtail)[_-]?(?:api[_-]?)?(?:token|key|secret)`)
+var contextRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(?:better[_-]?stack|better[_-]?uptime|logtail)[_-]?(?:api[_-]?)?(?:token|key|secret)`)
+})
 
 type Scanner struct{}
 
@@ -44,7 +47,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.BetterStack }
 func (Scanner) Keywords() []string { return []string{"betterstack", "logtail", "betteruptime"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -92,7 +95,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	return contextRe.MatchString(window)
+	return contextRe().MatchString(window)
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

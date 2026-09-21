@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,8 +22,12 @@ var apiBase = "https://api.crowdstrike.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
-	clientIDRe     = regexp.MustCompile(`(?i)(?:client[_\.\-]?id|falcon[_\.\-]?client[_\.\-]?id)\s*[:=]\s*["']?([a-f0-9]{32})["']?`)
-	clientSecretRe = regexp.MustCompile(`(?i)(?:client[_\.\-]?secret|falcon[_\.\-]?client[_\.\-]?secret)\s*[:=]\s*["']?([A-Za-z0-9]{40})["']?`)
+	clientIDRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)(?:client[_\.\-]?id|falcon[_\.\-]?client[_\.\-]?id)\s*[:=]\s*["']?([a-f0-9]{32})["']?`)
+	})
+	clientSecretRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)(?:client[_\.\-]?secret|falcon[_\.\-]?client[_\.\-]?secret)\s*[:=]\s*["']?([A-Za-z0-9]{40})["']?`)
+	})
 )
 
 type Scanner struct{}
@@ -35,8 +40,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if !strings.Contains(strings.ToLower(string(data)), "crowdstrike") {
 		return nil, nil
 	}
-	ids := clientIDRe.FindAllSubmatch(data, -1)
-	secrets := clientSecretRe.FindAllSubmatch(data, -1)
+	ids := clientIDRe().FindAllSubmatch(data, -1)
+	secrets := clientSecretRe().FindAllSubmatch(data, -1)
 	if len(ids) == 0 || len(secrets) == 0 {
 		return nil, nil
 	}

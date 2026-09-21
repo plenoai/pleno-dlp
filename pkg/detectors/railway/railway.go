@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -24,7 +25,9 @@ var apiBase = "https://backboard.railway.app"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // 8-4-4-4-12 hex UUID. Lowercase only — Railway emits lowercase.
-var keyRe = regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+})
 
 var contextKeywords = []string{"railway", "railway_token", "railway_api"}
 
@@ -39,7 +42,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Railway }
 func (Scanner) Keywords() []string { return []string{"railway"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := keyRe.FindAllSubmatchIndex(data, -1)
+	hits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,7 +19,9 @@ var apiBase = "https://api.zoominfo.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // ZoomInfo access tokens are JWTs (3 base64url-padded segments).
-var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,})\b`)
+})
 
 var contextKeywords = []string{"zoominfo", "zoom-info"}
 
@@ -29,7 +32,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.ZoomInfo }
 func (Scanner) Keywords() []string { return []string{"zoominfo"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

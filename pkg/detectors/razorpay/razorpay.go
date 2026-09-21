@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -39,10 +40,10 @@ var (
 	// `rzp_<env>_xxxx` placeholders without an exact length and this repo's
 	// existing fixture carries a 16-char tail, so pinning {14} would
 	// over-cull real keys. We keep {14,} to preserve recall.
-	keyRe = regexp.MustCompile(`\b(rzp_(?:test|live)_[A-Za-z0-9]{14,})\b`)
+	keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(rzp_(?:test|live)_[A-Za-z0-9]{14,})\b`) })
 	// Secret has no prefix; pinned to the documented 24 base62 chars
 	// (trufflehog upstream) rather than the previous {20,40} range.
-	secretRe = regexp.MustCompile(`\b([A-Za-z0-9]{24})\b`)
+	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24})\b`) })
 )
 
 // armRe is the assignment-style razorpay reference that must appear within the
@@ -54,7 +55,9 @@ var (
 // the common "# razorpay\nKEY=..." layout, while still rejecting a stray
 // "razorpay" mention sitting far from any assignment word. The bare "razorpay"
 // keyword is still returned from Keywords() as the engine prefilter.
-var armRe = regexp.MustCompile(`(?i)razorpay(?:[_\-]?api)?[_\-\s="':]{0,8}(?:key|secret|token|id)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)razorpay(?:[_\-]?api)?[_\-\s="':]{0,8}(?:key|secret|token|id)`)
+})
 
 // minSecretEntropy rejects low-entropy 24-char runs that clear the base62
 // regex but are not random secrets (padded identifiers, structured names).
@@ -69,11 +72,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Razorpay }
 func (Scanner) Keywords() []string { return []string{"razorpay", "rzp_test_", "rzp_live_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	keys := keyRe.FindAllSubmatchIndex(data, -1)
+	keys := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(keys) == 0 {
 		return nil, nil
 	}
-	secrets := secretRe.FindAllSubmatchIndex(data, -1)
+	secrets := secretRe().FindAllSubmatchIndex(data, -1)
 	lower := strings.ToLower(string(data))
 
 	out := make([]detectors.Result, 0, len(keys))
@@ -204,7 +207,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func redact(t string) string {

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -25,7 +26,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // segment are distinctive enough that we don't require a co-occurring
 // keyword; the suffix shape (32 uppercase A-Z0-9) is too narrow for
 // accidental collisions.
-var keyRe = regexp.MustCompile(`\b(pk_[0-9]{6,8}_[A-Z0-9]{32})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pk_[0-9]{6,8}_[A-Z0-9]{32})\b`) })
 
 var contextKeywords = []string{"clickup", "click_up", "click-up"}
 
@@ -39,7 +40,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.ClickUp }
 func (Scanner) Keywords() []string { return []string{"clickup", "pk_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAllSubmatchIndex(data, -1)
+	matches := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

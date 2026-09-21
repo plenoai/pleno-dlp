@@ -22,6 +22,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -37,7 +38,9 @@ import (
 //	client_id=abcdef0123456789abcd
 //	client_secret: "fedcba9876543210fedc"
 //	api3_client_id => abcdef0123456789abcd
-var fieldRe = regexp.MustCompile(`(?i)(?:api3[_-]?)?client[_-]?(id|secret)["'\s:=>(){}\[\]-]{0,4}([A-Za-z0-9]{20})\b`)
+var fieldRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(?:api3[_-]?)?client[_-]?(id|secret)["'\s:=>(){}\[\]-]{0,4}([A-Za-z0-9]{20})\b`)
+})
 
 // minEntropy: 20-char base62 strings have an entropy ceiling near 6.0
 // bits/char; real client_id / client_secret values sit comfortably above
@@ -58,8 +61,8 @@ var contextKeywords = []string{
 	"api3", "looker_sdk", "lookersdk", "/api/4.0", "/api/3.1", "looker",
 }
 
-var pureHexRe = regexp.MustCompile(`^[0-9a-fA-F]{20}$`)
-var pureDecimalRe = regexp.MustCompile(`^[0-9]{20}$`)
+var pureHexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-fA-F]{20}$`) })
+var pureDecimalRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9]{20}$`) })
 
 type Scanner struct{}
 
@@ -68,7 +71,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Looker }
 func (Scanner) Keywords() []string { return []string{"looker"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := fieldRe.FindAllSubmatchIndex(data, -1)
+	hits := fieldRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -112,7 +115,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 // validCandidate rejects low-entropy lookalikes and pure-hex / pure-decimal
 // runs (commit-SHA fragments, numeric IDs) that are not Looker credentials.
 func validCandidate(tok string) bool {
-	if pureHexRe.MatchString(tok) || pureDecimalRe.MatchString(tok) {
+	if pureHexRe().MatchString(tok) || pureDecimalRe().MatchString(tok) {
 		return false
 	}
 	return detectors.HasMinEntropy(tok, minEntropy)

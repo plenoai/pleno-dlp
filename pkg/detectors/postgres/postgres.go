@@ -29,6 +29,7 @@ package postgres
 
 import (
 	"context"
+	"sync"
 	//nolint:gosec // MD5 is mandated by the PostgreSQL wire protocol, not used for security
 	"crypto/md5"
 	"encoding/binary"
@@ -45,7 +46,9 @@ import (
 
 // Both `postgres://` and `postgresql://` schemes are accepted. Userinfo is
 // required (`:` and `@`).
-var uriRe = regexp.MustCompile(`\b(postgres(?:ql)?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
+var uriRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(postgres(?:ql)?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
+})
 
 // passwordDenylist holds case-insensitive literal placeholder/sentinel values
 // that appear in documentation and compose defaults rather than as real
@@ -77,7 +80,9 @@ var passwordDenylist = map[string]struct{}{
 // template placeholder rather than a literal value: `${DB_PASS}`, `{{password}}`,
 // `%(password)s`, or `<password>`. Such spans denote config templates where no
 // literal secret is present.
-var templateMarkerRe = regexp.MustCompile(`^(?:\$\{[^}]*\}|\{\{[^}]*\}\}|%\([^)]*\)s|<[^>]*>)$`)
+var templateMarkerRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(?:\$\{[^}]*\}|\{\{[^}]*\}\}|%\([^)]*\)s|<[^>]*>)$`)
+})
 
 // skipVerifyHosts lists hosts that the Verify probe must never contact.
 var skipVerifyHosts = map[string]struct{}{
@@ -110,7 +115,7 @@ func isPlaceholderPassword(password string) bool {
 	if _, deny := passwordDenylist[strings.ToLower(password)]; deny {
 		return true
 	}
-	if templateMarkerRe.MatchString(password) {
+	if templateMarkerRe().MatchString(password) {
 		return true
 	}
 	// Degenerate low-information spans (repeated chars) are not secrets.
@@ -121,7 +126,7 @@ func isPlaceholderPassword(password string) bool {
 }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := uriRe.FindAllSubmatch(data, -1)
+	hits := uriRe().FindAllSubmatch(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -13,7 +14,7 @@ var apiBase = "https://huggingface.co"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b(hf_[A-Za-z0-9]{34})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(hf_[A-Za-z0-9]{34})\b`) })
 
 type Scanner struct{}
 
@@ -22,7 +23,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.HuggingFace }
 func (Scanner) Keywords() []string { return []string{"hf_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

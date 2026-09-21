@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -31,7 +32,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Okta tokens start with "00" then 40 URL-safe base64-ish chars (alphanum,
 // underscore, hyphen). The shape is documented and stable.
-var tokenRe = regexp.MustCompile(`\b(00[A-Za-z0-9_-]{40})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(00[A-Za-z0-9_-]{40})\b`) })
 
 type Scanner struct{}
 
@@ -44,7 +45,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Okta }
 func (Scanner) Keywords() []string { return []string{"okta"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

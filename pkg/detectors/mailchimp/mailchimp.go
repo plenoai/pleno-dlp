@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -32,7 +33,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // 32 hex + literal "-us" + 1-2 digit DC number. Mailchimp DCs are
 // us1..us2x range; we accept 1-2 digits to stay forward-compatible.
-var tokenRe = regexp.MustCompile(`\b([a-f0-9]{32}-us[0-9]{1,2})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32}-us[0-9]{1,2})\b`) })
 
 type Scanner struct{}
 
@@ -41,7 +42,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Mailchimp }
 func (Scanner) Keywords() []string { return []string{"-us"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,13 +21,15 @@ import (
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var keyRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{64})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{64})\b`) })
 
 var contextKeywords = []string{"weaviate", "weaviate_api", "weaviate_key", "weaviate_admin"}
 
 // hostRe extracts a *.weaviate.cloud or *.weaviate.network URL from a
 // 256-byte window — the only way we can verify without configuration.
-var hostRe = regexp.MustCompile(`https?://[a-zA-Z0-9.-]+\.weaviate\.(?:cloud|network)`)
+var hostRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`https?://[a-zA-Z0-9.-]+\.weaviate\.(?:cloud|network)`)
+})
 
 type Scanner struct{}
 
@@ -36,7 +39,7 @@ func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 func (Scanner) Keywords() []string { return []string{"weaviate"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := keyRe.FindAllSubmatchIndex(data, -1)
+	hits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -123,7 +126,7 @@ func nearestHost(data []byte, pos int) string {
 	if to > len(data) {
 		to = len(data)
 	}
-	if m := hostRe.Find(data[from:to]); m != nil {
+	if m := hostRe().Find(data[from:to]); m != nil {
 		return string(m)
 	}
 	return ""

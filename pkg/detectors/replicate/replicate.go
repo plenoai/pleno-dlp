@@ -9,6 +9,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var apiBase = "https://api.replicate.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // `r8_` followed by 37+ base62 chars.
-var keyRe = regexp.MustCompile(`\b(r8_[A-Za-z0-9]{37,})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(r8_[A-Za-z0-9]{37,})\b`) })
 
 type Scanner struct{}
 
@@ -28,7 +29,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Replicate }
 func (Scanner) Keywords() []string { return []string{"r8_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAll(data, -1)
+	matches := keyRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

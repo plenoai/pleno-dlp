@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,7 +23,7 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{60,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{60,80})\b`) })
 
 // armRe is the assignment-style ActiveCampaign reference that must appear
 // within the proximity window. No authoritative source pins the API key
@@ -33,7 +34,9 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{60,80})\b`)
 // the `activecampaign…(api…)?(token|key|secret)` shape is what a real
 // credential assignment or config key takes. The bare keyword stays in
 // Keywords() as the engine prefilter.
-var armRe = regexp.MustCompile(`(?i)(activecampaign|active_campaign|ac)[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(activecampaign|active_campaign|ac)[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-information 60-80 char runs that clear the alnum
 // regex but lack key-grade randomness. Conservative 3.0 floor — no
@@ -48,7 +51,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.ActiveCampaign }
 func (Scanner) Keywords() []string { return []string{"activecampaign"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -103,7 +106,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 // Verify checks the API key against GET <apiBase>/api/3/users/me with the

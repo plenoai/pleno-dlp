@@ -29,6 +29,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -67,16 +68,18 @@ var (
 	// ASIA<16> is the temporary credential prefix. AKIA is owned by the
 	// long-lived AWS detector and is intentionally excluded here so the two
 	// don't double-fire on the same id.
-	idRe = regexp.MustCompile(`\b(ASIA[0-9A-Z]{16})\b`)
+	idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(ASIA[0-9A-Z]{16})\b`) })
 	// 40-char base64-ish run, same shape as the long-lived secret access
 	// key. We anchor with non-base64 surrounding bytes so adjacent tokens
 	// don't merge into a single capture.
-	secretRe = regexp.MustCompile(`[^A-Za-z0-9+/]([A-Za-z0-9+/]{40})[^A-Za-z0-9+/]`)
+	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[^A-Za-z0-9+/]([A-Za-z0-9+/]{40})[^A-Za-z0-9+/]`) })
 	// Session tokens are base64 with `+/=` and run 100..1024 chars. Go's
 	// regexp engine caps the upper repetition bound at 1000, so we use
 	// 100..1000 — that still covers every Amazon-issued session token
 	// today.
-	sessionRe = regexp.MustCompile(`[^A-Za-z0-9+/=]([A-Za-z0-9+/=]{100,1000})[^A-Za-z0-9+/=]`)
+	sessionRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`[^A-Za-z0-9+/=]([A-Za-z0-9+/=]{100,1000})[^A-Za-z0-9+/=]`)
+	})
 )
 
 var contextKeywords = []string{"aws_session_token", "session_token", "sessiontoken", "x-amz-security-token"}
@@ -91,12 +94,12 @@ func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 func (Scanner) Keywords() []string { return []string{"ASIA", "session_token"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	idMatches := idRe.FindAllSubmatchIndex(data, -1)
+	idMatches := idRe().FindAllSubmatchIndex(data, -1)
 	if len(idMatches) == 0 {
 		return nil, nil
 	}
-	secrets := secretRe.FindAllSubmatchIndex(data, -1)
-	sessions := sessionRe.FindAllSubmatchIndex(data, -1)
+	secrets := secretRe().FindAllSubmatchIndex(data, -1)
+	sessions := sessionRe().FindAllSubmatchIndex(data, -1)
 	lower := strings.ToLower(string(data))
 
 	out := make([]detectors.Result, 0, len(idMatches))

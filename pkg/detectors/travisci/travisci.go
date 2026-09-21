@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,18 +20,20 @@ var apiBase = "https://api.travis-ci.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Travis tokens are 22 chars of base64-url-ish alnum.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_\-]{22})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_\-]{22})\b`) })
 
 // keywordRe is the anchored Travis CI marker. A .travis.yml is filled
 // with the word `travis` (file name, sample comments, env-var prefix
 // like `TRAVIS_BUILD_ID`), so the bare keyword pairs every 22-char
 // env-var name into a fake token. Require a Travis-API anchor.
-var keywordRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`\btravis[_\-](?:api|token|access[_\-]?token|key|secret)` +
-	`|\bapi\.travis-ci\.(?:com|org)\b` +
-	`|\btravis-ci\.(?:com|org)\b` +
-	`)`)
+var keywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`\btravis[_\-](?:api|token|access[_\-]?token|key|secret)` +
+		`|\bapi\.travis-ci\.(?:com|org)\b` +
+		`|\btravis-ci\.(?:com|org)\b` +
+		`)`)
+})
 
 type Scanner struct{}
 
@@ -39,11 +42,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.TravisCI }
 func (Scanner) Keywords() []string { return []string{"travis"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	kwSpans := keywordRe.FindAllIndex(data, -1)
+	kwSpans := keywordRe().FindAllIndex(data, -1)
 	if len(kwSpans) == 0 {
 		return nil, nil
 	}

@@ -39,6 +39,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -46,16 +47,20 @@ import (
 // phpDefineRe matches `define('KEY', 'value')` / `define("KEY", "value")`
 // with optional whitespace around the parens/comma, as PHP-CS-Fixer and
 // generatewp.com-style generators both produce.
-var phpDefineRe = regexp.MustCompile(
-	`(?i)define\s*\(\s*['"]([A-Za-z0-9_]+)['"]\s*,\s*(?:'([^']*)'|"([^"]*)")\s*\)`,
-)
+var phpDefineRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?i)define\s*\(\s*['"]([A-Za-z0-9_]+)['"]\s*,\s*(?:'([^']*)'|"([^"]*)")\s*\)`,
+	)
+})
 
 // phpVarRe matches `$xxxpasswordxxx = 'value';` PHP variable assignment,
 // where the variable name contains one of the credential keywords with
 // no separator required (covers `$dbpasswd` as well as `$db_password`).
-var phpVarRe = regexp.MustCompile(
-	`(?i)\$([a-z0-9_]*(?:password|passwd|pwd|secret)[a-z0-9_]*)\s*=\s*(?:'([^']*)'|"([^"]*)")`,
-)
+var phpVarRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?i)\$([a-z0-9_]*(?:password|passwd|pwd|secret)[a-z0-9_]*)\s*=\s*(?:'([^']*)'|"([^"]*)")`,
+	)
+})
 
 // knownDefineKeys are the WordPress/Laravel/common-framework constant
 // names this detector recognizes as credential-bearing. Compared
@@ -184,7 +189,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		})
 	}
 
-	for _, m := range phpDefineRe.FindAllStringSubmatch(str, -1) {
+	for _, m := range phpDefineRe().FindAllStringSubmatch(str, -1) {
 		if len(m) < 4 {
 			continue
 		}
@@ -199,7 +204,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		add(key, val)
 	}
 
-	for _, m := range phpVarRe.FindAllStringSubmatch(str, -1) {
+	for _, m := range phpVarRe().FindAllStringSubmatch(str, -1) {
 		if len(m) < 4 {
 			continue
 		}

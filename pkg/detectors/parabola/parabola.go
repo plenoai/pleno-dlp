@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -30,13 +31,13 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // No documented prefix to anchor on, so the keyword gate plus the entropy
 // floor carry the false-positive load. Length stays unpinned (32..80) because
 // no authoritative source documents Parabola's credential length.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,80})\b`) })
 
 // armRe is the assignment-style Parabola reference that must appear within the
 // proximity window. A bare "parabola" substring (URLs, package names, prose)
 // is too weak; `parabola_token` / `parabola-api-key` / `parabolasecret` is the
 // shape a real credential assignment or config key takes.
-var armRe = regexp.MustCompile(`(?i)parabola[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)parabola[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // minEntropy rejects low-entropy 32..80-char runs that clear the alnum regex
 // but are not random tokens (e.g. structured identifiers, padded names). 3.0
@@ -51,7 +52,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Parabola }
 func (Scanner) Keywords() []string { return []string{"parabola"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -101,7 +102,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

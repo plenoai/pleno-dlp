@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,8 +21,12 @@ var apiBase = "https://api.frontegg.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
-	clientIDRe = regexp.MustCompile(`(?i)frontegg[_\.\-]?(?:client[_\.\-]?id|vendor[_\.\-]?id)\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']?`)
-	secretRe   = regexp.MustCompile(`(?i)frontegg[_\.\-]?(?:client[_\.\-]?secret|api[_\.\-]?secret|secret)\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']?`)
+	clientIDRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)frontegg[_\.\-]?(?:client[_\.\-]?id|vendor[_\.\-]?id)\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']?`)
+	})
+	secretRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)frontegg[_\.\-]?(?:client[_\.\-]?secret|api[_\.\-]?secret|secret)\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']?`)
+	})
 )
 
 type Scanner struct{}
@@ -31,8 +36,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.FrontEgg }
 func (Scanner) Keywords() []string { return []string{"frontegg"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	ids := clientIDRe.FindAllSubmatch(data, -1)
-	secrets := secretRe.FindAllSubmatch(data, -1)
+	ids := clientIDRe().FindAllSubmatch(data, -1)
+	secrets := secretRe().FindAllSubmatch(data, -1)
 	if len(ids) == 0 || len(secrets) == 0 {
 		return nil, nil
 	}

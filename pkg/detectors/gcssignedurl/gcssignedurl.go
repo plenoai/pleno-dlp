@@ -15,12 +15,15 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var urlRe = regexp.MustCompile(`https?://storage\.googleapis\.com/[^\s"'<>]*?X-Goog-Algorithm=GOOG4-RSA-SHA256[^\s"'<>]*`)
+var urlRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`https?://storage\.googleapis\.com/[^\s"'<>]*?X-Goog-Algorithm=GOOG4-RSA-SHA256[^\s"'<>]*`)
+})
 
 type Scanner struct{}
 
@@ -29,7 +32,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GCSSignedURL }
 func (Scanner) Keywords() []string { return []string{"X-Goog-Algorithm=GOOG4-RSA-SHA256"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := urlRe.FindAll(data, -1)
+	hits := urlRe().FindAll(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

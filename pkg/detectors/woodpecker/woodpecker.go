@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -37,14 +38,18 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // tokenRe matches the canonical JWT shape used by Woodpecker CI: an `eyJ`
 // header, a base64url payload, and a base64url signature, dot-separated.
 // Mirrors the repo's jwt detector regex.
-var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+})
 
 // contextRe is the windowed keyword gate. It replaces the bare
 // strings.Contains(window, "woodpecker") over radius 256 with an
 // assignment-anchor arm regex over radius 64, so a `woodpecker` mention far
 // from an unrelated JWT no longer arms the detector. The bare keyword stays
 // in Keywords() as the engine prefilter.
-var contextRe = regexp.MustCompile(`(?i)woodpecker[_-]?(ci[_-]?)?(api[_-]?)?(token|key|secret)`)
+var contextRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)woodpecker[_-]?(ci[_-]?)?(api[_-]?)?(token|key|secret)`)
+})
 
 type Scanner struct{}
 
@@ -53,7 +58,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Woodpecker }
 func (Scanner) Keywords() []string { return []string{"woodpecker"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -97,7 +102,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return contextRe.MatchString(lower[from:to])
+	return contextRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

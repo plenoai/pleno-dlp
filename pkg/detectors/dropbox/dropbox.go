@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,8 +23,8 @@ var apiBase = "https://api.dropboxapi.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
-	shortRe  = regexp.MustCompile(`\b(sl\.[A-Za-z0-9_-]{130,})\b`)
-	legacyRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{64})\b`)
+	shortRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sl\.[A-Za-z0-9_-]{130,})\b`) })
+	legacyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{64})\b`) })
 )
 
 var contextKeywords = []string{"dropbox", "dropbox_token", "dbx"}
@@ -40,7 +41,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	seen := map[string]struct{}{}
 
 	// Short-lived tokens: prefix is distinctive.
-	for _, m := range shortRe.FindAll(data, -1) {
+	for _, m := range shortRe().FindAll(data, -1) {
 		token := string(m)
 		if _, dup := seen[token]; dup {
 			continue
@@ -60,7 +61,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	}
 
 	// Legacy 64-char tokens require keyword co-occurrence.
-	legacyHits := legacyRe.FindAllSubmatchIndex(data, -1)
+	legacyHits := legacyRe().FindAllSubmatchIndex(data, -1)
 	if len(legacyHits) > 0 {
 		lower := strings.ToLower(string(data))
 		for _, h := range legacyHits {

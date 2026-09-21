@@ -26,11 +26,14 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_\-]{40,200}\.[A-Za-z0-9_\-]{40,200}\.[A-Za-z0-9_\-]{20,200})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([A-Za-z0-9_\-]{40,200}\.[A-Za-z0-9_\-]{40,200}\.[A-Za-z0-9_\-]{20,200})\b`)
+})
 
 // Wiz-distinctive context words. The bare `wiz` Keywords gate only narrows the
 // engine's chunk set; this list is what actually attributes a JWT to Wiz.
@@ -56,7 +59,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Wiz }
 func (Scanner) Keywords() []string { return []string{"wiz"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

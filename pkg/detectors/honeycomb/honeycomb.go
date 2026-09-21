@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -17,9 +18,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 var (
 	// Modern ingest key: hcaik_ plus 58 base62 chars; the prefix is unique
 	// enough to skip keyword gating.
-	modernRe = regexp.MustCompile(`\b(hcaik_[A-Za-z0-9]{58})\b`)
+	modernRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(hcaik_[A-Za-z0-9]{58})\b`) })
 	// Legacy 32-hex needs keyword gating.
-	legacyRe = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
+	legacyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
 )
 
 var contextKeywords = []string{"honeycomb", "honeycomb_api_key", "hny_api_key"}
@@ -34,7 +35,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	out := []detectors.Result{}
 	seen := map[string]struct{}{}
 
-	for _, m := range modernRe.FindAll(data, -1) {
+	for _, m := range modernRe().FindAll(data, -1) {
 		token := string(m)
 		if _, dup := seen[token]; dup {
 			continue
@@ -54,7 +55,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	}
 
 	lower := strings.ToLower(string(data))
-	hits := legacyRe.FindAllSubmatchIndex(data, -1)
+	hits := legacyRe().FindAllSubmatchIndex(data, -1)
 	for _, h := range hits {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {

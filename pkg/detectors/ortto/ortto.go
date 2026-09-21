@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var apiBase = "https://api.ap3api.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Ortto/Autopilot personal access keys: `pak_` + 32-64 alnum chars.
-var tokenRe = regexp.MustCompile(`\b(pak_[A-Za-z0-9]{32,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pak_[A-Za-z0-9]{32,64})\b`) })
 
 type Scanner struct{}
 
@@ -28,7 +29,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Ortto }
 func (Scanner) Keywords() []string { return []string{"pak_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

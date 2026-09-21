@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -34,12 +35,14 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // distinguishing shape (Adobe/Marketo docs + provider sample code) and acts as
 // the structural anchor for the id half — a generic alnum run can no longer
 // masquerade as the client_id.
-var idRe = regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b`)
+var idRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b`)
+})
 
 // secretRe matches the client_secret, a 32-char alphanumeric value per the
 // provider's REST-Sample-Code. No public prefix exists, so the length pin plus
 // the entropy floor and the arm-regex window carry the false-positive load.
-var secretRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
+var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // minEntropy rejects low-information 32-char runs (padded identifiers, repeated
 // patterns) that clear secretRe but lack secret-grade randomness. 3.5 suits a
@@ -51,7 +54,9 @@ const minEntropy = 3.5
 // too weak; the `marketo[_-]?(client_)?(id|secret|key|token)` /
 // `mktorest`-style forms are what a real credential assignment or config key
 // takes.
-var armRe = regexp.MustCompile(`(?i)(marketo|mktorest)[_\-]?(client[_\-]?)?(id|secret|key|token)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(marketo|mktorest)[_\-]?(client[_\-]?)?(id|secret|key|token)`)
+})
 
 type Scanner struct{}
 
@@ -62,11 +67,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Marketo }
 func (Scanner) Keywords() []string { return []string{"marketo", "mktorest"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	idHits := idRe.FindAllSubmatchIndex(data, -1)
+	idHits := idRe().FindAllSubmatchIndex(data, -1)
 	if len(idHits) == 0 {
 		return nil, nil
 	}
-	secretHits := secretRe.FindAllSubmatchIndex(data, -1)
+	secretHits := secretRe().FindAllSubmatchIndex(data, -1)
 	if len(secretHits) == 0 {
 		return nil, nil
 	}
@@ -126,7 +131,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

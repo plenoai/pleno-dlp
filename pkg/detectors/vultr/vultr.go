@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var apiBase = "https://api.vultr.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var keyRe = regexp.MustCompile(`\b([A-Z0-9]{36})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Z0-9]{36})\b`) })
 
 var contextKeywords = []string{"vultr", "vultr_api", "vultr_key", "vultr_token"}
 
@@ -30,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Vultr }
 func (Scanner) Keywords() []string { return []string{"vultr"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAllSubmatchIndex(data, -1)
+	matches := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

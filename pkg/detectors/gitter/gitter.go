@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -16,21 +17,23 @@ var apiBase = "https://api.gitter.im"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([a-f0-9]{40})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40})\b`) })
 
 // keywordRe is the anchored Gitter marker. The 6-letter `gitter`
 // substring sits inside identifiers like `TestTagItter` (case-
 // insensitive substring match), which is a real symbol in go-git's
 // `tag_test.go` and pairs with adjacent git SHA-1 hashes. Require a
 // word-bounded `\bgitter\b` or a Gitter credential anchor.
-var keywordRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`\bgitter[_\-](?:api|token|key|secret|access)` +
-	`|\bgitter\.im\b` +
-	`|\bapi\.gitter\.im\b` +
-	`|\bgitter[ \t]*[:=]` +
-	`|\bgitter\b` +
-	`)`)
+var keywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`\bgitter[_\-](?:api|token|key|secret|access)` +
+		`|\bgitter\.im\b` +
+		`|\bapi\.gitter\.im\b` +
+		`|\bgitter[ \t]*[:=]` +
+		`|\bgitter\b` +
+		`)`)
+})
 
 type Scanner struct{}
 
@@ -39,11 +42,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Gitter }
 func (Scanner) Keywords() []string { return []string{"gitter"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAllSubmatchIndex(data, -1)
+	matches := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}
-	kwSpans := keywordRe.FindAllIndex(data, -1)
+	kwSpans := keywordRe().FindAllIndex(data, -1)
 	if len(kwSpans) == 0 {
 		return nil, nil
 	}

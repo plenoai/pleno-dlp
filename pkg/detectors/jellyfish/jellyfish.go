@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,13 +19,13 @@ var apiBase = "https://api.jellyfish.co"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style Jellyfish reference that must appear within
 // the proximity window: a bare "jellyfish" substring is too weak a gate
 // against a generic 40-80 alphanumeric run. The bare keyword stays in
 // Keywords() as the engine prefilter.
-var armRe = regexp.MustCompile(`(?i)jellyfish[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)jellyfish[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // minEntropy is a conservative floor: with no authoritative charset
 // documented the token could be hex-ish or low-variety, and a higher floor
@@ -39,7 +40,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Jellyfish }
 func (Scanner) Keywords() []string { return []string{"jellyfish"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -83,7 +84,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

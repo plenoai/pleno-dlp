@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,7 +23,9 @@ var apiBaseSandbox = "https://api.sandbox.braintreegateway.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // access_token$<env>$<merchant>$<32-hex>
-var tokenRe = regexp.MustCompile(`\b(access_token\$(production|sandbox)\$([a-z0-9]{16,})\$([a-f0-9]{32}))\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(access_token\$(production|sandbox)\$([a-z0-9]{16,})\$([a-f0-9]{32}))\b`)
+})
 
 type Scanner struct{}
 
@@ -31,7 +34,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Braintree }
 func (Scanner) Keywords() []string { return []string{"access_token$"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatch(data, -1)
+	hits := tokenRe().FindAllSubmatch(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

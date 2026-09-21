@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -31,7 +32,7 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`) })
 
 // armRe is the assignment-style Hasura admin-secret reference that must appear
 // within the proximity window. A bare "hasura" substring is too weak; the
@@ -39,7 +40,9 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`)
 // HASURA_GRAPHQL_ADMIN_SECRET / hasura-admin-secret / x-hasura-admin-secret.
 // The `(graphql[_-]?)?(admin[_-]?)?secret` tail keeps the bare keyword in
 // Keywords() as the prefilter while arming on the assignment context only.
-var armRe = regexp.MustCompile(`(?i)hasura[_\-]?(graphql[_\-]?)?(admin[_\-]?)?secret`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)hasura[_\-]?(graphql[_\-]?)?(admin[_\-]?)?secret`)
+})
 
 // minEntropy rejects low-entropy 64-char runs that clear the alnum regex but
 // are not random secrets. The charset is high-variety so 3.5 bits/char is
@@ -53,7 +56,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Hasura }
 func (Scanner) Keywords() []string { return []string{"hasura"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -103,7 +106,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

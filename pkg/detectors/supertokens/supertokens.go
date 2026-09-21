@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -37,14 +38,16 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // quantifier is open-ended ({20,}). '=' / '-' are not \b word chars, so the
 // match is bounded by surrounding boundaries via the charset itself rather
 // than \b on the symbol ends.
-var tokenRe = regexp.MustCompile(`([A-Za-z0-9=\-]{20,})`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`([A-Za-z0-9=\-]{20,})`) })
 
 // armRe is the assignment-style SuperTokens reference that must appear within
 // the proximity window. A bare "supertokens" substring is too weak a gate for
 // a prefix-less operator-chosen key; "supertokens_api_key" / "super-tokens-key"
 // / "supertokenstoken" is the shape a real key assignment or config entry
 // takes. The bare keyword stays in Keywords() as the engine prefilter.
-var armRe = regexp.MustCompile(`(?i)super[_\-]?tokens?[_\-]?(api[_\-]?)?(key|token|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)super[_\-]?tokens?[_\-]?(api[_\-]?)?(key|token|secret)`)
+})
 
 // minEntropy rejects low-information runs that clear the charset regex but are
 // not random keys. 3.0 is conservative:
@@ -61,7 +64,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Supertokens }
 func (Scanner) Keywords() []string { return []string{"supertokens"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -118,7 +121,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

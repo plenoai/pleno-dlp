@@ -27,6 +27,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -38,10 +39,10 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
 	// Modern Atlassian API token. Mirror of trufflehog atlassian/v2.
-	tokenRe = regexp.MustCompile(`\b(ATCTT3xFfG[A-Za-z0-9+/=_-]+=[A-Za-z0-9]{8})\b`)
+	tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(ATCTT3xFfG[A-Za-z0-9+/=_-]+=[A-Za-z0-9]{8})\b`) })
 	// Bitbucket Cloud app password / API token. Mirror of trufflehog
 	// bitbucketapppassword (password capture group).
-	appPasswordRe = regexp.MustCompile(`\b(ATBB[A-Za-z0-9_=.-]+)\b`)
+	appPasswordRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(ATBB[A-Za-z0-9_=.-]+)\b`) })
 )
 
 type Scanner struct{}
@@ -54,7 +55,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	out := []detectors.Result{}
 	seen := map[string]struct{}{}
 
-	for _, re := range []*regexp.Regexp{tokenRe, appPasswordRe} {
+	for _, re := range []*regexp.Regexp{tokenRe(), appPasswordRe()} {
 		for _, m := range re.FindAllSubmatch(data, -1) {
 			token := string(m[1])
 			if _, dup := seen[token]; dup {

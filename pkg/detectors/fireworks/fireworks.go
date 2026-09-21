@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -16,7 +17,7 @@ var apiBase = "https://api.fireworks.ai/inference"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // fw_ + 24+ base62. Production keys are 24-char base62 in observed samples.
-var keyRe = regexp.MustCompile(`\b(fw_[A-Za-z0-9]{20,})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(fw_[A-Za-z0-9]{20,})\b`) })
 
 type Scanner struct{}
 
@@ -25,7 +26,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Fireworks }
 func (Scanner) Keywords() []string { return []string{"fw_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAll(data, -1)
+	matches := keyRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

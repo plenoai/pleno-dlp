@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -39,7 +40,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // `0.` version + UUID + `.` + base64 access-key id + `:` + base64
 // access-key secret. The version `0.` plus the colon separator is the
 // distinctive shape; UUID + base64 segments confirm.
-var tokenRe = regexp.MustCompile(`\b(0\.[a-f0-9-]{36}\.[A-Za-z0-9+/=_-]{20,}:[A-Za-z0-9+/=_-]{20,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(0\.[a-f0-9-]{36}\.[A-Za-z0-9+/=_-]{20,}:[A-Za-z0-9+/=_-]{20,})\b`)
+})
 
 var contextKeywords = []string{"bitwarden", "bws", "bws_access", "secretsmanager"}
 
@@ -50,7 +53,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Bitwarden }
 func (Scanner) Keywords() []string { return []string{"0."} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAllSubmatchIndex(data, -1)
+	matches := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

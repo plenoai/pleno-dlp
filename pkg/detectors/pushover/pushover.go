@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -25,7 +26,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Source: https://pushover.net/api — "Application tokens are case-sensitive,
 // 30 characters long, and may contain the character set [A-Za-z0-9]."
 // (User/group keys share the same 30-char [A-Za-z0-9] shape.)
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{30})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{30})\b`) })
 
 // armRe is the assignment-style Pushover reference that must appear within the
 // proximity window. A bare "pushover" substring (URLs, package names, prose) is
@@ -35,7 +36,9 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{30})\b`)
 // qualifier, and an assignment delimiter (`=` or `:`) so a token merely sitting
 // near the word "pushover" in prose no longer arms. Covers the
 // vendor[_-]?(api[_-]?)?(token|key|secret) shape and the config-key forms.
-var armRe = regexp.MustCompile(`(?i)pushover([_\-]?(app|api[_\-]?(token|key|secret)|token|key|secret))?\s*[:=]`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)pushover([_\-]?(app|api[_\-]?(token|key|secret)|token|key|secret))?\s*[:=]`)
+})
 
 // minEntropy rejects low-information 30-char alphanumeric runs that clear the
 // regex but are not random tokens (structured identifiers, padded names). The
@@ -50,7 +53,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Pushover }
 func (Scanner) Keywords() []string { return []string{"pushover"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -104,7 +107,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

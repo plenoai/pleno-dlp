@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -24,7 +25,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // confirmed by the upstream trufflehog detector
 // (github.com/trufflesecurity/trufflehog pkg/detectors/customerio:
 // `[a-z0-9A-Z]{20}`), which is the authoritative format for this port.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{20})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{20})\b`) })
 
 // minEntropy rejects low-information 20-char runs (padded ids, repeated
 // chars, structured slugs) that clear the regex but lack key-grade
@@ -36,7 +37,9 @@ const minEntropy = 3.5
 // assignment-anchor arm regex pins the keyword to a credential-like
 // assignment so only genuine site_id/api_key declarations arm a hit. The
 // bare brand words stay in Keywords() as the engine prefilter.
-var contextRe = regexp.MustCompile(`(?i)(customer[._]?io|cio)[_-]?(site|api)[_-]?(id|key)`)
+var contextRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(customer[._]?io|cio)[_-]?(site|api)[_-]?(id|key)`)
+})
 
 type Scanner struct{}
 
@@ -45,7 +48,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.CustomerIO }
 func (Scanner) Keywords() []string { return []string{"customerio", "customer_io", "customer.io"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}
@@ -108,7 +111,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return contextRe.MatchString(lower[from:to])
+	return contextRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

@@ -38,13 +38,16 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 // Match generic http(s) URLs (and ftp/ftps) with userinfo. The `:`
 // inside userinfo and `@` terminator are mandatory.
-var uriRe = regexp.MustCompile(`\b((?:https?|ftps?)://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
+var uriRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b((?:https?|ftps?)://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
+})
 
 // minPasswordEntropy drops low-entropy documentation fillers (e.g. "bar",
 // "abc") while keeping short-but-real passwords. Set deliberately low (2.5
@@ -110,7 +113,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.BasicAuth }
 func (Scanner) Keywords() []string { return []string{"http://", "https://", "ftp://", "ftps://"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := uriRe.FindAllSubmatch(data, -1)
+	hits := uriRe().FindAllSubmatch(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,7 +22,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // AIza<35 chars> is the documented format. The character class is the
 // base64url-without-padding alphabet.
-var keyRe = regexp.MustCompile(`\b(AIza[A-Za-z0-9_-]{35})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(AIza[A-Za-z0-9_-]{35})\b`) })
 
 type Scanner struct{}
 
@@ -31,7 +32,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GCPAPIKey }
 func (Scanner) Keywords() []string { return []string{"AIza"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := keyRe.FindAll(data, -1)
+	hits := keyRe().FindAll(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

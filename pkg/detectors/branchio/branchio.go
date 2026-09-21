@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,8 +23,8 @@ var apiBase = "https://api2.branch.io"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var keyRe = regexp.MustCompile(`\b(key_(?:live|test)_[A-Za-z0-9]{32,})\b`)
-var secretRe = regexp.MustCompile(`\b(secret_(?:live|test)_[A-Za-z0-9]{32,})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(key_(?:live|test)_[A-Za-z0-9]{32,})\b`) })
+var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(secret_(?:live|test)_[A-Za-z0-9]{32,})\b`) })
 
 // contextKeywords intentionally drops the bare "branch" keyword: it
 // matches git terminology (`branched`, `branching`, `branchless`) and
@@ -45,7 +46,7 @@ func (Scanner) Keywords() []string {
 }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	keyHits := keyRe.FindAllSubmatchIndex(data, -1)
+	keyHits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(keyHits) == 0 {
 		return nil, nil
 	}
@@ -94,7 +95,7 @@ func nearestSecret(data []byte, start, end int) string {
 	if to > len(data) {
 		to = len(data)
 	}
-	if m := secretRe.FindSubmatchIndex(data[from:to]); m != nil {
+	if m := secretRe().FindSubmatchIndex(data[from:to]); m != nil {
 		return string(data[from+m[2] : from+m[3]])
 	}
 	return ""

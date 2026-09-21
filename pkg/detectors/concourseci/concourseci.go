@@ -8,11 +8,12 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{28,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{28,64})\b`) })
 
 // minEntropy gates against repeating / low-information placeholders.
 // fly bearer tokens are random URL-safe base64 (alphabet ~64, ceiling ~6
@@ -26,7 +27,7 @@ const minEntropy = 3.5
 // 28-64 length window and would otherwise pass — but a fly token is opaque
 // base64url, not a hex digest, so an all-hex run is a lookalike, never the
 // real secret.
-var hexRe = regexp.MustCompile(`^[0-9a-fA-F]+$`)
+var hexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-fA-F]+$`) })
 
 var contextKeywords = []string{
 	"concourse",
@@ -44,7 +45,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.ConcourseCI }
 func (Scanner) Keywords() []string { return []string{"concourse"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -82,7 +83,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 //     all-digit runs)
 //   - require Shannon entropy >= minEntropy (rejects repeating placeholders)
 func plausibleToken(token string) bool {
-	if hexRe.MatchString(token) {
+	if hexRe().MatchString(token) {
 		return false
 	}
 	var hasDigit, hasLetter bool

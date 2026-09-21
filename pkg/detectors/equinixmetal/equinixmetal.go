@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,7 +19,7 @@ var apiBase = "https://api.equinix.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Equinix Metal API tokens are 32-char alnum.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // minEntropy gates out low-information 32-char runs (repeated chars, padded
 // identifiers) that clear the length floor but are not tokens. 3.0 is chosen
@@ -31,7 +32,9 @@ const minEntropy = 3.0
 // token. A bare `equinix` substring (e.g. a docs URL or marketing copy) no
 // longer arms a token — only anchored credential shapes do. `equinix` is kept
 // in Keywords() as a cheap prefilter, but the proximity gate is stricter.
-var anchorRe = regexp.MustCompile(`metal_api|packet_api|metal_token|equinix[_\-]?(?:api|token|metal)`)
+var anchorRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`metal_api|packet_api|metal_token|equinix[_\-]?(?:api|token|metal)`)
+})
 
 type Scanner struct{}
 
@@ -40,7 +43,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.EquinixMetal }
 func (Scanner) Keywords() []string { return []string{"equinix", "metal_api", "packet"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -91,7 +94,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return anchorRe.MatchString(lower[from:to])
+	return anchorRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

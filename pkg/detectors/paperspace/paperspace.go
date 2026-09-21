@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,7 +22,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // 40-char base64url. Optional `api_` documentation prefix is captured
 // via an alternation rather than hard-required because production keys
 // often don't carry the prefix in the raw value.
-var keyRe = regexp.MustCompile(`\b((?:api_)?[A-Za-z0-9_-]{40})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:api_)?[A-Za-z0-9_-]{40})\b`) })
 
 var contextKeywords = []string{"paperspace", "paperspace_api", "paperspace_key"}
 
@@ -32,7 +33,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Paperspace }
 func (Scanner) Keywords() []string { return []string{"paperspace"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAllSubmatchIndex(data, -1)
+	matches := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

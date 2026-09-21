@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,7 +19,7 @@ var apiBase = "https://dashboard.bandwidth.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{10,32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{10,32})\b`) })
 
 // minEntropy is a conservative floor. Bandwidth does NOT authoritatively
 // document a credential length or charset (legacy docs show a 4-char
@@ -36,13 +37,15 @@ const minEntropy = 3.0
 // nearby CamelCase ≥ 10-alnum word into a fake username/password. The
 // regex demands a separator or a domain suffix so the keyword is
 // unmistakably referring to Bandwidth.com credentials.
-var keywordRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`\bbandwidth[_\-](?:api|user|username|pass(?:word)?|token|secret|key|account|id)\b` +
-	`|\bbandwidth\.com\b` +
-	`|\bdashboard\.bandwidth\.com\b` +
-	`|\bbandwidth[ \t]*[:=]` +
-	`)`)
+var keywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`\bbandwidth[_\-](?:api|user|username|pass(?:word)?|token|secret|key|account|id)\b` +
+		`|\bbandwidth\.com\b` +
+		`|\bdashboard\.bandwidth\.com\b` +
+		`|\bbandwidth[ \t]*[:=]` +
+		`)`)
+})
 
 type Scanner struct{}
 
@@ -51,11 +54,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Bandwidth }
 func (Scanner) Keywords() []string { return []string{"bandwidth"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}
-	kwSpans := keywordRe.FindAllIndex(data, -1)
+	kwSpans := keywordRe().FindAllIndex(data, -1)
 	if len(kwSpans) == 0 {
 		return nil, nil
 	}

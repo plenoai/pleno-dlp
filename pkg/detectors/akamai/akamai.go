@@ -28,6 +28,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -46,16 +47,18 @@ const contextRadius = 128
 
 // edgercRe captures the high-confidence structured form
 // `client_secret = <value>` as found in an .edgerc credentials file.
-var edgercRe = regexp.MustCompile(`(?i)client_secret\s*[=:]\s*([A-Za-z0-9+/=_\-]{32,80})`)
+var edgercRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)client_secret\s*[=:]\s*([A-Za-z0-9+/=_\-]{32,80})`)
+})
 
 // tokenRe is the loose fallback candidate shape. `=` is only allowed as
 // trailing base64 padding (not interior) so the match does not swallow a
 // `key=value` assignment prefix like `client_secret=`.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9+/_\-]{32,80}={0,2})`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9+/_\-]{32,80}={0,2})`) })
 
 // hexRe matches pure-hex values (git SHAs, ETags, content hashes) which
 // are not EdgeGrid secrets even when they meet the length bound.
-var hexRe = regexp.MustCompile(`^[a-fA-F0-9]+$`)
+var hexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-fA-F0-9]+$`) })
 
 // anchorKeywords are the assignment-context anchors required for the
 // windowed fallback. The bare word `akamai` is intentionally NOT here:
@@ -92,7 +95,7 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 
 	// Pass 1: high-confidence structured .edgerc form. Still subject to the
 	// negative exclusions (a hex value assigned to client_secret is junk).
-	for _, h := range edgercRe.FindAllSubmatchIndex(data, -1) {
+	for _, h := range edgercRe().FindAllSubmatchIndex(data, -1) {
 		token := string(data[h[2]:h[3]])
 		if rejectToken(token) {
 			continue
@@ -102,7 +105,7 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 
 	// Pass 2: windowed fallback. Requires an assignment anchor inside a
 	// tight window AND the entropy floor.
-	for _, h := range tokenRe.FindAllSubmatchIndex(data, -1) {
+	for _, h := range tokenRe().FindAllSubmatchIndex(data, -1) {
 		token := string(data[h[2]:h[3]])
 		if _, dup := seen[token]; dup {
 			continue
@@ -134,7 +137,7 @@ func rejectToken(token string) bool {
 		return true
 	}
 	// Pure hex => git SHA / ETag / content hash, not an EdgeGrid secret.
-	if hexRe.MatchString(token) {
+	if hexRe().MatchString(token) {
 		return true
 	}
 	return false

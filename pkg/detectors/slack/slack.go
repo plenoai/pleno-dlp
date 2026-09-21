@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,7 +22,7 @@ var apiBase = "https://slack.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // xoxb-<workspace_id>-<bot_id>-<secret>.
-var tokenRe = regexp.MustCompile(`\b(xoxb-\d+-\d+-[A-Za-z0-9]{24,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(xoxb-\d+-\d+-[A-Za-z0-9]{24,})\b`) })
 
 type Scanner struct{}
 
@@ -30,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.SlackBotToken }
 func (Scanner) Keywords() []string { return []string{"xoxb-"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

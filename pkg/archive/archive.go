@@ -19,9 +19,13 @@ import (
 	"sync"
 )
 
-// SpillThreshold is the largest archive value retained in memory by the
-// streaming API. Larger inputs and expanded entries use 0600 temporary files.
-const SpillThreshold int64 = 16 << 20
+// SpillThreshold is the in-memory cutoff for WithSpoolContext and Git object
+// buffering. Archive walkers use archiveSpillThreshold.
+const SpillThreshold int64 = 1 << 20
+
+// Archive walkers spill expanded values earlier because their callers already
+// retain the source body or process one leaf at a time.
+const archiveSpillThreshold int64 = 128 << 10
 
 const (
 	maxRetainedErrors    = 32
@@ -113,7 +117,7 @@ func WalkContext(ctx context.Context, rootName string, data []byte, limits Limit
 		return nil, nil
 	}
 	var entries []Entry
-	err := WalkStreamContext(ctx, rootName, bytes.NewReader(data), int64(len(data)), limits, func(entry StreamEntry) error {
+	err := WalkBytesContext(ctx, rootName, data, limits, func(entry StreamEntry) error {
 		body, err := io.ReadAll(entry.Reader)
 		if err != nil {
 			return err
@@ -124,12 +128,19 @@ func WalkContext(ctx context.Context, rootName string, data []byte, limits Limit
 	return entries, err
 }
 
+// WalkBytesContext validates and expands one archive while borrowing data for
+// the outer archive spool. The callback runs synchronously; callers must keep
+// data unchanged until WalkBytesContext returns.
+func WalkBytesContext(ctx context.Context, rootName string, data []byte, limits Limits, visit func(StreamEntry) error) error {
+	return walkBytesContext(ctx, rootName, data, limits, visit, spoolOptions{threshold: archiveSpillThreshold})
+}
+
 // WalkStreamContext validates and expands one archive, invoking visit in
 // stable archive order only after each leaf has reached EOF and passed its
 // format checksum. Large values spill to 0600 temporary files, all of which
 // are removed before this function returns.
 func WalkStreamContext(ctx context.Context, rootName string, input io.Reader, size int64, limits Limits, visit func(StreamEntry) error) error {
-	return walkStreamContext(ctx, rootName, input, size, limits, visit, spoolOptions{threshold: SpillThreshold})
+	return walkStreamContext(ctx, rootName, input, size, limits, visit, spoolOptions{threshold: archiveSpillThreshold})
 }
 
 // WithSpoolContext consumes and validates exactly size bytes before invoking
@@ -147,6 +158,8 @@ func WithSpoolContext(ctx context.Context, input io.Reader, size, limit int64, f
 type spoolOptions struct {
 	threshold int64
 	tempDir   string
+	// capacityHint is advisory; it must not change limits or validation.
+	capacityHint int64
 }
 
 func walkStreamContext(ctx context.Context, rootName string, input io.Reader, size int64, limits Limits, visit func(StreamEntry) error, opts spoolOptions) error {
@@ -158,17 +171,43 @@ func walkStreamContext(ctx context.Context, rootName string, input io.Reader, si
 		rootName = "<archive>"
 	}
 	err := withSpool(ctx, input, size, limits.MaxInputBytes, opts, func(root *spool) error {
-		kind, err := root.kind()
-		if err != nil {
-			return &PartialError{Kind: "corrupt-archive", Entry: rootName, Err: err}
-		}
-		if kind == kindNone {
-			return nil
-		}
-		state := &walkState{ctx: ctx, limits: limits, visit: visit, spool: opts}
-		err = state.walk(rootName, root, 0)
-		return errors.Join(append(state.errs, err)...)
+		return walkRoot(ctx, rootName, root, limits, visit, opts)
 	})
+	return normalizeWalkError(rootName, err)
+}
+
+func walkBytesContext(ctx context.Context, rootName string, data []byte, limits Limits, visit func(StreamEntry) error, opts spoolOptions) error {
+	if visit == nil {
+		return errors.New("archive: nil callback")
+	}
+	limits.withDefaults()
+	if rootName == "" {
+		rootName = "<archive>"
+	}
+	if int64(len(data)) > limits.MaxInputBytes {
+		return normalizeWalkError(rootName, &spoolLimitError{limit: limits.MaxInputBytes})
+	}
+	root := &spool{opts: opts, mem: *bytes.NewBuffer(data), size: int64(len(data))}
+	return normalizeWalkError(rootName, walkRoot(ctx, rootName, root, limits, visit, opts))
+}
+
+func walkRoot(ctx context.Context, rootName string, root *spool, limits Limits, visit func(StreamEntry) error, opts spoolOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	kind, err := root.kind()
+	if err != nil {
+		return &PartialError{Kind: "corrupt-archive", Entry: rootName, Err: err}
+	}
+	if kind == kindNone {
+		return nil
+	}
+	state := &walkState{ctx: ctx, limits: limits, visit: visit, spool: opts}
+	err = state.walk(rootName, root, 0)
+	return errors.Join(append(state.errs, err)...)
+}
+
+func normalizeWalkError(rootName string, err error) error {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
@@ -296,6 +335,10 @@ func (r contextReader) Read(p []byte) (int, error) {
 }
 
 func (s *walkState) expandedSpool(name string, input io.Reader, declared int64) (*spool, bool, error) {
+	return s.expandedSpoolWithOptions(name, input, declared, s.spool)
+}
+
+func (s *walkState) expandedSpoolWithOptions(name string, input io.Reader, declared int64, opts spoolOptions) (*spool, bool, error) {
 	if declared > s.limits.MaxEntryBytes {
 		s.partial("max-entry-bytes", name, fmt.Errorf("declared size exceeds %d", s.limits.MaxEntryBytes))
 		return nil, false, nil
@@ -311,7 +354,7 @@ func (s *walkState) expandedSpool(name string, input io.Reader, declared int64) 
 		limit = remaining
 		limitKind = "max-expanded-bytes"
 	}
-	value, err := spoolFromReader(s.ctx, input, declared, limit, s.spool)
+	value, err := spoolFromReader(s.ctx, input, declared, limit, opts)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, false, err
@@ -487,7 +530,9 @@ func (s *walkState) walkGzip(name string, data *spool, depth int) error {
 	if err != nil {
 		return &PartialError{Kind: "corrupt-archive", Entry: name, Err: err}
 	}
-	value, accepted, copyErr := s.expandedSpool(name, reader, -1)
+	opts := s.spool
+	opts.capacityHint = gzipSizeHint(data, opts.threshold)
+	value, accepted, copyErr := s.expandedSpoolWithOptions(name, reader, -1, opts)
 	closeErr := reader.Close()
 	if copyErr != nil {
 		return copyErr
@@ -511,6 +556,25 @@ func (s *walkState) walkGzip(name string, data *spool, depth int) error {
 		s.partial("cleanup", innerName, cleanupErr)
 	}
 	return walkErr
+}
+
+// gzipSizeHint is advisory only: the trailer records one member's size modulo
+// 2^32, while gzip.Reader may accept concatenated members. A usable single
+// member hint removes bytes.Buffer growth copies without changing validation.
+func gzipSizeHint(data *spool, threshold int64) int64 {
+	if data == nil || threshold <= 0 || data.size < 4 {
+		return 0
+	}
+	var trailer [4]byte
+	n, err := data.readerAt().ReadAt(trailer[:], data.size-4)
+	if err != nil && !(errors.Is(err, io.EOF) && n == len(trailer)) {
+		return 0
+	}
+	hint := int64(binary.LittleEndian.Uint32(trailer[:]))
+	if hint <= 0 || hint > threshold {
+		return 0
+	}
+	return hint
 }
 
 func (s *walkState) walkBzip2(name string, data *spool, depth int) error {
@@ -695,6 +759,8 @@ func spoolFromReader(ctx context.Context, input io.Reader, expected, limit int64
 		// Validated sizes below the spill limit need one allocation, not a
 		// sequence of growing buffers while decompressing the same entry.
 		value.mem.Grow(int(expected))
+	} else if opts.capacityHint > 0 && opts.capacityHint <= opts.threshold && opts.capacityHint <= limit {
+		value.mem.Grow(int(opts.capacityHint))
 	}
 	reader := io.LimitReader(contextReader{ctx: ctx, r: input}, limit+1)
 	buffer := spoolCopyBufferPool.Get().(*[]byte)

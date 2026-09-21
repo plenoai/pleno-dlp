@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -32,7 +33,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // gcp service-account JSON keys are multiline. Anchor on the unique pair:
 // "type": "service_account" + a private_key block. We expand from there to the
 // enclosing JSON object via brace counting.
-var typeRe = regexp.MustCompile(`"type"\s*:\s*"service_account"`)
+var typeRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`"type"\s*:\s*"service_account"`) })
 
 type Scanner struct{}
 
@@ -49,7 +50,7 @@ type serviceAccount struct {
 }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := typeRe.FindAllIndex(data, -1)
+	hits := typeRe().FindAllIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

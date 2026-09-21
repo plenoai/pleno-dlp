@@ -41,6 +41,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -51,9 +52,11 @@ import (
 // Go's RE2 has no backreferences, so the opening/closing quote is not
 // required to match per argument (a mismatched-quote literal is not
 // valid JS and essentially never appears in real files).
-var loginCallRe = regexp.MustCompile(
-	`(?i)\.(?:login|authenticate|signIn)\s*\(\s*['"]([^'"\r\n]+@[^'"\r\n]+)['"]\s*,\s*['"]([^'"\r\n]{4,128})['"]`,
-)
+var loginCallRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?i)\.(?:login|authenticate|signIn)\s*\(\s*['"]([^'"\r\n]+@[^'"\r\n]+)['"]\s*,\s*['"]([^'"\r\n]{4,128})['"]`,
+	)
+})
 
 var placeholders = map[string]struct{}{
 	"password":    {},
@@ -91,7 +94,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
-	for _, m := range loginCallRe.FindAllStringSubmatch(str, -1) {
+	for _, m := range loginCallRe().FindAllStringSubmatch(str, -1) {
 		if len(m) < 3 {
 			continue
 		}

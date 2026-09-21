@@ -9,12 +9,15 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var webhookRe = regexp.MustCompile(`\bhttps://hooks\.slack(?:-gov)?\.com/services/[A-Z0-9]{8,13}/[A-Z0-9]{8,13}/[A-Za-z0-9]{24}\b`)
+var webhookRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\bhttps://hooks\.slack(?:-gov)?\.com/services/[A-Z0-9]{8,13}/[A-Z0-9]{8,13}/[A-Za-z0-9]{24}\b`)
+})
 
 var slackWebhookVerifyBase string
 
@@ -27,7 +30,7 @@ func (WebhookScanner) Keywords() []string {
 }
 
 func (s WebhookScanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := webhookRe.FindAll(data, -1)
+	matches := webhookRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}
@@ -110,7 +113,7 @@ func (WebhookScanner) Verify(ctx context.Context, secret string) (bool, error) {
 }
 
 func slackWebhookVerifyURL(secret string) (string, bool) {
-	if webhookRe.FindString(secret) != secret {
+	if webhookRe().FindString(secret) != secret {
 		return "", false
 	}
 	u, err := url.Parse(secret)

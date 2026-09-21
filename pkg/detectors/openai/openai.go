@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -25,7 +26,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Excludes sk-ant- via a negative-lookahead-equivalent: we match `sk-` then
 // either `proj-` or any non-`a` char (or `a` not followed by `nt-`). Since Go
 // regexp lacks lookaheads, we match broadly and filter in code.
-var keyRe = regexp.MustCompile(`\b(sk-(?:proj-)?[A-Za-z0-9_-]{20,})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk-(?:proj-)?[A-Za-z0-9_-]{20,})\b`) })
 
 // notable models we surface so a triager can immediately see whether a key
 // unlocks the expensive / sensitive surface.
@@ -43,7 +44,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.OpenAI }
 func (Scanner) Keywords() []string { return []string{"sk-"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAll(data, -1)
+	matches := keyRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -17,7 +18,7 @@ var apiBase = "https://api.customerly.io"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style Customerly reference that must appear within
 // the proximity window. The Customerly access-token format is not documented
@@ -27,7 +28,7 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
 // `customerly` substring is too weak a gate against a generic 40-80 char
 // alphanumeric run; `customerly[_-]?(api[_-]?)?(token|key|secret)` is the
 // shape a real credential assignment or config key takes.
-var armRe = regexp.MustCompile(`(?i)customerly[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)customerly[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // minEntropy rejects low-entropy 40-80 char runs that clear the alnum regex
 // but are not random tokens (e.g. padded placeholders, repeated characters).
@@ -41,7 +42,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Customerly }
 func (Scanner) Keywords() []string { return []string{"customerly"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -93,7 +94,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,7 +22,7 @@ var apiBase = ""
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Beyond Identity API tokens are documented as 40+ char base64url.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{40,256})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40,256})\b`) })
 
 var contextKeywords = []string{"beyondidentity", "beyond_identity", "byndid", "byndid_token"}
 
@@ -32,7 +33,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.BeyondIdentity }
 func (Scanner) Keywords() []string { return []string{"beyondidentity", "byndid"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

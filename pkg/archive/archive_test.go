@@ -97,6 +97,31 @@ func TestWalk_TarGzExpandsThroughGzipThenTar(t *testing.T) {
 	}
 }
 
+func TestWalkStreamContextGzipConcatenatedMembers(t *testing.T) {
+	var compressed bytes.Buffer
+	for _, payload := range [][]byte{[]byte("first member\n"), []byte("second member\n")} {
+		writer := gzip.NewWriter(&compressed)
+		if _, err := writer.Write(payload); err != nil {
+			t.Fatalf("gzip write: %v", err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatalf("gzip close: %v", err)
+		}
+	}
+	var got []byte
+	err := WalkStreamContext(context.Background(), "members.gz", bytes.NewReader(compressed.Bytes()), int64(compressed.Len()), Limits{}, func(entry StreamEntry) error {
+		var err error
+		got, err = io.ReadAll(entry.Reader)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("WalkStreamContext: %v", err)
+	}
+	if want := []byte("first member\nsecond member\n"); !bytes.Equal(got, want) {
+		t.Fatalf("concatenated gzip = %q, want %q", got, want)
+	}
+}
+
 func TestWalk_RecursionCap(t *testing.T) {
 	akia := "AKIAIOSFODNN7EXAMPLE"
 	level3 := buildZip(t, map[string]string{"leak.txt": akia})
@@ -276,6 +301,33 @@ func TestWalkStreamContextSpills0600AndCleansEveryPath(t *testing.T) {
 	}
 }
 
+func TestSpoolDefaultThresholdBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		size     int64
+		wantFile bool
+	}{
+		{name: "at threshold", size: SpillThreshold},
+		{name: "above threshold", size: SpillThreshold + 1, wantFile: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := bytes.Repeat([]byte{'x'}, int(tc.size))
+			value, err := spoolFromReader(context.Background(), bytes.NewReader(data), tc.size, tc.size, spoolOptions{tempDir: t.TempDir()})
+			if err != nil {
+				t.Fatalf("spoolFromReader: %v", err)
+			}
+			gotFile := value.file != nil
+			closeErr := value.close()
+			if closeErr != nil {
+				t.Fatalf("close: %v", closeErr)
+			}
+			if gotFile != tc.wantFile {
+				t.Fatalf("file-backed = %t, want %t", gotFile, tc.wantFile)
+			}
+		})
+	}
+}
+
 func TestWalkStreamContextCountsNestedIntermediateBytes(t *testing.T) {
 	leaf := []byte("leaf data counts after its containing archive")
 	inner := buildZipBytes(t, map[string][]byte{"leaf.txt": leaf})
@@ -351,6 +403,22 @@ func TestWalkStreamContextEnforcesInputLimit(t *testing.T) {
 	var partial *PartialError
 	if !errors.As(err, &partial) || partial.Kind != "max-input-bytes" {
 		t.Fatalf("error=%v, want max-input-bytes", err)
+	}
+}
+
+func TestWalkBytesContextEnforcesInputLimit(t *testing.T) {
+	archiveData := buildZip(t, map[string]string{"a": "a"})
+	emitted := false
+	err := WalkBytesContext(context.Background(), "input.zip", archiveData, Limits{MaxInputBytes: int64(len(archiveData) - 1)}, func(StreamEntry) error {
+		emitted = true
+		return nil
+	})
+	var partial *PartialError
+	if !errors.As(err, &partial) || partial.Kind != "max-input-bytes" {
+		t.Fatalf("error=%v, want max-input-bytes", err)
+	}
+	if emitted {
+		t.Fatal("input over the limit emitted an entry")
 	}
 }
 

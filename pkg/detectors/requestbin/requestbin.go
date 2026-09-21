@@ -7,11 +7,14 @@ package requestbin
 import (
 	"context"
 	"regexp"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = regexp.MustCompile(`https?://[A-Za-z0-9]+\.(?:m\.pipedream\.net|requestbin\.com|requestbin\.net)/[A-Za-z0-9]{8,}`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`https?://[A-Za-z0-9]+\.(?:m\.pipedream\.net|requestbin\.com|requestbin\.net)/[A-Za-z0-9]{8,}`)
+})
 
 type Scanner struct{}
 
@@ -22,7 +25,7 @@ func (Scanner) Keywords() []string {
 }
 
 func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAll(data, -1)
+	hits := tokenRe().FindAll(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

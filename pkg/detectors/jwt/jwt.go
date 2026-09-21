@@ -31,6 +31,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -38,7 +39,9 @@ import (
 
 // Header always begins with "eyJ" because every JWT header JSON starts with
 // `{"` which base64url-encodes to "eyJ". Payload likewise.
-var jwtRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+var jwtRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+})
 
 // nowFunc is the time source for expiration checks. Overridable from tests
 // so we can pin "now" without leaking time mocks across the codebase.
@@ -51,7 +54,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.JWT }
 func (Scanner) Keywords() []string { return []string{"eyJ"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	matches := jwtRe.FindAll(data, -1)
+	matches := jwtRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -17,7 +18,7 @@ var apiBase = "https://api.prefect.cloud"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b(pnu_[A-Za-z0-9_\-]{30,128})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pnu_[A-Za-z0-9_\-]{30,128})\b`) })
 
 type Scanner struct{}
 
@@ -26,7 +27,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.PrefectCloud }
 func (Scanner) Keywords() []string { return []string{"pnu_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

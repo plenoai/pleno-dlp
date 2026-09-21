@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -32,14 +33,16 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // arm regex and entropy floor carry the false-positive load. The {40,} bound
 // is the pre-existing recall-safe shape — we keep it because no source pins a
 // length, and tightening it would silently destroy recall.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`) })
 
 // armRe is the assignment-style Lambda Labs reference that must appear within
 // the proximity window. A bare "lambdalabs" substring (doc URLs, dependency
 // names, comments) is too weak to gate a generic 40+ char alphanumeric run;
 // the `lambdalabs[_-]?(api[_-]?)?(token|key|secret)` shape is what a real
 // assignment or config key takes (e.g. LAMBDALABS_API_KEY).
-var armRe = regexp.MustCompile(`(?i)lambda[_\-]?labs[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)lambda[_\-]?labs[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-information 40+ char runs that clear the alnum regex
 // but are not real keys (git SHAs, padded identifiers). 3.0 is the
@@ -54,7 +57,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.LambdaLabs }
 func (Scanner) Keywords() []string { return []string{"lambdalabs", "lambda_labs", "lambda-labs"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -112,7 +115,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

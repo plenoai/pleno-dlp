@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -25,7 +26,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // `<40+ base64url>_<32+ hex>`. We require the underscore-and-hex tail
 // because that's what disambiguates Lacework from generic JWTs and
 // other base64 tokens.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{40,}_[a-f0-9]{32,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40,}_[a-f0-9]{32,})\b`) })
 
 var contextKeywords = []string{"lacework", "lacework_account", "lacework_token", "lacework.net"}
 
@@ -36,7 +37,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Lacework }
 func (Scanner) Keywords() []string { return []string{"lacework"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAllSubmatchIndex(data, -1)
+	matches := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

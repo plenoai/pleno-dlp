@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,7 +22,7 @@ var apiBase = "https://api.uptimerobot.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var keyRe = regexp.MustCompile(`\b([um][0-9]{2,8}-[A-Za-z0-9]{32})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([um][0-9]{2,8}-[A-Za-z0-9]{32})\b`) })
 
 var contextKeywords = []string{
 	"uptimerobot",
@@ -37,7 +38,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.UptimeRobot }
 func (Scanner) Keywords() []string { return []string{"uptimerobot", "uptime_robot", "uptime-robot"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := keyRe.FindAllSubmatchIndex(data, -1)
+	hits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

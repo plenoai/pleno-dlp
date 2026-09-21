@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -15,7 +16,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // HCP tokens have three internal dot-separated segments, but the leading
 // `hcp.` prefix is the unambiguous anchor.
-var tokenRe = regexp.MustCompile(`\b(hcp\.[A-Za-z0-9_.-]{60,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(hcp\.[A-Za-z0-9_.-]{60,})\b`) })
 
 type Scanner struct{}
 
@@ -24,7 +25,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.HashiCorpCloud }
 func (Scanner) Keywords() []string { return []string{"hcp."} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

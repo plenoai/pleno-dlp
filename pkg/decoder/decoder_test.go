@@ -50,6 +50,13 @@ func TestPercentDecoderRequiresAdjacentEscapes(t *testing.T) {
 	}
 }
 
+func TestPercentDecoderKeepsValidEscapesAroundMalformedTail(t *testing.T) {
+	got := decodePercentCandidate([]byte("prefix=%41%42%4"))
+	if want := []byte("prefix=AB%4"); !bytes.Equal(got, want) {
+		t.Fatalf("decodePercentCandidate = %q, want %q", got, want)
+	}
+}
+
 func TestHexEncodedAccessKey(t *testing.T) {
 	akia := []byte("AKIAIOSFODNN7EXAMPLE")
 	chunk := []byte("payload=" + hex.EncodeToString(akia))
@@ -57,6 +64,14 @@ func TestHexEncodedAccessKey(t *testing.T) {
 	variants := Variants(chunk)
 	if !containsBytes(variants, akia) {
 		t.Fatalf("expected hex-decoded AKIA; got %d variants", len(variants))
+	}
+}
+
+func TestUppercaseHexWithLeadingDigits(t *testing.T) {
+	secret := []byte("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF")
+	chunk := []byte("payload=" + strings.ToUpper(hex.EncodeToString(secret)))
+	if !containsBytes(Variants(chunk), secret) {
+		t.Fatal("expected uppercase hex with a digit prefix to decode")
 	}
 }
 
@@ -88,10 +103,8 @@ func TestBase64DecodeRejectsBinaryNoise(t *testing.T) {
 }
 
 func TestMixedCaseHexRejected(t *testing.T) {
-	// AbCdEf... mixed-case is almost always base64, not hex. The hex
-	// path must skip it; the base64 path may still decode, but we
-	// assert the hex-decoded result (which would be garbage here) is
-	// not part of the output.
+	// Mixed-case runs are valid hex, but this payload decodes to
+	// non-printable bytes and must still be rejected.
 	mixed := strings.Repeat("aF", 40)
 	chunk := []byte(mixed)
 	variants := Variants(chunk)
@@ -103,6 +116,23 @@ func TestMixedCaseHexRejected(t *testing.T) {
 			t.Fatalf("hex decoder leaked non-printable bytes: variant %d", i)
 		}
 	}
+}
+
+func TestMixedCaseHexCredential(t *testing.T) {
+	secret := []byte("AKIAIOSFODNN7EXAMPLE")
+	run := []byte(hex.EncodeToString(secret))
+	for i, c := range run {
+		if c >= 'a' && c <= 'f' && i%2 == 0 {
+			run[i] = c - ('a' - 'A')
+		}
+	}
+	variants := Variants(append([]byte("token="), run...))
+	for _, variant := range variants {
+		if variant.Source == "hex" && bytes.Contains(variant.Data, secret) {
+			return
+		}
+	}
+	t.Fatal("expected mixed-case printable hex credential variant")
 }
 
 func TestVariantsTagSource(t *testing.T) {

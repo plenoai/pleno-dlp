@@ -21,10 +21,22 @@ func TestFromData_YAMLColonWithComment(t *testing.T) {
 }
 
 func TestFromData_IniEqualsForm(t *testing.T) {
-	data := []byte("api_key = 3b6311afca5bd8aac647b316704e9c6d\n")
+	for _, data := range []string{
+		"api_key = 3b6311afca5bd8aac647b316704e9c6d\n",
+		"API_KEY = 3b6311afca5bd8aac647b316704e9c6d\n",
+	} {
+		res, _ := Scanner{}.FromData(context.Background(), false, []byte(data))
+		if len(res) != 1 {
+			t.Fatalf("expected 1 for %q, got %d: %+v", data, len(res), res)
+		}
+	}
+}
+
+func TestFromData_EqualSyntaxWithoutColonStillMatches(t *testing.T) {
+	data := []byte("noise api_key=3b6311afca5bd8aac647b316704e9c6d\n")
 	res, _ := Scanner{}.FromData(context.Background(), false, data)
 	if len(res) != 1 {
-		t.Fatalf("expected 1, got %d: %+v", len(res), res)
+		t.Fatalf("expected equals assignment without colon to match, got %d: %+v", len(res), res)
 	}
 }
 

@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -30,10 +31,12 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // such string starts with "cmVmdGtuO". Production tokens are 200+ chars
 // after the prefix; we accept 80+ to allow for future-format truncation
 // while still rejecting bare "cmVmdGtuO" mentions in docs/comments.
-var keyRe = regexp.MustCompile(`\b(cmVmdGtuO[A-Za-z0-9+/=_-]{80,})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(cmVmdGtuO[A-Za-z0-9+/=_-]{80,})\b`) })
 
 // hostRe extracts a *.jfrog.io host or `/artifactory` path so we can probe.
-var hostRe = regexp.MustCompile(`https?://[a-zA-Z0-9.-]+(?:\.jfrog\.io|/artifactory)`)
+var hostRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`https?://[a-zA-Z0-9.-]+(?:\.jfrog\.io|/artifactory)`)
+})
 
 type Scanner struct{}
 
@@ -43,7 +46,7 @@ func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 func (Scanner) Keywords() []string { return []string{"cmVmdGtuO", "jfrog", "artifactory"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := keyRe.FindAllSubmatchIndex(data, -1)
+	hits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -120,7 +123,7 @@ func nearestHost(data []byte, pos int) string {
 	if to > len(data) {
 		to = len(data)
 	}
-	if m := hostRe.Find(data[from:to]); m != nil {
+	if m := hostRe().Find(data[from:to]); m != nil {
 		return string(m)
 	}
 	return ""

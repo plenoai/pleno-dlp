@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
@@ -55,6 +56,25 @@ func (Scanner) Keywords() []string { return keywords }
 // replaces the engine's regex-oriented slicing. Without this, PII outside
 // keyword vicinities is silently never analyzed.
 func (Scanner) WantsFullChunk() bool { return true }
+
+// FromReader skips disabled analyzers before allocating their full input.
+// Enabled analyzers retain the whole-content FromData contract.
+func (s Scanner) FromReader(ctx context.Context, verify bool, r io.ReaderAt, size int64) ([]detectors.Result, error) {
+	if fetchAnalyzer() == nil || size == 0 {
+		return nil, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if r == nil || size < 0 || uint64(size) > uint64(^uint(0)>>1) {
+		return nil, fmt.Errorf("openaipf: invalid reader size")
+	}
+	data := make([]byte, int(size))
+	if _, err := io.ReadFull(io.NewSectionReader(r, 0, size), data); err != nil {
+		return nil, err
+	}
+	return s.FromData(ctx, verify, data)
+}
 
 // FromData runs the chunk through the registered Analyzer and maps
 // each returned Finding to a detectors.Result.

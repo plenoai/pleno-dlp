@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -14,7 +15,7 @@ var apiBase = "https://heapanalytics.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b(heap_[A-Za-z0-9]{32,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(heap_[A-Za-z0-9]{32,80})\b`) })
 
 var contextKeywords = []string{"heap", "heapanalytics", "heap_api", "heap_token"}
 
@@ -25,7 +26,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Heap }
 func (Scanner) Keywords() []string { return []string{"heap_", "heapanalytics"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -25,13 +26,13 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // 24 alphanumeric. No prefix to anchor on, so the keyword gate carries the
 // false-positive load.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24})\b`) })
 
 // armRe is the assignment-style Vercel reference that must appear within the
 // proximity window. A bare "vercel" substring (script-src URLs, dependency
 // names, comments) is too weak; "vercel_token" / "vercel-token" / "verceltoken"
 // is the shape a real token assignment or config key takes.
-var armRe = regexp.MustCompile(`(?i)vercel[_\-]?token`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)vercel[_\-]?token`) })
 
 // minEntropy rejects low-entropy 24-char runs that clear the alnum regex but
 // are not random tokens.
@@ -46,7 +47,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Vercel }
 func (Scanner) Keywords() []string { return []string{"vercel"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -98,7 +99,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

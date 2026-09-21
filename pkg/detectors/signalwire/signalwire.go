@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -29,7 +30,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // the id and token can both be harvested from the chunk, then disambiguate
 // with the keyword arm regex + an entropy floor. The token half, carried in
 // RawV2, is the value the entropy gate protects.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24,128})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24,128})\b`) })
 
 // minEntropy rejects low-information runs that clear the alphanumeric regex
 // but are not real key material. The token charset is high-variety base62,
@@ -41,7 +42,9 @@ const minEntropy = 3.5
 // substring over radius 256 matched any prose mention of the provider; this
 // requires the keyword to sit next to a credential assignment within a tight
 // window. The bare keyword stays in Keywords() as the engine prefilter.
-var armRe = regexp.MustCompile(`(?i)signalwire[_-]?(project|api[_-]?)?(token|key|secret|id|project)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)signalwire[_-]?(project|api[_-]?)?(token|key|secret|id|project)`)
+})
 
 type Scanner struct{}
 
@@ -50,7 +53,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.SignalWire }
 func (Scanner) Keywords() []string { return []string{"signalwire"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}
@@ -103,7 +106,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	return armRe.MatchString(window)
+	return armRe().MatchString(window)
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

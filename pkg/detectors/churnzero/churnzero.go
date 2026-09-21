@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // ChurnZero appKey is documented as a 36-char UUID. We accept the UUID
 // shape and bound by the `churnzero` keyword.
-var tokenRe = regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b`)
+})
 
 var contextKeywords = []string{"churnzero", "churn-zero", "churn_zero"}
 
@@ -30,7 +33,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.ChurnZero }
 func (Scanner) Keywords() []string { return []string{"churnzero"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

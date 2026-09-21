@@ -22,9 +22,6 @@ package ahocorasick
 // Construct once, query many times; Match is safe for concurrent use because
 // the automaton is read-only after New returns.
 type Matcher struct {
-	// transitions is used while building the trie, then released after the
-	// compact deterministic transition table is compiled.
-	transitions []map[byte]int32
 	// failure[i] is the longest proper suffix of the prefix that node i
 	// represents that is also a prefix of some pattern. Built via BFS.
 	failure []int32
@@ -41,162 +38,20 @@ type Matcher struct {
 	// symbols maps input bytes to a compact alphabet. The final symbol is
 	// reserved for bytes absent from every pattern and always returns root.
 	symbols [256]uint16
-	// next is a fully resolved DFA: one row per trie node and one column per
-	// compact symbol. It removes per-byte map lookups and failure walks from
-	// the query path.
+	// next is the wide fallback DFA for catalogs with more than 65,536 trie
+	// states. Built-in catalogs use next16 to halve the common table.
 	next   []int32
+	next16 []uint16
 	stride int
 }
+
+const maxNarrowStates = 1 << 16
 
 // New compiles patterns into an automaton. patterns[i] becomes pattern ID i.
 // Empty patterns are ignored — they would match everywhere and aren't a
 // useful signal for the engine prefilter.
 func New(patterns [][]byte) *Matcher {
-	m := &Matcher{
-		transitions: []map[byte]int32{{}},
-		failure:     []int32{0},
-		dictLink:    []int32{-1},
-		patternsAt:  [][]int32{nil},
-		numPatterns: len(patterns),
-	}
-	for id, p := range patterns {
-		if len(p) == 0 {
-			continue
-		}
-		m.insert(p, int32(id))
-	}
-	m.buildFailure()
-	m.buildTransitions()
-	// Match only needs the flattened DFA and output links. Releasing the trie
-	// maps and failure links keeps the frozen matcher small after construction.
-	m.transitions = nil
-	m.failure = nil
-	return m
-}
-
-func (m *Matcher) insert(p []byte, id int32) {
-	node := int32(0)
-	for _, b := range p {
-		next, ok := m.transitions[node][b]
-		if !ok {
-			next = int32(len(m.transitions))
-			m.transitions = append(m.transitions, map[byte]int32{})
-			m.failure = append(m.failure, 0)
-			m.dictLink = append(m.dictLink, -1)
-			m.patternsAt = append(m.patternsAt, nil)
-			m.transitions[node][b] = next
-		}
-		node = next
-	}
-	m.patternsAt[node] = append(m.patternsAt[node], id)
-}
-
-// buildFailure populates failure links and dictionary-suffix links via
-// breadth-first traversal of the trie. Root's children fail to root; deeper
-// nodes follow the standard AC recurrence.
-func (m *Matcher) buildFailure() {
-	queue := make([]int32, 0, len(m.transitions))
-	for _, child := range m.transitions[0] {
-		m.failure[child] = 0
-		queue = append(queue, child)
-	}
-	for len(queue) > 0 {
-		node := queue[0]
-		queue = queue[1:]
-		for b, child := range m.transitions[node] {
-			queue = append(queue, child)
-			fail := m.failure[node]
-			for fail != 0 {
-				if _, ok := m.transitions[fail][b]; ok {
-					break
-				}
-				fail = m.failure[fail]
-			}
-			if next, ok := m.transitions[fail][b]; ok && next != child {
-				m.failure[child] = next
-			} else {
-				m.failure[child] = 0
-			}
-			// Dictionary-suffix link: the nearest failure-chain ancestor
-			// that is itself a pattern terminal. Pre-computing skips
-			// redundant chain walks at match time.
-			f := m.failure[child]
-			if len(m.patternsAt[f]) > 0 {
-				m.dictLink[child] = f
-			} else {
-				m.dictLink[child] = m.dictLink[f]
-			}
-		}
-	}
-}
-
-// buildTransitions compiles the sparse trie plus failure links into a DFA
-// over only bytes that occur in patterns. The extra final column handles all
-// other bytes with a single root transition. The row stride is rounded up to
-// a power of two to keep the hot row arithmetic compact.
-func (m *Matcher) buildTransitions() {
-	var present [256]bool
-	for _, edges := range m.transitions {
-		for b := range edges {
-			present[b] = true
-		}
-	}
-	alphabet := make([]byte, 0, 256)
-	for i, found := range present {
-		if found {
-			alphabet = append(alphabet, byte(i))
-		}
-	}
-	if len(alphabet) == len(m.symbols) {
-		// There is no unknown-byte sentinel when every byte is present; keep
-		// the table at 256 columns instead of rounding up to 512.
-		for i := range m.symbols {
-			m.symbols[i] = uint16(i)
-		}
-		m.stride = len(alphabet)
-	} else {
-		unknown := uint16(len(alphabet))
-		for i := range m.symbols {
-			m.symbols[i] = unknown
-		}
-		for i, b := range alphabet {
-			m.symbols[b] = uint16(i)
-		}
-		m.stride = 1
-		for m.stride < len(alphabet)+1 {
-			m.stride <<= 1
-		}
-	}
-	m.next = make([]int32, len(m.transitions)*m.stride)
-
-	// Trie node indexes are not guaranteed to be breadth-first because
-	// patterns are inserted in caller order. Build rows in BFS order so every
-	// failure target's row is ready before its dependent row.
-	order := make([]int32, 0, len(m.transitions))
-	queue := make([]int32, 0, len(m.transitions))
-	order = append(order, 0)
-	for _, child := range m.transitions[0] {
-		queue = append(queue, child)
-	}
-	for len(queue) > 0 {
-		node := queue[0]
-		queue = queue[1:]
-		order = append(order, node)
-		for _, child := range m.transitions[node] {
-			queue = append(queue, child)
-		}
-	}
-
-	for _, node := range order {
-		row := int(node) * m.stride
-		for i, b := range alphabet {
-			if child, ok := m.transitions[node][b]; ok {
-				m.next[row+i] = child
-			} else if node != 0 {
-				m.next[row+i] = m.next[int(m.failure[node])*m.stride+i]
-			}
-		}
-	}
+	return newDirect(patterns)
 }
 
 // Match walks data through the automaton and returns every pattern ID that
@@ -231,7 +86,7 @@ func (m *Matcher) MatchInto(data []byte, seen []bool, out []int32) []int32 {
 func (m *Matcher) walk(data []byte, seen []bool, out *[]int32) {
 	state := int32(0)
 	for _, b := range data {
-		state = m.next[int(state)*m.stride+int(m.symbols[b])]
+		state = m.transition(state, m.symbols[b])
 		// Emit terminals at the current node, then walk the dictionary
 		// suffix chain to emit any shorter pattern matches that overlap.
 		for s := state; s > 0; {
@@ -267,12 +122,22 @@ type Hit struct {
 // out is appended to; the (possibly grown) slice is returned. Pass nil
 // to let MatchHitsInto allocate.
 func (m *Matcher) MatchHitsInto(data []byte, out []Hit) []Hit {
+	m.VisitHits(data, func(hit Hit) {
+		out = append(out, hit)
+	})
+	return out
+}
+
+// VisitHits walks data in input order and calls visit for every pattern
+// occurrence. It avoids retaining the complete hit list when callers can
+// consume matches immediately.
+func (m *Matcher) VisitHits(data []byte, visit func(Hit)) {
 	state := int32(0)
 	for i, b := range data {
-		state = m.next[int(state)*m.stride+int(m.symbols[b])]
+		state = m.transition(state, m.symbols[b])
 		for s := state; s > 0; {
 			for _, id := range m.patternsAt[s] {
-				out = append(out, Hit{PatternID: id, End: i})
+				visit(Hit{PatternID: id, End: i})
 			}
 			s = m.dictLink[s]
 			if s < 0 {
@@ -280,7 +145,6 @@ func (m *Matcher) MatchHitsInto(data []byte, out []Hit) []Hit {
 			}
 		}
 	}
-	return out
 }
 
 // NumPatterns reports the upper bound on pattern IDs the matcher will emit.

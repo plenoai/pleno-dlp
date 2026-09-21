@@ -39,6 +39,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -51,16 +52,20 @@ import (
 // Go's RE2 has no backreferences, so the opening/closing quote is not
 // required to match (a mismatched-quote value is not valid Python and
 // essentially never appears in real files).
-var secretKeyRe = regexp.MustCompile(
-	`(?m)^[ \t]*SECRET_KEY[ \t]*=[ \t]*['"]([^'"\r\n]{8,256})['"][ \t]*$`,
-)
+var secretKeyRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?m)^[ \t]*SECRET_KEY[ \t]*=[ \t]*['"]([^'"\r\n]{8,256})['"][ \t]*$`,
+	)
+})
 
 // dbPasswordRe matches a quoted-key Python dict entry named PASSWORD
 // (case-insensitive to also catch the less common lowercase
 // convention), the shape Django's DATABASES block uses.
-var dbPasswordRe = regexp.MustCompile(
-	`(?im)['"]PASSWORD['"][ \t]*:[ \t]*['"]([^'"\r\n]{1,256})['"]`,
-)
+var dbPasswordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?im)['"]PASSWORD['"][ \t]*:[ \t]*['"]([^'"\r\n]{1,256})['"]`,
+	)
+})
 
 var placeholders = map[string]struct{}{
 	"password":              {},
@@ -141,13 +146,13 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		})
 	}
 
-	for _, m := range secretKeyRe.FindAllStringSubmatch(str, -1) {
+	for _, m := range secretKeyRe().FindAllStringSubmatch(str, -1) {
 		if len(m) < 2 {
 			continue
 		}
 		add(m[1], "secret_key")
 	}
-	for _, m := range dbPasswordRe.FindAllStringSubmatch(str, -1) {
+	for _, m := range dbPasswordRe().FindAllStringSubmatch(str, -1) {
 		if len(m) < 2 {
 			continue
 		}

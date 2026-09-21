@@ -33,29 +33,30 @@ package jira
 import (
 	"context"
 	"regexp"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 // 24 base62 characters. Same shape as `atlassian` — we differentiate by the
 // "jira" assignment keyword window, not by token format.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24})\b`) })
 
 // assignmentRe requires the keyword to look like a config/env assignment:
 // jira, optionally followed by word/dash chars and one of token|key|api|secret,
 // then a ':' or '=' delimiter. This rejects prose mentions like "JIRA-1234".
-var assignmentRe = regexp.MustCompile(`(?i)jira[\w-]*(?:token|key|api|secret)?\s*[:=]`)
+var assignmentRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)jira[\w-]*(?:token|key|api|secret)?\s*[:=]`) })
 
 // pure 24-hex == git short-blob/sha fragment or a hex digest slice — never an
 // Atlassian base62 token.
-var hexOnlyRe = regexp.MustCompile(`^[0-9a-fA-F]{24}$`)
+var hexOnlyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-fA-F]{24}$`) })
 
 // Atlassian base62 tokens mix at least one uppercase, one lowercase, and one
 // digit. The structural classes below let us reject monotone runs.
 var (
-	hasUpperRe = regexp.MustCompile(`[A-Z]`)
-	hasLowerRe = regexp.MustCompile(`[a-z]`)
-	hasDigitRe = regexp.MustCompile(`[0-9]`)
+	hasUpperRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[A-Z]`) })
+	hasLowerRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[a-z]`) })
+	hasDigitRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[0-9]`) })
 )
 
 // minEntropy is the bits/char floor for a 24-char base62 candidate (alphabet
@@ -74,7 +75,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Jira }
 func (Scanner) Keywords() []string { return []string{"jira"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -110,12 +111,12 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 // hex digests) and monotone runs that lack the mixed-case+digit profile of an
 // Atlassian base62 token.
 func looksLikeToken(token string) bool {
-	if hexOnlyRe.MatchString(token) {
+	if hexOnlyRe().MatchString(token) {
 		return false
 	}
-	return hasUpperRe.MatchString(token) &&
-		hasLowerRe.MatchString(token) &&
-		hasDigitRe.MatchString(token)
+	return hasUpperRe().MatchString(token) &&
+		hasLowerRe().MatchString(token) &&
+		hasDigitRe().MatchString(token)
 }
 
 // nearAssignment reports whether an assignment-style "jira" keyword appears
@@ -131,7 +132,7 @@ func nearAssignment(data []byte, start, end int) bool {
 	if to > len(data) {
 		to = len(data)
 	}
-	return assignmentRe.Match(data[from:to])
+	return assignmentRe().Match(data[from:to])
 }
 
 func redact(t string) string {

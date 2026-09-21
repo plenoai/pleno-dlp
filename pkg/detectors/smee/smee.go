@@ -7,11 +7,12 @@ package smee
 import (
 	"context"
 	"regexp"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = regexp.MustCompile(`https?://smee\.io/([A-Za-z0-9]{8,})`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`https?://smee\.io/([A-Za-z0-9]{8,})`) })
 
 type Scanner struct{}
 
@@ -20,7 +21,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Smee }
 func (Scanner) Keywords() []string { return []string{"smee.io"} }
 
 func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatch(data, -1)
+	hits := tokenRe().FindAllSubmatch(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

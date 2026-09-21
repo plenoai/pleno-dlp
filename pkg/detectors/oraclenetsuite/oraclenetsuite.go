@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,8 +20,12 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenIDRe = regexp.MustCompile(`(?i)netsuite[_\-]?token[_\-]?id\s*[:=]\s*"?([0-9a-fA-F]{64})"?`)
-var tokenSecretRe = regexp.MustCompile(`(?i)netsuite[_\-]?token[_\-]?secret\s*[:=]\s*"?([0-9a-fA-F]{64})"?`)
+var tokenIDRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)netsuite[_\-]?token[_\-]?id\s*[:=]\s*"?([0-9a-fA-F]{64})"?`)
+})
+var tokenSecretRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)netsuite[_\-]?token[_\-]?secret\s*[:=]\s*"?([0-9a-fA-F]{64})"?`)
+})
 
 type Scanner struct{}
 
@@ -29,11 +34,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.OracleNetSuite }
 func (Scanner) Keywords() []string { return []string{"netsuite"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	ids := tokenIDRe.FindAllSubmatch(data, -1)
+	ids := tokenIDRe().FindAllSubmatch(data, -1)
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	secrets := tokenSecretRe.FindAllSubmatch(data, -1)
+	secrets := tokenSecretRe().FindAllSubmatch(data, -1)
 	if len(secrets) == 0 {
 		return nil, nil
 	}

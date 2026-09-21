@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,8 +23,8 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // LambdaTest usernames are typically email-prefix or short alnum strings;
 // access_keys are 20-32 alnum chars. We pair a `LT_USERNAME=` shape with
 // a `LT_ACCESS_KEY=` shape — the same chunk almost always has both.
-var userRe = regexp.MustCompile(`(?i)LT_USERNAME["\s:=]+([A-Za-z0-9._-]{3,40})`)
-var keyRe = regexp.MustCompile(`(?i)LT_ACCESS_KEY["\s:=]+([A-Za-z0-9]{20,40})`)
+var userRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)LT_USERNAME["\s:=]+([A-Za-z0-9._-]{3,40})`) })
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)LT_ACCESS_KEY["\s:=]+([A-Za-z0-9]{20,40})`) })
 
 type Scanner struct{}
 
@@ -32,8 +33,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.LambdaTest }
 func (Scanner) Keywords() []string { return []string{"lambdatest", "LT_ACCESS_KEY"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	uMatches := userRe.FindAllSubmatch(data, -1)
-	kMatches := keyRe.FindAllSubmatch(data, -1)
+	uMatches := userRe().FindAllSubmatch(data, -1)
+	kMatches := keyRe().FindAllSubmatch(data, -1)
 	if len(uMatches) == 0 || len(kMatches) == 0 {
 		return nil, nil
 	}

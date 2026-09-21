@@ -15,6 +15,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -24,7 +25,9 @@ import (
 var (
 	beginPEM = "-----BEGIN " + "PRIVATE KEY-----"
 	endPEM   = "-----END " + "PRIVATE KEY-----"
-	pemRe    = regexp.MustCompile(regexp.QuoteMeta(beginPEM) + `[\s\S]*?` + regexp.QuoteMeta(endPEM))
+	pemRe    = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(regexp.QuoteMeta(beginPEM) + `[\s\S]*?` + regexp.QuoteMeta(endPEM))
+	})
 )
 
 var contextKeywords = []string{"apns", "apns_auth_key", "apns_key_id", "apple_push", "push.apple.com"}
@@ -38,7 +41,7 @@ func (Scanner) Keywords() []string {
 }
 
 func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := pemRe.FindAllIndex(data, -1)
+	hits := pemRe().FindAllIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

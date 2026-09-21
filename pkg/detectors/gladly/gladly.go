@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -17,16 +18,18 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var emailRe = regexp.MustCompile(`\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b`)
+var emailRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b`)
+})
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`) })
 
 // armRe is the assignment-style Gladly reference that must appear within the
 // proximity window. A bare "gladly" substring (script-src URLs, doc links,
 // the per-org `<org>.gladly.com` host) is too weak a gate against a generic
 // 32-128 alphanumeric run; `gladly[_-]?(api[_-]?)?(token|key|email)` is the
 // shape a real credential assignment or config key takes.
-var armRe = regexp.MustCompile(`(?i)gladly[_\-]?(api[_\-]?)?(token|key|email)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)gladly[_\-]?(api[_\-]?)?(token|key|email)`) })
 
 // minEntropy rejects low-entropy 32-128 char runs that clear the alnum
 // regex but are not random tokens.
@@ -39,8 +42,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Gladly }
 func (Scanner) Keywords() []string { return []string{"gladly"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	emails := emailRe.FindAllSubmatchIndex(data, -1)
-	tokens := tokenRe.FindAllSubmatchIndex(data, -1)
+	emails := emailRe().FindAllSubmatchIndex(data, -1)
+	tokens := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(emails) == 0 || len(tokens) == 0 {
 		return nil, nil
 	}
@@ -102,7 +105,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

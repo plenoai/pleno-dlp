@@ -24,11 +24,14 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+})
 
 // keywordRe is the anchored, assignment-style Sinch credential marker. The
 // bare brand word `sinch` co-occurs within 256 bytes of an unrelated UUID far
@@ -37,7 +40,9 @@ var tokenRe = regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 //
 //	sinch_api_key / sinch_key / sinch_token (any separator/case), or
 //	`sinch` immediately followed by key|token|secret or an `=` assignment.
-var keywordRe = regexp.MustCompile(`(?i)\bsinch[_\-\s]*(?:api[_\-\s]*)?(?:key|token|secret)\b|\bsinch\s*[:=]`)
+var keywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)\bsinch[_\-\s]*(?:api[_\-\s]*)?(?:key|token|secret)\b|\bsinch\s*[:=]`)
+})
 
 // minEntropy is the Shannon floor (bits/char) for the dash-stripped 32-hex
 // payload. Real random hex keys clear ~3.5+ bits/char; sequential or
@@ -51,7 +56,7 @@ const radius = 64
 
 // sequentialHex matches the ascending nibble run that headlines doc-example
 // UUIDs (e.g. 12345678-...). Such tokens are placeholders, not credentials.
-var sequentialHex = regexp.MustCompile(`^(?:0123456789abcdef|0123456789)`)
+var sequentialHex = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(?:0123456789abcdef|0123456789)`) })
 
 type Scanner struct{}
 
@@ -60,11 +65,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Sinch }
 func (Scanner) Keywords() []string { return []string{"sinch"} }
 
 func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	kwSpans := keywordRe.FindAllIndex(data, -1)
+	kwSpans := keywordRe().FindAllIndex(data, -1)
 	if len(kwSpans) == 0 {
 		return nil, nil
 	}
@@ -118,7 +123,7 @@ func isLookalike(hex string) bool {
 	if allSame {
 		return true
 	}
-	if sequentialHex.MatchString(hex) {
+	if sequentialHex().MatchString(hex) {
 		return true
 	}
 	// Leading ascending decimal run such as 12345678.

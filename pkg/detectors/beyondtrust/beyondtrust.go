@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -28,7 +29,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // legacy GUID-format keys exist and the hash output charset is unstated. We
 // keep the alnum class (a superset of hex) and gate on a conservative entropy
 // floor rather than guessing a narrower charset.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{128})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{128})\b`) })
 
 // minEntropy uses the conservative 3.0 floor: the documented header example is
 // lowercase hex, which caps around 3.6 bits/char, so a 3.5 floor would
@@ -41,7 +42,9 @@ const minEntropy = 3.0
 // "beyondtrust"/"ps-auth" substring) with a vendor + key/token/secret arm
 // regex evaluated within radius 64. The bare keywords remain in Keywords()
 // as the engine prefilter.
-var armRe = regexp.MustCompile(`(?i)(?:beyond[_-]?trust|ps[_-]?auth)[_-]?(api[_-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(?:beyond[_-]?trust|ps[_-]?auth)[_-]?(api[_-]?)?(token|key|secret)`)
+})
 
 type Scanner struct{}
 
@@ -50,7 +53,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.BeyondTrust }
 func (Scanner) Keywords() []string { return []string{"beyondtrust", "ps-auth"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -100,7 +103,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

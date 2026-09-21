@@ -23,20 +23,22 @@
 package jetbrainswebservers
 
 import (
+	"bytes"
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 // fileTransferTagRe captures a whole `<fileTransfer ...>` opening tag so
 // the password attribute can be found regardless of attribute order.
-var fileTransferTagRe = regexp.MustCompile(`(?is)<fileTransfer\b([^>]{0,1000})>`)
+var fileTransferTagRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?is)<fileTransfer\b([^>]{0,1000})>`) })
 
-var passwordAttrRe = regexp.MustCompile(`(?i)\bpassword\s*=\s*"([^"]*)"`)
-var hostAttrRe = regexp.MustCompile(`(?i)\bhost\s*=\s*"([^"]*)"`)
-var usernameAttrRe = regexp.MustCompile(`(?i)\busername\s*=\s*"([^"]*)"`)
+var passwordAttrRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\bpassword\s*=\s*"([^"]*)"`) })
+var hostAttrRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\bhost\s*=\s*"([^"]*)"`) })
+var usernameAttrRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\busername\s*=\s*"([^"]*)"`) })
 
 var placeholders = map[string]struct{}{
 	"password":    {},
@@ -68,16 +70,19 @@ func (Scanner) Type() detectors.DetectorType { return detectors.JetBrainsWebServ
 func (Scanner) Keywords() []string { return []string{"filetransfer", "password"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	if bytes.IndexByte(data, '<') < 0 {
+		return nil, nil
+	}
 	str := string(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
-	for _, tag := range fileTransferTagRe.FindAllStringSubmatch(str, -1) {
+	for _, tag := range fileTransferTagRe().FindAllStringSubmatch(str, -1) {
 		if len(tag) < 2 {
 			continue
 		}
 		attrs := tag[1]
-		pm := passwordAttrRe.FindStringSubmatch(attrs)
+		pm := passwordAttrRe().FindStringSubmatch(attrs)
 		if pm == nil {
 			continue
 		}
@@ -93,10 +98,10 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		}
 		seen[val] = struct{}{}
 		extra := map[string]string{}
-		if hm := hostAttrRe.FindStringSubmatch(attrs); hm != nil {
+		if hm := hostAttrRe().FindStringSubmatch(attrs); hm != nil {
 			extra["host"] = hm[1]
 		}
-		if um := usernameAttrRe.FindStringSubmatch(attrs); um != nil {
+		if um := usernameAttrRe().FindStringSubmatch(attrs); um != nil {
 			extra["username"] = um[1]
 		}
 		out = append(out, detectors.Result{

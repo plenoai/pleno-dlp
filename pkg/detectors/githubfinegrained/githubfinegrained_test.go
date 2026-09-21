@@ -51,6 +51,28 @@ func TestFromData_TooShort(t *testing.T) {
 	}
 }
 
+func TestFromData_ShapeGateKeepsUnicodeAndRejectsNearMatches(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want int
+	}{
+		{"unicode prefix", "é" + dummyPAT, 1},
+		{"short body", " github_pat_" + strings.Repeat("A", 81), 0},
+		{"invalid first then valid", " github_pat_short " + dummyPAT, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := Scanner{}.FromData(context.Background(), false, []byte(tc.body))
+			if err != nil {
+				t.Fatalf("FromData err: %v", err)
+			}
+			if len(res) != tc.want {
+				t.Fatalf("got %d results, want %d: %+v", len(res), tc.want, res)
+			}
+		})
+	}
+}
+
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte(dummyPAT + "\n" + dummyPAT)
 	res, _ := Scanner{}.FromData(context.Background(), false, body)

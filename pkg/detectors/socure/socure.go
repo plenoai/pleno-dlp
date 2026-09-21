@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -36,13 +37,15 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // tokenRe anchors on the documented UUID v4 structure (8-4-4-4-12 hex, version
 // nibble 4, variant nibble [89ab]). Source: help.socure.com RiskOS
 // authentication docs. The structure is the discriminator, so no entropy gate.
-var tokenRe = regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})\b`)
+})
 
 // armRe is the assignment-style Socure reference that must appear within the
 // proximity window. A bare "socure" substring is too weak; "socure_api_key" /
 // "socure-token" / "socurekey" is the shape a real key assignment or config
 // key takes.
-var armRe = regexp.MustCompile(`(?i)socure[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)socure[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 type Scanner struct{}
 
@@ -54,7 +57,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Socure }
 func (Scanner) Keywords() []string { return []string{"socure"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -99,7 +102,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

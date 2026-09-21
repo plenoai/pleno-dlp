@@ -10,12 +10,13 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 // Pusher Beams secret keys are documented as 32-hex.
-var tokenRe = regexp.MustCompile(`\b([a-fA-F0-9]{32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-fA-F0-9]{32})\b`) })
 
 // contextKeywords are the assignment-adjacent words that must appear close to
 // the token. Deliberately excludes the bare word "beams" — a 32-hex shape is
@@ -41,7 +42,7 @@ func (Scanner) Keywords() []string {
 }
 
 func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

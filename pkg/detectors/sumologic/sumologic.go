@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -24,12 +25,12 @@ var (
 	// Access IDs are 14 chars with a documented `su` prefix
 	// (upstream trufflehog: `su[A-Za-z0-9]{12}`). The prefix is the
 	// distinguishing anchor, so no entropy floor is needed on the ID.
-	idRe = regexp.MustCompile(`\b(su[A-Za-z0-9]{12})\b`)
+	idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(su[A-Za-z0-9]{12})\b`) })
 	// Access keys are 64 base62 chars with no prefix
 	// (upstream trufflehog: `[A-Za-z0-9]{64}`). A bare fixed-length
 	// alnum run is FP-prone, so the candidate must additionally clear an
 	// entropy floor (keyMinEntropy) before it is accepted as a key.
-	keyRe = regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`)
+	keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`) })
 )
 
 // keyMinEntropy rejects low-information 64-char runs that clear the
@@ -42,7 +43,9 @@ const keyMinEntropy = 3.5
 // radius matched unrelated prose and script-src URLs; the arm regex requires
 // the credential-assignment shape Sumo Logic configs actually use while the
 // bare keyword stays in Keywords() as the cheap engine prefilter.
-var armRe = regexp.MustCompile(`(?i)sumo[_-]?(logic)?[_-]?(access[_-]?)?(id|key|token|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)sumo[_-]?(logic)?[_-]?(access[_-]?)?(id|key|token|secret)`)
+})
 
 type Scanner struct{}
 
@@ -51,11 +54,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.SumoLogic }
 func (Scanner) Keywords() []string { return []string{"sumologic", "sumo"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	idHits := idRe.FindAllSubmatchIndex(data, -1)
+	idHits := idRe().FindAllSubmatchIndex(data, -1)
 	if len(idHits) == 0 {
 		return nil, nil
 	}
-	keyHits := keyRe.FindAllSubmatchIndex(data, -1)
+	keyHits := keyRe().FindAllSubmatchIndex(data, -1)
 	lower := strings.ToLower(string(data))
 
 	out := make([]detectors.Result, 0, len(idHits))
@@ -102,7 +105,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func nearestKey(idStart int, data []byte, hits [][]int) (string, bool) {

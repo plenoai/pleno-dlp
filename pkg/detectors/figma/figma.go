@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,7 +19,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // `figd_` legacy: ~40 base64url chars; `figpat_` modern: 6-segment dash
 // shape ending in 32 base64url. We accept either.
-var tokenRe = regexp.MustCompile(`\b(fig(?:d_|pat_)[A-Za-z0-9_-]{36,200})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(fig(?:d_|pat_)[A-Za-z0-9_-]{36,200})\b`) })
 
 type Scanner struct{}
 
@@ -27,7 +28,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Figma }
 func (Scanner) Keywords() []string { return []string{"figd_", "figpat_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAll(data, -1)
+	hits := tokenRe().FindAll(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

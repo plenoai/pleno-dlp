@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,8 +19,12 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var userRe = regexp.MustCompile(`(?i)qualys[_\-]user(?:name)?\s*[:=]\s*"?([A-Za-z0-9_\-]{4,64})"?`)
-var passRe = regexp.MustCompile(`(?i)qualys[_\-]pass(?:word)?\s*[:=]\s*"?([A-Za-z0-9_\-!@#$%^&*]{8,64})"?`)
+var userRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)qualys[_\-]user(?:name)?\s*[:=]\s*"?([A-Za-z0-9_\-]{4,64})"?`)
+})
+var passRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)qualys[_\-]pass(?:word)?\s*[:=]\s*"?([A-Za-z0-9_\-!@#$%^&*]{8,64})"?`)
+})
 
 type Scanner struct{}
 
@@ -28,11 +33,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Qualys }
 func (Scanner) Keywords() []string { return []string{"qualys"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	users := userRe.FindAllSubmatch(data, -1)
+	users := userRe().FindAllSubmatch(data, -1)
 	if len(users) == 0 {
 		return nil, nil
 	}
-	passes := passRe.FindAllSubmatch(data, -1)
+	passes := passRe().FindAllSubmatch(data, -1)
 	if len(passes) == 0 {
 		return nil, nil
 	}

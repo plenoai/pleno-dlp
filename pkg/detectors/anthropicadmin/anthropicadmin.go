@@ -12,6 +12,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -23,7 +24,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // sk-ant-admin- + 20+ base62/_-/.. The pkg/detectors/anthropic package
 // owns sk-ant- generally; we own only the admin- subset.
-var keyRe = regexp.MustCompile(`\b(sk-ant-admin-[A-Za-z0-9_-]{20,})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk-ant-admin-[A-Za-z0-9_-]{20,})\b`) })
 
 type Scanner struct{}
 
@@ -32,7 +33,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AnthropicAdmin }
 func (Scanner) Keywords() []string { return []string{"sk-ant-admin-"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAll(data, -1)
+	matches := keyRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

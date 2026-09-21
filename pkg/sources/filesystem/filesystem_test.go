@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,6 +81,121 @@ func TestChunks_EmitsTextFile(t *testing.T) {
 	}
 }
 
+func TestChunks_LargeFileUsesLazyReaderAt(t *testing.T) {
+	dir := t.TempDir()
+	want := bytes.Repeat([]byte("credential=plain-text\n"), filesystemLazyThreshold/len("credential=plain-text\n")+1)
+	path := filepath.Join(dir, "large.txt")
+	if err := os.WriteFile(path, want, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Paths: []string{dir}, MaxSizeBytes: int64(len(want) + 1)})
+
+	got, err := drain(t, s, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks returned %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("want 1 chunk, got %d", len(got))
+	}
+	chunk := got[0]
+	if chunk.Data != nil {
+		t.Fatalf("large chunk retained %d body bytes", len(chunk.Data))
+	}
+	if chunk.Open == nil {
+		t.Fatal("large chunk has no lazy opener")
+	}
+	reader, closer, size, err := chunk.Open(context.Background())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if reader == nil || closer == nil {
+		t.Fatal("Open returned incomplete reader ownership")
+	}
+	data, err := io.ReadAll(io.NewSectionReader(reader, 0, size))
+	closeErr := closer.Close()
+	if err != nil {
+		t.Fatalf("read lazy body: %v", err)
+	}
+	if closeErr != nil {
+		t.Fatalf("close lazy body: %v", closeErr)
+	}
+	if !bytes.Equal(data, want) {
+		t.Fatalf("lazy body changed: got %d bytes, want %d", len(data), len(want))
+	}
+	abs, _ := filepath.Abs(path)
+	if chunk.SourceMetadata.Filesystem == nil || chunk.SourceMetadata.Filesystem.Path != abs {
+		t.Fatalf("metadata path = %#v, want %q", chunk.SourceMetadata.Filesystem, abs)
+	}
+}
+
+func TestOpenFileReaderAtDetectsAppendBeforeClose(t *testing.T) {
+	dir := t.TempDir()
+	payload := bytes.Repeat([]byte("plain text\n"), filesystemLazyThreshold/len("plain text\n")+1)
+	path := filepath.Join(dir, "growing.txt")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	reader, closer, size, err := openFileReaderAt(context.Background(), path, int64(len(payload)+len("appended\n")))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if reader == nil || closer == nil || size != int64(len(payload)) {
+		t.Fatalf("open result = (%v, %v, %d), want reader, closer, and %d bytes", reader, closer, size, len(payload))
+	}
+	appendFile, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatalf("open append handle: %v", err)
+	}
+	if _, err := appendFile.WriteString("appended\n"); err != nil {
+		_ = appendFile.Close()
+		t.Fatalf("append: %v", err)
+	}
+	if err := appendFile.Close(); err != nil {
+		t.Fatalf("close append handle: %v", err)
+	}
+	if err := closer.Close(); !errors.Is(err, errFileChangedDuringScan) {
+		t.Fatalf("close after append = %v, want file-change error", err)
+	}
+}
+
+func TestOpenFileReaderAtPreservesAdmissionSkips(t *testing.T) {
+	dir := t.TempDir()
+	binaryData := bytes.Repeat([]byte{'x'}, filesystemLazyThreshold+1)
+	binaryData[10] = 0
+	binaryPath := filepath.Join(dir, "binary.bin")
+	if err := os.WriteFile(binaryPath, binaryData, 0o600); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+	overLimitPath := filepath.Join(dir, "over-limit.txt")
+	if err := os.WriteFile(overLimitPath, bytes.Repeat([]byte{'x'}, filesystemLazyThreshold+1), 0o600); err != nil {
+		t.Fatalf("write over-limit: %v", err)
+	}
+
+	reader, closer, size, err := openFileReaderAt(context.Background(), binaryPath, int64(len(binaryData)))
+	if err != nil || reader != nil || closer != nil || size != 0 {
+		t.Fatalf("binary admission = (%v, %v, %d, %v), want nil reader skip", reader, closer, size, err)
+	}
+	reader, closer, size, err = openFileReaderAt(context.Background(), overLimitPath, filesystemLazyThreshold)
+	if err != nil || reader != nil || closer != nil || size != 0 {
+		t.Fatalf("over-limit admission = (%v, %v, %d, %v), want nil reader skip", reader, closer, size, err)
+	}
+}
+
+func TestOpenFileReaderAtHonorsCancellation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "large.txt")
+	if err := os.WriteFile(path, bytes.Repeat([]byte{'x'}, filesystemLazyThreshold+1), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	reader, closer, size, err := openFileReaderAt(ctx, path, filesystemLazyThreshold+2)
+	if !errors.Is(err, context.Canceled) || reader != nil || closer != nil || size != 0 {
+		t.Fatalf("canceled admission = (%v, %v, %d, %v), want cancellation", reader, closer, size, err)
+	}
+}
+
 func TestChunks_EmitsEmptyFile(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "empty.txt"), nil, 0o600); err != nil {
@@ -121,6 +237,76 @@ func TestChunks_SkipsBinaryFile(t *testing.T) {
 	}
 	if !strings.HasSuffix(got[0].SourceMetadata.Filesystem.Path, "ok.txt") {
 		t.Fatalf("expected ok.txt, got %s", got[0].SourceMetadata.Filesystem.Path)
+	}
+}
+
+func TestChunks_EmitsUTF16Text(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		little bool
+	}{
+		{name: "utf16le", little: true},
+		{name: "utf16be", little: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			want := encodeUTF16("CONFIG_CREDENTIAL=filesystem-utf16-fixture", tc.little, true)
+			path := filepath.Join(dir, tc.name+".txt")
+			if err := os.WriteFile(path, want, 0o600); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			s := &Source{}
+			mustInit(t, s, Config{Paths: []string{dir}})
+
+			got, err := drain(t, s, 5*time.Second)
+			if err != nil {
+				t.Fatalf("Chunks: %v", err)
+			}
+			if len(got) != 1 || !bytes.Equal(got[0].Data, want) {
+				t.Fatalf("UTF-16 file was dropped or changed: chunks=%d", len(got))
+			}
+		})
+	}
+}
+
+func TestChunks_EmitsBOMlessUTF16Text(t *testing.T) {
+	dir := t.TempDir()
+	want := encodeUTF16("CONFIG_CREDENTIAL=filesystem-utf16-no-bom", true, false)
+	if err := os.WriteFile(filepath.Join(dir, "utf16.txt"), want, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Paths: []string{dir}})
+
+	got, err := drain(t, s, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks: %v", err)
+	}
+	if len(got) != 1 || !bytes.Equal(got[0].Data, want) {
+		t.Fatalf("BOM-less UTF-16 file was dropped or changed: chunks=%d", len(got))
+	}
+}
+
+func TestChunks_SkipsNULBinaryWithUTF16LikeShape(t *testing.T) {
+	dir := t.TempDir()
+	data := make([]byte, 128)
+	for i := range data {
+		if i%2 == 0 {
+			data[i] = 0xff
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "blob.bin"), data, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Paths: []string{dir}})
+
+	got, err := drain(t, s, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("NUL binary was admitted as UTF-16 text: %d chunks", len(got))
 	}
 }
 
@@ -391,4 +577,24 @@ func TestRegistry_FilesystemRegistered(t *testing.T) {
 	if s.Type() != sources.SourceFilesystem {
 		t.Fatalf("Type mismatch: %v", s.Type())
 	}
+}
+
+func encodeUTF16(s string, little, bom bool) []byte {
+	data := make([]byte, 0, len(s)*2+2)
+	if bom {
+		if little {
+			data = append(data, 0xff, 0xfe)
+		} else {
+			data = append(data, 0xfe, 0xff)
+		}
+	}
+	for _, r := range s {
+		u := uint16(r)
+		if little {
+			data = append(data, byte(u), byte(u>>8))
+		} else {
+			data = append(data, byte(u>>8), byte(u))
+		}
+	}
+	return data
 }

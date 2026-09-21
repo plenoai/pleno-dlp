@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -26,13 +27,13 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // retain the `pscale_oauth_` shape this detector has historically matched),
 // followed by 32+ base62 characters. The prefix is the false-positive gate
 // for this half — no entropy floor is needed on a prefixed token.
-var idRe = regexp.MustCompile(`\b(pscale_(?:oauth|tkn)_[A-Za-z0-9]{32,64})\b`)
+var idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pscale_(?:oauth|tkn)_[A-Za-z0-9]{32,64})\b`) })
 
 // Secret is a bare 32-64 base62 run. With no prefix to anchor on, this is the
 // real false-positive source (it matches commit SHAs, nonces, base62 ids), so
 // we gate it on Shannon entropy (high-variety alnum charset -> 3.5) in
 // addition to the keyword arm + pairing.
-var secretRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // secretMinEntropy rejects low-information 32-64 char runs (structured ids,
 // padded names) that clear the alnum regex but are not random secrets.
@@ -43,7 +44,7 @@ const secretMinEntropy = 3.5
 // names, docs, URLs) is too weak; the shape a real service-token assignment or
 // config key takes is `planetscale[_-]token` / `pscale[_-]token`, optionally
 // with an `_id` suffix.
-var armRe = regexp.MustCompile(`(?i)(?:planetscale|pscale)[_\-]?token(?:[_\-]?id)?`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)(?:planetscale|pscale)[_\-]?token(?:[_\-]?id)?`) })
 
 type Scanner struct{}
 
@@ -52,11 +53,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.PlanetScale }
 func (Scanner) Keywords() []string { return []string{"pscale_", "planetscale"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	ids := idRe.FindAllSubmatchIndex(data, -1)
+	ids := idRe().FindAllSubmatchIndex(data, -1)
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	secrets := secretRe.FindAllSubmatchIndex(data, -1)
+	secrets := secretRe().FindAllSubmatchIndex(data, -1)
 	lower := strings.ToLower(string(data))
 
 	out := make([]detectors.Result, 0, len(ids))
@@ -185,7 +186,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func abs(x int) int {

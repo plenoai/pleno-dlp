@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -30,7 +31,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // tokenRe is intentionally generic: Vimeo's token length/charset is
 // undocumented (see package doc), so pinning a length would silently destroy
 // recall. Disambiguation is done by the entropy floor and the arm regex.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`) })
 
 // minEntropy rejects low-information 32-128 char alnum runs (padded
 // placeholders, repeated/structured strings) that clear the regex but are not
@@ -43,7 +44,9 @@ const minEntropy = 3.0
 // vimeo[_-]?(api[_-]?)?(token|key|secret|client) is what a real credential
 // declaration or config key looks like. The bare "vimeo" keyword stays in
 // Keywords() as the cheap engine prefilter.
-var armRe = regexp.MustCompile(`(?i)vimeo[_\-]?(api[_\-]?)?(token|key|secret|client)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)vimeo[_\-]?(api[_\-]?)?(token|key|secret|client)`)
+})
 
 type Scanner struct{}
 
@@ -52,7 +55,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Vimeo }
 func (Scanner) Keywords() []string { return []string{"vimeo"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -125,7 +128,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func redact(t string) string {

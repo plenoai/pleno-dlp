@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,7 +23,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // protobuf stubs only, and the docs use opaque `<my-token>` placeholders).
 // The shape stays a generic alphanumeric run — a tight keyword arm plus an
 // entropy floor are required to keep this from matching arbitrary IDs.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,120})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,120})\b`) })
 
 // armRe is the assignment-style Earthly reference that must appear within the
 // proximity window. A bare "earthly" substring (build-tool docs, Earthfile
@@ -30,7 +31,9 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,120})\b`)
 // generic 40-120 alphanumeric run; `earthly[_-]?(api[_-]?)?(token|key|secret)`
 // — plus the documented `EARTHLY_TOKEN` / `earthly_cloud` config keys — is the
 // shape a real credential assignment takes.
-var armRe = regexp.MustCompile(`(?i)earthly[_\-]?((api[_\-]?)?(token|key|secret)|cloud)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)earthly[_\-]?((api[_\-]?)?(token|key|secret)|cloud)`)
+})
 
 // minEntropy rejects low-information 40-120 char runs that clear the alnum
 // regex but are not random tokens (padded placeholders, repeated characters).
@@ -46,7 +49,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Earthly }
 func (Scanner) Keywords() []string { return []string{"earthly"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -101,7 +104,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

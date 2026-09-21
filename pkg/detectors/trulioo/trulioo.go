@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -26,7 +27,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // shape is therefore a loose, non-authoritative bound retained for recall; the
 // disambiguation comes from the arm-regex keyword gate plus a conservative
 // entropy floor, NOT from a pinned length we cannot cite.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // minEntropy is the conservative floor for the recall-safe fallback: it culls
 // repetitive / structured 32-64 char runs without over-culling real
@@ -40,7 +41,9 @@ const minEntropy = 3.0
 // match must look like a credential assignment (trulioo_api_key, trulioo-token,
 // globaldatacompany_secret, etc.). The bare keyword stays in Keywords() as the
 // engine prefilter.
-var armRe = regexp.MustCompile(`(?i)(trulioo|globaldatacompany)[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(trulioo|globaldatacompany)[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 type Scanner struct{}
 
@@ -49,7 +52,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Trulioo }
 func (Scanner) Keywords() []string { return []string{"trulioo"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -98,7 +101,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

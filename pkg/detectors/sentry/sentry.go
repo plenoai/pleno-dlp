@@ -7,6 +7,7 @@ package sentry
 import (
 	"context"
 	"regexp"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -14,7 +15,7 @@ import (
 // DSN: scheme://<32-hex public key>@<host>/<project id>. The public key is
 // the secret to triage — anyone holding the DSN can write events into the
 // owning project.
-var dsnRe = regexp.MustCompile(`\b(https?://[a-f0-9]{32}@[a-z0-9.-]+/\d+)\b`)
+var dsnRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(https?://[a-f0-9]{32}@[a-z0-9.-]+/\d+)\b`) })
 
 type Scanner struct{}
 
@@ -25,7 +26,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Sentry }
 func (Scanner) Keywords() []string { return []string{"sentry"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := dsnRe.FindAll(data, -1)
+	matches := dsnRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

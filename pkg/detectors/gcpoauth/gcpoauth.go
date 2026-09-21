@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -24,7 +25,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // base64url-without-padding. We accept 80..200 to absorb minor format drift.
 // The leading `1//0` segment is the version + key prefix; we don't anchor the
 // `0` because Google has rotated this byte historically.
-var tokenRe = regexp.MustCompile(`\b(1//0[A-Za-z0-9_-]{80,200})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(1//0[A-Za-z0-9_-]{80,200})\b`) })
 
 type Scanner struct{}
 
@@ -35,7 +36,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GCPOAuth }
 func (Scanner) Keywords() []string { return []string{"1//0"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAll(data, -1)
+	hits := tokenRe().FindAll(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

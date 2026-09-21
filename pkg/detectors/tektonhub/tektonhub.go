@@ -22,6 +22,7 @@ package tektonhub
 import (
 	"context"
 	"regexp"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -31,13 +32,15 @@ import (
 // `tekton` no longer qualify. The keyword and the value must sit within the
 // same assignment expression (the `\s{0,4}` between separator characters keeps
 // them within ~40 bytes of each other).
-var tokenRe = regexp.MustCompile(
-	`(?i)(?:tekton_hub_token|tekton_hub_api_token|tekton_token|hub_token|authorization)["']?\s{0,4}[:=]\s{0,4}["']?(?:bearer\s{0,4})?([A-Za-z0-9]{40,80})\b`,
-)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?i)(?:tekton_hub_token|tekton_hub_api_token|tekton_token|hub_token|authorization)["']?\s{0,4}[:=]\s{0,4}["']?(?:bearer\s{0,4})?([A-Za-z0-9]{40,80})\b`,
+	)
+})
 
 // hexOnlyRe rejects pure-hex strings (image-digest / SHA shaped) which are the
 // dominant false positive in Tekton YAML.
-var hexOnlyRe = regexp.MustCompile(`^[0-9a-fA-F]+$`)
+var hexOnlyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-fA-F]+$`) })
 
 const minEntropy = 3.5
 
@@ -48,7 +51,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.TektonHub }
 func (Scanner) Keywords() []string { return []string{"tekton"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatch(data, -1)
+	hits := tokenRe().FindAllSubmatch(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -79,7 +82,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 func plausibleToken(token string) bool {
 	// Reject pure-hex (image digests, SHAs, hex digests) — and 64-char hex in
 	// particular, the container image digest shape that dominates Tekton YAML.
-	if hexOnlyRe.MatchString(token) {
+	if hexOnlyRe().MatchString(token) {
 		return false
 	}
 	// Reject low-entropy lookalikes (repeated/structured names).

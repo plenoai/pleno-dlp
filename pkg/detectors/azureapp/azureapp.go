@@ -56,6 +56,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -65,9 +66,11 @@ import (
 // Legacy v1 secret: 30+ char run with at least one of `.`, `_`, or `-` so
 // pure alphanumeric runs (which collide with countless other token shapes)
 // are filtered out. We never match a tilde here — those belong to azuread.
-var secretRe = regexp.MustCompile(`\b([A-Za-z0-9][A-Za-z0-9._-]{28,40}[A-Za-z0-9])\b`)
+var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9][A-Za-z0-9._-]{28,40}[A-Za-z0-9])\b`) })
 
-var appIDRe = regexp.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+var appIDRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+})
 
 // Co-occurrence keywords are deliberately tight. The regex shape is so
 // generic that the old broad gate (azure / client_id / appid within 256
@@ -92,7 +95,7 @@ var sriPrefixes = []string{"sha256-", "sha384-", "sha512-", "md5-"}
 // paths and kebab/resource slugs (`com.microsoft.azure.identity…`,
 // `my-azure-app-prod-eastus-2024-deploy01`) are chopped into short segments
 // and have no long run.
-var denseRunRe = regexp.MustCompile(`[A-Za-z0-9]+`)
+var denseRunRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[A-Za-z0-9]+`) })
 
 // minDenseRun is the shortest unbroken alnum run a real v1 secret must
 // contain. Resource-name and FQ-symbol slugs never reach this.
@@ -126,11 +129,11 @@ func (Scanner) VerificationCacheUsesFullInput() bool { return true }
 func (Scanner) Keywords() []string { return []string{"client_id", "azure"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := secretRe.FindAllSubmatchIndex(data, -1)
+	hits := secretRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	apps := appIDRe.FindAllSubmatchIndex(data, -1)
+	apps := appIDRe().FindAllSubmatchIndex(data, -1)
 	if len(apps) == 0 {
 		// No client_id UUID nearby means the candidate is not a client
 		// secret in any usable sense — bail before scanning.
@@ -288,7 +291,9 @@ func verifyOAuth2(ctx context.Context, tenantID, clientID, clientSecret string) 
 }
 
 // uuidRe validates that a string is a standard 8-4-4-4-12 hex UUID.
-var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+var uuidRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+})
 
 // extractTenantID attempts to locate the Azure tenant_id in the chunk data.
 // It first tries direct key-value extraction (AZURE_TENANT_ID=xxx,
@@ -301,7 +306,7 @@ func extractTenantID(data []byte, anchorStart, anchorEnd int, clientID string) (
 	for _, key := range tenantKeyNames {
 		if val, ok := contextextract.FindNearbyKeyValue(data, key, 512); ok {
 			// Validate that the extracted value looks like a UUID.
-			if uuidRe.MatchString(val) && val != clientID {
+			if uuidRe().MatchString(val) && val != clientID {
 				return val, true
 			}
 		}
@@ -364,7 +369,7 @@ func hasSRIPrefix(token string) bool {
 
 func longestDenseRun(token string) int {
 	best := 0
-	for _, run := range denseRunRe.FindAllString(token, -1) {
+	for _, run := range denseRunRe().FindAllString(token, -1) {
 		if len(run) > best {
 			best = len(run)
 		}

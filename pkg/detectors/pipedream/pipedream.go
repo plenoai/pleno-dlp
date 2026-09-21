@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Pipedream user-API tokens are 64 hex chars; we accept the [32, 80] range
 // to cover newer JWT-prefixed shapes too.
-var tokenRe = regexp.MustCompile(`\b([A-Fa-f0-9]{32,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Fa-f0-9]{32,80})\b`) })
 
 var contextKeywords = []string{"pipedream"}
 
@@ -30,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Pipedream }
 func (Scanner) Keywords() []string { return []string{"pipedream"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

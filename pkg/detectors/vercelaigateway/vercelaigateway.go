@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,7 +19,7 @@ var apiBase = "https://ai-gateway.vercel.sh"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b(vck_[A-Za-z0-9]{32,120})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(vck_[A-Za-z0-9]{32,120})\b`) })
 
 type Scanner struct{}
 
@@ -27,7 +28,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.VercelAIGateway 
 func (Scanner) Keywords() []string { return []string{"vck_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAll(data, -1)
+	hits := tokenRe().FindAll(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

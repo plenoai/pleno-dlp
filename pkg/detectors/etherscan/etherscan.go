@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -23,7 +24,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 const maxVerifyResponseBytes = 64 << 10
 
-var tokenRe = regexp.MustCompile(`\b([A-Z0-9]{34})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Z0-9]{34})\b`) })
 
 var contextKeywords = []string{"etherscan"}
 
@@ -34,7 +35,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Etherscan }
 func (Scanner) Keywords() []string { return []string{"etherscan"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

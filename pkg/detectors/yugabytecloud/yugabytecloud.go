@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var apiBase = "https://cloud.yugabyte.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // 64-byte+ base64url with optional `=` padding — Yugabyte's mint contract.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{64,512})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{64,512})\b`) })
 
 var contextKeywords = []string{"yugabyte", "ybcloud", "yb_api"}
 
@@ -30,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.YugabyteCloud }
 func (Scanner) Keywords() []string { return []string{"yugabyte"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

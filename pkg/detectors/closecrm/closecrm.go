@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Close API keys are documented as `api_<base62>{40,}` (the `api_` prefix
 // is consistent across the platform).
-var tokenRe = regexp.MustCompile(`\b(api_[A-Za-z0-9]{40,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(api_[A-Za-z0-9]{40,80})\b`) })
 
 var contextKeywords = []string{"close.com", "closecrm", "close_api", "close_crm"}
 
@@ -31,11 +32,17 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Close }
 func (Scanner) Keywords() []string { return []string{"close", "api_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
-	if len(hits) == 0 {
+	if !detectors.HasWordRunCandidate(data, "api_", len("api_")+40) {
 		return nil, nil
 	}
 	lower := strings.ToLower(string(data))
+	if !hasContextKeyword(lower) {
+		return nil, nil
+	}
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
+	if len(hits) == 0 {
+		return nil, nil
+	}
 	out := make([]detectors.Result, 0, len(hits))
 	seen := map[string]struct{}{}
 	for _, h := range hits {
@@ -63,6 +70,15 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		return nil, nil
 	}
 	return out, nil
+}
+
+func hasContextKeyword(lower string) bool {
+	for _, kw := range contextKeywords {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 func nearKeyword(lower string, start, end int) bool {

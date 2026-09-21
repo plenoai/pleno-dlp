@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -47,8 +48,8 @@ var emptyPayloadHash = func() string {
 }()
 
 var (
-	accessKeyRe = regexp.MustCompile(`\b([A-Z0-9]{20})\b`)
-	secretRe    = regexp.MustCompile(`\b([A-Za-z0-9+/]{40})\b`)
+	accessKeyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Z0-9]{20})\b`) })
+	secretRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9+/]{40})\b`) })
 )
 
 var contextKeywords = []string{"wasabi", "wasabi_access_key", "wasabi_secret", "wasabisys"}
@@ -60,11 +61,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Wasabi }
 func (Scanner) Keywords() []string { return []string{"wasabi"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	keys := accessKeyRe.FindAllSubmatchIndex(data, -1)
+	keys := accessKeyRe().FindAllSubmatchIndex(data, -1)
 	if len(keys) == 0 {
 		return nil, nil
 	}
-	secrets := secretRe.FindAllSubmatchIndex(data, -1)
+	secrets := secretRe().FindAllSubmatchIndex(data, -1)
 	if len(secrets) == 0 {
 		return nil, nil
 	}

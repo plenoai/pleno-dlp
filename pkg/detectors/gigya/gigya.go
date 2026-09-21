@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,8 +19,8 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var keyRe = regexp.MustCompile(`(_[A-Za-z0-9_\-]{28,40})`)
-var secretRe = regexp.MustCompile(`([A-Za-z0-9+/]{27}=)`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(_[A-Za-z0-9_\-]{28,40})`) })
+var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`([A-Za-z0-9+/]{27}=)`) })
 
 var contextKeywords = []string{"gigya"}
 
@@ -30,8 +31,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Gigya }
 func (Scanner) Keywords() []string { return []string{"gigya"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	keyHits := keyRe.FindAllSubmatchIndex(data, -1)
-	secretHits := secretRe.FindAllSubmatchIndex(data, -1)
+	keyHits := keyRe().FindAllSubmatchIndex(data, -1)
+	secretHits := secretRe().FindAllSubmatchIndex(data, -1)
 	if len(keyHits) == 0 || len(secretHits) == 0 {
 		return nil, nil
 	}

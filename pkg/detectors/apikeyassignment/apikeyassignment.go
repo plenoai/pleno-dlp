@@ -21,9 +21,11 @@
 package apikeyassignment
 
 import (
+	"bytes"
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -32,13 +34,39 @@ var (
 	// The keyword must be at the start of a word (word boundary or line
 	// start); the boundary only excludes a preceding letter, so keywords
 	// embedded in snake_case names like DO_API_KEY still match.
-	assignEqRe = regexp.MustCompile(
-		`(?im)(?:^|[^a-zA-Z])[a-zA-Z0-9_]*api[_-]?key[a-zA-Z0-9_]*\s*=\s*["']?([^"'\n\r${}<>%\[\]{} #]{4,128})`,
-	)
-	assignColonRe = regexp.MustCompile(
-		`(?im)(?:^|\s)[a-zA-Z0-9_]*api[_-]?key[a-zA-Z0-9_]*\s*:\s*["']?([^"'\n\r${}<>%\[\]{} #]{4,128})`,
-	)
+	assignEqRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(
+			`(?im)(?:^|[^a-zA-Z])[a-zA-Z0-9_]*api[_-]?key[a-zA-Z0-9_]*\s*=\s*["']?([^"'\n\r${}<>%\[\]{} #]{4,128})`,
+		)
+	})
+	// This is a necessary-syntax gate for the expensive equality grammar. It
+	// deliberately omits the leading boundary and capture limit: the full
+	// expression remains authoritative after this conservative prefilter.
+	assignEqCandidateRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(
+			`api[_-]?key[a-zA-Z0-9_]*\s*=\s*["']?[^"'\n\r${}<>%\[\]{} #]{4}`,
+		)
+	})
+	assignColonRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(
+			`(?im)(?:^|\s)[a-zA-Z0-9_]*api[_-]?key[a-zA-Z0-9_]*\s*:\s*["']?([^"'\n\r${}<>%\[\]{} #]{4,128})`,
+		)
+	})
 )
+
+func hasEqualCandidate(data []byte) bool {
+	if bytes.IndexByte(data, '=') < 0 {
+		return false
+	}
+	for _, b := range data {
+		if b >= 0x80 {
+			// Keep the original case-folding regexp authoritative for Unicode
+			// input instead of making a prefilter assumption about its folds.
+			return true
+		}
+	}
+	return assignEqCandidateRe().Match(bytes.ToLower(data))
+}
 
 var placeholders = map[string]struct{}{
 	"changeme":          {},
@@ -91,7 +119,6 @@ func (Scanner) Type() detectors.DetectorType { return detectors.APIKeyAssignment
 func (Scanner) Keywords() []string { return []string{"api_key", "api-key", "apikey"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	str := string(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
@@ -118,12 +145,22 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		})
 	}
 
-	for _, re := range []*regexp.Regexp{assignEqRe, assignColonRe} {
-		for _, m := range re.FindAllStringSubmatch(str, -1) {
+	// Avoid running the second full-file regexp when its assignment syntax is
+	// absent. Near-match fixtures are dense in `api_key=` references but can be
+	// megabytes long; a cheap byte scan is enough to skip the colon grammar.
+	res := []*regexp.Regexp{}
+	if hasEqualCandidate(data) {
+		res = append(res, assignEqRe())
+	}
+	if bytes.IndexByte(data, ':') >= 0 {
+		res = append(res, assignColonRe())
+	}
+	for _, re := range res {
+		for _, m := range re.FindAllSubmatch(data, -1) {
 			if len(m) < 2 {
 				continue
 			}
-			add(m[1])
+			add(string(m[1]))
 		}
 	}
 

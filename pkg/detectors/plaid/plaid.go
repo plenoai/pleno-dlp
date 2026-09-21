@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -27,8 +28,8 @@ var apiBase = "https://production.plaid.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
-	idRe     = regexp.MustCompile(`\b([a-f0-9]{24})\b`)
-	secretRe = regexp.MustCompile(`\b([a-f0-9]{30})\b`)
+	idRe     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{24})\b`) })
+	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{30})\b`) })
 )
 
 var contextKeywords = []string{"plaid", "plaid_client_id", "plaid_secret"}
@@ -40,11 +41,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Plaid }
 func (Scanner) Keywords() []string { return []string{"plaid"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	idHits := idRe.FindAllSubmatchIndex(data, -1)
+	idHits := idRe().FindAllSubmatchIndex(data, -1)
 	if len(idHits) == 0 {
 		return nil, nil
 	}
-	secHits := secretRe.FindAllSubmatchIndex(data, -1)
+	secHits := secretRe().FindAllSubmatchIndex(data, -1)
 
 	lower := strings.ToLower(string(data))
 

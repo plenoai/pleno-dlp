@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,10 +23,12 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // UUID v4 shape, optionally prefixed with `RUNPOD_API_KEY_` style; we
 // match the bare UUID and gate by keyword.
-var keyRe = regexp.MustCompile(`\b([A-Z0-9]{8}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{20,32})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([A-Z0-9]{8}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{20,32})\b`)
+})
 
 // RunPod's older keys also appear as 32-char base64url; capture both shapes.
-var altRe = regexp.MustCompile(`\b([A-Z0-9]{40,64})\b`)
+var altRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Z0-9]{40,64})\b`) })
 
 var contextKeywords = []string{"runpod", "runpod_api", "runpod_key"}
 
@@ -38,8 +41,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.RunPod }
 func (Scanner) Keywords() []string { return []string{"runpod"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAllSubmatchIndex(data, -1)
-	matches = append(matches, altRe.FindAllSubmatchIndex(data, -1)...)
+	matches := keyRe().FindAllSubmatchIndex(data, -1)
+	matches = append(matches, altRe().FindAllSubmatchIndex(data, -1)...)
 	if len(matches) == 0 {
 		return nil, nil
 	}

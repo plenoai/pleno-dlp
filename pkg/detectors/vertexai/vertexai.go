@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -23,7 +24,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Vertex tokens are GCP-issued OAuth bearer JWTs (3 base64url segments)
 // or short-lived ya29.* opaque tokens. We anchor on the JWT shape /
 // ya29 prefix to bound false positives.
-var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}|ya29\.[A-Za-z0-9_\-]{40,200})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}|ya29\.[A-Za-z0-9_\-]{40,200})\b`)
+})
 
 var contextKeywords = []string{"vertex", "aiplatform", "vertexai", "vertex-ai"}
 
@@ -34,7 +37,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.VertexAI }
 func (Scanner) Keywords() []string { return []string{"vertex", "aiplatform"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

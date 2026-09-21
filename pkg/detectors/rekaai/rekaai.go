@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -23,7 +24,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // pin a length or prefix (that would silently destroy recall) and keep
 // the broad 32-64 alnum shape; false positives are bounded instead by a
 // conservative entropy floor plus an assignment-anchored keyword gate.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // minEntropy is the recall-safe conservative floor for an unsourced
 // charset: 3.0 admits hex/low-variety key material (hex caps ~3.6) while
@@ -35,7 +36,9 @@ const minEntropy = 3.0
 // 256-char window — that matched prose like "Rekamilemu" and any unrelated
 // secret sharing a chunk with the word. The bare "reka" prefilter still
 // lives in Keywords().
-var armRe = regexp.MustCompile(`(?i)reka(\.ai|ai)?[_-]?(api[_-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)reka(\.ai|ai)?[_-]?(api[_-]?)?(token|key|secret)`)
+})
 
 type Scanner struct{}
 
@@ -44,7 +47,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.RekaAI }
 func (Scanner) Keywords() []string { return []string{"reka"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -93,7 +96,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

@@ -31,6 +31,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -43,12 +44,14 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // legacyRe matches the documented OneSignal legacy REST API key: a
 // lowercase-hex UUID (8-4-4-4-12). This mirrors trufflehog's upstream
 // detector, which gates the `onesignal` keyword against common.UUIDPattern.
-var legacyRe = regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+var legacyRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+})
 
 // v2Re matches the OneSignal v2 token: prefix-anchored `os_v2_app_` + base32
 // body (charset a-z2-7). The prefix carries the false-positive load, so no
 // entropy floor is needed here.
-var v2Re = regexp.MustCompile(`\b(os_v2_app_[a-z2-7]{50,200})\b`)
+var v2Re = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(os_v2_app_[a-z2-7]{50,200})\b`) })
 
 // armRe is the assignment-style OneSignal reference that must appear within the
 // proximity window. A bare "onesignal" substring (SDK script-src URLs, doc
@@ -56,7 +59,9 @@ var v2Re = regexp.MustCompile(`\b(os_v2_app_[a-z2-7]{50,200})\b`)
 // occurs constantly (object ids, request ids, trace ids);
 // `onesignal[_-]?(rest[_-]?)?(api[_-]?)?(key|token|secret)` is the shape a real
 // credential assignment or config key takes.
-var armRe = regexp.MustCompile(`(?i)onesignal[_\-]?(rest[_\-]?)?(api[_\-]?)?(key|token|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)onesignal[_\-]?(rest[_\-]?)?(api[_\-]?)?(key|token|secret)`)
+})
 
 // minEntropy is a conservative floor for the legacy UUID. UUIDs are
 // lowercase-hex (low-variety: hex caps ~3.6 bits/char), so per the hardening
@@ -78,10 +83,10 @@ type candidate struct {
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	var cands []candidate
-	for _, h := range legacyRe.FindAllSubmatchIndex(data, -1) {
+	for _, h := range legacyRe().FindAllSubmatchIndex(data, -1) {
 		cands = append(cands, candidate{hit: h, isV2: false})
 	}
-	for _, h := range v2Re.FindAllSubmatchIndex(data, -1) {
+	for _, h := range v2Re().FindAllSubmatchIndex(data, -1) {
 		cands = append(cands, candidate{hit: h, isV2: true})
 	}
 	if len(cands) == 0 {
@@ -140,7 +145,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

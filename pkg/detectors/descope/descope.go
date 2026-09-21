@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Descope mgmt keys: K2 prefix + 40+ base64url body. Project IDs share the
 // `P` prefix but are 24 chars and don't trigger.
-var tokenRe = regexp.MustCompile(`\b(K2[A-Za-z0-9]{40,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(K2[A-Za-z0-9]{40,80})\b`) })
 
 var contextKeywords = []string{"descope", "descope_mgmt", "descope_key", "descope_token"}
 
@@ -30,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Descope }
 func (Scanner) Keywords() []string { return []string{"descope"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

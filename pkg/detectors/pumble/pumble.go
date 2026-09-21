@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -33,19 +34,21 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Pumble personal API tokens are 40-80 char base64url strings.
 // Trufflehog upstream regex matches `[A-Za-z0-9]{40,80}`; we keep
 // that shape but rely on the much tighter keyword gate below.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // keywordRe requires an explicit Pumble anchor. The bare "pumble"
 // substring is still cheap to find, but it must be followed by a
 // non-letter or a known suffix to register.
-var keywordRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`pumble[_\-]api(?:[_\-]key|[_\-]token)?` +
-	`|pumble[_\-]token` +
-	`|pumble[_\-]key` +
-	`|\bpumble\.com\b` +
-	`|\bpumble[ \t]*[:=][ \t]*` +
-	`)`)
+var keywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`pumble[_\-]api(?:[_\-]key|[_\-]token)?` +
+		`|pumble[_\-]token` +
+		`|pumble[_\-]key` +
+		`|\bpumble\.com\b` +
+		`|\bpumble[ \t]*[:=][ \t]*` +
+		`)`)
+})
 
 type Scanner struct{}
 
@@ -54,11 +57,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Pumble }
 func (Scanner) Keywords() []string { return []string{"pumble"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	kwSpans := keywordRe.FindAllIndex(data, -1)
+	kwSpans := keywordRe().FindAllIndex(data, -1)
 	if len(kwSpans) == 0 {
 		return nil, nil
 	}

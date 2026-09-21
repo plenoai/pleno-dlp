@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,7 +23,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // FCM legacy server keys: `AAAA<base64url>:APA91b<base64url>` — the prefix
 // `AAAA` is followed by base64url chars and a colon-separated `APA91b`
 // identifier. We capture the entire token shape.
-var tokenRe = regexp.MustCompile(`\b(AAAA[A-Za-z0-9_-]{7}:APA91b[A-Za-z0-9_-]{134,200})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(AAAA[A-Za-z0-9_-]{7}:APA91b[A-Za-z0-9_-]{134,200})\b`)
+})
 
 var contextKeywords = []string{"fcm", "firebase", "firebase_server_key", "firebase_messaging"}
 
@@ -33,7 +36,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.FirebaseCloudMes
 func (Scanner) Keywords() []string { return []string{"fcm", "firebase", "AAAA"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -17,7 +18,9 @@ var apiBase = "https://quay.io"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`(?i)quay[_\.\-]?(?:oauth[_\.\-]?token|api[_\.\-]?token|access[_\.\-]?token|token|secret)\s*[:=]\s*["']?([A-Za-z0-9]{40,80})["']?`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)quay[_\.\-]?(?:oauth[_\.\-]?token|api[_\.\-]?token|access[_\.\-]?token|token|secret)\s*[:=]\s*["']?([A-Za-z0-9]{40,80})["']?`)
+})
 
 type Scanner struct{}
 
@@ -26,7 +29,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Quay }
 func (Scanner) Keywords() []string { return []string{"quay"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatch(data, -1)
+	hits := tokenRe().FindAllSubmatch(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

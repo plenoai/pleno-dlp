@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -17,7 +18,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // nfp_ + 40 alphanumeric. Netlify's PAT format is documented and stable
 // (https://docs.netlify.com/api/get-started/#authentication).
-var tokenRe = regexp.MustCompile(`\b(nfp_[A-Za-z0-9]{40})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(nfp_[A-Za-z0-9]{40})\b`) })
 
 type Scanner struct{}
 
@@ -26,7 +27,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Netlify }
 func (Scanner) Keywords() []string { return []string{"nfp_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

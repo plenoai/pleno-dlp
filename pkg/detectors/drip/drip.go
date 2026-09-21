@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -29,10 +30,10 @@ var apiBase = "https://api.getdrip.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // gitSHALikeRe matches 32-char lowercase-hex strings (truncated git SHAs / lockfile hashes).
-var gitSHALikeRe = regexp.MustCompile(`^[0-9a-f]{32}$`)
+var gitSHALikeRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-f]{32}$`) })
 
 // minEntropy is a conservative floor: the token shape is base62 (high variety),
 // but because the length/charset are not authoritatively documented we use the
@@ -46,7 +47,9 @@ const minEntropy = 3.0
 // credential assignment shapes (drip api token / key / secret) so the gate
 // fires on real config lines, not on any chunk that merely mentions "getdrip".
 // The bare "getdrip" prefilter stays in Keywords().
-var armRe = regexp.MustCompile(`(?i)(?:getdrip|drip)[_-]?(?:api[_-]?)?(?:token|key|secret|account[_-]?id)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(?:getdrip|drip)[_-]?(?:api[_-]?)?(?:token|key|secret|account[_-]?id)`)
+})
 
 type Scanner struct{}
 
@@ -55,7 +58,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Drip }
 func (Scanner) Keywords() []string { return []string{"getdrip"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -70,7 +73,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if !nearKeyword(lower, h[2], h[3]) {
 			continue
 		}
-		if gitSHALikeRe.MatchString(token) {
+		if gitSHALikeRe().MatchString(token) {
 			continue
 		}
 		// Conservative entropy floor: reject the lowest-information 32-char
@@ -133,7 +136,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func redact(t string) string {

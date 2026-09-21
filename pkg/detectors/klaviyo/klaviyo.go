@@ -11,6 +11,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -23,7 +24,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Klaviyo private keys: `pk_<32-hex-or-base62>`. Site keys: `sk_<32-…>` or
 // `pk_…` shape, also documented as 6+ char base62 in some docs. We accept
 // 32..64 chars body; the prefix gate is enough to avoid noise.
-var tokenRe = regexp.MustCompile(`\b((?:pk|sk)_[A-Za-z0-9]{32,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:pk|sk)_[A-Za-z0-9]{32,64})\b`) })
 
 type Scanner struct{}
 
@@ -36,7 +37,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Klaviyo }
 func (Scanner) Keywords() []string { return []string{"pk_", "sk_", "klaviyo"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAll(data, -1)
+	hits := tokenRe().FindAll(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

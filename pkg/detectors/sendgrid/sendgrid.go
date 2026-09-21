@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -23,7 +24,7 @@ var apiBase = "https://api.sendgrid.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // SendGrid keys: literal "SG." then 22-char id, dot, 43-char secret.
-var keyRe = regexp.MustCompile(`\b(SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43})\b`) })
 
 // Scopes that grant either email-sending capability (fraud surface) or
 // administrative control (privilege escalation). Sorted by leaf for stable
@@ -60,7 +61,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.SendGrid }
 func (Scanner) Keywords() []string { return []string{"SG."} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAll(data, -1)
+	matches := keyRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

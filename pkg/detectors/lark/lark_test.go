@@ -68,12 +68,12 @@ func TestFromData_RejectsLowEntropySecret(t *testing.T) {
 // rejects a bare keyword window.
 func TestContextRe_RejectsBareKeyword(t *testing.T) {
 	// Bare provider mention, no assignment marker, no cli_ app_id shape.
-	if contextRe.MatchString("the meadowlark sang near the larkspur field") {
+	if contextRe().MatchString("the meadowlark sang near the larkspur field") {
 		t.Fatal("arm regex armed on a bare keyword substring; should require an assignment marker or cli_ shape")
 	}
 	// Assignment-style markers must still arm.
 	for _, s := range []string{"lark_app_secret", "feishu-app-id", "LARK_APP_TOKEN", "lark_key", "cli_abcdef0123456789"} {
-		if !contextRe.MatchString(s) {
+		if !contextRe().MatchString(s) {
 			t.Fatalf("arm regex failed to arm on %q", s)
 		}
 	}

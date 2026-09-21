@@ -21,6 +21,7 @@ package droneci
 import (
 	"context"
 	"regexp"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -37,14 +38,16 @@ import (
 //
 // The key must start with `drone` and be one of the known credential
 // suffixes (token / secret / server[_token] / pat / api[_key]).
-var assignmentRe = regexp.MustCompile(`(?i)` +
-	`drone[_\-]?(?:server[_\-]?)?(?:token|secret|pat|api[_\-]?key)` +
-	`["']?\s*[:=]\s*["']?` +
-	`([A-Za-z0-9]{24,32})\b`)
+var assignmentRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`drone[_\-]?(?:server[_\-]?)?(?:token|secret|pat|api[_\-]?key)` +
+		`["']?\s*[:=]\s*["']?` +
+		`([A-Za-z0-9]{24,32})\b`)
+})
 
 // pureHexRe matches tokens that look like a hex commit-SHA / build id
 // rather than a real Drone PAT (which is mixed-case alnum).
-var pureHexRe = regexp.MustCompile(`^[0-9a-fA-F]+$`)
+var pureHexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-fA-F]+$`) })
 
 // minEntropy drops repetitive / low-information lookalikes (e.g. runs of
 // the same char). 3.0 bits/char is the sane floor for a 24-char alnum
@@ -58,7 +61,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.DroneCI }
 func (Scanner) Keywords() []string { return []string{"drone"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	matches := assignmentRe.FindAllSubmatch(data, -1)
+	matches := assignmentRe().FindAllSubmatch(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}
@@ -89,7 +92,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 // alnum string but are not real Drone PATs: low-entropy/repetitive
 // strings and pure-hex commit-SHA-style identifiers.
 func isPlausibleToken(token string) bool {
-	if pureHexRe.MatchString(token) {
+	if pureHexRe().MatchString(token) {
 		return false
 	}
 	if allSameChar(token) {

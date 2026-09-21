@@ -31,20 +31,23 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 // Canonical assignment form — highest confidence. The token immediately
 // follows `UPSTASH_REDIS_REST_TOKEN` after `=`, `:`, whitespace, or quotes.
-var primaryRe = regexp.MustCompile(`(?i)UPSTASH_REDIS_REST_TOKEN["']?\s*[=:]\s*["']?([A-Za-z0-9]{50,128})`)
+var primaryRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)UPSTASH_REDIS_REST_TOKEN["']?\s*[=:]\s*["']?([A-Za-z0-9]{50,128})`)
+})
 
 // Loose token shape used for the secondary path. Gated heavily by
 // entropy, diversity, and tight-vicinity context below.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{50,128})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{50,128})\b`) })
 
 // Database host capture, e.g. us1-test-12345.upstash.io.
-var hostRe = regexp.MustCompile(`\b([a-z0-9-]+\.upstash\.io)\b`)
+var hostRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z0-9-]+\.upstash\.io)\b`) })
 
 // minTokenEntropy rejects long but low-information runs (repeated patterns,
 // dictionary/path-like blobs). Real Upstash REST tokens are high-entropy
@@ -101,7 +104,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 
 	// Primary: canonical assignment form. Highest confidence — still apply
 	// the diversity/entropy gate to reject obviously templated placeholders.
-	for _, m := range primaryRe.FindAllSubmatchIndex(data, -1) {
+	for _, m := range primaryRe().FindAllSubmatchIndex(data, -1) {
 		token := string(data[m[2]:m[3]])
 		if !looksLikeToken(token) {
 			continue
@@ -111,7 +114,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 
 	// Secondary: loose token shape, gated by entropy + diversity + a tight
 	// Upstash-specific context token nearby.
-	for _, m := range tokenRe.FindAllSubmatchIndex(data, -1) {
+	for _, m := range tokenRe().FindAllSubmatchIndex(data, -1) {
 		token := string(data[m[2]:m[3]])
 		if _, dup := seen[token]; dup {
 			continue
@@ -171,7 +174,7 @@ func nearContext(lower string, start, end int) bool {
 // vicinity, or "" if none — so the host is bound to this token rather than
 // taken from an unrelated database elsewhere in the chunk.
 func nearestHost(lower string, start, end int) string {
-	return hostRe.FindString(vicinity(lower, start, end))
+	return hostRe().FindString(vicinity(lower, start, end))
 }
 
 func vicinity(lower string, start, end int) string {

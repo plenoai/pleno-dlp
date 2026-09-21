@@ -28,9 +28,11 @@ package gitcredentialsurl
 import (
 	"bytes"
 	"context"
+	"io"
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -38,7 +40,7 @@ import (
 // lineRe matches one bare scheme://... URL occupying an entire line
 // (git-credentials convention: one credential per line, no
 // surrounding text). \S+ forbids embedded whitespace.
-var lineRe = regexp.MustCompile(`(?m)^[ \t]*((?:https?|ftp)://\S+)[ \t]*$`)
+var lineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*((?:https?|ftp)://\S+)[ \t]*$`) })
 
 var placeholders = map[string]struct{}{
 	"password":      {},
@@ -90,48 +92,82 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
-	for _, m := range lineRe.FindAllStringSubmatch(str, -1) {
-		if len(m) < 2 {
-			continue
+	for start := 0; start < len(str); {
+		line := str[start:]
+		if end := strings.IndexByte(line, '\n'); end >= 0 {
+			line = line[:end]
+			start += end + 1
+		} else {
+			start = len(str)
 		}
-		uri := m[1]
-		if basicAuthWouldCatch(uri) {
-			// Already basicauth's job; skip to avoid a duplicate
-			// finding under a second DetectorType.
-			continue
-		}
-		user, pass, host, ok := splitUserinfo(uri)
-		if !ok {
-			continue
-		}
-		if user == "" || pass == "" {
-			continue
-		}
-		if hasTemplatingDelim(user) || hasTemplatingDelim(pass) {
-			continue
-		}
-		if isPlaceholder(user) || isPlaceholder(pass) {
-			continue
-		}
-		key := uri
-		if _, dup := seen[key]; dup {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, detectors.Result{
-			DetectorType: detectors.GitCredentialsURL,
-			Raw:          []byte(pass),
-			RawV2:        []byte(uri),
-			Redacted:     redact(pass),
-			ExtraData: map[string]string{
-				"user": user,
-				"host": host,
-			},
-			Severity: detectors.SeverityHigh,
-		})
+		scanLine([]byte(line), seen, &out)
 	}
 
 	return out, nil
+}
+
+// FromReader keeps the regexp grammar and line anchors of FromData while the
+// replay helper skips invalid arbitrarily long lines without retaining them.
+func (s Scanner) FromReader(ctx context.Context, _ bool, r io.ReaderAt, size int64) ([]detectors.Result, error) {
+	seen := map[string]struct{}{}
+	var out []detectors.Result
+	err := detectors.ForEachReaderLineSubmatch(ctx, r, size, lineRe(), []byte("://"), 1, 0, []int{1}, func(match [][]byte) error {
+		scanMatch(match, seen, &out)
+		return nil
+	})
+	return out, err
+}
+
+func scanLine(line []byte, seen map[string]struct{}, out *[]detectors.Result) {
+	m := lineRe().FindStringSubmatch(string(line))
+	if len(m) < 2 {
+		return
+	}
+	appendMatch(m[1], seen, out)
+}
+
+func scanMatch(match [][]byte, seen map[string]struct{}, out *[]detectors.Result) {
+	if len(match) < 1 {
+		return
+	}
+	appendMatch(string(match[0]), seen, out)
+}
+
+func appendMatch(uri string, seen map[string]struct{}, out *[]detectors.Result) {
+	if basicAuthWouldCatch(uri) {
+		// Already basicauth's job; skip to avoid a duplicate
+		// finding under a second DetectorType.
+		return
+	}
+	user, pass, host, ok := splitUserinfo(uri)
+	if !ok {
+		return
+	}
+	if user == "" || pass == "" {
+		return
+	}
+	if hasTemplatingDelim(user) || hasTemplatingDelim(pass) {
+		return
+	}
+	if isPlaceholder(user) || isPlaceholder(pass) {
+		return
+	}
+	key := uri
+	if _, dup := seen[key]; dup {
+		return
+	}
+	seen[key] = struct{}{}
+	*out = append(*out, detectors.Result{
+		DetectorType: detectors.GitCredentialsURL,
+		Raw:          []byte(pass),
+		RawV2:        []byte(uri),
+		Redacted:     redact(pass),
+		ExtraData: map[string]string{
+			"user": user,
+			"host": host,
+		},
+		Severity: detectors.SeverityHigh,
+	})
 }
 
 // basicAuthWouldCatch reports whether net/url.Parse cleanly recovers a
@@ -202,3 +238,5 @@ func redact(s string) string {
 func init() {
 	detectors.Register(Scanner{})
 }
+
+var _ detectors.ReaderDetector = Scanner{}

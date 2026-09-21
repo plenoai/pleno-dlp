@@ -13,6 +13,7 @@ package salesforcerefresh
 import (
 	"context"
 	"regexp"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -21,7 +22,7 @@ import (
 // against the standard "User-Agent OAuth" / "Web Server OAuth" flows. The
 // tail is URL-safe base64-ish; we accept >=60 trailing chars to filter
 // truncated samples.
-var tokenRe = regexp.MustCompile(`\b(5Aep861[A-Za-z0-9._-]{60,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(5Aep861[A-Za-z0-9._-]{60,})\b`) })
 
 type Scanner struct{}
 
@@ -30,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.SalesforceRefres
 func (Scanner) Keywords() []string { return []string{"5Aep861"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

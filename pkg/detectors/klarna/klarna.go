@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -42,18 +43,22 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // tail is base64-ish (letters, digits, +/=*_- and similar); the whole key may
 // run up to 255 chars, so we cap the tail at 240 to stay under that bound while
 // the prefix carries the discrimination.
-var keyRe = regexp.MustCompile(`klarna_(?:live|test)_api_[A-Za-z0-9+/=*_-]{16,240}`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`klarna_(?:live|test)_api_[A-Za-z0-9+/=*_-]{16,240}`) })
 
 // uuidRe captures the merchant-portal username (a UUID) when it sits near the
 // key, so the pair can be sent to Basic auth. Optional — the key alone is the
 // detection.
-var uuidRe = regexp.MustCompile(`\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b`)
+var uuidRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b`)
+})
 
 // contextRe is the windowed assignment-anchor gate within radius 64. The bare
 // keyword "klarna" stays in Keywords() as the engine prefilter; here we require
 // an assignment-shaped klarna credential reference so prose mentions of the
 // word do not arm the detector.
-var contextRe = regexp.MustCompile(`(?i)klarna[_-]?(api[_-]?)?(token|key|secret|user|pass(word)?|cred(ential)?s?)`)
+var contextRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)klarna[_-]?(api[_-]?)?(token|key|secret|user|pass(word)?|cred(ential)?s?)`)
+})
 
 type Scanner struct{}
 
@@ -62,7 +67,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Klarna }
 func (Scanner) Keywords() []string { return []string{"klarna"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	keyHits := keyRe.FindAllIndex(data, -1)
+	keyHits := keyRe().FindAllIndex(data, -1)
 	if len(keyHits) == 0 {
 		return nil, nil
 	}
@@ -80,7 +85,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		seen[key] = struct{}{}
 		// The key already embeds live/test discrimination; a UUID username, when
 		// present anywhere in the chunk, completes the Basic-auth pair.
-		user := uuidRe.FindString(string(data))
+		user := uuidRe().FindString(string(data))
 		res := detectors.Result{
 			DetectorType: detectors.Klarna,
 			Raw:          []byte(key),
@@ -112,7 +117,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return contextRe.MatchString(lower[from:to])
+	return contextRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

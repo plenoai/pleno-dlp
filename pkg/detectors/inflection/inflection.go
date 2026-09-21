@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,7 +19,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Inflection key prefix/length/charset. Pinning a length would risk silently
 // destroying recall, so the shape stays open and the keyword gate + entropy
 // floor do the disambiguation.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`) })
 
 // minEntropy is a conservative floor because the documented charset is
 // unknown; 3.0 rejects obvious low-information runs without culling plausible
@@ -27,7 +28,7 @@ const minEntropy = 3.0
 
 // contextRe is the windowed assignment-anchor gate; the bare keyword stays in
 // Keywords() as the engine prefilter.
-var contextRe = regexp.MustCompile(`(?i)inflection[_-]?(api[_-]?)?(token|key|secret)`)
+var contextRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)inflection[_-]?(api[_-]?)?(token|key|secret)`) })
 
 type Scanner struct{}
 
@@ -36,7 +37,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Inflection }
 func (Scanner) Keywords() []string { return []string{"inflection"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -83,7 +84,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return contextRe.MatchString(lower[from:to])
+	return contextRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

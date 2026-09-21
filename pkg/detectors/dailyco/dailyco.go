@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -17,7 +18,7 @@ var apiBase = "https://api.daily.co"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([0-9a-f]{64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([0-9a-f]{64})\b`) })
 
 var contextKeywords = []string{"daily.co", "dailyco", "daily_api", "daily-api"}
 
@@ -28,7 +29,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.DailyCo }
 func (Scanner) Keywords() []string { return []string{"daily.co", "dailyco", "daily_api", "daily-api"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

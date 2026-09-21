@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,7 +22,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Turso platform tokens are 3-part dotted JWTs but the API also accepts opaque
 // 40+ char strings; cover both shapes.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9._-]{40,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9._-]{40,})\b`) })
 
 var contextKeywords = []string{"turso"}
 
@@ -32,7 +33,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Turso }
 func (Scanner) Keywords() []string { return []string{"turso"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

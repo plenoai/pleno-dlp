@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 const maxVerifyResponseBytes = 64 << 10
 
-var keyRe = regexp.MustCompile(`\b(sk-ant-api03-[A-Za-z0-9_-]{93}AA)\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk-ant-api03-[A-Za-z0-9_-]{93}AA)\b`) })
 
 type Scanner struct{}
 
@@ -29,7 +30,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Anthropic }
 func (Scanner) Keywords() []string { return []string{"sk-ant-api03-"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAll(data, -1)
+	matches := keyRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

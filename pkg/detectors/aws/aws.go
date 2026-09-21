@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -35,12 +36,14 @@ import (
 // AKIA[0-9A-Z]{16} is the canonical access-key-id shape. ASIA covers temporary
 // credentials but is intentionally out of scope for the MVP.
 var (
-	idRe = regexp.MustCompile(`\b(AKIA[0-9A-Z]{16})\b`)
+	idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`AKIA[0-9A-Z]{16}\b`) })
 	// Secret access key: 40 chars from the base64-ish set. The boundary `\b`
 	// would treat `+` and `/` as boundaries, so we anchor with a negative
 	// lookbehind-equivalent via byte class on the surrounding chars manually.
-	secretRe = regexp.MustCompile(`[^A-Za-z0-9+/]([A-Za-z0-9+/]{40})[^A-Za-z0-9+/]`)
+	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[^A-Za-z0-9+/]([A-Za-z0-9+/]{40})[^A-Za-z0-9+/]`) })
 )
+
+const accessKeyIDLen = len("AKIA") + 16
 
 // arnRe parses a caller ARN into partition/service/account/resource so we
 // can derive the principal kind without string-splitting in five places.
@@ -48,7 +51,9 @@ var (
 //
 // AWS reserves enough special-cases (root, federated-user/, assumed-role/<role>/<session>)
 // that we extract the resource segment and let principalKind switch over it.
-var arnRe = regexp.MustCompile(`^arn:(aws|aws-cn|aws-us-gov):([^:]+)::?(\d+)?:(.+)$`)
+var arnRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^arn:(aws|aws-cn|aws-us-gov):([^:]+)::?(\d+)?:(.+)$`)
+})
 
 // stsRegion is the region used for the verification call. us-east-1 is a safe
 // default — sts:GetCallerIdentity is a global API and accepts any region.
@@ -81,19 +86,22 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AWS }
 func (Scanner) Keywords() []string { return []string{"AKIA"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	idMatches := idRe.FindAllSubmatchIndex(data, -1)
+	if !detectors.HasWordRunCandidate(data, "AKIA", accessKeyIDLen) {
+		return nil, nil
+	}
+	idMatches := detectors.FindAllLeftWordBoundary(idRe(), data)
 	if len(idMatches) == 0 {
 		return nil, nil
 	}
 
 	// Pre-compute secret candidates. Use a wider sweep so we can pick the
 	// nearest match to each access-key id.
-	secretMatches := secretRe.FindAllSubmatchIndex(data, -1)
+	secretMatches := secretRe().FindAllSubmatchIndex(data, -1)
 
 	results := make([]detectors.Result, 0, len(idMatches))
 	for _, m := range idMatches {
-		id := string(data[m[2]:m[3]])
-		secret, ok := nearestSecret(m[2], data, secretMatches)
+		id := string(data[m[0]:m[1]])
+		secret, ok := nearestSecret(m[0], data, secretMatches)
 		extra := map[string]string{"access_key_id": id}
 		res := detectors.Result{
 			DetectorType: detectors.AWS,
@@ -231,7 +239,7 @@ func buildIdentityMetadata(out *sts.GetCallerIdentityOutput) map[string]string {
 // returns federated identities with an empty account so the regex
 // allows it.
 func parseARN(arn string) (partition, kind, resource string, ok bool) {
-	m := arnRe.FindStringSubmatch(arn)
+	m := arnRe().FindStringSubmatch(arn)
 	if m == nil {
 		return "", "", "", false
 	}

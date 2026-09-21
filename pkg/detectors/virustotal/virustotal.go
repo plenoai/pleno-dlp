@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,7 @@ var apiBase = "https://www.virustotal.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([a-f0-9]{64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{64})\b`) })
 
 var contextKeywords = []string{"virustotal", "vt_api_key", "vt_apikey", "virus_total"}
 
@@ -31,7 +32,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.VirusTotal }
 func (Scanner) Keywords() []string { return []string{"virustotal", "vt_api"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

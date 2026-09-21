@@ -37,6 +37,7 @@ package privatekey
 import (
 	"context"
 	"errors"
+	"io"
 	"regexp"
 	"strconv"
 	"strings"
@@ -49,11 +50,15 @@ import (
 // Match the begin marker, the body, and the end marker in one go. Use [\s\S]
 // (any char including newline) since Go regexp's `.` excludes \n by default.
 // The optional ` BLOCK` suffix covers PGP armor: `-----BEGIN PGP PRIVATE KEY BLOCK-----`.
-var blockRe = regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----`)
+var blockRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----`)
+})
 
 // Used to pull the algorithm token out of the BEGIN line as a fallback when
 // the PEM body fails to parse (corrupted block, truncated paste).
-var algRe = regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----`)
+var algRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----`)
+})
 
 // Scanner is the privatekey detector. The struct carries a CT client and
 // passphrase wordlist that are wired up lazily — the zero value works
@@ -94,7 +99,7 @@ func (Scanner) WantsFullChunk() bool { return true }
 // the discovered domains into ExtraData. The CT call is per-block —
 // each block hits crt.sh at most once.
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := blockRe.FindAll(data, -1)
+	matches := blockRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}
@@ -107,6 +112,25 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		out = append(out, res)
 	}
 	return out, nil
+}
+
+// FromReader finds complete PEM records without retaining the surrounding
+// file. The shared reader matcher keeps invalid or unterminated candidates
+// streaming, then allocates only the complete PEM bytes needed by deriveResult.
+func (s Scanner) FromReader(ctx context.Context, verify bool, r io.ReaderAt, size int64) ([]detectors.Result, error) {
+	var out []detectors.Result
+	err := detectors.ForEachReaderPrefixedSubmatch(ctx, r, size, blockRe(), []byte("-----BEGIN "), []int{0}, func(match [][]byte) error {
+		if len(match) == 0 {
+			return nil
+		}
+		res := s.deriveResult(match[0])
+		if verify {
+			s.applyCTLookup(ctx, &res)
+		}
+		out = append(out, res)
+		return nil
+	})
+	return out, err
 }
 
 // Verify is the Verifier-interface entry point used by callers that
@@ -261,7 +285,7 @@ func (s Scanner) ctClient() *blastradius.CTClient {
 }
 
 func extractAlg(block []byte) string {
-	m := algRe.FindSubmatch(block)
+	m := algRe().FindSubmatch(block)
 	if len(m) < 2 {
 		return ""
 	}
@@ -282,3 +306,5 @@ func stringOrUnknown(s string) string {
 func init() {
 	detectors.Register(Scanner{})
 }
+
+var _ detectors.ReaderDetector = Scanner{}

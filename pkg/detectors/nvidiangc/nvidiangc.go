@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var apiBase = "https://api.ngc.nvidia.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // NVIDIA NGC tokens are documented as `nvapi-<base64url>{40+}`.
-var tokenRe = regexp.MustCompile(`\b(nvapi-[A-Za-z0-9_-]{40,200})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(nvapi-[A-Za-z0-9_-]{40,200})\b`) })
 
 var contextKeywords = []string{"nvidia", "ngc", "nvapi", "nvcr"}
 
@@ -30,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.NvidiaNGC }
 func (Scanner) Keywords() []string { return []string{"nvapi-"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

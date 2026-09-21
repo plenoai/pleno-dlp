@@ -13,6 +13,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -24,7 +25,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // fm1_ or fm2_ + URL-safe base64 (alphanumeric + _ + -). We require >=50
 // characters of body to skip non-token noise like "fm1_TODO".
-var tokenRe = regexp.MustCompile(`\b(fm[12]_[A-Za-z0-9_-]{50,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(fm[12]_[A-Za-z0-9_-]{50,})\b`) })
 
 type Scanner struct{}
 
@@ -33,7 +34,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.FlyIO }
 func (Scanner) Keywords() []string { return []string{"fm1_", "fm2_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

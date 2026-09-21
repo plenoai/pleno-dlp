@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -26,8 +27,8 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // API key: 32 lowercase hex chars. Application key: 40 hex chars.
 var (
-	apiRe = regexp.MustCompile(`\b([a-f0-9]{32})\b`)
-	appRe = regexp.MustCompile(`\b([a-fA-F0-9]{40})\b`)
+	apiRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+	appRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-fA-F0-9]{40})\b`) })
 )
 
 // Datadog candidates are extremely common shapes (md5, sha1) so the keyword
@@ -41,11 +42,11 @@ func (Scanner) Keywords() []string {
 }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	apiHits := apiRe.FindAllSubmatchIndex(data, -1)
+	apiHits := apiRe().FindAllSubmatchIndex(data, -1)
 	if len(apiHits) == 0 {
 		return nil, nil
 	}
-	appHits := appRe.FindAllSubmatchIndex(data, -1)
+	appHits := appRe().FindAllSubmatchIndex(data, -1)
 
 	out := make([]detectors.Result, 0, len(apiHits))
 	seen := map[string]struct{}{}

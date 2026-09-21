@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -30,14 +31,14 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // https://pusher.com/docs/channels/library_auth_reference/auth-signatures/
 // The charset is therefore [a-z0-9], NOT [A-Za-z0-9]; uppercase runs are not
 // valid Pusher credentials and only widened the false-positive surface.
-var tokenRe = regexp.MustCompile(`\b([a-z0-9]{20})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z0-9]{20})\b`) })
 
 // armRe is the assignment-style Pusher reference that must appear within the
 // proximity window. A bare "pusher" substring (CDN script-src URLs, dependency
 // names, comments) is too weak; "pusher_secret" / "pusher-app-key" / etc. is
 // the shape a real credential assignment or config key takes. Kept tight to
 // the documented secret/key/token roles.
-var armRe = regexp.MustCompile(`(?i)pusher[_\-]?(app[_\-]?)?(secret|key|token)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)pusher[_\-]?(app[_\-]?)?(secret|key|token)`) })
 
 // minEntropy rejects low-variety 20-char lowercase-alnum runs that clear the
 // regex but are not random credentials. Pusher secrets are lowercase hex, so
@@ -53,7 +54,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.PusherChannels }
 func (Scanner) Keywords() []string { return []string{"pusher"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -105,7 +106,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 // Verify probes the user-overridable apiBase. Real verification requires

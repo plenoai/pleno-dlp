@@ -6,6 +6,7 @@ package sources
 import (
 	"context"
 	"encoding/json"
+	"io"
 )
 
 type SourceType int32
@@ -213,13 +214,27 @@ type SQLDumpMeta struct {
 	Format   string // "mysql", "postgres", or "sqlite"
 }
 
+// ChunkReaderAtOpener opens a replayable source body for the engine worker.
+// The worker owns the returned closer until the scan completes. A nil reader
+// with a nil error means the source skipped the item after admission checks
+// (for example a binary or an over-limit file).
+//
+// Size is the size observed when the body is opened. It is returned alongside
+// the reader because a lazy source must not make the engine stat an arbitrary
+// path after the source has handed it off.
+type ChunkReaderAtOpener func(context.Context) (reader io.ReaderAt, closer io.Closer, size int64, err error)
+
 // Chunk is a unit of data emitted by a Source for detectors to scan. Sources
 // MUST select on ctx.Done() when sending so cancellation propagates promptly.
+// Sources populate Data or Open. Consumers must invoke Open when present and
+// close its returned closer after scanning; the engine performs this inside
+// the worker so queued metadata does not retain file bodies or descriptors.
 type Chunk struct {
 	SourceID       int64
 	SourceType     SourceType
 	SourceName     string
 	Data           []byte
+	Open           ChunkReaderAtOpener
 	SourceMetadata Metadata
 }
 

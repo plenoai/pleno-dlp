@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -23,7 +24,7 @@ var apiBase = "https://www.comet.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,100})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,100})\b`) })
 
 // minEntropy is a conservative floor. No authoritative source documents the
 // Comet API key charset, so we cannot assume a high-variety distribution;
@@ -37,7 +38,9 @@ const minEntropy = 3.0
 // kills incidental "comet.com" URLs and prose mentions sitting near any
 // high-entropy alnum blob. The bare keywords stay in Keywords() as the
 // engine prefilter.
-var armRe = regexp.MustCompile(`(?i)comet[._-]?(ml)?[._-]?(api[._-]?)?(key|token|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)comet[._-]?(ml)?[._-]?(api[._-]?)?(key|token|secret)`)
+})
 
 type Scanner struct{}
 
@@ -48,7 +51,7 @@ func (Scanner) Keywords() []string {
 }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -97,7 +100,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

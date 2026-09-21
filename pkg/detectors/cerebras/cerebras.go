@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -16,7 +17,7 @@ var apiBase = "https://api.cerebras.ai"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // csk- + 32+ base62. Cerebras inference keys observed at 32-char base62.
-var keyRe = regexp.MustCompile(`\b(csk-[A-Za-z0-9]{24,})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(csk-[A-Za-z0-9]{24,})\b`) })
 
 type Scanner struct{}
 
@@ -25,7 +26,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Cerebras }
 func (Scanner) Keywords() []string { return []string{"csk-"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAll(data, -1)
+	matches := keyRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

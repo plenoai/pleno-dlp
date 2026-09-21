@@ -26,6 +26,16 @@ func TestFromData_PAT(t *testing.T) {
 	}
 }
 
+func TestFromData_PATWithoutDotIsIgnored(t *testing.T) {
+	res, err := Scanner{}.FromData(context.Background(), false, []byte("AIRTABLE_TOKEN="+strings.ReplaceAll(dummyPAT, ".", "")))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(res) != 0 {
+		t.Fatalf("PAT without literal dot should not match, got %d", len(res))
+	}
+}
+
 func TestFromData_Legacy_KeywordRequired(t *testing.T) {
 	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummyLegacy))
 	if len(res) != 0 {
@@ -34,6 +44,13 @@ func TestFromData_Legacy_KeywordRequired(t *testing.T) {
 	res, _ = Scanner{}.FromData(context.Background(), false, []byte("AIRTABLE_API_KEY="+dummyLegacy))
 	if len(res) != 1 {
 		t.Fatalf("expected 1 with keyword, got %d", len(res))
+	}
+}
+
+func TestFromData_Legacy_UnicodeLowercaseContext(t *testing.T) {
+	res, _ := Scanner{}.FromData(context.Background(), false, []byte("AİRTABLE="+dummyLegacy))
+	if len(res) != 1 {
+		t.Fatalf("strings.ToLower-compatible Unicode context should match, got %d", len(res))
 	}
 }
 

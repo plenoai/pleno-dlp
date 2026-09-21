@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -25,7 +26,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // in the official docs, and trufflehog ships no mistral detector to mirror).
 // The 32-char length here is the pre-existing heuristic, NOT a documented
 // value — it is retained as-is to preserve recall, not tightened on a guess.
-var keyRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // minEntropy is a conservative floor. Without a documented charset we cannot
 // assume key-grade randomness, so 3.0 (not 3.5) is used to cull only the
@@ -38,7 +39,7 @@ const minEntropy = 3.0
 // the assignment-style fixtures (mistral_api_key=, MISTRAL_KEY:, etc.) armed
 // while rejecting incidental mentions. The bare "mistral" keyword stays in
 // Keywords() as the engine prefilter.
-var armRe = regexp.MustCompile(`(?i)mistral[_-]?(api[_-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)mistral[_-]?(api[_-]?)?(token|key|secret)`) })
 
 type Scanner struct{}
 
@@ -47,7 +48,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Mistral }
 func (Scanner) Keywords() []string { return []string{"mistral"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := keyRe.FindAllSubmatchIndex(data, -1)
+	hits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -97,7 +98,7 @@ func nearKeyword(lower string, start, end int) bool {
 		to = len(lower)
 	}
 	window := lower[from:to]
-	return armRe.MatchString(window)
+	return armRe().MatchString(window)
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

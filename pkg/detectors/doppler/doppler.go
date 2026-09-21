@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -18,7 +19,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // `dp.` + 2-3 char scope + `.` + 40+ base64url chars. The dp.<scope>. prefix
 // is distinctive enough to skip a keyword gate.
-var tokenRe = regexp.MustCompile(`\b(dp\.(?:st|pt|ct|sa|scim)\.[A-Za-z0-9_-]{40,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dp\.(?:st|pt|ct|sa|scim)\.[A-Za-z0-9_-]{40,})\b`) })
 
 type Scanner struct{}
 
@@ -29,7 +30,7 @@ func (Scanner) Keywords() []string {
 }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

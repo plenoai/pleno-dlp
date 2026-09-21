@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,9 +20,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
 	// `CCIPRJ_` + 43 base64url-ish chars (project-scoped token).
-	projectRe = regexp.MustCompile(`\b(CCIPRJ_[A-Za-z0-9_-]{43})\b`)
+	projectRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(CCIPRJ_[A-Za-z0-9_-]{43})\b`) })
 	// 40-char lowercase hex (legacy personal API token shape).
-	hexRe = regexp.MustCompile(`\b([a-f0-9]{40})\b`)
+	hexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40})\b`) })
 )
 
 var contextKeywords = []string{"circleci", "circle_token", "circleci_token"}
@@ -41,7 +42,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	seen := map[string]struct{}{}
 	claimed := []span{}
 
-	for _, h := range projectRe.FindAllSubmatchIndex(data, -1) {
+	for _, h := range projectRe().FindAllSubmatchIndex(data, -1) {
 		token := string(data[h[2]:h[3]])
 		claimed = append(claimed, span{h[2], h[3]})
 		if _, dup := seen[token]; dup {
@@ -61,7 +62,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		out = append(out, res)
 	}
 
-	hexHits := hexRe.FindAllSubmatchIndex(data, -1)
+	hexHits := hexRe().FindAllSubmatchIndex(data, -1)
 	if len(hexHits) > 0 {
 		lower := strings.ToLower(string(data))
 		for _, h := range hexHits {

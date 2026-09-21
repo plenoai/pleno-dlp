@@ -16,6 +16,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -25,7 +26,7 @@ import (
 // length is the load-bearing FP defence: the previous bare `[A-Za-z0-9]{24}`
 // run matched commit SHAs, build IDs, and generic identifiers near the word
 // "atlassian". The real token shape cannot be confused with those.
-var tokenRe = regexp.MustCompile(`\b(ATATT3[A-Za-z0-9_=-]{20,})`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(ATATT3[A-Za-z0-9_=-]{20,})`) })
 
 // minEntropy drops low-entropy bodies (e.g. a synthetic ATATT3 prefix glued
 // onto a sequential/repeated run). Real tokens are high-entropy base64url.
@@ -42,7 +43,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Atlassian }
 func (Scanner) Keywords() []string { return []string{"atlassian"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

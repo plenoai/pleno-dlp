@@ -10,6 +10,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -22,7 +23,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // Production tokens are 64 base64url chars beginning with EAAA. Sandbox is
 // the legacy sq0atp- prefix. The combined alternation keeps a single match
 // loop in FromData.
-var keyRe = regexp.MustCompile(`\b(EAAA[A-Za-z0-9_-]{60}|sq0atp-[A-Za-z0-9_-]{22})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(EAAA[A-Za-z0-9_-]{60}|sq0atp-[A-Za-z0-9_-]{22})\b`)
+})
 
 type Scanner struct{}
 
@@ -31,7 +34,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Square }
 func (Scanner) Keywords() []string { return []string{"EAAA", "sq0atp-"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAll(data, -1)
+	matches := keyRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

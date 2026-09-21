@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -17,7 +18,7 @@ var apiBase = "https://api.ai21.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // minEntropy is a conservative floor. AI21 does not publish an authoritative
 // key format, so per the inconclusive-research fallback we do NOT pin a
@@ -28,7 +29,9 @@ const minEntropy = 3.0
 // bare substring matched any incidental "ai21" mention (and is kept in
 // Keywords() as the prefilter); this assignment-style anchor requires the
 // match to look like an AI21 credential reference within the window.
-var armRe = regexp.MustCompile(`(?i)ai21[_\-]?(labs[_\-]?)?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)ai21[_\-]?(labs[_\-]?)?(api[_\-]?)?(token|key|secret)`)
+})
 
 type Scanner struct{}
 
@@ -37,7 +40,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AI21Labs }
 func (Scanner) Keywords() []string { return []string{"ai21"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -86,7 +89,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

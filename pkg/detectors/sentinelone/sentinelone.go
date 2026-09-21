@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{80,256})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{80,256})\b`) })
 
 // armRe is the assignment-style SentinelOne reference that must appear within
 // the proximity window. SentinelOne does not publicly document the API token's
@@ -31,7 +32,9 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{80,256})\b`)
 // 80-256 alphanumeric run; `sentinelone[_-]?(api[_-]?)?(token|key|secret)` is
 // the shape a real credential assignment or config key takes. The bare
 // keyword is kept in Keywords() as the cheap engine prefilter.
-var armRe = regexp.MustCompile(`(?i)sentinelone[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)sentinelone[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-entropy 80-256 char runs that clear the alnum regex
 // but are not random tokens (padded placeholders, long repeated-character
@@ -46,7 +49,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.SentinelOne }
 func (Scanner) Keywords() []string { return []string{"sentinelone"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -101,7 +104,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

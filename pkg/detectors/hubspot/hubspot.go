@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -15,7 +16,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // An optional region tag like "na1-" may precede the 36-char body; the alphabet
 // stays permissive so non-na1 regions still match.
-var tokenRe = regexp.MustCompile(`\b(pat-(?:na1-)?[a-z0-9-]{36})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pat-(?:na1-)?[a-z0-9-]{36})\b`) })
 
 type Scanner struct{}
 
@@ -24,7 +25,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.HubSpot }
 func (Scanner) Keywords() []string { return []string{"pat-", "hubspot"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

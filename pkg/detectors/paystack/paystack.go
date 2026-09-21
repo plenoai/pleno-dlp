@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,7 @@ var apiBase = "https://api.paystack.co"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Paystack secret keys: sk_(live|test)_ + 40-50 alnum chars.
-var tokenRe = regexp.MustCompile(`\b(sk_(live|test)_[A-Za-z0-9]{40,50})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk_(live|test)_[A-Za-z0-9]{40,50})\b`) })
 
 type Scanner struct{}
 
@@ -29,7 +30,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Paystack }
 func (Scanner) Keywords() []string { return []string{"sk_live_", "sk_test_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

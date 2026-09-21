@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,7 +21,7 @@ var apiBase = "https://api.pipedrive.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Pipedrive personal API tokens are documented as 40-char alphanumeric.
-var tokenRe = regexp.MustCompile(`\b([a-f0-9]{40})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40})\b`) })
 
 var contextKeywords = []string{"pipedrive", "pipedrive_api", "pipedrive_token"}
 
@@ -31,7 +32,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Pipedrive }
 func (Scanner) Keywords() []string { return []string{"pipedrive"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

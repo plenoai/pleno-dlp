@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,7 +22,9 @@ var apiBase = ""
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // DocuSign tokens are JWTs — three base64url segments joined by `.`.
-var tokenRe = regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+})
 
 var contextKeywords = []string{"docusign", "docusign_api", "docusign_token", "docusign_jwt"}
 
@@ -32,7 +35,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.DocuSign }
 func (Scanner) Keywords() []string { return []string{"docusign"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

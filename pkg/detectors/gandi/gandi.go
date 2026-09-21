@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,13 +21,13 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // The shape stays a generic alphanumeric run; the false-positive load is
 // carried entirely by the assignment-anchor arm regex, a tight proximity
 // window, and an entropy floor.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{24,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24,80})\b`) })
 
 // armRe is the assignment-style Gandi reference that must appear within the
 // proximity window. A bare "gandi" substring (package names, docs URLs,
 // comments) is too weak; the bare "gandi" keyword still serves as the engine
 // prefilter via Keywords().
-var armRe = regexp.MustCompile(`(?i)gandi[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)gandi[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // Conservative 3.0 floor: no documented charset to justify the 3.5
 // high-variety threshold, and 3.0 still admits hex-shaped values.
@@ -39,7 +40,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Gandi }
 func (Scanner) Keywords() []string { return []string{"gandi"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -88,7 +89,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

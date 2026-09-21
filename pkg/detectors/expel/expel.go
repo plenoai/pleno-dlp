@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -23,7 +24,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // so the 32-64 alnum range is left unchanged — narrowing it would silently
 // destroy recall. Disambiguation is delegated to the arm-regex gate plus a
 // conservative entropy floor.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // minEntropy rejects low-information 32-64 char runs (padded placeholders,
 // repeated characters, structured IDs) that clear the alnum regex but lack
@@ -38,7 +39,7 @@ const minEntropy = 3.0
 // generic 32-64 alphanumeric run; `expel[_-]?(api[_-]?)?(token|key|secret)`
 // is the shape a real credential assignment or config key takes. The bare
 // "expel" keyword stays in Keywords() as the cheap engine prefilter.
-var armRe = regexp.MustCompile(`(?i)expel[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)expel[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 type Scanner struct{}
 
@@ -47,7 +48,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Expel }
 func (Scanner) Keywords() []string { return []string{"expel"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -101,7 +102,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

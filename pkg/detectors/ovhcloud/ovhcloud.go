@@ -17,6 +17,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -25,12 +26,12 @@ import (
 // tokens. A delimiter (=, :, quote or whitespace) must immediately precede
 // the token so we anchor on an assigned value rather than any arbitrary
 // 32-char run embedded in a larger word.
-var keyRe = regexp.MustCompile(`[=:"'\s]([A-Za-z0-9]{32})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[=:"'\s]([A-Za-z0-9]{32})\b`) })
 
 // pure 32-char lowercase hex — the dominant false-positive class
 // (MD5 digests, hyphen-stripped UUIDs, hex32 session ids). Real OVH keys
 // are mixed-case, so excluding all-lowercase-hex loses no true positives.
-var lowerHex32Re = regexp.MustCompile(`^[0-9a-f]{32}$`)
+var lowerHex32Re = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-f]{32}$`) })
 
 // contextKeywords are OVH-SPECIFIC. The bare generic "consumer_key"
 // (a stock OAuth1 / Twitter field) is intentionally NOT here — it stays a
@@ -69,7 +70,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.OVHCloud }
 func (Scanner) Keywords() []string { return []string{"ovh", "ovhcloud", "consumer_key"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := keyRe.FindAllSubmatchIndex(data, -1)
+	hits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -104,7 +105,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 // plausibleKey rejects the false-positive shapes that share the 32-char
 // alnum alphabet with a real OVH key.
 func plausibleKey(token string) bool {
-	if lowerHex32Re.MatchString(token) {
+	if lowerHex32Re().MatchString(token) {
 		return false // MD5 digest / hyphen-stripped UUID / hex32 id
 	}
 	if !detectors.HasMinEntropy(token, tokenMinEntropy) {

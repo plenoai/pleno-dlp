@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -28,7 +29,9 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // sk.<base64url-segment>.<base64url-payload>.<base64url-sig>. The leading
 // `sk.` distinguishes from `pk.` (public). Each segment is base64url.
-var keyRe = regexp.MustCompile(`\b(sk\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(sk\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b`)
+})
 
 type Scanner struct{}
 
@@ -37,7 +40,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Mapbox }
 func (Scanner) Keywords() []string { return []string{"sk."} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := keyRe.FindAll(data, -1)
+	matches := keyRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

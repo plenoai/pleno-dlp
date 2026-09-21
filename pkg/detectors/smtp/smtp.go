@@ -14,11 +14,12 @@ import (
 	"context"
 	"net/url"
 	"regexp"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var uriRe = regexp.MustCompile(`\b(smtps?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
+var uriRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(smtps?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`) })
 
 type Scanner struct{}
 
@@ -27,7 +28,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.SMTP }
 func (Scanner) Keywords() []string { return []string{"smtp://", "smtps://"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := uriRe.FindAllSubmatch(data, -1)
+	hits := uriRe().FindAllSubmatch(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -35,11 +36,11 @@ var (
 	// Modern wrapped service / batch tokens: `hvs.<base64url>` and
 	// `hvb.<base64url>`. Length floor is generous; Vault mints both ~95
 	// chars for service tokens, ~60 for batch.
-	modernRe = regexp.MustCompile(`\b(hv[sb]\.[A-Za-z0-9_-]{40,})\b`)
+	modernRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(hv[sb]\.[A-Za-z0-9_-]{40,})\b`) })
 	// Legacy service tokens: `s.<24 base62 chars>`. The 24-char floor is
 	// the documented length; we anchor the leading `s.` and a word boundary
 	// to avoid matching `s.something` in Go pkg paths.
-	legacyRe = regexp.MustCompile(`\bs\.([A-Za-z0-9]{24})\b`)
+	legacyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bs\.([A-Za-z0-9]{24})\b`) })
 )
 
 type Scanner struct{}
@@ -73,10 +74,10 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		out = append(out, res)
 	}
 
-	for _, m := range modernRe.FindAll(data, -1) {
+	for _, m := range modernRe().FindAll(data, -1) {
 		add(string(m))
 	}
-	for _, m := range legacyRe.FindAll(data, -1) {
+	for _, m := range legacyRe().FindAll(data, -1) {
 		add(string(m))
 	}
 	if len(out) == 0 {

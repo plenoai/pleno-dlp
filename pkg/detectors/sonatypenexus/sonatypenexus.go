@@ -8,6 +8,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -16,7 +17,7 @@ import (
 // endpoint and follow the `NXRT-<id>-<token>` shape. The detector is
 // permissive on the suffix to capture both `NXRT-` and the rarer `NPA-` /
 // raw-token forms shipped by older Nexus versions.
-var tokenRe = regexp.MustCompile(`\b(NXRT-[A-Za-z0-9_=\-]{16,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(NXRT-[A-Za-z0-9_=\-]{16,})\b`) })
 
 var contextKeywords = []string{"nexus", "sonatype", "nexus_user_token", "nexus_token"}
 
@@ -27,7 +28,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.SonatypeNexus }
 func (Scanner) Keywords() []string { return []string{"nexus", "sonatype", "NXRT-"} }
 
 func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

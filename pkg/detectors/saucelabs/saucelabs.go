@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,8 +22,8 @@ var apiBase = "https://api.us-west-1.saucelabs.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Sauce Labs access_keys are UUIDs (`8-4-4-4-12` hex). Username is alnum/_-.
-var userRe = regexp.MustCompile(`(?i)SAUCE_USERNAME["\s:=]+([A-Za-z0-9._-]{3,40})`)
-var keyRe = regexp.MustCompile(`(?i)SAUCE_ACCESS_KEY["\s:=]+([A-Fa-f0-9-]{32,40})`)
+var userRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)SAUCE_USERNAME["\s:=]+([A-Za-z0-9._-]{3,40})`) })
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)SAUCE_ACCESS_KEY["\s:=]+([A-Fa-f0-9-]{32,40})`) })
 
 type Scanner struct{}
 
@@ -31,8 +32,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.SauceLabs }
 func (Scanner) Keywords() []string { return []string{"saucelabs", "SAUCE_ACCESS_KEY"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	uMatches := userRe.FindAllSubmatch(data, -1)
-	kMatches := keyRe.FindAllSubmatch(data, -1)
+	uMatches := userRe().FindAllSubmatch(data, -1)
+	kMatches := keyRe().FindAllSubmatch(data, -1)
 	if len(uMatches) == 0 || len(kMatches) == 0 {
 		return nil, nil
 	}

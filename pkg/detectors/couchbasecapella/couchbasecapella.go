@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Capella API tokens are documented as 40+ char base64url. Generic shape —
 // keyword gate required.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{40,200})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40,200})\b`) })
 
 var contextKeywords = []string{"couchbase", "capella", "couchbase_capella"}
 
@@ -30,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.CouchbaseCapella
 func (Scanner) Keywords() []string { return []string{"couchbase", "capella"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

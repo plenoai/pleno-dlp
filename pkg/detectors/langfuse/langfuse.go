@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,8 +22,8 @@ var apiBase = "https://cloud.langfuse.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Langfuse keys: pk-lf-<uuid> and sk-lf-<uuid>.
-var pubRe = regexp.MustCompile(`\b(pk-lf-[a-f0-9-]{30,40})\b`)
-var secRe = regexp.MustCompile(`\b(sk-lf-[a-f0-9-]{30,40})\b`)
+var pubRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pk-lf-[a-f0-9-]{30,40})\b`) })
+var secRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk-lf-[a-f0-9-]{30,40})\b`) })
 
 type Scanner struct{}
 
@@ -31,8 +32,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Langfuse }
 func (Scanner) Keywords() []string { return []string{"pk-lf-", "sk-lf-"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	pubMatches := pubRe.FindAllSubmatch(data, -1)
-	secMatches := secRe.FindAllSubmatch(data, -1)
+	pubMatches := pubRe().FindAllSubmatch(data, -1)
+	secMatches := secRe().FindAllSubmatch(data, -1)
 	if len(pubMatches) == 0 || len(secMatches) == 0 {
 		return nil, nil
 	}

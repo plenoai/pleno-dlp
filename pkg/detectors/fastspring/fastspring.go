@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -32,7 +33,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // FastSpring source documents the credential length or charset. A bare
 // alphanumeric run of this shape is generic, so the arm regex and entropy floor
 // carry the false-positive load.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{16,32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{16,32})\b`) })
 
 // armRe is the assignment-style FastSpring reference that must appear within
 // the proximity window. A bare "fastspring" substring (doc links, the
@@ -40,7 +41,9 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{16,32})\b`)
 // generic 16-32 alphanumeric run;
 // `fastspring[_-]?(api[_-]?)?(user|pass|token|key|secret|credential)` is the
 // shape a real credential assignment or config key takes.
-var armRe = regexp.MustCompile(`(?i)fastspring[_\-]?(api[_\-]?)?(user(name)?|pass(word)?|token|key|secret|credential)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)fastspring[_\-]?(api[_\-]?)?(user(name)?|pass(word)?|token|key|secret|credential)`)
+})
 
 // minEntropy rejects low-information 16-32 char runs that clear the alnum regex
 // but are not random credentials (e.g. padded placeholders, repeated chars).
@@ -55,7 +58,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.FastSpring }
 func (Scanner) Keywords() []string { return []string{"fastspring"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) < 2 {
 		return nil, nil
 	}
@@ -132,7 +135,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

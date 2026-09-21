@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -19,7 +20,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 // Schematic API keys are documented as `api_<32-char base62>` (no
 // environment-mode prefix in the literal — environment is keyed in the dashboard).
-var tokenRe = regexp.MustCompile(`\b(api_[A-Za-z0-9]{30,80})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(api_[A-Za-z0-9]{30,80})\b`) })
 
 var contextKeywords = []string{"schematic", "schematichq", "schematic_api"}
 
@@ -30,7 +31,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Schematic }
 func (Scanner) Keywords() []string { return []string{"schematic", "schematichq"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

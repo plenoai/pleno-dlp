@@ -17,6 +17,7 @@ import (
 	"encoding/base64"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -24,9 +25,11 @@ import (
 // passTagRe matches a <Pass>...</Pass> element, optionally carrying a
 // FileZilla `encoding="base64"` attribute. `[^<]*` for the body is
 // sufficient — FileZilla never escapes `<` inside this element.
-var passTagRe = regexp.MustCompile(
-	`(?i)<Pass(?:\s+encoding="([^"]*)")?\s*>([^<]*)</Pass>`,
-)
+var passTagRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?i)<Pass(?:\s+encoding="([^"]*)")?\s*>([^<]*)</Pass>`,
+	)
+})
 
 var placeholders = map[string]struct{}{
 	"password":    {},
@@ -63,7 +66,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
-	for _, m := range passTagRe.FindAllStringSubmatch(str, -1) {
+	for _, m := range passTagRe().FindAllStringSubmatch(str, -1) {
 		if len(m) < 3 {
 			continue
 		}

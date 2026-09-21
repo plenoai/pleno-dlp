@@ -10,18 +10,19 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 // Exoscale API keys are documented as `EXO<base62>{56}` (uppercase prefix).
-var keyRe = regexp.MustCompile(`\b(EXO[A-Za-z0-9]{56})\b`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(EXO[A-Za-z0-9]{56})\b`) })
 
 // Secret is base64url (URL-safe alphabet, may include `-` and `_`). The
 // observed Exoscale secret shape is ~43-44 chars; we cap the upper bound
 // at 80 (down from 128) to shed long base64 blobs (PEM bodies, JWTs) that
 // a 128-wide window would otherwise swallow.
-var secretRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{40,80})\b`)
+var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40,80})\b`) })
 
 // Negative lookalikes the secret regex would otherwise match:
 //   - pure-hex SHA digests (sha1=40, sha256=64) — low information, never
@@ -29,7 +30,7 @@ var secretRe = regexp.MustCompile(`\b([A-Za-z0-9_-]{40,80})\b`)
 //   - JWT segments — base64url but begin with the fixed `eyJ` header marker.
 //   - PEM body lines — base64 starting with the ASN.1 `MII` DER prefix.
 var (
-	hexRe = regexp.MustCompile(`^[a-fA-F0-9]+$`)
+	hexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-fA-F0-9]+$`) })
 )
 
 const (
@@ -57,7 +58,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Exoscale }
 func (Scanner) Keywords() []string { return []string{"exoscale", "exo"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	keyHits := keyRe.FindAllSubmatchIndex(data, -1)
+	keyHits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(keyHits) == 0 {
 		return nil, nil
 	}
@@ -106,7 +107,7 @@ func nearestSecret(data []byte, lower string, start, end int, key string) string
 	if to > len(data) {
 		to = len(data)
 	}
-	for _, sh := range secretRe.FindAllSubmatchIndex(data[from:to], -1) {
+	for _, sh := range secretRe().FindAllSubmatchIndex(data[from:to], -1) {
 		absStart := from + sh[2]
 		absEnd := from + sh[3]
 		cand := string(data[absStart:absEnd])
@@ -127,7 +128,7 @@ func nearestSecret(data []byte, lower string, start, end int, key string) string
 // plausibleSecret rejects the false-positive shapes that share the
 // base64url alphabet with a real Exoscale secret.
 func plausibleSecret(cand string) bool {
-	if hexRe.MatchString(cand) {
+	if hexRe().MatchString(cand) {
 		return false // sha1/sha256 digest, git object id, etc.
 	}
 	if strings.HasPrefix(cand, jwtPrefix) {

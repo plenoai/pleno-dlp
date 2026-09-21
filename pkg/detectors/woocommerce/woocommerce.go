@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,8 +22,8 @@ var apiBase = ""
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var ckRe = regexp.MustCompile(`\b(ck_[a-f0-9]{40})\b`)
-var csRe = regexp.MustCompile(`\b(cs_[a-f0-9]{40})\b`)
+var ckRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(ck_[a-f0-9]{40})\b`) })
+var csRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(cs_[a-f0-9]{40})\b`) })
 
 type Scanner struct{}
 
@@ -31,8 +32,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.WooCommerce }
 func (Scanner) Keywords() []string { return []string{"ck_", "cs_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	ckMatches := ckRe.FindAllSubmatch(data, -1)
-	csMatches := csRe.FindAllSubmatch(data, -1)
+	ckMatches := ckRe().FindAllSubmatch(data, -1)
+	csMatches := csRe().FindAllSubmatch(data, -1)
 	if len(ckMatches) == 0 || len(csMatches) == 0 {
 		return nil, nil
 	}

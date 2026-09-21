@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -26,7 +27,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // requires lowercase+uppercase+digit, so a real secret is high-variety.
 // Pin the documented length 32 (was the over-broad {16,64}) and gate on
 // entropy to drop low-information 32-char runs.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // minEntropy rejects low-entropy 32-char alnum runs that clear the regex
 // but are not random secrets. Harbor secrets are 32 base62 chars with
@@ -38,14 +39,16 @@ const minEntropy = 3.5
 // shows up in English prose and in goharbor.io documentation prose — both
 // adjacent to ≥ 16-char alnum runs. Require a Harbor-credential anchor
 // instead.
-var keywordRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`\bharbor[_\-](?:api|token|key|secret|user|password|cli|robot)` +
-	`|\bgoharbor\b` +
-	`|\bharbor\.io\b` +
-	`|\bharbor[ \t]*[:=]` +
-	`|\brobot\$` +
-	`)`)
+var keywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`\bharbor[_\-](?:api|token|key|secret|user|password|cli|robot)` +
+		`|\bgoharbor\b` +
+		`|\bharbor\.io\b` +
+		`|\bharbor[ \t]*[:=]` +
+		`|\brobot\$` +
+		`)`)
+})
 
 type Scanner struct{}
 
@@ -54,11 +57,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Harbor }
 func (Scanner) Keywords() []string { return []string{"harbor"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	kwSpans := keywordRe.FindAllIndex(data, -1)
+	kwSpans := keywordRe().FindAllIndex(data, -1)
 	if len(kwSpans) == 0 {
 		return nil, nil
 	}

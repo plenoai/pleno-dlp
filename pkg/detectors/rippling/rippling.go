@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -32,7 +33,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // tokenRe stays a bare 40+ alphanumeric run: the credential format is
 // undocumented, so the keyword arm regex and entropy floor — not the token
 // regex — carry the false-positive load.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`) })
 
 // armRe is the assignment-style Rippling reference that must appear within the
 // proximity window. A bare "rippling" substring (package names, doc links,
@@ -41,7 +42,9 @@ var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`)
 // The bare "RIPPLING_API" / "RIPPLING_AUTH" / "RIPPLING_CREDENTIAL" env-var
 // forms (no token/key/secret suffix) are themselves credible anchors, so the
 // suffix is optional after "api" and "auth"/"credential" arm on their own.
-var armRe = regexp.MustCompile(`(?i)rippling[_\-]?(api([_\-]?(token|key|secret))?|auth|credential|token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)rippling[_\-]?(api([_\-]?(token|key|secret))?|auth|credential|token|key|secret)`)
+})
 
 // minEntropy rejects low-entropy 40+ char runs that clear the alnum regex but
 // are not random tokens (e.g. padded identifiers, repeated structure). Held at
@@ -56,7 +59,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Rippling }
 func (Scanner) Keywords() []string { return []string{"rippling"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -109,7 +112,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

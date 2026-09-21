@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -20,8 +21,12 @@ var apiBase = "https://api.mux.com"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 var (
-	tokenIDRe = regexp.MustCompile(`(?i)mux[_\.\-]?(?:token[_\.\-]?id|access[_\.\-]?token[_\.\-]?id|id)\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']?`)
-	secretRe  = regexp.MustCompile(`(?i)mux[_\.\-]?(?:token[_\.\-]?secret|secret[_\.\-]?key|secret)\s*[:=]\s*["']?([A-Za-z0-9+/=_\-]{50,200})["']?`)
+	tokenIDRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)mux[_\.\-]?(?:token[_\.\-]?id|access[_\.\-]?token[_\.\-]?id|id)\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']?`)
+	})
+	secretRe = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)mux[_\.\-]?(?:token[_\.\-]?secret|secret[_\.\-]?key|secret)\s*[:=]\s*["']?([A-Za-z0-9+/=_\-]{50,200})["']?`)
+	})
 )
 
 type Scanner struct{}
@@ -31,8 +36,8 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Mux }
 func (Scanner) Keywords() []string { return []string{"mux"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	ids := tokenIDRe.FindAllSubmatch(data, -1)
-	secrets := secretRe.FindAllSubmatch(data, -1)
+	ids := tokenIDRe().FindAllSubmatch(data, -1)
+	secrets := secretRe().FindAllSubmatch(data, -1)
 	if len(ids) == 0 || len(secrets) == 0 {
 		return nil, nil
 	}

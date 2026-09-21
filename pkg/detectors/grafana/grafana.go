@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -25,7 +26,7 @@ var (
 	rejectCodes = []int{http.StatusUnauthorized, http.StatusForbidden}
 )
 
-var tokenRe = regexp.MustCompile(`\b(glsa_[A-Za-z0-9]{32}_[a-f0-9]{8})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(glsa_[A-Za-z0-9]{32}_[a-f0-9]{8})\b`) })
 
 type Scanner struct{}
 
@@ -34,7 +35,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Grafana }
 func (Scanner) Keywords() []string { return []string{"glsa_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := tokenRe.FindAll(data, -1)
+	matches := tokenRe().FindAll(data, -1)
 	if len(matches) == 0 {
 		return nil, nil
 	}

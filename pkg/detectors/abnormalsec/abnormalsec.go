@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,7 +22,7 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 // documents a prefix or an exact length, so we keep the original 32-64
 // alnum range rather than pin a length we cannot cite — over-pinning would
 // silently destroy recall.
-var tokenRe = regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // minEntropy is a conservative floor. A bare `[A-Za-z0-9]{32,64}` run with no
 // documented prefix collides with commit SHAs, base32/hex blobs, and padded
@@ -33,7 +34,9 @@ const minEntropy = 3.0
 // tight proximity window. A bare "abnormal" substring is too weak a gate; the
 // assignment shapes abnormal[_-]?(api[_-]?)?(token|key|secret) and the
 // product host words are what a real credential reference looks like.
-var armRe = regexp.MustCompile(`(?i)abnormal(security|platform)?[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)abnormal(security|platform)?[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 type Scanner struct{}
 
@@ -42,7 +45,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AbnormalSec }
 func (Scanner) Keywords() []string { return []string{"abnormal"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -95,7 +98,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

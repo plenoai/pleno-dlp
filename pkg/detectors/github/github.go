@@ -103,8 +103,13 @@ func loadRevokeMode(clientID, clientSecret string) string {
 }
 
 var (
-	classicRe = regexp.MustCompile(`\b(ghp_[A-Za-z0-9]{36})\b`)
-	fineRe    = regexp.MustCompile(`\b(github_pat_[A-Za-z0-9_]{82})\b`)
+	classicRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`ghp_[A-Za-z0-9]{36}\b`) })
+	fineRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`github_pat_[A-Za-z0-9_]{82}\b`) })
+)
+
+const (
+	classicTokenLen = len("ghp_") + 36
+	fineTokenLen    = len("github_pat_") + 82
 )
 
 type Scanner struct{}
@@ -114,15 +119,19 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GitHub }
 func (Scanner) Keywords() []string { return []string{"ghp_", "github_pat_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := classicRe.FindAll(data, -1)
-	matches = append(matches, fineRe.FindAll(data, -1)...)
+	if !detectors.HasWordRunCandidate(data, "ghp_", classicTokenLen) &&
+		!detectors.HasWordRunCandidate(data, "github_pat_", fineTokenLen) {
+		return nil, nil
+	}
+	matches := detectors.FindAllLeftWordBoundary(classicRe(), data)
+	matches = append(matches, detectors.FindAllLeftWordBoundary(fineRe(), data)...)
 	if len(matches) == 0 {
 		return nil, nil
 	}
 
 	out := make([]detectors.Result, 0, len(matches))
 	for _, m := range matches {
-		token := string(m)
+		token := string(data[m[0]:m[1]])
 		extra := map[string]string{
 			"github_token_type": tokenType(token),
 		}

@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -29,7 +30,9 @@ import (
 // because we only care about credential-bearing URIs. Password capture
 // stops at `@`; the surrounding URL is captured as a separate group for
 // RawV2.
-var uriRe = regexp.MustCompile(`\b(rediss?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
+var uriRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(rediss?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
+})
 
 type Scanner struct{}
 
@@ -38,7 +41,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Redis }
 func (Scanner) Keywords() []string { return []string{"redis://", "rediss://"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	hits := uriRe.FindAllSubmatch(data, -1)
+	hits := uriRe().FindAllSubmatch(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}

@@ -19,20 +19,21 @@ package segment
 import (
 	"context"
 	"regexp"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 // 32 alphanumeric / underscore / hyphen — same shape as many ids, so the
 // keyword gate is essential.
-var tokenRe = regexp.MustCompile(`\b([a-zA-Z0-9_-]{32})\b`)
+var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-zA-Z0-9_-]{32})\b`) })
 
 // hexRe matches a 32-char run that is *purely* hexadecimal (either case).
 // MD5 digests and UUID-without-dashes both land in this set and are common
 // next to Segment anchors (migration notes, cache keys). Real write keys are
 // random base62 and almost always carry at least one non-hex character
 // ([g-zG-Z]), so excluding pure-hex runs is a near-zero-false-negative filter.
-var hexRe = regexp.MustCompile(`^[a-fA-F0-9]{32}$`)
+var hexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-fA-F0-9]{32}$`) })
 
 // minEntropy is the Shannon floor (bits/char) below which a 32-char candidate
 // is rejected. Real Segment write keys are random base62 (~4.5+ bits/char);
@@ -44,14 +45,16 @@ const minEntropy = 3.0
 // URI") and the token regex is `[a-zA-Z0-9_-]{32}` — UUIDs-without-
 // dashes, MD5 hashes, opaque ids — match too. Require a Segment
 // credential anchor.
-var keywordRe = regexp.MustCompile(`(?i)` +
-	`(?:` +
-	`\bsegment[_\-](?:write|api|token|key|secret)` +
-	`|\bsegment[_\-]?io\b` +
-	`|\bsegment\.com\b` +
-	`|\bsegmentio\b` +
-	`|\bsegment_write_key\b` +
-	`)`)
+var keywordRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)` +
+		`(?:` +
+		`\bsegment[_\-](?:write|api|token|key|secret)` +
+		`|\bsegment[_\-]?io\b` +
+		`|\bsegment\.com\b` +
+		`|\bsegmentio\b` +
+		`|\bsegment_write_key\b` +
+		`)`)
+})
 
 type Scanner struct{}
 
@@ -60,11 +63,11 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Segment }
 func (Scanner) Keywords() []string { return []string{"segment"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := tokenRe.FindAllSubmatchIndex(data, -1)
+	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
-	kwSpans := keywordRe.FindAllIndex(data, -1)
+	kwSpans := keywordRe().FindAllIndex(data, -1)
 	if len(kwSpans) == 0 {
 		return nil, nil
 	}
@@ -81,7 +84,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		// Semantic gate: even sitting next to a Segment anchor, low-entropy
 		// 32-char lookalikes (zeroed/repeated placeholders) and pure-hex runs
 		// (MD5 digests, UUID-without-dashes) are not write keys.
-		if hexRe.MatchString(token) {
+		if hexRe().MatchString(token) {
 			continue
 		}
 		if !detectors.HasMinEntropy(token, minEntropy) {

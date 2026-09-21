@@ -30,6 +30,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -45,12 +46,14 @@ import (
 // match cannot start mid-identifier (e.g. `lin_api_…` Linear, `learn_…`,
 // `login_…`). Go's RE2 has no lookbehind, so the delimiter is a capture group
 // (group 1) and the token is group 2.
-var keyRe = regexp.MustCompile(`(^|[^A-Za-z0-9_])(public_[A-Za-z0-9]{20,64}|ln_[A-Za-z0-9]{32,64})`)
+var keyRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(^|[^A-Za-z0-9_])(public_[A-Za-z0-9]{20,64}|ln_[A-Za-z0-9]{32,64})`)
+})
 
 // Context keywords that must appear within vicinityWindow bytes of an `ln_`
 // match for it to be emitted. `public_` tokens are distinctive enough on their
 // own and do not require vicinity.
-var contextRe = regexp.MustCompile(`(?i)launchnotes|launch_notes`)
+var contextRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)launchnotes|launch_notes`) })
 
 const (
 	// vicinityWindow is the byte radius around a speculative `ln_` match in
@@ -68,7 +71,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.LaunchNotes }
 func (Scanner) Keywords() []string { return []string{"ln_", "public_", "launchnotes"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	hits := keyRe.FindAllSubmatchIndex(data, -1)
+	hits := keyRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
 	}
@@ -125,7 +128,7 @@ func hasContextNearby(start, length int, data []byte) bool {
 	if hi > len(data) {
 		hi = len(data)
 	}
-	return contextRe.Match(data[lo:hi])
+	return contextRe().Match(data[lo:hi])
 }
 
 func redact(t string) string {

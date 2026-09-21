@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -21,14 +22,16 @@ var apiBase = "https://rest.avatax.com"
 
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-var accountRe = regexp.MustCompile(`\b([0-9]{7,12})\b`)
-var licenseRe = regexp.MustCompile(`\b([A-Za-z0-9]{24,32})\b`)
+var accountRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([0-9]{7,12})\b`) })
+var licenseRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24,32})\b`) })
 
 // armRe is the assignment-anchor gate: a `avalara`/`avatax` reference
 // adjoining an account-id / license / key / secret token. It replaces a bare
 // strings.Contains(window,"avalara") which armed on any prose mention of the
 // vendor. The bare keywords stay in Keywords() as the engine prefilter.
-var armRe = regexp.MustCompile(`(?i)ava(lara|tax)[_\-]?(account([_\-]?id)?|license([_\-]?key)?|api[_\-]?(token|key)|token|key|secret)`)
+var armRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)ava(lara|tax)[_\-]?(account([_\-]?id)?|license([_\-]?key)?|api[_\-]?(token|key)|token|key|secret)`)
+})
 
 // minLicenseEntropy is a conservative Shannon floor. Avalara's auth docs show
 // a license-key example (123456789ABCDEF123456789ABCDEF) but do not formally
@@ -45,8 +48,8 @@ func (Scanner) Keywords() []string { return []string{"avalara", "avatax"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
 	lower := strings.ToLower(string(data))
-	accs := accountRe.FindAllSubmatchIndex(data, -1)
-	lics := licenseRe.FindAllSubmatchIndex(data, -1)
+	accs := accountRe().FindAllSubmatchIndex(data, -1)
+	lics := licenseRe().FindAllSubmatchIndex(data, -1)
 	if len(accs) == 0 || len(lics) == 0 {
 		return nil, nil
 	}
@@ -107,7 +110,7 @@ func nearKeyword(lower string, start, end int) bool {
 	if to > len(lower) {
 		to = len(lower)
 	}
-	return armRe.MatchString(lower[from:to])
+	return armRe().MatchString(lower[from:to])
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
