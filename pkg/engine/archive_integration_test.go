@@ -5,12 +5,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
@@ -143,13 +143,54 @@ func TestScanArchive_ExpiredBudgetReportsCoverageFailure(t *testing.T) {
 	}
 }
 
-func TestScanArchiveWithPassesBudgetContextToWalker(t *testing.T) {
+type budgetReader struct {
+	started chan struct{}
+	release chan struct{}
+	reads   atomic.Int32
+}
+
+func (r *budgetReader) Read(p []byte) (int, error) {
+	if r.reads.Add(1) == 1 {
+		close(r.started)
+		<-r.release
+	}
+	if r.reads.Load() <= 2 {
+		p[0] = 0
+		return 1, nil
+	}
+	return 0, io.EOF
+}
+
+func TestScanArchiveReaderStopsAfterBudgetContext(t *testing.T) {
 	eng := NewWithDetectors(nil, Options{Concurrency: 1}, &engineRecordingSink{})
 	eng.resetFailures()
-	eng.scanArchiveWith(context.Background(), &sources.Chunk{SourceName: "budget.zip"}, 10*time.Millisecond, func(walkCtx context.Context, _ archive.Limits, _ func(archive.StreamEntry) error) error {
-		<-walkCtx.Done()
-		return walkCtx.Err()
-	})
+	reader := &budgetReader{started: make(chan struct{}), release: make(chan struct{})}
+	done := make(chan struct{})
+	go func() {
+		eng.scanArchiveReader(context.Background(), &sources.Chunk{SourceName: "budget.zip"}, reader, 2, 10*time.Millisecond)
+		close(done)
+	}()
+	select {
+	case <-reader.started:
+	case <-time.After(100 * time.Millisecond):
+		close(reader.release)
+		select {
+		case <-done:
+		case <-time.After(100 * time.Millisecond):
+			t.Fatal("archive reader cleanup timed out")
+		}
+		t.Fatal("archive reader did not start")
+	}
+	time.Sleep(25 * time.Millisecond)
+	close(reader.release)
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("archive reader did not stop after budget")
+	}
+	if got := reader.reads.Load(); got != 1 {
+		t.Fatalf("reader calls = %d, want one before deadline", got)
+	}
 	if err := eng.takeFailures(); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("coverage error = %v, want context deadline exceeded", err)
 	}
