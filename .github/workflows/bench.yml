@@ -1,114 +1,137 @@
 name: bench
+
 on:
-  pull_request:
-    paths:
-      - "bench/**"
-      - "Makefile"
-      - ".github/workflows/bench.yml"
-      - "pkg/sources/git/**"
-      - "pkg/sources/filesystem/**"
-      - "pkg/engine/**"
-      - "pkg/ahocorasick/**"
-      - "pkg/decoder/**"
-      - "pkg/archive/**"
-      - "pkg/detectors/**"
-      - "pkg/connectors/github_history*"
-      - "cmd/pleno-dlp/cmd/scan.go"
-      - "go.mod"
-      - "go.sum"
-  workflow_dispatch: {}
-  # Weekly, not on every main push: pleno-dlp's own recall only moves
-  # when a detector changes (already covered by pull_request above), but
-  # trufflehog/gitleaks release new rule sets independently of this repo
-  # — a schedule catches upstream drift on the pinned real-world corpus
-  # (leaky-repo is pinned by commit, so this is about the *tools*, not
-  # the corpus, changing).
-  schedule:
-    - cron: "0 6 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  bench:
-    runs-on: ubuntu-latest
+  oss-study:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          # cache: false (not true, unlike test.yml) — this workflow's
-          # schedule/workflow_dispatch triggers make it a cache-poisoning
-          # target (sisakulint flags exactly this); the bench job is
-          # infrequent enough that a cold module cache isn't worth that
-          # tradeoff.
-          cache: false
-      - name: make bench
-        if: github.event_name != 'pull_request'
-        run: make bench
-      - name: make bench and git history smoke
-        if: github.event_name == 'pull_request'
-        run: make bench bench-git-history
-      - name: results summary
-        run: |
-          cat bench/results/results.md >> "$GITHUB_STEP_SUMMARY"
-          if [[ -f bench/results/git-history.md ]]; then
-            cat bench/results/git-history.md >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
-        with:
-          name: dlp-bench-results
-          path: bench/results/
-          retention-days: 90
 
-  git-history:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: "1.26.8"
           cache: false
-      - name: one-million-object git history gate
-        run: make bench-git-history-large
-      - name: results summary
-        if: always()
+
+      - name: provision pinned tools and CredData
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ -f bench/results/git-history.md ]]; then
-            cat bench/results/git-history.md >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+          set -Eeuo pipefail
+          cache="${GITHUB_WORKSPACE}/bench/.cache/oss-study"
+          tools="${GITHUB_WORKSPACE}/bench/.tools/oss-study"
+          source_commit="3c525ce46a98f4eaa88cf27ba53491f25612bf41"
+          cred_commit="c09c0c52fc6dae4ae5438ae69ba486f9f8059f0d"
+          trufflehog_version="3.97.5"
+          trufflehog_asset="trufflehog_${trufflehog_version}_linux_amd64.tar.gz"
+          trufflehog_digest="sha256:e3d97199c565c37ca6152750197f667e08ae6a1edf5911fbdec168622b28620c"
+          mkdir -p "$cache" "$tools"
+          chmod 700 "$cache"
+
+          api_digest="$(gh api "repos/trufflesecurity/trufflehog/releases/tags/v${trufflehog_version}" \
+            --jq ".assets[] | select(.name == \"${trufflehog_asset}\") | .digest")"
+          test "$api_digest" = "$trufflehog_digest"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://github.com/trufflesecurity/trufflehog/releases/download/v${trufflehog_version}/${trufflehog_asset}" \
+            --output "$cache/$trufflehog_asset"
+          printf '%s  %s\n' "${trufflehog_digest#sha256:}" "$cache/$trufflehog_asset" | sha256sum --check --status
+          tar -xzf "$cache/$trufflehog_asset" --no-same-owner -C "$tools" trufflehog
+          chmod 755 "$tools/trufflehog"
+          rm -f "$cache/$trufflehog_asset"
+
+          git worktree add --detach "$cache/pleno-source" "$source_commit"
+          (cd "$cache/pleno-source" && go build -trimpath -o "$tools/pleno-dlp" ./cmd/pleno-dlp)
+          test "$(git -C "$cache/pleno-source" rev-parse HEAD)" = "$source_commit"
+
+          git clone --no-tags "https://github.com/Samsung/CredData.git" "$cache/creddata"
+          git -C "$cache/creddata" checkout --detach "$cred_commit"
+          test "$(git -C "$cache/creddata" rev-parse HEAD)" = "$cred_commit"
+
+          python3.12 -m venv "$cache/_venv"
+          "$cache/_venv/bin/python" -m pip install --disable-pip-version-check --no-cache-dir \
+            pybase62==1.0.0
+
+      - name: run OSS study
+        run: |
+          set -Eeuo pipefail
+          py="${GITHUB_WORKSPACE}/bench/.cache/oss-study/_venv/bin/python"
+          cache="${GITHUB_WORKSPACE}/bench/.cache/oss-study"
+          private_run() {
+            local phase="$1"
+            shift
+            local log="$cache/${phase}.log"
+            if "$@" >"$log" 2>&1; then
+              return 0
+            fi
+            local digest
+            digest="$(sha256sum "$log" | cut -d' ' -f1)"
+            echo "$phase failed; private log sha256=$digest" >&2
+            return 1
+          }
+
+          rm -f bench/oss-study/inventory.json \
+            bench/oss-study/creddata-inventory.json \
+            bench/oss-study/input-verification.json \
+            bench/oss-study/results.json \
+            bench/oss-study/accuracy.json \
+            bench/oss-study/pem-probe.json \
+            bench/oss-study/summary.json
+          "$py" bench/oss-study/study.py prepare
+          private_run creddata-prepare "$py" bench/oss-study/accuracy.py prepare
+          "$py" -m unittest discover -s bench/oss-study
+          "$py" bench/oss-study/study.py scan
+          private_run accuracy-scan "$py" bench/oss-study/accuracy.py scan
+          private_run accuracy-probe "$py" bench/oss-study/accuracy.py probe
+          "$py" bench/oss-study/study.py verify
+
+          "$py" bench/oss-study/report.py
+          "$cache/_venv/bin/pip" install --disable-pip-version-check --no-cache-dir matplotlib
+          "$py" bench/oss-study/plot.py
+          "$py" bench/oss-study/report.py
+
+          "$py" - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("bench/oss-study")
+          accuracy = json.loads((root / "accuracy.json").read_text())
+          probe = json.loads((root / "pem-probe.json").read_text())
+          print(json.dumps({
+              "accuracy": {
+                  tool: {
+                      "score": value["score"],
+                      "score_stable": value["score_stable"],
+                  }
+                  for tool, value in accuracy["tools"].items()
+              },
+              "pem_probe": probe,
+          }, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: study artifacts
         if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: git-history-bench-results
+          name: oss-study-results
+          if-no-files-found: ignore
+          retention-days: 90
           path: |
-            bench/results/git-history.json
-            bench/results/git-history.md
-          retention-days: 90
-
-  performance:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: false
-      - run: make bench-performance
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
-        with:
-          name: subsystem-performance
-          path: bench/results/performance.json
-          retention-days: 90
+            bench/oss-study/manifest.json
+            bench/oss-study/inventory.json
+            bench/oss-study/creddata-inventory.json
+            bench/oss-study/input-verification.json
+            bench/oss-study/results.json
+            bench/oss-study/accuracy.json
+            bench/oss-study/pem-probe.json
+            bench/oss-study/summary.json
+            docs/oss-comparison-2026-09-21.md
+            docs/assets/oss-study-2026-09-21/performance.svg
+            docs/assets/oss-study-2026-09-21/accuracy.svg
