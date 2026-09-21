@@ -107,6 +107,11 @@ var (
 	fineRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`github_pat_[A-Za-z0-9_]{82}\b`) })
 )
 
+const (
+	classicTokenLen = len("ghp_") + 36
+	fineTokenLen    = len("github_pat_") + 82
+)
+
 type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.GitHub }
@@ -114,6 +119,10 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GitHub }
 func (Scanner) Keywords() []string { return []string{"ghp_", "github_pat_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
+	if !detectors.HasWordRunCandidate(data, "ghp_", classicTokenLen) &&
+		!detectors.HasWordRunCandidate(data, "github_pat_", fineTokenLen) {
+		return nil, nil
+	}
 	matches := detectors.FindAllLeftWordBoundary(classicRe(), data)
 	matches = append(matches, detectors.FindAllLeftWordBoundary(fineRe(), data)...)
 	if len(matches) == 0 {

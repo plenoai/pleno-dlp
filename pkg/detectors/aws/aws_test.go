@@ -4,6 +4,7 @@ package aws
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -40,6 +41,29 @@ func TestFromData_Negative(t *testing.T) {
 	}
 	if len(res) != 0 {
 		t.Fatalf("expected 0 results, got %d", len(res))
+	}
+}
+
+func TestFromData_ShapeGateKeepsUnicodeAndRejectsNearMatches(t *testing.T) {
+	valid := "AKIAIOSFODNN7EXAMPLE"
+	for _, tc := range []struct {
+		name string
+		body string
+		want int
+	}{
+		{"unicode prefix", "é" + valid, 1},
+		{"short body", " AKIA" + strings.Repeat("A", 15), 0},
+		{"invalid first then valid", " AKIA0123456789 " + valid, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := Scanner{}.FromData(context.Background(), false, []byte(tc.body))
+			if err != nil {
+				t.Fatalf("FromData err: %v", err)
+			}
+			if len(res) != tc.want {
+				t.Fatalf("got %d results, want %d: %+v", len(res), tc.want, res)
+			}
+		})
 	}
 }
 

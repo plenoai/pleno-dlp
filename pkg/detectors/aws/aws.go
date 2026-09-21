@@ -43,6 +43,8 @@ var (
 	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[^A-Za-z0-9+/]([A-Za-z0-9+/]{40})[^A-Za-z0-9+/]`) })
 )
 
+const accessKeyIDLen = len("AKIA") + 16
+
 // arnRe parses a caller ARN into partition/service/account/resource so we
 // can derive the principal kind without string-splitting in five places.
 // Pattern: arn:<partition>:<service>::<account>:<resource>
@@ -84,6 +86,9 @@ func (Scanner) Type() detectors.DetectorType { return detectors.AWS }
 func (Scanner) Keywords() []string { return []string{"AKIA"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
+	if !detectors.HasWordRunCandidate(data, "AKIA", accessKeyIDLen) {
+		return nil, nil
+	}
 	idMatches := detectors.FindAllLeftWordBoundary(idRe(), data)
 	if len(idMatches) == 0 {
 		return nil, nil

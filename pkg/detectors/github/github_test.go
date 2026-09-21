@@ -63,6 +63,30 @@ func TestFromData_RegexBoundaries(t *testing.T) {
 	}
 }
 
+func TestFromData_ShapeGateKeepsUnicodeAndRejectsNearMatches(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"unicode prefix", "é" + dummyClassic, 1},
+		{"classic short", " ghp_" + strings.Repeat("A", 35), 0},
+		{"fine short", " github_pat_" + strings.Repeat("A", 81), 0},
+		{"invalid first then valid", " ghp_123 " + dummyClassic, 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := Scanner{}.FromData(context.Background(), false, []byte(tc.body))
+			if err != nil {
+				t.Fatalf("FromData err: %v", err)
+			}
+			if len(res) != tc.want {
+				t.Fatalf("got %d results, want %d: %+v", len(res), tc.want, res)
+			}
+		})
+	}
+}
+
 func TestFromData_RegexesKeepLiteralPrefixes(t *testing.T) {
 	for _, tc := range []struct {
 		name string

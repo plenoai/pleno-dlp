@@ -28,7 +28,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GitHubFineGraine
 func (Scanner) Keywords() []string { return []string{"github_pat_"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	if len(data) < fineGrainedTokenLen {
+	if !detectors.HasWordRunCandidate(data, "github_pat_", fineGrainedTokenLen) {
 		return nil, nil
 	}
 	hits := detectors.FindAllLeftWordBoundary(tokenRe(), data)
