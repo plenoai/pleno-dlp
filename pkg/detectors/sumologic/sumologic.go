@@ -35,7 +35,7 @@ var (
 
 // keyMinEntropy rejects low-information 64-char runs that clear the
 // alnum regex but lack key-grade randomness. 3.5 bits/char suits the
-// high-variety base62 access-key charset per docs/detector-key-formats.md.
+// high-variety base62 access-key charset.
 const keyMinEntropy = 3.5
 
 // armRe is the assignment-style Sumo Logic reference that must appear within

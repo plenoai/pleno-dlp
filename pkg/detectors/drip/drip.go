@@ -11,8 +11,8 @@
 // length is unverified we do NOT tighten the regex further; instead the broad
 // shape is disambiguated by (1) an assignment-anchor keyword arm regex within a
 // 64-byte window, (2) a low-variety lowercase-hex guard (git SHAs / lockfile
-// hashes), and (3) a conservative Shannon-entropy floor. See the research
-// record / docs/detector-key-formats.md inconclusive-fallback path.
+// hashes), and (3) a conservative Shannon-entropy floor. The fallback keeps
+// inconclusive matches available for downstream review.
 package drip
 
 import (

@@ -31,8 +31,8 @@ var idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(
 
 // Secret is a bare 32-64 base62 run. With no prefix to anchor on, this is the
 // real false-positive source (it matches commit SHAs, nonces, base62 ids), so
-// we gate it on Shannon entropy (high-variety alnum charset -> 3.5 per
-// docs/detector-key-formats.md) in addition to the keyword arm + pairing.
+// we gate it on Shannon entropy (high-variety alnum charset -> 3.5) in
+// addition to the keyword arm + pairing.
 var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // secretMinEntropy rejects low-information 32-64 char runs (structured ids,

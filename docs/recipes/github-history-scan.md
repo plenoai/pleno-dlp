@@ -264,10 +264,6 @@ State is namespaced by surface: `repository-history`, `repository-wiki`,
 `gist-history`, and `gist-comments`. Main repositories, wikis, and gists keep
 independent ref heads and policy fingerprints.
 
-The reproducible selected-defaults large-org measurement, including wall time,
-peak RSS, actual clone bytes, API calls, and findings, is recorded in
-[`docs/github-large-org-benchmark.md`](../github-large-org-benchmark.md).
-
 ## Partial coverage and exit policy
 
 A clone, history walk, or comment failure for one repository does not discard

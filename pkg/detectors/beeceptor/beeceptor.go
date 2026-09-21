@@ -13,8 +13,8 @@
 // charset to hex to match the documented format, killing the large class of
 // non-hex high-entropy false positives; (2) keep the documented-format-consistent
 // `{32,}` lower bound rather than pinning an exact length, because the hex
-// branch of docs/detector-key-formats.md warns that length-pinning hex silently
-// destroys recall; (3) add HasMinEntropy(token, 3.0) — hex entropy caps ~3.6, so
+// format guidance warns that length-pinning hex silently destroys recall; (3)
+// add HasMinEntropy(token, 3.0) — hex entropy caps ~3.6, so
 // 3.0 (not 3.5) is the recall-safe floor for low-variety charsets; and (4)
 // replace the bare keyword Contains over radius 256 with an assignment-anchor arm
 // regex within radius 64, retaining the bare "beeceptor" keyword as the engine
