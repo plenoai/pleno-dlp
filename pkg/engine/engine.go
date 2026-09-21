@@ -117,13 +117,8 @@ func newStreamMatchCache(reader io.ReaderAt, size int64) *streamMatchCache {
 	return &streamMatchCache{reader: reader, size: size, values: make(map[string]streamMatch)}
 }
 
-type streamPendingFinding struct {
-	finding Finding
-	raw     []byte
-}
-
 type streamFindingBatch struct {
-	findings      []streamPendingFinding
+	findings      []Finding
 	resolveFailed bool
 }
 
@@ -131,10 +126,7 @@ func (b *streamFindingBatch) append(finding Finding) {
 	if b == nil {
 		return
 	}
-	b.findings = append(b.findings, streamPendingFinding{
-		finding: finding,
-		raw:     finding.Result.Raw,
-	})
+	b.findings = append(b.findings, finding)
 }
 
 func (b *streamFindingBatch) flush(ctx context.Context, e *Engine, c *sources.Chunk, cache *streamMatchCache) {
@@ -144,7 +136,7 @@ func (b *streamFindingBatch) flush(ctx context.Context, e *Engine, c *sources.Ch
 	if !b.resolveFailed {
 		raws := make([][]byte, 0, len(b.findings))
 		for _, pending := range b.findings {
-			raws = append(raws, pending.raw)
+			raws = append(raws, pending.Result.Raw)
 		}
 		resolveErr := cache.resolve(ctx, raws)
 		if resolveErr != nil {
@@ -156,21 +148,23 @@ func (b *streamFindingBatch) flush(ctx context.Context, e *Engine, c *sources.Ch
 	}
 	for i := range b.findings {
 		pending := &b.findings[i]
-		if match, ok := cache.lookup(pending.raw); ok && match.found {
-			if hasSourceLine(pending.finding.Chunk) {
-				base := sourceLine(pending.finding.Chunk)
+		raw := pending.Result.Raw
+		if match, ok := cache.lookup(raw); ok && match.found {
+			if hasSourceLine(pending.Chunk) {
+				base := sourceLine(pending.Chunk)
 				if base <= 0 {
 					base = 1
 				}
-				pending.finding.Chunk = chunkForFinding(pending.finding.Chunk, base+match.newlineCount, true)
+				pending.Chunk = chunkForFinding(pending.Chunk, base+match.newlineCount, true)
 			}
-			if uint64(match.offset) <= uint64(^uint(0)>>1)-uint64(len(pending.raw)) {
+			if uint64(match.offset) <= uint64(^uint(0)>>1)-uint64(len(raw)) {
 				start := int(match.offset)
-				pending.finding.RawSpan = &[2]int{start, start + len(pending.raw)}
+				pending.RawSpan = &[2]int{start, start + len(raw)}
 			}
 		}
-		e.sink.Emit(pending.finding)
+		e.sink.Emit(*pending)
 	}
+	clear(b.findings)
 	b.findings = b.findings[:0]
 }
 
@@ -203,9 +197,9 @@ const streamBatchMaxRaw = 32 << 10
 // Keep detector output bounded while retaining enough findings to resolve
 // their raw spans in one pass. The cache survives each flush, so repeated raw
 // values do not cause another source read; a reader failure also stops retrying
-// for the rest of this variant after the first reported error. A variant with
-// more distinct raw values than the limit can require another bounded pass;
-// that CPU/read cost follows emitted finding diversity rather than source size.
+// for the rest of this variant after the first reported error.
+// ponytail: diverse batches reread the source; raise this limit only when
+// profiling shows those passes dominate and the extra pending memory fits.
 const streamFindingBatchLimit = 1024
 
 // resolve finds all short, uncached raw values in one bounded forward pass.
@@ -236,14 +230,9 @@ func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte) error {
 		return err
 	}
 	for _, raw := range long {
-		if _, ok := c.values[string(raw)]; ok {
-			continue
-		}
-		match, err := c.match(ctx, raw)
-		if err != nil {
+		if _, err := c.match(ctx, raw); err != nil {
 			return err
 		}
-		c.values[string(raw)] = match
 	}
 	return nil
 }

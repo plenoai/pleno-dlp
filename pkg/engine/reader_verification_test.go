@@ -300,7 +300,7 @@ func TestStreamFindingBatchEmitsFindingWhenSpanReadFails(t *testing.T) {
 	cache := newStreamMatchCache(failingReaderAt{err: readErr}, 1)
 	batch := &streamFindingBatch{}
 	batch.append(streamBatchTestFinding(3))
-	chunk := batch.findings[0].finding.Chunk
+	chunk := batch.findings[0].Chunk
 	batch.flush(context.Background(), eng, chunk, cache)
 	findings := sink.Findings()
 	if len(findings) != 1 || string(findings[0].Result.Raw) != "batch-partial-token" || findings[0].RawSpan != nil {
@@ -321,7 +321,7 @@ func TestStreamFindingBatchEmitsFindingAfterCancellation(t *testing.T) {
 	cache := newStreamMatchCache(bytes.NewReader([]byte("batch-partial-token")), int64(len("batch-partial-token")))
 	batch := &streamFindingBatch{}
 	batch.append(streamBatchTestFinding(0))
-	chunk := batch.findings[0].finding.Chunk
+	chunk := batch.findings[0].Chunk
 	batch.flush(ctx, eng, chunk, cache)
 	findings := sink.Findings()
 	if len(findings) != 1 || findings[0].RawSpan != nil || findings[0].Chunk.SourceMetadata.Filesystem.Line != 0 {
