@@ -72,7 +72,7 @@ type runSourceReader struct {
 
 func (r *runSourceReader) Read(p []byte) (int, error) {
 	n, err := r.Reader.Read(p)
-	if err != nil && err != io.EOF {
+	if err != nil && err != io.EOF && r.err == nil {
 		r.err = err
 	}
 	return n, err

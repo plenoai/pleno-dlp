@@ -26,26 +26,38 @@ func (r *countedRunReader) ReadAt(p []byte, offset int64) (int, error) {
 
 type failingRunReader struct {
 	io.ReaderAt
-	calls int
-	err   error
+	zeroReads int
+	failAt    int
+	err       error
 }
 
 func (r *failingRunReader) ReadAt(p []byte, offset int64) (int, error) {
-	r.calls++
+	if offset == 0 {
+		r.zeroReads++
+	}
 	n, err := r.ReaderAt.ReadAt(p, offset)
-	if r.calls == 2 {
+	if offset == 0 && r.zeroReads == r.failAt {
 		return n, r.err
 	}
 	return n, err
 }
 
-func TestWalkVariantsRejectingRunPreservesReadError(t *testing.T) {
+func TestWalkVariantsPreservesRunReadError(t *testing.T) {
 	want := errors.New("source read failed")
 	for _, size := range []int{512, 64 << 10} {
-		r := &failingRunReader{ReaderAt: strings.NewReader(strings.Repeat("A", size)), err: want}
-		err := WalkVariants(context.Background(), r, int64(size), func(string, io.ReaderAt, int64) error { return nil })
-		if !errors.Is(err, want) {
-			t.Fatalf("size %d: non-printable rejection hid source error: %v", size, err)
+		for _, tc := range []struct {
+			name    string
+			encoded string
+			failAt  int
+		}{
+			{"rejected run", strings.Repeat("A", size), 2},
+			{"output pass", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("text"), size/4)), 3},
+		} {
+			r := &failingRunReader{ReaderAt: strings.NewReader(tc.encoded), failAt: tc.failAt, err: want}
+			err := WalkVariants(context.Background(), r, int64(len(tc.encoded)), func(string, io.ReaderAt, int64) error { return nil })
+			if !errors.Is(err, want) {
+				t.Fatalf("%s, size %d: source error lost: %v", tc.name, size, err)
+			}
 		}
 	}
 }
