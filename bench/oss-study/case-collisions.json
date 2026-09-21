@@ -1,0 +1,101 @@
+{
+  "repo": "torvalds/linux",
+  "commit": "93f51579e7df248780214094418f205253383cc5",
+  "archive_sha256": "4c58bce52b0d316d42bbc60b9602c8a5c24552f803718bf80ecfd23ed0297c5e",
+  "archive_reconstruction_verified": true,
+  "archive_files": 95818,
+  "actual_files": 95805,
+  "collisions": [
+    {
+      "archive_paths": [
+        "include/uapi/linux/netfilter/xt_CONNMARK.h",
+        "include/uapi/linux/netfilter/xt_connmark.h"
+      ],
+      "retained_content_from": "include/uapi/linux/netfilter/xt_connmark.h"
+    },
+    {
+      "archive_paths": [
+        "include/uapi/linux/netfilter/xt_DSCP.h",
+        "include/uapi/linux/netfilter/xt_dscp.h"
+      ],
+      "retained_content_from": "include/uapi/linux/netfilter/xt_dscp.h"
+    },
+    {
+      "archive_paths": [
+        "include/uapi/linux/netfilter/xt_MARK.h",
+        "include/uapi/linux/netfilter/xt_mark.h"
+      ],
+      "retained_content_from": "include/uapi/linux/netfilter/xt_mark.h"
+    },
+    {
+      "archive_paths": [
+        "include/uapi/linux/netfilter/xt_RATEEST.h",
+        "include/uapi/linux/netfilter/xt_rateest.h"
+      ],
+      "retained_content_from": "include/uapi/linux/netfilter/xt_rateest.h"
+    },
+    {
+      "archive_paths": [
+        "include/uapi/linux/netfilter/xt_TCPMSS.h",
+        "include/uapi/linux/netfilter/xt_tcpmss.h"
+      ],
+      "retained_content_from": "include/uapi/linux/netfilter/xt_tcpmss.h"
+    },
+    {
+      "archive_paths": [
+        "include/uapi/linux/netfilter_ipv4/ipt_ECN.h",
+        "include/uapi/linux/netfilter_ipv4/ipt_ecn.h"
+      ],
+      "retained_content_from": "include/uapi/linux/netfilter_ipv4/ipt_ecn.h"
+    },
+    {
+      "archive_paths": [
+        "include/uapi/linux/netfilter_ipv4/ipt_TTL.h",
+        "include/uapi/linux/netfilter_ipv4/ipt_ttl.h"
+      ],
+      "retained_content_from": "include/uapi/linux/netfilter_ipv4/ipt_ttl.h"
+    },
+    {
+      "archive_paths": [
+        "include/uapi/linux/netfilter_ipv6/ip6t_HL.h",
+        "include/uapi/linux/netfilter_ipv6/ip6t_hl.h"
+      ],
+      "retained_content_from": "include/uapi/linux/netfilter_ipv6/ip6t_hl.h"
+    },
+    {
+      "archive_paths": [
+        "net/netfilter/xt_DSCP.c",
+        "net/netfilter/xt_dscp.c"
+      ],
+      "retained_content_from": "net/netfilter/xt_dscp.c"
+    },
+    {
+      "archive_paths": [
+        "net/netfilter/xt_HL.c",
+        "net/netfilter/xt_hl.c"
+      ],
+      "retained_content_from": "net/netfilter/xt_hl.c"
+    },
+    {
+      "archive_paths": [
+        "net/netfilter/xt_RATEEST.c",
+        "net/netfilter/xt_rateest.c"
+      ],
+      "retained_content_from": "net/netfilter/xt_rateest.c"
+    },
+    {
+      "archive_paths": [
+        "net/netfilter/xt_TCPMSS.c",
+        "net/netfilter/xt_tcpmss.c"
+      ],
+      "retained_content_from": "net/netfilter/xt_tcpmss.c"
+    },
+    {
+      "archive_paths": [
+        "tools/memory-model/litmus-tests/Z6.0+pooncelock+poonceLock+pombonce.litmus",
+        "tools/memory-model/litmus-tests/Z6.0+pooncelock+pooncelock+pombonce.litmus"
+      ],
+      "retained_content_from": "tools/memory-model/litmus-tests/Z6.0+pooncelock+pooncelock+pombonce.litmus"
+    }
+  ]
+}

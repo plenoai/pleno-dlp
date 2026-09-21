@@ -2,16 +2,19 @@
   {
     "repo": "torvalds/linux",
     "commit": "93f51579e7df248780214094418f205253383cc5",
-    "files": 95818,
-    "bytes": 1178010887,
-    "inventory_sha256": "e61bb1f04d4286bb78c1657817e291e8c53b52ddc95302375fb380fc8b9e982b",
+    "files": 95805,
+    "bytes": 1177984482,
+    "inventory_sha256": "9e1c590b3f7ee15714d0fb47bbdc6e3881e2ef9ebbe0428a5130076ea7082810",
     "archive_sha256": "4c58bce52b0d316d42bbc60b9602c8a5c24552f803718bf80ecfd23ed0297c5e",
     "excluded": {
       "non_regular": 102,
       "nul_byte": 5,
       "non_utf8": 2,
       "over_1_mib": 112
-    }
+    },
+    "archive_retained_files": 95818,
+    "archive_retained_bytes": 1178010887,
+    "archive_inventory_sha256": "e61bb1f04d4286bb78c1657817e291e8c53b52ddc95302375fb380fc8b9e982b"
   },
   {
     "repo": "kubernetes/kubernetes",
@@ -24,7 +27,10 @@
       "non_regular": 5,
       "over_1_mib": 13,
       "nul_byte": 1012
-    }
+    },
+    "archive_retained_files": 30351,
+    "archive_retained_bytes": 239484007,
+    "archive_inventory_sha256": "4298d31c3ab78aa77bc216d5fd6c39d2f8fc5494f13ef1bd536419ceb2d1c455"
   },
   {
     "repo": "microsoft/vscode",
@@ -38,7 +44,10 @@
       "over_1_mib": 15,
       "non_regular": 1,
       "non_utf8": 4
-    }
+    },
+    "archive_retained_files": 18682,
+    "archive_retained_bytes": 213152059,
+    "archive_inventory_sha256": "872242fd98efd3afbe9f9cc7c89c79485e6337dfb482637808a01444be2a0ae9"
   },
   {
     "repo": "python/cpython",
@@ -52,7 +61,10 @@
       "nul_byte": 144,
       "over_1_mib": 10,
       "non_utf8": 19
-    }
+    },
+    "archive_retained_files": 6173,
+    "archive_retained_bytes": 104773079,
+    "archive_inventory_sha256": "35a6e51d90ac08a22805a85efc82ef361563c5e9630ca0791f93c90210e9d389"
   },
   {
     "repo": "nodejs/node",
@@ -66,7 +78,10 @@
       "nul_byte": 866,
       "non_utf8": 42,
       "non_regular": 6
-    }
+    },
+    "archive_retained_files": 50896,
+    "archive_retained_bytes": 559455678,
+    "archive_inventory_sha256": "04865b52f191db9c53bc2c00069f5ebb0ce21bc374a3677990284c1d065a63db"
   },
   {
     "repo": "golang/go",
@@ -79,7 +94,10 @@
       "over_1_mib": 12,
       "nul_byte": 784,
       "non_utf8": 10
-    }
+    },
+    "archive_retained_files": 15117,
+    "archive_retained_bytes": 110777529,
+    "archive_inventory_sha256": "766be3f22528895ab5d97d8471c1dc23ac9d855833de456418f7e68af741ad00"
   },
   {
     "repo": "rust-lang/rust",
@@ -93,7 +111,10 @@
       "over_1_mib": 11,
       "non_regular": 5,
       "non_utf8": 3
-    }
+    },
+    "archive_retained_files": 62882,
+    "archive_retained_bytes": 177255477,
+    "archive_inventory_sha256": "70be0abf78e15b49fc2b4d639b228a2f35ce032228b9ef076a061cc65e881901"
   },
   {
     "repo": "django/django",
@@ -106,7 +127,10 @@
       "nul_byte": 1382,
       "non_regular": 4,
       "non_utf8": 2
-    }
+    },
+    "archive_retained_files": 5703,
+    "archive_retained_bytes": 38206885,
+    "archive_inventory_sha256": "ed16aacb519f884a875b7d967c27c990c21a0b12a1545e14e7c56cdc59a098bc"
   },
   {
     "repo": "pallets/flask",
@@ -117,7 +141,10 @@
     "archive_sha256": "f2859ca2addf5a0c09e66f79a97851c26ea534727970596fd9e1f643e469a827",
     "excluded": {
       "nul_byte": 5
-    }
+    },
+    "archive_retained_files": 231,
+    "archive_retained_bytes": 1530750,
+    "archive_inventory_sha256": "0e196795e7b972f5c058672b97c6e61ba21206d026431291bad6745fd042c768"
   },
   {
     "repo": "fastapi/fastapi",
@@ -129,7 +156,10 @@
     "excluded": {
       "nul_byte": 187,
       "over_1_mib": 1
-    }
+    },
+    "archive_retained_files": 2951,
+    "archive_retained_bytes": 22822034,
+    "archive_inventory_sha256": "64af39fba23bf11592713add3ac6112d48cf79397184261198d55a325637b3a7"
   },
   {
     "repo": "psf/requests",
@@ -142,7 +172,10 @@
       "nul_byte": 5,
       "over_1_mib": 1,
       "non_regular": 2
-    }
+    },
+    "archive_retained_files": 122,
+    "archive_retained_bytes": 1547802,
+    "archive_inventory_sha256": "37fc170f1b7791fefdbadd7bde243c7b9977b96bcbd5f61c2b809b7763016d7a"
   },
   {
     "repo": "numpy/numpy",
@@ -154,7 +187,10 @@
     "excluded": {
       "nul_byte": 73,
       "over_1_mib": 2
-    }
+    },
+    "archive_retained_files": 2328,
+    "archive_retained_bytes": 33188220,
+    "archive_inventory_sha256": "3ccb439d287452be729c285bd91641b2d5854401442fe18ef0dc1c7a9a2c94af"
   },
   {
     "repo": "pandas-dev/pandas",
@@ -163,7 +199,10 @@
     "bytes": 26787554,
     "inventory_sha256": "ad46f5376487a2bc39340ca56b9c6e11b945ac08c07b5ed5a06bf791e81cbf58",
     "archive_sha256": "1b21fc84fa052cc20af8600ae49a337f0e8e88a83304a900113974f6987e1122",
-    "excluded": {}
+    "excluded": {},
+    "archive_retained_files": 1608,
+    "archive_retained_bytes": 26787554,
+    "archive_inventory_sha256": "ad46f5376487a2bc39340ca56b9c6e11b945ac08c07b5ed5a06bf791e81cbf58"
   },
   {
     "repo": "scikit-learn/scikit-learn",
@@ -174,7 +213,10 @@
     "archive_sha256": "163be65f00d7396f0732278c07f4b21fcea846638933e3628d848add183da869",
     "excluded": {
       "nul_byte": 194
-    }
+    },
+    "archive_retained_files": 1415,
+    "archive_retained_bytes": 20372215,
+    "archive_inventory_sha256": "4a1e6b570f07236372ef4a8584f92c9bd6ffa17f3e131f5ed7adf8845353acdc"
   },
   {
     "repo": "scipy/scipy",
@@ -186,7 +228,10 @@
     "excluded": {
       "nul_byte": 358,
       "over_1_mib": 8
-    }
+    },
+    "archive_retained_files": 2531,
+    "archive_retained_bytes": 54490155,
+    "archive_inventory_sha256": "bd9865b7fd7cea95e9b2450d2fd42241933af4faf326c0471308bb17d072f675"
   },
   {
     "repo": "facebook/react",
@@ -198,7 +243,10 @@
     "excluded": {
       "nul_byte": 46,
       "over_1_mib": 1
-    }
+    },
+    "archive_retained_files": 7198,
+    "archive_retained_bytes": 37569476,
+    "archive_inventory_sha256": "9d05afc08c3f45404d610af0e138f92089db35e2fe992b5a42055e5d7e69c3fd"
   },
   {
     "repo": "vuejs/core",
@@ -209,7 +257,10 @@
     "archive_sha256": "31e314dc995cc3653bfdf1cc29ff74baa1606133e162802faf62c91c9d8a2b9a",
     "excluded": {
       "nul_byte": 2
-    }
+    },
+    "archive_retained_files": 700,
+    "archive_retained_bytes": 5921663,
+    "archive_inventory_sha256": "4f81e777e9f32ec309dbe8528c29613f1d6cd56dbb4affb280b97f5af50ba583"
   },
   {
     "repo": "sveltejs/svelte",
@@ -220,7 +271,10 @@
     "archive_sha256": "951e36068331f3f7e206bdc948e25824375f1c3a0356c34c462b0f3e8e1148c7",
     "excluded": {
       "nul_byte": 3
-    }
+    },
+    "archive_retained_files": 9134,
+    "archive_retained_bytes": 6962686,
+    "archive_inventory_sha256": "c1aade628246610bdf4ad1078f37acc531e1687611aaf185f6aface339e6071a"
   },
   {
     "repo": "angular/angular",
@@ -233,7 +287,10 @@
       "non_regular": 1,
       "over_1_mib": 8,
       "nul_byte": 193
-    }
+    },
+    "archive_retained_files": 10400,
+    "archive_retained_bytes": 54843498,
+    "archive_inventory_sha256": "bd1b6a3b214db1511d3fd4937f88733b03a44e39b8f10d3c9c884f58828c0f63"
   },
   {
     "repo": "vitejs/vite",
@@ -246,7 +303,10 @@
       "nul_byte": 83,
       "over_1_mib": 3,
       "non_regular": 5
-    }
+    },
+    "archive_retained_files": 2742,
+    "archive_retained_bytes": 6404770,
+    "archive_inventory_sha256": "4eca7771167baebbacf5b2583f8df41757eb54a01e324c8419da4d5ed47c1a4e"
   },
   {
     "repo": "webpack/webpack",
@@ -259,7 +319,10 @@
       "nul_byte": 185,
       "over_1_mib": 3,
       "non_utf8": 11
-    }
+    },
+    "archive_retained_files": 19797,
+    "archive_retained_bytes": 34575014,
+    "archive_inventory_sha256": "9a098c9b2dbd16beae02d77a755f9bb98ff14bb7ede93bb59251fc832f11bf45"
   },
   {
     "repo": "expressjs/express",
@@ -268,7 +331,10 @@
     "bytes": 717115,
     "inventory_sha256": "4e6406565e06dea8c85bd39598107f89ed040de41fa7225d524bedf492b8bfa3",
     "archive_sha256": "87f4dd52b53217e045798e889df70921d5c64d8008fb64ee8cb422961e19b197",
-    "excluded": {}
+    "excluded": {},
+    "archive_retained_files": 214,
+    "archive_retained_bytes": 717115,
+    "archive_inventory_sha256": "4e6406565e06dea8c85bd39598107f89ed040de41fa7225d524bedf492b8bfa3"
   },
   {
     "repo": "nestjs/nest",
@@ -279,7 +345,10 @@
     "archive_sha256": "bba0b67018ea8c7a812d0e2dc04f2fdefbb744f9524441808a55f20b847776fc",
     "excluded": {
       "nul_byte": 1
-    }
+    },
+    "archive_retained_files": 2318,
+    "archive_retained_bytes": 5701485,
+    "archive_inventory_sha256": "8f5427033f8f8e4f17d2ccfa7f346c47c8edfe8c611ff2e39a45cfbbd201f5ac"
   },
   {
     "repo": "denoland/deno",
@@ -293,7 +362,10 @@
       "over_1_mib": 6,
       "non_regular": 2,
       "non_utf8": 11
-    }
+    },
+    "archive_retained_files": 14489,
+    "archive_retained_bytes": 47295262,
+    "archive_inventory_sha256": "b478ecf2bb28c558a485ca17b1f3a62bd2f9017353e0aa7260dd1d6ae36fdfeb"
   },
   {
     "repo": "oven-sh/bun",
@@ -307,7 +379,10 @@
       "nul_byte": 510,
       "over_1_mib": 14,
       "non_utf8": 3
-    }
+    },
+    "archive_retained_files": 19280,
+    "archive_retained_bytes": 137556402,
+    "archive_inventory_sha256": "d77c95b1e435fffedae65130d8eac62fabbdb253233d9a50647b64300aea4dd5"
   },
   {
     "repo": "rails/rails",
@@ -321,7 +396,10 @@
       "non_utf8": 1,
       "over_1_mib": 7,
       "non_regular": 1
-    }
+    },
+    "archive_retained_files": 4903,
+    "archive_retained_bytes": 26810515,
+    "archive_inventory_sha256": "230952c3943617a14e80674c7d974820f3e3e9b7a07df1c6dfdd4c851ac83b2b"
   },
   {
     "repo": "laravel/framework",
@@ -330,7 +408,10 @@
     "bytes": 8479137,
     "inventory_sha256": "0e9d0f443617a0867a85f00c5ac95afe1060cc7fa13c38e51ffb9a1354800091",
     "archive_sha256": "55681f7f5d599296913921bf9cdbdffc4abaf920315f53cb2d70bb9802eb9a7e",
-    "excluded": {}
+    "excluded": {},
+    "archive_retained_files": 1895,
+    "archive_retained_bytes": 8479137,
+    "archive_inventory_sha256": "0e9d0f443617a0867a85f00c5ac95afe1060cc7fa13c38e51ffb9a1354800091"
   },
   {
     "repo": "symfony/symfony",
@@ -342,7 +423,10 @@
     "excluded": {
       "nul_byte": 2,
       "non_utf8": 1
-    }
+    },
+    "archive_retained_files": 6436,
+    "archive_retained_bytes": 75431858,
+    "archive_inventory_sha256": "9bf00052a83d97ba33b2024022074c653b8b67440c354f76528982a8978fa9fb"
   },
   {
     "repo": "spring-projects/spring-boot",
@@ -354,7 +438,10 @@
     "excluded": {
       "nul_byte": 93,
       "non_utf8": 2
-    }
+    },
+    "archive_retained_files": 11828,
+    "archive_retained_bytes": 39343393,
+    "archive_inventory_sha256": "a0f384acacff7564a0a4329679807670de0ba9f316db348d2c06cf6fa8dcdfa2"
   },
   {
     "repo": "elastic/elasticsearch",
@@ -367,7 +454,10 @@
       "nul_byte": 662,
       "over_1_mib": 15,
       "non_utf8": 11
-    }
+    },
+    "archive_retained_files": 48111,
+    "archive_retained_bytes": 364614858,
+    "archive_inventory_sha256": "2b9f66c3448d037b61ea7b8fc19b9562eb4d2b3dc3f6c3d0808e1c45cf39b607"
   },
   {
     "repo": "apache/kafka",
@@ -379,7 +469,10 @@
     "excluded": {
       "nul_byte": 64,
       "over_1_mib": 1
-    }
+    },
+    "archive_retained_files": 7494,
+    "archive_retained_bytes": 81740678,
+    "archive_inventory_sha256": "0830762242ba9c847ca9136520397313c940b19148ef70009497f1ced56a4085"
   },
   {
     "repo": "apache/spark",
@@ -393,7 +486,10 @@
       "non_regular": 1,
       "over_1_mib": 5,
       "non_utf8": 4
-    }
+    },
+    "archive_retained_files": 24414,
+    "archive_retained_bytes": 170695946,
+    "archive_inventory_sha256": "7c34509f8e7840a8a31ea4da521a5b7e4f10fe5043d6b5a530397938d06caa5f"
   },
   {
     "repo": "apache/httpd",
@@ -406,7 +502,10 @@
       "non_regular": 1,
       "nul_byte": 306,
       "non_utf8": 232
-    }
+    },
+    "archive_retained_files": 5081,
+    "archive_retained_bytes": 55632209,
+    "archive_inventory_sha256": "d315decb1c79c81353b2631b5d0563b1e0f55bca8a108ba90a81d03c59d637b3"
   },
   {
     "repo": "nginx/nginx",
@@ -417,7 +516,10 @@
     "archive_sha256": "a177983466412618dafc4f49780a460cb30c155f30659bd36d2e3cc15fec1514",
     "excluded": {
       "nul_byte": 1
-    }
+    },
+    "archive_retained_files": 543,
+    "archive_retained_bytes": 8157824,
+    "archive_inventory_sha256": "ab5bdf48034068aa2ca16a3e195338450e59cbe03d504f9a789b4a31ac11af05"
   },
   {
     "repo": "curl/curl",
@@ -426,7 +528,10 @@
     "bytes": 18383804,
     "inventory_sha256": "f2c9aa8434bf60f2e0ee10f6e6cf2a3e0fa62d85ebfbb7b6b8f836e1740853bc",
     "archive_sha256": "6e2d6d3dd03c45297c4dd8c3b6f92ff4dd05ca8e88bfcfd728e87233219e2df0",
-    "excluded": {}
+    "excluded": {},
+    "archive_retained_files": 4536,
+    "archive_retained_bytes": 18383804,
+    "archive_inventory_sha256": "f2c9aa8434bf60f2e0ee10f6e6cf2a3e0fa62d85ebfbb7b6b8f836e1740853bc"
   },
   {
     "repo": "openssl/openssl",
@@ -439,7 +544,10 @@
       "nul_byte": 137,
       "over_1_mib": 11,
       "non_utf8": 17
-    }
+    },
+    "archive_retained_files": 5899,
+    "archive_retained_bytes": 70154225,
+    "archive_inventory_sha256": "3c6a83bcd41f985ba11d192739dc771207399263a2a15c6d22c679342229f077"
   },
   {
     "repo": "git/git",
@@ -453,7 +561,10 @@
       "nul_byte": 19,
       "over_1_mib": 1,
       "non_utf8": 12
-    }
+    },
+    "archive_retained_files": 4816,
+    "archive_retained_bytes": 46800772,
+    "archive_inventory_sha256": "b1bba447d7529c329a061f01c582b956e6ac50229a0b32a3a33f7b727d8df1df"
   },
   {
     "repo": "redis/redis",
@@ -465,7 +576,10 @@
     "excluded": {
       "nul_byte": 13,
       "non_utf8": 2
-    }
+    },
+    "archive_retained_files": 1857,
+    "archive_retained_bytes": 21780244,
+    "archive_inventory_sha256": "be68d3cb2c579b39f3fb32e8993a6a4c19872be2f1a041bc79aadfd007998189"
   },
   {
     "repo": "valkey-io/valkey",
@@ -477,7 +591,10 @@
     "excluded": {
       "nul_byte": 16,
       "non_utf8": 1
-    }
+    },
+    "archive_retained_files": 2024,
+    "archive_retained_bytes": 23246143,
+    "archive_inventory_sha256": "f99bf04705b9c50b219b45c3be80403caeb359cf8032eacd8099471e48785240"
   },
   {
     "repo": "postgres/postgres",
@@ -490,7 +607,10 @@
       "over_1_mib": 11,
       "non_utf8": 57,
       "nul_byte": 4
-    }
+    },
+    "archive_retained_files": 7623,
+    "archive_retained_bytes": 131253085,
+    "archive_inventory_sha256": "8154345329de9110816c7f86a82d29ce994b63f755c61113082d2e850ee8efd0"
   },
   {
     "repo": "sqlite/sqlite",
@@ -502,7 +622,10 @@
     "excluded": {
       "nul_byte": 7,
       "over_1_mib": 13
-    }
+    },
+    "archive_retained_files": 2204,
+    "archive_retained_bytes": 35750677,
+    "archive_inventory_sha256": "47346ab4ffda395a4873b75656917edc2ed32e80e5645cf53870d99dfec61c77"
   },
   {
     "repo": "prometheus/prometheus",
@@ -514,7 +637,10 @@
     "excluded": {
       "over_1_mib": 2,
       "nul_byte": 9
-    }
+    },
+    "archive_retained_files": 1676,
+    "archive_retained_bytes": 17982981,
+    "archive_inventory_sha256": "dd06ae3163d1ee0f2e9373116540eeae444c72f1c14291d1c87b7711a5558959"
   },
   {
     "repo": "grafana/grafana",
@@ -527,7 +653,10 @@
       "over_1_mib": 7,
       "nul_byte": 139,
       "non_regular": 7
-    }
+    },
+    "archive_retained_files": 23217,
+    "archive_retained_bytes": 188884119,
+    "archive_inventory_sha256": "51bf55e97d617e1469c76a37d3c6d2abed5759abf8c4ed718b6e9ab83f9f3ead"
   },
   {
     "repo": "envoyproxy/envoy",
@@ -541,7 +670,10 @@
       "over_1_mib": 12,
       "non_regular": 10,
       "non_utf8": 14
-    }
+    },
+    "archive_retained_files": 14559,
+    "archive_retained_bytes": 107470665,
+    "archive_inventory_sha256": "f0374fdf4deb94ca632e8068e56e51e6e18eaca9bd3cbf9b498fcc5dbc671db4"
   },
   {
     "repo": "caddyserver/caddy",
@@ -550,7 +682,10 @@
     "bytes": 4411880,
     "inventory_sha256": "dcc372eafcc89bb44e4fa81eee8b6d3237f774908f2d8b89d0471b223bfd4b97",
     "archive_sha256": "ba2edcf2f11fc5a44bd0fadb360274368b5e1873c252215cfc7d89ab2b66653b",
-    "excluded": {}
+    "excluded": {},
+    "archive_retained_files": 673,
+    "archive_retained_bytes": 4411880,
+    "archive_inventory_sha256": "dcc372eafcc89bb44e4fa81eee8b6d3237f774908f2d8b89d0471b223bfd4b97"
   },
   {
     "repo": "moby/moby",
@@ -563,7 +698,10 @@
       "non_regular": 6,
       "nul_byte": 33,
       "over_1_mib": 1
-    }
+    },
+    "archive_retained_files": 13168,
+    "archive_retained_bytes": 106362317,
+    "archive_inventory_sha256": "5a23f436e8382829a11d75b2d49894235766d2ce399cfd44274c0ba7afb25653"
   },
   {
     "repo": "containerd/containerd",
@@ -576,7 +714,10 @@
       "non_regular": 4,
       "over_1_mib": 2,
       "nul_byte": 12
-    }
+    },
+    "archive_retained_files": 6648,
+    "archive_retained_bytes": 53620246,
+    "archive_inventory_sha256": "caf7d4d29d6ebdcb71fe4d8b58eecaf4a3f83e236984b15490d5a50f52c01534"
   },
   {
     "repo": "helm/helm",
@@ -588,7 +729,10 @@
     "excluded": {
       "nul_byte": 105,
       "non_regular": 5
-    }
+    },
+    "archive_retained_files": 1925,
+    "archive_retained_bytes": 4036218,
+    "archive_inventory_sha256": "d8264f9dd375c624bbcea4795d981ab14655b30830455138f658dec6aee9a9fe"
   },
   {
     "repo": "ansible/ansible",
@@ -601,7 +745,10 @@
       "non_regular": 57,
       "non_utf8": 3,
       "nul_byte": 6
-    }
+    },
+    "archive_retained_files": 5754,
+    "archive_retained_bytes": 15417508,
+    "archive_inventory_sha256": "8962ced42cca9686c4ada3615b5c1d96749738b5d32ec0e3b431908f17499eab"
   },
   {
     "repo": "neovim/neovim",
@@ -614,6 +761,9 @@
       "nul_byte": 51,
       "non_utf8": 45,
       "over_1_mib": 2
-    }
+    },
+    "archive_retained_files": 3790,
+    "archive_retained_bytes": 54369519,
+    "archive_inventory_sha256": "87c2dd6261ef9d9afe6f56382e6925ea8b6cdd98b476e5fa7c070f30e739353a"
   }
 ]

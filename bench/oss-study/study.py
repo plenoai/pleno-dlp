@@ -71,6 +71,16 @@ def safe_path(name):
     return Path(*path.parts[1:])
 
 
+def tree_inventory(tree):
+    inventory = []
+    for path in tree.rglob("*"):
+        if path.is_symlink():
+            raise ValueError("corpus contains an unexpected symlink")
+        if path.is_file():
+            inventory.append((path.relative_to(tree).as_posix(), path.stat().st_size, digest(path.read_bytes())))
+    return sorted(inventory)
+
+
 def prepare_one(entry):
     slug = entry["repo"].replace("/", "__")
     target = CACHE / "trees" / slug
@@ -108,8 +118,11 @@ def prepare_one(entry):
             output.write_bytes(body)
             inventory.append((path.as_posix(), len(body), digest(body)))
     inventory.sort()
-    result = {**entry, "files": len(inventory), "bytes": sum(x[1] for x in inventory),
-              "inventory_sha256": digest(json.dumps(inventory).encode()),
+    actual = tree_inventory(target)
+    result = {**entry, "files": len(actual), "bytes": sum(x[1] for x in actual),
+              "inventory_sha256": digest(json.dumps(actual).encode()),
+              "archive_retained_files": len(inventory), "archive_retained_bytes": sum(x[1] for x in inventory),
+              "archive_inventory_sha256": digest(json.dumps(inventory).encode()),
               "archive_sha256": digest(archive.read_bytes()), "excluded": dict(skipped)}
     save(meta, result)
     archive.unlink()
@@ -139,6 +152,8 @@ def competing_work(processes, own_pid):
 
 
 def busy():
+    if os.environ.get("OSS_STUDY_ALLOW_CONTENTION") == "1":
+        return False
     # ucomm is the executable name; Darwin truncates the path-oriented comm column.
     return competing_work(subprocess.check_output(["ps", "-ww", "-axo", "pid=,ppid=,ucomm=,args="], text=True), os.getpid())
 
@@ -260,6 +275,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("phase", choices=["prepare", "scan", "verify"])
     parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument("--resume", action="store_true", help="reuse completed repositories after checking tool identity")
     args = parser.parse_args()
     CACHE.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(CACHE, 0o700)
@@ -283,16 +299,10 @@ def main():
         file_count = 0
         for entry in json.loads((HERE / "inventory.json").read_text()):
             tree = CACHE / "trees" / entry["repo"].replace("/", "__")
-            inventory = []
-            for path in sorted(tree.rglob("*")):
-                if path.is_symlink():
-                    raise ValueError("corpus contains an unexpected symlink")
-                if path.is_file():
-                    size, sha = path.stat().st_size, digest(path.read_bytes())
-                    inventory.append((path.relative_to(tree).as_posix(), size, sha))
-                    unique[sha] = size
-                    file_count += 1
-            inventory.sort()
+            inventory = tree_inventory(tree)
+            for _, size, sha in inventory:
+                unique[sha] = size
+                file_count += 1
             if digest(json.dumps(inventory).encode()) != entry["inventory_sha256"]:
                 raise ValueError(f"input integrity failed: {entry['repo']}")
         save(HERE / "input-verification.json", {"inventories_match": True, "files": file_count,
@@ -308,6 +318,7 @@ def main():
     if not revision:
         raise ValueError("pleno-dlp binary must contain source revision metadata")
     result = {**environment(), "gomaxprocs": 8,
+              "measurement_condition": "shared load reference" if os.environ.get("OSS_STUDY_ALLOW_CONTENTION") == "1" else "contention guarded",
               "source_commit": revision[1],
               "runs": args.runs, "warmups": 1, "tools": {}, "repositories": {}}
     for name, binary in tools.items():
@@ -315,8 +326,21 @@ def main():
             "version": subprocess.check_output([str(binary), "--version"], stderr=subprocess.STDOUT).decode().strip(),
             "go_version": go_version(binary),
             "command": command(name, binary.name, Path("CORPUS"))}
+    if args.resume and result_path.exists():
+        prior = json.loads(result_path.read_text())
+        # Python versions differ in whether platform() appends the Mach-O suffix.
+        assert prior["platform"].removesuffix("-Mach-O") == result["platform"].removesuffix("-Mach-O"), "resume platform changed"
+        for key in ("cpu_count", "gomaxprocs", "source_commit", "runs", "warmups"):
+            assert prior[key] == result[key], f"resume configuration changed: {key}"
+        for tool in tools:
+            for key in ("sha256", "version", "command"):
+                assert prior["tools"][tool][key] == result["tools"][tool][key], f"resume tool changed: {tool} {key}"
+        result["repositories"] = prior["repositories"]
+        result["resumed_repositories"] = list(prior["repositories"])
     for entry in json.loads((HERE / "inventory.json").read_text()):
         repo = entry["repo"]
+        if repo in result["repositories"]:
+            continue
         slug = repo.replace("/", "__")
         rng = random.Random(repo)
         token = "ghp_" + "".join(rng.choices("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", k=36))

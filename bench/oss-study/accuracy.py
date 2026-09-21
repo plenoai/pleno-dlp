@@ -88,6 +88,10 @@ def prepare_one(entry):
 
 def labels():
     """Collapse candidates to line starts; discard mixed-positive/negative lines."""
+    files = [(str(p.relative_to(DATA)), p.stat().st_size, digest(p.read_bytes())) for p in sorted(DATA.rglob("*")) if p.is_file()]
+    expected = json.loads((CACHE / "creddata-obfuscated.json").read_text())
+    if digest(json.dumps(files).encode()) != expected["sha256"]:
+        raise ValueError("CredData cached input changed; prepare a fresh corpus")
     grouped = defaultdict(list)
     for file in sorted(META.glob("*.csv")):
         for row in csv.DictReader(file.open()):
@@ -141,7 +145,7 @@ def main():
             os.chmod(changed, 0o600)
             probe = {"creddata_commit": pin, "key_type": "generated RSA-2048, never used as a credential", "openssl_check": {}, "tools": {}}
             for file in (original, changed):
-                check = subprocess.run(["openssl", "pkey", "-in", str(file), "-check", "-noout"], capture_output=True)
+                check = subprocess.run(["openssl", "rsa", "-in", str(file), "-check", "-noout"], capture_output=True)
                 probe["openssl_check"][file.name] = check.returncode
             assert probe["openssl_check"][original.name] == 0
             assert probe["openssl_check"][changed.name] != 0

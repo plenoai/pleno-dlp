@@ -54,4 +54,5 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-09-21 | Codex, architect | Added the [OSS comparison](docs/oss-comparison-2026-09-21.md): shared-load reference timings, CredData labelled-line scoring and reproducible local scripts; no added CI jobs. |
 | 2026-09-21 | architect, core-engineer, detector-engineer, connector-engineer, qa | Five subsystem performance budgets and scanner allocation reductions; [method and evidence](docs/performance.md). |

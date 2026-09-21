@@ -61,28 +61,33 @@ def main():
     p, t = [summary["totals"][tool] for tool in ("pleno-dlp", "trufflehog")]
     pa, ta = [accuracy["tools"][tool]["score"] for tool in ("pleno-dlp", "trufflehog")]
     times = [v["started_unix"] for samples in results["repositories"].values() for values in samples.values() for v in values]
+    loads = [v["load_average_after"][0] for samples in results["repositories"].values() for values in samples.values() for v in values]
     excluded = Counter()
     for entry in inventory:
         excluded.update(entry["excluded"])
     positive = pa.get("tp", 0) + pa.get("fn", 0)
     negative = pa.get("fp", 0) + pa.get("tn", 0)
+    password = pa["categories"]["Password"]
+    uuid = pa["categories"]["UUID"]
     percent = lambda value: "N/A" if value is None else f"{100 * value:.2f}%"
     lines = [
         "# pleno-dlp / TruffleHog 大規模OSS比較レポート",
+        "",
+        "**実行時間・CPU・メモリは、他の開発作業が同時に動いたMacでの参考値である。専有環境での速度順位や倍率を示すものではない。**",
         "",
         f"計測日（UTC）: {datetime.fromtimestamp(min(times), timezone.utc).date()}。対象: pleno-dlp v0.65.0相当のソースビルド / TruffleHog v3.97.5公式バイナリ。",
         f"性能用50スナップショットと精度用100スナップショットを合わせ、重複を除いて{unique_repos}リポジトリを調べた。",
         "",
         f"50リポジトリの **{summary['files']:,}ファイル・{summary['bytes']/2**30:.2f} GiB** を両ツールで実測した。"
         f"リポジトリ別所要時間の中央値を合計すると、pleno-dlpは **{p['seconds']:.2f}秒**、TruffleHogは **{t['seconds']:.2f}秒**。"
-        f"速度倍率（TruffleHog時間 ÷ pleno-dlp時間）は **{summary['aggregate_speedup']:.2f}倍** だった。"
-        f"pleno-dlpのほうが速いリポジトリは **{summary['pleno_faster_repositories']}/50**、ピークRSSが小さいものは **{summary['pleno_lower_rss_repositories']}/50** だった。",
+        f"観測された時間比（TruffleHog時間 ÷ pleno-dlp時間）は **{summary['aggregate_speedup']:.2f}倍** だった。"
+        f"pleno-dlpの観測時間が短いリポジトリは **{summary['pleno_faster_repositories']}/50**、ピークRSSが小さいものは **{summary['pleno_lower_rss_repositories']}/50** だった。",
         "",
         f"第三者データセットCredDataの100スナップショットでは、正解ラベル付き開始行に限定した再現率はpleno-dlp **{percent(pa['recall_on_labelled_lines'])}**、"
         f"TruffleHog **{percent(ta['recall_on_labelled_lines'])}**、同じ評価範囲での適合率はそれぞれ **{percent(pa['precision_on_labelled_lines'])}**、"
         f"**{percent(ta['precision_on_labelled_lines'])}** だった。これは秘密値単位の精度や、有効な認証情報の発見率ではない。",
         "",
-        "## 比較前に見つかった技術負債と今回の対応",
+        "## 比較で見つかった技術負債と今回の対応",
         "",
         "| 負債 | 比較への影響 | 対応 |",
         "|---|---|---|",
@@ -91,20 +96,24 @@ def main():
         "| 既定のパス除外とサイズ上限が異なる | 読んだ量の違いを速度差と誤認する | 同じテキスト入力を渡し、pleno-dlpの既定除外を解除 |",
         "| 検出件数と精度の混同 | 誤検出が多いツールを高性能と誤認する | 実OSSの候補件数と第三者ラベルの混同行列を分離 |",
         "| ダウンロード欠落を検出漏れとして集計する危険 | 再現率を過小評価する | CredDataの全対象ファイルを照合、export-ignore欠落はGitから補完 |",
+        "| アーカイブの件数を実ファイル数とみなす | 大文字小文字を区別しないファイルシステムで過大計数する | 展開後の実体を数え、アーカイブ内の件数・ハッシュも別に残す |",
         "",
         "## 対象と測定条件",
         "",
         f"- {results.get('cpu_model', 'CPU model not recorded')}、{results['cpu_count']}論理CPU、{results.get('memory_bytes', 0)/2**30:.2f} GiB、{results['platform']}。{results.get('runner', 'local development machine')}。",
         f"- pleno-dlp: `{results['source_commit']}`、{results['tools']['pleno-dlp'].get('go_version', 'Go version not recorded')}。TruffleHog: {results['tools']['trufflehog']['version']}、{results['tools']['trufflehog'].get('go_version', 'Go version not recorded')}。コンパイラも含む製品構成の比較である。",
-        "- 各ツール8ワーカー、`GOMAXPROCS=8`。API検証・PIIは無効。各リポジトリ1回のウォームアップ後に3回測定し、実行順を交互に入れ替えた。",
+        "- 各ツール8ワーカー、`GOMAXPROCS=8`。API検証は両者で無効、pleno-dlpのPIIはoff。各リポジトリ1回のウォームアップ後に3回測定し、実行順を交互に入れ替えた。",
         "- 各回は別プロセス。起動、ファイル読取り、検出、JSONのファイル出力を含む。取得・ビルド・出力の解析は所要時間に含めない。",
-        "- 手元のMacで別作業と重なった予備計測は採用しなかった。本計測は別のGitHub Actionsジョブで実施した。0.5秒間隔で他のスキャナーとGoビルド・テストを監視し、競合を検知した試行は破棄・再実行する。ホスト側の物理CPU競合までは制御していない。",
+        "- 別作業と重なったMacの初回23件の計測を残し、同じバイナリ・引数で残り27件を再開した。競合時に待機する仕組みは明示的に無効化した。クラウド計測は中止し、その値は混ぜていない。重い計測CIは追加していない。",
+        f"- 各試行後の1分load averageは **{min(loads):.2f}–{max(loads):.2f}**、中央値 **{statistics.median(loads):.2f}**。load averageはCPU使用率ではなく、これを使って競合のない所要時間へ補正することはできない。",
         *([f"- 実行ログ: [GitHub Actions]({results['workflow_run']})。", ""] if results.get('workflow_run') else []),
         "- 各入力に54バイトの合成GitHubトークン用ファイルを1個追加し、全実行で検出を確認した。候補件数からこの1件を除いた。",
         "- 最新ツリーのソースアーカイブから、1 MiB以下・UTF-8・NULなしの通常ファイルを抽出した。履歴、サブモジュール本体、LFS本体は対象外。GitHubアーカイブのexport-ignoreも適用される。",
+        "- `export-subst` により同一コミットでもアーカイブの内容が変わり得る。予備取得と最初のクラウド取得でKubernetesの `hack/lib/version.sh` に28バイトの差があった。両ツールには同じ取得済みツリーを渡した。再実験ではコミットだけでなく入力ハッシュも照合する。",
+        "- Mac上ではLinuxの大文字小文字だけが異なる13組のパスが上書きで統合された。アーカイブ内の594,154ファイルに対し、実際に渡したのは594,141ファイルだった。同一SHA-256のLinuxアーカイブを再取得し、上書き順を含めて全実ファイルの内容を照合した。[衝突一覧](../bench/oss-study/case-collisions.json)を保存し、以下は実ファイル数・容量で集計する。",
         f"- アーカイブ内の除外: 非通常ファイル {excluded['non_regular']:,}、1 MiB超 {excluded['over_1_mib']:,}、NULあり {excluded['nul_byte']:,}、非UTF-8 {excluded['non_utf8']:,}。条件はこの順で排他的に計数した。",
         "- 50件は言語・用途の幅を確保するために選んだ有名プロジェクトで、GitHub全体の無作為標本ではない。検出器の種類・フィルタ・重複排除は各製品の既定設定を使う。",
-        f"- vendor等に共通コードを含む。内容SHA-256で重複を除くと **{integrity['unique_file_contents']:,}種類・{integrity['unique_content_bytes']/2**30:.2f} GiB**。測定では実ツリーの重複を残したため、ファイル数を独立標本数として扱わない。測定後の全入力は取得時ハッシュと一致した。",
+        f"- vendor等に共通コードを含む。内容SHA-256で重複を除くと **{integrity['unique_file_contents']:,}種類・{integrity['unique_content_bytes']/2**30:.2f} GiB**。測定では実ツリーの重複を残したため、ファイル数を独立標本数として扱わない。49件は取得時の入力ハッシュと一致し、Linuxは上記のアーカイブ照合で実体を検証した。",
         f"- 保存した測定サンプルの開始範囲（UTC）: {datetime.fromtimestamp(min(times), timezone.utc).isoformat()} ～ {datetime.fromtimestamp(max(times), timezone.utc).isoformat()}。",
         "",
         "全コミット・入力ハッシュは [manifest.json](../bench/oss-study/manifest.json) と [inventory.json](../bench/oss-study/inventory.json)、"
@@ -123,11 +132,11 @@ def main():
         f"| 全計測中の最大ピークRSS | {p['worst_observed_rss_bytes']/2**20:.2f} MiB | {t['worst_observed_rss_bytes']/2**20:.2f} MiB |",
         f"| 候補件数のリポジトリ別中央値合計 | {p['findings']:,.0f} | {t['findings']:,.0f} |",
         "",
-        f"各リポジトリを等しく重み付けした速度倍率の幾何平均は **{summary['geometric_mean_speedup']:.2f}倍**。"
+        f"各リポジトリを等しく重み付けした時間比の幾何平均は **{summary['geometric_mean_speedup']:.2f}倍**。"
         "合計時間は大きな入力の影響を受け、幾何平均は小さなプロジェクトの起動時間差も同じ重さで数える。両者を併記した。"
         "MiB/sの分子は渡した入力サイズであり、内部で検査されたバイト数のテレメトリではない。メモリ値を加算して必要RAMと解釈してはいけない。",
         "",
-        "各値は3回の反復による記述統計である。統計的有意差や別マシンでの同じ倍率は主張しない。",
+        "各値は3回の反復による記述統計である。同時負荷は試行間で一定ではなく、統計的有意差や競合のない環境での同じ順位・倍率は主張しない。",
         f"検出位置・種別・値ハッシュの集合が反復間で変化したリポジトリはpleno-dlp {len(p['unstable_repositories'])}件、TruffleHog {len(t['unstable_repositories'])}件。"
         "該当リポジトリはsummary.jsonに列挙し、候補件数も中央値で集計した。",
         "",
@@ -135,7 +144,7 @@ def main():
         "",
         *(["![Labelled-line precision, recall and F1](assets/oss-study-2026-09-21/accuracy.svg)", ""]
           if (ROOT / "docs/assets/oss-study-2026-09-21/accuracy.svg").exists() else []),
-        f"[Samsung CredData](https://github.com/Samsung/CredData/tree/{accuracy['creddata_commit']}) の固定版から、snapshotキーのSHA-256が小さい順に100件を選んだ。"
+        f"[Samsung CredData](https://github.com/Samsung/CredData/tree/{accuracy['creddata_commit']}) の固定版にある337スナップショットから、snapshotキーのSHA-256が小さい順に100件を選んだ。"
         f"検出結果もラベル比率も選択には使っていない。{accuracy['corpus']['files']:,}ファイル、{accuracy['corpus']['bytes']/2**20:.2f} MiBを取得し、公式処理で値を難読化した。"
         "100件すべてのメタデータ対象ファイルが存在することを確認した。",
         "",
@@ -143,7 +152,7 @@ def main():
         f"評価対象は正例 **{positive:,}行**、負例 **{negative:,}行**。異なる値が同じ行にある場合の個別抽出精度は評価しない。複数行の値も開始行の完全一致を要求し、別の行で検出した場合は正解に数えない。",
         "行をまとめたmicro集計であり、ラベルが多いリポジトリほど全体値への影響が大きい。リポジトリごとの均等平均ではない。",
         "両ツールを交互に3回実行し、以下は事前に定めた最初の実行の集計を示す。"
-        f"カテゴリ別を含む全集計が3回一致したか: pleno-dlp **{accuracy['tools']['pleno-dlp']['score_stable']}**、TruffleHog **{accuracy['tools']['trufflehog']['score_stable']}**。全反復はaccuracy.jsonに保存した。",
+        f"カテゴリ別を含む全集計の3回の一致状況: pleno-dlp **{'一致' if accuracy['tools']['pleno-dlp']['score_stable'] else '不一致'}**、TruffleHog **{'一致' if accuracy['tools']['trufflehog']['score_stable'] else '不一致'}**。全反復はaccuracy.jsonに保存した。",
         "",
         "| 指標 | pleno-dlp | TruffleHog |",
         "|---|---:|---:|",
@@ -153,6 +162,9 @@ def main():
         lines.append(f"| {title} | {pa.get(key, 0):,} | {ta.get(key, 0):,} |")
     for title, key in (("適合率（ラベル付き行に限定）", "precision_on_labelled_lines"), ("再現率", "recall_on_labelled_lines"), ("F1", "f1_on_labelled_lines")):
         lines.append(f"| {title} | {percent(pa[key])} | {percent(ta[key])} |")
+    lines += ["", f"この標本では正例行が `UUID` に **{uuid.get('tp', 0) + uuid.get('fn', 0):,}行**、`Password` に **{password.get('tp', 0) + password.get('fn', 0):,}行** と多い。"
+              "特定サービスのAPIキーを中心とする運用へ、この全体値をそのまま一般化できない。"
+              f"pleno-dlpも正例 {pa.get('fn', 0):,}行を見逃し、既知負例 {pa.get('fp', 0):,}行を検出した。再現率の相対差だけで運用品質が十分とはいえない。"]
     pk, tk = [accuracy["tools"][tool]["without_private_keys"] for tool in ("pleno-dlp", "trufflehog")]
     lines += ["", "秘密鍵カテゴリを除いた感度分析:", "",
               "| 指標 | pleno-dlp | TruffleHog |", "|---|---:|---:|"]
@@ -162,6 +174,7 @@ def main():
               "[TruffleHogの検出器](https://github.com/trufflesecurity/trufflehog/blob/v3.97.5/pkg/detectors/privatekey/privatekey.go#L79)は鍵の解析に失敗すると通常は候補を破棄する一方、"
               "[pleno-dlpの検出器](https://github.com/plenoai/pleno-dlp/blob/3c525ce46a98f4eaa88cf27ba53491f25612bf41/pkg/detectors/privatekey/privatekey.go#L103)はPEMブロックを候補として残す。"
               "したがって、全カテゴリの再現率差には検出方針に加えて匿名化の影響が入り得る。上表ではCategoryに `Private Key` を含む行を除いた。"]
+    lines += ["秘密鍵以外の形式に対する匿名化の影響は未評価であり、秘密鍵を除いた数字も匿名化の影響を完全に除いた値ではない。"]
     probe_path = HERE / "pem-probe.json"
     if probe_path.exists():
         probe = json.loads(probe_path.read_text())
@@ -183,8 +196,8 @@ def main():
             lines.append(f"| {category} | {total} | {pc.get('tp', 0)} / {percent(pc.get('tp', 0)/total)} | {tc.get('tp', 0)} / {percent(tc.get('tp', 0)/total)} |")
     lines += ["", "全カテゴリと混同行列は [accuracy.json](../bench/oss-study/accuracy.json)、取得元は [creddata-inventory.json](../bench/oss-study/creddata-inventory.json) を参照。",
               "", "## リポジトリ別の実測値", "",
-              "時間は中央値［最小–最大］、RSSは各回ピークの中央値。速度倍率はTruffleHog時間 ÷ pleno-dlp時間で、1超ならpleno-dlpのほうが速い。候補数は有効な秘密情報の件数ではない。",
-              "", "| リポジトリ | 入力 MiB / ファイル | pleno-dlp 秒［範囲］ | TruffleHog 秒［範囲］ | 速度倍率 | RSS MiB P / T | 候補 P / T |",
+              "時間は中央値［最小–最大］、RSSは各回ピークの中央値。時間比はTruffleHog時間 ÷ pleno-dlp時間で、1超ならpleno-dlpの観測時間が短い。候補数は有効な秘密情報の件数ではない。",
+              "", "| リポジトリ | 入力 MiB / ファイル | pleno-dlp 秒［範囲］ | TruffleHog 秒［範囲］ | 時間比 T/P | RSS MiB P / T | 候補 P / T |",
               "|---|---:|---:|---:|---:|---:|---:|"]
     for row in summary["rows"]:
         rp, rt = row["tools"]["pleno-dlp"], row["tools"]["trufflehog"]
@@ -195,7 +208,9 @@ def main():
               "公開データを使っているため、既存ツールの開発時に利用されていた可能性は排除できない。第三者が付けたラベルであり、未使用の秘密評価セットではない。",
               "2. 回帰監視には今回の固定入力・ラベル・実行引数を再利用する。性能修正と同時にコーパスや比較版を変えると改善の原因を分離できない。",
               "3. この比較がカバーするのはローカルのテキストスナップショットと静的検出である。Git履歴、アーカイブ、バイナリ、PII、オンライン検証の品質・速度は別のワークロードで測る。",
-              "4. 両製品の検出器集合が異なるため、時間差だけからアルゴリズムの優劣を断定できない。最適化の優先順位は、大きい入力での所要時間とカテゴリ別の見逃しを合わせて決める。",
+              f"4. pleno-dlpの既知誤検出 {pa.get('fp', 0):,}行のうち、`Password` カテゴリは **{password.get('fp', 0):,}行**。まずこのカテゴリの文脈判定と除外を改善し、再現率が落ちないか同じラベルで検証する。",
+              f"5. `UUID` カテゴリの見逃しはpleno-dlp **{uuid.get('fn', 0):,}行**。UUIDを一律に秘密情報と判定するとノイズを増やすため、認証用途を識別できる文脈とセットで検討する。",
+              "6. 両製品の検出器集合が異なり、今回は同時負荷もある。速度最適化の効果を判定する段階では、同じ固定入力を競合のない端末で手動再計測する。重いCIの常時実行は必要ない。",
               "", "再実行手順と集計コード: [bench/oss-study](../bench/oss-study/README.md)。原文の秘密値・生のスキャン出力は公開成果物に含めていない。",
               "TruffleHogの比較版と検証オプションは [公式v3.97.5](https://github.com/trufflesecurity/trufflehog/tree/v3.97.5) を参照。", ""]
     output = ROOT / "docs/oss-comparison-2026-09-21.md"
