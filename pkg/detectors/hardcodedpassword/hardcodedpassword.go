@@ -66,7 +66,7 @@ func hasAssignmentHead(data []byte) bool {
 	// Every accepted grammar branch requires an ASCII assignment or mapping
 	// separator. This cheap reject keeps repeated prose keywords out of the
 	// RE2 scan; it also precedes the Unicode case-fold fallback below.
-	if bytes.IndexAny(data, "=:") < 0 {
+	if !bytes.ContainsAny(data, "=:") {
 		return false
 	}
 	for _, b := range data {
