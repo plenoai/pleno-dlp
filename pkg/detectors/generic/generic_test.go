@@ -5,6 +5,7 @@ package generic
 import (
 	"bytes"
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -58,6 +59,40 @@ func TestFromData_RejectsKeywordTooFar(t *testing.T) {
 	for _, r := range res {
 		if strings.Contains(string(r.Raw), "Hf83KdjL9qZ8") {
 			t.Errorf("entropy run far from keyword must NOT match; got %q", r.Raw)
+		}
+	}
+}
+
+func TestSecretShapeMatchesPreservesGlobalRegexpAlignment(t *testing.T) {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	run := strings.Repeat(alphabet, 16)
+	data := append([]byte(run), []byte("token=")...)
+	want := regexp.MustCompile(`[A-Za-z0-9+/_\-]{20,128}`).FindAllIndex(data, -1)
+	got := secretShapeMatches(data)
+	if len(got) != len(want) {
+		t.Fatalf("match count = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i][0] != want[i][0] || got[i][1] != want[i][1] {
+			t.Fatalf("match %d = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestFromData_LongRunKeepsGlobalSecretSpans(t *testing.T) {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	data := []byte(strings.Repeat(alphabet, 16) + "ABCDEFGH" + "token=" + strings.Repeat(" ", 1000))
+	results, err := (Scanner{}).FromData(context.Background(), false, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][2]int{{640, 768}, {768, 896}, {896, 1005}}
+	if len(results) != len(want) {
+		t.Fatalf("findings = %d, want %d", len(results), len(want))
+	}
+	for i, span := range want {
+		if got := string(results[i].Raw); got != string(data[span[0]:span[1]]) {
+			t.Fatalf("finding %d = %q, want data[%d:%d]", i, got, span[0], span[1])
 		}
 	}
 }

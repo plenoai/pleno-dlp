@@ -12,9 +12,12 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var secretShape = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[A-Za-z0-9+/_\-]{20,128}`) })
-
 const keywordRadius = 256
+
+const (
+	secretShapeMinLength = 20
+	secretShapeMaxLength = 128
+)
 
 const minEntropy = 4.0
 
@@ -71,17 +74,13 @@ func (Scanner) Type() detectors.DetectorType { return detectors.GenericHighEntro
 func (Scanner) Keywords() []string { return keywords }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	if !hasSecretShapeRun(data) {
+	matches := secretShapeMatches(data)
+	if len(matches) == 0 {
 		return nil, nil
 	}
 	lower := strings.ToLower(string(data))
 	keywordSpans := keywordPositions(lower)
 	if len(keywordSpans) == 0 {
-		return nil, nil
-	}
-
-	matches := secretShape().FindAllIndex(data, -1)
-	if len(matches) == 0 {
 		return nil, nil
 	}
 
@@ -170,21 +169,45 @@ func nearKeyword(secretStart, secretEnd int, keywordStarts []int) bool {
 	return false
 }
 
-func hasSecretShapeRun(data []byte) bool {
-	const minLen = 20
-	run := 0
-	for _, c := range data {
-		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-			c == '+' || c == '/' || c == '_' || c == '-' {
-			run++
-			if run >= minLen {
-				return true
+// secretShapeMatches is equivalent to FindAllIndex on
+// `[A-Za-z0-9+/_\-]{20,128}`. Scanning complete allowed-character runs keeps
+// each match anchored at the same byte where the regexp would begin; splitting
+// a run into independent vicinity slices would change the 128-byte match
+// boundaries and therefore the reported secret bytes.
+func secretShapeMatches(data []byte) [][]int {
+	var matches [][]int
+	runStart := -1
+	for i, c := range data {
+		if isSecretShapeByte(c) {
+			if runStart < 0 {
+				runStart = i
 			}
-		} else {
-			run = 0
+			continue
 		}
+		matches = appendSecretShapeMatches(matches, runStart, i)
+		runStart = -1
 	}
-	return false
+	return appendSecretShapeMatches(matches, runStart, len(data))
+}
+
+func appendSecretShapeMatches(matches [][]int, start, end int) [][]int {
+	if start < 0 {
+		return matches
+	}
+	for end-start >= secretShapeMinLength {
+		matchEnd := start + secretShapeMaxLength
+		if matchEnd > end {
+			matchEnd = end
+		}
+		matches = append(matches, []int{start, matchEnd})
+		start = matchEnd
+	}
+	return matches
+}
+
+func isSecretShapeByte(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+		c == '+' || c == '/' || c == '_' || c == '-'
 }
 
 // looksLikeIdentifier reports whether s looks like a source-code
