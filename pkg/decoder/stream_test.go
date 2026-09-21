@@ -24,6 +24,32 @@ func (r *countedRunReader) ReadAt(p []byte, offset int64) (int, error) {
 	return r.ReaderAt.ReadAt(p, offset)
 }
 
+type failingRunReader struct {
+	io.ReaderAt
+	calls int
+	err   error
+}
+
+func (r *failingRunReader) ReadAt(p []byte, offset int64) (int, error) {
+	r.calls++
+	n, err := r.ReaderAt.ReadAt(p, offset)
+	if r.calls == 2 {
+		return n, r.err
+	}
+	return n, err
+}
+
+func TestWalkVariantsRejectingRunPreservesReadError(t *testing.T) {
+	want := errors.New("source read failed")
+	for _, size := range []int{512, 64 << 10} {
+		r := &failingRunReader{ReaderAt: strings.NewReader(strings.Repeat("A", size)), err: want}
+		err := WalkVariants(context.Background(), r, int64(size), func(string, io.ReaderAt, int64) error { return nil })
+		if !errors.Is(err, want) {
+			t.Fatalf("size %d: non-printable rejection hid source error: %v", size, err)
+		}
+	}
+}
+
 func TestWalkVariantsCoalescesLargeRunReads(t *testing.T) {
 	body := bytes.Repeat([]byte("printable log record\n"), 8000)
 	for source, encoded := range map[string]string{

@@ -63,6 +63,21 @@ type streamReadError struct{ error }
 
 func (e *streamReadError) Unwrap() error { return e.error }
 
+// A decoder or printability check can stop before a buffered reader returns
+// its pending error. Preserve source failures even when the run is rejected.
+type runSourceReader struct {
+	io.Reader
+	err error
+}
+
+func (r *runSourceReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if err != nil && err != io.EOF {
+		r.err = err
+	}
+	return n, err
+}
+
 // variantFile opens only after a decoder has useful output to write.
 type variantFile struct {
 	file *os.File
@@ -285,8 +300,10 @@ func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bo
 			end += int64(pad)
 			encoding = base64Encoding(padding[:pad], alphabet)
 		}
+		var runInput *runSourceReader
 		newReader := func() io.Reader {
-			var r io.Reader = io.NewSectionReader(input, start, end-start)
+			runInput = &runSourceReader{Reader: io.NewSectionReader(input, start, end-start)}
+			var r io.Reader = runInput
 			if end-start > int64(len(decode)) {
 				// The standard decoders read about 1 KiB at a time; coalesce
 				// those reads only for runs large enough to use the buffer.
@@ -303,6 +320,9 @@ func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bo
 		}
 		counter := &printCounter{badBudget: upperBound - int64(float64(upperBound)*printableThreshold)}
 		_, err := io.CopyBuffer(counter, newReader(), decode[:])
+		if runInput.err != nil {
+			return runInput.err
+		}
 		if err != nil {
 			var readErr *streamReadError
 			if errors.As(err, &readErr) {
@@ -322,7 +342,11 @@ func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bo
 					return err
 				}
 			}
-			if _, err := io.CopyBuffer(out, newReader(), decode[:]); err != nil {
+			_, err := io.CopyBuffer(out, newReader(), decode[:])
+			if runInput.err != nil {
+				return runInput.err
+			}
+			if err != nil {
 				return err
 			}
 			hasOutput = true
