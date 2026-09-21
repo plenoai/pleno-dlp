@@ -21,6 +21,7 @@ It omitted Betterleaks and left secondary memory regressions outside acceptance.
 The current matrix keeps those workloads and adds process startup, short files,
 thousands of small files, deep paths, long lines, a 64 MiB file, minified and
 nested JSON, overlapping keywords, malformed token prefixes, dense findings,
+512 distinct credentials spread across a 2 MiB file,
 repeated credentials, window boundaries, UTF-8/UTF-16, CRLF, encoding alignment,
 and ZIP/GZIP/TAR with nested and numerous archive members.
 
@@ -92,3 +93,9 @@ passed, but sparse-text and keyword RSS were 120.44 and 146.78 MiB versus
 Gitleaks' 79.39 and 112.56 MiB. That historical result does not satisfy the
 current contract. Expanded-matrix acceptance and release verification remain
 outstanding until a complete valid report passes both metrics for every case.
+
+[CI at `0a4e000`](https://github.com/plenoai/pleno-dlp/actions/runs/35622360994)
+completed all 34 then-current workloads and preserved every pleno-dlp canary.
+Full acceptance passed 13/34 at concurrency one and 14/34 at concurrency eight.
+Cost alone passed 24/34 and 23/34; competitor coverage failures invalidated
+additional comparisons. These results remain below the required contract.

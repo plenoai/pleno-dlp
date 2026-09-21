@@ -190,7 +190,7 @@ detector-engineer's scope, not a bench-tooling change's.
 
 See [`HOLDOUT.md`](HOLDOUT.md).
 
-## Five subsystem performance budgets
+## Scanner performance budgets
 
 ```sh
 make bench-performance
@@ -199,10 +199,11 @@ make bench-performance BENCH_PERFORMANCE_ARGS='--baseline-bin /tmp/pleno-dlp-bef
 ```
 
 The Python standard-library harness runs on macOS and Linux (GNU `time` on
-Linux). It generates deterministic sparse logs, keyword-dense documentation,
-binary assets, ZIP archives, and Base64 payloads. The first two gate median wall
-time; the others gate median peak RSS. All five must be at most 1.20 times the
-better of the two checksum-pinned competitors. The full raw samples, both
+Linux). It generates deterministic startup, filesystem, JSON, credential-density,
+encoding, and archive workloads. Every workload gates both median wall time and
+peak RSS at 1.20 times the best of the three checksum-pinned competitors for
+that metric. Missing canaries or incomplete measurements invalidate acceptance.
+The full raw samples, both
 metrics, canary counts, fixture digests, binary digests, versions, and environment
 are saved to `bench/results/performance.json`. Warmups and interleaved tool order
 reduce startup/cache bias. Each scan checks every unique seeded GitHub token;

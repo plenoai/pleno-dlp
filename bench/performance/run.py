@@ -40,6 +40,7 @@ TASKS = {
     "keyword-storm": "Dense overlapping keyword matches",
     "near-matches": "Malformed credential prefixes",
     "dense-findings": "2048 unique credentials",
+    "large-findings": "512 unique credentials across a 2 MiB file",
     "duplicate-findings": "Repeated credentials in one file",
     "window-boundaries": "Credentials crossing scan window boundaries",
     "base64-lines": "Many short Base64 records",
@@ -172,6 +173,11 @@ def fixtures(root):
             info = zipfile.ZipInfo(f"{i}.txt", date_time=(2026, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             archive.writestr(info, log + canary("archive-many"))
+    with (root / "large-findings" / "records.txt").open("wb") as output:
+        for _ in range(512):
+            record = canary("large-findings")
+            output.write(log * ((4096 - len(record)) // len(log)))
+            output.write(b" " * ((4096 - len(record)) % len(log)) + record)
     metadata = {}
     for name in TASKS:
         files = sorted(p for p in (root / name).rglob("*") if p.is_file())
