@@ -28,9 +28,9 @@ const binarySniffLen = 512
 
 const filesystemReadChunk = 1 << 20
 
-// Files larger than one read window stay replayable until the engine worker
-// opens them. Smaller files keep the established in-memory Chunk path.
-const filesystemLazyThreshold = filesystemReadChunk
+// Files above the lazy threshold stay replayable until the engine worker opens
+// them. Smaller files keep the established in-memory Chunk path.
+const filesystemLazyThreshold = 512 << 10
 
 var errFileChangedDuringScan = errors.New("filesystem: file changed during scan")
 
