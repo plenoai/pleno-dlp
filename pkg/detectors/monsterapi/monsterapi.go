@@ -49,7 +49,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		// Conservative entropy floor: with no documented format we cannot pin a
 		// length, so a low-variety run that happens to satisfy the alnum regex
 		// (e.g. a hex digest or a repeated-char string) is rejected. 3.0 is the
-		// recall-safe floor from docs/detector-key-formats.md — high enough to
+		// recall-safe floor for this format — high enough to
 		// drop obvious non-secrets, low enough not to cull real random tokens.
 		if !detectors.HasMinEntropy(token, 3.0) {
 			continue

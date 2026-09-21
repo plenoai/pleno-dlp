@@ -3,15 +3,8 @@
 Use `pleno-dlp detectors list --revoke-support` for the runtime answer.
 This page keeps the static contract.
 
-**Scope note:** as far as we have measured (`docs/comparison.md`
-benchmarks pleno-dlp against trufflehog and gitleaks, the two other OSS
-secret scanners in that comparison), pleno-dlp is currently the only
-OSS tool of the three with **headless revoke**: a non-interactive,
-CLI-only path from a detected leak to an invalidated credential.
-The claim is narrow and falsifiable. It says nothing about
-commercial/SaaS DLP products, provider-native auto-revoke integrations
-(e.g. a provider's own secret-scanning partner program), or tools
-outside that three-way comparison.
+This page documents pleno-dlp's **headless revoke** path: a non-interactive,
+CLI-only route from a detected leak to an invalidated credential.
 
 ## Audit trail
 

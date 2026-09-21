@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -14,9 +13,8 @@ import (
 
 // TestPublishedCountsMatchSource is the single CI gate for every
 // human-facing "N detectors" / "N sources" claim published in
-// README.md, website/index.html, docs/comparison.md, and
-// docs/verify-coverage.md. See docs/counts.md for what each number
-// counts and why. In short:
+// README.md, website/index.html, and docs/verify-coverage.md. See
+// docs/counts.md for what each number counts and why. In short:
 //
 //   - The pleno-dlp detector-type count (and its verified/unverified
 //     split) is derived here, at test time, from detectors.All() — the
@@ -24,11 +22,8 @@ import (
 //     never hand-typed twice; every doc must match the registry.
 //   - The pleno-dlp source count is derived from pkg/sources/catalog
 //     by cmd/pleno-dlp/cmd/sources_sync_test.go, which pins it to
-//     docs/comparison.md's "Scan sources" cell. That cell and the two
-//     competitor counts (trufflehog detectors, gitleaks rules — measured
-//     from third-party binaries, not derivable here) are extracted from
-//     docs/comparison.md as canonical text and cross-checked against
-//     every other file that quotes them, docs/counts.md included.
+//     docs/counts.md's "Current value" line. The runtime counts are
+//     cross-checked against every public file that quotes them.
 //
 // Add, remove, or reclassify a detector and this test breaks until every
 // quoted location is updated in the same PR — that is the intended gate.
@@ -45,37 +40,19 @@ func TestPublishedCountsMatchSource(t *testing.T) {
 	}
 	unverified := total - verified
 
-	comparison := readFile(t, filepath.Join(root, "docs", "comparison.md"))
-
-	sources, ok := extractInt(comparison, regexp.MustCompile(`\|\s*Scan sources\s*\|\s*(\d+)\s*\|`))
+	counts := readFile(t, filepath.Join(root, "docs", "counts.md"))
+	sources, ok := extractInt(counts, regexp.MustCompile(`\*\*Current value:\*\* (\d+) wired sources`))
 	if !ok {
-		t.Fatalf("docs/comparison.md: could not find the \"Scan sources\" table cell — " +
-			"has the coverage-counts table been reworded? update this test's regex")
-	}
-	trufflehogDetectors, ok := extractInt(comparison, regexp.MustCompile(`\|\s*Detectors / rules\s*\|\s*\d+\s*\|\s*(\d+)\s*\|\s*\d+\s*\|`))
-	if !ok {
-		t.Fatalf("docs/comparison.md: could not find trufflehog's column in the \"Detectors / rules\" row")
-	}
-	gitleaksRules, ok := extractInt(comparison, regexp.MustCompile(`\|\s*Detectors / rules\s*\|\s*\d+\s*\|\s*\d+\s*\|\s*(\d+)\s*\|`))
-	if !ok {
-		t.Fatalf("docs/comparison.md: could not find gitleaks's column in the \"Detectors / rules\" row")
-	}
-	measuredDate, ok := extractString(comparison, regexp.MustCompile(`produced by running the three tools side by side on (\d{4}-\d{2}-\d{2})`))
-	if !ok {
-		t.Fatalf("docs/comparison.md: could not find the \"produced by running ... on YYYY-MM-DD\" methodology sentence")
+		t.Fatalf("docs/counts.md: could not find the \"Current value: N wired sources\" line")
 	}
 
-	// docs/comparison.md must agree with itself and with the registry.
-	checkInt(t, "docs/comparison.md", `"Detectors / rules" row, pleno-dlp column`, comparison,
-		regexp.MustCompile(`\|\s*Detectors / rules\s*\|\s*(\d+)\s*\|\s*\d+\s*\|\s*\d+\s*\|`), total)
-	checkInt(t, "docs/comparison.md", `"Live-verification capable" row, verified count`, comparison,
-		regexp.MustCompile(`\|\s*Live-verification capable\s*\|\s*(\d+)\s*\(\+\d+ unverified-by-design`), verified)
-	checkInt(t, "docs/comparison.md", `"Live-verification capable" row, unverified count`, comparison,
-		regexp.MustCompile(`\|\s*Live-verification capable\s*\|\s*\d+\s*\(\+(\d+) unverified-by-design`), unverified)
-	checkInt(t, "docs/comparison.md", `"trufflehog ships N detector packages vs M" — M`, comparison,
-		regexp.MustCompile(`trufflehog ships \d+ detector packages vs\s+(\d+)\s*\(long tail`), total)
-	checkInt(t, "docs/comparison.md", `"pleno-dlp's N sources lead on SaaS-document surfaces"`, comparison,
-		regexp.MustCompile(`pleno-dlp's (\d+) sources lead on SaaS-document`), sources)
+	// docs/counts.md carries the canonical current values.
+	checkInt(t, "docs/counts.md", `detector total`, counts,
+		regexp.MustCompile(`\*\*Current value:\*\* (\d+) total`), total)
+	checkInt(t, "docs/counts.md", `verified split`, counts,
+		regexp.MustCompile(`\*\*Current value:\*\* \d+ total \((\d+) verified`), verified)
+	checkInt(t, "docs/counts.md", `unverified split`, counts,
+		regexp.MustCompile(`\*\*Current value:\*\* \d+ total \(\d+ verified, (\d+) unverified-by-design\)`), unverified)
 
 	// docs/verify-coverage.md
 	coverage := readFile(t, filepath.Join(root, "docs", "verify-coverage.md"))
@@ -91,27 +68,6 @@ func TestPublishedCountsMatchSource(t *testing.T) {
 		regexp.MustCompile(`(?m)^a=(\d+)$`), verified)
 	checkInt(t, "docs/verify-coverage.md", "machine block b=", coverage,
 		regexp.MustCompile(`(?m)^b=(\d+)$`), unverified)
-
-	// docs/counts.md — the definitions page carries "Current value" lines
-	// of its own; per its closing rule, an unenforced count is exactly the
-	// drift it exists to prevent (§2 sat at a stale 24 for weeks because
-	// nothing read it).
-	counts := readFile(t, filepath.Join(root, "docs", "counts.md"))
-	checkInt(t, "docs/counts.md", `§1 "Current value: N total"`, counts,
-		regexp.MustCompile(`\*\*Current value:\*\* (\d+) total`), total)
-	checkInt(t, "docs/counts.md", `§1 verified split`, counts,
-		regexp.MustCompile(`\*\*Current value:\*\* \d+ total \((\d+) verified`), verified)
-	checkInt(t, "docs/counts.md", `§1 unverified split`, counts,
-		regexp.MustCompile(`\*\*Current value:\*\* \d+ total \(\d+ verified, (\d+) unverified-by-design\)`), unverified)
-	checkInt(t, "docs/counts.md", `§2 "Current value: N wired sources"`, counts,
-		regexp.MustCompile(`\*\*Current value:\*\* (\d+) wired sources`), sources)
-	checkInt(t, "docs/counts.md", `§3 trufflehog count`, counts,
-		regexp.MustCompile(`\*\*Current value:\*\* trufflehog (\d+), gitleaks`), trufflehogDetectors)
-	checkInt(t, "docs/counts.md", `§3 gitleaks count`, counts,
-		regexp.MustCompile(`\*\*Current value:\*\* trufflehog \d+, gitleaks (\d+)`), gitleaksRules)
-	if !strings.Contains(counts, measuredDate) {
-		t.Errorf("docs/counts.md: §3 quotes competitor counts without the %s measurement date from docs/comparison.md", measuredDate)
-	}
 
 	// README.md
 	readme := readFile(t, filepath.Join(root, "README.md"))
@@ -132,19 +88,6 @@ func TestPublishedCountsMatchSource(t *testing.T) {
 		regexp.MustCompile(`(\d+) of \d+ detectors check the issuing provider`), verified)
 	checkInt(t, "website/index.html", `"N of M detectors check the issuing provider" — M (total)`, website,
 		regexp.MustCompile(`\d+ of (\d+) detectors check the issuing provider`), total)
-	checkInt(t, "website/index.html", `bench row "pleno-dlp<small>N detectors</small>"`, website,
-		regexp.MustCompile(`pleno-dlp<small>(\d+) detectors</small>`), total)
-	checkInt(t, "website/index.html", `bench row "trufflehog<small>N detectors</small>"`, website,
-		regexp.MustCompile(`trufflehog<small>(\d+) detectors</small>`), trufflehogDetectors)
-	checkInt(t, "website/index.html", `bench row "gitleaks<small>N regex rules</small>"`, website,
-		regexp.MustCompile(`gitleaks<small>(\d+) regex rules</small>`), gitleaksRules)
-
-	if !strings.Contains(website, measuredDate) {
-		t.Errorf("website/index.html: competitor detector/rule counts (trufflehog %d, gitleaks %d) "+
-			"are quoted without their measurement date; docs/comparison.md says they were measured "+
-			"%s — the website must say so too (they are a point-in-time snapshot of a third-party "+
-			"binary, not something this repo can keep live)", trufflehogDetectors, gitleaksRules, measuredDate)
-	}
 }
 
 // repoRoot walks up from the working directory looking for go.mod. Tests

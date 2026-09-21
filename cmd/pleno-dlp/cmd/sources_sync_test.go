@@ -17,8 +17,8 @@ import (
 )
 
 // plannedSources are connectors registered in pkg/connectors with
-// deliberately no `scan <name>` subcommand yet (docs/comparison.md §9
-// tracks them as planned: elasticsearch #217, jenkins #218, postman #219).
+// deliberately no `scan <name>` subcommand yet (docs/counts.md tracks the
+// published wired-source count; the issues remain the planning reference).
 // When a subcommand ships, delete the entry here — the test below then
 // forces it, since a wired planned entry fails as loudly as an unwired
 // implemented one.
@@ -52,14 +52,7 @@ func TestSourceCatalogMatchesCLIWiring(t *testing.T) {
 	}
 }
 
-// TestImplementedSourceCount gates the runtime source count directly against
-// the number docs/comparison.md actually prints, so the doc and the registry
-// cannot drift apart in either direction. The prior version compared the
-// registry against a test-internal `const want = 28` that never read the doc
-// (F9, falsehood-audit type D): editing comparison.md's "28" to "29" left the
-// test green because the doc was outside the assertion's reach. Parsing the
-// doc's own cell closes that gap — a doc edit that disagrees with the registry
-// now fails, and so does a source added without updating the doc.
+// TestImplementedSourceCount checks the published count against the runtime registry.
 func TestImplementedSourceCount(t *testing.T) {
 	entries := catalog.All()
 	implemented := 0
@@ -70,31 +63,30 @@ func TestImplementedSourceCount(t *testing.T) {
 	}
 	want := docScanSourceCount(t)
 	if implemented != want {
-		t.Errorf("CLI-wired source count = %d, but docs/comparison.md prints %d "+
-			"— update the doc's `Scan sources` row (and the §9 prose) or the registry so they agree", implemented, want)
+		t.Errorf("CLI-wired source count = %d, but docs/counts.md prints %d "+
+			"— update the doc's `Current value` line or the registry so they agree", implemented, want)
 	}
 	if len(plannedSources) != 3 {
-		t.Errorf("plannedSources has %d entries, want 3 (update docs/comparison.md §9 if this changed intentionally)", len(plannedSources))
+		t.Errorf("plannedSources has %d entries, want 3 (update this planning list if this changed intentionally)", len(plannedSources))
 	}
 }
 
-// docScanSourceCount returns the pleno-dlp `Scan sources` count printed in
-// docs/comparison.md's capability table (the `| Scan sources | N | … |` row).
-// That cell is the canonical figure the surrounding prose (§1, §9) refers to;
-// parsing it makes the doc a real input to the drift gate rather than a
-// hand-synced number the test never inspects.
+// docScanSourceCount returns the pleno-dlp wired-source count printed in
+// docs/counts.md's `Current value` line. Parsing it makes the public
+// definition page a real input to the drift gate rather than a hand-synced
+// number the test never inspects.
 func docScanSourceCount(t *testing.T) int {
 	t.Helper()
 	// test cwd is the package dir (cmd/pleno-dlp/cmd); the doc lives at repo root.
-	path := filepath.Join("..", "..", "..", "docs", "comparison.md")
+	path := filepath.Join("..", "..", "..", "docs", "counts.md")
 	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
-	re := regexp.MustCompile(`(?m)^\|\s*Scan sources\s*\|\s*(\d+)\s*\|`)
+	re := regexp.MustCompile(`(?m)^\*\*Current value:\*\*\s*(\d+) wired sources\.`)
 	m := re.FindSubmatch(b)
 	if m == nil {
-		t.Fatalf("no `| Scan sources | N |` row found in %s — the drift gate cannot read the doc's count", path)
+		t.Fatalf("no `**Current value:** N wired sources.` line found in %s — the drift gate cannot read the doc's count", path)
 	}
 	n, err := strconv.Atoi(string(m[1]))
 	if err != nil {

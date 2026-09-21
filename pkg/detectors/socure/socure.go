@@ -7,9 +7,8 @@
 // variant nibble in `[89ab]`. We anchor on that structure: a bare
 // `[A-Za-z0-9]{40,80}` run does not even match the real format and matches
 // arbitrary high-entropy noise instead. Because the UUID layout is itself a
-// strong discriminator, no entropy floor is needed — per
-// docs/detector-key-formats.md "distinguishing structure exists: anchor the
-// regex; entropy unnecessary".
+// strong discriminator, no entropy floor is needed: anchor the regex and
+// avoid an entropy heuristic.
 //
 // The keyword gate is also tightened: a bare "socure" Contains over a 256-byte
 // window is replaced by a `socure[_-]?(api[_-]?)?(token|key|secret)` arm regex

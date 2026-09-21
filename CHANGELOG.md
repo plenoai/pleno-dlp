@@ -109,7 +109,7 @@ publishing, archives, SLSA provenance, and SBOM generation.
   [`docs/audit-trail-schema.md`](docs/audit-trail-schema.md). (#304)
 - `scan --revoke-spool` / `revoke --revoke-from-spool` decouple detection
   from revocation. See `docs/revoke-support.md`.
-- Expanded `docs/comparison.md` with real-world evaluation against
+- Expanded the OSS scanner comparison with real-world evaluation against
   trufflehog 3.95.5 and gitleaks 8.30.1.
 
 ### Fixed
@@ -122,7 +122,7 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Added
 
-- Added `docs/comparison.md`: measured recall, false-positive, and
+- Added the OSS scanner comparison: measured recall, false-positive, and
   capability comparison against trufflehog and gitleaks.
 
 ### Fixed
@@ -277,8 +277,7 @@ Versions `0.7.0` through `0.36.0` were rapid detector-expansion
 releases. Their durable references are:
 
 - `docs/verify-coverage.md` for verification status.
-- `docs/detector-key-formats.md` for key-format research and
-  false-positive hardening.
+- Detector key-format research and false-positive hardening notes.
 - GitHub Releases for tag-specific generated notes.
 
 ## [0.6.0] - 2026-05-08

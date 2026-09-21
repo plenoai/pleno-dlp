@@ -85,30 +85,3 @@ appears under this flag: `indeterminate` means a verification attempt
 was made and failed, and `--no-verify` makes no attempt. The flag is
 mutually exclusive with `--only-verified` and works against any scan
 kind.
-
-## Measured latency
-
-`pleno-dlp scan stdin --no-verify` against a representative small edit
-(~450 bytes, one embedded AWS-key-shaped string, 30 lines), full process
-spawn included:
-
-| Path                                             | median | p90    |
-|---------------------------------------------------|--------|--------|
-| `pleno-dlp scan stdin --no-verify` (bare)          | 22.8ms | 26.1ms |
-| `pleno-dlp hooks run claude-code` (end-to-end)     | 44.8ms | 50.9ms |
-
-The `hooks run` path costs roughly 2x the bare scan because it spawns
-`scan stdin` as a nested subprocess — see the comment on `scanOffline`
-in `cmd/pleno-dlp/cmd/hooks.go`.
-
-Reproduce:
-
-```sh
-go build -o /tmp/pleno-dlp ./cmd/pleno-dlp
-printf '...' > /tmp/sample.txt   # your representative content
-time /tmp/pleno-dlp scan stdin --no-verify --quiet --format json < /tmp/sample.txt
-```
-
-Note: `scan stdin` always exits 0, with or without findings (the hook's
-allow/deny verdict comes from the finding count on stdout, not the exit
-code).
