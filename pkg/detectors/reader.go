@@ -19,13 +19,15 @@ func ForEachReaderPrefixedSubmatch(ctx context.Context, input io.ReaderAt, size 
 }
 
 // ForEachReaderLineSubmatch applies re only to lines that contain at least
-// minOccurrences non-overlapping occurrences of needle. The line scan is a
+// minOccurrences non-overlapping occurrences of needle and, when
+// maxOccurrences is positive, no more than that many. The line scan is a
 // bounded-memory byte pass; regexp remains responsible for deciding whether
-// a candidate line is valid. The helper is useful for full-chunk detectors
-// whose grammar has a cheap required separator (for example, four colons in
-// a pgpass row or "://" in a stored Git URL).
-func ForEachReaderLineSubmatch(ctx context.Context, input io.ReaderAt, size int64, re *regexp.Regexp, needle []byte, minOccurrences int, captures []int, visit func([][]byte) error) error {
-	if len(needle) == 0 || minOccurrences < 1 {
+// a candidate line is valid. A zero maxOccurrences keeps the upper bound open.
+// The helper is useful for full-chunk detectors whose grammar has a cheap
+// required separator (for example, exactly four colons in a pgpass row or
+// "://" in a stored Git URL).
+func ForEachReaderLineSubmatch(ctx context.Context, input io.ReaderAt, size int64, re *regexp.Regexp, needle []byte, minOccurrences, maxOccurrences int, captures []int, visit func([][]byte) error) error {
+	if len(needle) == 0 || minOccurrences < 1 || maxOccurrences < 0 || (maxOccurrences > 0 && maxOccurrences < minOccurrences) {
 		return fmt.Errorf("detectors: invalid line match requirement")
 	}
 	if bytes.IndexByte(needle, '\n') >= 0 {
@@ -67,7 +69,7 @@ func ForEachReaderLineSubmatch(ctx context.Context, input io.ReaderAt, size int6
 		if !hasNewline {
 			return nil
 		}
-		if occurrences >= minOccurrences {
+		if occurrences >= minOccurrences && (maxOccurrences == 0 || occurrences <= maxOccurrences) {
 			if _, _, err := visitReaderSubmatch(ctx, wrapped, lineStart, consumed-lineStart, re, captures, visit); err != nil {
 				return err
 			}
@@ -97,7 +99,7 @@ func ForEachReaderLineSubmatch(ctx context.Context, input io.ReaderAt, size int6
 		}
 		return err
 	}
-	if lineStart < size && occurrences >= minOccurrences {
+	if lineStart < size && occurrences >= minOccurrences && (maxOccurrences == 0 || occurrences <= maxOccurrences) {
 		if _, _, err := visitReaderSubmatch(ctx, wrapped, lineStart, size-lineStart, re, captures, visit); err != nil {
 			return err
 		}
