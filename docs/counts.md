@@ -27,7 +27,7 @@ Sub-split: of that total, the ones satisfying `detectors.Verifier`
 ("verified" / live-verification-capable) vs. the rest
 ("unverified-by-design", see docs/verify-coverage.md's class-b list).
 
-**Current value:** 619 total (552 verified, 67 unverified-by-design).
+**Current value:** 615 total (548 verified, 67 unverified-by-design).
 
 **Where it's quoted:** README.md ("N built-in detector types"),
 website/index.html (meta description, og:description, hero line, the

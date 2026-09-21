@@ -48,7 +48,7 @@ pleno-dlp sources list
 
 ## Detectors
 
-619 built-in detector types ([counting method](docs/counts.md)),
+615 built-in detector types ([counting method](docs/counts.md)),
 [benchmarked against trufflehog and gitleaks](docs/comparison.md) for
 recall, noise, and verification value. Table, JSON, or SARIF output;
 allowlists and org-specific rules via config.
