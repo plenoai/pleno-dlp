@@ -19,10 +19,13 @@ import (
 	"sync"
 )
 
-// SpillThreshold is the largest value retained in memory by archive and Git
-// source streaming. Larger inputs and expanded entries use lazy readers or
-// 0600 temporary files.
+// SpillThreshold is the largest value retained in memory by WithSpoolContext
+// and Git binary source streaming. Archive walkers use archiveSpillThreshold.
 const SpillThreshold int64 = 1 << 20
+
+// Archive walkers spill expanded values earlier because their callers already
+// retain the source body or process one leaf at a time.
+const archiveSpillThreshold int64 = 128 << 10
 
 const (
 	maxRetainedErrors    = 32
@@ -129,7 +132,7 @@ func WalkContext(ctx context.Context, rootName string, data []byte, limits Limit
 // the outer archive spool. The callback runs synchronously; callers must keep
 // data unchanged until WalkBytesContext returns.
 func WalkBytesContext(ctx context.Context, rootName string, data []byte, limits Limits, visit func(StreamEntry) error) error {
-	return walkBytesContext(ctx, rootName, data, limits, visit, spoolOptions{threshold: SpillThreshold})
+	return walkBytesContext(ctx, rootName, data, limits, visit, spoolOptions{threshold: archiveSpillThreshold})
 }
 
 // WalkStreamContext validates and expands one archive, invoking visit in
@@ -137,7 +140,7 @@ func WalkBytesContext(ctx context.Context, rootName string, data []byte, limits 
 // format checksum. Large values spill to 0600 temporary files, all of which
 // are removed before this function returns.
 func WalkStreamContext(ctx context.Context, rootName string, input io.Reader, size int64, limits Limits, visit func(StreamEntry) error) error {
-	return walkStreamContext(ctx, rootName, input, size, limits, visit, spoolOptions{threshold: SpillThreshold})
+	return walkStreamContext(ctx, rootName, input, size, limits, visit, spoolOptions{threshold: archiveSpillThreshold})
 }
 
 // WithSpoolContext consumes and validates exactly size bytes before invoking
