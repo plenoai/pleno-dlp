@@ -130,9 +130,6 @@ func newDirect(patterns [][]byte) *Matcher {
 }
 
 func commonPrefix(left, right []byte) int {
-	if left == nil {
-		return 0
-	}
 	limit := len(left)
 	if len(right) < limit {
 		limit = len(right)
