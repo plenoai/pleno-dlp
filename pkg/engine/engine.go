@@ -127,8 +127,9 @@ type streamMatchCache struct {
 	// firstPair and restPair are populated only after enough distinct raw
 	// candidates make the observation pass worthwhile. They prove whether a
 	// hinted two-byte raw has an earlier occurrence without retaining source
-	// windows or rescanning the reader for each candidate.
-	firstPair    *[65536]int64
+	// windows or rescanning the reader for each candidate. firstPair stays a
+	// sparse map because active caches usually see only a small prefix set.
+	firstPair    map[uint16]int64
 	restPair     map[uint16][]int64
 	restPairFull *[65536]bool
 	// observationCandidates stays bounded until observation is enabled. A
@@ -213,7 +214,7 @@ func (c *streamMatchCache) observeRawWindow(source string, data []byte, start in
 		return
 	}
 	if c.firstPair == nil {
-		c.firstPair = &[65536]int64{}
+		c.firstPair = make(map[uint16]int64)
 		c.restPairFull = &[65536]bool{}
 	}
 	from := 0
@@ -233,9 +234,12 @@ func (c *streamMatchCache) observeRawWindow(source string, data []byte, start in
 		pos := start + int64(i) + 1
 		b := data[i]
 		pair := uint16(b)<<8 | uint16(data[i+1])
-		if c.firstPair[pair] == 0 {
+		if (*c.restPairFull)[pair] {
+			continue
+		}
+		if _, ok := c.firstPair[pair]; !ok {
 			c.firstPair[pair] = pos
-		} else if !(*c.restPairFull)[pair] {
+		} else {
 			if c.restPair == nil {
 				c.restPair = make(map[uint16][]int64)
 			}
@@ -342,7 +346,10 @@ func (c *streamMatchCache) prefixLookup(ctx context.Context, raw []byte, hint st
 		return streamMatch{}, false, nil
 	}
 	key, _ := prefixKey(raw)
-	first := c.firstPair[key]
+	first, observed := c.firstPair[key]
+	if !observed {
+		return streamMatch{}, false, nil
+	}
 	rest := c.restPair[key]
 	if len(rest) < hintVerifyCandidateCap {
 		matchEarlier := func(pos int64) (bool, error) {
