@@ -225,7 +225,7 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, _
 	if err != nil {
 		return fmt.Errorf("git: resolve repo path: %w", err)
 	}
-	if _, err := git.PlainOpen(abs); err != nil {
+	if _, err := OpenRepository(abs); err != nil {
 		return fmt.Errorf("git: open repo %q: %w", abs, err)
 	}
 	if cfg.Since != "" {
@@ -383,7 +383,7 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 // hydration with go-git's lazy large-object reader. This applies to loose and
 // packed (including delta-compressed) objects before any Blob.Reader call.
 func openBoundedRepository(path string, threshold int64) (*git.Repository, error) {
-	repo, err := git.PlainOpen(path)
+	repo, err := OpenRepository(path)
 	if err != nil {
 		return nil, err
 	}
@@ -429,7 +429,7 @@ func (s *Source) ResourceFingerprint(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	repo, err := git.PlainOpen(s.repoAbs)
+	repo, err := OpenRepository(s.repoAbs)
 	if err != nil {
 		return "", fmt.Errorf("git: reopen repo: %w", err)
 	}

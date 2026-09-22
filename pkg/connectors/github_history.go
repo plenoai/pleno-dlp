@@ -738,10 +738,11 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 	// second time inside gitRefHeads purely to list refs; each open attaches
 	// go-git's 96 MiB object LRU cache, so the reopen doubled that cost for
 	// no benefit once we already have a working directory. The git source's
-	// own PlainOpen (pkg/sources/git/git.go, out of this file's scope) still
-	// opens the clone independently for the walk — that duplication cannot be
-	// removed from this side of the package boundary.
-	gitRepo, err := gogit.PlainOpen(dir)
+	// own OpenRepository (pkg/sources/git) still opens the clone
+	// independently for the walk — that duplication cannot be removed from
+	// this side of the package boundary. OpenRepository also tolerates the
+	// extensions a filtered clone config may declare.
+	gitRepo, err := gitsource.OpenRepository(dir)
 	if err != nil {
 		return githubRepoIncrementalState{}, fmt.Errorf("github: open clone %s/%s: %w", repo.Owner.Login, repo.Name, err)
 	}
