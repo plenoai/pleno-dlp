@@ -32,12 +32,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/go-git/go-billy/v5"
+	"github.com/go-git/go-billy/v5/osfs"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/cache"
 	gitfilesystem "github.com/go-git/go-git/v5/storage/filesystem"
 	"github.com/go-git/go-git/v5/storage/filesystem/dotgit"
-	"github.com/go-git/go-billy/v5"
-	"github.com/go-git/go-billy/v5/osfs"
 )
 
 // ignorableConfigExtensions are [extensions] option keys (lowercased) a
@@ -262,9 +262,13 @@ type filteredConfigFile struct {
 	name string
 }
 
-func (f *filteredConfigFile) Name() string                  { return f.name }
-func (f *filteredConfigFile) Write([]byte) (int, error)     { return 0, errors.New("git: filtered config is read-only") }
-func (f *filteredConfigFile) Lock() error                   { return nil }
-func (f *filteredConfigFile) Unlock() error                 { return nil }
-func (f *filteredConfigFile) Truncate(int64) error          { return errors.New("git: filtered config is read-only") }
-func (f *filteredConfigFile) Close() error                  { return nil }
+func (f *filteredConfigFile) Name() string { return f.name }
+func (f *filteredConfigFile) Write([]byte) (int, error) {
+	return 0, errors.New("git: filtered config is read-only")
+}
+func (f *filteredConfigFile) Lock() error   { return nil }
+func (f *filteredConfigFile) Unlock() error { return nil }
+func (f *filteredConfigFile) Truncate(int64) error {
+	return errors.New("git: filtered config is read-only")
+}
+func (f *filteredConfigFile) Close() error { return nil }
