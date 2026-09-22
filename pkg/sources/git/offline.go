@@ -364,33 +364,6 @@ func (s *offlineBlobStream) Close() error {
 	return err
 }
 
-func (r *offlineCatFileRead) read(sha string, maxBytes int64) (data []byte, size int64, err error) {
-	if _, err := fmt.Fprintln(r.stdin, sha); err != nil {
-		return nil, -1, fmt.Errorf("git: cat-file batch write: %w", err)
-	}
-	header, err := r.stdout.ReadSlice('\n')
-	if err != nil {
-		return nil, -1, fmt.Errorf("git: cat-file batch header: %w", err)
-	}
-	fields := strings.Fields(strings.TrimSpace(string(header)))
-	if len(fields) < 3 || fields[1] != "blob" {
-		return nil, -1, nil
-	}
-	size, err = strconv.ParseInt(fields[2], 10, 64)
-	if err != nil || size < 0 {
-		return nil, -1, fmt.Errorf("git: cat-file batch size: %q", fields[2])
-	}
-	if size > maxBytes {
-		return nil, size, nil
-	}
-	data = make([]byte, size+1)
-	if _, err := io.ReadFull(r.stdout, data); err != nil {
-		return nil, -1, fmt.Errorf("git: cat-file batch body: %w", err)
-	}
-	data = data[:size]
-	return data, size, nil
-}
-
 func (r *offlineCatFileRead) close() {
 	_ = r.stdin.Close()
 	if r.cmd.Process != nil {
