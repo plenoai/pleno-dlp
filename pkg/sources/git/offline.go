@@ -461,9 +461,9 @@ type offlineWalk struct {
 // Commits touching omitted objects emit their locally present new blobs
 // whole — when the base was filtered out there is no diff to subtract, so
 // the full local content is the smallest false-negative-free surface.
-// Omissions the clone's filter provably placed above every emission ceiling
-// are counted and logged as intentional skips; any missing object that could
-// still be in scope degrades coverage instead of checkpointing.
+// Missing objects that could still be in scope degrade coverage instead of
+// checkpointing; only omitted pure-deletion bases are intentional skips because
+// deletions have no content to emit.
 func (s *Source) chunksOffline(ctx context.Context, repo *gogit.Repository, gitBin string, starts, stops []plumbing.Hash, ch chan<- *sources.Chunk) error {
 	if !s.promisorFiltered {
 		// Callers coming through Chunks have this set already; populate it
@@ -563,6 +563,7 @@ func (s *Source) chunksOffline(ctx context.Context, repo *gogit.Repository, gitB
 	// belong to; a block is complete when the next echo arrives.
 	var cur *nativeCommit
 	var curEntries []offlineRawEntry
+	var curPathBytes int64
 	for {
 		line, err := enum.raw.ReadSlice('\n')
 		if errors.Is(err, bufio.ErrBufferFull) {
@@ -573,10 +574,11 @@ func (s *Source) chunksOffline(ctx context.Context, repo *gogit.Repository, gitB
 		if len(rec) == 40 {
 			if _, hexErr := hex.DecodeString(string(rec)); hexErr == nil {
 				if cur != nil {
-					if err := process(*cur, curEntries); err != nil {
+					if err := handle(*cur, curEntries); err != nil {
 						return err
 					}
 					cur, curEntries = nil, nil
+					curPathBytes = 0
 				}
 				commit, cerr := enum.nextCommit(string(rec), processEmpty)
 				if cerr != nil {
@@ -592,10 +594,11 @@ func (s *Source) chunksOffline(ctx context.Context, repo *gogit.Repository, gitB
 			if parseErr != nil {
 				return parseErr
 			}
-			if len(curEntries) >= nativePathLimit {
-				return fmt.Errorf("offline raw paths exceed %d entries", nativePathLimit)
+			if len(curEntries) >= nativePathLimit || curPathBytes+int64(len(entry.path)) > maxBlobSize {
+				return fmt.Errorf("offline raw paths exceed %d entries or %d bytes", nativePathLimit, maxBlobSize)
 			}
 			curEntries = append(curEntries, entry)
+			curPathBytes += int64(len(entry.path))
 		}
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
@@ -605,7 +608,7 @@ func (s *Source) chunksOffline(ctx context.Context, repo *gogit.Repository, gitB
 		}
 	}
 	if cur != nil {
-		if err := process(*cur, curEntries); err != nil {
+		if err := handle(*cur, curEntries); err != nil {
 			return err
 		}
 	}
@@ -851,10 +854,9 @@ func (s *Source) offlinePatchBatch(ctx context.Context, parser *nativeLogParser,
 // emitFallback covers a commit whose old or new blobs were filtered out of
 // the clone. Locally present new blobs are emitted whole through the normal
 // text/binary policies — the same ceilings and archive/binary handling as
-// emitCommit. A missing new blob on an added path is a clean skip only when
-// the clone filter proves it was above every emission ceiling; a missing new
-// blob on a modification can always hide in-scope added lines and degrades
-// coverage, and any missing object the filter cannot size does the same.
+// emitCommit. A missing new blob on either an added path or a modification can
+// hide in-scope content and therefore degrades coverage; only a missing base
+// for a pure deletion is safe to skip because that change emits no content.
 func (w *offlineWalk) emitFallback(ctx context.Context, commit nativeCommit, entries []offlineRawEntry) error {
 	zero := strings.Repeat("0", 40)
 	for _, entry := range entries {
@@ -995,12 +997,8 @@ func (w *offlineWalk) merges(ctx context.Context, repo *gogit.Repository, gitBin
 		clean = nil
 		return w.source.offlineMergePatchBatch(ctx, repo, gitBin, ids, w.ch)
 	}
-	for _, commit := range merges {
+	visit := func(commit nativeCommit, entries []offlineRawEntry) error {
 		if err := ctx.Err(); err != nil {
-			return err
-		}
-		entries, err := w.source.offlineMergeRaw(ctx, gitBin, commit)
-		if err != nil {
 			return err
 		}
 		ok, err := w.mergeClean(commit, entries)
@@ -1014,7 +1012,7 @@ func (w *offlineWalk) merges(ctx context.Context, repo *gogit.Repository, gitBin
 					return err
 				}
 			}
-			continue
+			return nil
 		}
 		if err := flush(); err != nil {
 			return err
@@ -1022,6 +1020,10 @@ func (w *offlineWalk) merges(ctx context.Context, repo *gogit.Repository, gitBin
 		if err := w.emitFallback(ctx, commit, entries); err != nil {
 			return err
 		}
+		return nil
+	}
+	if err := w.source.offlineMergeRawBatch(ctx, gitBin, merges, visit); err != nil {
+		return err
 	}
 	return flush()
 }
@@ -1065,12 +1067,26 @@ func (w *offlineWalk) mergeClean(commit nativeCommit, entries []offlineRawEntry)
 	return true, nil
 }
 
-// offlineMergeRaw lists a merge's combined-diff entries — files whose merged
-// result differs from every parent — without reading a single blob.
-func (s *Source) offlineMergeRaw(ctx context.Context, gitBin string, commit nativeCommit) ([]offlineRawEntry, error) {
+// offlineMergeRawBatch streams combined-diff entries for one bounded merge
+// batch without reading a single blob. One native process keeps large merge
+// histories from paying one process startup per commit, while the callback
+// keeps only one commit's paths in memory.
+func (s *Source) offlineMergeRawBatch(ctx context.Context, gitBin string, commits []nativeCommit, visit func(nativeCommit, []offlineRawEntry) error) error {
+	if len(commits) == 0 {
+		return nil
+	}
+	if visit == nil {
+		return errors.New("git: offline merge raw callback is nil")
+	}
+	ids := make([]string, len(commits))
+	for i, commit := range commits {
+		ids[i] = commit.hash
+	}
 	args := []string{
 		"-C", s.repoAbs,
 		"diff-tree",
+		"--stdin",
+		"--always",
 		"-c",
 		"--cc",
 		"-r",
@@ -1078,42 +1094,110 @@ func (s *Source) offlineMergeRaw(ctx context.Context, gitBin string, commit nati
 		"--abbrev=40",
 		"--no-renames",
 		"--no-color",
-		commit.hash,
 		"--",
 	}
 	cmd := exec.CommandContext(ctx, gitBin, args...)
+	cmd.Stdin = strings.NewReader(strings.Join(ids, "\n") + "\n")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("git: offline merge raw stdout: %w", err)
+	}
 	var stderr limitedWriter
 	stderr.limit = nativeStderrLimit
 	cmd.Stderr = &stderr
 	cmd.Env = nativeGitEnv()
-	out, err := cmd.Output()
-	if err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("git: start offline merge raw: %w", err)
+	}
+
+	parseErr := func() error {
+		reader := bufio.NewReaderSize(stdout, 256<<10)
+		expected := 0
+		var current *nativeCommit
+		var entries []offlineRawEntry
+		var pathBytes int64
+		flush := func() error {
+			if current == nil {
+				return nil
+			}
+			if err := visit(*current, entries); err != nil {
+				return err
+			}
+			current = nil
+			entries = nil
+			pathBytes = 0
+			return nil
 		}
+		for {
+			line, truncated, readErr := readNativeLine(reader, int(maxBlobSize)+1)
+			if truncated {
+				return fmt.Errorf("native offline merge raw line exceeds %d bytes", maxBlobSize)
+			}
+			rec := bytes.TrimSuffix(bytes.TrimSuffix(line, []byte{'\n'}), []byte{'\r'})
+			if len(rec) > 0 {
+				switch {
+				case len(rec) == 40:
+					if _, decodeErr := hex.DecodeString(string(rec)); decodeErr != nil {
+						return fmt.Errorf("malformed offline merge raw commit %q", string(rec))
+					}
+					if err := flush(); err != nil {
+						return err
+					}
+					if expected >= len(commits) || string(rec) != commits[expected].hash {
+						return fmt.Errorf("unexpected offline merge raw commit %q at position %d", string(rec), expected)
+					}
+					current = &commits[expected]
+					expected++
+				case bytes.HasPrefix(rec, []byte("::")):
+					if current == nil {
+						return errors.New("offline merge raw record precedes commit echo")
+					}
+					entry, entryErr := parseOfflineCombinedRawEntry(string(rec))
+					if entryErr != nil {
+						return entryErr
+					}
+					if len(entries) >= nativePathLimit || pathBytes+int64(len(entry.path)) > maxBlobSize {
+						return fmt.Errorf("offline merge raw paths exceed %d entries or %d bytes", nativePathLimit, maxBlobSize)
+					}
+					entries = append(entries, entry)
+					pathBytes += int64(len(entry.path))
+				default:
+					return fmt.Errorf("malformed offline merge raw line %q", string(rec))
+				}
+			}
+			if readErr != nil {
+				if errors.Is(readErr, io.EOF) {
+					break
+				}
+				return readErr
+			}
+		}
+		if err := flush(); err != nil {
+			return err
+		}
+		if expected != len(commits) {
+			return fmt.Errorf("offline merge raw echoed %d of %d commits", expected, len(commits))
+		}
+		return nil
+	}()
+	if parseErr != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+	waitErr := cmd.Wait()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if parseErr != nil {
+		return parseErr
+	}
+	if waitErr != nil {
 		detail := strings.TrimSpace(stderr.String())
 		if detail != "" {
-			return nil, fmt.Errorf("git: offline merge raw %s: %w: %s", commit.hash, err, detail)
+			return fmt.Errorf("git: offline merge raw batch: %w: %s", waitErr, detail)
 		}
-		return nil, fmt.Errorf("git: offline merge raw %s: %w", commit.hash, err)
+		return fmt.Errorf("git: offline merge raw batch: %w", waitErr)
 	}
-	var entries []offlineRawEntry
-	for _, line := range strings.Split(string(out), "\n") {
-		// Strip only the record terminator: paths may end in spaces.
-		rec := strings.TrimSuffix(line, "\r")
-		if !strings.HasPrefix(rec, "::") {
-			continue
-		}
-		entry, err := parseOfflineCombinedRawEntry(rec)
-		if err != nil {
-			return nil, err
-		}
-		if len(entries) >= nativePathLimit {
-			return nil, fmt.Errorf("offline merge raw paths exceed %d entries", nativePathLimit)
-		}
-		entries = append(entries, entry)
-	}
-	return entries, nil
+	return nil
 }
 
 // parseOfflineCombinedRawEntry parses "::<modes...> <result sha> <status>\t<path>"

@@ -3,10 +3,69 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"runtime"
 	"sync/atomic"
 	"testing"
 )
+
+type reviewIndexFailReader struct {
+	data   []byte
+	failAt int64
+	err    error
+}
+
+func (r *reviewIndexFailReader) ReadAt(p []byte, off int64) (int, error) {
+	if off >= r.failAt {
+		return 0, r.err
+	}
+	return bytes.NewReader(r.data).ReadAt(p, off)
+}
+
+type reviewIndexCancelReader struct {
+	data   []byte
+	cancel context.CancelFunc
+	calls  atomic.Int64
+}
+
+func (r *reviewIndexCancelReader) ReadAt(p []byte, off int64) (int, error) {
+	n, err := bytes.NewReader(r.data).ReadAt(p, off)
+	if r.calls.Add(1) == 1 {
+		r.cancel()
+	}
+	return n, err
+}
+
+func reviewIndexPairKey(a, b byte) uint32 {
+	return uint32(a)<<8 | uint32(b)
+}
+
+func TestPrefixIndexBuildErrorRollsBackSampleCounter(t *testing.T) {
+	data := bytes.Repeat([]byte("gh"), 1<<16)
+	reader := &reviewIndexFailReader{data: data, failAt: 65536, err: errors.New("index read failed")}
+	cache := newStreamMatchCache(reader, int64(len(data)))
+	_, err := cache.prefixIndexes(context.Background(), []uint32{reviewIndexPairKey('g', 'h')})
+	if !errors.Is(err, reader.err) {
+		t.Fatalf("prefix index error=%v, want %v", err, reader.err)
+	}
+	if cache.indexedPositions != 0 || cache.indexSampleBytes != 0 {
+		t.Fatalf("failed build retained positions=%d samples=%d, want zero", cache.indexedPositions, cache.indexSampleBytes)
+	}
+}
+
+func TestPrefixIndexBuildCancellationRollsBackSampleCounter(t *testing.T) {
+	data := bytes.Repeat([]byte("gh"), 1<<16)
+	ctx, cancel := context.WithCancel(context.Background())
+	reader := &reviewIndexCancelReader{data: data, cancel: cancel}
+	cache := newStreamMatchCache(reader, int64(len(data)))
+	_, err := cache.prefixIndexes(ctx, []uint32{reviewIndexPairKey('g', 'h')})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("prefix index error=%v, want %v", err, context.Canceled)
+	}
+	if cache.indexedPositions != 0 || cache.indexSampleBytes != 0 {
+		t.Fatalf("canceled build retained positions=%d samples=%d, want zero", cache.indexedPositions, cache.indexSampleBytes)
+	}
+}
 
 type reviewRealisticPeakReader struct {
 	reader *bytes.Reader
@@ -58,7 +117,7 @@ func TestReviewRealisticPrefixIndexCapMemory(t *testing.T) {
 		t.Fatalf("raw match=%#v/%v, want offset=%d", match, ok, offset)
 	}
 	t.Logf("input=%d raw_len=%d raw_offset=%d prefix_cap=%d peak_heap_delta=%d bytes reader_calls=%d reader_bytes=%d",
-		len(data), len(raw), offset, streamPrefixIndexCap,
+		len(data), len(raw), offset, streamPrefixIndexTotalCap,
 		reader.peak.Load()-before.HeapAlloc, reader.calls.Load(), reader.bytes.Load())
 }
 

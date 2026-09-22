@@ -148,8 +148,8 @@ type streamMatchCache struct {
 	// stays proportional to the input, not to the batch or prefix count.
 	pairIndex map[uint16]*streamPrefixIndex
 	byteIndex map[byte]*streamPrefixIndex
-	// indexOOM marks prefixes whose occurrence count exceeds
-	// streamPrefixIndexCap (key bit 16 distinguishes single-byte prefixes);
+	// indexOOM marks prefixes that exhaust the shared position budget
+	// (key bit 16 distinguishes single-byte prefixes);
 	// those keep the per-batch shared scan.
 	indexOOM map[uint32]bool
 	// indexedPositions and indexSampleBytes bound the metadata and sample
@@ -170,13 +170,9 @@ type streamMatchCache struct {
 // prefixes, not the input.
 type streamPrefixIndex struct {
 	positions []int64
-	newlines  []int32
-	samples   [][]byte // per-position content samples; nil entries verify via ReadAt
+	newlines  []int
+	samples   [][]byte // leading-position content samples; later positions verify via ReadAt
 }
-
-// streamPrefixIndexCap bounds occurrences a single prefix index records
-// before resolving that prefix falls back to the shared per-batch scan.
-const streamPrefixIndexCap = 4 << 20
 
 // streamPrefixIndexTotalCap bounds the positions retained across ALL cached
 // prefix indexes and in-flight builds — slice headers and growth are
@@ -189,9 +185,9 @@ const streamPrefixIndexTotalCap = 1 << 20
 // entry stores for in-memory verification.
 const streamPrefixIndexSampleLen = 64
 
-// streamPrefixIndexSampleBytes bounds total sample bytes across an index
-// build so pathological occurrence counts cannot balloon memory; positions
-// past the budget keep nil samples and verify with a targeted ReadAt.
+// streamPrefixIndexSampleBytes bounds samples across all cached indexes.
+// Positions past the budget verify with a targeted ReadAt. Samples remain
+// a contiguous prefix of each index because the budget only grows per build.
 const streamPrefixIndexSampleBytes = 8 << 20
 
 func newStreamMatchCache(reader io.ReaderAt, size int64) *streamMatchCache {
@@ -380,6 +376,44 @@ func (c *streamMatchCache) indexMatchAt(index *streamPrefixIndex, i int, pos int
 	return bytes.Equal(buf, raw), nil
 }
 
+// indexCandidateAt returns the bytes for one raw length at an indexed
+// position. All raws in the caller's group share prefix, so one sample/read
+// can be looked up against every raw of that length.
+func (c *streamMatchCache) indexCandidateAt(index *streamPrefixIndex, i int, pos int64, length int, prefix []byte, buf []byte) ([]byte, []byte, bool, error) {
+	if length <= 0 {
+		return nil, buf, false, nil
+	}
+	if i < len(index.samples) {
+		if sample := index.samples[i]; sample != nil {
+			if len(sample) >= length {
+				return sample[:length], buf, true, nil
+			}
+			common := len(sample)
+			if common > len(prefix) {
+				common = len(prefix)
+			}
+			if common > 0 && !bytes.Equal(sample[:common], prefix[:common]) {
+				return nil, buf, false, nil
+			}
+		}
+	}
+	if pos+int64(length) > c.size {
+		return nil, buf, false, nil
+	}
+	if cap(buf) < length {
+		buf = make([]byte, length)
+	}
+	buf = buf[:length]
+	got, err := c.reader.ReadAt(buf, pos)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, buf, false, err
+	}
+	if got != length {
+		return nil, buf, false, io.ErrUnexpectedEOF
+	}
+	return buf, buf, true, nil
+}
+
 // indexFor returns the cached complete index for a prefix key, or nil when
 // the prefix has no index yet (or is marked OOM).
 func (c *streamMatchCache) indexFor(oomKey uint32) *streamPrefixIndex {
@@ -443,9 +477,9 @@ func (c *streamMatchCache) prefixIndexes(ctx context.Context, keys []uint32) (ma
 
 // scanPrefixIndexes enumerates the occurrences of every requested prefix in
 // one bounded forward pass, recording each absolute position and the number
-// of newlines before it. A prefix that exceeds streamPrefixIndexCap
-// occurrences yields a nil index; so does every pending prefix once the
-// total recorded positions exceeds the cap.
+// of newlines before it. Exhausting the shared position budget discards
+// the pending build; cached indexes remain valid. Sample usage is committed
+// only on success, so errors and cancellation leave the cache unchanged.
 func (c *streamMatchCache) scanPrefixIndexes(ctx context.Context, oomKeys []uint32) (map[uint32]*streamPrefixIndex, error) {
 	singles := make(map[byte]uint32, len(oomKeys))
 	pairs := make(map[uint16]uint32, len(oomKeys))
@@ -460,25 +494,17 @@ func (c *streamMatchCache) scanPrefixIndexes(ctx context.Context, oomKeys []uint
 	}
 	const blockSize = 64 << 10
 	buffer := make([]byte, blockSize+1)
-	var lineCount int32
+	var lineCount int
 	var positionsThisBuild int64
-	keySampleBytes := make(map[uint32]int64, len(oomKeys))
-	drop := func(k uint32) {
-		if indexes[k] == nil {
-			return
-		}
-		positionsThisBuild -= int64(len(indexes[k].positions))
-		c.indexSampleBytes -= keySampleBytes[k]
-		delete(keySampleBytes, k)
-		indexes[k] = nil
-	}
+	sampleBytes := c.indexSampleBytes
 	budgetExceeded := func() bool {
 		return c.indexedPositions+positionsThisBuild >= streamPrefixIndexTotalCap
 	}
 	dropAll := func() {
 		for pending := range indexes {
-			drop(pending)
+			indexes[pending] = nil
 		}
+		sampleBytes = c.indexSampleBytes
 	}
 record:
 	for start := int64(0); start < c.size; {
@@ -521,7 +547,7 @@ record:
 					indexes[k].positions = append(indexes[k].positions, pos)
 					indexes[k].newlines = append(indexes[k].newlines, lineCount)
 					positionsThisBuild++
-					if c.indexSampleBytes+streamPrefixIndexSampleLen <= streamPrefixIndexSampleBytes {
+					if sampleBytes+streamPrefixIndexSampleLen <= streamPrefixIndexSampleBytes {
 						end := j + streamPrefixIndexSampleLen
 						if end > got {
 							end = got
@@ -529,14 +555,7 @@ record:
 						sample := make([]byte, end-j)
 						copy(sample, data[j:end])
 						indexes[k].samples = append(indexes[k].samples, sample)
-						c.indexSampleBytes += int64(len(sample))
-						keySampleBytes[k] += int64(len(sample))
-					} else {
-						indexes[k].samples = append(indexes[k].samples, nil)
-					}
-					if len(indexes[k].positions) > streamPrefixIndexCap {
-						drop(k)
-						delete(pairs, uint16(k))
+						sampleBytes += int64(len(sample))
 					}
 				}
 			}
@@ -548,7 +567,7 @@ record:
 				indexes[k].positions = append(indexes[k].positions, pos)
 				indexes[k].newlines = append(indexes[k].newlines, lineCount)
 				positionsThisBuild++
-				if c.indexSampleBytes+streamPrefixIndexSampleLen <= streamPrefixIndexSampleBytes {
+				if sampleBytes+streamPrefixIndexSampleLen <= streamPrefixIndexSampleBytes {
 					end := j + streamPrefixIndexSampleLen
 					if end > got {
 						end = got
@@ -556,14 +575,7 @@ record:
 					sample := make([]byte, end-j)
 					copy(sample, data[j:end])
 					indexes[k].samples = append(indexes[k].samples, sample)
-					c.indexSampleBytes += int64(len(sample))
-					keySampleBytes[k] += int64(len(sample))
-				} else {
-					indexes[k].samples = append(indexes[k].samples, nil)
-				}
-				if len(indexes[k].positions) > streamPrefixIndexCap {
-					drop(k)
-					delete(singles, b)
+					sampleBytes += int64(len(sample))
 				}
 			}
 			if b == '\n' {
@@ -572,6 +584,7 @@ record:
 		}
 		start += int64(end)
 	}
+	c.indexSampleBytes = sampleBytes
 	return indexes, nil
 }
 
@@ -778,10 +791,26 @@ func (c *streamMatchCache) resolveIndexGroups(ctx context.Context, groups map[ui
 			}
 			continue
 		}
-		rawBytes := make(map[string][]byte, len(keys))
+		lengthGroups := make(map[int]*streamRawGroup)
+		lengths := make([]int, 0, len(keys))
+		var prefix []byte
 		for _, key := range keys {
-			rawBytes[key] = []byte(key)
+			if prefix == nil {
+				prefix = []byte(key)
+			} else {
+				prefix = commonPrefix(prefix, key)
+			}
+			length := len(key)
+			lengthGroup := lengthGroups[length]
+			if lengthGroup == nil {
+				lengthGroup = &streamRawGroup{length: length, patterns: make(map[string]string)}
+				lengthGroups[length] = lengthGroup
+				lengths = append(lengths, length)
+			}
+			lengthGroup.patterns[key] = key
 		}
+		slices.Sort(lengths)
+		var readBuffer []byte
 		remaining := len(keys)
 		for i, pos := range index.positions {
 			if remaining == 0 {
@@ -790,15 +819,21 @@ func (c *streamMatchCache) resolveIndexGroups(ctx context.Context, groups map[ui
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			for _, key := range keys {
-				if _, resolved := c.values[key]; resolved {
-					continue
-				}
-				matched, err := c.indexMatchAt(index, i, pos, rawBytes[key])
+			for _, length := range lengths {
+				lengthGroup := lengthGroups[length]
+				candidate, buf, available, err := c.indexCandidateAt(index, i, pos, length, prefix, readBuffer)
+				readBuffer = buf
 				if err != nil {
 					return err
 				}
+				if !available {
+					continue
+				}
+				key, matched := lengthGroup.patterns[string(candidate)]
 				if matched {
+					if _, resolved := c.values[key]; resolved {
+						continue
+					}
 					c.values[key] = streamMatch{offset: pos, newlineCount: int(index.newlines[i]), found: true}
 					remaining--
 				}

@@ -957,10 +957,18 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 			continue
 		} else if from == nil {
 			if to.Size > maxBlobSize {
-				segments, err = s.streamAddedText(ctx, to)
+				reader, err := to.Reader()
 				if err != nil {
+					return fmt.Errorf("git: open large added text %s at %s: %w", path, c.Hash, err)
+				}
+				streamErr := streamBlob(ctx, reader, to.Size, func(segment diffSegment) error {
+					return emitSegment(ctx, segment)
+				})
+				closeErr := reader.Close()
+				if err := errors.Join(streamErr, closeErr); err != nil {
 					return fmt.Errorf("git: stream large added text %s at %s: %w", path, c.Hash, err)
 				}
+				continue
 			} else {
 				data, ok := readBlob(to)
 				if ok {
@@ -1391,36 +1399,6 @@ func (s *Source) pathAllowed(path string) bool {
 // would only produce noisy false detector hits.
 func readBlob(f *object.File) ([]byte, bool) {
 	return readBlobLimit(f, maxBlobSize)
-}
-
-// streamAddedText mirrors the native appendFile policy: a locally present
-// text blob added whole is emitted in chunk windows whatever its size — the
-// artifact ceiling only bounds binary spooling. A binary sniff keeps the
-// previous skip behavior for oversized binary payloads.
-func (s *Source) streamAddedText(ctx context.Context, to *object.File) ([]diffSegment, error) {
-	r, err := to.Reader()
-	if err != nil {
-		return nil, err
-	}
-	defer r.Close()
-	sniff := make([]byte, binarySniffLen)
-	n, err := io.ReadFull(r, sniff)
-	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return nil, err
-	}
-	sniff = sniff[:n]
-	if bytes.IndexByte(sniff, 0) >= 0 {
-		return nil, nil
-	}
-	var segments []diffSegment
-	emit := func(segment diffSegment) error {
-		segments = append(segments, segment)
-		return nil
-	}
-	if err := streamBlob(ctx, io.MultiReader(bytes.NewReader(sniff), r), to.Size, emit); err != nil {
-		return nil, err
-	}
-	return segments, nil
 }
 
 func readBlobLimit(f *object.File, limit int64) ([]byte, bool) {

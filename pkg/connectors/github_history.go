@@ -696,14 +696,9 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 		return githubRepoIncrementalState{}, err
 	}
 
-	gitCfg, err := githubGitArtifactConfig(cfg)
-	if err != nil {
-		return githubRepoIncrementalState{}, err
-	}
-
 	cloneStart := time.Now()
 	progress := &cloneProgressWriter{repoKey: repoKey, interval: githubHeartbeatInterval}
-	usedNative, err := cloneRepoBare(ctx, cloneURL, dir, token, githubCloneBlobFilterBytes(gitCfg), progress)
+	usedNative, err := cloneRepoBare(ctx, cloneURL, dir, token, progress)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return githubRepoIncrementalState{}, err
@@ -753,6 +748,10 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 
 	visibility := githubVisibility(repo)
 	src := &gitsource.Source{}
+	gitCfg, err := githubGitArtifactConfig(cfg)
+	if err != nil {
+		return githubRepoIncrementalState{}, err
+	}
 	gitCfg.Repo, gitCfg.AllBranches = dir, true
 	raw, err := json.Marshal(gitCfg)
 	if err != nil {
@@ -1162,26 +1161,6 @@ func filterGitHubPullRefs(refs []*plumbing.Reference, maxReturnedRefs, maxReturn
 	return out, nil
 }
 
-// githubCloneBlobFilterFloor is the smallest blob ceiling a native clone
-// filters at: the 50 MiB blob cap the git source itself applies to text
-// objects. When the configured artifact ceiling is higher (e.g. binary or
-// archive scanning with a raised git_artifact_max_bytes), that configured
-// ceiling wins so nothing the walk could still emit is omitted.
-const githubCloneBlobFilterFloor int64 = 50 << 20
-
-func githubCloneBlobFilterBytes(gitCfg gitsource.Config) int64 {
-	limit := gitCfg.GitArtifactMaxBytes
-	if limit <= 0 || limit < githubCloneBlobFilterFloor {
-		limit = githubCloneBlobFilterFloor
-	}
-	// blob:limit=N omits blobs strictly larger than N while the scanner
-	// emits blobs of at most N bytes — the filter is exclusive, the
-	// scanner's ceiling inclusive — so retain one byte past the ceiling to
-	// keep boundary-size blobs and keep the offline walk's "missing implies
-	// out of scope" guarantee airtight.
-	return limit + 1
-}
-
 // cloneRepoBare clones cloneURL into dir as a bare repo, preferring an exec
 // of the native git binary over go-git's in-process client (issue #265).
 //
@@ -1189,23 +1168,21 @@ func githubCloneBlobFilterBytes(gitCfg gitsource.Config) int64 {
 // construction — inside the git subprocess, so a multi-GB history costs that
 // subprocess's memory, not this process's. go-git's PlainCloneContext
 // materializes delta resolution in-process instead, which is the memory
-// scaling problem #265 reports. When blobLimitBytes is positive the native
-// clone also passes --filter=blob:limit, so blobs above the scanner's
-// artifact ceiling are never transferred; the git source detects the
-// promisor config and runs its offline walker (pkg/sources/git/offline.go),
-// which enumerates changes at tree level and reads only locally present
-// objects — clone credentials stay ephemeral and the walk runs with lazy
-// fetching disabled, so omitted objects can never trigger a demand-fetch.
+// scaling problem #265 reports. The native clone intentionally remains
+// complete: a size filter can omit scannable text regardless of the binary
+// artifact ceiling. The offline walker reports such omissions as degraded
+// coverage; automatic filtering awaits the coverage and scale gates in #378.
+// Clone credentials are ephemeral and the walk never demand-fetches.
 //
 // go-git remains the fallback for environments without a `git` binary on
 // PATH (e.g. a from-scratch pure-Go build/container) so those keep working,
 // just without the memory or filter improvement. Returns which path ran.
-func cloneRepoBare(ctx context.Context, cloneURL, dir, token string, blobLimitBytes int64, progress io.Writer) (usedNative bool, err error) {
+func cloneRepoBare(ctx context.Context, cloneURL, dir, token string, progress io.Writer) (usedNative bool, err error) {
 	gitBin, lookErr := exec.LookPath("git")
 	if lookErr != nil {
 		return false, cloneWithGoGit(ctx, cloneURL, dir, token, progress)
 	}
-	return true, cloneWithNativeGit(ctx, gitBin, cloneURL, dir, token, blobLimitBytes, progress)
+	return true, cloneWithNativeGit(ctx, gitBin, cloneURL, dir, token, progress)
 }
 
 // cloneMethodLabel renders cloneRepoBare's choice for the done-clone log line.
@@ -1244,8 +1221,8 @@ func cloneWithGoGit(ctx context.Context, cloneURL, dir, token string, progress i
 // redactCloneError additionally scrubs the token from any returned error as
 // defense-in-depth, though git's own fatal/remote messages already omit
 // credentials.
-func cloneWithNativeGit(ctx context.Context, gitBin, cloneURL, dir, token string, blobLimitBytes int64, progress io.Writer) error {
-	cmd := exec.CommandContext(ctx, gitBin, nativeGitCloneArgs(cloneURL, dir, blobLimitBytes)...)
+func cloneWithNativeGit(ctx context.Context, gitBin, cloneURL, dir, token string, progress io.Writer) error {
+	cmd := exec.CommandContext(ctx, gitBin, nativeGitCloneArgs(cloneURL, dir)...)
 	var diagnostic bytes.Buffer
 	cmd.Stderr = io.MultiWriter(progress, &diagnostic)
 	// Never prompt interactively: a hung terminal prompt on a bad/expired
@@ -1275,23 +1252,16 @@ func redactCloneDiagnostic(detail, token string) string {
 
 // nativeGitCloneArgs builds the argv for the native mirror clone. Split out
 // from cloneWithNativeGit so the exact flags and ordering can be asserted in
-// a unit test without executing git. blobLimitBytes > 0 adds a blob:limit
-// partial-clone filter; the token is never part of argv (see
-// nativeGitAuthEnv).
-func nativeGitCloneArgs(cloneURL, dir string, blobLimitBytes int64) []string {
-	args := []string{
+// a unit test without executing git.
+func nativeGitCloneArgs(cloneURL, dir string) []string {
+	return []string{
 		"clone",
 		"--mirror",
 		"--progress",
-	}
-	if blobLimitBytes > 0 {
-		args = append(args, "--filter=blob:limit="+strconv.FormatInt(blobLimitBytes, 10))
-	}
-	return append(args,
 		"--",
 		cloneURL,
 		dir,
-	)
+	}
 }
 
 // nativeGitAuthEnv returns the GIT_CONFIG_* environment entries that hand

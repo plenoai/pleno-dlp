@@ -297,7 +297,7 @@ func TestCloneRepoBareFallsBackWithoutGitBinary(t *testing.T) {
 
 	t.Setenv("PATH", t.TempDir()) // a dir with no `git` binary in it
 
-	usedNative, err := cloneRepoBare(context.Background(), fixture, dir, "", 0, io.Discard)
+	usedNative, err := cloneRepoBare(context.Background(), fixture, dir, "", io.Discard)
 	if usedNative {
 		t.Fatalf("cloneRepoBare reported native git despite an empty PATH (err=%v)", err)
 	}
@@ -312,7 +312,7 @@ func TestCloneRepoBareNativeProducesCompleteMirror(t *testing.T) {
 	fixture := gitCloneFixtureRepo(t)
 	dir := t.TempDir()
 
-	usedNative, err := cloneRepoBare(context.Background(), fixture, dir, "", 0, io.Discard)
+	usedNative, err := cloneRepoBare(context.Background(), fixture, dir, "", io.Discard)
 	if err != nil {
 		t.Fatalf("cloneRepoBare native: %v", err)
 	}
@@ -333,7 +333,7 @@ func TestCloneRepoBareNativeProducesCompleteMirror(t *testing.T) {
 // argv is always the clean one — auth travels via the child environment
 // (see nativeGitAuthEnv), never argv.
 func TestNativeGitCloneArgs(t *testing.T) {
-	got := nativeGitCloneArgs("https://github.com/acme/widget.git", "/tmp/clone-dir", 0)
+	got := nativeGitCloneArgs("https://github.com/acme/widget.git", "/tmp/clone-dir")
 	want := []string{
 		"clone",
 		"--mirror",

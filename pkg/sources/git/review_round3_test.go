@@ -2,6 +2,8 @@ package git
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -10,6 +12,8 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+
+	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
 func TestReviewLargeRetainedTextWithExcludedOmission(t *testing.T) {
@@ -43,6 +47,135 @@ func TestReviewLargeRetainedTextWithExcludedOmission(t *testing.T) {
 				t.Fatal("locally retained scannable text was silently omitted")
 			}
 		})
+	}
+}
+
+func TestReviewGoGitLargeAddedTextStreamsAndCancels(t *testing.T) {
+	const marker = "review_go_git_large_added_boundary_marker"
+	payload := bytes.Repeat([]byte{'x'}, int(maxBlobSize+maxDiffChunkSize)+len(marker))
+	copy(payload[maxDiffChunkSize-4:], marker)
+	repoPath, hashes := buildRepo(t, []commitSpec{{files: map[string]string{
+		"large.txt": string(payload),
+	}, msg: "large go-git addition"}})
+	repo, err := openBoundedRepository(repoPath, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit, err := repo.CommitObject(plumbing.NewHash(hashes[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Repo: repoPath})
+	chunks := make(chan *sources.Chunk)
+	var count, maxChunk int
+	found := false
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for chunk := range chunks {
+			count++
+			if len(chunk.Data) > maxChunk {
+				maxChunk = len(chunk.Data)
+			}
+			found = found || bytes.Contains(chunk.Data, []byte(marker))
+		}
+	}()
+	if err := s.emitCommit(context.Background(), commit, chunks); err != nil {
+		close(chunks)
+		<-done
+		t.Fatal(err)
+	}
+	close(chunks)
+	<-done
+	if !found {
+		t.Fatal("large added text boundary canary was not emitted")
+	}
+	if count < 2 || maxChunk > maxDiffChunkSize {
+		t.Fatalf("chunks=%d max_chunk=%d, want streamed chunks <= %d", count, maxChunk, maxDiffChunkSize)
+	}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancelChunks := make(chan *sources.Chunk)
+	cancelDone := make(chan struct{})
+	go func() {
+		defer close(cancelDone)
+		if _, ok := <-cancelChunks; ok {
+			cancel()
+		}
+		for range cancelChunks {
+		}
+	}()
+	cancelErr := s.emitCommit(canceled, commit, cancelChunks)
+	close(cancelChunks)
+	<-cancelDone
+	if !errors.Is(cancelErr, context.Canceled) {
+		t.Fatalf("canceled large added text error=%v, want context canceled", cancelErr)
+	}
+}
+
+func TestReviewOfflineMultipleMergeResolutions(t *testing.T) {
+	dir := t.TempDir()
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	commitOn(t, repo, map[string]string{"base.txt": "base\n"}, "base", base)
+	head, err := repo.Head()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainBranch := head.Name()
+	checkoutNewBranch(t, repo, "feature-one")
+	featureOne := commitOn(t, repo, map[string]string{"feature-one.txt": "one\n"}, "feature one", base.Add(time.Minute))
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wt.Checkout(&gogit.CheckoutOptions{Branch: mainBranch}); err != nil {
+		t.Fatal(err)
+	}
+	mainOne := commitOn(t, repo, map[string]string{"main-one.txt": "one\n"}, "main one", base.Add(2*time.Minute))
+	mergeOne := commitMerge(t, repo, map[string]string{"resolution-one.txt": "one resolution\n"}, "merge one", base.Add(3*time.Minute), plumbing.NewHash(mainOne), plumbing.NewHash(featureOne))
+
+	checkoutNewBranch(t, repo, "feature-two")
+	featureTwo := commitOn(t, repo, map[string]string{"feature-two.txt": "two\n"}, "feature two", base.Add(4*time.Minute))
+	wt, err = repo.Worktree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wt.Checkout(&gogit.CheckoutOptions{Branch: mainBranch}); err != nil {
+		t.Fatal(err)
+	}
+	mainTwo := commitOn(t, repo, map[string]string{"main-two.txt": "two\n"}, "main two", base.Add(5*time.Minute))
+	mergeTwo := commitMerge(t, repo, map[string]string{"resolution-two.txt": "two resolution\n"}, "merge two", base.Add(6*time.Minute), plumbing.NewHash(mainTwo), plumbing.NewHash(featureTwo))
+
+	dst := reviewClone(t, dir, "blob:limit=52428801")
+	s := &Source{}
+	mustInit(t, s, Config{Repo: dst})
+	got, err := drain(t, s, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"resolution-one.txt": mergeOne, "resolution-two.txt": mergeTwo}
+	seen := map[string]int{}
+	for _, chunk := range got {
+		meta := chunk.SourceMetadata.Git
+		if meta == nil {
+			continue
+		}
+		if expected, ok := want[meta.File]; ok {
+			seen[meta.File]++
+			if meta.Commit != expected {
+				t.Fatalf("%s attributed to %s, want %s", meta.File, meta.Commit, expected)
+			}
+		}
+	}
+	for file := range want {
+		if seen[file] != 1 {
+			t.Fatalf("%s emitted %d times, want once; files=%v", file, seen[file], filesOf(got))
+		}
 	}
 }
 
@@ -100,9 +233,9 @@ func TestReviewPartialMergeOmissionFlags(t *testing.T) {
 	commitMerge(t, repo, map[string]string{"feature.txt": "branch-only\n", "resolution.txt": "merge-only\n"}, "merge", base.Add(3*time.Minute), plumbing.NewHash(main), plumbing.NewHash(feature))
 	dst := reviewClone(t, dir, "blob:limit=52428801")
 	for _, mode := range []struct {
-		name             string
-		skip, compatible bool
-	}{{"skip-merges", true, false}, {"compatible", false, true}} {
+		name                        string
+		skip, compatible, wantMerge bool
+	}{{"default", false, false, true}, {"skip-merges", true, false, false}, {"compatible", false, true, false}} {
 		for _, clone := range []struct{ name, dir string }{{"complete", dir}, {"filtered", dst}} {
 			t.Run(mode.name+"/"+clone.name, func(t *testing.T) {
 				s := &Source{}
@@ -112,8 +245,8 @@ func TestReviewPartialMergeOmissionFlags(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if filesOf(got)["resolution.txt"] {
-					t.Fatal("merge-only content emitted despite omit-merge policy")
+				if gotMerge := filesOf(got)["resolution.txt"]; gotMerge != mode.wantMerge {
+					t.Fatalf("resolution.txt emitted=%t, want %t", gotMerge, mode.wantMerge)
 				}
 			})
 		}
