@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math/rand"
+
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"testing"
 )
 
@@ -121,5 +124,87 @@ func TestLazyRawObservationBootstrapCancellation(t *testing.T) {
 	}
 	if cache.observationActive || cache.firstPair != nil {
 		t.Fatal("canceled bootstrap activated observation")
+	}
+}
+
+type randomPrefixWindowDetector struct{}
+
+func (*randomPrefixWindowDetector) Type() detectors.DetectorType { return detectors.AWS }
+func (*randomPrefixWindowDetector) Keywords() []string           { return []string{"raw-test:"} }
+func (*randomPrefixWindowDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	var results []detectors.Result
+	for {
+		at := bytes.Index(data, []byte("raw-test:"))
+		if at < 0 || at+9+16 > len(data) {
+			return results, nil
+		}
+		results = append(results, detectors.Result{DetectorType: detectors.AWS, Raw: data[at+9 : at+9+16]})
+		data = data[at+9+16:]
+	}
+}
+
+func TestLazyObservationBoundsRawWindowDispatchReads(t *testing.T) {
+	const size, count = 2 << 20, 1536
+	for _, test := range []struct {
+		name   string
+		stride int
+		budget int64
+	}{
+		{"rare prefixes", 512, size / 2},
+		// This layout includes raws whose prefix also occurs in the repeated
+		// detector marker, requiring the bounded shared-scan fallback.
+		{"marker prefix collision", 1024, size},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			data := make([]byte, size)
+			rand.New(rand.NewSource(1)).Read(data)
+			wanted := make(map[string]int, count)
+			for i := 0; i < count; i++ {
+				offset := i*test.stride + 31
+				copy(data[offset-9:], "raw-test:")
+				wanted[string(data[offset:offset+16])] = offset
+			}
+			reader := bytes.NewReader(data)
+			positionReader := &countingReaderAt{reader: reader}
+			cache := newStreamMatchCache(positionReader, size)
+			batch := &streamFindingBatch{}
+			cache.pending = batch
+			sink := &engineRecordingSink{}
+			eng := NewWithDetectors([]detectors.Detector{&randomPrefixWindowDetector{}}, Options{Concurrency: 1}, sink)
+			chunk := lazyReaderChunk(data, "/fixture/lazy-observation.txt")
+			var lower []byte
+			// The production window/dispatch/batch path creates every hint itself.
+			// Separate wrappers over the same bytes count attribution reads only.
+			if err := eng.scanVariantWindowsReader(context.Background(), chunk, "", reader, size, "", &lower, make([]byte, maxWindowSize), cache); err != nil {
+				t.Fatal(err)
+			}
+			cache.pending = nil
+			batch.flush(context.Background(), eng, chunk, cache)
+			if err := eng.takeFailures(); err != nil {
+				t.Fatal(err)
+			}
+			if !cache.observationActive {
+				t.Fatal("raw dispatch did not activate observation")
+			}
+			seen := make(map[string]struct{}, count)
+			for _, finding := range sink.Findings() {
+				raw := string(finding.Result.Raw)
+				offset, ok := wanted[raw]
+				if !ok || finding.RawSpan == nil || *finding.RawSpan != [2]int{offset, offset + 16} {
+					t.Fatalf("unexpected raw/span: known=%v span=%v", ok, finding.RawSpan)
+				}
+				if line := finding.Chunk.SourceMetadata.Filesystem.Line; line != 1+bytes.Count(data[:offset], []byte{'\n'}) {
+					t.Fatalf("line=%d at offset %d", line, offset)
+				}
+				seen[raw] = struct{}{}
+			}
+			if len(seen) != count {
+				t.Fatalf("unique raws=%d, want %d", len(seen), count)
+			}
+			if got := positionReader.bytes.Load(); got > test.budget {
+				t.Fatalf("position reads=%d, want <=%d across raw dispatch batches", got, test.budget)
+			}
+			t.Logf("position reads: bytes=%d calls=%d for %d distinct raws", positionReader.bytes.Load(), positionReader.calls.Load(), len(seen))
+		})
 	}
 }
