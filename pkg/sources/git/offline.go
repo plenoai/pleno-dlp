@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -263,25 +264,31 @@ func (r *offlineCatFileRead) close() {
 // offlineEnum pipes the streamed commit list into one `git diff-tree
 // --stdin --raw` process. Raw enumeration is tree-level only, so
 // promisor-omitted blobs cannot abort it. Commits are matched to their raw
-// records by hash rather than by position — diff-tree does not echo every
-// commit (empty commits can produce no records) — and no per-commit
+// records by hash rather than by position — an echoed commit can have no raw
+// records — and no per-commit
 // collections are retained: only the in-flight queue and the current
 // commit's own entry list live in memory, so the walk is not O(history).
 type offlineEnum struct {
-	commits chan nativeCommit
-	raw     *bufio.Reader
-	rawCmd  *exec.Cmd
-	rawErr  *limitedWriter
-	pumpErr chan error
-	done    chan struct{}
+	commits     chan nativeCommit
+	raw         *bufio.Reader
+	rawCmd      *exec.Cmd
+	rawStdin    io.WriteCloser
+	rawErr      *limitedWriter
+	pumpErr     chan error
+	done        chan struct{}
+	cancel      context.CancelFunc
+	closeOnce   sync.Once
+	rawWaitOnce sync.Once
+	rawWaitErr  error
 }
 
 // startOfflineEnum launches `git log --no-patch` and `git diff-tree --stdin
-// --raw` and starts a pump that feeds each non-merge commit hash to
+// --raw` and starts a pump that feeds each commit hash to
 // diff-tree in log order while pushing the parsed commit to the consumer.
 // Merge commits are collected separately — they need the combined-diff
 // pass, not a raw first-parent diff.
 func (s *Source) startOfflineEnum(ctx context.Context, gitBin string, starts, stops []plumbing.Hash) (*offlineEnum, error) {
+	enumCtx, cancel := context.WithCancel(ctx)
 	logArgs := []string{
 		"-C", s.repoAbs,
 		"log",
@@ -299,10 +306,11 @@ func (s *Source) startOfflineEnum(ctx context.Context, gitBin string, starts, st
 		logArgs = append(logArgs, "--since-as-filter=@"+strconv.FormatInt(s.since.Unix(), 10))
 	}
 	logArgs = append(logArgs, "--stdin", "--")
-	logCmd := exec.CommandContext(ctx, gitBin, logArgs...)
+	logCmd := exec.CommandContext(enumCtx, gitBin, logArgs...)
 	logCmd.Stdin = strings.NewReader(nativeRevisionInput(starts, stops))
 	logStdout, err := logCmd.StdoutPipe()
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("git: offline commit list stdout: %w", err)
 	}
 	var logStderr limitedWriter
@@ -310,10 +318,18 @@ func (s *Source) startOfflineEnum(ctx context.Context, gitBin string, starts, st
 	logCmd.Stderr = &logStderr
 	logCmd.Env = nativeGitEnv()
 	if err := logCmd.Start(); err != nil {
+		cancel()
 		return nil, fmt.Errorf("git: start offline commit list: %w", err)
 	}
+	stopLog := func() {
+		cancel()
+		if logCmd.Process != nil {
+			_ = logCmd.Process.Kill()
+		}
+		_ = logCmd.Wait()
+	}
 
-	rawCmd := exec.CommandContext(ctx, gitBin,
+	rawCmd := exec.CommandContext(enumCtx, gitBin,
 		"-C", s.repoAbs,
 		"diff-tree",
 		"--stdin",
@@ -328,15 +344,13 @@ func (s *Source) startOfflineEnum(ctx context.Context, gitBin string, starts, st
 	)
 	rawStdin, err := rawCmd.StdinPipe()
 	if err != nil {
-		_ = logCmd.Process.Kill()
-		_ = logCmd.Wait()
+		stopLog()
 		return nil, fmt.Errorf("git: offline raw stdin: %w", err)
 	}
 	rawStdout, err := rawCmd.StdoutPipe()
 	if err != nil {
 		_ = rawStdin.Close()
-		_ = logCmd.Process.Kill()
-		_ = logCmd.Wait()
+		stopLog()
 		return nil, fmt.Errorf("git: offline raw stdout: %w", err)
 	}
 	var rawStderr limitedWriter
@@ -345,73 +359,79 @@ func (s *Source) startOfflineEnum(ctx context.Context, gitBin string, starts, st
 	rawCmd.Env = nativeGitEnv()
 	if err := rawCmd.Start(); err != nil {
 		_ = rawStdin.Close()
-		_ = logCmd.Process.Kill()
-		_ = logCmd.Wait()
+		stopLog()
 		return nil, fmt.Errorf("git: start offline raw: %w", err)
 	}
 
 	enum := &offlineEnum{
-		commits: make(chan nativeCommit, 1024),
-		raw:     bufio.NewReaderSize(rawStdout, 256<<10),
-		rawCmd:  rawCmd,
-		rawErr:  &rawStderr,
-		pumpErr: make(chan error, 1),
-		done:    make(chan struct{}),
+		commits:  make(chan nativeCommit, 1024),
+		raw:      bufio.NewReaderSize(rawStdout, 256<<10),
+		rawCmd:   rawCmd,
+		rawStdin: rawStdin,
+		rawErr:   &rawStderr,
+		pumpErr:  make(chan error, 1),
+		done:     make(chan struct{}),
+		cancel:   cancel,
 	}
 	go func() {
 		defer close(enum.done)
 		defer close(enum.commits)
 		defer rawStdin.Close()
 		reader := bufio.NewReaderSize(logStdout, 256<<10)
-		for {
-			line, err := reader.ReadSlice('\n')
-			if len(line) > 0 && line[0] == nativeRecordSeparator {
-				commit, parseErr := parseNativeCommit(line)
-				if parseErr != nil {
-					enum.pumpErr <- fmt.Errorf("git: parse offline commit list: %w", parseErr)
-					return
+		pumpErr := func() error {
+			for {
+				line, err := reader.ReadSlice('\n')
+				if len(line) > 0 && line[0] == nativeRecordSeparator {
+					commit, parseErr := parseNativeCommit(line)
+					if parseErr != nil {
+						return fmt.Errorf("git: parse offline commit list: %w", parseErr)
+					}
+					// Feed every commit — merges included: diff-tree --always
+					// echoes each ID, which is the consumer's progress signal
+					// and keeps the bounded queue draining in lockstep.
+					if _, err := fmt.Fprintln(rawStdin, commit.hash); err != nil {
+						return fmt.Errorf("git: feed offline raw stdin: %w", err)
+					}
+					select {
+					case enum.commits <- commit:
+					case <-enumCtx.Done():
+						return enumCtx.Err()
+					}
 				}
-				// Feed every commit — merges included: diff-tree --always
-				// echoes each ID, which is the consumer's progress signal
-				// and keeps the bounded queue draining in lockstep.
-				if _, err := fmt.Fprintln(rawStdin, commit.hash); err != nil {
-					enum.pumpErr <- fmt.Errorf("git: feed offline raw stdin: %w", err)
-					return
+				if err != nil {
+					if !errors.Is(err, io.EOF) {
+						return fmt.Errorf("git: read offline commit list: %w", err)
+					}
+					break
 				}
-				select {
-				case enum.commits <- commit:
-				case <-ctx.Done():
-					enum.pumpErr <- ctx.Err()
-					return
+				if err := enumCtx.Err(); err != nil {
+					return err
 				}
 			}
-			if err != nil {
-				if !errors.Is(err, io.EOF) {
-					enum.pumpErr <- fmt.Errorf("git: read offline commit list: %w", err)
-					return
-				}
-				break
-			}
-			if err := ctx.Err(); err != nil {
-				enum.pumpErr <- err
-				return
-			}
+			return nil
+		}()
+		if pumpErr != nil {
+			cancel()
 		}
-		if err := logCmd.Wait(); err != nil {
+		logErr := logCmd.Wait()
+		if pumpErr == nil && logErr != nil {
 			detail := strings.TrimSpace(logStderr.String())
 			if detail != "" {
-				enum.pumpErr <- fmt.Errorf("git: offline commit list: %w: %s", err, detail)
+				pumpErr = fmt.Errorf("git: offline commit list: %w: %s", logErr, detail)
 			} else {
-				enum.pumpErr <- fmt.Errorf("git: offline commit list: %w", err)
+				pumpErr = fmt.Errorf("git: offline commit list: %w", logErr)
 			}
+		}
+		if pumpErr != nil {
+			enum.pumpErr <- pumpErr
 		}
 	}()
 	return enum, nil
 }
 
 // nextCommit pops queued commits until the one matching echo is found.
-// Commits whose raw output produced no echo — empty commits — are passed
-// through the empty callback so the caller can emit them as change-free.
+// Any queued commits preceding that echo pass through the empty callback
+// so the caller preserves coverage even if Git omits an empty record.
 func (e *offlineEnum) nextCommit(echo string, empty func(nativeCommit) error) (nativeCommit, error) {
 	// The commits channel is buffered: drain it fully before declaring the
 	// stream ended — a closed channel is the only reliable end marker here.
@@ -429,12 +449,24 @@ func (e *offlineEnum) nextCommit(echo string, empty func(nativeCommit) error) (n
 	}
 }
 
-// close kills the raw process; safe to call once the walk is done.
+func (e *offlineEnum) waitRaw() error {
+	e.rawWaitOnce.Do(func() {
+		e.rawWaitErr = e.rawCmd.Wait()
+	})
+	return e.rawWaitErr
+}
+
+// close owns cancellation and process cleanup for the whole enumeration.
 func (e *offlineEnum) close() {
-	if e.rawCmd.Process != nil {
-		_ = e.rawCmd.Process.Kill()
-	}
-	_ = e.rawCmd.Wait()
+	e.closeOnce.Do(func() {
+		e.cancel()
+		_ = e.rawStdin.Close()
+		if e.rawCmd.Process != nil {
+			_ = e.rawCmd.Process.Kill()
+		}
+		_ = e.waitRaw()
+		<-e.done
+	})
 }
 
 // offlineWalk accumulates the bounded walk state — skips, degraded
@@ -612,8 +644,8 @@ func (s *Source) chunksOffline(ctx context.Context, repo *gogit.Repository, gitB
 			return err
 		}
 	}
-	// Commits diff-tree never echoed (empty commits) complete with no
-	// records; drain whatever the pump already delivered.
+	// Drain any queued commits left without raw records before checking
+	// the process results.
 drain:
 	for {
 		// Drain until the channel closes — it closes before enum.done, so
@@ -637,7 +669,7 @@ drain:
 		}
 	default:
 	}
-	if err := enum.rawCmd.Wait(); err != nil {
+	if err := enum.waitRaw(); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}

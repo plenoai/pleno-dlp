@@ -141,6 +141,11 @@ type streamMatchCache struct {
 	firstByte *[256]int64
 	restPair  map[uint16][]int64
 	restByte  map[byte][]int64
+	// Once a prefix has enough positions to force a complete index, its
+	// capped rest list never changes. Keep that state outside the maps so
+	// dense input stops doing a map lookup for every byte and pair.
+	restPairFull [65536]bool
+	restByteFull [256]bool
 	// pairIndex and byteIndex hold complete prefix-position indexes built
 	// lazily for prefixes whose capped rest list cannot enumerate every
 	// occurrence. All indexes a batch needs are computed in one shared
@@ -212,21 +217,29 @@ func (c *streamMatchCache) observeRawWindow(source string, data []byte, start in
 		pos := start + int64(i) + 1
 		if c.firstByte[b] == 0 {
 			c.firstByte[b] = pos
-		} else if c.restByte == nil || len(c.restByte[b]) < hintVerifyCandidateCap {
+		} else if !c.restByteFull[b] {
 			if c.restByte == nil {
 				c.restByte = make(map[byte][]int64)
 			}
-			c.restByte[b] = append(c.restByte[b], pos)
+			rest := append(c.restByte[b], pos)
+			c.restByte[b] = rest
+			if len(rest) >= hintVerifyCandidateCap {
+				c.restByteFull[b] = true
+			}
 		}
 		if i+1 < len(data) {
 			pair := uint16(b)<<8 | uint16(data[i+1])
 			if c.firstPair[pair] == 0 {
 				c.firstPair[pair] = pos
-			} else if c.restPair == nil || len(c.restPair[pair]) < hintVerifyCandidateCap {
+			} else if !c.restPairFull[pair] {
 				if c.restPair == nil {
 					c.restPair = make(map[uint16][]int64)
 				}
-				c.restPair[pair] = append(c.restPair[pair], pos)
+				rest := append(c.restPair[pair], pos)
+				c.restPair[pair] = rest
+				if len(rest) >= hintVerifyCandidateCap {
+					c.restPairFull[pair] = true
+				}
 			}
 		}
 	}
@@ -426,9 +439,9 @@ func (c *streamMatchCache) indexFor(oomKey uint32) *streamPrefixIndex {
 // prefixIndexes returns complete occurrence indexes for the given prefix
 // keys. Indexes already built are reused; all missing ones are built in a
 // single shared forward pass, so the reader is scanned at most once per call
-// no matter how many distinct prefixes are saturated. Keys whose occurrence
-// count exceeds the index cap — or whose combined index exceeds it — are
-// marked OOM and omitted; their raws keep the bounded shared scan.
+// no matter how many distinct prefixes are saturated. When the combined
+// position budget is exhausted, pending keys are marked OOM and their raws
+// keep the bounded shared scan.
 func (c *streamMatchCache) prefixIndexes(ctx context.Context, keys []uint32) (map[uint32]*streamPrefixIndex, error) {
 	out := make(map[uint32]*streamPrefixIndex, len(keys))
 	var missing []uint32
@@ -492,6 +505,23 @@ func (c *streamMatchCache) scanPrefixIndexes(ctx context.Context, oomKeys []uint
 			pairs[uint16(k)] = k
 		}
 	}
+	var fastPair uint16
+	var fastPairKey uint32
+	fastPairScan := len(pairs) == 1 && len(singles) == 0
+	if fastPairScan {
+		for pair, key := range pairs {
+			fastPair, fastPairKey = pair, key
+		}
+	}
+	fastPairPattern := []byte{byte(fastPair >> 8), byte(fastPair)}
+	var fastSingle byte
+	var fastSingleKey uint32
+	fastSingleScan := len(singles) == 1 && len(pairs) == 0
+	if fastSingleScan {
+		for single, key := range singles {
+			fastSingle, fastSingleKey = single, key
+		}
+	}
 	const blockSize = 64 << 10
 	buffer := make([]byte, blockSize+1)
 	var lineCount int
@@ -532,6 +562,65 @@ record:
 		}
 		if end <= 0 {
 			break
+		}
+		if fastPairScan || fastSingleScan {
+			searchEnd := end
+			if fastPairScan && end < got {
+				searchEnd++
+			}
+			var from, lineScan int
+			lineAt := lineCount
+			for {
+				var relative int
+				if fastPairScan {
+					relative = bytes.Index(data[from:searchEnd], fastPairPattern)
+				} else {
+					relative = bytes.IndexByte(data[from:end], fastSingle)
+				}
+				if relative < 0 {
+					break
+				}
+				j := from + relative
+				for lineScan < j {
+					if data[lineScan] == '\n' {
+						lineAt++
+					}
+					lineScan++
+				}
+				if budgetExceeded() {
+					dropAll()
+					break record
+				}
+				key := fastPairKey
+				if fastSingleScan {
+					key = fastSingleKey
+				}
+				index := indexes[key]
+				index.positions = append(index.positions, start+int64(j))
+				index.newlines = append(index.newlines, lineAt)
+				positionsThisBuild++
+				if sampleBytes+streamPrefixIndexSampleLen <= streamPrefixIndexSampleBytes {
+					sampleEnd := j + streamPrefixIndexSampleLen
+					if sampleEnd > got {
+						sampleEnd = got
+					}
+					sample := make([]byte, sampleEnd-j)
+					copy(sample, data[j:sampleEnd])
+					index.samples = append(index.samples, sample)
+					sampleBytes += int64(len(sample))
+				}
+				lineScan = j
+				from = j + 1
+			}
+			for lineScan < end {
+				if data[lineScan] == '\n' {
+					lineAt++
+				}
+				lineScan++
+			}
+			lineCount = lineAt
+			start += int64(end)
+			continue
 		}
 		for j := 0; j < end; j++ {
 			pos := start + int64(j)
@@ -1708,7 +1797,13 @@ func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decode
 func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, stream bool, r detectors.Result, matchCache *streamMatchCache, base streamWindowBase) {
 	d := e.dets[di]
 	var hint streamRawHint
-	if stream && base.ok && len(r.Raw) > 0 {
+	needHint := stream && base.ok && len(r.Raw) > 0
+	if needHint && matchCache != nil && matchCache.pending != nil && len(r.Raw) <= streamBatchMaxRaw && matchCache.prefixListFull(r.Raw) {
+		// Short raws in a saturated prefix group are resolved by the complete
+		// index/shared scan; resolve never consumes their window hint.
+		needHint = false
+	}
+	if needHint {
 		if idx := bytes.Index(v.Data, r.Raw); idx >= 0 {
 			hint = streamRawHint{
 				offset:   base.offset + int64(idx),

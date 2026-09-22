@@ -66,6 +66,30 @@ func TestDistinctSaturatedPrefixesDoNotRescanPerPrefix(t *testing.T) {
 	}
 }
 
+func TestSaturatedPrefixFastScanPreservesLineAttribution(t *testing.T) {
+	for _, raw := range [][]byte{[]byte("gh-target"), []byte("a")} {
+		t.Run(string(raw), func(t *testing.T) {
+			data := bytes.Repeat([]byte("gh\na\n"), hintVerifyCandidateCap+8)
+			offset := int64(len(data) - len(raw))
+			copy(data[offset:], raw)
+			cache := newStreamMatchCache(bytes.NewReader(data), int64(len(data)))
+			cache.observeRawWindow("", data, 0)
+			if err := cache.resolve(context.Background(), [][]byte{raw}, []streamRawHint{{offset: offset, ok: true}}); err != nil {
+				t.Fatalf("resolve: %v", err)
+			}
+			match, ok := cache.lookup(raw)
+			wantOffset := offset
+			if len(raw) == 1 {
+				wantOffset = int64(bytes.Index(data, raw))
+			}
+			wantLines := bytes.Count(data[:wantOffset], []byte{'\n'})
+			if !ok || !match.found || match.offset != wantOffset || match.newlineCount != wantLines {
+				t.Fatalf("match=%#v/%v, want offset=%d lines=%d", match, ok, wantOffset, wantLines)
+			}
+		})
+	}
+}
+
 // shortReaderAt reports data up to its real length only: a request that
 // extends past it returns a short count with io.EOF, like a reader lying
 // about its size.

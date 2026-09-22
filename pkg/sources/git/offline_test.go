@@ -36,11 +36,9 @@ func gitExec(t *testing.T, dir string, args ...string) string {
 	return string(out)
 }
 
-// buildFilteredClone builds a source repo containing one blob above the
-// emission ceiling (50 MiB of text), then mirror-clones it with
-// --filter=blob:limit=50m. The filter floor therefore clears every emission
-// ceiling, so the omitted add is a legitimate partial-clone boundary.
-// Returns the clone path.
+// buildFilteredClone returns a mirror that omits a text blob larger than
+// 50 MiB. Text of this size is still scannable, so its omission must degrade
+// coverage rather than advance the checkpoint.
 func buildFilteredClone(t *testing.T) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -520,6 +518,77 @@ func TestOfflineManyEmptyCommits(t *testing.T) {
 		if !errors.As(err, &degraded) {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestOfflineEnumCloseReapsPumpOnQueueAndParseFailure(t *testing.T) {
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("requires /bin/sh")
+	}
+	const hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	record := `\036` + hash + `\000\000Review\000review@example.com\0002026-01-01T00:00:00Z\000message\000`
+	for _, test := range []struct {
+		name   string
+		output string
+	}{
+		{name: "queue", output: "while :; do printf '" + record + "\\n'; done"},
+		{name: "malformed", output: "printf '\\036malformed\\000\\n'; while :; do :; done"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			fakeGit := filepath.Join(binDir, "git")
+			script := "#!/bin/sh\nif [ \"$3\" = \"log\" ]; then\n" + test.output + "\nelse\nwhile IFS= read -r line; do :; done\nfi\n"
+			if err := os.WriteFile(fakeGit, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			s := &Source{repoAbs: t.TempDir()}
+			enum, err := s.startOfflineEnum(context.Background(), fakeGit, []plumbing.Hash{plumbing.NewHash(hash)}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(enum.cancel)
+			if test.name == "queue" {
+				timer := time.NewTimer(5 * time.Second)
+				ticker := time.NewTicker(time.Millisecond)
+				defer timer.Stop()
+				defer ticker.Stop()
+				for len(enum.commits) < cap(enum.commits) {
+					select {
+					case <-timer.C:
+						t.Fatalf("pump queue did not fill: %d/%d", len(enum.commits), cap(enum.commits))
+					case <-ticker.C:
+					}
+				}
+			} else {
+				timer := time.NewTimer(5 * time.Second)
+				select {
+				case <-enum.done:
+				case <-timer.C:
+					t.Fatal("malformed log did not stop pump")
+				}
+				timer.Stop()
+				if err := <-enum.pumpErr; err == nil {
+					t.Fatal("malformed log produced no pump error")
+				}
+			}
+			closed := make(chan struct{})
+			go func() {
+				enum.close()
+				close(closed)
+			}()
+			timer := time.NewTimer(5 * time.Second)
+			select {
+			case <-closed:
+			case <-timer.C:
+				t.Fatal("offline enum close did not reap pump")
+			}
+			timer.Stop()
+			select {
+			case <-enum.done:
+			default:
+				t.Fatal("offline enum pump still running after close")
+			}
+		})
 	}
 }
 
