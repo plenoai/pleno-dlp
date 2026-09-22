@@ -297,7 +297,7 @@ func TestCloneRepoBareFallsBackWithoutGitBinary(t *testing.T) {
 
 	t.Setenv("PATH", t.TempDir()) // a dir with no `git` binary in it
 
-	usedNative, err := cloneRepoBare(context.Background(), fixture, dir, "", io.Discard)
+	usedNative, err := cloneRepoBare(context.Background(), fixture, dir, "", io.Discard, 0)
 	if usedNative {
 		t.Fatalf("cloneRepoBare reported native git despite an empty PATH (err=%v)", err)
 	}
@@ -312,7 +312,7 @@ func TestCloneRepoBareNativeProducesCompleteMirror(t *testing.T) {
 	fixture := gitCloneFixtureRepo(t)
 	dir := t.TempDir()
 
-	usedNative, err := cloneRepoBare(context.Background(), fixture, dir, "", io.Discard)
+	usedNative, err := cloneRepoBare(context.Background(), fixture, dir, "", io.Discard, 0)
 	if err != nil {
 		t.Fatalf("cloneRepoBare native: %v", err)
 	}
@@ -328,12 +328,79 @@ func TestCloneRepoBareNativeProducesCompleteMirror(t *testing.T) {
 	}
 }
 
+// TestCloneRepoBareNativeBlobFilterBoundsDisk is the oversized-history
+// fixture: a repo whose history contains a blob above the filter limit must
+// clone into less disk than its unfiltered mirror, keep the locally present
+// blobs readable, and leave the omitted promisor blob absent with lazy
+// fetching disabled.
+func TestCloneRepoBareNativeBlobFilterBoundsDisk(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	src := t.TempDir()
+	repo, err := gogit.PlainInit(src, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree: %v", err)
+	}
+	for name, content := range map[string]string{
+		"small.txt": "small content\n",
+		"big.bin":   strings.Repeat("B", 256<<10) + "\n",
+	} {
+		if err := os.WriteFile(filepath.Join(src, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := wt.Add(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sig := &object.Signature{Name: "T", Email: "t@e.com", When: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)}
+	if _, err := wt.Commit("c1", &gogit.CommitOptions{Author: sig, Committer: sig}); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	gitCfg := exec.Command("git", "-C", src, "config", "uploadpack.allowFilter", "true")
+	if out, err := gitCfg.CombinedOutput(); err != nil {
+		t.Fatalf("enable allowFilter: %v\n%s", err, out)
+	}
+	cloneURL := "file://" + filepath.ToSlash(src)
+
+	filtered := t.TempDir()
+	usedNative, err := cloneRepoBare(context.Background(), cloneURL, filtered, "", io.Discard, 1024)
+	if err != nil {
+		t.Fatalf("filtered cloneRepoBare: %v", err)
+	}
+	if !usedNative {
+		t.Fatal("filtered clone did not take the native path")
+	}
+	unfiltered := t.TempDir()
+	if _, err := cloneRepoBare(context.Background(), cloneURL, unfiltered, "", io.Discard, 0); err != nil {
+		t.Fatalf("unfiltered cloneRepoBare: %v", err)
+	}
+
+	if got := directoryBytes(filtered); got >= directoryBytes(unfiltered) {
+		t.Fatalf("filtered clone is not smaller: %d >= %d bytes", got, directoryBytes(unfiltered))
+	}
+	missing := exec.Command("git", "-C", filtered, "cat-file", "-e", "HEAD:big.bin")
+	missing.Env = append(os.Environ(), "GIT_NO_LAZY_FETCH=1")
+	if err := missing.Run(); err == nil {
+		t.Fatal("oversized blob is present despite the blob filter")
+	}
+	present := exec.Command("git", "-C", filtered, "cat-file", "-e", "HEAD:small.txt")
+	present.Env = append(os.Environ(), "GIT_NO_LAZY_FETCH=1")
+	if err := present.Run(); err != nil {
+		t.Fatalf("in-limit blob is absent: %v", err)
+	}
+}
+
 // TestNativeGitCloneArgs pins the native clone's argv and the "--" separator
 // that keeps the URL from ever being parsed as a flag. The URL in
 // argv is always the clean one — auth travels via the child environment
 // (see nativeGitAuthEnv), never argv.
 func TestNativeGitCloneArgs(t *testing.T) {
-	got := nativeGitCloneArgs("https://github.com/acme/widget.git", "/tmp/clone-dir")
+	got := nativeGitCloneArgs("https://github.com/acme/widget.git", "/tmp/clone-dir", 0)
 	want := []string{
 		"clone",
 		"--mirror",
@@ -359,5 +426,19 @@ func TestNativeGitCloneArgs(t *testing.T) {
 	}
 	if sepIdx == -1 || sepIdx != len(got)-3 {
 		t.Fatalf("nativeGitCloneArgs must place \"--\" immediately before <url> <dir>, got %v", got)
+	}
+	filtered := nativeGitCloneArgs("https://github.com/acme/widget.git", "/tmp/clone-dir", 50<<20)
+	wantFilter := "--filter=blob:limit=52428800"
+	found := false
+	for i, a := range filtered {
+		if a == wantFilter {
+			found = true
+			if filtered[i+1] != "--" {
+				t.Fatalf("filter flag must precede the \"--\" separator, got %v", filtered)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("nativeGitCloneArgs with filterBytes missing %q, got %v", wantFilter, filtered)
 	}
 }

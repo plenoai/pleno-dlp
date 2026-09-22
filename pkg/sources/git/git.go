@@ -192,6 +192,13 @@ type Source struct {
 	hasPreviousState bool
 	previousState    *incrementalState
 	nextState        *incrementalState
+
+	// partialClone marks a promisor clone (blob-filtered). The walk then
+	// tolerates locally absent blobs: each is skipped intentionally (and
+	// counted in partialSkips) instead of failing or demand-fetching. Set at
+	// the top of Chunks from the repository's own config.
+	partialClone bool
+	partialSkips int
 }
 
 type incrementalState struct {
@@ -290,6 +297,16 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	if err != nil {
 		return fmt.Errorf("git: reopen repo: %w", err)
 	}
+	// A blob-filtered clone omits promisor blobs the walk could never emit.
+	// The native `git log --patch` stream aborts on the first absent object,
+	// so partial clones take the go-git walk where per-change presence checks
+	// classify absent blobs as intentional skips. Detection is config-based
+	// and needs no caller flag.
+	s.partialClone = isPartialCloneRepo(repo)
+	s.partialSkips = 0
+	if s.partialClone {
+		fmt.Fprintln(os.Stderr, "git: partial clone detected; locally absent blobs will be skipped, not fetched")
+	}
 	starts, err := s.resolveStarts(repo)
 	if err != nil {
 		return err
@@ -301,7 +318,7 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	s.nextState = nil
 
 	stops := s.previousHeads()
-	if s.nativeFastPathEligible(len(starts)) {
+	if !s.partialClone && s.nativeFastPathEligible(len(starts)) {
 		if gitBin, lookupErr := exec.LookPath("git"); lookupErr == nil {
 			supported, probeErr := s.nativeFastPathSupported(ctx, gitBin, starts[0])
 			if probeErr != nil {
@@ -360,13 +377,14 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 			recordCoverage(r.hash, "commit", fmt.Errorf("git: load commit %s: %w", r.hash, err))
 			continue
 		}
-		if err := s.emitCommit(ctx, c, ch); err != nil {
+		if err := s.emitCommit(ctx, repo, c, ch); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
 			recordCoverage(c.Hash, "tree-diff", err)
 		}
 	}
+	s.logPartialSkipSummary()
 	if coverageTotal > 0 {
 		if s.previousState != nil {
 			previous := *s.previousState
@@ -728,7 +746,7 @@ func boundarySet(roots []plumbing.Hash) map[plumbing.Hash]bool {
 var errStorerStop = errors.New("git: stop iteration")
 
 // emitCommit diffs the commit against its first parent.
-func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *sources.Chunk) error {
+func (s *Source) emitCommit(ctx context.Context, repo *git.Repository, c *object.Commit, ch chan<- *sources.Chunk) error {
 	if s.omitMergeDiffs() && c.NumParents() > 1 {
 		if s.includeCommitMetadata {
 			return s.emitCommitMetadata(ctx, c, ch)
@@ -754,36 +772,70 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 	}
 
 	changes, err := object.DiffTreeWithOptions(ctx, oldTree, newTree, &object.DiffTreeOptions{})
-	if err == nil && s.trufflehogCompatible {
-		changes, err = detectTrufflehogRenames(changes)
-	}
 	if err != nil {
 		return fmt.Errorf("git: diff tree for commit %s: %w", c.Hash, normalizeGitTreeDiffError(err))
+	}
+	if s.partialClone {
+		// Drop every change whose scannable side is an omitted promisor
+		// blob before rename detection can read it. A missing `to` side is
+		// content the walk could never emit; a pure deletion of a missing
+		// `from` side emits nothing either way. Modifications missing only
+		// the `from` side stay: the whole `to` blob is emitted instead.
+		kept := make(object.Changes, 0, len(changes))
+		for _, change := range changes {
+			switch {
+			case blobMissing(repo.Storer, change.To.TreeEntry):
+				s.partialSkips++
+			case blobMissing(repo.Storer, change.From.TreeEntry) && change.To.TreeEntry.Hash == plumbing.ZeroHash:
+				s.partialSkips++
+			default:
+				kept = append(kept, change)
+			}
+		}
+		changes = kept
+	}
+	if s.trufflehogCompatible {
+		changes, err = detectTrufflehogRenames(changes)
+		if err != nil {
+			return fmt.Errorf("git: diff tree for commit %s: %w", c.Hash, normalizeGitTreeDiffError(err))
+		}
 	}
 
 	for _, change := range changes {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		fromMissing := s.partialClone && blobMissing(repo.Storer, change.From.TreeEntry)
 		from, to, err := change.Files()
 		if err != nil {
-			changePath := change.To.Name
-			if changePath == "" {
-				changePath = change.From.Name
+			if !fromMissing {
+				changePath := change.To.Name
+				if changePath == "" {
+					changePath = change.From.Name
+				}
+				partialErrs = append(partialErrs, fmt.Errorf("git: resolve changed file %q at %s: %w", changePath, c.Hash, err))
+				continue
 			}
-			partialErrs = append(partialErrs, fmt.Errorf("git: resolve changed file %q at %s: %w", changePath, c.Hash, err))
-			continue
+			// The `from` blob was filtered at clone time. Rebuild the `to`
+			// file from its (locally present) blob so the change degrades
+			// to whole-blob emission below rather than failing.
+			to = fileForPresentBlob(repo.Storer, change.To.Name, change.To.TreeEntry)
+			if to == nil {
+				s.partialSkips++
+				continue
+			}
+			from = nil
 		}
 		if to == nil {
 			// Pure deletions have no `to` file — there is nothing to scan.
 			continue
 		}
-		if s.trufflehogCompatible && from != nil && change.From.Name != change.To.Name {
+		if s.trufflehogCompatible && change.From.TreeEntry.Hash != plumbing.ZeroHash && change.From.Name != change.To.Name {
 			// Trufflehog's full-history command uses --diff-filter=AM, which
 			// excludes paths classified as renames.
 			continue
 		}
-		if s.trufflehogCompatible && from != nil && !sameGitDiffType(change.From.TreeEntry.Mode, change.To.TreeEntry.Mode) {
+		if s.trufflehogCompatible && change.From.TreeEntry.Hash != plumbing.ZeroHash && !sameGitDiffType(change.From.TreeEntry.Mode, change.To.TreeEntry.Mode) {
 			// --diff-filter=AM also excludes type changes such as a regular
 			// file becoming a symlink. Executable-bit changes remain M.
 			continue
@@ -1166,6 +1218,9 @@ func (s *Source) commitNotes(ctx context.Context, hash plumbing.Hash) (string, e
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			continue // this notes ref has no note for the commit
+		}
+		if s.partialClone {
+			continue // note object may be an omitted promisor blob
 		}
 		return "", err
 	}

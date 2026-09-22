@@ -20,12 +20,19 @@ pure-Go path remains available when native Git is absent and for opt-in
 metadata or artifact modes. Text added to files over 1 MiB is split into
 bounded 1 MiB chunks with overlap.
 
-Complete clones preserve offline coverage, but histories containing blobs over
-50 MiB can consume more clone bandwidth and temporary disk than v0.63.0 even
-though default text scanning later skips those blobs. Clone time is not covered
-by `--repo-walk-timeout`. Restoring a bounded partial clone without retaining
-credentials or demand-fetching during the walk is tracked in
-[#378](https://github.com/plenoai/pleno-dlp/issues/378).
+The native clone is blob-filtered at the scanner's emission ceiling
+(`--filter=blob:limit=<bytes>`, 50 MiB by default, raised to
+`--git-artifact-max-bytes` only when binary or archive scans are enabled).
+Blobs above that ceiling are never emitted, so omitting them on the wire
+cannot cost coverage: commits and trees arrive complete while oversized
+promisor blobs stay on the remote. The walk detects the promisor config and
+skips locally absent blobs intentionally — it never demand-fetches, and clone
+credentials are not persisted, so a fetch could not succeed anyway. Each
+repository's clone reports its own duration and post-negotiation pack bytes
+on stderr (`github: clone <repo> done in … (<method>, <bytes> on disk)`),
+independent of the walk budget below. Environments without a `git` binary
+fall back to an unfiltered go-git clone, which stays correct but loses the
+bandwidth and disk bound.
 
 ```sh
 pleno-dlp scan github --repo acme/widget

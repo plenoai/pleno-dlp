@@ -696,16 +696,20 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 		return githubRepoIncrementalState{}, err
 	}
 
+	gitCfg, err := githubGitArtifactConfig(cfg)
+	if err != nil {
+		return githubRepoIncrementalState{}, err
+	}
 	cloneStart := time.Now()
 	progress := &cloneProgressWriter{repoKey: repoKey, interval: githubHeartbeatInterval}
-	usedNative, err := cloneRepoBare(ctx, cloneURL, dir, token, progress)
+	usedNative, err := cloneRepoBare(ctx, cloneURL, dir, token, progress, gitsource.CloneBlobLimitBytes(gitCfg))
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return githubRepoIncrementalState{}, err
 		}
 		return githubRepoIncrementalState{}, fmt.Errorf("github: clone %s/%s: %w", repo.Owner.Login, repo.Name, err)
 	}
-	fmt.Fprintf(os.Stderr, "github: clone %s done in %s (%s)\n", repoKey, time.Since(cloneStart).Round(time.Second), cloneMethodLabel(usedNative))
+	fmt.Fprintf(os.Stderr, "github: clone %s done in %s (%s, %s on disk)\n", repoKey, time.Since(cloneStart).Round(time.Second), cloneMethodLabel(usedNative), formatBytes(uint64(clonePackBytes(dir))))
 	if githubCloneBytesObserver != nil {
 		githubCloneBytesObserver(repoKey, directoryBytes(dir))
 	}
@@ -749,10 +753,6 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 
 	visibility := githubVisibility(repo)
 	src := &gitsource.Source{}
-	gitCfg, err := githubGitArtifactConfig(cfg)
-	if err != nil {
-		return githubRepoIncrementalState{}, err
-	}
 	gitCfg.Repo, gitCfg.AllBranches = dir, true
 	raw, err := json.Marshal(gitCfg)
 	if err != nil {
@@ -1169,20 +1169,42 @@ func filterGitHubPullRefs(refs []*plumbing.Reference, maxReturnedRefs, maxReturn
 // construction — inside the git subprocess, so a multi-GB history costs that
 // subprocess's memory, not this process's. go-git's PlainCloneContext
 // materializes delta resolution in-process instead, which is the memory
-// scaling problem #265 reports. The native clone intentionally remains
-// complete: a filtered clone needs authenticated demand-fetches during
-// `git log --patch`, but clone credentials are ephemeral and the history
-// walk disables lazy fetching so it cannot unexpectedly access the network.
+// scaling problem #265 reports.
+//
+// The native clone is blob-filtered: `--filter=blob:limit=<filterBytes>`
+// keeps the server from sending any blob above the scanner's emission
+// ceiling, bounding clone bandwidth and disk for binary-heavy histories.
+// The omitted promisor blobs are exactly the objects the walk could never
+// emit, and the git source's partial-clone mode skips them without the
+// demand-fetch that ephemeral clone credentials could not satisfy anyway.
 //
 // go-git remains the fallback for environments without a `git` binary on
 // PATH (e.g. a from-scratch pure-Go build/container) so those keep working,
 // just without the memory or filter improvement. Returns which path ran.
-func cloneRepoBare(ctx context.Context, cloneURL, dir, token string, progress io.Writer) (usedNative bool, err error) {
+func cloneRepoBare(ctx context.Context, cloneURL, dir, token string, progress io.Writer, filterBytes int64) (usedNative bool, err error) {
 	gitBin, lookErr := exec.LookPath("git")
 	if lookErr != nil {
 		return false, cloneWithGoGit(ctx, cloneURL, dir, token, progress)
 	}
-	return true, cloneWithNativeGit(ctx, gitBin, cloneURL, dir, token, progress)
+	return true, cloneWithNativeGit(ctx, gitBin, cloneURL, dir, token, progress, filterBytes)
+}
+
+// clonePackBytes reports the on-disk size of the clone's pack directory —
+// the post-negotiation transfer footprint. Loose objects are negligible in a
+// fresh mirror clone and summing only objects/pack avoids a full directory
+// walk on every repository.
+func clonePackBytes(dir string) int64 {
+	entries, err := os.ReadDir(filepath.Join(dir, "objects", "pack"))
+	if err != nil {
+		return 0
+	}
+	var total int64
+	for _, entry := range entries {
+		if info, err := entry.Info(); err == nil && !entry.IsDir() {
+			total += info.Size()
+		}
+	}
+	return total
 }
 
 // cloneMethodLabel renders cloneRepoBare's choice for the done-clone log line.
@@ -1221,8 +1243,8 @@ func cloneWithGoGit(ctx context.Context, cloneURL, dir, token string, progress i
 // redactCloneError additionally scrubs the token from any returned error as
 // defense-in-depth, though git's own fatal/remote messages already omit
 // credentials.
-func cloneWithNativeGit(ctx context.Context, gitBin, cloneURL, dir, token string, progress io.Writer) error {
-	cmd := exec.CommandContext(ctx, gitBin, nativeGitCloneArgs(cloneURL, dir)...)
+func cloneWithNativeGit(ctx context.Context, gitBin, cloneURL, dir, token string, progress io.Writer, filterBytes int64) error {
+	cmd := exec.CommandContext(ctx, gitBin, nativeGitCloneArgs(cloneURL, dir, filterBytes)...)
 	var diagnostic bytes.Buffer
 	cmd.Stderr = io.MultiWriter(progress, &diagnostic)
 	// Never prompt interactively: a hung terminal prompt on a bad/expired
@@ -1252,16 +1274,15 @@ func redactCloneDiagnostic(detail, token string) string {
 
 // nativeGitCloneArgs builds the argv for the native mirror clone. Split out
 // from cloneWithNativeGit so the exact flags and ordering can be asserted in
-// a unit test without executing git.
-func nativeGitCloneArgs(cloneURL, dir string) []string {
-	return []string{
-		"clone",
-		"--mirror",
-		"--progress",
-		"--",
-		cloneURL,
-		dir,
+// a unit test without executing git. filterBytes > 0 adds a blob size filter;
+// servers that do not support filtering reject the clone and local-path
+// clones ignore it with a warning, both safe degradations.
+func nativeGitCloneArgs(cloneURL, dir string, filterBytes int64) []string {
+	args := []string{"clone", "--mirror", "--progress"}
+	if filterBytes > 0 {
+		args = append(args, "--filter=blob:limit="+strconv.FormatInt(filterBytes, 10))
 	}
+	return append(args, "--", cloneURL, dir)
 }
 
 // nativeGitAuthEnv returns the GIT_CONFIG_* environment entries that hand
