@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"sync/atomic"
 	"testing"
 
@@ -230,7 +231,7 @@ func TestStreamMatchBatchBoundsDistinctRawReadAmplification(t *testing.T) {
 	raws[count] = []byte("BATCH_TOKEN_MISSING")
 	reader := &countingReaderAt{reader: bytes.NewReader(data)}
 	cache := newStreamMatchCache(reader, int64(len(data)))
-	if err := cache.resolve(context.Background(), raws); err != nil {
+	if err := cache.resolve(context.Background(), raws, nil); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 	if reader.bytes.Load() >= 3<<20 || reader.calls.Load() > 40 {
@@ -249,7 +250,7 @@ func TestStreamMatchBatchBoundsDistinctRawReadAmplification(t *testing.T) {
 		t.Fatalf("missing raw = %#v/%v, want cached negative result", missing, ok)
 	}
 	readsAfterFirst := reader.bytes.Load()
-	if err := cache.resolve(context.Background(), raws); err != nil {
+	if err := cache.resolve(context.Background(), raws, nil); err != nil {
 		t.Fatalf("cached resolve: %v", err)
 	}
 	if reader.bytes.Load() != readsAfterFirst {
@@ -265,7 +266,7 @@ func TestStreamMatchBatchFindsRawAcrossReadBlockBoundary(t *testing.T) {
 	copy(data[offset:], raw)
 	reader := bytes.NewReader(data)
 	cache := newStreamMatchCache(reader, int64(len(data)))
-	if err := cache.resolve(context.Background(), [][]byte{raw}); err != nil {
+	if err := cache.resolve(context.Background(), [][]byte{raw}, nil); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 	match, ok := cache.lookup(raw)
@@ -459,9 +460,9 @@ func TestStreamFindingBatchOwnsExtraDataBeforeFlush(t *testing.T) {
 		Raw:          []byte("metadata-token"),
 		ExtraData:    shared,
 	}
-	eng.emitDetectorResult(context.Background(), chunk, decoder.Variant{}, "", 0, true, result, cache)
+	eng.emitDetectorResult(context.Background(), chunk, decoder.Variant{}, "", 0, true, result, cache, streamWindowBase{})
 	shared["marker"] = "second"
-	eng.emitDetectorResult(context.Background(), chunk, decoder.Variant{}, "", 0, true, result, cache)
+	eng.emitDetectorResult(context.Background(), chunk, decoder.Variant{}, "", 0, true, result, cache, streamWindowBase{})
 	cache.pending = nil
 	batch.flush(context.Background(), eng, chunk, cache)
 
@@ -477,6 +478,146 @@ func TestStreamFindingBatchOwnsExtraDataBeforeFlush(t *testing.T) {
 	}
 }
 
+// fanoutRawDetector emits many distinct raws sliced out of its input, so a
+// handful of windows produces more findings than one resolution batch can
+// hold. Every raw is a verbatim substring of the stream window.
+type fanoutRawDetector struct{}
+
+func (*fanoutRawDetector) Type() detectors.DetectorType { return detectors.AWS }
+
+func (*fanoutRawDetector) Keywords() []string { return []string{"kwpair"} }
+
+func (*fanoutRawDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	var out []detectors.Result
+	for i := 0; i+16 <= len(data) && len(out) < 128; i += 16 {
+		out = append(out, detectors.Result{DetectorType: detectors.AWS, Raw: bytes.Clone(data[i : i+16])})
+	}
+	return out, nil
+}
+
+func TestStreamMatchHintBoundsRescanAcrossBatches(t *testing.T) {
+	// >1024 hinted raws force several resolution batches. With window hints,
+	// position resolution reads only candidate prefix positions, so total
+	// reads stay a fraction of one input pass instead of one pass per batch.
+	const (
+		size      = 2 << 20
+		rawCount  = streamFindingBatchLimit + 512
+		rawLength = 16
+	)
+	data := make([]byte, size)
+	rand.New(rand.NewSource(1)).Read(data)
+	counting := &countingReaderAt{reader: bytes.NewReader(data)}
+	cache := newStreamMatchCache(counting, int64(size))
+	raws := make([][]byte, 0, rawCount)
+	hints := make([]streamRawHint, 0, rawCount)
+	for start := int64(0); start+rawLength <= int64(size) && len(raws) < rawCount; start += windowStepSize {
+		window := data[start:min(start+maxWindowSize, int64(size))]
+		cache.observeRawWindow("", window, start)
+		for i := 0; i < 64 && len(raws) < rawCount; i++ {
+			off := start + int64(i)*512 + 3
+			if off+rawLength > start+int64(len(window)) {
+				continue
+			}
+			raws = append(raws, data[off:off+rawLength])
+			hints = append(hints, streamRawHint{offset: off, ok: true})
+		}
+	}
+	if len(raws) < rawCount {
+		t.Fatalf("built %d raws, want %d", len(raws), rawCount)
+	}
+	half := len(raws) / 2
+	if err := cache.resolve(context.Background(), raws[:half], hints[:half]); err != nil {
+		t.Fatalf("first resolve: %v", err)
+	}
+	if err := cache.resolve(context.Background(), raws[half:], hints[half:]); err != nil {
+		t.Fatalf("second resolve: %v", err)
+	}
+	if got := counting.bytes.Load(); got > int64(size)/2 {
+		t.Fatalf("resolution read %d bytes for input %d, rescan grew with batch count", got, size)
+	}
+	t.Logf("resolution reads: calls=%d bytes=%d for %d raws", counting.calls.Load(), counting.bytes.Load(), len(raws))
+	for i, raw := range raws {
+		match, ok := cache.lookup(raw)
+		if !ok || !match.found || match.offset != hints[i].offset {
+			t.Fatalf("raw %d = %#v/%v, want hinted offset %d", i, match, ok, hints[i].offset)
+		}
+	}
+}
+
+// fixedRawDetector always reports the same raw value regardless of input,
+// emulating detectors that normalize before reporting.
+type fixedRawDetector struct{ raw []byte }
+
+func (*fixedRawDetector) Type() detectors.DetectorType { return detectors.AWS }
+
+func (*fixedRawDetector) Keywords() []string { return []string{"kwpair2"} }
+
+func (d *fixedRawDetector) FromData(_ context.Context, _ bool, _ []byte) ([]detectors.Result, error) {
+	return []detectors.Result{{DetectorType: detectors.AWS, Raw: bytes.Clone(d.raw)}}, nil
+}
+
+func TestStreamMatchHintFallsBackToEarlierUndetectedOccurrence(t *testing.T) {
+	raw := []byte("shared-early-token")
+	data := bytes.Repeat([]byte("filler\n"), 70000/7)
+	early := int64(50)
+	copy(data[early:], raw)
+	late := int64(40 << 10)
+	copy(data[late:], "kwpair2 ")
+	copy(data[late+8:], raw)
+	chunk := lazyReaderChunk(data, "/fixture/hint-early.txt")
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{&fixedRawDetector{raw: raw}}, Options{Concurrency: 1}, sink)
+	if _, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{chunk}}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	findings := sink.Findings()
+	if len(findings) == 0 {
+		t.Fatal("no findings")
+	}
+	for _, f := range findings {
+		if f.RawSpan == nil || int64(f.RawSpan[0]) != early {
+			t.Fatalf("span=%v, want first occurrence at %d", f.RawSpan, early)
+		}
+		wantLine := 1 + bytes.Count(data[:early], []byte{'\n'})
+		if got := f.Chunk.SourceMetadata.Filesystem.Line; got != wantLine {
+			t.Fatalf("line=%d, want %d", got, wantLine)
+		}
+	}
+}
+
+func TestStreamMatchHintUsedWhenFirstOccurrence(t *testing.T) {
+	raw := []byte("hint-first-token")
+	data := bytes.Repeat([]byte("pad\n"), 30000)
+	at := int64(40 << 10)
+	copy(data[at:], "kwpair2 ")
+	copy(data[at+8:], raw)
+	counting := &countingReaderAt{reader: bytes.NewReader(data)}
+	chunk := &sources.Chunk{
+		SourceType: sources.SourceFilesystem,
+		Open: func(context.Context) (io.ReaderAt, io.Closer, int64, error) {
+			return counting, io.NopCloser(bytes.NewReader(nil)), int64(len(data)), nil
+		},
+		SourceMetadata: sources.Metadata{
+			Filesystem: &sources.FilesystemMeta{Path: "/fixture/hint-first.txt", Line: 1},
+		},
+	}
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{&fixedRawDetector{raw: raw}}, Options{Concurrency: 1}, sink)
+	if _, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{chunk}}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	findings := sink.Findings()
+	if len(findings) == 0 {
+		t.Fatal("no findings")
+	}
+	for _, f := range findings {
+		if f.RawSpan == nil || int64(f.RawSpan[0]) != at+8 {
+			t.Fatalf("span=%v, want hinted occurrence at %d", f.RawSpan, at+8)
+		}
+	}
+	t.Logf("reader calls=%d bytes=%d", counting.calls.Load(), counting.bytes.Load())
+}
+
 func TestStreamFindingBatchFlushesAtLimitAndReusesSpanCache(t *testing.T) {
 	sink := &engineRecordingSink{}
 	eng := NewWithDetectors([]detectors.Detector{&normalizedRawDetector{}}, Options{Concurrency: 1}, sink)
@@ -489,7 +630,7 @@ func TestStreamFindingBatchFlushesAtLimitAndReusesSpanCache(t *testing.T) {
 		eng.emitDetectorResult(context.Background(), chunk, decoder.Variant{}, "", 0, true, detectors.Result{
 			DetectorType: detectors.AWS,
 			Raw:          raw,
-		}, cache)
+		}, cache, streamWindowBase{})
 	}
 	if got := len(sink.Findings()); got != streamFindingBatchLimit {
 		t.Fatalf("findings before final flush=%d, want %d", got, streamFindingBatchLimit)

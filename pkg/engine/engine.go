@@ -43,6 +43,10 @@ type Finding struct {
 	// appears on a finding read back out of dedup or the engine's own
 	// emission path.
 	SuppressedBy string
+	// rawHint is the position where Result.Raw was observed in a
+	// raw-variant stream window. It lets span resolution skip a source
+	// rescan when the position is provably the first occurrence.
+	rawHint streamRawHint
 }
 
 type Sink interface {
@@ -103,11 +107,40 @@ type streamMatch struct {
 	found        bool
 }
 
+// streamRawHint carries the absolute position where a detector result's raw
+// value was observed inside a raw-variant stream window. It is a candidate
+// for first-occurrence resolution: an earlier occurrence can only exist
+// where the raw's byte prefix was already seen, which the pair index tracks.
+type streamRawHint struct {
+	offset   int64
+	newlines int
+	ok       bool
+}
+
+// streamWindowBase locates the stream window a dispatch pass is scanning.
+// It is only meaningful on the undecoded raw variant, whose reader shares
+// the source's byte offsets.
+type streamWindowBase struct {
+	offset   int64
+	newlines int
+	ok       bool
+}
+
 type streamMatchCache struct {
 	reader  io.ReaderAt
 	size    int64
 	values  map[string]streamMatch
 	pending *streamFindingBatch
+	// firstPair records, for each two-byte value, the first absolute input
+	// position where it was seen (stored as position+1, zero means unseen);
+	// restPair holds every later position in ascending order. The same
+	// layout tracks single bytes for one-byte raws. Both are populated as
+	// raw-variant windows are read, so a hinted raw's earlier occurrences
+	// are enumerable and verifiable without rescanning the source.
+	firstPair *[65536]int64
+	firstByte *[256]int64
+	restPair  map[uint16][]int64
+	restByte  map[byte][]int64
 }
 
 func newStreamMatchCache(reader io.ReaderAt, size int64) *streamMatchCache {
@@ -115,6 +148,116 @@ func newStreamMatchCache(reader io.ReaderAt, size int64) *streamMatchCache {
 		return nil
 	}
 	return &streamMatchCache{reader: reader, size: size, values: make(map[string]streamMatch)}
+}
+
+// observeRawWindow indexes the byte and byte-pair positions of one raw-variant
+// window. Only the raw variant is observed: decoded variants do not share the
+// input's byte offsets.
+func (c *streamMatchCache) observeRawWindow(source string, data []byte, start int64) {
+	if c == nil || source != "" || len(data) == 0 {
+		return
+	}
+	if c.firstByte == nil {
+		c.firstByte = &[256]int64{}
+		c.firstPair = &[65536]int64{}
+	}
+	for i, b := range data {
+		pos := start + int64(i) + 1
+		if c.firstByte[b] == 0 {
+			c.firstByte[b] = pos
+		} else if c.restByte == nil || len(c.restByte[b]) < hintVerifyCandidateCap {
+			if c.restByte == nil {
+				c.restByte = make(map[byte][]int64)
+			}
+			c.restByte[b] = append(c.restByte[b], pos)
+		}
+		if i+1 < len(data) {
+			pair := uint16(b)<<8 | uint16(data[i+1])
+			if c.firstPair[pair] == 0 {
+				c.firstPair[pair] = pos
+			} else if c.restPair == nil || len(c.restPair[pair]) < hintVerifyCandidateCap {
+				if c.restPair == nil {
+					c.restPair = make(map[uint16][]int64)
+				}
+				c.restPair[pair] = append(c.restPair[pair], pos)
+			}
+		}
+	}
+}
+
+// hintVerifyCandidateCap bounds how many recorded prefix positions a single
+// hint verification reads back. Inputs engineered to collide the two-byte
+// index on every position degrade to the shared forward scan rather than to
+// per-candidate random reads.
+const hintVerifyCandidateCap = 64
+
+// hintIsFirst reports whether a hinted position is provably the raw value's
+// first occurrence in the input: the only earlier positions that could hold
+// the value are the recorded positions of its prefix, and each of those
+// below the hint is read back and compared. Inputs whose prefix index is
+// not yet populated, or that exceed the candidate cap, report false so the
+// caller keeps the shared forward scan.
+func (c *streamMatchCache) hintIsFirst(ctx context.Context, raw []byte, hint streamRawHint) (bool, error) {
+	if c == nil || !hint.ok || len(raw) == 0 {
+		return false, nil
+	}
+	var candidates int
+	check := func(pos int64) (bool, error) {
+		if pos == 0 || pos-1 >= hint.offset {
+			return true, nil
+		}
+		candidates++
+		if candidates > hintVerifyCandidateCap {
+			return false, nil
+		}
+		buf := make([]byte, len(raw))
+		got, err := c.reader.ReadAt(buf, pos-1)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return false, err
+		}
+		if got == len(raw) && bytes.Equal(buf, raw) {
+			return false, nil
+		}
+		return true, nil
+	}
+	if c.firstByte == nil {
+		return false, nil
+	}
+	var first int64
+	var rest []int64
+	if len(raw) == 1 {
+		first = c.firstByte[raw[0]]
+		rest = c.restByte[raw[0]]
+	} else {
+		if c.firstPair == nil {
+			return false, nil
+		}
+		pair := uint16(raw[0])<<8 | uint16(raw[1])
+		first = c.firstPair[pair]
+		rest = c.restPair[pair]
+	}
+	if len(rest) >= hintVerifyCandidateCap {
+		// Position recording is capped, so earlier occurrences below the
+		// hint cannot be enumerated completely; keep the shared scan.
+		return false, nil
+	}
+	ok, err := check(first)
+	if err != nil || !ok {
+		return false, err
+	}
+	for _, pos := range rest {
+		if pos-1 >= hint.offset {
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		ok, err := check(pos)
+		if err != nil || !ok {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 type streamFindingBatch struct {
@@ -135,10 +278,12 @@ func (b *streamFindingBatch) flush(ctx context.Context, e *Engine, c *sources.Ch
 	}
 	if !b.resolveFailed {
 		raws := make([][]byte, 0, len(b.findings))
+		hints := make([]streamRawHint, 0, len(b.findings))
 		for _, pending := range b.findings {
 			raws = append(raws, pending.Result.Raw)
+			hints = append(hints, pending.rawHint)
 		}
-		resolveErr := cache.resolve(ctx, raws)
+		resolveErr := cache.resolve(ctx, raws, hints)
 		if resolveErr != nil {
 			b.resolveFailed = true
 			if ctx.Err() == nil {
@@ -168,12 +313,19 @@ func (b *streamFindingBatch) flush(ctx context.Context, e *Engine, c *sources.Ch
 	b.findings = b.findings[:0]
 }
 
-func (c *streamMatchCache) match(ctx context.Context, raw []byte) (streamMatch, error) {
+func (c *streamMatchCache) match(ctx context.Context, raw []byte, hint streamRawHint) (streamMatch, error) {
 	if c == nil || len(raw) == 0 {
 		return streamMatch{offset: -1}, nil
 	}
 	key := string(raw)
 	if match, ok := c.values[key]; ok {
+		return match, nil
+	}
+	if first, err := c.hintIsFirst(ctx, raw, hint); err != nil {
+		return streamMatch{offset: -1}, err
+	} else if first {
+		match := streamMatch{offset: hint.offset, newlineCount: hint.newlines, found: true}
+		c.values[key] = match
 		return match, nil
 	}
 	offset, newlineCount, err := findReaderMatch(ctx, c.reader, c.size, raw)
@@ -206,18 +358,30 @@ const streamFindingBatchLimit = 1024
 // Long values keep the exact single-pattern fallback because making the block
 // overlap as large as an arbitrary detector result would defeat the stream
 // memory bound.
-func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte) error {
+func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte, hints []streamRawHint) error {
 	if c == nil {
 		return nil
 	}
 	short := make(map[string]struct{}, len(raws))
 	long := make([][]byte, 0)
-	for _, raw := range raws {
+	for i, raw := range raws {
 		if len(raw) == 0 {
 			continue
 		}
 		key := string(raw)
 		if _, ok := c.values[key]; ok {
+			continue
+		}
+		var hint streamRawHint
+		if i < len(hints) {
+			hint = hints[i]
+		}
+		first, err := c.hintIsFirst(ctx, raw, hint)
+		if err != nil {
+			return err
+		}
+		if first {
+			c.values[key] = streamMatch{offset: hint.offset, newlineCount: hint.newlines, found: true}
 			continue
 		}
 		if len(raw) <= streamBatchMaxRaw {
@@ -230,7 +394,7 @@ func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte) error {
 		return err
 	}
 	for _, raw := range long {
-		if _, err := c.match(ctx, raw); err != nil {
+		if _, err := c.match(ctx, raw, streamRawHint{}); err != nil {
 			return err
 		}
 	}
@@ -793,6 +957,7 @@ func (e *Engine) scanVariantWindowsReader(ctx context.Context, c *sources.Chunk,
 	if int64(len(windowBuf)) < min(size, int64(maxWindowSize)) {
 		return errors.New("engine: stream window buffer is too small")
 	}
+	var linesBefore int
 	for start := int64(0); start < size; start += windowStepSize {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -806,11 +971,14 @@ func (e *Engine) scanVariantWindowsReader(ctx context.Context, c *sources.Chunk,
 		if n != len(window) {
 			return fmt.Errorf("read %s variant at %d: got %d bytes, want %d", sourceName(source), start, n, len(window))
 		}
+		matchCache.observeRawWindow(source, window, start)
 		v := decoder.Variant{Source: source, Data: window}
-		e.dispatchAt(ctx, c, v, archivePath, lowerPtr, true, matchCache)
+		base := streamWindowBase{offset: start, newlines: linesBefore, ok: source == ""}
+		e.dispatchAt(ctx, c, v, archivePath, lowerPtr, true, matchCache, base)
 		if start+windowSize == size {
 			break
 		}
+		linesBefore += bytes.Count(window[:min(windowStepSize, len(window))], []byte{'\n'})
 	}
 	return nil
 }
@@ -882,7 +1050,7 @@ func (e *Engine) runFullChunkReaderDetectors(ctx context.Context, c *sources.Chu
 			if readErr != nil {
 				return readErr
 			}
-			e.runDetectorOnAt(ctx, c, variant, archivePath, di, data, true, matchCache)
+			e.runDetectorOnAt(ctx, c, variant, archivePath, di, data, true, matchCache, streamWindowBase{})
 			continue
 		}
 		if verify && e.isVerifier[di] {
@@ -898,7 +1066,7 @@ func (e *Engine) runFullChunkReaderDetectors(ctx context.Context, c *sources.Chu
 		}
 
 		for _, result := range results {
-			e.emitDetectorResult(ctx, c, variant, archivePath, di, true, result, matchCache)
+			e.emitDetectorResult(ctx, c, variant, archivePath, di, true, result, matchCache, streamWindowBase{})
 		}
 	}
 	return nil
@@ -983,10 +1151,10 @@ const vicinityRadius = 2048
 // is the dominant win on real-OSS workloads where most detectors fire
 // on a single keyword instance.
 func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, lowerPtr *[]byte) {
-	e.dispatchAt(ctx, c, v, archivePath, lowerPtr, false, nil)
+	e.dispatchAt(ctx, c, v, archivePath, lowerPtr, false, nil, streamWindowBase{})
 }
 
-func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, lowerPtr *[]byte, stream bool, matchCache *streamMatchCache) {
+func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, lowerPtr *[]byte, stream bool, matchCache *streamMatchCache, base streamWindowBase) {
 	lower := lowerCaseInto((*lowerPtr)[:0], v.Data)
 	*lowerPtr = lower
 	// Group hits by detector: each detector sees the union of its
@@ -1043,7 +1211,7 @@ func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Var
 			return
 		}
 		for _, sp := range spans {
-			e.runDetectorOnAt(ctx, c, v, archivePath, di, v.Data[sp.start:sp.end], stream, matchCache)
+			e.runDetectorOnAt(ctx, c, v, archivePath, di, v.Data[sp.start:sp.end], stream, matchCache, base)
 		}
 	}
 }
@@ -1060,10 +1228,10 @@ type vicinitySpan struct{ start, end int }
 // each side, which is the radius the credential regexes are written
 // against.
 func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte) {
-	e.runDetectorOnAt(ctx, c, v, archivePath, di, data, false, nil)
+	e.runDetectorOnAt(ctx, c, v, archivePath, di, data, false, nil, streamWindowBase{})
 }
 
-func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte, stream bool, matchCache *streamMatchCache) {
+func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte, stream bool, matchCache *streamMatchCache, base streamWindowBase) {
 	d := e.dets[di]
 	// Verification defaults to unconditional-true: the bool is the
 	// trufflehog Detector contract, not normally a configurable option.
@@ -1083,12 +1251,22 @@ func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decode
 		return
 	}
 	for _, r := range results {
-		e.emitDetectorResult(ctx, c, v, archivePath, di, stream, r, matchCache)
+		e.emitDetectorResult(ctx, c, v, archivePath, di, stream, r, matchCache, base)
 	}
 }
 
-func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, stream bool, r detectors.Result, matchCache *streamMatchCache) {
+func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, stream bool, r detectors.Result, matchCache *streamMatchCache, base streamWindowBase) {
 	d := e.dets[di]
+	var hint streamRawHint
+	if stream && base.ok && len(r.Raw) > 0 {
+		if idx := bytes.Index(v.Data, r.Raw); idx >= 0 {
+			hint = streamRawHint{
+				offset:   base.offset + int64(idx),
+				newlines: base.newlines + bytes.Count(v.Data[:idx], []byte{'\n'}),
+				ok:       true,
+			}
+		}
+	}
 	if stream {
 		// Stream windows are reused for every subsequent ReadAt. Detectors are
 		// allowed to return slices into their input, so findings must own their
@@ -1125,6 +1303,7 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 			Chunk:          chunkForFinding(c, sourceLine(c), true),
 			Detector:       d.Type(),
 			VerifierBacked: e.isVerifier[di],
+			rawHint:        hint,
 		})
 		return
 	}
@@ -1139,7 +1318,7 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 		matchErr    error
 	)
 	if stream && matchCache != nil && len(r.Raw) > 0 {
-		cachedMatch, matchErr = matchCache.match(ctx, r.Raw)
+		cachedMatch, matchErr = matchCache.match(ctx, r.Raw, hint)
 		if matchErr == nil && cachedMatch.found && hasSourceLine(c) {
 			base := sourceLine(c)
 			if base <= 0 {
