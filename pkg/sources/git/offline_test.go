@@ -81,14 +81,21 @@ func buildFilteredClone(t *testing.T) string {
 
 func TestRepoPromisorFilteredDetectsFilter(t *testing.T) {
 	clone := buildFilteredClone(t)
+	filteredRepo, err := gogit.PlainOpen(clone)
+	if err != nil {
+		t.Fatal(err)
+	}
 	s := &Source{repoAbs: clone}
-	filtered, floor := s.repoPromisorFiltered()
-	if !filtered || floor != 50<<20 {
-		t.Fatalf("promisor-filtered clone detected=%v floor=%d, want true/%d", filtered, floor, 50<<20)
+	if !s.repoPromisorFiltered(filteredRepo) {
+		t.Fatal("promisor-filtered clone was not detected")
 	}
 	repo, _ := buildRepo(t, []commitSpec{{files: map[string]string{"a.txt": "x"}, msg: "c1"}})
+	plainRepo, err := gogit.PlainOpen(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
 	plain := &Source{repoAbs: repo}
-	if filtered, _ := plain.repoPromisorFiltered(); filtered {
+	if plain.repoPromisorFiltered(plainRepo) {
 		t.Fatal("ordinary repo reported as promisor-filtered")
 	}
 }
@@ -102,8 +109,13 @@ func TestChunks_OfflineWalkerSkipsOmittedBlobs(t *testing.T) {
 	mustInit(t, s, Config{Repo: clone, AllBranches: true})
 
 	got, err := drain(t, s, 30*time.Second)
+	// The missing 51 MiB add could hold scannable text, so coverage must
+	// degrade instead of checkpointing — the locally present blobs still emit.
 	if err != nil {
-		t.Fatalf("Chunks: %v", err)
+		var degraded *engine.DegradedError
+		if !errors.As(err, &degraded) {
+			t.Fatalf("Chunks: %v", err)
+		}
 	}
 	var files []string
 	var sawAlpha, sawBeta bool
@@ -131,8 +143,8 @@ func TestChunks_OfflineWalkerSkipsOmittedBlobs(t *testing.T) {
 			t.Fatalf("filtered blob produced a chunk: %v", files)
 		}
 	}
-	if s.IncrementalState() == nil {
-		t.Fatal("incremental state was not published after a clean offline walk")
+	if s.IncrementalState() != nil {
+		t.Fatalf("degraded coverage advanced the checkpoint: %v", s.IncrementalState())
 	}
 }
 
@@ -145,7 +157,10 @@ func TestChunks_OfflineWalkerPreservesMetadata(t *testing.T) {
 
 	got, err := drain(t, s, 30*time.Second)
 	if err != nil {
-		t.Fatalf("Chunks: %v", err)
+		var degraded *engine.DegradedError
+		if !errors.As(err, &degraded) {
+			t.Fatalf("Chunks: %v", err)
+		}
 	}
 	if len(got) == 0 {
 		t.Fatal("no chunks emitted")
@@ -199,7 +214,10 @@ func TestChunksOfflineDirect(t *testing.T) {
 		got = append(got, c)
 	}
 	if err := <-errCh; err != nil {
-		t.Fatalf("chunksOffline: %v", err)
+		var degraded *engine.DegradedError
+		if !errors.As(err, &degraded) {
+			t.Fatalf("chunksOffline: %v", err)
+		}
 	}
 	var sawAlpha, sawBeta bool
 	for _, c := range got {
@@ -370,8 +388,14 @@ func TestOfflineRetainsIncludedText(t *testing.T) {
 				found = found || strings.Contains(string(chunk.Data), marker)
 			}
 			t.Logf("chunks=%d marker=%t err=%v state=%s", len(got), found, err, s.IncrementalState())
+			// A missing blob that cannot be ruled out of scope must
+			// degrade coverage — never checkpoint silently. Included
+			// text must still be emitted alongside the degraded report.
 			if err != nil {
-				t.Fatal(err)
+				var degraded *engine.DegradedError
+				if !errors.As(err, &degraded) {
+					t.Fatal(err)
+				}
 			}
 			if !found {
 				t.Fatal("locally included text blob silently omitted")
@@ -427,10 +451,168 @@ func TestOfflineMergeWithOmittedParents(t *testing.T) {
 		found = found || strings.Contains(string(chunk.Data), "review_merge_resolution_canary")
 	}
 	t.Logf("chunks=%d merge_canary=%t err=%v", len(got), found, err)
+	// The parents' missing >50 MiB blobs may be in-scope text, so coverage
+	// degrades rather than checkpointing; the merge resolution must still
+	// emit its surviving blob.
 	if err != nil {
-		t.Fatal(err)
+		var degraded *engine.DegradedError
+		if !errors.As(err, &degraded) {
+			t.Fatal(err)
+		}
 	}
 	if !found {
 		t.Fatal("merge resolution content not scanned")
+	}
+}
+
+// TestOfflineMissingNewWithRetainedBase: an M entry whose new blob is
+// missing must degrade coverage even though the old blob is present —
+// a readable base is no substitute for unread in-scope content.
+func TestOfflineMissingNewWithRetainedBase(t *testing.T) {
+	requireNativeGit(t)
+	base := "ordinary base content\n"
+	missing := strings.Repeat("z", 51<<20)
+	src, hashes := buildRepo(t, []commitSpec{
+		{files: map[string]string{"a.txt": base}, msg: "base"},
+		{files: map[string]string{"a.txt": missing}, msg: "bump"},
+	})
+	dst := reviewClone(t, src, "blob:limit=52428800")
+	seed, err := json.Marshal(newIncrementalState([]plumbing.Hash{plumbing.NewHash(hashes[0])}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Repo: dst})
+	if err := s.SetIncrementalState(seed); err != nil {
+		t.Fatal(err)
+	}
+	got, err := drain(t, s, 30*time.Second)
+	t.Logf("chunks=%d err=%v state=%s", len(got), err, s.IncrementalState())
+	if err == nil {
+		t.Fatal("missing in-scope blob must not produce a clean walk")
+	}
+	var degraded *engine.DegradedError
+	if !errors.As(err, &degraded) {
+		t.Fatalf("want DegradedError, got %v", err)
+	}
+	if string(s.IncrementalState()) != string(seed) {
+		t.Fatalf("checkpoint advanced past degraded coverage: %s", s.IncrementalState())
+	}
+}
+
+// TestOfflineManyEmptyCommits: commits that produce no raw diff records
+// must not deadlock the bounded commits queue — diff-tree runs with
+// --always so every commit echoes its own ID, letting the consumer drain
+// in lockstep with the producer.
+func TestOfflineManyEmptyCommits(t *testing.T) {
+	requireNativeGit(t)
+	src, _ := buildRepo(t, []commitSpec{{files: map[string]string{"a.txt": "seed\n"}, msg: "seed"}})
+	for i := 0; i < 1100; i++ {
+		gitExec(t, src, "commit", "--allow-empty", "-m", "empty")
+	}
+	dst := reviewClone(t, src, "blob:limit=52428800")
+	s := &Source{}
+	mustInit(t, s, Config{Repo: dst})
+	got, err := drain(t, s, 60*time.Second)
+	t.Logf("chunks=%d err=%v", len(got), err)
+	if err != nil {
+		var degraded *engine.DegradedError
+		if !errors.As(err, &degraded) {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestOfflineConfigRemoteIsolation: remote.backup's promisor=false plus a
+// partialclonefilter must not combine with remote.origin's promisor flag —
+// per-remote association comes from the real Git config parser.
+func TestOfflineConfigRemoteIsolation(t *testing.T) {
+	requireNativeGit(t)
+	src, _ := buildRepo(t, []commitSpec{{files: map[string]string{"a.txt": "review_canary_isolation\n"}, msg: "canary"}})
+	dst := reviewClone(t, src, "blob:none")
+	cfgPath := filepath.Join(dst, "config")
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, []byte("[remote \"backup\"]\n\tpromisor = false\n\tpartialclonefilter = blob:none\n")...)
+	if err := os.WriteFile(cfgPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Repo: dst})
+	got, err := drain(t, s, 30*time.Second)
+	t.Logf("chunks=%d err=%v", len(got), err)
+	if err == nil {
+		t.Fatal("missing scannable blob must report incomplete coverage")
+	}
+	var degraded *engine.DegradedError
+	if !errors.As(err, &degraded) {
+		t.Fatalf("want DegradedError, got %v", err)
+	}
+}
+
+// TestOfflineCloneSizeBoundaries: blob:limit=N omits blobs of size >= N —
+// an N-1-byte blob survives the filter while exactly-N and N+1 do not. The
+// missing adds may hold scannable text, so the walk degrades and retains
+// the prior checkpoint.
+func TestOfflineCloneSizeBoundaries(t *testing.T) {
+	requireNativeGit(t)
+	const marker = "boundary_marker_under_limit"
+	under := strings.Repeat("f", (50<<20)-1-len(marker)-1) + marker + "\n" // 52428799 bytes
+	exact := strings.Repeat("f", 50<<20)                                   // 52428800 bytes
+	over := strings.Repeat("g", (50<<20)+1)                                // 52428801 bytes
+	src, hashes := buildRepo(t, []commitSpec{
+		{files: map[string]string{"root.txt": "root\n"}, msg: "root"},
+		{files: map[string]string{"under.bin": under}, msg: "under"},
+		{files: map[string]string{"exact.bin": exact}, msg: "exact"},
+		{files: map[string]string{"over.bin": over}, msg: "over"},
+	})
+	underHash := strings.TrimSpace(gitExec(t, src, "rev-parse", "HEAD~2:under.bin"))
+	exactHash := strings.TrimSpace(gitExec(t, src, "rev-parse", "HEAD~1:exact.bin"))
+	overHash := strings.TrimSpace(gitExec(t, src, "rev-parse", "HEAD:over.bin"))
+	dst := reviewClone(t, src, "blob:limit=52428800")
+	present := func(hash string) bool {
+		cmd := exec.Command("git", "-C", dst, "cat-file", "-e", hash)
+		cmd.Env = append(os.Environ(), "GIT_NO_LAZY_FETCH=1")
+		return cmd.Run() == nil
+	}
+	if !present(underHash) {
+		t.Fatal("N-1-byte blob must survive blob:limit=N")
+	}
+	if present(exactHash) {
+		t.Fatal("exactly-N-byte blob must be omitted by blob:limit=N")
+	}
+	if present(overHash) {
+		t.Fatal("N+1-byte blob must be omitted by blob:limit=N")
+	}
+	seed, err := json.Marshal(newIncrementalState([]plumbing.Hash{plumbing.NewHash(hashes[0])}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Repo: dst})
+	if err := s.SetIncrementalState(seed); err != nil {
+		t.Fatal(err)
+	}
+	got, err := drain(t, s, 60*time.Second)
+	found := false
+	for _, chunk := range got {
+		found = found || strings.Contains(string(chunk.Data), marker)
+	}
+	t.Logf("chunks=%d marker=%t err=%v", len(got), found, err)
+	if !found {
+		t.Fatal("surviving boundary blob was not scanned")
+	}
+	if err != nil {
+		var degraded *engine.DegradedError
+		if !errors.As(err, &degraded) {
+			t.Fatalf("want DegradedError, got %v", err)
+		}
+	} else {
+		t.Fatal("omitted in-scope blobs must degrade coverage")
+	}
+	if string(s.IncrementalState()) != string(seed) {
+		t.Fatalf("checkpoint advanced past omitted blobs: %s", s.IncrementalState())
 	}
 }

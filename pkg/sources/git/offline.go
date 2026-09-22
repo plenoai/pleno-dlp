@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -30,136 +29,25 @@ const (
 	offlineSkipSampleCap  = 32
 )
 
-// promisorOmissionCeiling is the largest blob size the emission policies can
-// still produce output for. A promisor filter that only omits blobs strictly
-// above this ceiling can never hide a scannable object, so a missing blob is
-// then a legitimate partial-clone boundary rather than a coverage gap.
-func (s *Source) promisorOmissionCeiling() int64 {
-	ceiling := maxBlobSize
-	if s.includeGitBinaries || s.includeGitArchives {
-		if s.gitArtifactMaxBytes > ceiling {
-			ceiling = s.gitArtifactMaxBytes
+// repoPromisorFiltered reports whether any remote marks this clone as
+// promisor (remote.<name>.promisor=true). The config is read through
+// go-git's parser so section scoping, per-remote association, and boolean
+// values are evaluated the way git evaluates them: a non-promisor remote's
+// partialclonefilter can never justify omissions another remote made, and
+// anything unreadable yields false, which fails closed — a missing object
+// then degrades coverage instead of advancing a checkpoint.
+func (s *Source) repoPromisorFiltered(repo *gogit.Repository) bool {
+	cfg, err := repo.Config()
+	if err != nil || cfg == nil || cfg.Raw == nil {
+		return false
+	}
+	for _, remote := range cfg.Raw.Section("remote").Subsections {
+		v := strings.ToLower(strings.TrimSpace(remote.Options.Get("promisor")))
+		if v == "true" || v == "yes" || v == "on" || v == "1" {
+			return true
 		}
 	}
-	return ceiling
-}
-
-// promisorOmissionSafe reports whether a missing blob in this clone is
-// provably above every emission ceiling, so skipping it loses no coverage.
-func (s *Source) promisorOmissionSafe() bool {
-	return s.promisorFiltered && s.promisorBlobFloor >= s.promisorOmissionCeiling()
-}
-
-// repoPromisorFiltered parses the repository config — values, not text —
-// and reports whether any remote marks this a promisor (partial) clone.
-// When true it also returns the blob floor the filter guarantees: a locally
-// missing blob is provably larger than that floor (blob:limit=N keeps blobs
-// of at most N bytes). blob:none and unrecognized filters yield floor -1:
-// nothing about the missing object's size is provable, so no silent skips.
-func (s *Source) repoPromisorFiltered() (bool, int64) {
-	for _, path := range repoConfigPaths(s.repoAbs) {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		if filtered, floor, ok := parsePromisorConfig(data); ok {
-			return filtered, floor
-		}
-	}
-	return false, -1
-}
-
-// parsePromisorConfig scans one config file for [remote "<name>"] sections.
-// It returns ok=false when no promisor remote is configured.
-func parsePromisorConfig(data []byte) (filtered bool, floor int64, ok bool) {
-	floor = -1
-	var inRemote bool
-	for _, rawLine := range bytes.Split(data, []byte{'\n'}) {
-		line := bytes.TrimSpace(rawLine)
-		if len(line) == 0 || line[0] == '#' || line[0] == ';' {
-			continue
-		}
-		if line[0] == '[' {
-			inRemote = bytes.HasPrefix(bytes.ToLower(line), []byte("[remote"))
-			continue
-		}
-		if !inRemote {
-			continue
-		}
-		key, value, found := bytes.Cut(line, []byte{'='})
-		if !found {
-			continue
-		}
-		switch strings.ToLower(strings.TrimSpace(string(key))) {
-		case "promisor":
-			if strings.EqualFold(strings.TrimSpace(string(value)), "true") {
-				filtered = true
-			}
-		case "partialclonefilter":
-			floor = parseBlobFilterFloor(string(value))
-		}
-	}
-	return filtered, floor, filtered
-}
-
-// parseBlobFilterFloor extracts the omitted-size floor from a partial clone
-// filter. blob:limit=N (with optional k/m/g suffix) omits blobs strictly
-// larger than N. Everything else — blob:none, tree filters, sparse filters,
-// combined expressions — offers no provable floor and returns -1.
-func parseBlobFilterFloor(filter string) int64 {
-	const prefix = "blob:limit="
-	value := strings.TrimSpace(filter)
-	if !strings.HasPrefix(value, prefix) {
-		return -1
-	}
-	size := strings.TrimSpace(value[len(prefix):])
-	if size == "" {
-		return -1
-	}
-	mult := int64(1)
-	last := size[len(size)-1]
-	if last < '0' || last > '9' {
-		size = size[:len(size)-1]
-		switch last {
-		case 'k', 'K':
-			mult = 1 << 10
-		case 'm', 'M':
-			mult = 1 << 20
-		case 'g', 'G':
-			mult = 1 << 30
-		default:
-			return -1
-		}
-	}
-	n, err := strconv.ParseInt(size, 10, 64)
-	if err != nil || n < 0 || n > (1<<62)/mult {
-		return -1
-	}
-	return n * mult
-}
-
-func repoConfigPaths(repoAbs string) []string {
-	paths := []string{
-		filepath.Join(repoAbs, "config"),
-		filepath.Join(repoAbs, ".git", "config"),
-	}
-	if data, err := os.ReadFile(filepath.Join(repoAbs, ".git")); err == nil {
-		if line := strings.TrimSpace(string(data)); strings.HasPrefix(line, "gitdir:") {
-			gitDir := strings.TrimSpace(strings.TrimPrefix(line, "gitdir:"))
-			if !filepath.IsAbs(gitDir) {
-				gitDir = filepath.Join(repoAbs, gitDir)
-			}
-			paths = append(paths, filepath.Join(gitDir, "config"))
-			if common, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
-				commonDir := strings.TrimSpace(string(common))
-				if !filepath.IsAbs(commonDir) {
-					commonDir = filepath.Join(gitDir, commonDir)
-				}
-				paths = append(paths, filepath.Join(commonDir, "config"))
-			}
-		}
-	}
-	return paths
+	return false
 }
 
 type offlineRawEntry struct {
@@ -385,7 +273,6 @@ type offlineEnum struct {
 	rawCmd  *exec.Cmd
 	rawErr  *limitedWriter
 	pumpErr chan error
-	merges  []nativeCommit
 	done    chan struct{}
 }
 
@@ -430,6 +317,7 @@ func (s *Source) startOfflineEnum(ctx context.Context, gitBin string, starts, st
 		"-C", s.repoAbs,
 		"diff-tree",
 		"--stdin",
+		"--always",
 		"--root",
 		"-r",
 		"--raw",
@@ -483,19 +371,17 @@ func (s *Source) startOfflineEnum(ctx context.Context, gitBin string, starts, st
 					enum.pumpErr <- fmt.Errorf("git: parse offline commit list: %w", parseErr)
 					return
 				}
-				if commit.parentCount > 1 {
-					enum.merges = append(enum.merges, commit)
-				} else {
+				if commit.parentCount <= 1 {
 					if _, err := fmt.Fprintln(rawStdin, commit.hash); err != nil {
 						enum.pumpErr <- fmt.Errorf("git: feed offline raw stdin: %w", err)
 						return
 					}
-					select {
-					case enum.commits <- commit:
-					case <-ctx.Done():
-						enum.pumpErr <- ctx.Err()
-						return
-					}
+				}
+				select {
+				case enum.commits <- commit:
+				case <-ctx.Done():
+					enum.pumpErr <- ctx.Err()
+					return
 				}
 			}
 			if err != nil {
@@ -581,7 +467,7 @@ func (s *Source) chunksOffline(ctx context.Context, repo *gogit.Repository, gitB
 	if !s.promisorFiltered {
 		// Callers coming through Chunks have this set already; populate it
 		// here as well so direct invocations classify omissions correctly.
-		s.promisorFiltered, s.promisorBlobFloor = s.repoPromisorFiltered()
+		s.promisorFiltered = s.repoPromisorFiltered(repo)
 	}
 	enum, err := s.startOfflineEnum(ctx, gitBin, starts, stops)
 	if err != nil {
@@ -644,7 +530,28 @@ func (s *Source) chunksOffline(ctx context.Context, repo *gogit.Repository, gitB
 		}
 		return w.emitFallback(ctx, commit, entries)
 	}
-	processEmpty := func(commit nativeCommit) error { return process(commit, nil) }
+	// Merge commits never produce raw entries — they need the combined-diff
+	// pass. Buffer them in bounded batches instead of an O(history) list.
+	var mergeBuf []nativeCommit
+	mergeFlush := func() error {
+		if len(mergeBuf) == 0 {
+			return nil
+		}
+		batch := mergeBuf
+		mergeBuf = nil
+		return w.merges(ctx, repo, gitBin, batch)
+	}
+	handle := func(commit nativeCommit, entries []offlineRawEntry) error {
+		if commit.parentCount > 1 {
+			mergeBuf = append(mergeBuf, commit)
+			if len(mergeBuf) >= offlinePatchBatchSize {
+				return mergeFlush()
+			}
+			return nil
+		}
+		return process(commit, entries)
+	}
+	processEmpty := func(commit nativeCommit) error { return handle(commit, nil) }
 
 	// Each diff-tree echo line names the commit the following raw records
 	// belong to; a block is complete when the next echo arrives.
@@ -735,10 +642,8 @@ drain:
 		return err
 	}
 
-	if len(enum.merges) > 0 {
-		if err := w.merges(ctx, repo, gitBin, enum.merges); err != nil {
-			return err
-		}
+	if err := mergeFlush(); err != nil {
+		return err
 	}
 	if w.skipped > 0 {
 		fmt.Fprintf(os.Stderr, "git: %s: skipped %d promisor-omitted blob changes (intentional partial-clone boundary)\n", s.repoAbs, w.skipped)
@@ -830,8 +735,8 @@ func (w *offlineWalk) markMissing(entries []offlineRawEntry) (bool, error) {
 	return dirty, nil
 }
 
-// recordSkip counts an omitted blob that the clone's filter proves was above
-// every emission ceiling — a legitimate partial-clone boundary.
+// recordSkip counts an omitted blob that provably contributes nothing —
+// currently only the base of a pure deletion on a promisor clone.
 func (w *offlineWalk) recordSkip(hash, path string) {
 	w.skipped++
 	if len(w.skipSample) < offlineSkipSampleCap {
@@ -951,27 +856,21 @@ func (w *offlineWalk) emitFallback(ctx context.Context, commit nativeCommit, ent
 			return err
 		}
 		if entry.deleted || entry.newSHA == "" || entry.newSHA == zero {
-			continue
-		}
-		if entry.newMissing {
-			switch {
-			case entry.oldMissing:
-				// With both sides absent the change's scope cannot be
-				// verified at all — fail closed.
-				w.recordCoverage(commit, entry.path, errors.New("both diff blobs omitted; change scope unverifiable"))
-			case w.source.promisorOmissionSafe():
-				// The clone filter's floor clears every emission ceiling,
-				// so the omitted blob is the declared partial-clone boundary.
+			if entry.oldMissing && w.source.promisorFiltered {
+				// Pure deletions emit nothing; an omitted base blob on a
+				// promisor clone is the declared partial-clone boundary.
 				w.recordSkip(commit.hash, entry.path)
-			default:
-				// The filter cannot prove the omitted blob was out of
-				// scope (unparsable filter, or a floor below the emission
-				// ceilings): added lines may hide scannable content.
-				w.recordCoverage(commit, entry.path, errors.New("blob omitted by clone filter but may be in scope"))
 			}
 			continue
 		}
 		if !w.source.pathAllowed(entry.path) {
+			continue
+		}
+		if entry.newMissing {
+			// The blob's type cannot be sniffed without reading it, so it
+			// could hold scannable text at any size: degrade coverage
+			// rather than advancing a checkpoint over unread content.
+			w.recordCoverage(commit, entry.path, errors.New("blob omitted by clone filter but may be in scope"))
 			continue
 		}
 		r, err := w.blob()

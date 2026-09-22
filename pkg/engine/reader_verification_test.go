@@ -642,12 +642,14 @@ func TestStreamMatchSharedPrefixBoundsBatchReads(t *testing.T) {
 
 func runSharedPrefixBounds(t *testing.T, size int64) {
 	t.Helper()
-	const count = 2048 // > streamFindingBatchLimit, so multiple flushes resolve the same prefix
+	// Raws scale with input size so position-resolution cost cannot hide
+	// behind a fixed small batch count.
+	count := size / 8192
 	data := bytes.Repeat([]byte{' '}, int(size))
 	raws := make([][]byte, count+2)
-	for i := 0; i < count; i++ {
+	for i := int64(0); i < count; i++ {
 		raws[i] = []byte(fmt.Sprintf("ghp_shared_prefix_token_%05d", i))
-		copy(data[int64(i)*(size/count):], raws[i])
+		copy(data[i*(size/count):], raws[i])
 	}
 	// A duplicated occurrence must still resolve to the earliest position.
 	copy(data[int(size)-128:], raws[0])
@@ -660,10 +662,10 @@ func runSharedPrefixBounds(t *testing.T, size int64) {
 	hints := make([]streamRawHint, len(raws))
 	for i, raw := range raws {
 		off := int64(i) * (size / count)
-		if i == count {
+		if int64(i) == count {
 			off = -1
 		}
-		if i == count+1 {
+		if int64(i) == count+1 {
 			off = int64(size - 64)
 		}
 		if off >= 0 {
@@ -698,12 +700,17 @@ func runSharedPrefixBounds(t *testing.T, size int64) {
 		t.Fatalf("other-prefix raw = %#v/%v", match, ok)
 	}
 
-	// Reads: one 'gh' index pass + small candidate reads only. No per-batch
-	// input pass is allowed: cap well under three input sizes.
+	// Reads: one shared index pass + small per-candidate reads only. Both
+	// bytes and call count must stay proportional to the input plus the raw
+	// count, never to the batch count.
 	if got := reader.bytes.Load(); got >= 3*size {
 		t.Fatalf("position resolution read %d bytes, want under %d (grows with batch count)", got, 3*size)
 	}
-	t.Logf("shared-prefix reads: calls=%d bytes=%d input=%d", reader.calls.Load(), reader.bytes.Load(), size)
+	wantCalls := 2*count + size/(32<<10)
+	if got := reader.calls.Load(); got > wantCalls {
+		t.Fatalf("position resolution made %d ReadAt calls, want under %d (grows with batch count)", got, wantCalls)
+	}
+	t.Logf("shared-prefix reads: calls=%d bytes=%d input=%d raws=%d", reader.calls.Load(), reader.bytes.Load(), size, count)
 	readsAfterFirst := reader.bytes.Load()
 	for start := 0; start < len(raws); start += streamFindingBatchLimit {
 		end := start + streamFindingBatchLimit
