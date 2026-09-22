@@ -59,3 +59,6 @@ without invoking the orchestrator.
 | 2026-09-22 | architect, core-engineer, detector-engineer, connector-engineer | Build compact keyword DFA tables without temporary trie maps, borrow buffered archive roots, preallocate bounded gzip bodies, and reject impossible detector candidates while preserving match alignment. |
 | 2026-09-22 | architect, core-engineer, detector-engineer, connector-engineer, qa | Stream large bodies, batch finding-span searches, reduce archive buffers, and preserve source errors and checkpoints; source consumers must handle optional `Chunk.Open` payloads. |
 | 2026-09-22 | Codex, architect | Moved benchmark tooling and research to the private pleno-dlp-reports repository; product builds and tests remain here. |
+| 2026-09-22 | Devin | Engine raw-position resolution: multi-byte prefix candidate filtering (#436) and per-window occurrence hints to bound re-scan (#437). |
+| 2026-09-22 | Devin | Git source opens repositories with extensions.worktreeConfig and linked worktrees without mutating their config (#380); unknown extensions remain rejected. |
+| 2026-09-22 | Devin | GitHub history clones filter blobs above the artifact ceiling and walk promisor clones offline via tree-level diff enumeration plus bounded cat-file batches; omitted blobs are intentional skips, not walk failures (#378). |
