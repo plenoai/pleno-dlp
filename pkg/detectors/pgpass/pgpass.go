@@ -119,7 +119,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 func (s Scanner) FromReader(ctx context.Context, _ bool, r io.ReaderAt, size int64) ([]detectors.Result, error) {
 	seen := map[string]struct{}{}
 	var out []detectors.Result
-	err := detectors.ForEachReaderLineSubmatch(ctx, r, size, pgpassLineRe(), []byte(":"), 4, 4, []int{1, 2, 3, 4, 5}, func(match [][]byte) error {
+	err := detectors.ForEachReaderLineSubmatchFunc(ctx, r, size, pgpassLineRe, []byte(":"), 4, 4, []int{1, 2, 3, 4, 5}, func(match [][]byte) error {
 		scanMatch(match, seen, &out)
 		return nil
 	})

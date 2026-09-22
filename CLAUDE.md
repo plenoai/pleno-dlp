@@ -54,7 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
-| 2026-09-22 | Codex, core-engineer, qa | Reuse decoder scan scratch across sequential passes and allocate decoding/output buffers only when eligible content requires them. |
+| 2026-09-22 | Codex, core-engineer, qa | Reuse decoder scan scratch across sequential passes; allocate decode buffers and compile line-detector regexps only after eligible content is found. |
 | 2026-09-22 | connector-engineer, qa | Read filesystem inputs larger than 512 KiB on demand to avoid retaining medium file bodies in queued chunks. |
 | 2026-09-22 | Codex, connector-engineer, qa | Preserve ordered GitHub sink errors across cancellation branches while retaining caller cancellation and deadline errors. |
 | 2026-09-22 | architect, core-engineer, detector-engineer, connector-engineer | Build compact keyword DFA tables without temporary trie maps, borrow buffered archive roots, preallocate bounded gzip bodies, and reject impossible detector candidates while preserving match alignment. |

@@ -60,6 +60,111 @@ func TestForEachReaderLineSubmatchZeroMaxKeepsLowerBoundOnly(t *testing.T) {
 	}
 }
 
+func TestForEachReaderLineSubmatchFuncDefersAndCachesFactory(t *testing.T) {
+	re := regexp.MustCompile(`(?m)^([^\n]+)$`)
+	tests := []struct {
+		name       string
+		data       []byte
+		size       int64
+		needle     []byte
+		min        int
+		max        int
+		nilFactory bool
+		nilResult  bool
+		cancelled  bool
+		wantCalls  int
+		wantVisits int
+		wantErr    bool
+	}{
+		{
+			name:   "rejected lines do not build regexp",
+			data:   []byte("noise\nwithout marker\n"),
+			size:   int64(len("noise\nwithout marker\n")),
+			needle: []byte(":"),
+			min:    1,
+		},
+		{
+			name:    "reader error does not build regexp",
+			data:    []byte("noise\n"),
+			size:    int64(len("noise\n")) + 1,
+			needle:  []byte(":"),
+			min:     1,
+			wantErr: true,
+		},
+		{
+			name:       "nil factory is rejected",
+			needle:     []byte(":"),
+			min:        1,
+			nilFactory: true,
+			wantErr:    true,
+		},
+		{
+			name:      "nil regexp is rejected on candidate",
+			data:      []byte("one:two"),
+			size:      int64(len("one:two")),
+			needle:    []byte(":"),
+			min:       1,
+			nilResult: true,
+			wantCalls: 1,
+			wantErr:   true,
+		},
+		{
+			name:      "cancellation does not build regexp",
+			data:      []byte("one:two\n"),
+			size:      int64(len("one:two\n")),
+			needle:    []byte(":"),
+			min:       1,
+			cancelled: true,
+			wantErr:   true,
+		},
+		{
+			name:       "multiple matches and eof share one regexp",
+			data:       []byte("one:two\nthree:four\nfive:six"),
+			size:       int64(len("one:two\nthree:four\nfive:six")),
+			needle:     []byte(":"),
+			min:        1,
+			wantCalls:  1,
+			wantVisits: 3,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			visits := 0
+			ctx := context.Background()
+			if tt.cancelled {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+			var factory func() *regexp.Regexp
+			if !tt.nilFactory {
+				factory = func() *regexp.Regexp {
+					calls++
+					if tt.nilResult {
+						return nil
+					}
+					return re
+				}
+			}
+			err := ForEachReaderLineSubmatchFunc(ctx, bytes.NewReader(tt.data), tt.size, factory, tt.needle, tt.min, tt.max, []int{1}, func([][]byte) error {
+				visits++
+				return nil
+			})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error = %v, wantErr=%v", err, tt.wantErr)
+			}
+			if calls != tt.wantCalls {
+				t.Fatalf("factory calls = %d, want %d", calls, tt.wantCalls)
+			}
+			if visits != tt.wantVisits {
+				t.Fatalf("visits = %d, want %d", visits, tt.wantVisits)
+			}
+		})
+	}
+}
+
 func TestForEachReaderLineSubmatchPropagatesCancellation(t *testing.T) {
 	re := regexp.MustCompile(`(?m)^([^\n]+)$`)
 	data := []byte("one:two:three:four\n")
