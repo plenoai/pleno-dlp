@@ -159,8 +159,6 @@ func TestChunks_OfflineWalkerPreservesMetadata(t *testing.T) {
 	}
 }
 
-
-
 // TestChunksOfflineDirect exercises the offline native walker on the
 // filtered clone regardless of whether this host's git qualifies for the
 // native fast path.

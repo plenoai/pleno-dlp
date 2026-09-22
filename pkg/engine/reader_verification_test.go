@@ -478,23 +478,6 @@ func TestStreamFindingBatchOwnsExtraDataBeforeFlush(t *testing.T) {
 	}
 }
 
-// fanoutRawDetector emits many distinct raws sliced out of its input, so a
-// handful of windows produces more findings than one resolution batch can
-// hold. Every raw is a verbatim substring of the stream window.
-type fanoutRawDetector struct{}
-
-func (*fanoutRawDetector) Type() detectors.DetectorType { return detectors.AWS }
-
-func (*fanoutRawDetector) Keywords() []string { return []string{"kwpair"} }
-
-func (*fanoutRawDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	var out []detectors.Result
-	for i := 0; i+16 <= len(data) && len(out) < 128; i += 16 {
-		out = append(out, detectors.Result{DetectorType: detectors.AWS, Raw: bytes.Clone(data[i : i+16])})
-	}
-	return out, nil
-}
-
 func TestStreamMatchHintBoundsRescanAcrossBatches(t *testing.T) {
 	// >1024 hinted raws force several resolution batches. With window hints,
 	// position resolution reads only candidate prefix positions, so total
