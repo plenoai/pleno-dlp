@@ -192,6 +192,14 @@ type Source struct {
 	hasPreviousState bool
 	previousState    *incrementalState
 	nextState        *incrementalState
+
+	// promisorFiltered marks a partial clone whose blobs above the clone-time
+	// filter ceiling were never transferred. On such a repository an
+	// object-not-found is an intentional skip, not walk coverage loss: the
+	// object was deliberately left out and lazy fetching is disabled, so it
+	// can never be fetched mid-walk. promisorSkipped counts those entries.
+	promisorFiltered bool
+	promisorSkipped  int64
 }
 
 type incrementalState struct {
@@ -290,6 +298,8 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	if err != nil {
 		return fmt.Errorf("git: reopen repo: %w", err)
 	}
+	s.promisorFiltered = s.repoPromisorFiltered()
+	s.promisorSkipped = 0
 	starts, err := s.resolveStarts(repo)
 	if err != nil {
 		return err
@@ -317,7 +327,13 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 					s.retainPreviousState()
 					return s.nativeDegradedError(stopErr)
 				}
-				if err := s.chunksNative(ctx, repo, gitBin, starts, nativeStops, ch); err != nil {
+				var walkErr error
+				if s.promisorFiltered {
+					walkErr = s.chunksOffline(ctx, repo, gitBin, starts, nativeStops, ch)
+				} else {
+					walkErr = s.chunksNative(ctx, repo, gitBin, starts, nativeStops, ch)
+				}
+				if err := walkErr; err != nil {
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return err
 					}
@@ -364,8 +380,14 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
+			if s.promisorFiltered && s.promisorOnlyOmitted(err) {
+				continue
+			}
 			recordCoverage(c.Hash, "tree-diff", err)
 		}
+	}
+	if s.promisorSkipped > 0 {
+		fmt.Fprintf(os.Stderr, "git: %s: skipped %d promisor-omitted objects (intentional partial-clone boundary)\n", s.repoAbs, s.promisorSkipped)
 	}
 	if coverageTotal > 0 {
 		if s.previousState != nil {

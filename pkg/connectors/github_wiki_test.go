@@ -74,7 +74,7 @@ func TestNativeCloneRedactsPATAndClassifiesAuth(t *testing.T) {
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	err := cloneWithNativeGit(context.Background(), script, "https://github.com/acme/repo.wiki.git", t.TempDir()+"/clone", token, io.Discard)
+	err := cloneWithNativeGit(context.Background(), script, "https://github.com/acme/repo.wiki.git", t.TempDir()+"/clone", token, 0, io.Discard)
 	var cloneErr *githubCloneError
 	if !errors.As(err, &cloneErr) || cloneErr.Kind != githubCloneAuth {
 		t.Fatalf("error=%v", err)
