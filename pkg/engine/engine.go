@@ -1173,9 +1173,9 @@ func (e *Engine) buildPrefilter() {
 	if len(e.dets) == 0 {
 		return
 	}
-	patternIDByKeyword := make(map[string]int)
-	var patterns [][]byte
-	var detectorIdxByPattern [][]int
+	patternIDByKeyword := make(map[string]int, len(e.dets))
+	patterns := make([][]byte, 0, len(e.dets))
+	detectorIdxByPattern := make([][]int, 0, len(e.dets))
 	for di, d := range e.dets {
 		for _, kw := range d.Keywords() {
 			if kw == "" {
