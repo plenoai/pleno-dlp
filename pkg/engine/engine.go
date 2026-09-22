@@ -1261,13 +1261,43 @@ type streamRawGroupKey struct {
 
 type streamRawGroup struct {
 	length   int
+	prefix   []byte
 	patterns map[string]string
+	single   string
 }
 
-// findReaderMatches resolves short raw values in one forward pass. The scan
-// visits only offsets whose first byte is wanted, then uses an exact string
-// map within each length group. The overlap keeps matches crossing a block
-// boundary visible without retaining the source body.
+// longestCommonPrefix returns the shared leading bytes of every pattern in
+// the group. All patterns in a group already share their first byte, so the
+// prefix is never empty.
+func (g *streamRawGroup) longestCommonPrefix() {
+	first := true
+	for raw := range g.patterns {
+		if first {
+			g.prefix = append(g.prefix[:0], raw...)
+			first = false
+			continue
+		}
+		i := 0
+		for i < len(g.prefix) && i < len(raw) && g.prefix[i] == raw[i] {
+			i++
+		}
+		g.prefix = g.prefix[:i]
+	}
+	if len(g.patterns) == 1 {
+		for raw := range g.patterns {
+			g.single = raw
+		}
+	}
+}
+
+// findReaderMatches resolves short raw values in one forward pass. Each
+// (first byte, length) group searches with bytes.Index on its longest common
+// prefix — a single byte falls back to the same IndexByte scan as before,
+// while longer shared prefixes skip the false-candidate map probes that
+// dominated on repetitive backgrounds. Only prefix hits pay for an exact
+// string lookup, and single-pattern groups need none at all. The overlap
+// keeps matches crossing a block boundary visible without retaining the
+// source body.
 func findReaderMatches(ctx context.Context, reader io.ReaderAt, size int64, wanted map[string]struct{}, values map[string]streamMatch) error {
 	if len(wanted) == 0 {
 		return nil
@@ -1275,8 +1305,8 @@ func findReaderMatches(ctx context.Context, reader io.ReaderAt, size int64, want
 	if reader == nil || size < 0 {
 		return errors.New("engine: invalid batched raw lookup input")
 	}
-	var groupsByFirst [256][]*streamRawGroup
 	groups := make(map[streamRawGroupKey]*streamRawGroup, len(wanted))
+	groupList := make([]*streamRawGroup, 0, len(wanted))
 	maxLength := 0
 	for raw := range wanted {
 		if raw == "" {
@@ -1287,7 +1317,7 @@ func findReaderMatches(ctx context.Context, reader io.ReaderAt, size int64, want
 		if group == nil {
 			group = &streamRawGroup{length: len(raw), patterns: make(map[string]string)}
 			groups[key] = group
-			groupsByFirst[key.first] = append(groupsByFirst[key.first], group)
+			groupList = append(groupList, group)
 		}
 		// Keep the caller's stable string as the map value. The compiler can
 		// use the []byte slice directly for a string-key lookup, so misses do
@@ -1299,6 +1329,9 @@ func findReaderMatches(ctx context.Context, reader io.ReaderAt, size int64, want
 	}
 	if maxLength == 0 {
 		return nil
+	}
+	for _, group := range groupList {
+		group.longestCommonPrefix()
 	}
 	const blockSize = 64 << 10
 	overlap := maxLength - 1
@@ -1322,41 +1355,36 @@ scan:
 			return io.ErrUnexpectedEOF
 		}
 		data := buffer[:got]
-		for first, firstGroups := range groupsByFirst {
-			if len(firstGroups) == 0 {
-				continue
+		for groupIndex, group := range groupList {
+			if groupIndex&31 == 0 {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
 			}
 			for from := 0; from < len(data); {
-				offset := bytes.IndexByte(data[from:], byte(first))
+				offset := bytes.Index(data[from:], group.prefix)
 				if offset < 0 {
 					break
 				}
 				offset += from
-				for groupIndex, group := range firstGroups {
-					if groupIndex&31 == 0 {
-						if err := ctx.Err(); err != nil {
-							return err
-						}
-					}
-					end := offset + group.length
-					if end > len(data) {
-						continue
-					}
-					key, matched := group.patterns[string(data[offset:end])]
+				end := offset + group.length
+				if end <= len(data) {
+					key, matched := group.single, group.single != ""
 					if !matched {
-						continue
+						key, matched = group.patterns[string(data[offset:end])]
 					}
-					if _, alreadyFound := values[key]; alreadyFound {
-						continue
-					}
-					values[key] = streamMatch{
-						offset:       start + int64(offset),
-						newlineCount: lineCount + bytes.Count(data[:offset], []byte{'\n'}),
-						found:        true,
-					}
-					foundCount++
-					if foundCount == len(wanted) {
-						break scan
+					if matched {
+						if _, alreadyFound := values[key]; !alreadyFound {
+							values[key] = streamMatch{
+								offset:       start + int64(offset),
+								newlineCount: lineCount + bytes.Count(data[:offset], []byte{'\n'}),
+								found:        true,
+							}
+							foundCount++
+							if foundCount == len(wanted) {
+								break scan
+							}
+						}
 					}
 				}
 				from = offset + 1

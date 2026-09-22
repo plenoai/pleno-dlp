@@ -279,6 +279,126 @@ type failingReaderAt struct{ err error }
 
 func (r failingReaderAt) ReadAt([]byte, int64) (int, error) { return 0, r.err }
 
+// plant writes raw at offset in data and returns the planted offset.
+func plant(data []byte, offset int64, raw []byte) int64 {
+	copy(data[offset:], raw)
+	return offset
+}
+
+// TestFindReaderMatchesPrefixGroups covers the issue-436 matrix in one
+// fixture: a same-(first,length) group whose longest common prefix narrows
+// mid-pattern ("gh" for ghp_/gho_ mixes), a first-byte-only group, mixed
+// lengths, a 1-byte raw, a binary raw, duplicates (first occurrence wins),
+// and an absent raw. newlineCount must match a whole-input count.
+func TestFindReaderMatchesPrefixGroups(t *testing.T) {
+	data := bytes.Repeat([]byte("g."), 4<<10)
+	data = append(data, '\n')
+	plants := map[string]int64{}
+	put := func(raw string) {
+		plants[raw] = int64(len(data))
+		data = append(data, raw...)
+		data = append(data, bytes.Repeat([]byte("g."), 64)...)
+	}
+	put("ghp_tokenaaaa")
+	put("ghp_tokenbbbb")
+	put("gho_tokencccc")
+	put("z")
+	put("\x00\xff\x00\x80")
+	put("a_much_longer_raw_value_here")
+	put("dup_token")
+	// The same raw planted a second time must not displace the first.
+	data = append(data, "dup_token"...)
+	data = append(data, bytes.Repeat([]byte("g."), 64)...)
+
+	wanted := map[string]struct{}{}
+	for raw := range plants {
+		wanted[raw] = struct{}{}
+	}
+	wanted["ghp_missing"] = struct{}{}
+
+	values := make(map[string]streamMatch)
+	if err := findReaderMatches(context.Background(), bytes.NewReader(data), int64(len(data)), wanted, values); err != nil {
+		t.Fatalf("findReaderMatches: %v", err)
+	}
+	for raw, offset := range plants {
+		match, ok := values[raw]
+		wantLines := bytes.Count(data[:offset], []byte{'\n'})
+		if !ok || !match.found || match.offset != offset || match.newlineCount != wantLines {
+			t.Fatalf("raw %q = %#v/%v, want offset=%d lines=%d", raw, match, ok, offset, wantLines)
+		}
+	}
+	if missing := values["ghp_missing"]; missing.found || missing.offset != -1 {
+		t.Fatalf("missing raw = %#v, want unfound", missing)
+	}
+}
+
+// TestFindReaderMatchesPrefixAcrossBlockBoundary keeps the 64 KiB read
+// boundary honest for the prefix path: a grouped pattern spanning the block
+// split must still resolve through the overlap.
+func TestFindReaderMatchesPrefixAcrossBlockBoundary(t *testing.T) {
+	data := bytes.Repeat([]byte("gh"), 40<<10)
+	raws := [][]byte{[]byte("ghp_boundaryaaaa"), []byte("ghp_boundarybbbb")}
+	offset := (64 << 10) - 5
+	copy(data[offset:], raws[0])
+	copy(data[offset+64:], raws[1])
+	wanted := map[string]struct{}{string(raws[0]): {}, string(raws[1]): {}}
+	values := make(map[string]streamMatch)
+	if err := findReaderMatches(context.Background(), bytes.NewReader(data), int64(len(data)), wanted, values); err != nil {
+		t.Fatalf("findReaderMatches: %v", err)
+	}
+	for i, want := range []int64{int64(offset), int64(offset + 64)} {
+		match := values[string(raws[i])]
+		if !match.found || match.offset != want {
+			t.Fatalf("boundary raw %d = %#v, want offset %d", i, match, want)
+		}
+	}
+}
+
+func TestFindReaderMatchesCancelledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	data := bytes.Repeat([]byte("g."), 4<<10)
+	wanted := map[string]struct{}{"ghp_token": {}}
+	values := make(map[string]streamMatch)
+	if err := findReaderMatches(ctx, bytes.NewReader(data), int64(len(data)), wanted, values); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled scan err=%v, want context.Canceled", err)
+	}
+}
+
+func TestFindReaderMatchesReadErrorPropagates(t *testing.T) {
+	readErr := errors.New("read blew up")
+	wanted := map[string]struct{}{"ghp_token": {}}
+	values := make(map[string]streamMatch)
+	if err := findReaderMatches(context.Background(), failingReaderAt{err: readErr}, 4096, wanted, values); !errors.Is(err, readErr) {
+		t.Fatalf("scan err=%v, want read error", err)
+	}
+}
+
+func TestStreamRawGroupLongestCommonPrefix(t *testing.T) {
+	group := &streamRawGroup{patterns: map[string]string{
+		"ghp_aaaa": "ghp_aaaa", "ghp_bbbb": "ghp_bbbb",
+	}}
+	group.longestCommonPrefix()
+	if string(group.prefix) != "ghp_" || group.single != "" {
+		t.Fatalf("prefix=%q single=%q, want ghp_/empty", group.prefix, group.single)
+	}
+	group = &streamRawGroup{patterns: map[string]string{"ghp_aaaa": "ghp_aaaa", "gho_bbbb": "gho_bbbb"}}
+	group.longestCommonPrefix()
+	if string(group.prefix) != "gh" {
+		t.Fatalf("prefix=%q, want gh", group.prefix)
+	}
+	group = &streamRawGroup{patterns: map[string]string{"ga": "ga", "gb": "gb"}}
+	group.longestCommonPrefix()
+	if string(group.prefix) != "g" {
+		t.Fatalf("prefix=%q, want g", group.prefix)
+	}
+	group = &streamRawGroup{patterns: map[string]string{"solo": "solo"}}
+	group.longestCommonPrefix()
+	if string(group.prefix) != "solo" || group.single != "solo" {
+		t.Fatalf("prefix=%q single=%q, want solo/solo", group.prefix, group.single)
+	}
+}
+
 func streamBatchTestFinding(line int) Finding {
 	return Finding{
 		Result: detectors.Result{DetectorType: detectors.AWS, Raw: []byte("batch-partial-token")},
