@@ -275,6 +275,87 @@ func TestStreamMatchBatchFindsRawAcrossReadBlockBoundary(t *testing.T) {
 	}
 }
 
+func TestFindReaderMatchesNarrowsByPrefixAndLength(t *testing.T) {
+	// Background repeats 'g.' so the 'g' first byte fires constantly while
+	// two-byte and longer prefixes almost never match.
+	background := bytes.Repeat([]byte("g."), (64<<10)/2+64)
+	raws := [][]byte{
+		[]byte("ghp_alpha_token_aaaaaaaaaaaaaaaa"),
+		[]byte("ghp_beta_token_bbbbbbbbbbb"),
+		[]byte("ghx_mixed_length"),
+		[]byte("g"),
+		{0x67, 0x00, 0xff, 0x10, 0x77},
+		[]byte("ghp_missing_token_zzzzzzzzzzzzzzzz"),
+	}
+	data := bytes.Clone(background)
+	placements := map[string]int64{
+		"ghp_alpha_token_aaaaaaaaaaaaaaaa": 5,
+		"ghp_beta_token_bbbbbbbbbbb":       (64 << 10) - 4,
+		"ghx_mixed_length":                 int64(len(data)) - 20,
+		// The 'g.' background already contains 'g' at offset 0, so the
+		// single-byte raw's first occurrence is the background's first byte.
+		"g": 0,
+		string([]byte{0x67, 0x00, 0xff, 0x10, 0x77}): 100,
+	}
+	for raw, off := range placements {
+		copy(data[off:], []byte(raw))
+	}
+	wanted := make(map[string]struct{}, len(raws))
+	for _, raw := range raws {
+		wanted[string(raw)] = struct{}{}
+	}
+	values := make(map[string]streamMatch, len(raws))
+	if err := findReaderMatches(context.Background(), bytes.NewReader(data), int64(len(data)), wanted, values); err != nil {
+		t.Fatalf("findReaderMatches: %v", err)
+	}
+	for _, raw := range raws {
+		key := string(raw)
+		match, ok := values[key]
+		if !ok {
+			t.Fatalf("raw %q missing from results", key)
+		}
+		wantOff, placed := placements[key]
+		if placed {
+			if !match.found || match.offset != wantOff {
+				t.Fatalf("raw %q = %#v, want offset %d", key, match, wantOff)
+			}
+		} else if match.found {
+			t.Fatalf("raw %q unexpectedly found at %d", key, match.offset)
+		}
+	}
+}
+
+func TestFindReaderMatchesReturnsFirstOccurrence(t *testing.T) {
+	raw := []byte("shared-prefix-token")
+	data := bytes.Repeat([]byte("xy\n"), 8<<10)
+	first := int64(10)
+	second := int64(len(data)) - 30
+	copy(data[first:], raw)
+	copy(data[second:], raw)
+	wanted := map[string]struct{}{string(raw): {}}
+	values := make(map[string]streamMatch, 1)
+	if err := findReaderMatches(context.Background(), bytes.NewReader(data), int64(len(data)), wanted, values); err != nil {
+		t.Fatalf("findReaderMatches: %v", err)
+	}
+	match := values[string(raw)]
+	wantLines := bytes.Count(data[:first], []byte{'\n'})
+	if !match.found || match.offset != first || match.newlineCount != wantLines {
+		t.Fatalf("first occurrence = %#v, want offset=%d lines=%d", match, first, wantLines)
+	}
+}
+
+func TestFindReaderMatchesCancellationAndReadError(t *testing.T) {
+	readErr := errors.New("reader failed")
+	if err := findReaderMatches(context.Background(), failingReaderAt{err: readErr}, 128, map[string]struct{}{"tok": {}}, map[string]streamMatch{}); !errors.Is(err, readErr) {
+		t.Fatalf("read error = %v, want %v", err, readErr)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := findReaderMatches(ctx, bytes.NewReader([]byte("tok")), 3, map[string]struct{}{"tok": {}}, map[string]streamMatch{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel error = %v, want %v", err, context.Canceled)
+	}
+}
+
 type failingReaderAt struct{ err error }
 
 func (r failingReaderAt) ReadAt([]byte, int64) (int, error) { return 0, r.err }

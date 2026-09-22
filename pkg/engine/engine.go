@@ -1254,20 +1254,32 @@ func sourceLine(c *sources.Chunk) int {
 	}
 }
 
-type streamRawGroupKey struct {
-	first  byte
-	length int
-}
-
 type streamRawGroup struct {
 	length   int
 	patterns map[string]string
 }
 
+// streamRawPrefixGroup collects the raws sharing a two-byte prefix. The
+// common prefix across every member (always at least two bytes) is verified
+// before any full-string map lookup, so background bytes that happen to share
+// only the first byte never reach the map.
+type streamRawPrefixGroup struct {
+	prefix []byte
+	byLen  map[int]*streamRawGroup
+}
+
+// streamRawFirstGroup splits one first-byte value into the raw group for
+// single-byte raws and per-second-byte prefix groups for longer raws.
+type streamRawFirstGroup struct {
+	singles  *streamRawGroup
+	bySecond map[byte]*streamRawPrefixGroup
+}
+
 // findReaderMatches resolves short raw values in one forward pass. The scan
-// visits only offsets whose first byte is wanted, then uses an exact string
-// map within each length group. The overlap keeps matches crossing a block
-// boundary visible without retaining the source body.
+// visits only offsets whose first byte is wanted, narrows candidates further
+// by second byte, and confirms a group's longest common prefix before trying
+// the exact string map. The overlap keeps matches crossing a block boundary
+// visible without retaining the source body.
 func findReaderMatches(ctx context.Context, reader io.ReaderAt, size int64, wanted map[string]struct{}, values map[string]streamMatch) error {
 	if len(wanted) == 0 {
 		return nil
@@ -1275,24 +1287,46 @@ func findReaderMatches(ctx context.Context, reader io.ReaderAt, size int64, want
 	if reader == nil || size < 0 {
 		return errors.New("engine: invalid batched raw lookup input")
 	}
-	var groupsByFirst [256][]*streamRawGroup
-	groups := make(map[streamRawGroupKey]*streamRawGroup, len(wanted))
+	firsts := make(map[byte]*streamRawFirstGroup, len(wanted))
 	maxLength := 0
 	for raw := range wanted {
 		if raw == "" {
 			continue
 		}
-		key := streamRawGroupKey{first: raw[0], length: len(raw)}
-		group := groups[key]
+		group := firsts[raw[0]]
 		if group == nil {
-			group = &streamRawGroup{length: len(raw), patterns: make(map[string]string)}
-			groups[key] = group
-			groupsByFirst[key.first] = append(groupsByFirst[key.first], group)
+			group = &streamRawFirstGroup{}
+			firsts[raw[0]] = group
 		}
-		// Keep the caller's stable string as the map value. The compiler can
-		// use the []byte slice directly for a string-key lookup, so misses do
-		// not allocate; a real hit reuses this stored key.
-		group.patterns[raw] = raw
+		if len(raw) == 1 {
+			if group.singles == nil {
+				group.singles = &streamRawGroup{length: 1, patterns: make(map[string]string)}
+			}
+			group.singles.patterns[raw] = raw
+		} else {
+			second := group.bySecond[raw[1]]
+			if second == nil {
+				second = &streamRawPrefixGroup{
+					prefix: []byte(raw),
+					byLen:  make(map[int]*streamRawGroup),
+				}
+				if group.bySecond == nil {
+					group.bySecond = make(map[byte]*streamRawPrefixGroup)
+				}
+				group.bySecond[raw[1]] = second
+			} else {
+				second.prefix = commonPrefix(second.prefix, raw)
+			}
+			lengthGroup := second.byLen[len(raw)]
+			if lengthGroup == nil {
+				lengthGroup = &streamRawGroup{length: len(raw), patterns: make(map[string]string)}
+				second.byLen[len(raw)] = lengthGroup
+			}
+			// Keep the caller's stable string as the map value. The compiler can
+			// use the []byte slice directly for a string-key lookup, so misses do
+			// not allocate; a real hit reuses this stored key.
+			lengthGroup.patterns[raw] = raw
+		}
 		if len(raw) > maxLength {
 			maxLength = len(raw)
 		}
@@ -1305,6 +1339,7 @@ func findReaderMatches(ctx context.Context, reader io.ReaderAt, size int64, want
 	buffer := make([]byte, blockSize+overlap)
 	var lineCount int
 	foundCount := 0
+	hitCount := 0
 scan:
 	for start := int64(0); start < size; {
 		if err := ctx.Err(); err != nil {
@@ -1322,27 +1357,55 @@ scan:
 			return io.ErrUnexpectedEOF
 		}
 		data := buffer[:got]
-		for first, firstGroups := range groupsByFirst {
-			if len(firstGroups) == 0 {
-				continue
-			}
+		for first, group := range firsts {
 			for from := 0; from < len(data); {
-				offset := bytes.IndexByte(data[from:], byte(first))
+				offset := bytes.IndexByte(data[from:], first)
 				if offset < 0 {
 					break
 				}
 				offset += from
-				for groupIndex, group := range firstGroups {
-					if groupIndex&31 == 0 {
-						if err := ctx.Err(); err != nil {
-							return err
+				hitCount++
+				if hitCount&255 == 0 {
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+				}
+				if singles := group.singles; singles != nil {
+					key, matched := singles.patterns[string(data[offset:offset+1])]
+					if matched {
+						if _, alreadyFound := values[key]; !alreadyFound {
+							values[key] = streamMatch{
+								offset:       start + int64(offset),
+								newlineCount: lineCount + bytes.Count(data[:offset], []byte{'\n'}),
+								found:        true,
+							}
+							foundCount++
+							if foundCount == len(wanted) {
+								break scan
+							}
 						}
 					}
-					end := offset + group.length
+				}
+				if offset+1 >= len(data) {
+					from = offset + 1
+					continue
+				}
+				second := group.bySecond[data[offset+1]]
+				if second == nil {
+					from = offset + 1
+					continue
+				}
+				prefixEnd := offset + len(second.prefix)
+				if prefixEnd > len(data) || !bytes.Equal(data[offset:prefixEnd], second.prefix) {
+					from = offset + 1
+					continue
+				}
+				for _, lengthGroup := range second.byLen {
+					end := offset + lengthGroup.length
 					if end > len(data) {
 						continue
 					}
-					key, matched := group.patterns[string(data[offset:end])]
+					key, matched := lengthGroup.patterns[string(data[offset:end])]
 					if !matched {
 						continue
 					}
@@ -1381,6 +1444,17 @@ scan:
 		}
 	}
 	return nil
+}
+
+// commonPrefix returns the shared leading bytes of two raw strings. Members of
+// a second-byte group always keep at least the two grouping bytes.
+func commonPrefix(prefix []byte, raw string) []byte {
+	n := min(len(prefix), len(raw))
+	i := 0
+	for i < n && prefix[i] == raw[i] {
+		i++
+	}
+	return prefix[:i]
 }
 
 // findReaderMatch returns the first raw match and the number of newlines
