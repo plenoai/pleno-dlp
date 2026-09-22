@@ -108,8 +108,7 @@ func TestReviewRealisticPrefixIndexCapMemory(t *testing.T) {
 	runtime.ReadMemStats(&before)
 	reader := &reviewRealisticPeakReader{reader: bytes.NewReader(data)}
 	cache := newStreamMatchCache(reader, int64(len(data)))
-	cache.observeRawWindow("", data, 0)
-	if err := cache.resolve(context.Background(), [][]byte{raw}, []streamRawHint{{offset: offset, ok: true}}); err != nil {
+	if err := cache.resolve(context.Background(), [][]byte{raw}, nil); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 	match, ok := cache.lookup(raw)
@@ -135,8 +134,11 @@ func TestPrefixIndexStorageBudgetFallback(t *testing.T) {
 	copy(data[offset:], raw)
 	reader := &countingReaderAt{reader: bytes.NewReader(data)}
 	cache := newStreamMatchCache(reader, int64(len(data)))
-	cache.observeRawWindow("", data, 0)
-	if err := cache.resolve(context.Background(), [][]byte{raw}, []streamRawHint{{offset: offset, ok: true}}); err != nil {
+	key := reviewIndexPairKey('g', 'h')
+	if _, err := cache.prefixIndexes(context.Background(), []uint32{key}); err != nil {
+		t.Fatalf("prefix index build: %v", err)
+	}
+	if err := cache.resolve(context.Background(), [][]byte{raw}, nil); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 	match, ok := cache.lookup(raw)
