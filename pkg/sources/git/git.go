@@ -192,6 +192,14 @@ type Source struct {
 	hasPreviousState bool
 	previousState    *incrementalState
 	nextState        *incrementalState
+
+	// promisorFiltered marks a partial clone: blobs the clone filter left
+	// out can never be fetched mid-walk (lazy fetching is disabled). A
+	// missing blob then degrades coverage unless it provably contributes
+	// nothing — currently only the old side of a pure deletion.
+	// promisorSkipped counts those boundary omissions.
+	promisorFiltered bool
+	promisorSkipped  int64
 }
 
 type incrementalState struct {
@@ -225,7 +233,7 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, _
 	if err != nil {
 		return fmt.Errorf("git: resolve repo path: %w", err)
 	}
-	if _, err := git.PlainOpen(abs); err != nil {
+	if _, err := openRepository(abs); err != nil {
 		return fmt.Errorf("git: open repo %q: %w", abs, err)
 	}
 	if cfg.Since != "" {
@@ -290,6 +298,8 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	if err != nil {
 		return fmt.Errorf("git: reopen repo: %w", err)
 	}
+	s.promisorFiltered = s.repoPromisorFiltered(repo)
+	s.promisorSkipped = 0
 	starts, err := s.resolveStarts(repo)
 	if err != nil {
 		return err
@@ -317,7 +327,13 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 					s.retainPreviousState()
 					return s.nativeDegradedError(stopErr)
 				}
-				if err := s.chunksNative(ctx, repo, gitBin, starts, nativeStops, ch); err != nil {
+				var walkErr error
+				if s.promisorFiltered {
+					walkErr = s.chunksOffline(ctx, repo, gitBin, starts, nativeStops, ch)
+				} else {
+					walkErr = s.chunksNative(ctx, repo, gitBin, starts, nativeStops, ch)
+				}
+				if err := walkErr; err != nil {
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						return err
 					}
@@ -364,8 +380,14 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
+			// emitCommit already skips deletions and out-of-scope adds on
+			// promisor-filtered clones; anything that returns here lost
+			// potentially in-scope content and must degrade the checkpoint.
 			recordCoverage(c.Hash, "tree-diff", err)
 		}
+	}
+	if s.promisorSkipped > 0 {
+		fmt.Fprintf(os.Stderr, "git: %s: skipped %d promisor-omitted objects (intentional partial-clone boundary)\n", s.repoAbs, s.promisorSkipped)
 	}
 	if coverageTotal > 0 {
 		if s.previousState != nil {
@@ -383,12 +405,17 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 // hydration with go-git's lazy large-object reader. This applies to loose and
 // packed (including delta-compressed) objects before any Blob.Reader call.
 func openBoundedRepository(path string, threshold int64) (*git.Repository, error) {
-	repo, err := git.PlainOpen(path)
+	repo, err := openRepository(path)
 	if err != nil {
 		return nil, err
 	}
-	storage, ok := repo.Storer.(*gitfilesystem.Storage)
-	if !ok {
+	var storage *gitfilesystem.Storage
+	switch storer := repo.Storer.(type) {
+	case worktreeConfigStorage:
+		storage = storer.Storage
+	case *gitfilesystem.Storage:
+		storage = storer
+	default:
 		return nil, fmt.Errorf("git: unsupported repository storage %T", repo.Storer)
 	}
 	repo.Storer = gitfilesystem.NewStorageWithOptions(storage.Filesystem(), cache.NewObjectLRUDefault(), gitfilesystem.Options{
@@ -429,7 +456,7 @@ func (s *Source) ResourceFingerprint(ctx context.Context) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	repo, err := git.PlainOpen(s.repoAbs)
+	repo, err := openRepository(s.repoAbs)
 	if err != nil {
 		return "", fmt.Errorf("git: reopen repo: %w", err)
 	}
@@ -765,11 +792,31 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if change.To.Name != "" && !s.pathAllowed(change.To.Name) {
+			// Excluded paths are never emitted, so a missing blob here
+			// cannot cost coverage.
+			continue
+		}
 		from, to, err := change.Files()
+		if err != nil && s.promisorFiltered && change.To.Name != "" {
+			// Partial clone: diffs need both sides, but the clone filter can
+			// omit either side. When the retained blob resolves, emit it
+			// whole — with no diffable base it is the smallest emit-worthy
+			// surface that contains every added line.
+			if recovered, rerr := newTree.File(change.To.Name); rerr == nil {
+				from, to, err = nil, recovered, nil
+			}
+		}
 		if err != nil {
 			changePath := change.To.Name
 			if changePath == "" {
 				changePath = change.From.Name
+			}
+			if s.promisorFiltered && errors.Is(err, plumbing.ErrObjectNotFound) && change.To.Name == "" {
+				// Pure deletions emit nothing; an omitted base blob is a
+				// legitimate partial-clone boundary, not a coverage gap.
+				s.promisorSkipped++
+				continue
 			}
 			partialErrs = append(partialErrs, fmt.Errorf("git: resolve changed file %q at %s: %w", changePath, c.Hash, err))
 			continue
@@ -788,11 +835,8 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 			// file becoming a symlink. Executable-bit changes remain M.
 			continue
 		}
-		path := change.To.Name
-		if !s.pathAllowed(path) {
-			continue
-		}
 
+		path := change.To.Name
 		bin, err := to.IsBinary()
 		if err != nil {
 			partialErrs = append(partialErrs, fmt.Errorf("git: classify %s at %s: %w", path, c.Hash, err))
@@ -912,9 +956,24 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 			}
 			continue
 		} else if from == nil {
-			data, ok := readBlob(to)
-			if ok {
-				segments = splitBlob(data)
+			if to.Size > maxBlobSize {
+				reader, err := to.Reader()
+				if err != nil {
+					return fmt.Errorf("git: open large added text %s at %s: %w", path, c.Hash, err)
+				}
+				streamErr := streamBlob(ctx, reader, to.Size, func(segment diffSegment) error {
+					return emitSegment(ctx, segment)
+				})
+				closeErr := reader.Close()
+				if err := errors.Join(streamErr, closeErr); err != nil {
+					return fmt.Errorf("git: stream large added text %s at %s: %w", path, c.Hash, err)
+				}
+				continue
+			} else {
+				data, ok := readBlob(to)
+				if ok {
+					segments = splitBlob(data)
+				}
 			}
 		} else if from.Size <= maxDiffBlobSize && to.Size <= maxDiffBlobSize {
 			data, ok := addedHunks(change, from, to, s.trufflehogCompatible)
@@ -1146,6 +1205,7 @@ func (s *Source) emitCommitMetadata(ctx context.Context, c *object.Commit, ch ch
 
 func (s *Source) commitNotes(ctx context.Context, hash plumbing.Hash) (string, error) {
 	refsCmd := exec.CommandContext(ctx, "git", "-C", s.repoAbs, "for-each-ref", "--format=%(refname)", "refs/notes")
+	refsCmd.Env = nativeGitEnv()
 	refsOut, err := refsCmd.Output()
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
@@ -1158,6 +1218,7 @@ func (s *Source) commitNotes(ctx context.Context, hash plumbing.Hash) (string, e
 	var notes strings.Builder
 	for _, ref := range refs {
 		cmd := exec.CommandContext(ctx, "git", "-C", s.repoAbs, "notes", "--ref="+ref, "show", hash.String())
+		cmd.Env = nativeGitEnv()
 		out, err := cmd.Output()
 		if err == nil {
 			fmt.Fprintf(&notes, "[%s] %s\n", ref, strings.TrimSpace(string(out)))

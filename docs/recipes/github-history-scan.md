@@ -20,12 +20,19 @@ pure-Go path remains available when native Git is absent and for opt-in
 metadata or artifact modes. Text added to files over 1 MiB is split into
 bounded 1 MiB chunks with overlap.
 
-Complete clones preserve offline coverage, but histories containing blobs over
-50 MiB can consume more clone bandwidth and temporary disk than v0.63.0 even
-though default text scanning later skips those blobs. Clone time is not covered
-by `--repo-walk-timeout`. Restoring a bounded partial clone without retaining
-credentials or demand-fetching during the walk is tracked in
-[#378](https://github.com/plenoai/pleno-dlp/issues/378).
+Complete clones preserve offline coverage. Large text blobs remain scannable;
+the binary artifact ceiling is not a text-size limit. Histories containing large
+blobs can therefore consume substantial clone bandwidth and temporary disk.
+Clone time is not covered by `--repo-walk-timeout`. Automatic partial cloning
+remains deferred in [#378](https://github.com/plenoai/pleno-dlp/issues/378)
+until its coverage, transfer-budget, and large-history checks pass.
+
+For an existing partial clone, `pleno-dlp scan git --repo ./repo` uses the native
+offline walker when supported. It scans locally retained content without fetching
+missing blobs. A missing blob whose content may be in scope reports degraded
+coverage and retains the previous checkpoint; only excluded paths and deletions
+can be skipped safely. Use a complete clone when that missing content must be
+scanned.
 
 ```sh
 pleno-dlp scan github --repo acme/widget

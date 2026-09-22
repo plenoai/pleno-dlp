@@ -43,6 +43,10 @@ type Finding struct {
 	// appears on a finding read back out of dedup or the engine's own
 	// emission path.
 	SuppressedBy string
+	// rawHint is the position where Result.Raw was observed in a raw-variant
+	// stream window. It is used only after raw observation has been enabled;
+	// the authoritative reader remains the fallback for every other finding.
+	rawHint streamRawHint
 }
 
 type Sink interface {
@@ -103,12 +107,90 @@ type streamMatch struct {
 	found        bool
 }
 
+type streamRawHint struct {
+	offset   int64
+	newlines int
+	ok       bool
+}
+
+type streamWindowBase struct {
+	offset   int64
+	newlines int
+	ok       bool
+}
+
 type streamMatchCache struct {
 	reader  io.ReaderAt
 	size    int64
 	values  map[string]streamMatch
 	pending *streamFindingBatch
+	// firstPair and restPair are populated only after enough distinct raw
+	// candidates make the observation pass worthwhile. They prove whether a
+	// hinted two-byte raw has an earlier occurrence without retaining source
+	// windows or rescanning the reader for each candidate. firstPair stays a
+	// sparse map because active caches usually see only a small prefix set.
+	firstPair    map[uint16]int64
+	restPair     map[uint16][]int64
+	restPairFull *[65536]bool
+	// observationCandidates stays bounded until observation is enabled. A
+	// single raw therefore uses the ordinary shared scan and retains no fixed
+	// prefix table.
+	observationCandidates map[string]struct{}
+	observationActive     bool
+	observationDisabled   bool
+	observationThrough    int64
+	// pairIndex and byteIndex hold complete prefix-position indexes built
+	// lazily for prefixes shared by a dense batch. All indexes a batch needs
+	// are computed in one shared forward pass and reused for every later
+	// batch, so position resolution stays proportional to the input, not to
+	// the batch or prefix count.
+	pairIndex map[uint16]*streamPrefixIndex
+	byteIndex map[byte]*streamPrefixIndex
+	// indexGroupRawCounts tracks distinct short raws seen for each prefix
+	// across flushes. It lets a group that arrives in several small batches
+	// earn one reusable index without indexing a one-result group.
+	indexGroupRawCounts map[uint32]int
+	// indexOOM marks prefixes that exhaust the shared position budget
+	// (key bit 16 distinguishes single-byte prefixes);
+	// those keep the per-batch shared scan.
+	indexOOM map[uint32]bool
+	// indexedPositions and indexSampleBytes bound the metadata and sample
+	// payloads retained across all cached indexes and builds — they are
+	// persistent counters, not per-build, so later builds cannot restart
+	// the budget while earlier indexes stay cached.
+	indexedPositions int64
+	indexSampleBytes int64
 }
+
+// streamPrefixIndex is a complete index of one prefix's occurrences in the
+// input: absolute positions, the number of newlines preceding each, and a
+// short content sample captured during the build pass. Samples let raw
+// verification run in memory — later batches resolve without any reader
+// calls — while positions and newlines keep the authoritative ordering and
+// line attribution. It is built only for prefixes a pending batch actually
+// needs, so its memory stays proportional to the occurrences of requested
+// prefixes, not the input.
+type streamPrefixIndex struct {
+	positions []int64
+	newlines  []int
+	samples   [][]byte // leading-position content samples; later positions verify via ReadAt
+}
+
+// streamPrefixIndexTotalCap bounds the positions retained across ALL cached
+// prefix indexes and in-flight builds — slice headers and growth are
+// per-position costs, so the budget is on entries, not payload bytes.
+// Exhaustion marks the pending keys OOM and they keep the bounded shared
+// scan instead.
+const streamPrefixIndexTotalCap = 1 << 20
+
+// streamPrefixIndexSampleLen is how many leading bytes of content each index
+// entry stores for in-memory verification.
+const streamPrefixIndexSampleLen = 64
+
+// streamPrefixIndexSampleBytes bounds samples across all cached indexes.
+// Positions past the budget verify with a targeted ReadAt. Samples remain
+// a contiguous prefix of each index because the budget only grows per build.
+const streamPrefixIndexSampleBytes = 8 << 20
 
 func newStreamMatchCache(reader io.ReaderAt, size int64) *streamMatchCache {
 	if reader == nil {
@@ -117,9 +199,534 @@ func newStreamMatchCache(reader io.ReaderAt, size int64) *streamMatchCache {
 	return &streamMatchCache{reader: reader, size: size, values: make(map[string]streamMatch)}
 }
 
+// streamRawObservationMinCandidates amortizes the one-time bootstrap scan
+// and bounded prefix table over distinct raw candidates. Sparse one-result
+// files use the shared reader scan and avoid this retained state entirely.
+const streamRawObservationMinCandidates = 8
+
+// observeRawWindow records two-byte positions for one raw source window.
+// Callers use it only after observation is enabled, except focused tests that
+// deliberately exercise the candidate proof path. Repeated overlapping
+// windows advance from the last recorded byte so each position is indexed
+// once.
+func (c *streamMatchCache) observeRawWindow(source string, data []byte, start int64) {
+	if c == nil || source != "" || len(data) == 0 {
+		return
+	}
+	if c.firstPair == nil {
+		c.firstPair = make(map[uint16]int64)
+		c.restPairFull = &[65536]bool{}
+	}
+	from := 0
+	if start < c.observationThrough {
+		from = int(c.observationThrough - start)
+		if from >= len(data) {
+			return
+		}
+		if from > 0 {
+			from--
+		}
+	}
+	for i := from; i < len(data); i++ {
+		if i+1 >= len(data) {
+			break
+		}
+		pos := start + int64(i) + 1
+		b := data[i]
+		pair := uint16(b)<<8 | uint16(data[i+1])
+		if (*c.restPairFull)[pair] {
+			continue
+		}
+		if _, ok := c.firstPair[pair]; !ok {
+			c.firstPair[pair] = pos
+		} else {
+			if c.restPair == nil {
+				c.restPair = make(map[uint16][]int64)
+			}
+			rest := append(c.restPair[pair], pos)
+			c.restPair[pair] = rest
+			if len(rest) >= hintVerifyCandidateCap {
+				(*c.restPairFull)[pair] = true
+			}
+		}
+	}
+	if end := start + int64(len(data)); end > c.observationThrough {
+		c.observationThrough = end
+	}
+}
+
+// hintVerifyCandidateCap bounds how many recorded prefix positions a single
+// hint verification reads back. Dense prefixes escalate to the complete
+// index/shared scan instead of per-candidate random reads.
+const hintVerifyCandidateCap = 64
+
+// observeRawCandidate enables hint tracking after enough distinct raw values
+// have appeared in the undecoded source. It bootstraps the bytes before the
+// current window exactly once, so a later hint never treats an unobserved
+// earlier source position as absent.
+func (c *streamMatchCache) observeRawCandidate(ctx context.Context, data []byte, start int64, raw []byte) error {
+	if c == nil || len(raw) == 0 || c.observationDisabled {
+		return nil
+	}
+	if c.observationActive {
+		c.observeRawWindow("", data, start)
+		return nil
+	}
+	if c.observationCandidates == nil {
+		c.observationCandidates = make(map[string]struct{}, streamRawObservationMinCandidates)
+	}
+	c.observationCandidates[string(raw)] = struct{}{}
+	if len(c.observationCandidates) < streamRawObservationMinCandidates {
+		return nil
+	}
+	if err := c.bootstrapRawObservation(ctx, min(c.size, start+1)); err != nil {
+		c.firstPair = nil
+		c.restPair = nil
+		c.restPairFull = nil
+		c.observationThrough = 0
+		c.observationCandidates = nil
+		c.observationDisabled = true
+		return err
+	}
+	c.observationActive = true
+	c.observationCandidates = nil
+	c.observeRawWindow("", data, start)
+	return nil
+}
+
+func (c *streamMatchCache) bootstrapRawObservation(ctx context.Context, end int64) error {
+	if end <= 0 {
+		return nil
+	}
+	const blockSize = 64 << 10
+	buffer := make([]byte, blockSize+1)
+	for start := int64(0); start < end; {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		want := int64(len(buffer))
+		if remaining := end - start; remaining < want {
+			want = remaining
+		}
+		got, err := c.reader.ReadAt(buffer[:int(want)], start)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		if got != int(want) {
+			return io.ErrUnexpectedEOF
+		}
+		c.observeRawWindow("", buffer[:got], start)
+		advance := int64(got)
+		if start+advance < end {
+			advance--
+		}
+		start += advance
+	}
+	return nil
+}
+
+// prefixKey identifies a raw's search prefix: two bytes for raws of two or
+// more bytes, a single byte for one-byte raws.
+func prefixKey(raw []byte) (uint16, bool) {
+	if len(raw) >= 2 {
+		return uint16(raw[0])<<8 | uint16(raw[1]), false
+	}
+	if len(raw) == 1 {
+		return uint16(raw[0]), true
+	}
+	return 0, false
+}
+
+// prefixLookup resolves a raw from its detector-window hint when the
+// observed two-byte prefix has only a bounded number of earlier positions.
+// A saturated prefix is delegated to its complete index; callers can fall
+// back to the shared reader scan when observation is unavailable or partial.
+func (c *streamMatchCache) prefixLookup(ctx context.Context, raw []byte, hint streamRawHint) (streamMatch, bool, error) {
+	if c == nil || !hint.ok || len(raw) < 2 || c.firstPair == nil {
+		return streamMatch{}, false, nil
+	}
+	key, _ := prefixKey(raw)
+	first, observed := c.firstPair[key]
+	if !observed {
+		return streamMatch{}, false, nil
+	}
+	rest := c.restPair[key]
+	if len(rest) < hintVerifyCandidateCap {
+		matchEarlier := func(pos int64) (bool, error) {
+			if pos == 0 || pos-1 >= hint.offset || pos-1+int64(len(raw)) > c.size {
+				return false, nil
+			}
+			buf := make([]byte, len(raw))
+			got, err := c.reader.ReadAt(buf, pos-1)
+			if err != nil && !errors.Is(err, io.EOF) {
+				return false, err
+			}
+			if got != len(raw) {
+				return false, io.ErrUnexpectedEOF
+			}
+			return bytes.Equal(buf, raw), nil
+		}
+		earlier, err := matchEarlier(first)
+		if err != nil {
+			return streamMatch{}, false, err
+		}
+		for _, pos := range rest {
+			if earlier || pos-1 >= hint.offset {
+				break
+			}
+			if err := ctx.Err(); err != nil {
+				return streamMatch{}, false, err
+			}
+			earlier, err = matchEarlier(pos)
+			if err != nil {
+				return streamMatch{}, false, err
+			}
+		}
+		if earlier {
+			return streamMatch{}, false, nil
+		}
+		return streamMatch{offset: hint.offset, newlineCount: hint.newlines, found: true}, true, nil
+	}
+	indexes, err := c.prefixIndexes(ctx, []uint32{uint32(key)})
+	if err != nil {
+		return streamMatch{}, false, err
+	}
+	index := indexes[uint32(key)]
+	if index == nil {
+		return streamMatch{}, false, nil
+	}
+	for i, pos := range index.positions {
+		if err := ctx.Err(); err != nil {
+			return streamMatch{}, false, err
+		}
+		matched, err := c.indexMatchAt(index, i, pos, raw)
+		if err != nil {
+			return streamMatch{}, false, err
+		}
+		if matched {
+			return streamMatch{offset: pos, newlineCount: index.newlines[i], found: true}, true, nil
+		}
+	}
+	return streamMatch{offset: -1}, true, nil
+}
+
+func (c *streamMatchCache) indexMatchAt(index *streamPrefixIndex, i int, pos int64, raw []byte) (bool, error) {
+	if i < len(index.samples) {
+		if sample := index.samples[i]; sample != nil {
+			if len(sample) >= len(raw) {
+				return bytes.Equal(sample[:len(raw)], raw), nil
+			}
+			if !bytes.Equal(sample, raw[:len(sample)]) {
+				return false, nil
+			}
+		}
+	}
+	if pos+int64(len(raw)) > c.size {
+		return false, nil
+	}
+	buf := make([]byte, len(raw))
+	got, err := c.reader.ReadAt(buf, pos)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return false, err
+	}
+	if got != len(raw) {
+		return false, io.ErrUnexpectedEOF
+	}
+	return bytes.Equal(buf, raw), nil
+}
+
+// indexCandidateAt returns the bytes for one raw length at an indexed
+// position. All raws in the caller's group share prefix, so one sample/read
+// can be looked up against every raw of that length.
+func (c *streamMatchCache) indexCandidateAt(index *streamPrefixIndex, i int, pos int64, length int, prefix []byte, buf []byte) ([]byte, []byte, bool, error) {
+	if length <= 0 {
+		return nil, buf, false, nil
+	}
+	if i < len(index.samples) {
+		if sample := index.samples[i]; sample != nil {
+			if len(sample) >= length {
+				return sample[:length], buf, true, nil
+			}
+			common := len(sample)
+			if common > len(prefix) {
+				common = len(prefix)
+			}
+			if common > 0 && !bytes.Equal(sample[:common], prefix[:common]) {
+				return nil, buf, false, nil
+			}
+		}
+	}
+	if pos+int64(length) > c.size {
+		return nil, buf, false, nil
+	}
+	if cap(buf) < length {
+		buf = make([]byte, length)
+	}
+	buf = buf[:length]
+	got, err := c.reader.ReadAt(buf, pos)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, buf, false, err
+	}
+	if got != length {
+		return nil, buf, false, io.ErrUnexpectedEOF
+	}
+	return buf, buf, true, nil
+}
+
+// indexFor returns the cached complete index for a prefix key, or nil when
+// the prefix has no index yet (or is marked OOM).
+func (c *streamMatchCache) indexFor(oomKey uint32) *streamPrefixIndex {
+	if oomKey&indexGroupSingleBit != 0 {
+		return c.byteIndex[byte(oomKey)]
+	}
+	return c.pairIndex[uint16(oomKey)]
+}
+
+// prefixIndexes returns complete occurrence indexes for the given prefix
+// keys. Indexes already built are reused; all missing ones are built in a
+// single shared forward pass, so the reader is scanned at most once per call
+// no matter how many distinct prefixes are saturated. When the combined
+// position budget is exhausted, pending keys are marked OOM and their raws
+// keep the bounded shared scan.
+func (c *streamMatchCache) prefixIndexes(ctx context.Context, keys []uint32) (map[uint32]*streamPrefixIndex, error) {
+	out := make(map[uint32]*streamPrefixIndex, len(keys))
+	var missing []uint32
+	for _, k := range keys {
+		if index := c.indexFor(k); index != nil {
+			out[k] = index
+			continue
+		}
+		if c.indexOOM[k] {
+			continue
+		}
+		missing = append(missing, k)
+	}
+	if len(missing) == 0 {
+		return out, nil
+	}
+	built, err := c.scanPrefixIndexes(ctx, missing)
+	if err != nil {
+		return nil, err
+	}
+	if c.indexOOM == nil {
+		c.indexOOM = make(map[uint32]bool)
+	}
+	for _, k := range missing {
+		index := built[k]
+		if index == nil {
+			c.indexOOM[k] = true
+			continue
+		}
+		if k&indexGroupSingleBit != 0 {
+			if c.byteIndex == nil {
+				c.byteIndex = make(map[byte]*streamPrefixIndex)
+			}
+			c.byteIndex[byte(k)] = index
+		} else {
+			if c.pairIndex == nil {
+				c.pairIndex = make(map[uint16]*streamPrefixIndex)
+			}
+			c.pairIndex[uint16(k)] = index
+		}
+		out[k] = index
+		c.indexedPositions += int64(len(index.positions))
+	}
+	return out, nil
+}
+
+// scanPrefixIndexes enumerates the occurrences of every requested prefix in
+// one bounded forward pass, recording each absolute position and the number
+// of newlines before it. Exhausting the shared position budget discards
+// the pending build; cached indexes remain valid. Sample usage is committed
+// only on success, so errors and cancellation leave the cache unchanged.
+func (c *streamMatchCache) scanPrefixIndexes(ctx context.Context, oomKeys []uint32) (map[uint32]*streamPrefixIndex, error) {
+	singles := make(map[byte]uint32, len(oomKeys))
+	pairs := make(map[uint16]uint32, len(oomKeys))
+	indexes := make(map[uint32]*streamPrefixIndex, len(oomKeys))
+	for _, k := range oomKeys {
+		indexes[k] = &streamPrefixIndex{}
+		if k&indexGroupSingleBit != 0 {
+			singles[byte(k)] = k
+		} else {
+			pairs[uint16(k)] = k
+		}
+	}
+	var fastPair uint16
+	var fastPairKey uint32
+	fastPairScan := len(pairs) == 1 && len(singles) == 0
+	if fastPairScan {
+		for pair, key := range pairs {
+			fastPair, fastPairKey = pair, key
+		}
+	}
+	fastPairPattern := []byte{byte(fastPair >> 8), byte(fastPair)}
+	var fastSingle byte
+	var fastSingleKey uint32
+	fastSingleScan := len(singles) == 1 && len(pairs) == 0
+	if fastSingleScan {
+		for single, key := range singles {
+			fastSingle, fastSingleKey = single, key
+		}
+	}
+	const blockSize = 64 << 10
+	buffer := make([]byte, blockSize+1)
+	var lineCount int
+	var positionsThisBuild int64
+	sampleBytes := c.indexSampleBytes
+	budgetExceeded := func() bool {
+		return c.indexedPositions+positionsThisBuild >= streamPrefixIndexTotalCap
+	}
+	dropAll := func() {
+		for pending := range indexes {
+			indexes[pending] = nil
+		}
+		sampleBytes = c.indexSampleBytes
+	}
+record:
+	for start := int64(0); start < c.size; {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		want := int64(len(buffer))
+		if remaining := c.size - start; remaining < want {
+			want = remaining
+		}
+		got, err := c.reader.ReadAt(buffer[:int(want)], start)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		if got != int(want) {
+			return nil, io.ErrUnexpectedEOF
+		}
+		data := buffer[:got]
+		// The final byte of a non-final window is scanned again at the head
+		// of the next window so a two-byte prefix spanning the boundary is
+		// not missed.
+		end := got
+		if start+int64(got) < c.size {
+			end = got - 1
+		}
+		if end <= 0 {
+			break
+		}
+		if fastPairScan || fastSingleScan {
+			searchEnd := end
+			if fastPairScan && end < got {
+				searchEnd++
+			}
+			var from, lineScan int
+			lineAt := lineCount
+			for {
+				var relative int
+				if fastPairScan {
+					relative = bytes.Index(data[from:searchEnd], fastPairPattern)
+				} else {
+					relative = bytes.IndexByte(data[from:end], fastSingle)
+				}
+				if relative < 0 {
+					break
+				}
+				j := from + relative
+				for lineScan < j {
+					if data[lineScan] == '\n' {
+						lineAt++
+					}
+					lineScan++
+				}
+				if budgetExceeded() {
+					dropAll()
+					break record
+				}
+				key := fastPairKey
+				if fastSingleScan {
+					key = fastSingleKey
+				}
+				index := indexes[key]
+				index.positions = append(index.positions, start+int64(j))
+				index.newlines = append(index.newlines, lineAt)
+				positionsThisBuild++
+				if sampleBytes+streamPrefixIndexSampleLen <= streamPrefixIndexSampleBytes {
+					sampleEnd := j + streamPrefixIndexSampleLen
+					if sampleEnd > got {
+						sampleEnd = got
+					}
+					sample := make([]byte, sampleEnd-j)
+					copy(sample, data[j:sampleEnd])
+					index.samples = append(index.samples, sample)
+					sampleBytes += int64(len(sample))
+				}
+				lineScan = j
+				from = j + 1
+			}
+			for lineScan < end {
+				if data[lineScan] == '\n' {
+					lineAt++
+				}
+				lineScan++
+			}
+			lineCount = lineAt
+			start += int64(end)
+			continue
+		}
+		for j := 0; j < end; j++ {
+			pos := start + int64(j)
+			b := data[j]
+			if j+1 < got {
+				if k, wanted := pairs[uint16(b)<<8|uint16(data[j+1])]; wanted && indexes[k] != nil {
+					if budgetExceeded() {
+						// Retained-position budget exhausted: every
+						// pending key keeps the bounded shared scan.
+						dropAll()
+						break record
+					}
+					indexes[k].positions = append(indexes[k].positions, pos)
+					indexes[k].newlines = append(indexes[k].newlines, lineCount)
+					positionsThisBuild++
+					if sampleBytes+streamPrefixIndexSampleLen <= streamPrefixIndexSampleBytes {
+						end := j + streamPrefixIndexSampleLen
+						if end > got {
+							end = got
+						}
+						sample := make([]byte, end-j)
+						copy(sample, data[j:end])
+						indexes[k].samples = append(indexes[k].samples, sample)
+						sampleBytes += int64(len(sample))
+					}
+				}
+			}
+			if k, wanted := singles[b]; wanted && indexes[k] != nil {
+				if budgetExceeded() {
+					dropAll()
+					break record
+				}
+				indexes[k].positions = append(indexes[k].positions, pos)
+				indexes[k].newlines = append(indexes[k].newlines, lineCount)
+				positionsThisBuild++
+				if sampleBytes+streamPrefixIndexSampleLen <= streamPrefixIndexSampleBytes {
+					end := j + streamPrefixIndexSampleLen
+					if end > got {
+						end = got
+					}
+					sample := make([]byte, end-j)
+					copy(sample, data[j:end])
+					indexes[k].samples = append(indexes[k].samples, sample)
+					sampleBytes += int64(len(sample))
+				}
+			}
+			if b == '\n' {
+				lineCount++
+			}
+		}
+		start += int64(end)
+	}
+	c.indexSampleBytes = sampleBytes
+	return indexes, nil
+}
+
 type streamFindingBatch struct {
-	findings      []Finding
-	resolveFailed bool
+	findings       []Finding
+	resolveFailed  bool
+	observationErr error
 }
 
 func (b *streamFindingBatch) append(finding Finding) {
@@ -133,18 +740,27 @@ func (b *streamFindingBatch) flush(ctx context.Context, e *Engine, c *sources.Ch
 	if b == nil || len(b.findings) == 0 {
 		return
 	}
+	observationErr := b.observationErr
+	b.observationErr = nil
+	var resolveErr error
 	if !b.resolveFailed {
 		raws := make([][]byte, 0, len(b.findings))
+		hints := make([]streamRawHint, 0, len(b.findings))
 		for _, pending := range b.findings {
 			raws = append(raws, pending.Result.Raw)
+			hints = append(hints, pending.rawHint)
 		}
-		resolveErr := cache.resolve(ctx, raws)
+		resolveErr = cache.resolve(ctx, raws, hints)
 		if resolveErr != nil {
 			b.resolveFailed = true
 			if ctx.Err() == nil {
 				e.recordFailure(ScanFailure{Kind: FailureSource, Source: archiveFailureSource(c), Err: resolveErr})
 			}
 		}
+	}
+	if observationErr != nil && ctx.Err() == nil &&
+		(resolveErr == nil || !errors.Is(resolveErr, observationErr)) {
+		e.recordFailure(ScanFailure{Kind: FailureSource, Source: archiveFailureSource(c), Err: observationErr})
 	}
 	for i := range b.findings {
 		pending := &b.findings[i]
@@ -168,12 +784,18 @@ func (b *streamFindingBatch) flush(ctx context.Context, e *Engine, c *sources.Ch
 	b.findings = b.findings[:0]
 }
 
-func (c *streamMatchCache) match(ctx context.Context, raw []byte) (streamMatch, error) {
+func (c *streamMatchCache) match(ctx context.Context, raw []byte, hint streamRawHint) (streamMatch, error) {
 	if c == nil || len(raw) == 0 {
 		return streamMatch{offset: -1}, nil
 	}
 	key := string(raw)
 	if match, ok := c.values[key]; ok {
+		return match, nil
+	}
+	if match, done, err := c.prefixLookup(ctx, raw, hint); err != nil {
+		return streamMatch{offset: -1}, err
+	} else if done {
+		c.values[key] = match
 		return match, nil
 	}
 	offset, newlineCount, err := findReaderMatch(ctx, c.reader, c.size, raw)
@@ -202,17 +824,29 @@ const streamBatchMaxRaw = 32 << 10
 // profiling shows those passes dominate and the extra pending memory fits.
 const streamFindingBatchLimit = 1024
 
+// A complete prefix index retains up to a million positions. A small group
+// gets one ordinary shared scan instead; retain an index only when enough
+// distinct raws can amortize that storage across the bounded batches.
+const streamIndexGroupMinRaws = 64
+
 // resolve finds all short, uncached raw values in one bounded forward pass.
 // Long values keep the exact single-pattern fallback because making the block
 // overlap as large as an arbitrary detector result would defeat the stream
 // memory bound.
-func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte) error {
+func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte, hints []streamRawHint) error {
 	if c == nil {
 		return nil
 	}
 	short := make(map[string]struct{}, len(raws))
 	long := make([][]byte, 0)
-	for _, raw := range raws {
+	// indexGroups collects short raws that share a prefix densely enough to
+	// amortize one complete prefix index. Smaller groups use one ordinary
+	// shared scan, which avoids retaining an index for a single raw.
+	indexGroups := make(map[uint32][]string)
+	// rawHints also marks every unique short raw in this batch. Keeping the
+	// marker beside the selected hint avoids a second string-keyed set.
+	rawHints := make(map[string]streamRawHint, len(raws))
+	for i, raw := range raws {
 		if len(raw) == 0 {
 			continue
 		}
@@ -220,18 +854,170 @@ func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte) error {
 		if _, ok := c.values[key]; ok {
 			continue
 		}
-		if len(raw) <= streamBatchMaxRaw {
-			short[key] = struct{}{}
-		} else {
-			long = append(long, raw)
+		hint := streamRawHint{}
+		if i < len(hints) {
+			hint = hints[i]
 		}
+		previous, seen := rawHints[key]
+		if !seen || (!previous.ok && hint.ok) {
+			rawHints[key] = hint
+		}
+		if len(raw) <= streamBatchMaxRaw {
+			prefix, single := prefixKey(raw)
+			groupKey := uint32(prefix)
+			if single {
+				groupKey |= indexGroupSingleBit
+			}
+			if !seen {
+				indexGroups[groupKey] = append(indexGroups[groupKey], key)
+			}
+			continue
+		}
+		long = append(long, raw)
+	}
+	for groupKey, keys := range indexGroups {
+		if c.indexGroupRawCounts[groupKey]+len(keys) >= streamIndexGroupMinRaws || c.indexFor(groupKey) != nil {
+			continue
+		}
+		for _, key := range keys {
+			if c.prefixListFull([]byte(key)) {
+				short[key] = struct{}{}
+				continue
+			}
+			match, done, err := c.prefixLookup(ctx, []byte(key), rawHints[key])
+			if err != nil {
+				return err
+			}
+			if done {
+				c.values[key] = match
+			} else {
+				short[key] = struct{}{}
+			}
+		}
+		delete(indexGroups, groupKey)
+	}
+	if err := c.resolveIndexGroups(ctx, indexGroups, short); err != nil {
+		return err
 	}
 	if err := findReaderMatches(ctx, c.reader, c.size, short, c.values); err != nil {
 		return err
 	}
+	if len(rawHints) > 0 {
+		for raw := range rawHints {
+			if len(raw) > streamBatchMaxRaw {
+				continue
+			}
+			if c.indexGroupRawCounts == nil {
+				c.indexGroupRawCounts = make(map[uint32]int)
+			}
+			prefix, single := prefixKey([]byte(raw))
+			groupKey := uint32(prefix)
+			if single {
+				groupKey |= indexGroupSingleBit
+			}
+			c.indexGroupRawCounts[groupKey]++
+		}
+	}
 	for _, raw := range long {
-		if _, err := c.match(ctx, raw); err != nil {
+		if _, err := c.match(ctx, raw, rawHints[string(raw)]); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (c *streamMatchCache) prefixListFull(raw []byte) bool {
+	key, single := prefixKey(raw)
+	if single || c == nil || c.firstPair == nil {
+		return false
+	}
+	return len(c.restPair[key]) >= hintVerifyCandidateCap
+}
+
+// indexGroupSingleBit marks single-byte prefix keys inside the indexGroups
+// map so they cannot collide with two-byte prefix keys whose high byte is 0.
+const indexGroupSingleBit uint32 = 1 << 16
+
+// resolveIndexGroups resolves every raw in each prefix group by walking that
+// prefix's complete occurrence index once: at each indexed position the
+// candidate bytes are compared against the whole group, so the group's reads
+// stay proportional to the prefix's occurrence count rather than the product
+// of positions and raws. Raws the index cannot place join the shared scan.
+func (c *streamMatchCache) resolveIndexGroups(ctx context.Context, groups map[uint32][]string, short map[string]struct{}) error {
+	groupKeys := make([]uint32, 0, len(groups))
+	for groupKey := range groups {
+		groupKeys = append(groupKeys, groupKey)
+	}
+	indexes, err := c.prefixIndexes(ctx, groupKeys)
+	if err != nil {
+		return err
+	}
+	for groupKey, keys := range groups {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		index := indexes[groupKey]
+		if index == nil {
+			for _, key := range keys {
+				short[key] = struct{}{}
+			}
+			continue
+		}
+		lengthGroups := make(map[int]*streamRawGroup)
+		lengths := make([]int, 0, len(keys))
+		var prefix []byte
+		for _, key := range keys {
+			if prefix == nil {
+				prefix = []byte(key)
+			} else {
+				prefix = commonPrefix(prefix, key)
+			}
+			length := len(key)
+			lengthGroup := lengthGroups[length]
+			if lengthGroup == nil {
+				lengthGroup = &streamRawGroup{length: length, patterns: make(map[string]string)}
+				lengthGroups[length] = lengthGroup
+				lengths = append(lengths, length)
+			}
+			lengthGroup.patterns[key] = key
+		}
+		slices.Sort(lengths)
+		var readBuffer []byte
+		remaining := len(keys)
+		for i, pos := range index.positions {
+			if remaining == 0 {
+				break
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			for _, length := range lengths {
+				lengthGroup := lengthGroups[length]
+				candidate, buf, available, err := c.indexCandidateAt(index, i, pos, length, prefix, readBuffer)
+				readBuffer = buf
+				if err != nil {
+					return err
+				}
+				if !available {
+					continue
+				}
+				key, matched := lengthGroup.patterns[string(candidate)]
+				if matched {
+					if _, resolved := c.values[key]; resolved {
+						continue
+					}
+					c.values[key] = streamMatch{offset: pos, newlineCount: int(index.newlines[i]), found: true}
+					remaining--
+				}
+			}
+		}
+		for _, key := range keys {
+			if _, resolved := c.values[key]; !resolved {
+				// A complete index is authoritative: every occurrence of
+				// the raw must start at an indexed prefix position, so no
+				// match means the raw is absent from the input.
+				c.values[key] = streamMatch{offset: -1}
+			}
 		}
 	}
 	return nil
@@ -387,9 +1173,9 @@ func (e *Engine) buildPrefilter() {
 	if len(e.dets) == 0 {
 		return
 	}
-	patternIDByKeyword := make(map[string]int)
-	var patterns [][]byte
-	var detectorIdxByPattern [][]int
+	patternIDByKeyword := make(map[string]int, len(e.dets))
+	patterns := make([][]byte, 0, len(e.dets))
+	detectorIdxByPattern := make([][]int, 0, len(e.dets))
 	for di, d := range e.dets {
 		for _, kw := range d.Keywords() {
 			if kw == "" {
@@ -793,6 +1579,7 @@ func (e *Engine) scanVariantWindowsReader(ctx context.Context, c *sources.Chunk,
 	if int64(len(windowBuf)) < min(size, int64(maxWindowSize)) {
 		return errors.New("engine: stream window buffer is too small")
 	}
+	var linesBefore int
 	for start := int64(0); start < size; start += windowStepSize {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -806,11 +1593,16 @@ func (e *Engine) scanVariantWindowsReader(ctx context.Context, c *sources.Chunk,
 		if n != len(window) {
 			return fmt.Errorf("read %s variant at %d: got %d bytes, want %d", sourceName(source), start, n, len(window))
 		}
+		if matchCache.observationActive && source == "" {
+			matchCache.observeRawWindow(source, window, start)
+		}
 		v := decoder.Variant{Source: source, Data: window}
-		e.dispatchAt(ctx, c, v, archivePath, lowerPtr, true, matchCache)
+		base := streamWindowBase{offset: start, newlines: linesBefore, ok: source == ""}
+		e.dispatchAt(ctx, c, v, archivePath, lowerPtr, true, matchCache, base)
 		if start+windowSize == size {
 			break
 		}
+		linesBefore += bytes.Count(window[:min(windowStepSize, len(window))], []byte{'\n'})
 	}
 	return nil
 }
@@ -882,7 +1674,7 @@ func (e *Engine) runFullChunkReaderDetectors(ctx context.Context, c *sources.Chu
 			if readErr != nil {
 				return readErr
 			}
-			e.runDetectorOnAt(ctx, c, variant, archivePath, di, data, true, matchCache)
+			e.runDetectorOnAt(ctx, c, variant, archivePath, di, data, true, matchCache, streamWindowBase{})
 			continue
 		}
 		if verify && e.isVerifier[di] {
@@ -898,7 +1690,7 @@ func (e *Engine) runFullChunkReaderDetectors(ctx context.Context, c *sources.Chu
 		}
 
 		for _, result := range results {
-			e.emitDetectorResult(ctx, c, variant, archivePath, di, true, result, matchCache)
+			e.emitDetectorResult(ctx, c, variant, archivePath, di, true, result, matchCache, streamWindowBase{})
 		}
 	}
 	return nil
@@ -983,10 +1775,10 @@ const vicinityRadius = 2048
 // is the dominant win on real-OSS workloads where most detectors fire
 // on a single keyword instance.
 func (e *Engine) dispatch(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, lowerPtr *[]byte) {
-	e.dispatchAt(ctx, c, v, archivePath, lowerPtr, false, nil)
+	e.dispatchAt(ctx, c, v, archivePath, lowerPtr, false, nil, streamWindowBase{})
 }
 
-func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, lowerPtr *[]byte, stream bool, matchCache *streamMatchCache) {
+func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, lowerPtr *[]byte, stream bool, matchCache *streamMatchCache, base streamWindowBase) {
 	lower := lowerCaseInto((*lowerPtr)[:0], v.Data)
 	*lowerPtr = lower
 	// Group hits by detector: each detector sees the union of its
@@ -1043,7 +1835,7 @@ func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Var
 			return
 		}
 		for _, sp := range spans {
-			e.runDetectorOnAt(ctx, c, v, archivePath, di, v.Data[sp.start:sp.end], stream, matchCache)
+			e.runDetectorOnAt(ctx, c, v, archivePath, di, v.Data[sp.start:sp.end], stream, matchCache, base)
 		}
 	}
 }
@@ -1060,10 +1852,10 @@ type vicinitySpan struct{ start, end int }
 // each side, which is the radius the credential regexes are written
 // against.
 func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte) {
-	e.runDetectorOnAt(ctx, c, v, archivePath, di, data, false, nil)
+	e.runDetectorOnAt(ctx, c, v, archivePath, di, data, false, nil, streamWindowBase{})
 }
 
-func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte, stream bool, matchCache *streamMatchCache) {
+func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte, stream bool, matchCache *streamMatchCache, base streamWindowBase) {
 	d := e.dets[di]
 	// Verification defaults to unconditional-true: the bool is the
 	// trufflehog Detector contract, not normally a configurable option.
@@ -1083,12 +1875,31 @@ func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decode
 		return
 	}
 	for _, r := range results {
-		e.emitDetectorResult(ctx, c, v, archivePath, di, stream, r, matchCache)
+		e.emitDetectorResult(ctx, c, v, archivePath, di, stream, r, matchCache, base)
 	}
 }
 
-func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, stream bool, r detectors.Result, matchCache *streamMatchCache) {
+func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, stream bool, r detectors.Result, matchCache *streamMatchCache, base streamWindowBase) {
 	d := e.dets[di]
+	var hint streamRawHint
+	if stream && base.ok && matchCache != nil && len(r.Raw) > 0 {
+		if err := matchCache.observeRawCandidate(ctx, v.Data, base.offset, r.Raw); err != nil {
+			if ctx.Err() == nil && matchCache.pending != nil && matchCache.pending.observationErr == nil {
+				matchCache.pending.observationErr = err
+			} else if ctx.Err() == nil {
+				e.recordFailure(ScanFailure{Kind: FailureSource, Source: archiveFailureSource(c), Err: err})
+			}
+		} else if matchCache.observationActive &&
+			!(matchCache.pending != nil && len(r.Raw) <= streamBatchMaxRaw && matchCache.prefixListFull(r.Raw)) {
+			if idx := bytes.Index(v.Data, r.Raw); idx >= 0 {
+				hint = streamRawHint{
+					offset:   base.offset + int64(idx),
+					newlines: base.newlines + bytes.Count(v.Data[:idx], []byte{'\n'}),
+					ok:       true,
+				}
+			}
+		}
+	}
 	if stream {
 		// Stream windows are reused for every subsequent ReadAt. Detectors are
 		// allowed to return slices into their input, so findings must own their
@@ -1125,6 +1936,7 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 			Chunk:          chunkForFinding(c, sourceLine(c), true),
 			Detector:       d.Type(),
 			VerifierBacked: e.isVerifier[di],
+			rawHint:        hint,
 		})
 		return
 	}
@@ -1139,7 +1951,7 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 		matchErr    error
 	)
 	if stream && matchCache != nil && len(r.Raw) > 0 {
-		cachedMatch, matchErr = matchCache.match(ctx, r.Raw)
+		cachedMatch, matchErr = matchCache.match(ctx, r.Raw, hint)
 		if matchErr == nil && cachedMatch.found && hasSourceLine(c) {
 			base := sourceLine(c)
 			if base <= 0 {
@@ -1254,20 +2066,32 @@ func sourceLine(c *sources.Chunk) int {
 	}
 }
 
-type streamRawGroupKey struct {
-	first  byte
-	length int
-}
-
 type streamRawGroup struct {
 	length   int
 	patterns map[string]string
 }
 
+// streamRawPrefixGroup collects the raws sharing a two-byte prefix. The
+// common prefix across every member (always at least two bytes) is verified
+// before any full-string map lookup, so background bytes that happen to share
+// only the first byte never reach the map.
+type streamRawPrefixGroup struct {
+	prefix []byte
+	byLen  map[int]*streamRawGroup
+}
+
+// streamRawFirstGroup splits one first-byte value into the raw group for
+// single-byte raws and per-second-byte prefix groups for longer raws.
+type streamRawFirstGroup struct {
+	singles  *streamRawGroup
+	bySecond map[byte]*streamRawPrefixGroup
+}
+
 // findReaderMatches resolves short raw values in one forward pass. The scan
-// visits only offsets whose first byte is wanted, then uses an exact string
-// map within each length group. The overlap keeps matches crossing a block
-// boundary visible without retaining the source body.
+// visits only offsets whose first byte is wanted, narrows candidates further
+// by second byte, and confirms a group's longest common prefix before trying
+// the exact string map. The overlap keeps matches crossing a block boundary
+// visible without retaining the source body.
 func findReaderMatches(ctx context.Context, reader io.ReaderAt, size int64, wanted map[string]struct{}, values map[string]streamMatch) error {
 	if len(wanted) == 0 {
 		return nil
@@ -1275,24 +2099,46 @@ func findReaderMatches(ctx context.Context, reader io.ReaderAt, size int64, want
 	if reader == nil || size < 0 {
 		return errors.New("engine: invalid batched raw lookup input")
 	}
-	var groupsByFirst [256][]*streamRawGroup
-	groups := make(map[streamRawGroupKey]*streamRawGroup, len(wanted))
+	firsts := make(map[byte]*streamRawFirstGroup, len(wanted))
 	maxLength := 0
 	for raw := range wanted {
 		if raw == "" {
 			continue
 		}
-		key := streamRawGroupKey{first: raw[0], length: len(raw)}
-		group := groups[key]
+		group := firsts[raw[0]]
 		if group == nil {
-			group = &streamRawGroup{length: len(raw), patterns: make(map[string]string)}
-			groups[key] = group
-			groupsByFirst[key.first] = append(groupsByFirst[key.first], group)
+			group = &streamRawFirstGroup{}
+			firsts[raw[0]] = group
 		}
-		// Keep the caller's stable string as the map value. The compiler can
-		// use the []byte slice directly for a string-key lookup, so misses do
-		// not allocate; a real hit reuses this stored key.
-		group.patterns[raw] = raw
+		if len(raw) == 1 {
+			if group.singles == nil {
+				group.singles = &streamRawGroup{length: 1, patterns: make(map[string]string)}
+			}
+			group.singles.patterns[raw] = raw
+		} else {
+			second := group.bySecond[raw[1]]
+			if second == nil {
+				second = &streamRawPrefixGroup{
+					prefix: []byte(raw),
+					byLen:  make(map[int]*streamRawGroup),
+				}
+				if group.bySecond == nil {
+					group.bySecond = make(map[byte]*streamRawPrefixGroup)
+				}
+				group.bySecond[raw[1]] = second
+			} else {
+				second.prefix = commonPrefix(second.prefix, raw)
+			}
+			lengthGroup := second.byLen[len(raw)]
+			if lengthGroup == nil {
+				lengthGroup = &streamRawGroup{length: len(raw), patterns: make(map[string]string)}
+				second.byLen[len(raw)] = lengthGroup
+			}
+			// Keep the caller's stable string as the map value. The compiler can
+			// use the []byte slice directly for a string-key lookup, so misses do
+			// not allocate; a real hit reuses this stored key.
+			lengthGroup.patterns[raw] = raw
+		}
 		if len(raw) > maxLength {
 			maxLength = len(raw)
 		}
@@ -1305,6 +2151,7 @@ func findReaderMatches(ctx context.Context, reader io.ReaderAt, size int64, want
 	buffer := make([]byte, blockSize+overlap)
 	var lineCount int
 	foundCount := 0
+	hitCount := 0
 scan:
 	for start := int64(0); start < size; {
 		if err := ctx.Err(); err != nil {
@@ -1322,27 +2169,55 @@ scan:
 			return io.ErrUnexpectedEOF
 		}
 		data := buffer[:got]
-		for first, firstGroups := range groupsByFirst {
-			if len(firstGroups) == 0 {
-				continue
-			}
+		for first, group := range firsts {
 			for from := 0; from < len(data); {
-				offset := bytes.IndexByte(data[from:], byte(first))
+				offset := bytes.IndexByte(data[from:], first)
 				if offset < 0 {
 					break
 				}
 				offset += from
-				for groupIndex, group := range firstGroups {
-					if groupIndex&31 == 0 {
-						if err := ctx.Err(); err != nil {
-							return err
+				hitCount++
+				if hitCount&255 == 0 {
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+				}
+				if singles := group.singles; singles != nil {
+					key, matched := singles.patterns[string(data[offset:offset+1])]
+					if matched {
+						if _, alreadyFound := values[key]; !alreadyFound {
+							values[key] = streamMatch{
+								offset:       start + int64(offset),
+								newlineCount: lineCount + bytes.Count(data[:offset], []byte{'\n'}),
+								found:        true,
+							}
+							foundCount++
+							if foundCount == len(wanted) {
+								break scan
+							}
 						}
 					}
-					end := offset + group.length
+				}
+				if offset+1 >= len(data) {
+					from = offset + 1
+					continue
+				}
+				second := group.bySecond[data[offset+1]]
+				if second == nil {
+					from = offset + 1
+					continue
+				}
+				prefixEnd := offset + len(second.prefix)
+				if prefixEnd > len(data) || !bytes.Equal(data[offset:prefixEnd], second.prefix) {
+					from = offset + 1
+					continue
+				}
+				for _, lengthGroup := range second.byLen {
+					end := offset + lengthGroup.length
 					if end > len(data) {
 						continue
 					}
-					key, matched := group.patterns[string(data[offset:end])]
+					key, matched := lengthGroup.patterns[string(data[offset:end])]
 					if !matched {
 						continue
 					}
@@ -1381,6 +2256,17 @@ scan:
 		}
 	}
 	return nil
+}
+
+// commonPrefix returns the shared leading bytes of two raw strings. Members of
+// a second-byte group always keep at least the two grouping bytes.
+func commonPrefix(prefix []byte, raw string) []byte {
+	n := min(len(prefix), len(raw))
+	i := 0
+	for i < n && prefix[i] == raw[i] {
+		i++
+	}
+	return prefix[:i]
 }
 
 // findReaderMatch returns the first raw match and the number of newlines

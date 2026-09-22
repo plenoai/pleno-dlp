@@ -1169,9 +1169,10 @@ func filterGitHubPullRefs(refs []*plumbing.Reference, maxReturnedRefs, maxReturn
 // subprocess's memory, not this process's. go-git's PlainCloneContext
 // materializes delta resolution in-process instead, which is the memory
 // scaling problem #265 reports. The native clone intentionally remains
-// complete: a filtered clone needs authenticated demand-fetches during
-// `git log --patch`, but clone credentials are ephemeral and the history
-// walk disables lazy fetching so it cannot unexpectedly access the network.
+// complete: a size filter can omit scannable text regardless of the binary
+// artifact ceiling. The offline walker reports such omissions as degraded
+// coverage; automatic filtering awaits the coverage and scale gates in #378.
+// Clone credentials are ephemeral and the walk never demand-fetches.
 //
 // go-git remains the fallback for environments without a `git` binary on
 // PATH (e.g. a from-scratch pure-Go build/container) so those keep working,

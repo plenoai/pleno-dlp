@@ -820,8 +820,11 @@ func (e *nativeWalkError) Error() string { return e.err.Error() }
 func (e *nativeWalkError) Unwrap() error { return e.err }
 
 type nativeCommit struct {
-	hash         string
-	parentCount  int
+	hash        string
+	parentCount int
+	// parents holds the parent commit hashes (needed by the offline walk to
+	// verify each merge parent's blob at a path).
+	parents      []string
 	author       string
 	email        string
 	authoredDate string
@@ -1708,9 +1711,14 @@ func parseNativeCommit(line []byte) (nativeCommit, error) {
 	if err != nil {
 		return nativeCommit{}, fmt.Errorf("malformed native authored date %q: %w", fields[4], err)
 	}
+	parentList := make([]string, len(parents))
+	for i, parent := range parents {
+		parentList[i] = string(parent)
+	}
 	return nativeCommit{
 		hash:         hash,
 		parentCount:  len(parents),
+		parents:      parentList,
 		author:       string(fields[2]),
 		email:        string(fields[3]),
 		authoredDate: authored.UTC().Format(time.RFC3339),

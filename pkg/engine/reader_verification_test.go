@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"sync/atomic"
 	"testing"
 
@@ -230,7 +231,7 @@ func TestStreamMatchBatchBoundsDistinctRawReadAmplification(t *testing.T) {
 	raws[count] = []byte("BATCH_TOKEN_MISSING")
 	reader := &countingReaderAt{reader: bytes.NewReader(data)}
 	cache := newStreamMatchCache(reader, int64(len(data)))
-	if err := cache.resolve(context.Background(), raws); err != nil {
+	if err := cache.resolve(context.Background(), raws, nil); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 	if reader.bytes.Load() >= 3<<20 || reader.calls.Load() > 40 {
@@ -249,7 +250,7 @@ func TestStreamMatchBatchBoundsDistinctRawReadAmplification(t *testing.T) {
 		t.Fatalf("missing raw = %#v/%v, want cached negative result", missing, ok)
 	}
 	readsAfterFirst := reader.bytes.Load()
-	if err := cache.resolve(context.Background(), raws); err != nil {
+	if err := cache.resolve(context.Background(), raws, nil); err != nil {
 		t.Fatalf("cached resolve: %v", err)
 	}
 	if reader.bytes.Load() != readsAfterFirst {
@@ -265,13 +266,94 @@ func TestStreamMatchBatchFindsRawAcrossReadBlockBoundary(t *testing.T) {
 	copy(data[offset:], raw)
 	reader := bytes.NewReader(data)
 	cache := newStreamMatchCache(reader, int64(len(data)))
-	if err := cache.resolve(context.Background(), [][]byte{raw}); err != nil {
+	if err := cache.resolve(context.Background(), [][]byte{raw}, nil); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 	match, ok := cache.lookup(raw)
 	wantLines := bytes.Count(data[:offset], []byte{'\n'})
 	if !ok || !match.found || match.offset != int64(offset) || match.newlineCount != wantLines {
 		t.Fatalf("boundary match = %#v/%v, want offset=%d lines=%d", match, ok, offset, wantLines)
+	}
+}
+
+func TestFindReaderMatchesNarrowsByPrefixAndLength(t *testing.T) {
+	// Background repeats 'g.' so the 'g' first byte fires constantly while
+	// two-byte and longer prefixes almost never match.
+	background := bytes.Repeat([]byte("g."), (64<<10)/2+64)
+	raws := [][]byte{
+		[]byte("ghp_alpha_token_aaaaaaaaaaaaaaaa"),
+		[]byte("ghp_beta_token_bbbbbbbbbbb"),
+		[]byte("ghx_mixed_length"),
+		[]byte("g"),
+		{0x67, 0x00, 0xff, 0x10, 0x77},
+		[]byte("ghp_missing_token_zzzzzzzzzzzzzzzz"),
+	}
+	data := bytes.Clone(background)
+	placements := map[string]int64{
+		"ghp_alpha_token_aaaaaaaaaaaaaaaa": 5,
+		"ghp_beta_token_bbbbbbbbbbb":       (64 << 10) - 4,
+		"ghx_mixed_length":                 int64(len(data)) - 20,
+		// The 'g.' background already contains 'g' at offset 0, so the
+		// single-byte raw's first occurrence is the background's first byte.
+		"g": 0,
+		string([]byte{0x67, 0x00, 0xff, 0x10, 0x77}): 100,
+	}
+	for raw, off := range placements {
+		copy(data[off:], []byte(raw))
+	}
+	wanted := make(map[string]struct{}, len(raws))
+	for _, raw := range raws {
+		wanted[string(raw)] = struct{}{}
+	}
+	values := make(map[string]streamMatch, len(raws))
+	if err := findReaderMatches(context.Background(), bytes.NewReader(data), int64(len(data)), wanted, values); err != nil {
+		t.Fatalf("findReaderMatches: %v", err)
+	}
+	for _, raw := range raws {
+		key := string(raw)
+		match, ok := values[key]
+		if !ok {
+			t.Fatalf("raw %q missing from results", key)
+		}
+		wantOff, placed := placements[key]
+		if placed {
+			if !match.found || match.offset != wantOff {
+				t.Fatalf("raw %q = %#v, want offset %d", key, match, wantOff)
+			}
+		} else if match.found {
+			t.Fatalf("raw %q unexpectedly found at %d", key, match.offset)
+		}
+	}
+}
+
+func TestFindReaderMatchesReturnsFirstOccurrence(t *testing.T) {
+	raw := []byte("shared-prefix-token")
+	data := bytes.Repeat([]byte("xy\n"), 8<<10)
+	first := int64(10)
+	second := int64(len(data)) - 30
+	copy(data[first:], raw)
+	copy(data[second:], raw)
+	wanted := map[string]struct{}{string(raw): {}}
+	values := make(map[string]streamMatch, 1)
+	if err := findReaderMatches(context.Background(), bytes.NewReader(data), int64(len(data)), wanted, values); err != nil {
+		t.Fatalf("findReaderMatches: %v", err)
+	}
+	match := values[string(raw)]
+	wantLines := bytes.Count(data[:first], []byte{'\n'})
+	if !match.found || match.offset != first || match.newlineCount != wantLines {
+		t.Fatalf("first occurrence = %#v, want offset=%d lines=%d", match, first, wantLines)
+	}
+}
+
+func TestFindReaderMatchesCancellationAndReadError(t *testing.T) {
+	readErr := errors.New("reader failed")
+	if err := findReaderMatches(context.Background(), failingReaderAt{err: readErr}, 128, map[string]struct{}{"tok": {}}, map[string]streamMatch{}); !errors.Is(err, readErr) {
+		t.Fatalf("read error = %v, want %v", err, readErr)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := findReaderMatches(ctx, bytes.NewReader([]byte("tok")), 3, map[string]struct{}{"tok": {}}, map[string]streamMatch{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel error = %v, want %v", err, context.Canceled)
 	}
 }
 
@@ -309,6 +391,36 @@ func TestStreamFindingBatchEmitsFindingWhenSpanReadFails(t *testing.T) {
 	var degraded *DegradedError
 	if err := eng.takeFailures(); !errors.As(err, &degraded) || !errors.Is(err, readErr) {
 		t.Fatalf("span failure = %v, want source degradation wrapping read error", err)
+	}
+}
+
+func TestStreamFindingBatchReportsObservationErrorAfterFallback(t *testing.T) {
+	observationErr := errors.New("observation bootstrap failed")
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors(nil, Options{Concurrency: 1}, sink)
+	eng.resetFailures()
+	data := []byte("batch-partial-token")
+	cache := newStreamMatchCache(bytes.NewReader(data), int64(len(data)))
+	batch := &streamFindingBatch{observationErr: observationErr}
+	batch.append(streamBatchTestFinding(3))
+	chunk := batch.findings[0].Chunk
+	batch.flush(context.Background(), eng, chunk, cache)
+	findings := sink.Findings()
+	if len(findings) != 1 || findings[0].RawSpan == nil || findings[0].RawSpan[0] != 0 {
+		t.Fatalf("fallback findings = %#v, want one resolved finding", findings)
+	}
+	var degraded *DegradedError
+	err := eng.takeFailures()
+	if !errors.As(err, &degraded) || !errors.Is(err, observationErr) || degraded.Total != 1 || degraded.Counts[FailureSource] != 1 {
+		t.Fatalf("observation degradation = %v, want one source failure wrapping %v", err, observationErr)
+	}
+
+	// Clearing the deferred error after flush prevents a fail-once bootstrap
+	// from becoming one source failure per later finding.
+	batch.append(streamBatchTestFinding(4))
+	batch.flush(context.Background(), eng, chunk, cache)
+	if err := eng.takeFailures(); err != nil {
+		t.Fatalf("observation error repeated after fallback: %v", err)
 	}
 }
 
@@ -378,9 +490,9 @@ func TestStreamFindingBatchOwnsExtraDataBeforeFlush(t *testing.T) {
 		Raw:          []byte("metadata-token"),
 		ExtraData:    shared,
 	}
-	eng.emitDetectorResult(context.Background(), chunk, decoder.Variant{}, "", 0, true, result, cache)
+	eng.emitDetectorResult(context.Background(), chunk, decoder.Variant{}, "", 0, true, result, cache, streamWindowBase{})
 	shared["marker"] = "second"
-	eng.emitDetectorResult(context.Background(), chunk, decoder.Variant{}, "", 0, true, result, cache)
+	eng.emitDetectorResult(context.Background(), chunk, decoder.Variant{}, "", 0, true, result, cache, streamWindowBase{})
 	cache.pending = nil
 	batch.flush(context.Background(), eng, chunk, cache)
 
@@ -396,6 +508,131 @@ func TestStreamFindingBatchOwnsExtraDataBeforeFlush(t *testing.T) {
 	}
 }
 
+func TestStreamMatchHintBoundsAcrossBatches(t *testing.T) {
+	// >1024 hinted raws force several resolution batches. Recorded prefix
+	// positions prove the first occurrence with bounded candidate reads, so
+	// total reads stay below one source pass instead of multiplying by raws.
+	const (
+		size      = 2 << 20
+		rawCount  = streamFindingBatchLimit + 512
+		rawLength = 16
+	)
+	data := make([]byte, size)
+	rand.New(rand.NewSource(1)).Read(data)
+	counting := &countingReaderAt{reader: bytes.NewReader(data)}
+	cache := newStreamMatchCache(counting, int64(size))
+	raws := make([][]byte, 0, rawCount)
+	wantOffsets := make([]int64, 0, rawCount)
+	hints := make([]streamRawHint, 0, rawCount)
+	for start := int64(0); start+rawLength <= int64(size) && len(raws) < rawCount; start += windowStepSize {
+		window := data[start:min(start+maxWindowSize, int64(size))]
+		cache.observeRawWindow("", window, start)
+		for i := 0; i < 64 && len(raws) < rawCount; i++ {
+			off := start + int64(i)*512 + 3
+			if off+rawLength > start+int64(len(window)) {
+				continue
+			}
+			raws = append(raws, data[off:off+rawLength])
+			wantOffsets = append(wantOffsets, off)
+			hints = append(hints, streamRawHint{offset: off, ok: true})
+		}
+	}
+	if len(raws) < rawCount {
+		t.Fatalf("built %d raws, want %d", len(raws), rawCount)
+	}
+	half := len(raws) / 2
+	if err := cache.resolve(context.Background(), raws[:half], hints[:half]); err != nil {
+		t.Fatalf("first resolve: %v", err)
+	}
+	if err := cache.resolve(context.Background(), raws[half:], hints[half:]); err != nil {
+		t.Fatalf("second resolve: %v", err)
+	}
+	if got := counting.bytes.Load(); got > int64(size)/2 {
+		t.Fatalf("resolution read %d bytes for input %d, exceeded hinted candidate bound", got, size)
+	}
+	t.Logf("resolution reads: calls=%d bytes=%d for %d raws", counting.calls.Load(), counting.bytes.Load(), len(raws))
+	for i, raw := range raws {
+		match, ok := cache.lookup(raw)
+		if !ok || !match.found || match.offset != wantOffsets[i] {
+			t.Fatalf("raw %d = %#v/%v, want first offset %d", i, match, ok, wantOffsets[i])
+		}
+	}
+}
+
+// fixedRawDetector always reports the same raw value regardless of input,
+// emulating detectors that normalize before reporting.
+type fixedRawDetector struct{ raw []byte }
+
+func (*fixedRawDetector) Type() detectors.DetectorType { return detectors.AWS }
+
+func (*fixedRawDetector) Keywords() []string { return []string{"kwpair2"} }
+
+func (d *fixedRawDetector) FromData(_ context.Context, _ bool, _ []byte) ([]detectors.Result, error) {
+	return []detectors.Result{{DetectorType: detectors.AWS, Raw: bytes.Clone(d.raw)}}, nil
+}
+
+func TestStreamMatchFindsEarlierOccurrence(t *testing.T) {
+	raw := []byte("shared-early-token")
+	data := bytes.Repeat([]byte("filler\n"), 70000/7)
+	early := int64(50)
+	copy(data[early:], raw)
+	late := int64(40 << 10)
+	copy(data[late:], "kwpair2 ")
+	copy(data[late+8:], raw)
+	chunk := lazyReaderChunk(data, "/fixture/earlier-token.txt")
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{&fixedRawDetector{raw: raw}}, Options{Concurrency: 1}, sink)
+	if _, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{chunk}}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	findings := sink.Findings()
+	if len(findings) == 0 {
+		t.Fatal("no findings")
+	}
+	for _, f := range findings {
+		if f.RawSpan == nil || int64(f.RawSpan[0]) != early {
+			t.Fatalf("span=%v, want first occurrence at %d", f.RawSpan, early)
+		}
+		wantLine := 1 + bytes.Count(data[:early], []byte{'\n'})
+		if got := f.Chunk.SourceMetadata.Filesystem.Line; got != wantLine {
+			t.Fatalf("line=%d, want %d", got, wantLine)
+		}
+	}
+}
+
+func TestStreamMatchResolvesRawSpan(t *testing.T) {
+	raw := []byte("first-occurrence-token")
+	data := bytes.Repeat([]byte("pad\n"), 30000)
+	at := int64(40 << 10)
+	copy(data[at:], "kwpair2 ")
+	copy(data[at+8:], raw)
+	counting := &countingReaderAt{reader: bytes.NewReader(data)}
+	chunk := &sources.Chunk{
+		SourceType: sources.SourceFilesystem,
+		Open: func(context.Context) (io.ReaderAt, io.Closer, int64, error) {
+			return counting, io.NopCloser(bytes.NewReader(nil)), int64(len(data)), nil
+		},
+		SourceMetadata: sources.Metadata{
+			Filesystem: &sources.FilesystemMeta{Path: "/fixture/raw-span.txt", Line: 1},
+		},
+	}
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{&fixedRawDetector{raw: raw}}, Options{Concurrency: 1}, sink)
+	if _, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{chunk}}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	findings := sink.Findings()
+	if len(findings) == 0 {
+		t.Fatal("no findings")
+	}
+	for _, f := range findings {
+		if f.RawSpan == nil || int64(f.RawSpan[0]) != at+8 {
+			t.Fatalf("span=%v, want source occurrence at %d", f.RawSpan, at+8)
+		}
+	}
+	t.Logf("reader calls=%d bytes=%d", counting.calls.Load(), counting.bytes.Load())
+}
+
 func TestStreamFindingBatchFlushesAtLimitAndReusesSpanCache(t *testing.T) {
 	sink := &engineRecordingSink{}
 	eng := NewWithDetectors([]detectors.Detector{&normalizedRawDetector{}}, Options{Concurrency: 1}, sink)
@@ -408,7 +645,7 @@ func TestStreamFindingBatchFlushesAtLimitAndReusesSpanCache(t *testing.T) {
 		eng.emitDetectorResult(context.Background(), chunk, decoder.Variant{}, "", 0, true, detectors.Result{
 			DetectorType: detectors.AWS,
 			Raw:          raw,
-		}, cache)
+		}, cache, streamWindowBase{})
 	}
 	if got := len(sink.Findings()); got != streamFindingBatchLimit {
 		t.Fatalf("findings before final flush=%d, want %d", got, streamFindingBatchLimit)
@@ -417,5 +654,91 @@ func TestStreamFindingBatchFlushesAtLimitAndReusesSpanCache(t *testing.T) {
 	batch.flush(context.Background(), eng, chunk, cache)
 	if got := len(sink.Findings()); got != streamFindingBatchLimit+1 {
 		t.Fatalf("findings after final flush=%d, want %d", got, streamFindingBatchLimit+1)
+	}
+}
+
+// TestStreamMatchSharedPrefixBoundsBatchReads reproduces the #437 workload:
+// every raw shares the same two-byte prefix (all `ghp_` tokens share `gh`),
+// so a per-raw scan would multiply the source work across batches.
+// Position resolution must not grow with the number of pending batches: the
+// complete prefix index is built once and reused, keeping reads near one
+// input pass plus small per-candidate reads, while earliest-occurrence and
+// cached-negative semantics are preserved.
+func TestStreamMatchSharedPrefixBoundsBatchReads(t *testing.T) {
+	for _, size := range []int64{4 << 20, 16 << 20, 64 << 20} {
+		t.Run(fmt.Sprintf("%dMiB", size>>20), func(t *testing.T) {
+			runSharedPrefixBounds(t, size)
+		})
+	}
+}
+
+func runSharedPrefixBounds(t *testing.T, size int64) {
+	t.Helper()
+	// Raws scale with input size so position-resolution cost cannot hide
+	// behind a fixed small batch count.
+	count := size / 8192
+	data := bytes.Repeat([]byte{' '}, int(size))
+	raws := make([][]byte, count+2)
+	for i := int64(0); i < count; i++ {
+		raws[i] = []byte(fmt.Sprintf("ghp_shared_prefix_token_%05d", i))
+		copy(data[i*(size/count):], raws[i])
+	}
+	// A duplicated occurrence must still resolve to the earliest position.
+	copy(data[int(size)-128:], raws[0])
+	raws[count] = []byte("ghp_shared_prefix_token_zzzzz") // absent
+	raws[count+1] = []byte("ghx_other_prefix_token_00001")
+	copy(data[int(size)-64:], raws[count+1])
+
+	reader := &countingReaderAt{reader: bytes.NewReader(data)}
+	cache := newStreamMatchCache(reader, int64(len(data)))
+	for start := 0; start < len(raws); start += streamFindingBatchLimit {
+		end := start + streamFindingBatchLimit
+		if end > len(raws) {
+			end = len(raws)
+		}
+		if err := cache.resolve(context.Background(), raws[start:end], nil); err != nil {
+			t.Fatalf("resolve batch at %d: %v", start, err)
+		}
+	}
+	for i, raw := range raws[:count] {
+		match, ok := cache.lookup(raw)
+		want := int64(i) * (size / count)
+		if !ok || !match.found || match.offset != want {
+			t.Fatalf("raw %d = %#v/%v, want earliest offset %d", i, match, ok, want)
+		}
+	}
+	if match, _ := cache.lookup(raws[0]); match.offset != 0 {
+		t.Fatalf("duplicated raw resolved to %d, want earliest occurrence 0", match.offset)
+	}
+	if match, ok := cache.lookup(raws[count]); !ok || match.found || match.offset != -1 {
+		t.Fatalf("absent raw = %#v/%v, want cached negative result", match, ok)
+	}
+	if match, ok := cache.lookup(raws[count+1]); !ok || !match.found || match.offset != int64(size-64) {
+		t.Fatalf("other-prefix raw = %#v/%v", match, ok)
+	}
+
+	// Reads: one shared index pass plus small candidate reads. Both bytes and
+	// call count stay proportional to the input plus the raw count, never to
+	// the number of raw values at each indexed position.
+	if got := reader.bytes.Load(); got >= 3*size {
+		t.Fatalf("position resolution read %d bytes, want under %d (grows with batch count)", got, 3*size)
+	}
+	wantCalls := 2*count + size/(32<<10)
+	if got := reader.calls.Load(); got > wantCalls {
+		t.Fatalf("position resolution made %d ReadAt calls, want under %d (grows with batch count)", got, wantCalls)
+	}
+	t.Logf("shared-prefix reads: calls=%d bytes=%d input=%d raws=%d", reader.calls.Load(), reader.bytes.Load(), size, count)
+	readsAfterFirst := reader.bytes.Load()
+	for start := 0; start < len(raws); start += streamFindingBatchLimit {
+		end := start + streamFindingBatchLimit
+		if end > len(raws) {
+			end = len(raws)
+		}
+		if err := cache.resolve(context.Background(), raws[start:end], nil); err != nil {
+			t.Fatalf("cached resolve: %v", err)
+		}
+	}
+	if reader.bytes.Load() != readsAfterFirst {
+		t.Fatalf("cached resolution reread input: before=%d after=%d", readsAfterFirst, reader.bytes.Load())
 	}
 }
