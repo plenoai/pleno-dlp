@@ -371,11 +371,12 @@ func (s *Source) startOfflineEnum(ctx context.Context, gitBin string, starts, st
 					enum.pumpErr <- fmt.Errorf("git: parse offline commit list: %w", parseErr)
 					return
 				}
-				if commit.parentCount <= 1 {
-					if _, err := fmt.Fprintln(rawStdin, commit.hash); err != nil {
-						enum.pumpErr <- fmt.Errorf("git: feed offline raw stdin: %w", err)
-						return
-					}
+				// Feed every commit — merges included: diff-tree --always
+				// echoes each ID, which is the consumer's progress signal
+				// and keeps the bounded queue draining in lockstep.
+				if _, err := fmt.Fprintln(rawStdin, commit.hash); err != nil {
+					enum.pumpErr <- fmt.Errorf("git: feed offline raw stdin: %w", err)
+					return
 				}
 				select {
 				case enum.commits <- commit:
@@ -543,6 +544,11 @@ func (s *Source) chunksOffline(ctx context.Context, repo *gogit.Repository, gitB
 	}
 	handle := func(commit nativeCommit, entries []offlineRawEntry) error {
 		if commit.parentCount > 1 {
+			if s.omitMergeDiffs() {
+				// SkipMergeCommits/TrufflehogCompatible drop merge
+				// resolution diffs on every path, partial clone or not.
+				return nil
+			}
 			mergeBuf = append(mergeBuf, commit)
 			if len(mergeBuf) >= offlinePatchBatchSize {
 				return mergeFlush()
@@ -966,11 +972,9 @@ func (w *offlineWalk) emitBlob(ctx context.Context, commit nativeCommit, path, s
 		})
 	}
 	defer stream.Close()
-	// Text policy: blobs above maxBlobSize emit nothing, matching
-	// readBlobLimit on the complete-clone path.
-	if size > maxBlobSize {
-		return nil
-	}
+	// Text policy mirrors the native path: appendFile streams text blobs
+	// of any size in chunk windows, so a locally present large text blob
+	// still emits — no size ceiling drops scanned text here.
 	return streamBlob(ctx, body, size, emit)
 }
 

@@ -152,6 +152,12 @@ type streamMatchCache struct {
 	// streamPrefixIndexCap (key bit 16 distinguishes single-byte prefixes);
 	// those keep the per-batch shared scan.
 	indexOOM map[uint32]bool
+	// indexedPositions and indexSampleBytes bound the metadata and sample
+	// payloads retained across all cached indexes and builds — they are
+	// persistent counters, not per-build, so later builds cannot restart
+	// the budget while earlier indexes stay cached.
+	indexedPositions int64
+	indexSampleBytes int64
 }
 
 // streamPrefixIndex is a complete index of one prefix's occurrences in the
@@ -171,6 +177,13 @@ type streamPrefixIndex struct {
 // streamPrefixIndexCap bounds occurrences a single prefix index records
 // before resolving that prefix falls back to the shared per-batch scan.
 const streamPrefixIndexCap = 4 << 20
+
+// streamPrefixIndexTotalCap bounds the positions retained across ALL cached
+// prefix indexes and in-flight builds — slice headers and growth are
+// per-position costs, so the budget is on entries, not payload bytes.
+// Exhaustion marks the pending keys OOM and they keep the bounded shared
+// scan instead.
+const streamPrefixIndexTotalCap = 1 << 20
 
 // streamPrefixIndexSampleLen is how many leading bytes of content each index
 // entry stores for in-memory verification.
@@ -423,6 +436,7 @@ func (c *streamMatchCache) prefixIndexes(ctx context.Context, keys []uint32) (ma
 			c.pairIndex[uint16(k)] = index
 		}
 		out[k] = index
+		c.indexedPositions += int64(len(index.positions))
 	}
 	return out, nil
 }
@@ -447,8 +461,25 @@ func (c *streamMatchCache) scanPrefixIndexes(ctx context.Context, oomKeys []uint
 	const blockSize = 64 << 10
 	buffer := make([]byte, blockSize+1)
 	var lineCount int32
-	total := 0
-	sampleBytes := 0
+	var positionsThisBuild int64
+	keySampleBytes := make(map[uint32]int64, len(oomKeys))
+	drop := func(k uint32) {
+		if indexes[k] == nil {
+			return
+		}
+		positionsThisBuild -= int64(len(indexes[k].positions))
+		c.indexSampleBytes -= keySampleBytes[k]
+		delete(keySampleBytes, k)
+		indexes[k] = nil
+	}
+	budgetExceeded := func() bool {
+		return c.indexedPositions+positionsThisBuild >= streamPrefixIndexTotalCap
+	}
+	dropAll := func() {
+		for pending := range indexes {
+			drop(pending)
+		}
+	}
 record:
 	for start := int64(0); start < c.size; {
 		if err := ctx.Err(); err != nil {
@@ -480,11 +511,17 @@ record:
 			pos := start + int64(j)
 			b := data[j]
 			if j+1 < got {
-				k, wanted := pairs[uint16(b)<<8|uint16(data[j+1])]
-				if wanted && indexes[k] != nil {
+				if k, wanted := pairs[uint16(b)<<8|uint16(data[j+1])]; wanted && indexes[k] != nil {
+					if budgetExceeded() {
+						// Retained-position budget exhausted: every
+						// pending key keeps the bounded shared scan.
+						dropAll()
+						break record
+					}
 					indexes[k].positions = append(indexes[k].positions, pos)
 					indexes[k].newlines = append(indexes[k].newlines, lineCount)
-					if sampleBytes+streamPrefixIndexSampleLen <= streamPrefixIndexSampleBytes {
+					positionsThisBuild++
+					if c.indexSampleBytes+streamPrefixIndexSampleLen <= streamPrefixIndexSampleBytes {
 						end := j + streamPrefixIndexSampleLen
 						if end > got {
 							end = got
@@ -492,27 +529,26 @@ record:
 						sample := make([]byte, end-j)
 						copy(sample, data[j:end])
 						indexes[k].samples = append(indexes[k].samples, sample)
-						sampleBytes += len(sample)
+						c.indexSampleBytes += int64(len(sample))
+						keySampleBytes[k] += int64(len(sample))
 					} else {
 						indexes[k].samples = append(indexes[k].samples, nil)
 					}
-					total++
 					if len(indexes[k].positions) > streamPrefixIndexCap {
-						indexes[k] = nil
+						drop(k)
 						delete(pairs, uint16(k))
-					}
-					if total > streamPrefixIndexCap {
-						for pending := range indexes {
-							indexes[pending] = nil
-						}
-						break record
 					}
 				}
 			}
 			if k, wanted := singles[b]; wanted && indexes[k] != nil {
+				if budgetExceeded() {
+					dropAll()
+					break record
+				}
 				indexes[k].positions = append(indexes[k].positions, pos)
 				indexes[k].newlines = append(indexes[k].newlines, lineCount)
-				if sampleBytes+streamPrefixIndexSampleLen <= streamPrefixIndexSampleBytes {
+				positionsThisBuild++
+				if c.indexSampleBytes+streamPrefixIndexSampleLen <= streamPrefixIndexSampleBytes {
 					end := j + streamPrefixIndexSampleLen
 					if end > got {
 						end = got
@@ -520,20 +556,14 @@ record:
 					sample := make([]byte, end-j)
 					copy(sample, data[j:end])
 					indexes[k].samples = append(indexes[k].samples, sample)
-					sampleBytes += len(sample)
+					c.indexSampleBytes += int64(len(sample))
+					keySampleBytes[k] += int64(len(sample))
 				} else {
 					indexes[k].samples = append(indexes[k].samples, nil)
 				}
-				total++
 				if len(indexes[k].positions) > streamPrefixIndexCap {
-					indexes[k] = nil
+					drop(k)
 					delete(singles, b)
-				}
-				if total > streamPrefixIndexCap {
-					for pending := range indexes {
-						indexes[pending] = nil
-					}
-					break record
 				}
 			}
 			if b == '\n' {
