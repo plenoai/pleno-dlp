@@ -843,8 +843,8 @@ func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte, hints []s
 	// amortize one complete prefix index. Smaller groups use one ordinary
 	// shared scan, which avoids retaining an index for a single raw.
 	indexGroups := make(map[uint32][]string)
-	seenIndexRaws := make(map[string]struct{})
-	newIndexGroupRawCounts := make(map[uint32]int)
+	// rawHints also marks every unique short raw in this batch. Keeping the
+	// marker beside the selected hint avoids a second string-keyed set.
 	rawHints := make(map[string]streamRawHint, len(raws))
 	for i, raw := range raws {
 		if len(raw) == 0 {
@@ -854,11 +854,13 @@ func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte, hints []s
 		if _, ok := c.values[key]; ok {
 			continue
 		}
+		hint := streamRawHint{}
 		if i < len(hints) {
-			hint := hints[i]
-			if previous, exists := rawHints[key]; !exists || (!previous.ok && hint.ok) {
-				rawHints[key] = hint
-			}
+			hint = hints[i]
+		}
+		previous, seen := rawHints[key]
+		if !seen || (!previous.ok && hint.ok) {
+			rawHints[key] = hint
 		}
 		if len(raw) <= streamBatchMaxRaw {
 			prefix, single := prefixKey(raw)
@@ -866,17 +868,15 @@ func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte, hints []s
 			if single {
 				groupKey |= indexGroupSingleBit
 			}
-			if _, seen := seenIndexRaws[key]; !seen {
-				seenIndexRaws[key] = struct{}{}
+			if !seen {
 				indexGroups[groupKey] = append(indexGroups[groupKey], key)
-				newIndexGroupRawCounts[groupKey]++
 			}
 			continue
 		}
 		long = append(long, raw)
 	}
 	for groupKey, keys := range indexGroups {
-		if c.indexGroupRawCounts[groupKey]+newIndexGroupRawCounts[groupKey] >= streamIndexGroupMinRaws || c.indexFor(groupKey) != nil {
+		if c.indexGroupRawCounts[groupKey]+len(keys) >= streamIndexGroupMinRaws || c.indexFor(groupKey) != nil {
 			continue
 		}
 		for _, key := range keys {
@@ -902,12 +902,20 @@ func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte, hints []s
 	if err := findReaderMatches(ctx, c.reader, c.size, short, c.values); err != nil {
 		return err
 	}
-	if len(newIndexGroupRawCounts) > 0 {
-		if c.indexGroupRawCounts == nil {
-			c.indexGroupRawCounts = make(map[uint32]int)
-		}
-		for groupKey, count := range newIndexGroupRawCounts {
-			c.indexGroupRawCounts[groupKey] += count
+	if len(rawHints) > 0 {
+		for raw := range rawHints {
+			if len(raw) > streamBatchMaxRaw {
+				continue
+			}
+			if c.indexGroupRawCounts == nil {
+				c.indexGroupRawCounts = make(map[uint32]int)
+			}
+			prefix, single := prefixKey([]byte(raw))
+			groupKey := uint32(prefix)
+			if single {
+				groupKey |= indexGroupSingleBit
+			}
+			c.indexGroupRawCounts[groupKey]++
 		}
 	}
 	for _, raw := range long {
