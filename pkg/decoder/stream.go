@@ -26,8 +26,10 @@ func WalkVariants(ctx context.Context, input io.ReaderAt, size int64, visit func
 	if err := visit("", input, size); err != nil {
 		return err
 	}
+	// Decoder passes are sequential; visits borrow the spooled file, not this scratch.
+	var scratch [64*1024 + 11]byte
 	for _, source := range []string{"base64", "percent", "hex", "utf16", "unicode-escape"} {
-		if err := walkDecoded(ctx, input, size, source, visit); err != nil {
+		if err := walkDecoded(ctx, input, size, source, scratch[:], visit); err != nil {
 			return err
 		}
 	}
@@ -120,14 +122,14 @@ func countNonPrintable(p []byte) int64 {
 	return bad
 }
 
-func walkDecoded(ctx context.Context, input io.ReaderAt, size int64, source string, visit func(string, io.ReaderAt, int64) error) (err error) {
+func walkDecoded(ctx context.Context, input io.ReaderAt, size int64, source string, scratch []byte, visit func(string, io.ReaderAt, int64) error) (err error) {
 	v := &variantFile{}
 	defer func() { err = errors.Join(err, v.close()) }()
 	if source == "base64" || source == "hex" {
-		err = decodeStreamRuns(ctx, input, size, source == "base64", v)
+		err = decodeStreamRuns(ctx, input, size, source == "base64", v, scratch[:64*1024])
 	} else {
 		var eligible bool
-		source, eligible, err = streamEncoding(input, size, source)
+		source, eligible, err = streamEncoding(input, size, source, scratch)
 		if err != nil || !eligible {
 			return err
 		}
@@ -146,7 +148,7 @@ func walkDecoded(ctx context.Context, input io.ReaderAt, size int64, source stri
 	return nil
 }
 
-func streamEncoding(input io.ReaderAt, size int64, source string) (string, bool, error) {
+func streamEncoding(input io.ReaderAt, size int64, source string, buf []byte) (string, bool, error) {
 	if source == "utf16" {
 		var prefix [128]byte
 		n, err := input.ReadAt(prefix[:min(size, int64(len(prefix)))], 0)
@@ -163,7 +165,6 @@ func streamEncoding(input io.ReaderAt, size int64, source string) (string, bool,
 		return "utf16be", ok, nil
 	}
 	// Preserve the existing adjacent-escape eligibility gate across reads.
-	var buf [64*1024 + 11]byte
 	carry := 0
 	reader := io.NewSectionReader(input, 0, size)
 	for {
@@ -268,10 +269,9 @@ var streamRunBytes = func() (table [2][256]bool) {
 	return
 }()
 
-func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bool, output *variantFile) error {
-	var scan [64 * 1024]byte
-	var decode [32 * 1024]byte
-	out := bufio.NewWriterSize(output, len(decode))
+func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bool, output *variantFile, scan []byte) error {
+	var decode []byte
+	var out *bufio.Writer
 	hasOutput := false
 	start := int64(-1)
 	var alphabet byte
@@ -285,6 +285,9 @@ func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bo
 		if start < 0 || end-start < minimum {
 			start = -1
 			return nil
+		}
+		if decode == nil {
+			decode = make([]byte, 32*1024)
 		}
 		var encoding *base64.Encoding
 		if b64 {
@@ -337,6 +340,9 @@ func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bo
 			return err
 		}
 		if printableCounts(counter.n, counter.bad) {
+			if out == nil {
+				out = bufio.NewWriterSize(output, len(decode))
+			}
 			if hasOutput {
 				if err := out.WriteByte('\n'); err != nil {
 					return err
@@ -392,7 +398,10 @@ func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bo
 	if err := flush(size); err != nil {
 		return err
 	}
-	return out.Flush()
+	if out != nil {
+		return out.Flush()
+	}
+	return nil
 }
 
 var errNonPrintable = errors.New("decoder: non-printable run")
