@@ -141,7 +141,32 @@ type streamMatchCache struct {
 	firstByte *[256]int64
 	restPair  map[uint16][]int64
 	restByte  map[byte][]int64
+	// pairIndex and byteIndex hold complete prefix-position indexes built
+	// lazily for prefixes whose capped rest list cannot enumerate every
+	// occurrence. An index is computed once (one bounded forward pass) and
+	// reused for every later batch, so position resolution for inputs where
+	// many raws share a prefix stays proportional to the input, not to the
+	// batch count.
+	pairIndex map[uint16]*streamPrefixIndex
+	byteIndex map[byte]*streamPrefixIndex
+	// indexOOM marks prefixes whose occurrence count exceeds
+	// streamPrefixIndexCap (key bit 16 distinguishes single-byte prefixes);
+	// those keep the per-batch shared scan.
+	indexOOM map[uint32]bool
 }
+
+// streamPrefixIndex is a complete index of one prefix's occurrences in the
+// input: absolute positions and the number of newlines preceding each. It is
+// built only for prefixes a pending batch actually needs, so its memory stays
+// proportional to the occurrences of requested prefixes, not the input.
+type streamPrefixIndex struct {
+	positions []int64
+	newlines  []int32
+}
+
+// streamPrefixIndexCap bounds occurrences a single prefix index records
+// before resolving that prefix falls back to the shared per-batch scan.
+const streamPrefixIndexCap = 4 << 20
 
 func newStreamMatchCache(reader io.ReaderAt, size int64) *streamMatchCache {
 	if reader == nil {
@@ -187,77 +212,215 @@ func (c *streamMatchCache) observeRawWindow(source string, data []byte, start in
 
 // hintVerifyCandidateCap bounds how many recorded prefix positions a single
 // hint verification reads back. Inputs engineered to collide the two-byte
-// index on every position degrade to the shared forward scan rather than to
-// per-candidate random reads.
+// index on every position escalate to a complete prefix index rather than to
+// per-candidate random reads or a per-batch rescan.
 const hintVerifyCandidateCap = 64
 
-// hintIsFirst reports whether a hinted position is provably the raw value's
-// first occurrence in the input: the only earlier positions that could hold
-// the value are the recorded positions of its prefix, and each of those
-// below the hint is read back and compared. Inputs whose prefix index is
-// not yet populated, or that exceed the candidate cap, report false so the
-// caller keeps the shared forward scan.
-func (c *streamMatchCache) hintIsFirst(ctx context.Context, raw []byte, hint streamRawHint) (bool, error) {
-	if c == nil || !hint.ok || len(raw) == 0 {
-		return false, nil
+// prefixKey identifies a raw's search prefix: two bytes for raws of two or
+// more bytes, a single byte for one-byte raws.
+func prefixKey(raw []byte) (uint16, bool) {
+	if len(raw) >= 2 {
+		return uint16(raw[0])<<8 | uint16(raw[1]), false
 	}
-	var candidates int
-	check := func(pos int64) (bool, error) {
-		if pos == 0 || pos-1 >= hint.offset {
-			return true, nil
-		}
-		candidates++
-		if candidates > hintVerifyCandidateCap {
-			return false, nil
-		}
-		buf := make([]byte, len(raw))
-		got, err := c.reader.ReadAt(buf, pos-1)
-		if err != nil && !errors.Is(err, io.EOF) {
-			return false, err
-		}
-		if got == len(raw) && bytes.Equal(buf, raw) {
-			return false, nil
-		}
-		return true, nil
+	if len(raw) == 1 {
+		return uint16(raw[0]), true
 	}
-	if c.firstByte == nil {
-		return false, nil
+	return 0, false
+}
+
+// prefixLookup resolves a hinted raw without a forward rescan. The second
+// return reports whether resolution is complete; when false the caller falls
+// back to the shared forward pass. Three paths are tried in order:
+//
+//  1. The hinted position is provably first when every earlier occurrence of
+//     the raw's prefix is recorded (the capped rest list): each candidate is
+//     read back and compared, and a match below the hint means the earliest
+//     occurrence needs the shared scan.
+//  2. When the rest list is full, a complete index of that prefix's
+//     occurrences is built once (one forward pass) and cached. The index is
+//     authoritative: the first index position whose bytes equal the raw is
+//     its first occurrence, and no match at all means the raw is absent.
+func (c *streamMatchCache) prefixLookup(ctx context.Context, raw []byte, hint streamRawHint) (streamMatch, bool, error) {
+	if c == nil || !hint.ok || len(raw) == 0 || c.firstByte == nil {
+		return streamMatch{}, false, nil
 	}
+	key, single := prefixKey(raw)
 	var first int64
 	var rest []int64
-	if len(raw) == 1 {
-		first = c.firstByte[raw[0]]
-		rest = c.restByte[raw[0]]
+	if single {
+		first = c.firstByte[byte(key)]
+		rest = c.restByte[byte(key)]
 	} else {
 		if c.firstPair == nil {
-			return false, nil
+			return streamMatch{}, false, nil
 		}
-		pair := uint16(raw[0])<<8 | uint16(raw[1])
-		first = c.firstPair[pair]
-		rest = c.restPair[pair]
+		first = c.firstPair[key]
+		rest = c.restPair[key]
 	}
-	if len(rest) >= hintVerifyCandidateCap {
-		// Position recording is capped, so earlier occurrences below the
-		// hint cannot be enumerated completely; keep the shared scan.
-		return false, nil
+	if len(rest) < hintVerifyCandidateCap {
+		matchEarlier := func(pos int64) (bool, error) {
+			if pos == 0 || pos-1 >= hint.offset {
+				return false, nil
+			}
+			buf := make([]byte, len(raw))
+			got, err := c.reader.ReadAt(buf, pos-1)
+			if err != nil && !errors.Is(err, io.EOF) {
+				return false, err
+			}
+			return got == len(raw) && bytes.Equal(buf, raw), nil
+		}
+		earlier, err := matchEarlier(first)
+		if err != nil {
+			return streamMatch{}, false, err
+		}
+		for _, pos := range rest {
+			if earlier || pos-1 >= hint.offset {
+				break
+			}
+			if err := ctx.Err(); err != nil {
+				return streamMatch{}, false, err
+			}
+			earlier, err = matchEarlier(pos)
+			if err != nil {
+				return streamMatch{}, false, err
+			}
+		}
+		if earlier {
+			// An occurrence below the hint exists; the earliest match must
+			// come from the shared scan, which also counts its newlines.
+			return streamMatch{}, false, nil
+		}
+		return streamMatch{offset: hint.offset, newlineCount: hint.newlines, found: true}, true, nil
 	}
-	ok, err := check(first)
-	if err != nil || !ok {
-		return false, err
+	index, err := c.prefixIndex(ctx, key, single)
+	if err != nil {
+		return streamMatch{}, false, err
 	}
-	for _, pos := range rest {
-		if pos-1 >= hint.offset {
+	if index == nil {
+		return streamMatch{}, false, nil
+	}
+	for i, pos := range index.positions {
+		if err := ctx.Err(); err != nil {
+			return streamMatch{}, false, err
+		}
+		buf := make([]byte, len(raw))
+		got, err := c.reader.ReadAt(buf, pos)
+		if err != nil {
+			if errors.Is(err, io.EOF) && got == len(raw) {
+				// A raw at the very tail of the input.
+			} else {
+				return streamMatch{}, false, err
+			}
+		}
+		if got == len(raw) && bytes.Equal(buf, raw) {
+			return streamMatch{offset: pos, newlineCount: int(index.newlines[i]), found: true}, true, nil
+		}
+	}
+	return streamMatch{offset: -1}, true, nil
+}
+
+// prefixIndex returns (building once, if needed) the complete occurrence
+// index for one prefix. It returns nil when the prefix exceeds the index cap
+// or the input cannot be scanned — callers then keep the shared pass.
+func (c *streamMatchCache) prefixIndex(ctx context.Context, key uint16, single bool) (*streamPrefixIndex, error) {
+	oomKey := uint32(key)
+	if single {
+		oomKey |= 1 << 16
+	}
+	if c.indexOOM[oomKey] {
+		return nil, nil
+	}
+	if single {
+		if c.byteIndex == nil {
+			c.byteIndex = make(map[byte]*streamPrefixIndex)
+		}
+		if index, ok := c.byteIndex[byte(key)]; ok {
+			return index, nil
+		}
+	} else {
+		if c.pairIndex == nil {
+			c.pairIndex = make(map[uint16]*streamPrefixIndex)
+		}
+		if index, ok := c.pairIndex[key]; ok {
+			return index, nil
+		}
+	}
+	var prefix []byte
+	if single {
+		prefix = []byte{byte(key)}
+	} else {
+		prefix = []byte{byte(key >> 8), byte(key)}
+	}
+	index, err := scanPrefixIndex(ctx, c.reader, c.size, prefix)
+	if err != nil {
+		return nil, err
+	}
+	if index == nil {
+		if c.indexOOM == nil {
+			c.indexOOM = make(map[uint32]bool)
+		}
+		c.indexOOM[oomKey] = true
+		return nil, nil
+	}
+	if single {
+		c.byteIndex[byte(key)] = index
+	} else {
+		c.pairIndex[key] = index
+	}
+	return index, nil
+}
+
+// scanPrefixIndex enumerates every occurrence of a 1- or 2-byte prefix in one
+// bounded forward pass, recording each absolute position and the number of
+// newlines before it. It returns nil when the prefix occurs more than
+// streamPrefixIndexCap times.
+func scanPrefixIndex(ctx context.Context, reader io.ReaderAt, size int64, prefix []byte) (*streamPrefixIndex, error) {
+	if len(prefix) == 0 || len(prefix) > 2 || reader == nil || size < 0 {
+		return nil, errors.New("engine: invalid prefix index input")
+	}
+	const blockSize = 64 << 10
+	buffer := make([]byte, blockSize+len(prefix)-1)
+	index := &streamPrefixIndex{}
+	var lineCount int32
+	for start := int64(0); start < size; {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		want := int64(len(buffer))
+		if remaining := size - start; remaining < want {
+			want = remaining
+		}
+		got, err := reader.ReadAt(buffer[:int(want)], start)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		if got != int(want) {
+			return nil, io.ErrUnexpectedEOF
+		}
+		data := buffer[:got]
+		for from := 0; from < len(data); {
+			offset := bytes.Index(data[from:], prefix)
+			if offset < 0 {
+				break
+			}
+			offset += from
+			index.positions = append(index.positions, start+int64(offset))
+			index.newlines = append(index.newlines, lineCount+int32(bytes.Count(data[:offset], []byte{'\n'})))
+			if len(index.positions) > streamPrefixIndexCap {
+				return nil, nil
+			}
+			from = offset + 1
+		}
+		advance := got - (len(prefix) - 1)
+		if advance <= 0 {
+			// Fewer bytes remain than the prefix needs: no further
+			// occurrence can start, so the index is complete.
 			break
 		}
-		if err := ctx.Err(); err != nil {
-			return false, err
-		}
-		ok, err := check(pos)
-		if err != nil || !ok {
-			return false, err
-		}
+		lineCount += int32(bytes.Count(data[:advance], []byte{'\n'}))
+		start += int64(advance)
 	}
-	return true, nil
+	return index, nil
 }
 
 type streamFindingBatch struct {
@@ -321,10 +484,9 @@ func (c *streamMatchCache) match(ctx context.Context, raw []byte, hint streamRaw
 	if match, ok := c.values[key]; ok {
 		return match, nil
 	}
-	if first, err := c.hintIsFirst(ctx, raw, hint); err != nil {
+	if match, done, err := c.prefixLookup(ctx, raw, hint); err != nil {
 		return streamMatch{offset: -1}, err
-	} else if first {
-		match := streamMatch{offset: hint.offset, newlineCount: hint.newlines, found: true}
+	} else if done {
 		c.values[key] = match
 		return match, nil
 	}
@@ -364,6 +526,11 @@ func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte, hints []s
 	}
 	short := make(map[string]struct{}, len(raws))
 	long := make([][]byte, 0)
+	// indexGroups collects hinted raws whose prefix's capped position list is
+	// full. They are resolved by walking that prefix's complete index once
+	// per batch — every raw in the group is compared at each indexed
+	// position — instead of one input pass per raw or per batch.
+	indexGroups := make(map[uint32][]string)
 	for i, raw := range raws {
 		if len(raw) == 0 {
 			continue
@@ -376,12 +543,21 @@ func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte, hints []s
 		if i < len(hints) {
 			hint = hints[i]
 		}
-		first, err := c.hintIsFirst(ctx, raw, hint)
+		if len(raw) <= streamBatchMaxRaw && c.prefixListFull(raw) {
+			prefix, single := prefixKey(raw)
+			groupKey := uint32(prefix)
+			if single {
+				groupKey |= indexGroupSingleBit
+			}
+			indexGroups[groupKey] = append(indexGroups[groupKey], key)
+			continue
+		}
+		match, done, err := c.prefixLookup(ctx, raw, hint)
 		if err != nil {
 			return err
 		}
-		if first {
-			c.values[key] = streamMatch{offset: hint.offset, newlineCount: hint.newlines, found: true}
+		if done {
+			c.values[key] = match
 			continue
 		}
 		if len(raw) <= streamBatchMaxRaw {
@@ -390,12 +566,102 @@ func (c *streamMatchCache) resolve(ctx context.Context, raws [][]byte, hints []s
 			long = append(long, raw)
 		}
 	}
+	if err := c.resolveIndexGroups(ctx, indexGroups, short); err != nil {
+		return err
+	}
 	if err := findReaderMatches(ctx, c.reader, c.size, short, c.values); err != nil {
 		return err
 	}
 	for _, raw := range long {
 		if _, err := c.match(ctx, raw, streamRawHint{}); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// prefixListFull reports whether the capped occurrence list for raw's prefix
+// is complete (fewer than the cap entries recorded) or saturated, in which
+// case only the complete prefix index can enumerate occurrences.
+func (c *streamMatchCache) prefixListFull(raw []byte) bool {
+	key, single := prefixKey(raw)
+	var rest []int64
+	if single {
+		rest = c.restByte[byte(key)]
+	} else {
+		if c.firstPair == nil {
+			return false
+		}
+		rest = c.restPair[key]
+	}
+	return len(rest) >= hintVerifyCandidateCap
+}
+
+// indexGroupSingleBit marks single-byte prefix keys inside the indexGroups
+// map so they cannot collide with two-byte prefix keys whose high byte is 0.
+const indexGroupSingleBit uint32 = 1 << 16
+
+// resolveIndexGroups resolves every raw in each prefix group by walking that
+// prefix's complete occurrence index once: at each indexed position the
+// candidate bytes are compared against the whole group, so the group's reads
+// stay proportional to the prefix's occurrence count rather than the product
+// of positions and raws. Raws the index cannot place join the shared scan.
+func (c *streamMatchCache) resolveIndexGroups(ctx context.Context, groups map[uint32][]string, short map[string]struct{}) error {
+	for groupKey, keys := range groups {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		single := groupKey&indexGroupSingleBit != 0
+		index, err := c.prefixIndex(ctx, uint16(groupKey), single)
+		if err != nil {
+			return err
+		}
+		if index == nil {
+			for _, key := range keys {
+				short[key] = struct{}{}
+			}
+			continue
+		}
+		maxLength := 0
+		for _, key := range keys {
+			if len(key) > maxLength {
+				maxLength = len(key)
+			}
+		}
+		buffer := make([]byte, maxLength)
+		remaining := len(keys)
+		for i, pos := range index.positions {
+			if remaining == 0 {
+				break
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			got, err := c.reader.ReadAt(buffer, pos)
+			if err != nil && !errors.Is(err, io.EOF) {
+				return err
+			}
+			data := buffer[:got]
+			for _, key := range keys {
+				if _, resolved := c.values[key]; resolved {
+					continue
+				}
+				if len(key) > len(data) {
+					continue
+				}
+				if string(data[:len(key)]) == key {
+					c.values[key] = streamMatch{offset: pos, newlineCount: int(index.newlines[i]), found: true}
+					remaining--
+				}
+			}
+		}
+		for _, key := range keys {
+			if _, resolved := c.values[key]; !resolved {
+				// A complete index is authoritative: every occurrence of
+				// the raw must start at an indexed prefix position, so no
+				// match means the raw is absent from the input.
+				c.values[key] = streamMatch{offset: -1}
+			}
 		}
 	}
 	return nil

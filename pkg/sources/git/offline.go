@@ -30,25 +30,112 @@ const (
 	offlineSkipSampleCap  = 32
 )
 
-// repoPromisorFiltered reports whether the repository at repoAbs is a partial
-// (promisor) clone, i.e. some blobs referenced by its trees were deliberately
-// not transferred. Such repositories cannot be walked with `git log --patch`:
-// rendering a diff against an omitted object aborts the whole stream. The
-// check is a plain config-file scan — go-git keeps these options under
-// [remote]/[extensions] verbatim, and a filtered clone records
-// promisor/partialclonefilter there.
-func (s *Source) repoPromisorFiltered() bool {
+// promisorOmissionCeiling is the largest blob size the emission policies can
+// still produce output for. A promisor filter that only omits blobs strictly
+// above this ceiling can never hide a scannable object, so a missing blob is
+// then a legitimate partial-clone boundary rather than a coverage gap.
+func (s *Source) promisorOmissionCeiling() int64 {
+	ceiling := maxBlobSize
+	if s.includeGitBinaries || s.includeGitArchives {
+		if s.gitArtifactMaxBytes > ceiling {
+			ceiling = s.gitArtifactMaxBytes
+		}
+	}
+	return ceiling
+}
+
+// promisorOmissionSafe reports whether a missing blob in this clone is
+// provably above every emission ceiling, so skipping it loses no coverage.
+func (s *Source) promisorOmissionSafe() bool {
+	return s.promisorFiltered && s.promisorBlobFloor >= s.promisorOmissionCeiling()
+}
+
+// repoPromisorFiltered parses the repository config — values, not text —
+// and reports whether any remote marks this a promisor (partial) clone.
+// When true it also returns the blob floor the filter guarantees: a locally
+// missing blob is provably larger than that floor (blob:limit=N keeps blobs
+// of at most N bytes). blob:none and unrecognized filters yield floor -1:
+// nothing about the missing object's size is provable, so no silent skips.
+func (s *Source) repoPromisorFiltered() (bool, int64) {
 	for _, path := range repoConfigPaths(s.repoAbs) {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
 		}
-		lower := bytes.ToLower(data)
-		if bytes.Contains(lower, []byte("promisor")) || bytes.Contains(lower, []byte("partialclone")) {
-			return true
+		if filtered, floor, ok := parsePromisorConfig(data); ok {
+			return filtered, floor
 		}
 	}
-	return false
+	return false, -1
+}
+
+// parsePromisorConfig scans one config file for [remote "<name>"] sections.
+// It returns ok=false when no promisor remote is configured.
+func parsePromisorConfig(data []byte) (filtered bool, floor int64, ok bool) {
+	floor = -1
+	var inRemote bool
+	for _, rawLine := range bytes.Split(data, []byte{'\n'}) {
+		line := bytes.TrimSpace(rawLine)
+		if len(line) == 0 || line[0] == '#' || line[0] == ';' {
+			continue
+		}
+		if line[0] == '[' {
+			inRemote = bytes.HasPrefix(bytes.ToLower(line), []byte("[remote"))
+			continue
+		}
+		if !inRemote {
+			continue
+		}
+		key, value, found := bytes.Cut(line, []byte{'='})
+		if !found {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(string(key))) {
+		case "promisor":
+			if strings.EqualFold(strings.TrimSpace(string(value)), "true") {
+				filtered = true
+			}
+		case "partialclonefilter":
+			floor = parseBlobFilterFloor(string(value))
+		}
+	}
+	return filtered, floor, filtered
+}
+
+// parseBlobFilterFloor extracts the omitted-size floor from a partial clone
+// filter. blob:limit=N (with optional k/m/g suffix) omits blobs strictly
+// larger than N. Everything else — blob:none, tree filters, sparse filters,
+// combined expressions — offers no provable floor and returns -1.
+func parseBlobFilterFloor(filter string) int64 {
+	const prefix = "blob:limit="
+	value := strings.TrimSpace(filter)
+	if !strings.HasPrefix(value, prefix) {
+		return -1
+	}
+	size := strings.TrimSpace(value[len(prefix):])
+	if size == "" {
+		return -1
+	}
+	mult := int64(1)
+	last := size[len(size)-1]
+	if last < '0' || last > '9' {
+		size = size[:len(size)-1]
+		switch last {
+		case 'k', 'K':
+			mult = 1 << 10
+		case 'm', 'M':
+			mult = 1 << 20
+		case 'g', 'G':
+			mult = 1 << 30
+		default:
+			return -1
+		}
+	}
+	n, err := strconv.ParseInt(size, 10, 64)
+	if err != nil || n < 0 || n > (1<<62)/mult {
+		return -1
+	}
+	return n * mult
 }
 
 func repoConfigPaths(repoAbs string) []string {
@@ -75,38 +162,16 @@ func repoConfigPaths(repoAbs string) []string {
 	return paths
 }
 
-// promisorOnlyOmitted reports whether an emitCommit error consists solely of
-// object-not-found failures. On a promisor-filtered clone these are blobs the
-// clone deliberately left out, so they are counted as intentional skips; on
-// an ordinary repo the same errors still go through normal coverage
-// accounting, since there the flag is never set.
-func (s *Source) promisorOnlyOmitted(err error) bool {
-	if joined, ok := err.(interface{ Unwrap() []error }); ok {
-		any := false
-		for _, inner := range joined.Unwrap() {
-			if !s.promisorOnlyOmitted(inner) {
-				return false
-			}
-			any = true
-		}
-		return any
-	}
-	// blob:limit filters only omit blobs; a missing tree or commit is real
-	// corruption and must still degrade the walk, so errors on non-blob
-	// objects stay failures.
-	if errors.Is(err, plumbing.ErrObjectNotFound) && !strings.Contains(err.Error(), "tree") {
-		s.promisorSkipped++
-		return true
-	}
-	return false
-}
-
 type offlineRawEntry struct {
 	oldSHA  string
 	newSHA  string
 	status  byte
 	path    string
 	deleted bool
+	// oldMissing/newMissing record which side's blob is absent locally
+	// (promisor-omitted or otherwise unavailable).
+	oldMissing bool
+	newMissing bool
 }
 
 // offlineCatFileCheck is one long-lived `git cat-file --batch-check` process
@@ -117,7 +182,9 @@ type offlineCatFileCheck struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout *bufio.Reader
-	cache  map[string]int64
+	// cache memoizes sizes; it is bounded so long walks stay O(cache cap),
+	// not O(objects touched).
+	cache map[string]int64
 }
 
 func startOfflineCatFileCheck(ctx context.Context, gitBin, repoAbs string) (*offlineCatFileCheck, error) {
@@ -147,8 +214,13 @@ func startOfflineCatFileCheck(ctx context.Context, gitBin, repoAbs string) (*off
 	}, nil
 }
 
+// offlineCheckCacheCap bounds the cat-file memo table so a history walk
+// stays O(cap) rather than O(objects touched).
+const offlineCheckCacheCap = 1 << 20
+
 // check returns the object's size, or -1 when it is absent (promisor-omitted
-// or otherwise unavailable locally).
+// or otherwise unavailable locally). The query may be a bare object id or a
+// `<rev>:<path>` object spec (used to verify merge parents' blobs).
 func (c *offlineCatFileCheck) check(sha string) (int64, error) {
 	if size, ok := c.cache[sha]; ok {
 		return size, nil
@@ -161,7 +233,12 @@ func (c *offlineCatFileCheck) check(sha string) (int64, error) {
 		return -1, fmt.Errorf("git: cat-file batch-check read: %w", err)
 	}
 	fields := strings.Fields(strings.TrimSpace(string(line)))
-	if len(fields) == 0 || fields[0] != sha {
+	if len(fields) == 0 {
+		return -1, fmt.Errorf("git: cat-file batch-check empty reply for %q", sha)
+	}
+	// Bare-id queries echo the id back; spec queries answer with the
+	// resolved object id, so only validate the echo for bare ids.
+	if !strings.Contains(sha, ":") && fields[0] != sha {
 		return -1, fmt.Errorf("git: cat-file batch-check reply mismatch: %q", strings.TrimSpace(string(line)))
 	}
 	size := int64(-1)
@@ -172,7 +249,9 @@ func (c *offlineCatFileCheck) check(sha string) (int64, error) {
 		}
 		size = parsed
 	}
-	c.cache[sha] = size
+	if len(c.cache) < offlineCheckCacheCap {
+		c.cache[sha] = size
+	}
 	return size, nil
 }
 
@@ -218,6 +297,73 @@ func startOfflineCatFileRead(ctx context.Context, gitBin, repoAbs string) (*offl
 	}, nil
 }
 
+// stream opens a blob for reading without materializing it. The caller
+// must consume (or Close, which drains) the returned stream before issuing
+// the next query on this batch process. isBlob is false for missing or
+// non-blob objects — their replies carry no body to drain.
+func (r *offlineCatFileRead) stream(sha string) (stream io.ReadCloser, size int64, isBlob bool, err error) {
+	if _, err := fmt.Fprintln(r.stdin, sha); err != nil {
+		return nil, -1, false, fmt.Errorf("git: cat-file batch write: %w", err)
+	}
+	header, err := r.stdout.ReadSlice('\n')
+	if err != nil {
+		return nil, -1, false, fmt.Errorf("git: cat-file batch header: %w", err)
+	}
+	fields := strings.Fields(strings.TrimSpace(string(header)))
+	if len(fields) < 3 || fields[1] != "blob" {
+		return nil, -1, false, nil
+	}
+	size, err = strconv.ParseInt(fields[2], 10, 64)
+	if err != nil || size < 0 {
+		return nil, -1, false, fmt.Errorf("git: cat-file batch size: %q", fields[2])
+	}
+	return &offlineBlobStream{r: r.stdout, remaining: size}, size, true, nil
+}
+
+// offlineBlobStream reads exactly one blob body out of a `cat-file --batch`
+// stdout stream. Close drains any unread remainder plus the trailing
+// record newline so the next query's reply stays aligned.
+type offlineBlobStream struct {
+	r         *bufio.Reader
+	remaining int64
+	drained   bool
+}
+
+func (s *offlineBlobStream) Read(p []byte) (int, error) {
+	if s.drained {
+		return 0, io.EOF
+	}
+	if s.remaining == 0 {
+		if err := s.Close(); err != nil {
+			return 0, err
+		}
+		return 0, io.EOF
+	}
+	if int64(len(p)) > s.remaining {
+		p = p[:s.remaining]
+	}
+	n, err := s.r.Read(p)
+	s.remaining -= int64(n)
+	return n, err
+}
+
+func (s *offlineBlobStream) Close() error {
+	if s.drained {
+		return nil
+	}
+	s.drained = true
+	var err error
+	if s.remaining > 0 {
+		_, err = io.CopyN(io.Discard, s.r, s.remaining)
+		s.remaining = 0
+	}
+	if err == nil {
+		// Each batch record is followed by a single newline.
+		_, err = s.r.ReadByte()
+	}
+	return err
+}
+
 func (r *offlineCatFileRead) read(sha string, maxBytes int64) (data []byte, size int64, err error) {
 	if _, err := fmt.Fprintln(r.stdin, sha); err != nil {
 		return nil, -1, fmt.Errorf("git: cat-file batch write: %w", err)
@@ -253,19 +399,222 @@ func (r *offlineCatFileRead) close() {
 	_ = r.cmd.Wait()
 }
 
+// offlineEnum pipes the streamed commit list into one `git diff-tree
+// --stdin --raw` process. Raw enumeration is tree-level only, so
+// promisor-omitted blobs cannot abort it. Commits are matched to their raw
+// records by hash rather than by position — diff-tree does not echo every
+// commit (empty commits can produce no records) — and no per-commit
+// collections are retained: only the in-flight queue and the current
+// commit's own entry list live in memory, so the walk is not O(history).
+type offlineEnum struct {
+	commits chan nativeCommit
+	raw     *bufio.Reader
+	rawCmd  *exec.Cmd
+	rawErr  *limitedWriter
+	pumpErr chan error
+	merges  []nativeCommit
+	done    chan struct{}
+}
+
+// startOfflineEnum launches `git log --no-patch` and `git diff-tree --stdin
+// --raw` and starts a pump that feeds each non-merge commit hash to
+// diff-tree in log order while pushing the parsed commit to the consumer.
+// Merge commits are collected separately — they need the combined-diff
+// pass, not a raw first-parent diff.
+func (s *Source) startOfflineEnum(ctx context.Context, gitBin string, starts, stops []plumbing.Hash) (*offlineEnum, error) {
+	logArgs := []string{
+		"-C", s.repoAbs,
+		"log",
+		"--no-patch",
+		"--reverse",
+		"--topo-order",
+		"--full-history",
+		"--no-show-signature",
+		"--format=" + nativePrettyFormat,
+	}
+	if s.maxDepth > 0 {
+		logArgs = append(logArgs, "--max-count="+strconv.Itoa(s.maxDepth))
+	}
+	if !s.since.IsZero() {
+		logArgs = append(logArgs, "--since-as-filter=@"+strconv.FormatInt(s.since.Unix(), 10))
+	}
+	logArgs = append(logArgs, "--stdin", "--")
+	logCmd := exec.CommandContext(ctx, gitBin, logArgs...)
+	logCmd.Stdin = strings.NewReader(nativeRevisionInput(starts, stops))
+	logStdout, err := logCmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("git: offline commit list stdout: %w", err)
+	}
+	var logStderr limitedWriter
+	logStderr.limit = nativeStderrLimit
+	logCmd.Stderr = &logStderr
+	logCmd.Env = nativeGitEnv()
+	if err := logCmd.Start(); err != nil {
+		return nil, fmt.Errorf("git: start offline commit list: %w", err)
+	}
+
+	rawCmd := exec.CommandContext(ctx, gitBin,
+		"-C", s.repoAbs,
+		"diff-tree",
+		"--stdin",
+		"--root",
+		"-r",
+		"--raw",
+		"--abbrev=40",
+		"--no-renames",
+		"--no-color",
+		"--",
+	)
+	rawStdin, err := rawCmd.StdinPipe()
+	if err != nil {
+		_ = logCmd.Process.Kill()
+		_ = logCmd.Wait()
+		return nil, fmt.Errorf("git: offline raw stdin: %w", err)
+	}
+	rawStdout, err := rawCmd.StdoutPipe()
+	if err != nil {
+		_ = rawStdin.Close()
+		_ = logCmd.Process.Kill()
+		_ = logCmd.Wait()
+		return nil, fmt.Errorf("git: offline raw stdout: %w", err)
+	}
+	var rawStderr limitedWriter
+	rawStderr.limit = nativeStderrLimit
+	rawCmd.Stderr = &rawStderr
+	rawCmd.Env = nativeGitEnv()
+	if err := rawCmd.Start(); err != nil {
+		_ = rawStdin.Close()
+		_ = logCmd.Process.Kill()
+		_ = logCmd.Wait()
+		return nil, fmt.Errorf("git: start offline raw: %w", err)
+	}
+
+	enum := &offlineEnum{
+		commits: make(chan nativeCommit, 1024),
+		raw:     bufio.NewReaderSize(rawStdout, 256<<10),
+		rawCmd:  rawCmd,
+		rawErr:  &rawStderr,
+		pumpErr: make(chan error, 1),
+		done:    make(chan struct{}),
+	}
+	go func() {
+		defer close(enum.done)
+		defer close(enum.commits)
+		defer rawStdin.Close()
+		reader := bufio.NewReaderSize(logStdout, 256<<10)
+		for {
+			line, err := reader.ReadSlice('\n')
+			if len(line) > 0 && line[0] == nativeRecordSeparator {
+				commit, parseErr := parseNativeCommit(line)
+				if parseErr != nil {
+					enum.pumpErr <- fmt.Errorf("git: parse offline commit list: %w", parseErr)
+					return
+				}
+				if commit.parentCount > 1 {
+					enum.merges = append(enum.merges, commit)
+				} else {
+					if _, err := fmt.Fprintln(rawStdin, commit.hash); err != nil {
+						enum.pumpErr <- fmt.Errorf("git: feed offline raw stdin: %w", err)
+						return
+					}
+					select {
+					case enum.commits <- commit:
+					case <-ctx.Done():
+						enum.pumpErr <- ctx.Err()
+						return
+					}
+				}
+			}
+			if err != nil {
+				if !errors.Is(err, io.EOF) {
+					enum.pumpErr <- fmt.Errorf("git: read offline commit list: %w", err)
+					return
+				}
+				break
+			}
+			if err := ctx.Err(); err != nil {
+				enum.pumpErr <- err
+				return
+			}
+		}
+		if err := logCmd.Wait(); err != nil {
+			detail := strings.TrimSpace(logStderr.String())
+			if detail != "" {
+				enum.pumpErr <- fmt.Errorf("git: offline commit list: %w: %s", err, detail)
+			} else {
+				enum.pumpErr <- fmt.Errorf("git: offline commit list: %w", err)
+			}
+		}
+	}()
+	return enum, nil
+}
+
+// nextCommit pops queued commits until the one matching echo is found.
+// Commits whose raw output produced no echo — empty commits — are passed
+// through the empty callback so the caller can emit them as change-free.
+func (e *offlineEnum) nextCommit(echo string, empty func(nativeCommit) error) (nativeCommit, error) {
+	// The commits channel is buffered: drain it fully before declaring the
+	// stream ended — a closed channel is the only reliable end marker here.
+	for {
+		commit, ok := <-e.commits
+		if !ok {
+			return nativeCommit{}, fmt.Errorf("git: offline raw echoed %q after commit stream ended", echo)
+		}
+		if commit.hash == echo {
+			return commit, nil
+		}
+		if err := empty(commit); err != nil {
+			return nativeCommit{}, err
+		}
+	}
+}
+
+// close kills the raw process; safe to call once the walk is done.
+func (e *offlineEnum) close() {
+	if e.rawCmd.Process != nil {
+		_ = e.rawCmd.Process.Kill()
+	}
+	_ = e.rawCmd.Wait()
+}
+
+// offlineWalk accumulates the bounded walk state — skips, degraded
+// coverage, and the lazy blob reader — shared by the commit and merge
+// passes of chunksOffline.
+type offlineWalk struct {
+	source  *Source
+	check   *offlineCatFileCheck
+	blob    func() (*offlineCatFileRead, error)
+	ch      chan<- *sources.Chunk
+	skipped int64
+	// skipSample lists the first offlineSkipSampleCap skipped entries.
+	skipSample []string
+	// coverage records degraded entries; coverageTotal counts them all.
+	coverage      []engine.ScanFailure
+	coverageTotal int
+}
+
 // chunksOffline walks a promisor-filtered clone without rendering diffs for
-// objects the clone deliberately omitted. It enumerates commits and raw tree
-// changes first (both operate on trees only, which blob:limit filters leave
-// complete), verifies every touched object via one bounded cat-file
-// batch-check stream, renders verified commits through the same `git log
-// --patch` parser as the regular native path, and emits whole local blobs
-// for commits whose old side was filtered out. Omitted blobs are counted and
-// logged as intentional skips, never as a walk failure.
+// objects the clone deliberately omitted. One log stream feeds one
+// diff-tree --stdin stream; each commit's raw records are verified against
+// a single cat-file --batch-check stream, and verified commits are rendered
+// through the same `git log --patch` parser as the regular native path.
+// Commits touching omitted objects emit their locally present new blobs
+// whole — when the base was filtered out there is no diff to subtract, so
+// the full local content is the smallest false-negative-free surface.
+// Omissions the clone's filter provably placed above every emission ceiling
+// are counted and logged as intentional skips; any missing object that could
+// still be in scope degrades coverage instead of checkpointing.
 func (s *Source) chunksOffline(ctx context.Context, repo *gogit.Repository, gitBin string, starts, stops []plumbing.Hash, ch chan<- *sources.Chunk) error {
-	commits, err := s.offlineListCommits(ctx, gitBin, starts, stops)
+	if !s.promisorFiltered {
+		// Callers coming through Chunks have this set already; populate it
+		// here as well so direct invocations classify omissions correctly.
+		s.promisorFiltered, s.promisorBlobFloor = s.repoPromisorFiltered()
+	}
+	enum, err := s.startOfflineEnum(ctx, gitBin, starts, stops)
 	if err != nil {
 		return err
 	}
+	defer enum.close()
 	check, err := startOfflineCatFileCheck(ctx, gitBin, s.repoAbs)
 	if err != nil {
 		return err
@@ -288,29 +637,7 @@ func (s *Source) chunksOffline(ctx context.Context, repo *gogit.Repository, gitB
 		}
 	}()
 
-	var nonMerge, merges []nativeCommit
-	for _, commit := range commits {
-		if commit.parentCount > 1 {
-			if !s.omitMergeDiffs() {
-				merges = append(merges, commit)
-			}
-			continue
-		}
-		nonMerge = append(nonMerge, commit)
-	}
-
-	rawEntries, err := s.offlineRawChanges(ctx, gitBin, nonMerge)
-	if err != nil {
-		return err
-	}
-
-	var skipped int64
-	var skipSample []string
-	var parseErrs []error
-
-	parser := func() *nativeLogParser {
-		return &nativeLogParser{ctx: ctx, source: s, repo: repo, gitBin: gitBin, ch: ch}
-	}
+	w := &offlineWalk{source: s, check: check, blob: blob, ch: ch}
 
 	var pending []nativeCommit
 	flush := func() error {
@@ -322,57 +649,127 @@ func (s *Source) chunksOffline(ctx context.Context, repo *gogit.Repository, gitB
 			ids[i] = commit.hash
 		}
 		pending = nil
-		if parseErr := s.offlinePatchBatch(ctx, parser(), gitBin, ids); parseErr != nil {
-			var degraded *engine.DegradedError
-			if errors.As(parseErr, &degraded) {
-				parseErrs = append(parseErrs, parseErr)
-				return nil
-			}
-			return parseErr
-		}
-		return nil
+		return s.offlinePatchBatch(ctx, &nativeLogParser{ctx: ctx, source: s, repo: repo, gitBin: gitBin, ch: ch}, gitBin, ids)
 	}
-
-	for i, commit := range nonMerge {
+	process := func(commit nativeCommit, entries []offlineRawEntry) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		entries := rawEntries[i]
-		clean, err := s.offlineCommitClean(check, entries)
+		dirty, err := w.markMissing(entries)
 		if err != nil {
 			return err
 		}
-		if !clean {
-			if err := flush(); err != nil {
-				return err
+		if !dirty {
+			pending = append(pending, commit)
+			if len(pending) >= offlinePatchBatchSize {
+				return flush()
 			}
-			r, err := blob()
-			if err != nil {
-				return err
-			}
-			if err := s.offlineEmitFallback(ctx, commit, entries, check, r, &skipped, &skipSample, ch); err != nil {
-				return err
-			}
-			continue
+			return nil
 		}
-		pending = append(pending, commit)
-		if len(pending) >= offlinePatchBatchSize {
-			if err := flush(); err != nil {
+		if err := flush(); err != nil {
+			return err
+		}
+		return w.emitFallback(ctx, commit, entries)
+	}
+	processEmpty := func(commit nativeCommit) error { return process(commit, nil) }
+
+	// Each diff-tree echo line names the commit the following raw records
+	// belong to; a block is complete when the next echo arrives.
+	var cur *nativeCommit
+	var curEntries []offlineRawEntry
+	for {
+		line, err := enum.raw.ReadSlice('\n')
+		if errors.Is(err, bufio.ErrBufferFull) {
+			return errors.New("native offline raw line exceeds buffer")
+		}
+		// Strip only the record terminator: paths may end in spaces.
+		rec := bytes.TrimSuffix(line, []byte{'\n'})
+		if len(rec) == 40 {
+			if _, hexErr := hex.DecodeString(string(rec)); hexErr == nil {
+				if cur != nil {
+					if err := process(*cur, curEntries); err != nil {
+						return err
+					}
+					cur, curEntries = nil, nil
+				}
+				commit, cerr := enum.nextCommit(string(rec), processEmpty)
+				if cerr != nil {
+					return cerr
+				}
+				cur = &commit
+			}
+		} else if len(rec) > 0 {
+			if cur == nil || rec[0] != ':' {
+				return fmt.Errorf("malformed offline raw record %q", string(rec))
+			}
+			entry, parseErr := parseOfflineRawEntry(rec)
+			if parseErr != nil {
+				return parseErr
+			}
+			if len(curEntries) >= nativePathLimit {
+				return fmt.Errorf("offline raw paths exceed %d entries", nativePathLimit)
+			}
+			curEntries = append(curEntries, entry)
+		}
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				return fmt.Errorf("git: read offline raw: %w", err)
+			}
+			break
+		}
+	}
+	if cur != nil {
+		if err := process(*cur, curEntries); err != nil {
+			return err
+		}
+	}
+	// Commits diff-tree never echoed (empty commits) complete with no
+	// records; drain whatever the pump already delivered.
+drain:
+	for {
+		// Drain until the channel closes — it closes before enum.done, so
+		// it is the only end marker needed and cannot lose buffered commits.
+		select {
+		case commit, ok := <-enum.commits:
+			if !ok {
+				break drain
+			}
+			if err := processEmpty(commit); err != nil {
 				return err
 			}
+		case <-ctx.Done():
+			return ctx.Err()
 		}
+	}
+	select {
+	case err := <-enum.pumpErr:
+		if err != nil {
+			return err
+		}
+	default:
+	}
+	if err := enum.rawCmd.Wait(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		detail := strings.TrimSpace(enum.rawErr.String())
+		if detail != "" {
+			return fmt.Errorf("git: offline raw: %w: %s", err, detail)
+		}
+		return fmt.Errorf("git: offline raw: %w", err)
 	}
 	if err := flush(); err != nil {
 		return err
 	}
 
-	var mergeErr error
-	if len(merges) > 0 {
-		mergeErr = s.offlineMerges(ctx, repo, gitBin, merges, check, blob, &skipped, &skipSample, ch)
+	if len(enum.merges) > 0 {
+		if err := w.merges(ctx, repo, gitBin, enum.merges); err != nil {
+			return err
+		}
 	}
-	if skipped > 0 {
-		fmt.Fprintf(os.Stderr, "git: %s: skipped %d promisor-omitted blob changes (intentional partial-clone boundary)\n", s.repoAbs, skipped)
-		for _, entry := range skipSample {
+	if w.skipped > 0 {
+		fmt.Fprintf(os.Stderr, "git: %s: skipped %d promisor-omitted blob changes (intentional partial-clone boundary)\n", s.repoAbs, w.skipped)
+		for _, entry := range w.skipSample {
 			fmt.Fprintf(os.Stderr, "git: %s: skipped omitted blob %s\n", s.repoAbs, entry)
 		}
 	}
@@ -380,188 +777,7 @@ func (s *Source) chunksOffline(ctx context.Context, repo *gogit.Repository, gitB
 	if s.includeCommitMetadata {
 		metadataErr = s.chunksNativeMetadata(ctx, gitBin, starts, stops, ch)
 	}
-	return errors.Join(errors.Join(parseErrs...), mergeErr, metadataErr)
-}
-
-// offlineListCommits replays the native revision input through
-// `git log --no-patch` to get the exact commit set and ordering the patch
-// walk would visit, without touching a single blob.
-func (s *Source) offlineListCommits(ctx context.Context, gitBin string, starts, stops []plumbing.Hash) ([]nativeCommit, error) {
-	args := []string{
-		"-C", s.repoAbs,
-		"log",
-		"--no-patch",
-		"--reverse",
-		"--topo-order",
-		"--full-history",
-		"--no-show-signature",
-		"--format=" + nativePrettyFormat,
-	}
-	if s.maxDepth > 0 {
-		args = append(args, "--max-count="+strconv.Itoa(s.maxDepth))
-	}
-	if !s.since.IsZero() {
-		args = append(args, "--since-as-filter=@"+strconv.FormatInt(s.since.Unix(), 10))
-	}
-	args = append(args, "--stdin", "--")
-	cmd := exec.CommandContext(ctx, gitBin, args...)
-	cmd.Stdin = strings.NewReader(nativeRevisionInput(starts, stops))
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("git: offline commit list stdout: %w", err)
-	}
-	var stderr limitedWriter
-	stderr.limit = nativeStderrLimit
-	cmd.Stderr = &stderr
-	cmd.Env = nativeGitEnv()
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("git: start offline commit list: %w", err)
-	}
-	var commits []nativeCommit
-	reader := bufio.NewReaderSize(stdout, 256<<10)
-	var readErr error
-	for {
-		line, err := reader.ReadSlice('\n')
-		if len(line) > 0 && line[0] == nativeRecordSeparator {
-			commit, parseErr := parseNativeCommit(line)
-			if parseErr != nil {
-				readErr = parseErr
-				break
-			}
-			commits = append(commits, commit)
-		}
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				readErr = err
-			}
-			break
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-	}
-	if readErr != nil {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-		_ = cmd.Wait()
-		return nil, fmt.Errorf("git: parse offline commit list: %w", readErr)
-	}
-	if err := cmd.Wait(); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
-		}
-		detail := strings.TrimSpace(stderr.String())
-		if detail != "" {
-			return nil, fmt.Errorf("git: offline commit list: %w: %s", err, detail)
-		}
-		return nil, fmt.Errorf("git: offline commit list: %w", err)
-	}
-	return commits, nil
-}
-
-// offlineRawChanges enumerates every non-merge commit's raw tree changes in
-// one `git diff-tree --stdin --raw` stream. Raw output is tree-level only, so
-// promisor-omitted blobs cannot abort it.
-func (s *Source) offlineRawChanges(ctx context.Context, gitBin string, commits []nativeCommit) ([][]offlineRawEntry, error) {
-	out := make([][]offlineRawEntry, len(commits))
-	if len(commits) == 0 {
-		return out, nil
-	}
-	args := []string{
-		"-C", s.repoAbs,
-		"diff-tree",
-		"--stdin",
-		"--root",
-		"-r",
-		"--raw",
-		"--abbrev=40",
-		"--no-renames",
-		"--no-color",
-		"--",
-	}
-	var input strings.Builder
-	for _, commit := range commits {
-		fmt.Fprintln(&input, commit.hash)
-	}
-	cmd := exec.CommandContext(ctx, gitBin, args...)
-	cmd.Stdin = strings.NewReader(input.String())
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("git: offline raw stdout: %w", err)
-	}
-	var stderr limitedWriter
-	stderr.limit = nativeStderrLimit
-	cmd.Stderr = &stderr
-	cmd.Env = nativeGitEnv()
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("git: start offline raw: %w", err)
-	}
-	index := -1
-	reader := bufio.NewReaderSize(stdout, 256<<10)
-	var readErr error
-	for {
-		line, err := reader.ReadSlice('\n')
-		if errors.Is(err, bufio.ErrBufferFull) {
-			readErr = errors.New("native offline raw line exceeds buffer")
-			break
-		}
-		trimmed := bytes.TrimSpace(line)
-		if len(trimmed) == 40 {
-			if _, hexErr := hex.DecodeString(string(trimmed)); hexErr == nil {
-				index++
-				if index >= len(commits) || commits[index].hash != string(trimmed) {
-					readErr = fmt.Errorf("offline raw output misaligned at commit %q", string(trimmed))
-					break
-				}
-			}
-		} else if len(trimmed) > 0 {
-			if index < 0 || trimmed[0] != ':' {
-				readErr = fmt.Errorf("malformed offline raw record %q", string(trimmed))
-				break
-			}
-			entry, parseErr := parseOfflineRawEntry(trimmed)
-			if parseErr != nil {
-				readErr = parseErr
-				break
-			}
-			if len(out[index]) >= nativePathLimit {
-				readErr = fmt.Errorf("offline raw paths exceed %d entries", nativePathLimit)
-				break
-			}
-			out[index] = append(out[index], entry)
-		}
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				readErr = err
-			}
-			break
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-	}
-	if readErr != nil {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-		_ = cmd.Wait()
-		return nil, fmt.Errorf("git: parse offline raw: %w", readErr)
-	}
-	if err := cmd.Wait(); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
-		}
-		detail := strings.TrimSpace(stderr.String())
-		if detail != "" {
-			return nil, fmt.Errorf("git: offline raw: %w: %s", err, detail)
-		}
-		return nil, fmt.Errorf("git: offline raw: %w", err)
-	}
-	if index+1 != len(commits) {
-		return nil, fmt.Errorf("git: offline raw covered %d of %d commits", index+1, len(commits))
-	}
-	return out, nil
+	return errors.Join(w.degradedErr(), metadataErr)
 }
 
 // parseOfflineRawEntry parses ":<old mode> <new mode> <old sha> <new sha>
@@ -608,31 +824,71 @@ func parseOfflineRawEntry(line []byte) (offlineRawEntry, error) {
 	}, nil
 }
 
-// offlineCommitClean reports whether every blob a patch render of this commit
-// would touch is present locally. Deleted entries only matter through their
-// old blob, which the patch still needs for the removal diff.
-func (s *Source) offlineCommitClean(check *offlineCatFileCheck, entries []offlineRawEntry) (bool, error) {
-	for _, entry := range entries {
-		if entry.newSHA != "" && entry.newSHA != strings.Repeat("0", 40) {
-			size, err := check.check(entry.newSHA)
+// markMissing verifies every blob a patch render of this commit's entries
+// would touch and records which side each missing blob is on. Deleted
+// entries still matter through their old blob — the render needs it even
+// though deletions emit no content. Returns whether any blob is absent.
+func (w *offlineWalk) markMissing(entries []offlineRawEntry) (bool, error) {
+	dirty := false
+	zero := strings.Repeat("0", 40)
+	for i := range entries {
+		entry := &entries[i]
+		if entry.oldSHA != "" && entry.oldSHA != zero {
+			size, err := w.check.check(entry.oldSHA)
 			if err != nil {
 				return false, err
 			}
 			if size < 0 {
-				return false, nil
+				entry.oldMissing = true
+				dirty = true
 			}
 		}
-		if entry.oldSHA != "" && entry.oldSHA != strings.Repeat("0", 40) {
-			size, err := check.check(entry.oldSHA)
+		if entry.newSHA != "" && entry.newSHA != zero {
+			size, err := w.check.check(entry.newSHA)
 			if err != nil {
 				return false, err
 			}
 			if size < 0 {
-				return false, nil
+				entry.newMissing = true
+				dirty = true
 			}
 		}
 	}
-	return true, nil
+	return dirty, nil
+}
+
+// recordSkip counts an omitted blob that the clone's filter proves was above
+// every emission ceiling — a legitimate partial-clone boundary.
+func (w *offlineWalk) recordSkip(hash, path string) {
+	w.skipped++
+	if len(w.skipSample) < offlineSkipSampleCap {
+		w.skipSample = append(w.skipSample, fmt.Sprintf("%s:%s", hash, path))
+	}
+}
+
+// recordCoverage marks a commit's coverage incomplete: a needed object is
+// missing and the clone cannot prove it was out of scope.
+func (w *offlineWalk) recordCoverage(commit nativeCommit, path string, err error) {
+	w.coverageTotal++
+	if len(w.coverage) < 32 {
+		w.coverage = append(w.coverage, engine.ScanFailure{
+			Kind:   engine.FailureSource,
+			Source: fmt.Sprintf("%s@%s:%s", w.source.repoAbs, commit.hash, path),
+			Err:    err,
+		})
+	}
+}
+
+// degradedErr reports the accumulated incomplete coverage.
+func (w *offlineWalk) degradedErr() error {
+	if w.coverageTotal == 0 {
+		return nil
+	}
+	return &engine.DegradedError{
+		Total:    w.coverageTotal,
+		Counts:   map[engine.FailureKind]int{engine.FailureSource: w.coverageTotal},
+		Failures: w.coverage,
+	}
 }
 
 // offlinePatchBatch renders verified commits through `git log --no-walk
@@ -708,58 +964,75 @@ func (s *Source) offlinePatchBatch(ctx context.Context, parser *nativeLogParser,
 	return parseErr
 }
 
-// offlineEmitFallback covers commits whose old or new blobs were filtered
-// out of the clone. Locally present new blobs are emitted whole — for a
-// modification whose base was omitted there is no diff to subtract, so the
-// full local content is the smallest false-negative-free surface. Omitted
-// new blobs are counted as intentional skips.
-func (s *Source) offlineEmitFallback(ctx context.Context, commit nativeCommit, entries []offlineRawEntry, check *offlineCatFileCheck, reader *offlineCatFileRead, skipped *int64, skipSample *[]string, ch chan<- *sources.Chunk) error {
+// emitFallback covers a commit whose old or new blobs were filtered out of
+// the clone. Locally present new blobs are emitted whole through the normal
+// text/binary policies — the same ceilings and archive/binary handling as
+// emitCommit. A missing new blob on an added path is a clean skip only when
+// the clone filter proves it was above every emission ceiling; a missing new
+// blob on a modification can always hide in-scope added lines and degrades
+// coverage, and any missing object the filter cannot size does the same.
+func (w *offlineWalk) emitFallback(ctx context.Context, commit nativeCommit, entries []offlineRawEntry) error {
+	zero := strings.Repeat("0", 40)
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if entry.deleted || entry.newSHA == "" || entry.newSHA == strings.Repeat("0", 40) {
+		if entry.deleted || entry.newSHA == "" || entry.newSHA == zero {
 			continue
 		}
-		size, err := check.check(entry.newSHA)
+		if entry.newMissing {
+			switch {
+			case entry.oldMissing:
+				// With both sides absent the change's scope cannot be
+				// verified at all — fail closed.
+				w.recordCoverage(commit, entry.path, errors.New("both diff blobs omitted; change scope unverifiable"))
+			case w.source.promisorOmissionSafe():
+				// The clone filter's floor clears every emission ceiling,
+				// so the omitted blob is the declared partial-clone boundary.
+				w.recordSkip(commit.hash, entry.path)
+			default:
+				// The filter cannot prove the omitted blob was out of
+				// scope (unparsable filter, or a floor below the emission
+				// ceilings): added lines may hide scannable content.
+				w.recordCoverage(commit, entry.path, errors.New("blob omitted by clone filter but may be in scope"))
+			}
+			continue
+		}
+		if !w.source.pathAllowed(entry.path) {
+			continue
+		}
+		r, err := w.blob()
 		if err != nil {
 			return err
 		}
-		if size < 0 {
-			s.offlineRecordSkip(skipped, skipSample, commit.hash, entry.path)
-			continue
-		}
-		if size > s.gitArtifactMaxBytes {
-			s.offlineRecordSkip(skipped, skipSample, commit.hash, entry.path)
-			continue
-		}
-		if !s.pathAllowed(entry.path) {
-			continue
-		}
-		data, _, err := reader.read(entry.newSHA, s.gitArtifactMaxBytes)
-		if err != nil {
-			return err
-		}
-		if data == nil {
-			s.offlineRecordSkip(skipped, skipSample, commit.hash, entry.path)
-			continue
-		}
-		if err := s.offlineEmitBlob(ctx, commit, entry.path, data, ch); err != nil {
+		if err := w.emitBlob(ctx, commit, entry.path, entry.newSHA, r); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Source) offlineRecordSkip(skipped *int64, skipSample *[]string, hash, path string) {
-	*skipped++
-	if len(*skipSample) < offlineSkipSampleCap {
-		*skipSample = append(*skipSample, fmt.Sprintf("%s:%s", hash, path))
+// emitBlob streams one locally present blob through the same policies
+// emitCommit applies to whole-file additions: binary sniffing, the binary /
+// archive inclusion toggles, the artifact byte ceiling, and streaming
+// emission without materializing the blob.
+func (w *offlineWalk) emitBlob(ctx context.Context, commit nativeCommit, path, sha string, reader *offlineCatFileRead) error {
+	stream, size, isBlob, err := reader.stream(sha)
+	if err != nil {
+		return err
 	}
-}
+	if !isBlob {
+		return nil
+	}
+	sniff := make([]byte, binarySniffLen)
+	n, readErr := io.ReadFull(stream, sniff)
+	if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+		_ = stream.Close()
+		return fmt.Errorf("git: sniff blob %s: %w", sha, readErr)
+	}
+	body := io.MultiReader(bytes.NewReader(sniff[:n]), stream)
 
-func (s *Source) offlineEmitBlob(ctx context.Context, commit nativeCommit, path string, data []byte, ch chan<- *sources.Chunk) error {
-	parser := &nativeLogParser{ctx: ctx, source: s, ch: ch, commit: &nativeCommit{
+	parser := &nativeLogParser{ctx: ctx, source: w.source, ch: w.ch, commit: &nativeCommit{
 		hash:         commit.hash,
 		parentCount:  commit.parentCount,
 		author:       commit.author,
@@ -767,39 +1040,74 @@ func (s *Source) offlineEmitBlob(ctx context.Context, commit nativeCommit, path 
 		authoredDate: commit.authoredDate,
 		message:      commit.message,
 	}}
-	binary := isBinary(data)
-	if binary && !s.includeGitArchives && !s.includeGitBinaries {
-		return nil
+	emit := func(segment diffSegment) error {
+		return parser.emitSegments(path, []diffSegment{segment})
+	}
+
+	binary := isBinary(sniff[:n])
+	if binary && !w.source.includeGitArchives && !w.source.includeGitBinaries {
+		return stream.Close()
 	}
 	if binary {
-		isArchive := s.includeGitArchives && archivepkg.LooksLikeArchive(data[:min(len(data), binarySniffLen)])
-		if !isArchive && !s.includeGitBinaries {
+		if size > w.source.gitArtifactMaxBytes {
+			_ = stream.Close()
+			w.recordCoverage(commit, path, &archivepkg.PartialError{
+				Kind:  "max-blob-bytes",
+				Entry: path,
+				Err:   fmt.Errorf("exceeds %d-byte limit", w.source.gitArtifactMaxBytes),
+			})
 			return nil
 		}
-		size := int64(len(data))
+		isArchive := w.source.includeGitArchives && archivepkg.LooksLikeArchive(sniff[:n])
+		if !isArchive && !w.source.includeGitBinaries {
+			return stream.Close()
+		}
 		return withArtifactBudget(ctx, isArchive, size, func() error {
+			defer stream.Close()
 			if isArchive {
-				archiveCtx, cancel := context.WithTimeout(ctx, s.archiveTimeout)
+				archiveCtx, cancel := context.WithTimeout(ctx, w.source.archiveTimeout)
 				defer cancel()
-				return archivepkg.WalkStreamContext(archiveCtx, path, bytes.NewReader(data), size, s.archiveLimits, func(entry archivepkg.StreamEntry) error {
+				walkErr := archivepkg.WalkStreamContext(archiveCtx, path, body, size, w.source.archiveLimits, func(entry archivepkg.StreamEntry) error {
 					return streamBlob(archiveCtx, entry.Reader, entry.Size, func(segment diffSegment) error {
-						return parser.emitSegments(entry.Path, []diffSegment{segment})
+						segment.path = entry.Path
+						return emit(segment)
 					})
 				})
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if walkErr != nil {
+					w.recordCoverage(commit, path, walkErr)
+				}
+				return nil
 			}
-			return parser.emitSegments(path, splitBlob(data))
+			spoolErr := archivepkg.WithSpoolContext(ctx, body, size, w.source.gitArtifactMaxBytes, func(validated io.Reader) error {
+				return streamBlob(ctx, validated, size, emit)
+			})
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if spoolErr != nil {
+				w.recordCoverage(commit, path, &archivepkg.PartialError{Kind: "corrupt-blob", Entry: path, Err: spoolErr})
+			}
+			return nil
 		})
 	}
-	return parser.emitSegments(path, splitBlob(data))
+	defer stream.Close()
+	// Text policy: blobs above maxBlobSize emit nothing, matching
+	// readBlobLimit on the complete-clone path.
+	if size > maxBlobSize {
+		return nil
+	}
+	return streamBlob(ctx, body, size, emit)
 }
 
-// offlineMerges covers merge-commit resolution content the same way the
-// regular native merge pass does: `diff-tree --cc` on merges whose combined
-// result blobs are all local, whole-blob emission for merges that reference
-// omitted blobs.
-func (s *Source) offlineMerges(ctx context.Context, repo *gogit.Repository, gitBin string, merges []nativeCommit, check *offlineCatFileCheck, blob func() (*offlineCatFileRead, error), skipped *int64, skipSample *[]string, ch chan<- *sources.Chunk) error {
+// merges covers merge-commit resolution content the same way the regular
+// native merge pass does: `diff-tree --cc` on merges whose combined diff
+// blobs — result plus every parent version — are all local, whole-blob
+// emission for merges whose retained result references an omitted base.
+func (w *offlineWalk) merges(ctx context.Context, repo *gogit.Repository, gitBin string, merges []nativeCommit) error {
 	var clean []nativeCommit
-	var parseErrs []error
 	flush := func() error {
 		if len(clean) == 0 {
 			return nil
@@ -809,25 +1117,17 @@ func (s *Source) offlineMerges(ctx context.Context, repo *gogit.Repository, gitB
 			ids[i] = commit.hash
 		}
 		clean = nil
-		if err := s.offlineMergePatchBatch(ctx, repo, gitBin, ids, ch); err != nil {
-			var degraded *engine.DegradedError
-			if errors.As(err, &degraded) {
-				parseErrs = append(parseErrs, err)
-				return nil
-			}
-			return err
-		}
-		return nil
+		return w.source.offlineMergePatchBatch(ctx, repo, gitBin, ids, w.ch)
 	}
 	for _, commit := range merges {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		entries, err := s.offlineMergeRaw(ctx, gitBin, commit)
+		entries, err := w.source.offlineMergeRaw(ctx, gitBin, commit)
 		if err != nil {
 			return err
 		}
-		ok, err := s.offlineCommitClean(check, entries)
+		ok, err := w.mergeClean(commit, entries)
 		if err != nil {
 			return err
 		}
@@ -843,18 +1143,50 @@ func (s *Source) offlineMerges(ctx context.Context, repo *gogit.Repository, gitB
 		if err := flush(); err != nil {
 			return err
 		}
-		r, err := blob()
-		if err != nil {
-			return err
-		}
-		if err := s.offlineEmitFallback(ctx, commit, entries, check, r, skipped, skipSample, ch); err != nil {
+		if err := w.emitFallback(ctx, commit, entries); err != nil {
 			return err
 		}
 	}
-	if err := flush(); err != nil {
-		return err
+	return flush()
+}
+
+// mergeClean reports whether every blob a `diff-tree --cc` render of this
+// merge needs is present locally: the result blob and each parent's version
+// of the path. `parent:path` object specs resolve through the tree without
+// touching the blob, so a missing reply covers both "parent lacks the path"
+// (harmless — the fallback just emits the result) and "blob was omitted".
+func (w *offlineWalk) mergeClean(commit nativeCommit, entries []offlineRawEntry) (bool, error) {
+	for i := range entries {
+		entry := &entries[i]
+		if entry.newSHA != "" && entry.newSHA != strings.Repeat("0", 40) {
+			size, err := w.check.check(entry.newSHA)
+			if err != nil {
+				return false, err
+			}
+			if size < 0 {
+				entry.newMissing = true
+			}
+		}
+		for _, parent := range commit.parents {
+			if strings.ContainsAny(entry.path, "\n\r") {
+				entry.oldMissing = true
+				continue
+			}
+			size, err := w.check.check(parent + ":" + entry.path)
+			if err != nil {
+				return false, err
+			}
+			if size < 0 {
+				entry.oldMissing = true
+			}
+		}
 	}
-	return errors.Join(parseErrs...)
+	for _, entry := range entries {
+		if entry.oldMissing || entry.newMissing {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // offlineMergeRaw lists a merge's combined-diff entries — files whose merged
@@ -891,11 +1223,12 @@ func (s *Source) offlineMergeRaw(ctx context.Context, gitBin string, commit nati
 	}
 	var entries []offlineRawEntry
 	for _, line := range strings.Split(string(out), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "::") {
+		// Strip only the record terminator: paths may end in spaces.
+		rec := strings.TrimSuffix(line, "\r")
+		if !strings.HasPrefix(rec, "::") {
 			continue
 		}
-		entry, err := parseOfflineCombinedRawEntry(trimmed)
+		entry, err := parseOfflineCombinedRawEntry(rec)
 		if err != nil {
 			return nil, err
 		}

@@ -199,7 +199,12 @@ type Source struct {
 	// object was deliberately left out and lazy fetching is disabled, so it
 	// can never be fetched mid-walk. promisorSkipped counts those entries.
 	promisorFiltered bool
-	promisorSkipped  int64
+	// promisorBlobFloor is the lower bound the clone's partial-clone filter
+	// places on any missing blob's size (-1 when nothing is provable, e.g.
+	// blob:none). Skipping a missing object is only a legitimate clone
+	// boundary when the floor clears every emission ceiling.
+	promisorBlobFloor int64
+	promisorSkipped   int64
 }
 
 type incrementalState struct {
@@ -298,7 +303,7 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	if err != nil {
 		return fmt.Errorf("git: reopen repo: %w", err)
 	}
-	s.promisorFiltered = s.repoPromisorFiltered()
+	s.promisorFiltered, s.promisorBlobFloor = s.repoPromisorFiltered()
 	s.promisorSkipped = 0
 	starts, err := s.resolveStarts(repo)
 	if err != nil {
@@ -380,9 +385,9 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
-			if s.promisorFiltered && s.promisorOnlyOmitted(err) {
-				continue
-			}
+			// emitCommit already skips deletions and out-of-scope adds on
+			// promisor-filtered clones; anything that returns here lost
+			// potentially in-scope content and must degrade the checkpoint.
 			recordCoverage(c.Hash, "tree-diff", err)
 		}
 	}
@@ -793,10 +798,38 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 			return err
 		}
 		from, to, err := change.Files()
+		if err != nil && s.promisorFiltered && change.To.Name != "" {
+			// Partial clone: diffs need both sides, but the clone filter can
+			// omit either side. When the retained blob resolves, emit it
+			// whole — with no diffable base it is the smallest emit-worthy
+			// surface that contains every added line.
+			if recovered, rerr := newTree.File(change.To.Name); rerr == nil {
+				from, to, err = nil, recovered, nil
+			}
+		}
 		if err != nil {
 			changePath := change.To.Name
 			if changePath == "" {
 				changePath = change.From.Name
+			}
+			if s.promisorFiltered && errors.Is(err, plumbing.ErrObjectNotFound) {
+				switch {
+				case change.To.Name == "":
+					// Pure deletions emit nothing; the omitted base is not in scope.
+					s.promisorSkipped++
+					continue
+				case change.From.Name == "" && s.promisorOmissionSafe():
+					// Added blob above the clone filter floor and every emission
+					// ceiling: the omission is the declared partial-clone boundary.
+					s.promisorSkipped++
+					continue
+				case change.From.Name != "" && s.promisorOmissionSafe() && gitTreeFilePresent(oldTree, change.From.Name):
+					// The diff's base blob survived the filter while the new
+					// blob did not: the clone filter provably removed it, and
+					// its floor clears every emission ceiling.
+					s.promisorSkipped++
+					continue
+				}
 			}
 			partialErrs = append(partialErrs, fmt.Errorf("git: resolve changed file %q at %s: %w", changePath, c.Hash, err))
 			continue
@@ -1173,6 +1206,7 @@ func (s *Source) emitCommitMetadata(ctx context.Context, c *object.Commit, ch ch
 
 func (s *Source) commitNotes(ctx context.Context, hash plumbing.Hash) (string, error) {
 	refsCmd := exec.CommandContext(ctx, "git", "-C", s.repoAbs, "for-each-ref", "--format=%(refname)", "refs/notes")
+	refsCmd.Env = nativeGitEnv()
 	refsOut, err := refsCmd.Output()
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
@@ -1185,6 +1219,7 @@ func (s *Source) commitNotes(ctx context.Context, hash plumbing.Hash) (string, e
 	var notes strings.Builder
 	for _, ref := range refs {
 		cmd := exec.CommandContext(ctx, "git", "-C", s.repoAbs, "notes", "--ref="+ref, "show", hash.String())
+		cmd.Env = nativeGitEnv()
 		out, err := cmd.Output()
 		if err == nil {
 			fmt.Fprintf(&notes, "[%s] %s\n", ref, strings.TrimSpace(string(out)))
@@ -1718,4 +1753,14 @@ func newIncrementalState(starts []plumbing.Hash) *incrementalState {
 func writeHash(h hash.Hash, s string) {
 	_, _ = h.Write([]byte(s))
 	_, _ = h.Write([]byte{0})
+}
+
+// gitTreeFilePresent reports whether path resolves inside tree without
+// demanding filtered-out blobs elsewhere.
+func gitTreeFilePresent(tree *object.Tree, path string) bool {
+	if tree == nil || path == "" {
+		return false
+	}
+	_, err := tree.File(path)
+	return err == nil
 }

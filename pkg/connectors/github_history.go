@@ -1172,9 +1172,14 @@ const githubCloneBlobFilterFloor int64 = 50 << 20
 func githubCloneBlobFilterBytes(gitCfg gitsource.Config) int64 {
 	limit := gitCfg.GitArtifactMaxBytes
 	if limit <= 0 || limit < githubCloneBlobFilterFloor {
-		return githubCloneBlobFilterFloor
+		limit = githubCloneBlobFilterFloor
 	}
-	return limit
+	// blob:limit=N omits blobs strictly larger than N while the scanner
+	// emits blobs of at most N bytes — the filter is exclusive, the
+	// scanner's ceiling inclusive — so retain one byte past the ceiling to
+	// keep boundary-size blobs and keep the offline walk's "missing implies
+	// out of scope" guarantee airtight.
+	return limit + 1
 }
 
 // cloneRepoBare clones cloneURL into dir as a bare repo, preferring an exec

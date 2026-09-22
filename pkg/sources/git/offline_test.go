@@ -2,10 +2,11 @@ package git
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
@@ -35,9 +37,11 @@ func gitExec(t *testing.T, dir string, args ...string) string {
 }
 
 // buildFilteredClone builds a source repo containing one blob above the
-// filter ceiling, then mirror-clones it with --filter=blob:limit. Returns the
-// clone path.
-func buildFilteredClone(t *testing.T, limitKiB int) string {
+// emission ceiling (50 MiB of text), then mirror-clones it with
+// --filter=blob:limit=50m. The filter floor therefore clears every emission
+// ceiling, so the omitted add is a legitimate partial-clone boundary.
+// Returns the clone path.
+func buildFilteredClone(t *testing.T) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
@@ -47,7 +51,7 @@ func buildFilteredClone(t *testing.T, limitKiB int) string {
 		t.Fatal(err)
 	}
 	gitExec(t, src, "init", "-q")
-	big := strings.Repeat("PROMISOR-OMITTED-LINE\n", limitKiB*64)
+	big := strings.Repeat("PROMISOR-OMITTED-LINE\n", 51*1024*1024/22)
 	if err := os.WriteFile(filepath.Join(src, "big.txt"), []byte(big), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -71,19 +75,20 @@ func buildFilteredClone(t *testing.T, limitKiB int) string {
 	}
 	clone := filepath.Join(t.TempDir(), "clone")
 	gitExec(t, t.TempDir(), "clone", "-q", "--mirror", "--no-local",
-		"--filter=blob:limit="+strconv.Itoa(limitKiB)+"k", "file://"+src, clone)
+		"--filter=blob:limit=50m", "file://"+src, clone)
 	return clone
 }
 
 func TestRepoPromisorFilteredDetectsFilter(t *testing.T) {
-	clone := buildFilteredClone(t, 1)
+	clone := buildFilteredClone(t)
 	s := &Source{repoAbs: clone}
-	if !s.repoPromisorFiltered() {
-		t.Fatal("promisor-filtered clone was not detected")
+	filtered, floor := s.repoPromisorFiltered()
+	if !filtered || floor != 50<<20 {
+		t.Fatalf("promisor-filtered clone detected=%v floor=%d, want true/%d", filtered, floor, 50<<20)
 	}
 	repo, _ := buildRepo(t, []commitSpec{{files: map[string]string{"a.txt": "x"}, msg: "c1"}})
 	plain := &Source{repoAbs: repo}
-	if plain.repoPromisorFiltered() {
+	if filtered, _ := plain.repoPromisorFiltered(); filtered {
 		t.Fatal("ordinary repo reported as promisor-filtered")
 	}
 }
@@ -92,7 +97,7 @@ func TestRepoPromisorFilteredDetectsFilter(t *testing.T) {
 // every locally present change, omits the filtered blob without failing, and
 // never fetches it (GIT_NO_LAZY_FETCH is baked into nativeGitEnv).
 func TestChunks_OfflineWalkerSkipsOmittedBlobs(t *testing.T) {
-	clone := buildFilteredClone(t, 1)
+	clone := buildFilteredClone(t)
 	s := &Source{}
 	mustInit(t, s, Config{Repo: clone, AllBranches: true})
 
@@ -134,7 +139,7 @@ func TestChunks_OfflineWalkerSkipsOmittedBlobs(t *testing.T) {
 // TestChunks_OfflineWalkerPreservesMetadata checks commit/author/file/line
 // metadata survives the offline path unchanged.
 func TestChunks_OfflineWalkerPreservesMetadata(t *testing.T) {
-	clone := buildFilteredClone(t, 1)
+	clone := buildFilteredClone(t)
 	s := &Source{}
 	mustInit(t, s, Config{Repo: clone, AllBranches: true})
 
@@ -167,7 +172,7 @@ func TestChunksOfflineDirect(t *testing.T) {
 	if err != nil {
 		t.Skip("git not on PATH")
 	}
-	clone := buildFilteredClone(t, 1)
+	clone := buildFilteredClone(t)
 	s := &Source{}
 	mustInit(t, s, Config{Repo: clone, AllBranches: true})
 	s.repoAbs = clone
@@ -210,5 +215,222 @@ func TestChunksOfflineDirect(t *testing.T) {
 	}
 	if !sawAlpha || !sawBeta {
 		t.Fatalf("missing local content: %d chunks", len(got))
+	}
+}
+
+// reviewClone mirror-clones src with the given partial-clone filter.
+func reviewClone(t *testing.T, src, filter string) string {
+	t.Helper()
+	gitExec(t, src, "config", "uploadpack.allowFilter", "true")
+	dst := filepath.Join(t.TempDir(), "mirror")
+	cmd := exec.Command("git", "clone", "--mirror", "--filter="+filter, "--", "file://"+filepath.ToSlash(src), dst)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v %s", err, out)
+	}
+	return dst
+}
+
+// TestOfflineLargeBlobDiffCoverage: a one-line append to a 51 MiB text file
+// is in-scope diff content even though the blob exceeds the clone filter;
+// the filtered walk must find it or report degraded coverage with the prior
+// checkpoint retained — a clean checkpoint is not acceptable.
+func TestOfflineLargeBlobDiffCoverage(t *testing.T) {
+	requireNativeGit(t)
+	filler := strings.Repeat(strings.Repeat("x", 1023)+"\n", 51*1024)
+	const marker = "review_canary_new_line_only"
+	src, hashes := buildRepo(t, []commitSpec{
+		{files: map[string]string{"large.txt": filler}, msg: "base"},
+		{files: map[string]string{"large.txt": filler + marker + "\n"}, msg: "append canary"},
+	})
+	dst := reviewClone(t, src, "blob:limit=52428800")
+	seed, err := json.Marshal(newIncrementalState([]plumbing.Hash{plumbing.NewHash(hashes[0])}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ name, dir string }{{"complete", src}, {"filtered", dst}} {
+		t.Run(c.name, func(t *testing.T) {
+			s := &Source{}
+			mustInit(t, s, Config{Repo: c.dir})
+			if err := s.SetIncrementalState(seed); err != nil {
+				t.Fatal(err)
+			}
+			got, err := drain(t, s, 30*time.Second)
+			found := false
+			for _, chunk := range got {
+				found = found || strings.Contains(string(chunk.Data), marker)
+			}
+			t.Logf("chunks=%d marker=%t err=%v state=%s", len(got), found, err, s.IncrementalState())
+			if err != nil {
+				var degraded *engine.DegradedError
+				if c.name == "filtered" && errors.As(err, &degraded) && string(s.IncrementalState()) == string(seed) {
+					return // Explicit incomplete coverage is acceptable; a clean checkpoint is not.
+				}
+				t.Fatalf("walk failed without preserving the degraded-coverage contract: %v", err)
+			}
+			if !found {
+				t.Fatal("new in-scope diff was silently omitted")
+			}
+		})
+	}
+}
+
+// TestOfflinePartialCloneSmallMissingBlob: a blob:none clone must not skip a
+// needed in-scope blob — the filter provides no size floor.
+func TestOfflinePartialCloneSmallMissingBlob(t *testing.T) {
+	requireNativeGit(t)
+	src, _ := buildRepo(t, []commitSpec{{files: map[string]string{"small.txt": "review_canary_small_secret\n"}, msg: "canary"}})
+	dst := reviewClone(t, src, "blob:none")
+	s := &Source{}
+	mustInit(t, s, Config{Repo: dst})
+	got, err := drain(t, s, 10*time.Second)
+	t.Logf("chunks=%d err=%v state=%s", len(got), err, s.IncrementalState())
+	if err == nil {
+		t.Fatal("missing scannable blob must report incomplete coverage")
+	}
+}
+
+// TestOfflinePromisorFalseMissingBlob: promisor=false is not permission to
+// skip missing-blob errors.
+func TestOfflinePromisorFalseMissingBlob(t *testing.T) {
+	src, _ := buildRepo(t, []commitSpec{{files: map[string]string{"small.txt": "review_canary_small_secret\n"}, msg: "canary"}})
+	hash := strings.TrimSpace(gitExec(t, src, "rev-parse", "HEAD:small.txt"))
+	if err := os.Remove(filepath.Join(src, ".git", "objects", hash[:2], hash[2:])); err != nil {
+		t.Fatal(err)
+	}
+	gitExec(t, src, "config", "remote.origin.promisor", "false")
+	s := &Source{}
+	mustInit(t, s, Config{Repo: src})
+	got, err := drain(t, s, 10*time.Second)
+	t.Logf("chunks=%d err=%v state=%s", len(got), err, s.IncrementalState())
+	if err == nil {
+		t.Fatal("promisor=false must not suppress missing-blob errors")
+	}
+}
+
+// TestOfflinePartialCloneNotesStayOffline: a filtered-out notes blob must
+// never be demand-fetched mid-walk.
+func TestOfflinePartialCloneNotesStayOffline(t *testing.T) {
+	requireNativeGit(t)
+	src, _ := buildRepo(t, []commitSpec{{files: map[string]string{"small.txt": "ordinary content\n"}, msg: "initial"}})
+	notePath := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(notePath, []byte(strings.Repeat("n", 51<<20)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	add := exec.Command("git", "-C", src, "-c", "user.name=Review", "-c", "user.email=review@example.com", "notes", "add", "-F", notePath, "HEAD")
+	if out, err := add.CombinedOutput(); err != nil {
+		t.Fatalf("notes add: %v %s", err, out)
+	}
+	list := exec.Command("git", "-C", src, "notes", "list", "HEAD")
+	out, err := list.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	noteHash := strings.Fields(string(out))[0]
+	dst := reviewClone(t, src, "blob:limit=52428800")
+	present := func() bool {
+		cmd := exec.Command("git", "-C", dst, "cat-file", "-e", noteHash)
+		cmd.Env = append(os.Environ(), "GIT_NO_LAZY_FETCH=1")
+		return cmd.Run() == nil
+	}
+	if present() {
+		t.Fatal("fixture note must be filtered out")
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Repo: dst, IncludeCommitMetadata: true})
+	got, err := drain(t, s, 30*time.Second)
+	t.Logf("chunks=%d err=%v missing_note_fetched=%t", len(got), err, present())
+	if present() {
+		t.Fatal("history walk demand-fetched an omitted 51 MiB note")
+	}
+}
+
+// TestOfflineRetainsIncludedText: fallback must apply the text policy, not
+// the smaller artifact cap — an 11 MiB text blob retained locally is emitted.
+func TestOfflineRetainsIncludedText(t *testing.T) {
+	requireNativeGit(t)
+	const marker = "review_included_text_canary"
+	src, _ := buildRepo(t, []commitSpec{{files: map[string]string{
+		"included.txt": marker + "\n" + strings.Repeat(strings.Repeat("x", 1023)+"\n", 11*1024),
+		"filtered.bin": strings.Repeat("\x00", 51<<20),
+	}, msg: "text plus oversized binary"}})
+	dst := reviewClone(t, src, "blob:limit=52428800")
+	hash := strings.TrimSpace(gitExec(t, src, "rev-parse", "HEAD:included.txt"))
+	cmd := exec.Command("git", "-C", dst, "cat-file", "-e", hash)
+	cmd.Env = append(os.Environ(), "GIT_NO_LAZY_FETCH=1")
+	if err := cmd.Run(); err != nil {
+		t.Fatal("11 MiB text must be locally present")
+	}
+	for _, c := range []struct{ name, dir string }{{"complete", src}, {"filtered", dst}} {
+		t.Run(c.name, func(t *testing.T) {
+			s := &Source{}
+			mustInit(t, s, Config{Repo: c.dir})
+			got, err := drain(t, s, 30*time.Second)
+			found := false
+			for _, chunk := range got {
+				found = found || strings.Contains(string(chunk.Data), marker)
+			}
+			t.Logf("chunks=%d marker=%t err=%v state=%s", len(got), found, err, s.IncrementalState())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !found {
+				t.Fatal("locally included text blob silently omitted")
+			}
+		})
+	}
+}
+
+// TestOfflineEmptyCommit: an empty commit must not abort raw enumeration.
+func TestOfflineEmptyCommit(t *testing.T) {
+	requireNativeGit(t)
+	src, _ := buildRepo(t, []commitSpec{{files: map[string]string{"a.txt": "first\n"}, msg: "base"}})
+	gitExec(t, src, "commit", "--allow-empty", "-m", "empty")
+	dst := reviewClone(t, src, "blob:limit=52428800")
+	s := &Source{}
+	mustInit(t, s, Config{Repo: dst})
+	got, err := drain(t, s, 10*time.Second)
+	t.Logf("chunks=%d err=%v", len(got), err)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestOfflineMergeWithOmittedParents: a merge whose parents' blobs were all
+// filtered out still scans its retained result through the bounded fallback.
+func TestOfflineMergeWithOmittedParents(t *testing.T) {
+	requireNativeGit(t)
+	src, hashes := buildRepo(t, []commitSpec{
+		{files: map[string]string{"a.txt": "base\n"}, msg: "root"},
+		{files: map[string]string{"a.txt": strings.Repeat("L\n", (51<<20)/2)}, msg: "left"},
+	})
+	left := hashes[1]
+	gitExec(t, src, "checkout", "--detach", hashes[0])
+	if err := os.WriteFile(filepath.Join(src, "a.txt"), []byte(strings.Repeat("R\n", (51<<20)/2)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitExec(t, src, "commit", "-am", "right")
+	right := strings.TrimSpace(gitExec(t, src, "rev-parse", "HEAD"))
+	if err := os.WriteFile(filepath.Join(src, "a.txt"), []byte("review_merge_resolution_canary\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitExec(t, src, "add", "a.txt")
+	tree := strings.TrimSpace(gitExec(t, src, "write-tree"))
+	merge := strings.TrimSpace(gitExec(t, src, "commit-tree", tree, "-p", left, "-p", right, "-m", "merge"))
+	gitExec(t, src, "update-ref", "refs/heads/review", merge)
+	gitExec(t, src, "symbolic-ref", "HEAD", "refs/heads/review")
+	dst := reviewClone(t, src, "blob:limit=52428800")
+	s := &Source{}
+	mustInit(t, s, Config{Repo: dst})
+	got, err := drain(t, s, 30*time.Second)
+	found := false
+	for _, chunk := range got {
+		found = found || strings.Contains(string(chunk.Data), "review_merge_resolution_canary")
+	}
+	t.Logf("chunks=%d merge_canary=%t err=%v", len(got), found, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("merge resolution content not scanned")
 	}
 }

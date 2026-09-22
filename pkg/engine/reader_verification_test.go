@@ -624,3 +624,97 @@ func TestStreamFindingBatchFlushesAtLimitAndReusesSpanCache(t *testing.T) {
 		t.Fatalf("findings after final flush=%d, want %d", got, streamFindingBatchLimit+1)
 	}
 }
+
+// TestStreamMatchSharedPrefixBoundsBatchReads reproduces the #437 workload:
+// every raw shares the same two-byte prefix (all `ghp_` tokens share `gh`),
+// so the capped occurrence list saturates and hints alone cannot resolve.
+// Position resolution must not grow with the number of pending batches: the
+// complete prefix index is built once and reused, keeping reads near one
+// input pass plus small per-candidate reads, while earliest-occurrence and
+// cached-negative semantics are preserved.
+func TestStreamMatchSharedPrefixBoundsBatchReads(t *testing.T) {
+	for _, size := range []int64{4 << 20, 16 << 20, 64 << 20} {
+		t.Run(fmt.Sprintf("%dMiB", size>>20), func(t *testing.T) {
+			runSharedPrefixBounds(t, size)
+		})
+	}
+}
+
+func runSharedPrefixBounds(t *testing.T, size int64) {
+	t.Helper()
+	const count = 2048 // > streamFindingBatchLimit, so multiple flushes resolve the same prefix
+	data := bytes.Repeat([]byte{' '}, int(size))
+	raws := make([][]byte, count+2)
+	for i := 0; i < count; i++ {
+		raws[i] = []byte(fmt.Sprintf("ghp_shared_prefix_token_%05d", i))
+		copy(data[int64(i)*(size/count):], raws[i])
+	}
+	// A duplicated occurrence must still resolve to the earliest position.
+	copy(data[int(size)-128:], raws[0])
+	raws[count] = []byte("ghp_shared_prefix_token_zzzzz") // absent
+	raws[count+1] = []byte("ghx_other_prefix_token_00001")
+	copy(data[int(size)-64:], raws[count+1])
+
+	reader := &countingReaderAt{reader: bytes.NewReader(data)}
+	cache := newStreamMatchCache(reader, int64(len(data)))
+	hints := make([]streamRawHint, len(raws))
+	for i, raw := range raws {
+		off := int64(i) * (size / count)
+		if i == count {
+			off = -1
+		}
+		if i == count+1 {
+			off = int64(size - 64)
+		}
+		if off >= 0 {
+			cache.observeRawWindow("", raw, off-1)
+		}
+		hints[i] = streamRawHint{offset: off, newlines: 0, ok: off >= 0}
+	}
+
+	for start := 0; start < len(raws); start += streamFindingBatchLimit {
+		end := start + streamFindingBatchLimit
+		if end > len(raws) {
+			end = len(raws)
+		}
+		if err := cache.resolve(context.Background(), raws[start:end], hints[start:end]); err != nil {
+			t.Fatalf("resolve batch at %d: %v", start, err)
+		}
+	}
+	for i, raw := range raws[:count] {
+		match, ok := cache.lookup(raw)
+		want := int64(i) * (size / count)
+		if !ok || !match.found || match.offset != want {
+			t.Fatalf("raw %d = %#v/%v, want earliest offset %d", i, match, ok, want)
+		}
+	}
+	if match, _ := cache.lookup(raws[0]); match.offset != 0 {
+		t.Fatalf("duplicated raw resolved to %d, want earliest occurrence 0", match.offset)
+	}
+	if match, ok := cache.lookup(raws[count]); !ok || match.found || match.offset != -1 {
+		t.Fatalf("absent raw = %#v/%v, want cached negative result", match, ok)
+	}
+	if match, ok := cache.lookup(raws[count+1]); !ok || !match.found || match.offset != int64(size-64) {
+		t.Fatalf("other-prefix raw = %#v/%v", match, ok)
+	}
+
+	// Reads: one 'gh' index pass + small candidate reads only. No per-batch
+	// input pass is allowed: cap well under three input sizes.
+	if got := reader.bytes.Load(); got >= 3*size {
+		t.Fatalf("position resolution read %d bytes, want under %d (grows with batch count)", got, 3*size)
+	}
+	t.Logf("shared-prefix reads: calls=%d bytes=%d input=%d", reader.calls.Load(), reader.bytes.Load(), size)
+	readsAfterFirst := reader.bytes.Load()
+	for start := 0; start < len(raws); start += streamFindingBatchLimit {
+		end := start + streamFindingBatchLimit
+		if end > len(raws) {
+			end = len(raws)
+		}
+		if err := cache.resolve(context.Background(), raws[start:end], hints[start:end]); err != nil {
+			t.Fatalf("cached resolve: %v", err)
+		}
+	}
+	if reader.bytes.Load() != readsAfterFirst {
+		t.Fatalf("cached resolution reread input: before=%d after=%d", readsAfterFirst, reader.bytes.Load())
+	}
+}
