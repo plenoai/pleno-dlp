@@ -589,8 +589,8 @@ func TestRunHookCursor_AllowsCleanStagedDiff(t *testing.T) {
 }
 
 // TestShellQuote pins POSIX single-quoting semantics: the only escape a
-// single-quoted shell token needs is `'` → `'\''`, and shell metacharacters
-// (`$`, backticks, `!`, spaces, glob chars) pass through literally so they
+// single-quoted shell token needs is ' -> '\'', and shell metacharacters
+// ($, backticks, !, spaces, glob chars) pass through literally so they
 // can never re-enter expansion in a generated script.
 func TestShellQuote(t *testing.T) {
 	cases := map[string]string{
@@ -608,11 +608,11 @@ func TestShellQuote(t *testing.T) {
 	}
 }
 
-// TestWriteHookScript_QuotesExecutablePath guards the A03 regression:
+// TestWriteHookScriptQuotesExecutablePath guards the A03 regression:
 // the generated script must embed the binary path as a single-quoted
 // token, not a Go %q literal (which leaves $ and backticks live for
 // command substitution on every hook run).
-func TestWriteHookScript_QuotesExecutablePath(t *testing.T) {
+func TestWriteHookScriptQuotesExecutablePath(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 

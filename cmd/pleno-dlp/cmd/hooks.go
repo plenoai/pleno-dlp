@@ -125,12 +125,12 @@ exec %s hooks run %s
 `
 
 // shellQuote renders s as a POSIX single-quoted token safe to embed in a
-// generated shell script. fmt's %q is NOT safe here: it produces a Go
-// double-quoted literal that leaves `$`, backticks, and `!` untouched, so
-// an executable path containing shell metacharacters (e.g. a directory
-// named `$(…)` or `back\`tick\``) would run command substitution on every
-// hook invocation. Single quotes admit no expansion; the only escape
-// needed is `'` → `'\''`.
+// generated shell script. fmt's %q is not safe here: it produces a Go
+// double-quoted literal that leaves $, backticks, and ! untouched, so an
+// executable path containing shell metacharacters (for example a
+// directory named $(id)) would run command substitution on every hook
+// invocation. Single quotes admit no expansion; the only escape needed is
+// ' -> '\''.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
