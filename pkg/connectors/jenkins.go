@@ -202,6 +202,9 @@ func newJenkinsClient(cfg Config) (*jenkinsClient, error) {
 	if host == "" {
 		return nil, errors.New("jenkins: host is required (set --host or JENKINS_HOST)")
 	}
+	if err := requireSecureEndpoint("jenkins", host); err != nil {
+		return nil, err
+	}
 	user := cfg["user"]
 	if user == "" {
 		return nil, errors.New("jenkins: user is required (set --user or JENKINS_USER)")
@@ -216,7 +219,7 @@ func newJenkinsClient(cfg Config) (*jenkinsClient, error) {
 		user:      user,
 		token:     token,
 		maxBuilds: maxBuilds,
-		http:      &http.Client{Timeout: jenkinsRequestTimeout},
+		http:      authenticatedHTTPClient(jenkinsRequestTimeout),
 	}, nil
 }
 

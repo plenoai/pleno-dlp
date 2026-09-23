@@ -178,11 +178,14 @@ func newCircleCIClient(cfg Config) (*circleciClient, error) {
 		return nil, errors.New("circleci: token is required (set --token or CIRCLE_TOKEN)")
 	}
 	baseURL := strings.TrimRight(cfg.Get("base_url", circleciBaseURL), "/")
+	if err := requireSecureEndpoint("circleci", baseURL); err != nil {
+		return nil, err
+	}
 	return &circleciClient{
 		baseURL:      baseURL,
 		token:        token,
 		maxPipelines: circleciMaxPipelines,
-		http:         &http.Client{Timeout: circleciTimeout},
+		http:         authenticatedHTTPClient(circleciTimeout),
 	}, nil
 }
 

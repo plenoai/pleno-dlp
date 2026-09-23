@@ -887,7 +887,7 @@ func newGitHubAppTokenProvider(cfg Config) (*githubAppTokenProvider, error) {
 		appID:          appID,
 		installationID: installationID,
 		key:            key,
-		http:           &http.Client{Timeout: githubRequestTimeout},
+		http:           authenticatedHTTPClient(githubRequestTimeout),
 		now:            time.Now,
 	}, nil
 }

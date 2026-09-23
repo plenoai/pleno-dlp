@@ -76,8 +76,8 @@ func scanGitLab(ctx context.Context, cfg Config, emit Emit) error {
 		}
 	}
 	apiBase := cfg.Get("api_base", gitlabDefaultAPIBase)
-	if u, err := url.Parse(apiBase); err != nil || u.Scheme == "" || u.Host == "" {
-		return fmt.Errorf("gitlab: invalid api_base %q", apiBase)
+	if err := requireSecureEndpoint("gitlab", apiBase); err != nil {
+		return err
 	}
 	maxBytes := gitlabDefaultMaxBlobBytes
 	if v := cfg["max_blob_bytes"]; v != "" {
@@ -141,6 +141,9 @@ func scanGitLab(ctx context.Context, cfg Config, emit Emit) error {
 
 func verifyGitLab(ctx context.Context, cfg Config, secret string) (bool, error) {
 	apiBase := cfg.Get("api_base", gitlabDefaultAPIBase)
+	if err := requireSecureEndpoint("gitlab", apiBase); err != nil {
+		return false, err
+	}
 	cli := newGitLabClient(apiBase, secret)
 	resp, err := cli.do(ctx, http.MethodGet, "/user", nil)
 	if err != nil {
@@ -170,6 +173,9 @@ func fingerprintGitLab(ctx context.Context, cfg Config) (string, error) {
 		return "", errors.New("gitlab: group and project are mutually exclusive")
 	}
 	apiBase := cfg.Get("api_base", gitlabDefaultAPIBase)
+	if err := requireSecureEndpoint("gitlab", apiBase); err != nil {
+		return "", err
+	}
 	cli := newGitLabClient(apiBase, token)
 	projects, err := gitlabListProjects(ctx, cli, group, project)
 	if err != nil {
@@ -597,7 +603,7 @@ func newGitLabClient(base, token string) *gitlabClient {
 		base:       base,
 		token:      token,
 		tokenIsPAT: strings.HasPrefix(token, "glpat-"),
-		http:       &http.Client{Timeout: gitlabRequestTimeout},
+		http:       authenticatedHTTPClient(gitlabRequestTimeout),
 	}
 }
 

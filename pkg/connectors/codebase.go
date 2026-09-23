@@ -40,8 +40,8 @@ func scanCodebase(ctx context.Context, cfg Config, emit Emit) error {
 		return fmt.Errorf("codebase: --account, --username and --token are required")
 	}
 	apiBase := cfg.Get("api_base", "https://api3.codebasehq.com")
-	if u, err := url.Parse(apiBase); err != nil || u.Scheme != "https" || u.Host == "" {
-		return fmt.Errorf("codebase: invalid https api_base %q", apiBase)
+	if err := requireSecureEndpoint("codebase", apiBase); err != nil {
+		return err
 	}
 	maxBytes := codebaseDefaultMaxCommentBytes
 	if v := cfg["max_comment_bytes"]; v != "" {
@@ -86,6 +86,9 @@ func fingerprintCodebase(ctx context.Context, cfg Config) (string, error) {
 		return "", fmt.Errorf("codebase: --account, --username and --token are required")
 	}
 	apiBase := cfg.Get("api_base", "https://api3.codebasehq.com")
+	if err := requireSecureEndpoint("codebase", apiBase); err != nil {
+		return "", err
+	}
 	cli := newCodebaseClient(apiBase, account, username, apiKey)
 	h := sha256.New()
 	writeFingerprint(h, "codebase-v1")
@@ -256,7 +259,7 @@ func newCodebaseClient(base, account, username, apiKey string) *codebaseClient {
 		account:  account,
 		username: username,
 		apiKey:   apiKey,
-		http:     &http.Client{Timeout: 60 * time.Second},
+		http:     authenticatedHTTPClient(60 * time.Second),
 	}
 }
 

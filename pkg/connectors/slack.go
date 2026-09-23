@@ -75,6 +75,9 @@ func scanSlack(ctx context.Context, cfg Config, emit Emit) error {
 		return errors.New("slack: token is required (set --token or SLACK_TOKEN)")
 	}
 	apiBase := cfg.Get("api_base", slackDefaultAPIBase)
+	if err := requireSecureEndpoint("slack", apiBase); err != nil {
+		return err
+	}
 	concurrency := 4
 	if v := cfg["concurrency"]; v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -117,6 +120,9 @@ func scanSlack(ctx context.Context, cfg Config, emit Emit) error {
 
 func verifySlack(ctx context.Context, cfg Config, secret string) (bool, error) {
 	apiBase := cfg.Get("api_base", slackDefaultAPIBase)
+	if err := requireSecureEndpoint("slack", apiBase); err != nil {
+		return false, err
+	}
 	cli := newSlackClient(apiBase, secret)
 	resp, err := cli.do(ctx, http.MethodPost, "/api/auth.test", nil)
 	if err != nil {
@@ -139,6 +145,9 @@ func fingerprintSlack(ctx context.Context, cfg Config) (string, error) {
 		return "", errors.New("slack: token is required (set --token or SLACK_TOKEN)")
 	}
 	apiBase := cfg.Get("api_base", slackDefaultAPIBase)
+	if err := requireSecureEndpoint("slack", apiBase); err != nil {
+		return "", err
+	}
 	cli := newSlackClient(apiBase, token)
 	channels, err := slackResolveChannels(ctx, cli, cfg["channel"])
 	if err != nil {
@@ -530,7 +539,7 @@ func newSlackClient(base, token string) *slackClient {
 	return &slackClient{
 		base:  base,
 		token: token,
-		http:  &http.Client{Timeout: slackRequestTimeout},
+		http:  authenticatedHTTPClient(slackRequestTimeout),
 	}
 }
 

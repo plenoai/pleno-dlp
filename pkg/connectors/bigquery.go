@@ -78,12 +78,15 @@ func scanBigQuery(ctx context.Context, cfg Config, emit Emit) error {
 	}
 	apiBase := cfg.Get("api_base", bigqueryAPIBase)
 	apiBase = strings.TrimRight(apiBase, "/")
+	if err := requireSecureEndpoint("bigquery", apiBase); err != nil {
+		return err
+	}
 
 	cli := &bigqueryClient{
 		apiBase: apiBase,
 		token:   token,
 		project: project,
-		http:    &http.Client{Timeout: bigqueryRequestTimeout},
+		http:    authenticatedHTTPClient(bigqueryRequestTimeout),
 	}
 
 	resp, err := cli.runQuery(ctx, query)
@@ -126,11 +129,14 @@ func fingerprintBigQuery(ctx context.Context, cfg Config) (string, error) {
 		return "", errors.New("bigquery: query is required (set --query)")
 	}
 	apiBase := cfg.Get("api_base", bigqueryAPIBase)
+	if err := requireSecureEndpoint("bigquery", apiBase); err != nil {
+		return "", err
+	}
 	cli := &bigqueryClient{
 		apiBase: strings.TrimRight(apiBase, "/"),
 		token:   token,
 		project: project,
-		http:    &http.Client{Timeout: bigqueryRequestTimeout},
+		http:    authenticatedHTTPClient(bigqueryRequestTimeout),
 	}
 	resp, err := cli.runQuery(ctx, query)
 	if err != nil {
@@ -226,12 +232,15 @@ func verifyBigQuery(ctx context.Context, cfg Config, secret string) (bool, error
 	}
 	apiBase := cfg.Get("api_base", bigqueryAPIBase)
 	apiBase = strings.TrimRight(apiBase, "/")
+	if err := requireSecureEndpoint("bigquery", apiBase); err != nil {
+		return false, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/bigquery/v2/projects/%s/datasets?maxResults=1", apiBase, project), nil)
 	if err != nil {
 		return false, err
 	}
 	req.Header.Set("Authorization", "Bearer "+secret)
-	cli := &http.Client{Timeout: bigqueryRequestTimeout}
+	cli := authenticatedHTTPClient(bigqueryRequestTimeout)
 	resp, err := cli.Do(req)
 	if err != nil {
 		return false, err

@@ -22,7 +22,6 @@ import (
 	"hash"
 	"io"
 	"net/http"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -76,8 +75,8 @@ func scanBitbucket(ctx context.Context, cfg Config, emit Emit) error {
 		return errors.New("bitbucket: workspace or repo must be set")
 	}
 	apiBase := cfg.Get("api_base", bitbucketDefaultAPIBase)
-	if u, err := url.Parse(apiBase); err != nil || u.Scheme == "" || u.Host == "" {
-		return fmt.Errorf("bitbucket: invalid api_base %q", apiBase)
+	if err := requireSecureEndpoint("bitbucket", apiBase); err != nil {
+		return err
 	}
 	maxBytes := bitbucketDefaultMaxFileBytes
 	if v := cfg["max_file_bytes"]; v != "" {
@@ -133,6 +132,9 @@ func scanBitbucket(ctx context.Context, cfg Config, emit Emit) error {
 
 func verifyBitbucket(ctx context.Context, cfg Config, secret string) (bool, error) {
 	apiBase := cfg.Get("api_base", bitbucketDefaultAPIBase)
+	if err := requireSecureEndpoint("bitbucket", apiBase); err != nil {
+		return false, err
+	}
 	cli := newBitbucketClient(apiBase, "", "", secret)
 	resp, err := cli.do(ctx, http.MethodGet, "/2.0/user", nil)
 	if err != nil {
@@ -161,6 +163,9 @@ func fingerprintBitbucket(ctx context.Context, cfg Config) (string, error) {
 		return "", errors.New("bitbucket: workspace or repo must be set")
 	}
 	apiBase := cfg.Get("api_base", bitbucketDefaultAPIBase)
+	if err := requireSecureEndpoint("bitbucket", apiBase); err != nil {
+		return "", err
+	}
 	cli := newBitbucketClient(apiBase, username, appPassword, token)
 	repos, err := bitbucketListRepos(ctx, cli, workspace, repo)
 	if err != nil {
@@ -431,7 +436,7 @@ func newBitbucketClient(base, username, appPassword, bearerToken string) *bitbuc
 		username:    username,
 		appPassword: appPassword,
 		bearerToken: bearerToken,
-		http:        &http.Client{Timeout: bitbucketRequestTimeout},
+		http:        authenticatedHTTPClient(bitbucketRequestTimeout),
 	}
 }
 

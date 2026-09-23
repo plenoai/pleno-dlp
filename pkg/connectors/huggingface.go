@@ -70,6 +70,9 @@ func scanHuggingFace(ctx context.Context, cfg Config, emit Emit) error {
 		return errors.New("huggingface: org and repo are mutually exclusive")
 	}
 	apiBase := cfg.Get("api_base", hfDefaultAPIBase)
+	if err := requireSecureEndpoint("huggingface", apiBase); err != nil {
+		return err
+	}
 
 	cli := newHFClient(apiBase, token)
 	repos, err := hfListRepos(ctx, cli, org, repo, cfg.Get("repo_types", hfDefaultRepoTypes))
@@ -173,6 +176,9 @@ func scanHFRepo(ctx context.Context, cfg Config, cli *hfClient, repo hfRepoRef, 
 // verifyHuggingFace calls GET /api/whoami-v2 with the supplied token.
 func verifyHuggingFace(ctx context.Context, cfg Config, secret string) (bool, error) {
 	apiBase := cfg.Get("api_base", hfDefaultAPIBase)
+	if err := requireSecureEndpoint("huggingface", apiBase); err != nil {
+		return false, err
+	}
 	cli := newHFClient(apiBase, secret)
 	resp, err := cli.do(ctx, http.MethodGet, "/api/whoami-v2", nil)
 	if err != nil {
@@ -199,6 +205,9 @@ func fingerprintHuggingFace(ctx context.Context, cfg Config) (string, error) {
 		return "", errors.New("huggingface: either org or repo must be set")
 	}
 	apiBase := cfg.Get("api_base", hfDefaultAPIBase)
+	if err := requireSecureEndpoint("huggingface", apiBase); err != nil {
+		return "", err
+	}
 	cli := newHFClient(apiBase, cfg["token"])
 	repos, err := hfListRepos(ctx, cli, org, repo, cfg.Get("repo_types", hfDefaultRepoTypes))
 	if err != nil {
@@ -380,7 +389,7 @@ func newHFClient(base, token string) *hfClient {
 	return &hfClient{
 		base:  strings.TrimRight(base, "/"),
 		token: token,
-		http:  &http.Client{Timeout: hfRequestTimeout},
+		http:  authenticatedHTTPClient(hfRequestTimeout),
 	}
 }
 

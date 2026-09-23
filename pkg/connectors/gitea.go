@@ -78,8 +78,8 @@ func scanGiteaCompatible(ctx context.Context, provider giteaProvider, cfg Config
 	if apiBase == "" {
 		return fmt.Errorf("%s: --api-base is required", provider.name)
 	}
-	if u, err := url.Parse(apiBase); err != nil || u.Scheme == "" || u.Host == "" {
-		return fmt.Errorf("%s: invalid api_base %q", provider.name, apiBase)
+	if err := requireSecureEndpoint(provider.name, apiBase); err != nil {
+		return err
 	}
 	maxBytes := giteaDefaultMaxCommentBytes
 	if v := cfg["max_comment_bytes"]; v != "" {
@@ -122,6 +122,9 @@ func fingerprintGiteaCompatible(ctx context.Context, provider giteaProvider, cfg
 	if apiBase == "" {
 		return "", fmt.Errorf("%s: --api-base is required", provider.name)
 	}
+	if err := requireSecureEndpoint(provider.name, apiBase); err != nil {
+		return "", err
+	}
 	cli := newGiteaClient(apiBase, token)
 	h := sha256.New()
 	writeFingerprint(h, provider.name+"-v1")
@@ -141,6 +144,9 @@ func verifyGiteaCompatible(ctx context.Context, provider giteaProvider, cfg Conf
 	apiBase := cfg.Get("api_base", provider.apiBase)
 	if apiBase == "" {
 		return false, fmt.Errorf("%s: api_base is required for verify", provider.name)
+	}
+	if err := requireSecureEndpoint(provider.name, apiBase); err != nil {
+		return false, err
 	}
 	cli := newGiteaClient(apiBase, secret)
 	resp, err := cli.do(ctx, http.MethodGet, "/user", nil)
@@ -217,7 +223,7 @@ func newGiteaClient(base, token string) *giteaClient {
 	return &giteaClient{
 		base:  strings.TrimRight(base, "/"),
 		token: token,
-		http:  &http.Client{Timeout: giteaRequestTimeout},
+		http:  authenticatedHTTPClient(giteaRequestTimeout),
 	}
 }
 
