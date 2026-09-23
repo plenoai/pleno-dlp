@@ -24,7 +24,7 @@ import (
 
 var apiBase = "https://api.cloudflare.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 40 chars from the URL-safe alphabet. The shape is generic, so we only emit
 // matches when a co-occurring "cloudflare" / CF_API_TOKEN keyword is in the

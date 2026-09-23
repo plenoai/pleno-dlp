@@ -13,7 +13,7 @@ import (
 
 var apiBase = "https://mainnet.helius-rpc.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b`)

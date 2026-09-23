@@ -15,7 +15,7 @@ import (
 
 var apiBase = "https://console.neon.tech"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(neon_[A-Za-z0-9]{32,80})\b`) })
 

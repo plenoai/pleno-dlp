@@ -20,7 +20,7 @@ import (
 
 var apiBase = "https://api.anthropic.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // sk-ant-admin- + 20+ base62/_-/.. The pkg/detectors/anthropic package
 // owns sk-ant- generally; we own only the admin- subset.

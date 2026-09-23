@@ -17,7 +17,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)hanko[_\.\-]?(?:api[_\.\-]?key|admin[_\.\-]?key|token|secret)\s*[:=]\s*["']?([A-Za-z0-9_\-\.]{32,200})["']?`)

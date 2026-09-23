@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.knock.app"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk_(?:test|live)_[A-Za-z0-9_-]{32,})\b`) })
 

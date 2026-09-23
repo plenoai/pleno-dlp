@@ -29,7 +29,7 @@ func apiURLForDC(dc string) string {
 	return "https://" + dc + ".api.mailchimp.com/3.0/"
 }
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 32 hex + literal "-us" + 1-2 digit DC number. Mailchimp DCs are
 // us1..us2x range; we accept 1-2 digits to stay forward-compatible.

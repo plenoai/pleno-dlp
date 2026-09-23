@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://ollama.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Ollama Cloud keys are 40-80 alnum / base64url chars (no documented
 // fixed prefix as of 2026); we anchor on length + the `ollama` keyword.

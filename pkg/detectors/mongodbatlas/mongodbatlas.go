@@ -28,7 +28,7 @@ import (
 
 var apiBase = "https://cloud.mongodb.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Public key: 8 lowercase letters (e.g. "abcdefgh"). Private key: UUID
 // shape (8-4-4-4-12 hex). The 8-letter shape is generic, so we require a

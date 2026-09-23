@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.lemonsqueezy.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Lemon Squeezy API tokens are JWT-like (3 dot-separated base64url segments).
 // Accept anything matching that JWT pattern with a wide length range. The

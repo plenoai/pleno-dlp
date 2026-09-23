@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://fcm.googleapis.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // FCM legacy server keys: `AAAA<base64url>:APA91b<base64url>` — the prefix
 // `AAAA` is followed by base64url chars and a colon-separated `APA91b`

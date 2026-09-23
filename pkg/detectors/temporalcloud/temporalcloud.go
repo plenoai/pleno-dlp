@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://cloud.temporal.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(tcsk_[A-Za-z0-9_\-]{32,128})\b`) })
 

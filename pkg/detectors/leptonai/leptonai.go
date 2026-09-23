@@ -29,7 +29,7 @@ import (
 
 var apiBase = "https://dashboard.lepton.ai"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // No prefix and no documented length, so the regex stays a bare alnum run
 // (>=32) and the keyword gate + entropy floor carry the false-positive load.

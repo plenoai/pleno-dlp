@@ -20,7 +20,7 @@ import (
 
 var apiBase = "https://api.dropboxapi.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	shortRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sl\.[A-Za-z0-9_-]{130,})\b`) })

@@ -14,7 +14,7 @@ import (
 
 var apiBase = "https://api.getpostman.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // PMAK- prefix + 24 hex + dash + 34 hex.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(PMAK-[a-f0-9]{24}-[a-f0-9]{34})\b`) })

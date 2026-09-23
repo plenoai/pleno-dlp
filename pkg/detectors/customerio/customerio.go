@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://track.customer.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // site_id and api_key are both 20-char alphanumeric (no separators). The
 // 20-char base62 shape and the absence of any credential-borne prefix are

@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.civo.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Civo API keys are mixed-case base62 with no prefix. No authoritative source
 // pins an exact length/charset: the civo/cli README example is 50 chars

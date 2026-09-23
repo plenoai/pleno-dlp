@@ -18,7 +18,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // n8n keys are JWT (3 dot-separated base64url segments).
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {

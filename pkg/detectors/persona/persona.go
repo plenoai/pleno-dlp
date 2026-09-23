@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.withpersona.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Persona API keys: persona_(production|sandbox)_ + 32-128 alnum.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {

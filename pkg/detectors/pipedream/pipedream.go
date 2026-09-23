@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.pipedream.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Pipedream user-API tokens are 64 hex chars; we accept the [32, 80] range
 // to cover newer JWT-prefixed shapes too.

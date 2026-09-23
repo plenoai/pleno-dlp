@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://api.us-west-1.saucelabs.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Sauce Labs access_keys are UUIDs (`8-4-4-4-12` hex). Username is alnum/_-.
 var userRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)SAUCE_USERNAME["\s:=]+([A-Za-z0-9._-]{3,40})`) })

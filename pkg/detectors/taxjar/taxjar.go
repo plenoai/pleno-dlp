@@ -22,7 +22,7 @@ import (
 
 var apiBase = "https://api.taxjar.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 32 lowercase alphanumeric per upstream trufflehog (`[a-z0-9]{32}`). No
 // prefix to anchor on, so the arm regex + entropy floor carry the

@@ -18,7 +18,7 @@ var (
 	apiBaseSandbox = "https://api-sandbox.gocardless.com"
 )
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:live|sandbox)_[A-Za-z0-9_\-]{40,200})\b`) })
 

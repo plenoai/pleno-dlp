@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.mux.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	tokenIDRe = sync.OnceValue(func() *regexp.Regexp {

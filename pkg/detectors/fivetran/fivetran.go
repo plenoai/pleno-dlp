@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.fivetran.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Fivetran API keys/secrets are 20 alnum each. We pair them by proximity.
 var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{20})\b`) })

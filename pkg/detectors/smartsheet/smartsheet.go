@@ -30,7 +30,7 @@ import (
 
 var apiBase = "https://api.smartsheet.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // No documented prefix or fixed length; keep the wide alnum range and rely on
 // the keyword gate + entropy floor to disambiguate.

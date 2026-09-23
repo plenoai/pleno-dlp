@@ -23,7 +23,7 @@ import (
 
 var apiBase = "https://mailtrap.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Mailtrap publishes no authoritative token format: the docs document only the
 // `Api-Token` / `Authorization: Bearer` headers and use placeholders

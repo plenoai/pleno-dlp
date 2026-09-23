@@ -14,7 +14,7 @@ import (
 
 var apiBase = "https://api.netlify.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // nfp_ + 40 alphanumeric. Netlify's PAT format is documented and stable
 // (https://docs.netlify.com/api/get-started/#authentication).

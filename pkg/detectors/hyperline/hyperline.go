@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.hyperline.co"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // The >=16 tail is a recall-safe lower bound, not a documented exact length.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:prod|test)_[A-Za-z0-9]{16,})\b`) })

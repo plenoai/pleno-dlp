@@ -22,7 +22,7 @@ import (
 
 var apiBase = "https://api.sumsub.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // keyRe anchors on the documented Sumsub app-token shape: an environment
 // prefix (`prd:` / `tst:` / `sbx:`) followed by two alphanumeric segments.

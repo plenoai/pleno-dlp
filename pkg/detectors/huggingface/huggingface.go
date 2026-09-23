@@ -12,7 +12,7 @@ import (
 
 var apiBase = "https://huggingface.co"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(hf_[A-Za-z0-9]{34})\b`) })
 

@@ -51,7 +51,7 @@ import (
 
 var apiBase = "https://rest.nexmo.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	// Key: 8-char alnum. No authoritative length spec exists, so this is left

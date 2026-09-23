@@ -14,7 +14,7 @@ import (
 
 var apiBase = "https://api.fireworks.ai/inference"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // fw_ + 24+ base62. Production keys are 24-char base62 in observed samples.
 var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(fw_[A-Za-z0-9]{20,})\b`) })

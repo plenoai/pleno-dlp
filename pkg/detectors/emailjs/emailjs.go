@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.emailjs.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var userRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{16,24})\b`) })
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{32,64})\b`) })

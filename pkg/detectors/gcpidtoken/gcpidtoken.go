@@ -24,7 +24,7 @@ var jwtRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
 })
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 type Scanner struct{}
 

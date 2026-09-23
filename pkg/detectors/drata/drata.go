@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://public-api.drata.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Drata API tokens are documented as 40+ char base64url.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40,128})\b`) })

@@ -14,7 +14,7 @@ import (
 
 var apiBase = "https://api.cerebras.ai"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // csk- + 32+ base62. Cerebras inference keys observed at 32-char base62.
 var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(csk-[A-Za-z0-9]{24,})\b`) })

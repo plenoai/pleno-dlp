@@ -17,7 +17,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(shp(?:at|ss|ca)_[0-9a-fA-F]{32})\b`) })
 

@@ -20,7 +20,7 @@ import (
 
 var apiBase = "https://api.clickup.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // pk_<digits>_<32 uppercase alnum>. The leading `pk_` and the digit
 // segment are distinctive enough that we don't require a co-occurring

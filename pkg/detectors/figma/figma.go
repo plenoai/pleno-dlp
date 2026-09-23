@@ -15,7 +15,7 @@ import (
 
 var apiBase = "https://api.figma.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `figd_` legacy: ~40 base64url chars; `figpat_` modern: 6-segment dash
 // shape ending in 32 base64url. We accept either.

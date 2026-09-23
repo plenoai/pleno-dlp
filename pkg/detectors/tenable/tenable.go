@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://cloud.tenable.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	accessRe = sync.OnceValue(func() *regexp.Regexp {

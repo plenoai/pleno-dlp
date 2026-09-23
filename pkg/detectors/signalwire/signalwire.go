@@ -19,7 +19,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // SignalWire credentials are a two-part pair: Project ID + API token.
 // Documented shapes (upstream trufflehog pkg/detectors/signalwire):

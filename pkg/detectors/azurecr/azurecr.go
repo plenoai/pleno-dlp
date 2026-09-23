@@ -42,7 +42,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{10,400}\.[A-Za-z0-9_\-]{10,800}\.[A-Za-z0-9_\-]{10,400})\b`)

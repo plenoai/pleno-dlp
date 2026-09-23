@@ -19,7 +19,7 @@ import (
 // apiBase overrides the verify endpoint host. Default empty disables verify.
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // DocuSign tokens are JWTs — three base64url segments joined by `.`.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {

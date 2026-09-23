@@ -20,7 +20,7 @@ import (
 
 var apiBase = "https://api.letsdeel.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Deel does not publish a token prefix, length, or charset. The official auth
 // docs only show a `Bearer YOUR-TOKEN-HERE` placeholder and trufflehog upstream

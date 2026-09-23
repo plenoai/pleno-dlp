@@ -19,7 +19,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Vertex tokens are GCP-issued OAuth bearer JWTs (3 base64url segments)
 // or short-lived ya29.* opaque tokens. We anchor on the JWT shape /

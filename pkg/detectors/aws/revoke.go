@@ -24,7 +24,7 @@ import (
 // apiBase is overridable from tests.
 var apiBase = "https://iam.amazonaws.com"
 
-var revokeHTTPClient = &http.Client{Timeout: 10 * time.Second}
+var revokeHTTPClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 const (
 	EnvAdminAccessKeyID     = "PLENO_DLP_REVOKE_AWS_ADMIN_ACCESS_KEY_ID"

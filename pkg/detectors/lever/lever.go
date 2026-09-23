@@ -25,7 +25,7 @@ import (
 
 var apiBase = "https://api.lever.co"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Lever API keys are documented as 40-char lower-hex strings. This
 // shape is identical to a git SHA-1, so the surrounding keyword

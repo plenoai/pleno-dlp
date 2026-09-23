@@ -31,7 +31,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // secretRe matches a Keycloak client secret: a [A-Za-z0-9] run of one of the
 // three documented SecretGenerator lengths — 32 (SECRET_LENGTH_256_BITS, the

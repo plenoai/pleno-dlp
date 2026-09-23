@@ -29,7 +29,7 @@ import (
 
 var apiBase = "https://api.buddy.works"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Buddy tokens are UUID v4 — 8-4-4-4-12 hyphenated lowercase hex, no prefix.
 // Source: buddy.works API docs (Hello World / Personal Access Token pages)

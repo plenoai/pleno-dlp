@@ -20,7 +20,7 @@ import (
 
 var apiBase = "https://app.launchdarkly.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `relay-proxy-` + UUID. Same UUID body as access keys but the prefix is
 // distinctive.

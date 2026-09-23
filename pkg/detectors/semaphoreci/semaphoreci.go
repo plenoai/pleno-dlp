@@ -33,7 +33,7 @@ import (
 
 var apiBase = "" // per-org host (`<org>.semaphoreci.com`); empty = unverified.
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe stays at the original {40,80} alphanumeric range. The official docs
 // do not document a length or charset, so narrowing this would risk recall;

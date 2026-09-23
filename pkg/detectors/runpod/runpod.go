@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://api.runpod.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // UUID v4 shape, optionally prefixed with `RUNPOD_API_KEY_` style; we
 // match the bare UUID and gate by keyword.

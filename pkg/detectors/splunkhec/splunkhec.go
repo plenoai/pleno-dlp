@@ -29,7 +29,7 @@ import (
 // detector never invents a host; tests override it with an httptest server.
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	verifyAcceptCodes = []int{http.StatusOK}

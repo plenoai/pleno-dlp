@@ -19,7 +19,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // BeyondTrust documents its API key as "a cryptographically strong random
 // sequence of numbers hashed into a 128-character string"

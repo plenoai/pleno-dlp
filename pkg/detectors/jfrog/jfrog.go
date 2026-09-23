@@ -25,7 +25,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Reference tokens: base64 of "reftkn:01:<expiry>:<id>:<secret>" — every
 // such string starts with "cmVmdGtuO". Production tokens are 200+ chars

@@ -25,7 +25,7 @@ import (
 
 var apiBase = "https://api.sift.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Sift Science accountId/apiKey are documented as 20-80 char
 // alphanumeric strings. We rely on the keywordRe gate to suppress

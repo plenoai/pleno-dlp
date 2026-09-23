@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://rest.api.transifex.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Transifex tokens are `1/<40-hex>` or modern `1/<base64url>{40+}`.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(1/[A-Za-z0-9_-]{40,80})\b`) })

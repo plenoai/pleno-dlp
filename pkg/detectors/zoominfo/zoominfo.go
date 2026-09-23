@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.zoominfo.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // ZoomInfo access tokens are JWTs (3 base64url-padded segments).
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {

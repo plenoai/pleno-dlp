@@ -23,7 +23,7 @@ import (
 
 var apiBase = "https://harvest.greenhouse.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe matches a lowercase-hex run of at least the documented 32-char
 // length. The documented format is exactly 32 hex chars; the lower bound

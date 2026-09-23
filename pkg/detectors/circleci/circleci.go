@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://circleci.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	// `CCIPRJ_` + 43 base64url-ish chars (project-scoped token).

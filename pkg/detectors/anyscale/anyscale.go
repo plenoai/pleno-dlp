@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://console.anyscale.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(esct_[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{40,})\b`) })
 

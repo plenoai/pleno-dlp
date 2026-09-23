@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://api.sumologic.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	// Access IDs are 14 chars with a documented `su` prefix

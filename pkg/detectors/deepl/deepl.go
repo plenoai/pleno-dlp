@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api-free.deepl.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // DeepL Free key: 36-char UUID + ":fx" suffix.
 // DeepL Pro key: 36-char UUID, identical shape to many UUIDs, so we

@@ -14,7 +14,7 @@ import (
 
 var apiBase = "https://exp.host"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe is intentionally fixed-length at 32 chars.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_\-]{32})\b`) })

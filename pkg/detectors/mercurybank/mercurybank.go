@@ -34,7 +34,7 @@ import (
 
 var apiBase = "https://api.mercury.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe anchors on the documented Mercury prefix. The capture spans the whole
 // credential (including the "secret-token:" prefix) because that full string is

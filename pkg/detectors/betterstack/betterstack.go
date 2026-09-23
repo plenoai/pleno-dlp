@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://uptime.betterstack.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Better Stack tokens are 24-char alphanumeric with no public prefix (upstream
 // trufflehog pins {24}; the Telemetry/Warehouse API docs show 24-char alnum

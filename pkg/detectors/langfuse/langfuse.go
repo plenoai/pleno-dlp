@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://cloud.langfuse.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Langfuse keys: pk-lf-<uuid> and sk-lf-<uuid>.
 var pubRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pk-lf-[a-f0-9-]{30,40})\b`) })

@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://sentry.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // sntryu_ + 64 lowercase hex.
 var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sntryu_[a-f0-9]{64})\b`) })

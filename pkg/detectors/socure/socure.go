@@ -32,7 +32,7 @@ import (
 
 var apiBase = "https://api.socure.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe anchors on the documented UUID v4 structure (8-4-4-4-12 hex, version
 // nibble 4, variant nibble [89ab]). Source: help.socure.com RiskOS

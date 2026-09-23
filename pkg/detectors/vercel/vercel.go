@@ -22,7 +22,7 @@ import (
 
 var apiBase = "https://api.vercel.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 24 alphanumeric. No prefix to anchor on, so the keyword gate carries the
 // false-positive load.

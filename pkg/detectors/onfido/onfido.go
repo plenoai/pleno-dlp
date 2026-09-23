@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.onfido.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Onfido tokens: api_(live|sandbox)_(us|eu|ca)_ + 40 alnum.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {

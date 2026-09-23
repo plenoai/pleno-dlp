@@ -19,7 +19,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 32-64 alnum keys. No provider (FastNEAR, Pagoda) documents an
 // authoritative length/charset/prefix for its RPC API key, so the length

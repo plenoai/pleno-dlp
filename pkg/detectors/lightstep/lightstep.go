@@ -26,7 +26,7 @@ import (
 
 var apiBase = "https://api.lightstep.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe is intentionally a generic alnum run: no authoritative source
 // (Lightstep/ServiceNow Cloud Observability docs, nor any upstream trufflehog

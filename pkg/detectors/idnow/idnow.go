@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://gateway.idnow.de"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 

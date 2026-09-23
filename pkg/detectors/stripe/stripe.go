@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.stripe.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // sk_live_, sk_test_, and rk_live_ share the same suffix shape.
 var keyRe = sync.OnceValue(func() *regexp.Regexp {

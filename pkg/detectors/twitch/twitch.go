@@ -27,7 +27,7 @@ import (
 
 var apiBase = "https://id.twitch.tv"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 30-char lowercase base36 (`[0-9a-z]`), no prefix. trufflehog upstream pins
 // exactly this shape (`\b([0-9a-z]{30})\b`) and Twitch's own CLI validates the

@@ -20,7 +20,7 @@ import (
 // apiBase overrides the verify host. Default empty disables verify.
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // credRe matches the client_id / client_secret shape. Paylocity's auth docs
 // show a 32-char lowercase-hex client_id (example dfff6fdfb9a145d59389542285dfa505)

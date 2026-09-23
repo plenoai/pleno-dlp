@@ -30,7 +30,7 @@ import (
 
 var apiBase = "https://api.razorpay.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	// Key id is anchored on the rzp_(test|live)_ prefix. The prefix is the

@@ -24,7 +24,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Totango service tokens are 32-64 alnum chars; anchored on an
 // explicit Totango keyword.

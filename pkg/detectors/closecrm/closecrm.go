@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.close.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Close API keys are documented as `api_<base62>{40,}` (the `api_` prefix
 // is consistent across the platform).

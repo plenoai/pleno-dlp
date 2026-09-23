@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.portkey.ai"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Portkey API keys are 32-64 base64url chars, anchored on `portkey`.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9+/_=-]{32,64})\b`) })

@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.moonpay.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:pk|sk)_(?:live|test)_[A-Za-z0-9]{32,})\b`) })
 

@@ -34,7 +34,7 @@ import (
 // Tests override this to point at an httptest server.
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // GET /rest/api/1.0/users is admin-permission-gated, so a VALID non-admin token
 // returns 403 — that is a live token with insufficient scope, NOT an invalid

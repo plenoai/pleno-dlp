@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.paperspace.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 40-char base64url. Optional `api_` documentation prefix is captured
 // via an alternation rather than hard-required because production keys

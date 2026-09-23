@@ -19,7 +19,7 @@ import (
 // apiBase is empty by default — verify is skipped unless overridden.
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Twingate API tokens: tk_<32-base64url> or tkt_<...>.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(tkt?_[A-Za-z0-9_-]{20,200})\b`) })

@@ -28,7 +28,7 @@ import (
 
 var apiBase = "" // self-hosted; empty = unverified.
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // No authoritative Jenkins X token format exists (see package doc), so we do
 // not pin an exact length or anchor a prefix — that would silently destroy

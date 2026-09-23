@@ -21,7 +21,7 @@ import (
 
 var apiBase = "https://app.snipcart.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Exactly 75 chars of [0-9A-Za-z_], per the upstream trufflehog detector
 // (`\b([0-9A-Za-z_]{75})\b`). No prefix to anchor on, so the keyword arm

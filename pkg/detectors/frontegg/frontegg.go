@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.frontegg.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	clientIDRe = sync.OnceValue(func() *regexp.Regexp {

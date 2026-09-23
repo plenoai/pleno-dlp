@@ -25,7 +25,7 @@ import (
 // apiBase to point at an httptest server.
 var apiBase = "https://api.backblazeb2.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 const authPath = "/b2api/v2/b2_authorize_account"
 

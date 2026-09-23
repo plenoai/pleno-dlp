@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.browserstack.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	// Browserstack usernames are alphanumeric, typically 8-24 chars; access

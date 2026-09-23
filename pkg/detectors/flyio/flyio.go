@@ -21,7 +21,7 @@ import (
 
 var apiBase = "https://api.fly.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // fm1_ or fm2_ + URL-safe base64 (alphanumeric + _ + -). We require >=50
 // characters of body to skip non-token noise like "fm1_TODO".

@@ -21,7 +21,7 @@ import (
 // secret. Hosts are <cluster>.pusher.com.
 var apiBase = "https://api.pusher.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Pusher Channels key and secret are documented as 20-character lowercase
 // alphanumeric strings (lowercase hex in practice). Source: trufflehog

@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.telnyx.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // KEY + 32+ alnum chars (Telnyx V2 keys observed at 56-char base64url).
 var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(KEY[A-Za-z0-9_]{32,})\b`) })

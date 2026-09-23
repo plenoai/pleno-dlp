@@ -23,7 +23,7 @@ import (
 
 var apiBase = "https://api.airbrake.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Airbrake user API keys are exactly 40 alphanumeric chars, no prefix.
 // Source: upstream trufflehog pkg/detectors/airbrakeuserkey keyPat

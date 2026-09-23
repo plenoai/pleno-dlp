@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://blob.vercel-storage.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`\b(vercel_blob_rw_[A-Za-z0-9]{20,80}_[A-Za-z0-9]{8,40})\b`)

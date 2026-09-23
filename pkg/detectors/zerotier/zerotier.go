@@ -25,7 +25,7 @@ import (
 
 var apiBase = "https://my.zerotier.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe matches the documented 32-character token. Charset stays broad-alnum
 // (rather than strict hex) so mixed-case fixtures and any non-lowercase

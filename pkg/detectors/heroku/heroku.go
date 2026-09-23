@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://api.heroku.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Heroku doesn't require UUID v4, so we accept any hex UUID and lean on the
 // keyword gate for precision.

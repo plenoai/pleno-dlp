@@ -35,7 +35,7 @@ import (
 // (e.g. https://identity.bitwarden.eu); tests override this var.
 var apiBase = "https://identity.bitwarden.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `0.` version + UUID + `.` + base64 access-key id + `:` + base64
 // access-key secret. The version `0.` plus the colon separator is the

@@ -20,7 +20,7 @@ import (
 
 var apiBase = "https://rest.avatax.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var accountRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([0-9]{7,12})\b`) })
 var licenseRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24,32})\b`) })

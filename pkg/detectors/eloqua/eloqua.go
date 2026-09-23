@@ -31,7 +31,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Oracle does not publicly document the length, charset, or any prefix of the
 // Eloqua OAuth Client Id / Client Secret (the auth docs only describe the

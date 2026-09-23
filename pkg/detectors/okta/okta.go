@@ -28,7 +28,7 @@ import (
 // e.g. "https://example.okta.com". Empty => Verify no-ops (unverified-by-design).
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Okta tokens start with "00" then 40 URL-safe base64-ish chars (alphanum,
 // underscore, hyphen). The shape is documented and stable.

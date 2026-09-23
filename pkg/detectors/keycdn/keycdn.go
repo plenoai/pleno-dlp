@@ -22,7 +22,7 @@ import (
 
 var apiBase = "https://api.keycdn.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe anchors on KeyCDN's documented `sk_prod_` secret-key prefix
 // (https://www.keycdn.com/api). The single published example

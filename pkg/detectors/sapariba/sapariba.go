@@ -24,7 +24,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Application Key: exactly 32 mixed-case alphanumeric chars, no prefix
 // (per SAP-samples). The bare shape collides with many random secrets, so

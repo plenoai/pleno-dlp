@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.smith.langchain.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`\b(lsv2_(?:pt|sk)_[a-f0-9]{32,64}_[a-f0-9]{8,16})\b`)

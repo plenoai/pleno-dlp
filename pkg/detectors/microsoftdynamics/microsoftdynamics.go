@@ -18,7 +18,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Dynamics access tokens are AAD-issued JWTs (3 dot-separated base64url
 // segments). We anchor on the JWT shape rather than free alnum to keep

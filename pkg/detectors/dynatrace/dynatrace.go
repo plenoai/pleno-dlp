@@ -20,7 +20,7 @@ import (
 // apiBase overrides the verify endpoint host. Default empty disables verify.
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // dt0c01.<id>.<secret> — id is 24 base32 chars, secret is 64 base32 chars.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dt0[a-z][0-9]{2}\.[A-Z0-9]{24}\.[A-Z0-9]{64})\b`) })

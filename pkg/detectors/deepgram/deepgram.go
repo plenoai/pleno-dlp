@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.deepgram.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Deepgram keys are documented as 40-char hex.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40})\b`) })

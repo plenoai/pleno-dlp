@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.materialize.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Materialize Cloud app passwords are documented as `mzp_<base64url>{40+}`.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(mzp_[A-Za-z0-9_]{40,128})\b`) })

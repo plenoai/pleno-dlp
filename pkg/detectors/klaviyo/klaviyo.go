@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://a.klaviyo.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Klaviyo private keys: `pk_<32-hex-or-base62>`. Site keys: `sk_<32-…>` or
 // `pk_…` shape, also documented as 6+ char base62 in some docs. We accept

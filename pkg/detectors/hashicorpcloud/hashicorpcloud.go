@@ -12,7 +12,7 @@ import (
 
 var apiBase = "https://api.cloud.hashicorp.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // HCP tokens have three internal dot-separated segments, but the leading
 // `hcp.` prefix is the unambiguous anchor.

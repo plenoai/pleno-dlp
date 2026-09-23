@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://app.aikido.dev"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe matches a base62 run. Aikido's authoritative API docs
 // (https://apidocs.aikido.dev/reference/getaccesstoken) document a two-part

@@ -22,7 +22,7 @@ import (
 
 var apiBase = "https://backboard.railway.app"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 8-4-4-4-12 hex UUID. Lowercase only — Railway emits lowercase.
 var keyRe = sync.OnceValue(func() *regexp.Regexp {

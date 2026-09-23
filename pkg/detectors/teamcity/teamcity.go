@@ -25,7 +25,7 @@ import (
 // verification. Tests assign this package-level var to point at a local server.
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // acceptCodes/rejectCodes per the verify plan: 200 = valid bearer token,
 // 401/403/404 = explicit rejection. 429 and 5xx are transient (handled by

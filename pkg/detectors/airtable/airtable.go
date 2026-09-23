@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.airtable.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	// PAT shape per Airtable docs: `pat` + 14 alnum + `.` + 64 hex. Distinct

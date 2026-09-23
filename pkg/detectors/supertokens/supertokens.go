@@ -30,7 +30,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe matches the documented SuperTokens api_key charset (alphanumeric
 // incl. capitals, '=', '-') at the documented 20-char minimum. No maximum is

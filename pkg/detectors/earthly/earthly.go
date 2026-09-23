@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.earthly.dev"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Earthly Cloud tokens are issued server-side; no authoritative source
 // documents a prefix, fixed length, or charset (the cloud-api repo is

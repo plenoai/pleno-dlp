@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://my.webhookrelay.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var idRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)

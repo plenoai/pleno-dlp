@@ -27,7 +27,7 @@ import (
 
 var apiBase = "https://api.tailscale.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `tskey-` is the documented prefix; `auth-`, `api-`, `client-` are the
 // sub-types. The body is base32/base62 of varying length and may contain

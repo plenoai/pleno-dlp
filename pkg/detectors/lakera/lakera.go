@@ -30,7 +30,7 @@ import (
 
 var apiBase = "https://api.lakera.ai"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 32-64 alnum. No authoritative prefix/length to anchor on, so the keyword
 // gate plus the entropy floor carry the false-positive load. Length range

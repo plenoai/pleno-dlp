@@ -20,7 +20,7 @@ import (
 
 var apiBase = "https://open.larksuite.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var appIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(cli_[a-f0-9]{16})\b`) })
 

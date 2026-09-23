@@ -26,7 +26,7 @@ import (
 
 var apiBase = "https://api.vimeo.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe is intentionally generic: Vimeo's token length/charset is
 // undocumented (see package doc), so pinning a length would silently destroy

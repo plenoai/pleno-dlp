@@ -42,7 +42,7 @@ var connRe = sync.OnceValue(func() *regexp.Regexp {
 	)
 })
 
-var httpClient = &http.Client{Timeout: dialTimeout}
+var httpClient = detectors.NewVerifyHTTPClient(dialTimeout)
 
 type Scanner struct{}
 

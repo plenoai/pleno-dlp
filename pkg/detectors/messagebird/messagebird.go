@@ -23,7 +23,7 @@ import (
 
 var apiBase = "https://rest.messagebird.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Exactly 25 chars over [A-Za-z0-9_-], pinned to trufflehog upstream
 // (pkg/detectors/messagebird) and consistent with the documented key body.

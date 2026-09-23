@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://slack.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // xoxb-<workspace_id>-<bot_id>-<secret>.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(xoxb-\d+-\d+-[A-Za-z0-9]{24,})\b`) })

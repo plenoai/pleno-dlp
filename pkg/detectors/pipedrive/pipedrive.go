@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.pipedrive.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Pipedrive personal API tokens are documented as 40-char alphanumeric.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40})\b`) })

@@ -22,7 +22,7 @@ import (
 
 var apiBase = "https://www.workato.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe matches the documented 64-char lowercase-hex auth token. Length and
 // charset are both authoritatively documented (docs.workato.com auth-token),

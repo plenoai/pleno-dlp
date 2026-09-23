@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://workbench.expel.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Expel API tokens are opaque non-expiring Bearer access_tokens; Expel's
 // docs and the pyexclient client do NOT publish a prefix, length, or

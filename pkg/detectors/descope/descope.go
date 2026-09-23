@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.descope.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Descope mgmt keys: K2 prefix + 40+ base64url body. Project IDs share the
 // `P` prefix but are 24 chars and don't trigger.

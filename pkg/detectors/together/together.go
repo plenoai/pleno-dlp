@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.together.xyz"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 64 lowercase hex chars.
 var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{64})\b`) })

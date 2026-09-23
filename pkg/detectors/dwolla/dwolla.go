@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.dwolla.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Dwolla application key and secret are each exactly 50 alphanumeric chars.
 // Source: upstream trufflehog detector pins both halves to `[a-zA-Z-0-9]{50}`

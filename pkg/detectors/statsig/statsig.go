@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://statsigapi.net"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:console|secret)-[A-Za-z0-9]{40,})\b`) })
 

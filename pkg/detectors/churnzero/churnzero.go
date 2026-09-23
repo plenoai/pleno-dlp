@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://analytics.churnzero.net"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // ChurnZero appKey is documented as a 36-char UUID. We accept the UUID
 // shape and bound by the `churnzero` keyword.

@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://oauth2.googleapis.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Refresh tokens are documented as `1//` followed by ~93 chars of
 // base64url-without-padding. We accept 80..200 to absorb minor format drift.

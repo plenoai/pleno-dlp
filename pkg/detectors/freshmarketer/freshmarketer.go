@@ -15,7 +15,7 @@ import (
 
 var apiBase = "https://app.freshmarketer.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // No authoritative source pins the exact length or charset for a
 // freshmarketer key, so the length window is left wide and recall is

@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.studio.nebius.ai"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Nebius keys are issued as JWT-like strings starting with "AAAA" (the
 // b64url-encoded `{"alg":"...` header). Length is provider-controlled —

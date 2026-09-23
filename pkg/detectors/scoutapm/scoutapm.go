@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://scoutapm.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Scout's organization/agent key ("key" in scout_apm.yml, SCOUT_KEY env) is a
 // prefixless alphanumeric string. Official agent examples are inconsistent on

@@ -15,7 +15,7 @@ import (
 
 var apiBase = "https://app.launchdarkly.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `api-` or `sdk-` + UUID. The hyphenated UUID anchored to the prefix is
 // distinctive enough to skip a keyword gate.

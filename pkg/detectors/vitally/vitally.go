@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.vitally.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe matches a 32-64 alnum run. The Vitally REST API key is passed as the
 // Basic-auth username (key:""), but the official docs do not disclose the

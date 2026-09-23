@@ -30,7 +30,7 @@ import (
 // into live verification against a known instance.
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	// Modern wrapped service / batch tokens: `hvs.<base64url>` and
