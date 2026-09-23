@@ -119,6 +119,7 @@ func newStreamMatchCache(reader io.ReaderAt, size int64) *streamMatchCache {
 
 type streamFindingBatch struct {
 	findings      []Finding
+	pendingBytes  int
 	resolveFailed bool
 }
 
@@ -126,7 +127,19 @@ func (b *streamFindingBatch) append(finding Finding) {
 	if b == nil {
 		return
 	}
+	b.pendingBytes += streamFindingPendingCost(finding)
 	b.findings = append(b.findings, finding)
+}
+
+// streamFindingPendingCost estimates the bytes a pending finding retains: the
+// cloned raw values and redaction plus the detached chunk copy and a fixed
+// share of the Result/ExtraData overhead.
+func streamFindingPendingCost(f Finding) int {
+	n := len(f.Result.Raw) + len(f.Result.RawV2) + len(f.Result.Redacted) + 512
+	for k, v := range f.Result.ExtraData {
+		n += len(k) + len(v) + 48
+	}
+	return n
 }
 
 func (b *streamFindingBatch) flush(ctx context.Context, e *Engine, c *sources.Chunk, cache *streamMatchCache) {
@@ -166,6 +179,7 @@ func (b *streamFindingBatch) flush(ctx context.Context, e *Engine, c *sources.Ch
 	}
 	clear(b.findings)
 	b.findings = b.findings[:0]
+	b.pendingBytes = 0
 }
 
 func (c *streamMatchCache) match(ctx context.Context, raw []byte) (streamMatch, error) {
@@ -194,13 +208,16 @@ func (c *streamMatchCache) lookup(raw []byte) (streamMatch, bool) {
 
 const streamBatchMaxRaw = 32 << 10
 
-// Keep detector output bounded while retaining enough findings to resolve
-// their raw spans in one pass. The cache survives each flush, so repeated raw
-// values do not cause another source read; a reader failure also stops retrying
-// for the rest of this variant after the first reported error.
-// ponytail: diverse batches reread the source; raise this limit only when
-// profiling shows those passes dominate and the extra pending memory fits.
-const streamFindingBatchLimit = 1024
+// Bound pending findings by retained bytes, not count. Every flush resolves
+// its uncached raws with a forward pass from the source head, so a count cap
+// turned finding-dense inputs into O(batches × input) re-reads; a byte cap
+// keeps memory flat while a typical variant resolves in one pass. The cache
+// survives each flush, so repeated raw values do not cause another source
+// read; a reader failure also stops retrying for the rest of this variant
+// after the first reported error.
+// ponytail: extreme finding density still degrades to per-cap passes; raise
+// this budget only when profiling shows those passes dominate.
+const streamFindingPendingBytes = 8 << 20
 
 // resolve finds all short, uncached raw values in one bounded forward pass.
 // Long values keep the exact single-pattern fallback because making the block
@@ -1117,16 +1134,20 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 	tagBlastRadius(&r)
 	e.stats.findings.Add(1)
 	if stream && matchCache != nil && matchCache.pending != nil {
-		if len(matchCache.pending.findings) >= streamFindingBatchLimit {
-			matchCache.pending.flush(ctx, e, c, matchCache)
+		pending := matchCache.pending
+		_, resolved := matchCache.lookup(r.Raw)
+		if !resolved || len(pending.findings) > 0 {
+			if pending.pendingBytes >= streamFindingPendingBytes {
+				pending.flush(ctx, e, c, matchCache)
+			}
+			pending.append(Finding{
+				Result:         r,
+				Chunk:          chunkForFinding(c, sourceLine(c), true),
+				Detector:       d.Type(),
+				VerifierBacked: e.isVerifier[di],
+			})
+			return
 		}
-		matchCache.pending.append(Finding{
-			Result:         r,
-			Chunk:          chunkForFinding(c, sourceLine(c), true),
-			Detector:       d.Type(),
-			VerifierBacked: e.isVerifier[di],
-		})
-		return
 	}
 	line := 0
 	if stream {

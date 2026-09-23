@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -279,12 +280,6 @@ type failingReaderAt struct{ err error }
 
 func (r failingReaderAt) ReadAt([]byte, int64) (int, error) { return 0, r.err }
 
-// plant writes raw at offset in data and returns the planted offset.
-func plant(data []byte, offset int64, raw []byte) int64 {
-	copy(data[offset:], raw)
-	return offset
-}
-
 // TestFindReaderMatchesPrefixGroups covers the issue-436 matrix in one
 // fixture: a same-(first,length) group whose longest common prefix narrows
 // mid-pattern ("gh" for ghp_/gho_ mixes), a first-byte-only group, mixed
@@ -524,18 +519,168 @@ func TestStreamFindingBatchFlushesAtLimitAndReusesSpanCache(t *testing.T) {
 	batch := &streamFindingBatch{}
 	cache.pending = batch
 	chunk := &sources.Chunk{SourceType: sources.SourceFilesystem}
-	for i := 0; i < streamFindingBatchLimit+1; i++ {
+	emit := func(raw []byte) {
 		eng.emitDetectorResult(context.Background(), chunk, decoder.Variant{}, "", 0, true, detectors.Result{
 			DetectorType: detectors.AWS,
 			Raw:          raw,
 		}, cache)
 	}
-	if got := len(sink.Findings()); got != streamFindingBatchLimit {
-		t.Fatalf("findings before final flush=%d, want %d", got, streamFindingBatchLimit)
+
+	// Pending is bounded by retained bytes, not a fixed finding count. The
+	// first emit queues the raw; distinct ~1 MiB raws then grow the batch
+	// until the byte cap forces a flush. The cap-crossing finding itself
+	// lands in the next batch.
+	emit(raw)
+	var emitted int
+	for i := 0; emitted == 0; i++ {
+		if i > 64 {
+			t.Fatal("pending never reached the byte cap")
+		}
+		big := bytes.Repeat([]byte{'k'}, 1<<20)
+		copy(big, fmt.Sprintf("batch-limit-raw-%d", i))
+		emit(big)
+		emitted = len(sink.Findings())
+	}
+	emit([]byte("still-pending-raw"))
+	cache.pending = nil
+	batch.flush(context.Background(), eng, chunk, cache)
+	if got, want := len(sink.Findings()), emitted+2; got != want {
+		t.Fatalf("findings after final flush=%d, want %d", got, want)
+	}
+
+	// A resolved raw arriving on an empty batch emits straight through
+	// without touching pending.
+	batch = &streamFindingBatch{}
+	cache.pending = batch
+	emit(raw)
+	emit(raw)
+	if got, want := len(sink.Findings()), emitted+4; got != want {
+		t.Fatalf("findings after resolved-raw emits=%d, want %d", got, want)
+	}
+	if len(batch.findings) != 0 {
+		t.Fatalf("resolved raw entered pending: %d findings", len(batch.findings))
 	}
 	cache.pending = nil
 	batch.flush(context.Background(), eng, chunk, cache)
-	if got := len(sink.Findings()); got != streamFindingBatchLimit+1 {
-		t.Fatalf("findings after final flush=%d, want %d", got, streamFindingBatchLimit+1)
+}
+
+// earlierOccurrenceDetector emits a fixed raw whenever its trigger keyword is
+// dispatched, so the raw bytes can sit earlier in the body in non-detection
+// context (no keyword nearby).
+type earlierOccurrenceDetector struct{}
+
+func (*earlierOccurrenceDetector) Type() detectors.DetectorType { return detectors.AWS }
+
+func (*earlierOccurrenceDetector) Keywords() []string { return []string{"emit-earlier-token"} }
+
+func (*earlierOccurrenceDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	if !bytes.Contains(data, []byte("emit-earlier-token")) {
+		return nil, nil
+	}
+	return []detectors.Result{{
+		DetectorType: detectors.AWS,
+		Raw:          []byte("SHARED_EARLIER_TOKEN"),
+	}}, nil
+}
+
+// The first-occurrence contract: a raw planted before the detection window in
+// non-detection context must resolve to that earlier position, not to the
+// in-window position where it was emitted.
+func TestStreamFindingResolvesEarlierNonDetectionOccurrence(t *testing.T) {
+	raw := []byte("SHARED_EARLIER_TOKEN")
+	data := bytes.Repeat([]byte{' '}, 2*maxWindowSize)
+	data[0], data[1], data[2] = '\n', '\n', '\n'
+	copy(data[64:], raw)
+	triggerAt := maxWindowSize + windowOverlap + 64
+	copy(data[triggerAt:], "emit-earlier-token")
+
+	findings := sinkFindings(t, lazyReaderChunk(data, "/fixture/earlier.txt"), &earlierOccurrenceDetector{})
+	if len(findings) != 1 {
+		t.Fatalf("findings=%d, want 1", len(findings))
+	}
+	span := findings[0].RawSpan
+	if span == nil || span[0] != 64 || span[1] != 64+len(raw) {
+		t.Fatalf("span=%v, want first occurrence at [64,%d)", span, 64+len(raw))
+	}
+	if line := findings[0].Chunk.SourceMetadata.Filesystem.Line; line != 4 {
+		t.Fatalf("line=%d, want first-occurrence line 4", line)
+	}
+}
+
+func sinkFindings(t *testing.T, chunk *sources.Chunk, d detectors.Detector) []Finding {
+	t.Helper()
+	sink := &engineRecordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{d}, Options{Concurrency: 1}, sink)
+	if _, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{chunk}}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	return sink.Findings()
+}
+
+// rescanProbeDetector emits every probe token occurrence in its input as a
+// distinct raw, letting the regression test generate >1024 unique raws.
+type rescanProbeDetector struct{}
+
+const rescanTokenPrefix = "RESCAN_TOKEN_"
+
+func (*rescanProbeDetector) Type() detectors.DetectorType { return detectors.AWS }
+
+func (*rescanProbeDetector) Keywords() []string { return []string{rescanTokenPrefix} }
+
+func (*rescanProbeDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	var out []detectors.Result
+	for off := 0; ; {
+		i := bytes.Index(data[off:], []byte(rescanTokenPrefix))
+		if i < 0 {
+			return out, nil
+		}
+		start := off + i
+		end := start + len(rescanTokenPrefix) + 6
+		if end > len(data) {
+			return out, nil
+		}
+		out = append(out, detectors.Result{DetectorType: detectors.AWS, Raw: bytes.Clone(data[start:end])})
+		off = end
+	}
+}
+
+// Issue #437: more than 1,024 distinct raws used to force one resolve pass
+// over the source head per 1,024-finding batch — O(batches × input) re-reads.
+// With byte-bounded pending, the whole variant resolves in a single pass.
+func TestStreamFindingRescanDoesNotScaleWithBatches(t *testing.T) {
+	const (
+		size   = 8 << 20
+		tokens = 8*1024 + 1
+	)
+	data := bytes.Repeat([]byte{' '}, size)
+	for i := 0; i < tokens; i++ {
+		token := fmt.Sprintf("%s%06d", rescanTokenPrefix, i)
+		copy(data[i*(size/tokens):], token)
+	}
+	reader := &countingReaderAt{reader: bytes.NewReader(data)}
+	chunk := &sources.Chunk{
+		SourceType: sources.SourceFilesystem,
+		Open: func(context.Context) (io.ReaderAt, io.Closer, int64, error) {
+			return reader, io.NopCloser(strings.NewReader("")), int64(size), nil
+		},
+		SourceMetadata: sources.Metadata{
+			Filesystem: &sources.FilesystemMeta{Path: "/fixture/rescan.txt", Line: 1},
+		},
+	}
+	findings := sinkFindings(t, chunk, &rescanProbeDetector{})
+	if len(findings) == 0 {
+		t.Fatal("no findings emitted")
+	}
+	// Detection and decoder walks already cost a few full-input passes; the
+	// old 1,024-finding batch loop added ~half a pass per batch on top
+	// (~5 extra passes here). Bound total logical reads well under that.
+	if got, limit := reader.bytes.Load(), int64(8*size); got >= limit {
+		t.Fatalf("logical reads=%d bytes (%.1fx input), want < %.1fx", got, float64(got)/float64(size), float64(limit)/float64(size))
+	}
+	t.Logf("logical reads=%d bytes (%.2fx input), calls=%d", reader.bytes.Load(), float64(reader.bytes.Load())/float64(size), reader.calls.Load())
+	for i, f := range findings[:min(len(findings), 8)] {
+		if f.RawSpan == nil {
+			t.Fatalf("finding %d missing RawSpan", i)
+		}
 	}
 }
