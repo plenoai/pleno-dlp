@@ -21,7 +21,7 @@ import (
 
 var apiBase = "https://api.lacework.net"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `<40+ base64url>_<32+ hex>`. We require the underscore-and-hex tail
 // because that's what disambiguates Lacework from generic JWTs and

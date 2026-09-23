@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://api.voyageai.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Production keys are typically 35 chars total.
 var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pa-[A-Za-z0-9_-]{24,})\b`) })

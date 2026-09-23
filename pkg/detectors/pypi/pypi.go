@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://upload.pypi.org"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // PyPI tokens always start "pypi-AgEIc" followed by macaroon body.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pypi-AgEIc[A-Za-z0-9_-]{50,})\b`) })

@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://www.googleapis.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // AIza<35 chars> is the documented format. The character class is the
 // base64url-without-padding alphabet.

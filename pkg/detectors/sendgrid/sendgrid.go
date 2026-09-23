@@ -21,7 +21,7 @@ import (
 
 var apiBase = "https://api.sendgrid.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // SendGrid keys: literal "SG." then 22-char id, dot, 43-char secret.
 var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43})\b`) })

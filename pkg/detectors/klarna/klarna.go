@@ -37,7 +37,7 @@ import (
 
 var apiBase = "https://api.klarna.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // keyRe anchors on the documented `klarna_(live|test)_api_` prefix. The random
 // tail is base64-ish (letters, digits, +/=*_- and similar); the whole key may

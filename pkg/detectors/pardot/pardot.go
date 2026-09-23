@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://pi.pardot.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // buRe matches the Account Engagement Business Unit ID. Salesforce documents
 // this as a value that "begins with '0Uv' and is 18 characters long" — a

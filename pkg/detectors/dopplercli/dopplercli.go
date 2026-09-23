@@ -21,7 +21,7 @@ import (
 
 var apiBase = "https://api.doppler.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `dp.cli.` + 40+ base64url chars. Anchored to the new prefix so it doesn't
 // overlap with the existing doppler detector.

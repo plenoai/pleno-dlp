@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.opslevel.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // OpsLevel API tokens are mixed-case alphanumeric strings used as a Bearer
 // credential. OpsLevel's docs do NOT publish a length or charset spec; the

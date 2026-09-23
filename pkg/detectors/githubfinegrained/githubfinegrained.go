@@ -14,7 +14,7 @@ import (
 
 var apiBase = "https://api.github.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Fine-grained PAT layout: github_pat_<22 base62>_<59 base62>
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`github_pat_[A-Za-z0-9_]{82}\b`) })

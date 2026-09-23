@@ -15,7 +15,7 @@ import (
 
 var apiBase = "https://api.reka.ai"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Reka exposes no authoritative API-key format: docs.reka.ai and the
 // official SDKs only ever show the placeholder "your-api-key" / the

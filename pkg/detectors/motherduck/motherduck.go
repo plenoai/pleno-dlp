@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.motherduck.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // MotherDuck tokens are JWTs (three dot-separated base64url segments).
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {

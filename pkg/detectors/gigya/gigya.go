@@ -17,7 +17,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(_[A-Za-z0-9_\-]{28,40})`) })
 var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`([A-Za-z0-9+/]{27}=)`) })

@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://api.pushover.net"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Pushover application tokens are documented as exactly 30 characters,
 // case-sensitive, charset [A-Za-z0-9], with no distinguishing prefix.

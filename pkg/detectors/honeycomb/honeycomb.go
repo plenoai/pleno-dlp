@@ -13,7 +13,7 @@ import (
 
 var apiBase = "https://api.honeycomb.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	// Modern ingest key: hcaik_ plus 58 base62 chars; the prefix is unique

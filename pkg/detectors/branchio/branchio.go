@@ -21,7 +21,7 @@ import (
 
 var apiBase = "https://api2.branch.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(key_(?:live|test)_[A-Za-z0-9]{32,})\b`) })
 var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(secret_(?:live|test)_[A-Za-z0-9]{32,})\b`) })

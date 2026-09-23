@@ -27,7 +27,7 @@ import (
 
 var apiBase = "https://api.fastspring.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // {16,32} alphanumeric: the original shape, retained because no authoritative
 // FastSpring source documents the credential length or charset. A bare

@@ -28,7 +28,7 @@ import (
 
 var apiBase = "https://api.rippling.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe stays a bare 40+ alphanumeric run: the credential format is
 // undocumented, so the keyword arm regex and entropy floor — not the token

@@ -20,7 +20,7 @@ import (
 var apiBaseProd = "https://api.braintreegateway.com"
 var apiBaseSandbox = "https://api.sandbox.braintreegateway.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // access_token$<env>$<merchant>$<32-hex>
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {

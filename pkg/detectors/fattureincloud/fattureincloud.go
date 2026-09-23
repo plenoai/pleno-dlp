@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api-v2.fattureincloud.it"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Tokens are documented as 40+ char base64url-ish. Generic shape — keyword
 // gate is mandatory.

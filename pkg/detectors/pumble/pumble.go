@@ -29,7 +29,7 @@ import (
 
 var apiBase = "https://pumble-api-keys.addons.marketplace.cake.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Pumble personal API tokens are 40-80 char base64url strings.
 // Trufflehog upstream regex matches `[A-Za-z0-9]{40,80}`; we keep

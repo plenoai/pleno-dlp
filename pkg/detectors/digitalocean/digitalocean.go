@@ -22,7 +22,7 @@ import (
 
 var apiBase = "https://api.digitalocean.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // dop_v1_ prefix + 64 hex chars. The provider-specific prefix means the regex
 // is precise enough that we don't need a co-occurring keyword.

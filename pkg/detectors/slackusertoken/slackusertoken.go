@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://slack.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // xoxp-<workspace>-<user>-<num>-<secret>. Trailing run is base62-ish; require
 // at least 24 chars to avoid latching on truncated samples.

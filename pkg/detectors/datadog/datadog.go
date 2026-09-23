@@ -23,7 +23,7 @@ import (
 
 var apiBase = "https://api.datadoghq.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // API key: 32 lowercase hex chars. Application key: 40 hex chars.
 var (

@@ -12,7 +12,7 @@ import (
 
 var apiBase = "https://api.hubapi.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // An optional region tag like "na1-" may precede the 36-char body; the alphabet
 // stays permissive so non-na1 regions still match.

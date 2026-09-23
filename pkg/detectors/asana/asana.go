@@ -14,7 +14,7 @@ import (
 
 var apiBase = "https://app.asana.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Asana PATs come in two observed formats:
 //   - Legacy: 1/<16-digit gid>/<32 hex>   (slash-separated)

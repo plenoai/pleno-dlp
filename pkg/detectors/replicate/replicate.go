@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.replicate.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `r8_` followed by 37+ base62 chars.
 var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(r8_[A-Za-z0-9]{37,})\b`) })

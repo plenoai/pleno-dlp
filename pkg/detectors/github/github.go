@@ -20,7 +20,7 @@ import (
 
 var apiBase = "https://api.github.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 const (
 	EnvClientID     = "PLENO_DLP_REVOKE_GITHUB_CLIENT_ID"

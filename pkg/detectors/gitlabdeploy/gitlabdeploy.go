@@ -20,7 +20,7 @@ import (
 
 var apiBase = "https://gitlab.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Token shapes (per GitLab's documented prefixes):
 //   - gldt-<20+ chars> deploy token

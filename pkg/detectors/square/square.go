@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://connect.squareup.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Production tokens are 64 base64url chars beginning with EAAA. Sandbox is
 // the legacy sq0atp- prefix. The combined alternation keeps a single match

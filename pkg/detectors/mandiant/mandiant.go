@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://api.intelligence.fireeye.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Mandiant API keys and secret IDs are alnum runs. We match each
 // independently then pair them within the chunk if both appear near the

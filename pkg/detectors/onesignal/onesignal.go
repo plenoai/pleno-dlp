@@ -39,7 +39,7 @@ import (
 
 var apiBase = "https://api.onesignal.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // legacyRe matches the documented OneSignal legacy REST API key: a
 // lowercase-hex UUID (8-4-4-4-12). This mirrors trufflehog's upstream

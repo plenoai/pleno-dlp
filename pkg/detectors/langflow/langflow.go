@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.langflow.astra.datastax.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(lf_[A-Za-z0-9_-]{32,80})\b`) })
 

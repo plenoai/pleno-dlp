@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.ngrok.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // ngrok tokens look like `<24 base62>_<27 base62>` totalling 52 chars,
 // always starting with `2` (the version digit). We accept 40..80 and

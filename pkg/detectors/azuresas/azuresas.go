@@ -19,7 +19,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // SAS URL: scheme + storage account + service domain + path + ?sv=...&sig=...
 // We anchor on a `sig=` query because that's the cryptographic parameter; sv

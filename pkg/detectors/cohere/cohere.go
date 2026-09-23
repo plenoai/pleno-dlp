@@ -20,7 +20,7 @@ import (
 
 var apiBase = "https://api.cohere.ai"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 40 base62 chars. Generic shape — keyword gate disambiguates.
 var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`) })

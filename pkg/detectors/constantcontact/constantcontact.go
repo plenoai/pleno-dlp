@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.cc.email"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Constant Contact mints JWT-shaped access tokens; we accept either a JWT or
 // a 32-char base62 long-lived token (legacy v2).

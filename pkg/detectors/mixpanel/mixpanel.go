@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://mixpanel.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	// Service account name: lowercase slug (>=10 chars to skip generic

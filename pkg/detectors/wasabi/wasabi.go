@@ -36,7 +36,7 @@ import (
 
 var apiBase = "https://s3.wasabisys.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // us-east-1 is the canonical default for the account-global GET Service
 // call; Wasabi accepts it regardless of where the buckets actually live.

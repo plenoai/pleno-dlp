@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://cloud.yugabyte.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 64-byte+ base64url with optional `=` padding — Yugabyte's mint contract.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{64,512})\b`) })

@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.bitfinex.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Bitfinex keys are 43 alnum chars (newer API v2 keys).
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{43})\b`) })

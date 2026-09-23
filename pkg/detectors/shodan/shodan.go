@@ -27,7 +27,7 @@ import (
 
 var apiBase = "https://api.shodan.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 32-char alphanumeric, per the documented Shodan key format (see package doc).
 // The length is pinned from an authoritative source; the shape is too generic

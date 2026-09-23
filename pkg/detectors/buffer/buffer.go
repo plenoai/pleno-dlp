@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.bufferapp.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Buffer access tokens are 40-50 alnum chars (sometimes containing `/` and
 // `+` from base64); we accept the URL-safe alnum subset which matches the

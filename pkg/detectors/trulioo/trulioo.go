@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.globaldatacompany.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Trulioo issues OAuth2 client credentials (client_id/client_secret, NAPI v3)
 // or legacy Basic-Auth username:password — neither carries a documented prefix,

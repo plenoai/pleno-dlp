@@ -25,7 +25,7 @@ import (
 
 var apiBase = "https://api.mapbox.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // sk.<base64url-segment>.<base64url-payload>.<base64url-sig>. The leading
 // `sk.` distinguishes from `pk.` (public). Each segment is base64url.

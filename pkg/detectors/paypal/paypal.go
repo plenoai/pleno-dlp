@@ -23,7 +23,7 @@ import (
 
 var apiBase = "https://api-m.paypal.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 80 base64url chars. Both halves share this shape — identification of which
 // is "id" vs "secret" relies on positional ordering + keyword window.

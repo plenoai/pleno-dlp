@@ -28,7 +28,7 @@ import (
 
 var tokenURL = "https://oauth2.googleapis.com/token"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // gcp service-account JSON keys are multiline. Anchor on the unique pair:
 // "type": "service_account" + a private_key block. We expand from there to the

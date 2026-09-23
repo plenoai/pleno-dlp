@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.copper.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var emailRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b`)

@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.sendoso.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Sendoso API keys are documented as `sendoso_` prefix plus 32-64 alnum
 // chars; we anchor on the prefix to bound false positives.

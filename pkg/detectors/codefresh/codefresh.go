@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://g.codefresh.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Codefresh user tokens are JWT-shaped 3-segment dot-separated, but legacy
 // API keys can be a 40+ char alphanumeric. Match the broader shape and gate

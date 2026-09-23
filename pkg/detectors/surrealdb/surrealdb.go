@@ -19,7 +19,7 @@ import (
 // apiBase overrides the verify endpoint host. Default empty disables verify.
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // SurrealDB Cloud tokens are documented as 40+ char base64url JWTs.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {

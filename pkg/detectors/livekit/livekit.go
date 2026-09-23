@@ -18,7 +18,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // API key shape is authoritative: livekit/protocol generates it as
 // `guid.New(APIKeyPrefix)` = the literal prefix "API" + exactly Size=12

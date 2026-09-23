@@ -22,7 +22,7 @@ import (
 
 var apiBase = "https://api.twilio.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // SID: AC + 32 hex. Auth token: 32 hex (no provider prefix, so we always
 // require pairing with a SID to emit verified=true).

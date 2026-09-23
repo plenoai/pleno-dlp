@@ -28,7 +28,7 @@ import (
 
 var apiBase = "https://auth.propelauth.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // No authoritative length/charset/prefix is documented (see package doc), so
 // the original 40+ alphanumeric run is preserved to protect recall. The

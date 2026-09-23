@@ -15,7 +15,7 @@ import (
 
 var apiBase = "https://snyk.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // UUID lowercase hex; not anchored to v4 because Snyk doesn't guarantee v4
 // in their token-mint contract.

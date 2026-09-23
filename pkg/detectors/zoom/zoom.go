@@ -21,7 +21,7 @@ import (
 
 var apiBase = "https://api.zoom.us"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Zoom client_id is 22 base64url chars; client_secret is 32 base64url chars.
 // Both sit alongside the `zoom` keyword in source.

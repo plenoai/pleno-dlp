@@ -17,7 +17,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var userRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)qualys[_\-]user(?:name)?\s*[:=]\s*"?([A-Za-z0-9_\-]{4,64})"?`)

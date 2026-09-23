@@ -29,7 +29,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Typesense keys are documented as exactly 32 alphanumeric characters
 // with no distinguishing prefix, so the length is pinned and the keyword

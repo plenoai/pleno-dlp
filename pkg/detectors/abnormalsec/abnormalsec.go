@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.abnormalplatform.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Abnormal Security tokens are alphanumeric. No authoritative source
 // documents a prefix or an exact length, so we keep the original 32-64

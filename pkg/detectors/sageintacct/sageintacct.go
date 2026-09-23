@@ -20,7 +20,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe matches a generic 12-32 alnum run. Sage Intacct does NOT publish an
 // authoritative credential format: the developer docs state Web Services

@@ -20,7 +20,7 @@ import (
 
 var apiBase = "https://api.coinbase.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Coinbase v2 API keys are 32 alnum chars; secrets are 64 alnum.
 //

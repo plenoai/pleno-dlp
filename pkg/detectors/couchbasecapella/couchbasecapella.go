@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://cloudapi.cloud.couchbase.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Capella API tokens are documented as 40+ char base64url. Generic shape —
 // keyword gate required.

@@ -26,7 +26,7 @@ import (
 
 var apiBase = "https://api.parabola.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // No documented prefix to anchor on, so the keyword gate plus the entropy
 // floor carry the false-positive load. Length stays unpinned (32..80) because

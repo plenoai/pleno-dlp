@@ -21,7 +21,7 @@ import (
 
 var apiBase = "https://api.openai.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Excludes sk-ant- via a negative-lookahead-equivalent: we match `sk-` then
 // either `proj-` or any non-`a` char (or `a` not followed by `nt-`). Since Go

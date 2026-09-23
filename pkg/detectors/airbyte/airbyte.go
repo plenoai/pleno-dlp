@@ -17,7 +17,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Airbyte cloud client_credentials access tokens are JWT-shaped (3 dot
 // segments of base64url chars). We catch both that and 32+ alnum keys.

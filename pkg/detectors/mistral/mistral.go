@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://api.mistral.ai"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // keyRe matches a 32-char base62 run. NOTE: Mistral does not publish an
 // authoritative API-key format (no prefix, length, or charset is documented

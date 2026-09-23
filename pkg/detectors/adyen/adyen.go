@@ -30,7 +30,7 @@ import (
 // fixed public TEST host; tests override it.
 var apiBase = "https://checkout-test.adyen.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // acceptCodes: any status that means the request authenticated past the
 // X-API-Key gate. A valid key with a missing/empty merchantAccount yields

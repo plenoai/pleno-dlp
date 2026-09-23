@@ -33,7 +33,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe matches the canonical JWT shape used by Woodpecker CI: an `eyJ`
 // header, a base64url payload, and a base64url signature, dot-separated.

@@ -23,7 +23,7 @@ import (
 
 var apiBase = "https://driftapi.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Drift API tokens are documented JWT-shaped strings (three
 // base64url segments separated by dots). Trufflehog upstream uses

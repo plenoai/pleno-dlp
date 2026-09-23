@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.box.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Box developer/access tokens are 32-char alnum strings with no public
 // prefix — matching upstream trufflehog

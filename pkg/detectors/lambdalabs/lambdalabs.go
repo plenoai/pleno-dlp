@@ -27,7 +27,7 @@ import (
 
 var apiBase = "https://cloud.lambdalabs.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 40+ alphanumeric. No documented prefix or fixed length to anchor on, so the
 // arm regex and entropy floor carry the false-positive load. The {40,} bound

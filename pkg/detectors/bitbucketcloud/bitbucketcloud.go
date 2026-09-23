@@ -35,7 +35,7 @@ import (
 
 var apiBase = "https://api.bitbucket.org"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	// Modern Atlassian API token. Mirror of trufflehog atlassian/v2.

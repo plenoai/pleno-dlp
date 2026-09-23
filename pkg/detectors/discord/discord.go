@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://discord.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `<24+>.<6+>.<27+>` base64url segments. We allow a wider lower bound on the
 // last segment because Discord rotated to longer HMACs in late 2023.

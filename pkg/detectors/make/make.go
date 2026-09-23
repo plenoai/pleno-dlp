@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://us1.make.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Make API tokens are 36 char UUID-like (8-4-4-4-12 hex with dashes) or
 // 32+ alnum without dashes — we accept both shapes.

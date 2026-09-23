@@ -15,7 +15,7 @@ import (
 
 var apiBase = "https://app.terraform.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 14 alnum + ".atlasv1." + url-safe tail of 60+ chars. The "atlasv1" infix
 // is the legacy Atlas (HashiCorp's old name) marker that's still embedded in

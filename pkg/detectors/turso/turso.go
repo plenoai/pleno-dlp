@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.turso.tech"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Turso platform tokens are 3-part dotted JWTs but the API also accepts opaque
 // 40+ char strings; cover both shapes.

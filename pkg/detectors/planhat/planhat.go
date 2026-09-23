@@ -18,7 +18,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Planhat does not publish an authoritative token length/charset/prefix
 // (no upstream trufflehog detector exists; the developer docs describe how

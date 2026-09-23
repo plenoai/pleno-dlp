@@ -25,7 +25,7 @@ import (
 
 var apiBase = "https://api.june.so"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Unpinned alnum run. {16,} is a generic short-noise floor, not a
 // documented june key length — the format is unknown (see package doc).

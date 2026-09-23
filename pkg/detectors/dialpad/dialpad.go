@@ -23,7 +23,7 @@ import (
 
 var apiBase = "https://dialpad.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // No authoritative source pins Dialpad's API-key length or charset: Dialpad's
 // own docs deliberately omit it (they instruct users to share only the last 4

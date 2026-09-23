@@ -28,7 +28,7 @@ import (
 // apiBase overrides the verify host. Default empty disables verify.
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 40 hex chars = 160-bit secret expressed in hexadecimal form (cited above).
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-fA-F0-9]{40})\b`) })

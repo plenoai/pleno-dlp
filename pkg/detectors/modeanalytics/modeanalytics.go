@@ -24,7 +24,7 @@ import (
 
 var apiBase = "https://app.mode.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe matches Mode's hex credential halves. Mode's documented credentials
 // (Discovery API signature-token `access_key`/`access_secret`) are lowercase

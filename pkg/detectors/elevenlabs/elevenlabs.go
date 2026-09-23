@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.elevenlabs.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // ElevenLabs keys are documented as 32-char hex.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })

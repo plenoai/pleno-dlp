@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.buildkite.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	// `bkua_` + 40 hex (agent registration token).

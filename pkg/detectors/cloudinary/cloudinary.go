@@ -19,7 +19,7 @@ import (
 
 var apiBase = "https://api.cloudinary.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var urlRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`cloudinary://([0-9]{6,18}):([A-Za-z0-9_\-]{20,80})@([A-Za-z0-9_\-]{2,64})`)

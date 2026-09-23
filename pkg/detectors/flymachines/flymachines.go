@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.machines.dev"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`\b(FlyV1 [A-Za-z0-9_,\-]{20,400}|fly_[A-Za-z0-9_\-]{30,200})\b`)

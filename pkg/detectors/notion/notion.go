@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.notion.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(secret_[A-Za-z0-9]{43})\b`) })
 

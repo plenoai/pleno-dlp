@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.optimizely.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Optimizely PATs are documented as 40+ char base64url with `:` separators.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_:.-]{40,160})\b`) })

@@ -20,7 +20,7 @@ import (
 // a co-occurring host is parsed.
 var apiBase = "https://app.spacelift.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Spacelift API key/secret tokens are documented as `s_<32+ base62>`. The
 // `s_` prefix is short — keyword gate adds safety.

@@ -30,7 +30,7 @@ import (
 
 var apiBase = "https://webexapis.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // No public prefix exists to anchor on, so the keyword arm regex plus
 // the entropy floor carry the false-positive load.

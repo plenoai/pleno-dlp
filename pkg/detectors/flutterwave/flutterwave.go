@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.flutterwave.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Flutterwave secret keys: `FLWSECK-` (live) or `FLWSECK_TEST-` (test)
 // followed by 32-64 alnum / dash / X chars (the trailing -X is documented).

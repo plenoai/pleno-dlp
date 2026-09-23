@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.aiven.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Aiven tokens carry no public prefix and are base64 (alnum plus `/`, `+`,
 // `=`). The upstream trufflehog detector pins the length at exactly 372

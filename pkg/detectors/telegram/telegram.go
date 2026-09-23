@@ -15,7 +15,7 @@ import (
 
 var apiBase = "https://api.telegram.org"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Telegram bot tokens are <8-10 digit bot id>:<35-char base64url-ish>. The
 // 35-char run is the documented length; we accept 30+ to absorb future

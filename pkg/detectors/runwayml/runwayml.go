@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.runwayml.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // RunwayML SDK keys are documented as `key_` + 48-64 alnum chars.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(key_[A-Za-z0-9]{48,64})\b`) })

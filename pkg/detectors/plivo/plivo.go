@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.plivo.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // MA / SA + 18 uppercase alnum
 var authIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:MA|SA)[A-Z0-9]{18})\b`) })

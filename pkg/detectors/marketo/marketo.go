@@ -29,7 +29,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // idRe matches the Marketo client_id, a UUID v4. This is the authoritative
 // distinguishing shape (Adobe/Marketo docs + provider sample code) and acts as

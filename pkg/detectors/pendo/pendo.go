@@ -20,7 +20,7 @@ import (
 
 var apiBase = "https://app.pendo.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 32-char hex (pendo track API key) — collides with md5 digests, so the
 // keyword gate is mandatory. The integration-key JWT is left to the JWT

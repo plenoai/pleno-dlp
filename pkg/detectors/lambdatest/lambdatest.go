@@ -18,7 +18,7 @@ import (
 
 var apiBase = "https://api.lambdatest.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // LambdaTest usernames are typically email-prefix or short alnum strings;
 // access_keys are 20-32 alnum chars. We pair a `LT_USERNAME=` shape with

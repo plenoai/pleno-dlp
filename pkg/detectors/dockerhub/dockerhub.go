@@ -35,7 +35,7 @@ import (
 
 var apiBase = "https://hub.docker.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Token shape per the Docker Hub PAT issuance docs.
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dckr_pat_[A-Za-z0-9_-]{20,40})\b`) })

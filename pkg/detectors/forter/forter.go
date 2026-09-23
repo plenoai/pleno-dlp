@@ -14,7 +14,7 @@ import (
 
 var apiBase = "https://api.forter.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // No authoritative length/charset/prefix is published for Forter Site
 // ID + Secret Key credentials, so pinning either would risk destroying

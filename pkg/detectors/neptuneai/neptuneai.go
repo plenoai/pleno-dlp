@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://app.neptune.ai"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Neptune tokens are JWTs (eyJ + base64url payload + signature).
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {

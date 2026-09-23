@@ -15,7 +15,7 @@ import (
 
 var apiBase = "https://api.doppler.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `dp.` + 2-3 char scope + `.` + 40+ base64url chars. The dp.<scope>. prefix
 // is distinctive enough to skip a keyword gate.

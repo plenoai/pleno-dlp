@@ -20,7 +20,7 @@ import (
 // apiBase is empty by default — verify is skipped unless overridden.
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var ckRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(ck_[a-f0-9]{40})\b`) })
 var csRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(cs_[a-f0-9]{40})\b`) })

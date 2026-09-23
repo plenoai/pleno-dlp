@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.promptlayer.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pl_[A-Fa-f0-9]{32,64})\b`) })
 

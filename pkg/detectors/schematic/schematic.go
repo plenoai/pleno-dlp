@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.schematichq.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Schematic API keys are documented as `api_<32-char base62>` (no
 // environment-mode prefix in the literal — environment is keyed in the dashboard).

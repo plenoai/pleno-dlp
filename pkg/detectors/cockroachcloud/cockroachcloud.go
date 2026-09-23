@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://cockroachlabs.cloud"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `ccdb_` literal + 32-80 base62 (Cockroach mints variable-length tokens
 // depending on scope).

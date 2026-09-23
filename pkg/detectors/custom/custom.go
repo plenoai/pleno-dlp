@@ -213,7 +213,7 @@ func Compile(rule Rule) (*Detector, error) {
 		rule:     rule,
 		re:       re,
 		severity: sev,
-		client:   &http.Client{Timeout: 10 * time.Second},
+		client:   detectors.NewVerifyHTTPClient(10 * time.Second),
 	}, nil
 }
 

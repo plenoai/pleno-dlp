@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://api.gandi.net"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // The shape stays a generic alphanumeric run; the false-positive load is
 // carried entirely by the assignment-anchor arm regex, a tight proximity

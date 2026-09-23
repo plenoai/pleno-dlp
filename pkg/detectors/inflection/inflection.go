@@ -13,7 +13,7 @@ import (
 
 var apiBase = "https://api.inflection.ai"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // tokenRe stays a generic alnum run: no authoritative source documents the
 // Inflection key prefix/length/charset. Pinning a length would risk silently

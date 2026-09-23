@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://aihorde.net"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // AI Horde keys are UUID-shaped (8-4-4-4-12 hex with dashes) or 22-26
 // alnum compact form. We accept either.

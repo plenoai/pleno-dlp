@@ -20,7 +20,7 @@ import (
 
 var apiBase = "https://api.planetscale.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Token id is anchored on the distinguishing `pscale_(oauth|tkn)_` prefix
 // (PlanetScale's documented service-token prefix is `pscale_tkn_`; we also

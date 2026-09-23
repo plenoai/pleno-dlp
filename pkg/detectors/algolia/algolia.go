@@ -22,7 +22,7 @@ import (
 // override the template wholesale to point at httptest.
 var apiBaseTemplate = "https://%s-dsn.algolia.net"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	// 32 lowercase hex.

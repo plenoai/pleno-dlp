@@ -32,7 +32,7 @@ import (
 // operator supplies the deployment endpoint via apiBase override.
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 5 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(5 * time.Second)
 
 // id:secret pair, both URL-safe base64. Lengths chosen to match observed
 // Elastic Cloud API keys (id ~20 chars, secret 22-43 chars).

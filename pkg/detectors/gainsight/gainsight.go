@@ -15,7 +15,7 @@ import (
 
 var apiBase = "https://api.gainsightcloud.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Gainsight's access key is opaque and tenant-scoped; its docs decline to
 // document a length or charset beyond a UUID-v4-shaped example. Because no

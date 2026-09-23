@@ -34,7 +34,7 @@ import (
 
 var apiBase = "https://app.beeceptor.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Lowercase/uppercase hex, length >= 32. The documented key is 40 hex chars
 // (https://beeceptor.com/docs/api-overview/); we keep a >=32 lower bound rather

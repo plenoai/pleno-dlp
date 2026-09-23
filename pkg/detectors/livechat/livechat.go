@@ -17,7 +17,7 @@ import (
 
 var apiBase = "https://api.livechatinc.com"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // LiveChat PAT shape: dal:<account-id>:<secret> (id is uuid-ish, secret is base64url).
 var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dal:[A-Za-z0-9_-]{6,40}:[A-Za-z0-9_-]{20,80})\b`) })

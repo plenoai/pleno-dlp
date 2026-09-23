@@ -16,7 +16,7 @@ import (
 
 var apiBase = "https://quay.io"
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var tokenRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)quay[_\.\-]?(?:oauth[_\.\-]?token|api[_\.\-]?token|access[_\.\-]?token|token|secret)\s*[:=]\s*["']?([A-Za-z0-9]{40,80})["']?`)

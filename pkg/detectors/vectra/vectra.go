@@ -18,7 +18,7 @@ import (
 
 var apiBase = ""
 
-var httpClient = &http.Client{Timeout: 10 * time.Second}
+var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Vectra API tokens are 40 hex chars (UUID-without-dashes shape +
 // extension); we accept the 32-64 hex range to cover legacy and current.
