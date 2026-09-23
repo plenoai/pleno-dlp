@@ -59,6 +59,9 @@ func scanNotion(ctx context.Context, cfg Config, emit Emit) error {
 		return errors.New("notion: token is required (set --token or NOTION_TOKEN)")
 	}
 	apiBase := cfg.Get("api_base", notionDefaultAPIBase)
+	if err := requireSecureEndpoint("notion", apiBase); err != nil {
+		return err
+	}
 	query := cfg["query"]
 
 	cli := newNotionClient(apiBase, token)
@@ -132,6 +135,9 @@ func scanNotion(ctx context.Context, cfg Config, emit Emit) error {
 
 func verifyNotion(ctx context.Context, cfg Config, secret string) (bool, error) {
 	apiBase := cfg.Get("api_base", notionDefaultAPIBase)
+	if err := requireSecureEndpoint("notion", apiBase); err != nil {
+		return false, err
+	}
 	cli := newNotionClient(apiBase, secret)
 	resp, err := cli.do(ctx, http.MethodGet, "/users/me", nil)
 	if err != nil {
@@ -154,6 +160,9 @@ func fingerprintNotion(ctx context.Context, cfg Config) (string, error) {
 		return "", errors.New("notion: token is required (set --token or NOTION_TOKEN)")
 	}
 	apiBase := cfg.Get("api_base", notionDefaultAPIBase)
+	if err := requireSecureEndpoint("notion", apiBase); err != nil {
+		return "", err
+	}
 	cli := newNotionClient(apiBase, token)
 	h := sha256.New()
 	writeFingerprint(h, "notion-v1")
@@ -619,7 +628,7 @@ func newNotionClient(base, token string) *notionClient {
 	return &notionClient{
 		base:  base,
 		token: token,
-		http:  &http.Client{Timeout: notionRequestTimeout},
+		http:  authenticatedHTTPClient(notionRequestTimeout),
 	}
 }
 

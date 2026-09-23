@@ -61,6 +61,9 @@ func scanJira(ctx context.Context, cfg Config, emit Emit) error {
 	if apiBase == "" {
 		return errors.New("jira: api_base is required (set --site or --api-base)")
 	}
+	if err := requireSecureEndpoint("jira", apiBase); err != nil {
+		return err
+	}
 	cli := newJiraClient(apiBase, cfg["email"], token)
 
 	projects, err := jiraResolveProjects(ctx, cli, cfg["project"], cfg["jql"])
@@ -100,6 +103,9 @@ func verifyJira(ctx context.Context, cfg Config, secret string) (bool, error) {
 	if apiBase == "" {
 		return false, errors.New("jira: api_base not set (use --site or --api-base)")
 	}
+	if err := requireSecureEndpoint("jira", apiBase); err != nil {
+		return false, err
+	}
 	cli := newJiraClient(apiBase, cfg["email"], secret)
 	resp, err := cli.do(ctx, http.MethodGet, "/rest/api/3/myself", nil)
 	if err != nil {
@@ -124,6 +130,9 @@ func fingerprintJira(ctx context.Context, cfg Config) (string, error) {
 	apiBase := strings.TrimRight(cfg["api_base"], "/")
 	if apiBase == "" {
 		return "", errors.New("jira: api_base is required (set --site or --api-base)")
+	}
+	if err := requireSecureEndpoint("jira", apiBase); err != nil {
+		return "", err
 	}
 	cli := newJiraClient(apiBase, cfg["email"], token)
 	projects, err := jiraResolveProjects(ctx, cli, cfg["project"], cfg["jql"])
@@ -397,7 +406,7 @@ func newJiraClient(base, email, token string) *jiraClient {
 		base:  base,
 		email: email,
 		token: token,
-		http:  &http.Client{Timeout: jiraRequestTimeout},
+		http:  authenticatedHTTPClient(jiraRequestTimeout),
 	}
 }
 

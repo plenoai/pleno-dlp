@@ -72,6 +72,9 @@ func scanDatadog(ctx context.Context, cfg Config, emit Emit) error {
 		return errors.New("datadog: app_key is required (set --app-key or DD_APP_KEY)")
 	}
 	site := cfg.Get("site", datadogDefaultSite)
+	if err := requireSecureEndpoint("datadog", site); err != nil {
+		return err
+	}
 	query := cfg.Get("query", "*")
 
 	from, to := datadogTimeRange(cfg)
@@ -80,7 +83,7 @@ func scanDatadog(ctx context.Context, cfg Config, emit Emit) error {
 		site:   strings.TrimRight(site, "/"),
 		apiKey: apiKey,
 		appKey: appKey,
-		http:   &http.Client{Timeout: datadogRequestTimeout},
+		http:   authenticatedHTTPClient(datadogRequestTimeout),
 	}
 
 	var cursor string
@@ -132,13 +135,16 @@ func fingerprintDatadog(ctx context.Context, cfg Config) (string, error) {
 		return "", errors.New("datadog: app_key is required (set --app-key or DD_APP_KEY)")
 	}
 	site := cfg.Get("site", datadogDefaultSite)
+	if err := requireSecureEndpoint("datadog", site); err != nil {
+		return "", err
+	}
 	query := cfg.Get("query", "*")
 	from, to := datadogTimeRange(cfg)
 	cli := &datadogClient{
 		site:   strings.TrimRight(site, "/"),
 		apiKey: apiKey,
 		appKey: appKey,
-		http:   &http.Client{Timeout: datadogRequestTimeout},
+		http:   authenticatedHTTPClient(datadogRequestTimeout),
 	}
 	h := sha256.New()
 	writeFingerprint(h, "datadog-v1")
@@ -187,10 +193,13 @@ func datadogEventKey(evt datadogLogEvent) string {
 
 func verifyDatadog(ctx context.Context, cfg Config, secret string) (bool, error) {
 	site := cfg.Get("site", datadogDefaultSite)
+	if err := requireSecureEndpoint("datadog", site); err != nil {
+		return false, err
+	}
 	cli := &datadogClient{
 		site:   strings.TrimRight(site, "/"),
 		apiKey: secret,
-		http:   &http.Client{Timeout: datadogRequestTimeout},
+		http:   authenticatedHTTPClient(datadogRequestTimeout),
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cli.site+"/api/v1/validate", nil)
 	if err != nil {

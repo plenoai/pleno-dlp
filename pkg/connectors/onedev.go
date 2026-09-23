@@ -9,7 +9,6 @@ import (
 	"hash"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -36,8 +35,8 @@ func scanOneDev(ctx context.Context, cfg Config, emit Emit) error {
 	if apiBase == "" {
 		return fmt.Errorf("onedev: --api-base is required")
 	}
-	if u, err := url.Parse(apiBase); err != nil || u.Scheme == "" || u.Host == "" {
-		return fmt.Errorf("onedev: invalid api_base %q", apiBase)
+	if err := requireSecureEndpoint("onedev", apiBase); err != nil {
+		return err
 	}
 	projectID := cfg.Get("project_id", cfg["repo"])
 	if projectID == "" {
@@ -82,6 +81,9 @@ func fingerprintOneDev(ctx context.Context, cfg Config) (string, error) {
 	apiBase := cfg["api_base"]
 	if apiBase == "" {
 		return "", fmt.Errorf("onedev: --api-base is required")
+	}
+	if err := requireSecureEndpoint("onedev", apiBase); err != nil {
+		return "", err
 	}
 	projectID := cfg.Get("project_id", cfg["repo"])
 	if projectID == "" {
@@ -312,7 +314,7 @@ func newOneDevClient(base, token string) *oneDevClient {
 	return &oneDevClient{
 		base:  strings.TrimRight(base, "/"),
 		token: token,
-		http:  &http.Client{Timeout: 60 * time.Second},
+		http:  authenticatedHTTPClient(60 * time.Second),
 	}
 }
 

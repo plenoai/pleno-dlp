@@ -300,7 +300,7 @@ func TestScanRedash(t *testing.T) {
 
 func TestVerifyRedash(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/session" && r.URL.Query().Get("api_key") == "valid" {
+		if r.URL.Path == "/api/session" && r.Header.Get("Authorization") == "Key valid" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}

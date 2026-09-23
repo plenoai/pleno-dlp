@@ -195,12 +195,15 @@ func newESClient(cfg Config) (*esClient, error) {
 	if host == "" {
 		return nil, errors.New("elasticsearch: host is required (set --host or ELASTICSEARCH_HOST)")
 	}
+	if err := requireSecureEndpoint("elasticsearch", host); err != nil {
+		return nil, err
+	}
 	return &esClient{
 		host:     strings.TrimRight(host, "/"),
 		apiKey:   cfg["api_key"],
 		user:     cfg["user"],
 		password: cfg["password"],
-		http:     &http.Client{Timeout: esRequestTimeout},
+		http:     authenticatedHTTPClient(esRequestTimeout),
 	}, nil
 }
 

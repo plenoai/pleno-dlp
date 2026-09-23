@@ -60,6 +60,9 @@ func scanConfluence(ctx context.Context, cfg Config, emit Emit) error {
 	if apiBase == "" {
 		return errors.New("confluence: api_base is required")
 	}
+	if err := requireSecureEndpoint("confluence", apiBase); err != nil {
+		return err
+	}
 	cli := newConfluenceClient(apiBase, cfg["email"], token)
 	previousState, err := loadConfluenceIncrementalState(cfg[configKeyIncrementalPreviousState])
 	if err != nil {
@@ -112,6 +115,9 @@ func verifyConfluence(ctx context.Context, cfg Config, secret string) (bool, err
 	if apiBase == "" {
 		return false, errors.New("confluence: api_base not set")
 	}
+	if err := requireSecureEndpoint("confluence", apiBase); err != nil {
+		return false, err
+	}
 	cli := newConfluenceClient(apiBase, cfg["email"], secret)
 	// /rest/api/user/current is the documented self-identity endpoint.
 	resp, err := cli.do(ctx, http.MethodGet, "/rest/api/user/current", nil)
@@ -137,6 +143,9 @@ func fingerprintConfluence(ctx context.Context, cfg Config) (string, error) {
 	apiBase := strings.TrimRight(cfg["api_base"], "/")
 	if apiBase == "" {
 		return "", errors.New("confluence: api_base is required")
+	}
+	if err := requireSecureEndpoint("confluence", apiBase); err != nil {
+		return "", err
 	}
 	cli := newConfluenceClient(apiBase, cfg["email"], token)
 	h := sha256.New()
@@ -358,7 +367,7 @@ func newConfluenceClient(base, email, token string) *confluenceClient {
 		base:  base,
 		email: email,
 		token: token,
-		http:  &http.Client{Timeout: confluenceRequestTimeout},
+		http:  authenticatedHTTPClient(confluenceRequestTimeout),
 	}
 }
 

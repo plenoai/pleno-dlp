@@ -52,6 +52,9 @@ func init() {
 //   - api_key    (required) Postman API key
 //   - base_url   override https://api.getpostman.com (for testing)
 func scanPostman(ctx context.Context, cfg Config, emit Emit) error {
+	if err := requireSecureEndpoint("postman", cfg.Get("base_url", postmanBaseURL)); err != nil {
+		return err
+	}
 	cli := newPostmanClient(cfg)
 
 	workspaces, err := cli.listWorkspaces(ctx)
@@ -138,6 +141,9 @@ func postmanEmitWorkspace(ctx context.Context, cli *postmanClient, ws postmanWor
 }
 
 func fingerprintPostman(ctx context.Context, cfg Config) (string, error) {
+	if err := requireSecureEndpoint("postman", cfg.Get("base_url", postmanBaseURL)); err != nil {
+		return "", err
+	}
 	cli := newPostmanClient(cfg)
 	workspaces, err := cli.listWorkspaces(ctx)
 	if err != nil {
@@ -169,6 +175,9 @@ func fingerprintPostman(ctx context.Context, cfg Config) (string, error) {
 }
 
 func verifyPostman(ctx context.Context, cfg Config, secret string) (bool, error) {
+	if err := requireSecureEndpoint("postman", cfg.Get("base_url", postmanBaseURL)); err != nil {
+		return false, err
+	}
 	tmpCfg := Config{"api_key": secret, "base_url": cfg.Get("base_url", postmanBaseURL)}
 	cli := newPostmanClient(tmpCfg)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cli.baseURL+"/me", nil)
@@ -215,7 +224,7 @@ func newPostmanClient(cfg Config) *postmanClient {
 	return &postmanClient{
 		apiKey:  cfg["api_key"],
 		baseURL: strings.TrimRight(cfg.Get("base_url", postmanBaseURL), "/"),
-		http:    &http.Client{Timeout: postmanRequestTimeout},
+		http:    authenticatedHTTPClient(postmanRequestTimeout),
 	}
 }
 

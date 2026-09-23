@@ -4,7 +4,9 @@
 // GET /api/queries/{id}/results to retrieve the latest cached result
 // for each query. Each row is serialized to JSON and emitted as a chunk.
 //
-// Auth: API key sent as query parameter (?api_key=...).
+// Auth: API key sent as `Authorization: Key <key>` header, never in the
+// URL query string — query params land in server access logs, proxy logs,
+// and any redirect target's request line.
 // Verify hits GET /api/session to confirm API key validity.
 //
 // Pagination: Redash caches full query results; rows are paged locally
@@ -72,11 +74,14 @@ func scanRedash(ctx context.Context, cfg Config, emit Emit) error {
 		return errors.New("redash: host is required (set --host)")
 	}
 	host = strings.TrimRight(host, "/")
+	if err := requireSecureEndpoint("redash", host); err != nil {
+		return err
+	}
 
 	cli := &redashClient{
 		host:   host,
 		apiKey: apiKey,
-		http:   &http.Client{Timeout: redashRequestTimeout},
+		http:   authenticatedHTTPClient(redashRequestTimeout),
 	}
 
 	queryIDs, err := redashQueryIDs(ctx, cfg, cli)
@@ -132,10 +137,13 @@ func fingerprintRedash(ctx context.Context, cfg Config) (string, error) {
 		return "", errors.New("redash: host is required (set --host)")
 	}
 	host = strings.TrimRight(host, "/")
+	if err := requireSecureEndpoint("redash", host); err != nil {
+		return "", err
+	}
 	cli := &redashClient{
 		host:   host,
 		apiKey: apiKey,
-		http:   &http.Client{Timeout: redashRequestTimeout},
+		http:   authenticatedHTTPClient(redashRequestTimeout),
 	}
 	queryIDs, err := redashQueryIDs(ctx, cfg, cli)
 	if err != nil {
@@ -163,11 +171,15 @@ func verifyRedash(ctx context.Context, cfg Config, secret string) (bool, error) 
 		return false, errors.New("redash: host is required for verification")
 	}
 	host = strings.TrimRight(host, "/")
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, host+"/api/session?api_key="+secret, nil)
+	if err := requireSecureEndpoint("redash", host); err != nil {
+		return false, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, host+"/api/session", nil)
 	if err != nil {
 		return false, err
 	}
-	cli := &http.Client{Timeout: redashRequestTimeout}
+	req.Header.Set("Authorization", "Key "+secret)
+	cli := authenticatedHTTPClient(redashRequestTimeout)
 	resp, err := cli.Do(req)
 	if err != nil {
 		return false, err
@@ -242,13 +254,12 @@ func redashRowKey(qid int, rowJSON []byte) string {
 }
 
 func (c *redashClient) doGet(ctx context.Context, path string) (*http.Response, error) {
-	sep := "?"
-	if strings.Contains(path, "?") {
-		sep = "&"
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.host+path+sep+"api_key="+c.apiKey, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.host+path, nil)
 	if err != nil {
 		return nil, err
+	}
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Key "+c.apiKey)
 	}
 	return c.http.Do(req)
 }

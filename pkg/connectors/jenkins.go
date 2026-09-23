@@ -210,13 +210,16 @@ func newJenkinsClient(cfg Config) (*jenkinsClient, error) {
 	if token == "" {
 		return nil, errors.New("jenkins: token is required (set --token or JENKINS_TOKEN)")
 	}
+	if err := requireSecureEndpoint("jenkins", host); err != nil {
+		return nil, err
+	}
 	maxBuilds := jenkinsMaxBuilds
 	return &jenkinsClient{
 		host:      strings.TrimRight(host, "/"),
 		user:      user,
 		token:     token,
 		maxBuilds: maxBuilds,
-		http:      &http.Client{Timeout: jenkinsRequestTimeout},
+		http:      authenticatedHTTPClient(jenkinsRequestTimeout),
 	}, nil
 }
 

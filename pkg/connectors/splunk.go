@@ -72,6 +72,9 @@ func scanSplunk(ctx context.Context, cfg Config, emit Emit) error {
 		return errors.New("splunk: host is required (set --host)")
 	}
 	host = strings.TrimRight(host, "/")
+	if err := requireSecureEndpoint("splunk", host); err != nil {
+		return err
+	}
 	query := cfg.Get("query", "search index=* | head 1000")
 	earliest := cfg.Get("earliest", "-24h")
 	latest := cfg.Get("latest", "now")
@@ -79,7 +82,7 @@ func scanSplunk(ctx context.Context, cfg Config, emit Emit) error {
 	cli := &splunkClient{
 		host:  host,
 		token: token,
-		http:  &http.Client{Timeout: splunkRequestTimeout},
+		http:  authenticatedHTTPClient(splunkRequestTimeout),
 	}
 
 	sid, err := cli.createJob(ctx, query, earliest, latest)
@@ -143,13 +146,16 @@ func fingerprintSplunk(ctx context.Context, cfg Config) (string, error) {
 		return "", errors.New("splunk: host is required (set --host)")
 	}
 	host = strings.TrimRight(host, "/")
+	if err := requireSecureEndpoint("splunk", host); err != nil {
+		return "", err
+	}
 	query := cfg.Get("query", "search index=* | head 1000")
 	earliest := cfg.Get("earliest", "-24h")
 	latest := cfg.Get("latest", "now")
 	cli := &splunkClient{
 		host:  host,
 		token: token,
-		http:  &http.Client{Timeout: splunkRequestTimeout},
+		http:  authenticatedHTTPClient(splunkRequestTimeout),
 	}
 	sid, err := cli.createJob(ctx, query, earliest, latest)
 	if err != nil {
@@ -200,10 +206,13 @@ func verifySplunk(ctx context.Context, cfg Config, secret string) (bool, error) 
 		return false, errors.New("splunk: host is required for verification")
 	}
 	host = strings.TrimRight(host, "/")
+	if err := requireSecureEndpoint("splunk", host); err != nil {
+		return false, err
+	}
 	cli := &splunkClient{
 		host:  host,
 		token: secret,
-		http:  &http.Client{Timeout: splunkRequestTimeout},
+		http:  authenticatedHTTPClient(splunkRequestTimeout),
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, host+"/services/authentication/current-context?output_mode=json", nil)
 	if err != nil {

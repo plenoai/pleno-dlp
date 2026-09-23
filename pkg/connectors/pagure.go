@@ -33,8 +33,8 @@ func scanPagure(ctx context.Context, cfg Config, emit Emit) error {
 		return fmt.Errorf("pagure: --repo is required")
 	}
 	apiBase := cfg.Get("api_base", "https://pagure.io/api/0")
-	if u, err := url.Parse(apiBase); err != nil || u.Scheme == "" || u.Host == "" {
-		return fmt.Errorf("pagure: invalid api_base %q", apiBase)
+	if err := requireSecureEndpoint("pagure", apiBase); err != nil {
+		return err
 	}
 	maxBytes := pagureDefaultMaxCommentBytes
 	if v := cfg["max_comment_bytes"]; v != "" {
@@ -73,6 +73,9 @@ func fingerprintPagure(ctx context.Context, cfg Config) (string, error) {
 		return "", fmt.Errorf("pagure: --repo is required")
 	}
 	apiBase := cfg.Get("api_base", "https://pagure.io/api/0")
+	if err := requireSecureEndpoint("pagure", apiBase); err != nil {
+		return "", err
+	}
 	cli := newPagureClient(apiBase, cfg["token"])
 	h := sha256.New()
 	writeFingerprint(h, "pagure-v1")
@@ -242,7 +245,7 @@ func newPagureClient(base, token string) *pagureClient {
 	return &pagureClient{
 		base:  strings.TrimRight(base, "/"),
 		token: token,
-		http:  &http.Client{Timeout: 60 * time.Second},
+		http:  authenticatedHTTPClient(60 * time.Second),
 	}
 }
 
