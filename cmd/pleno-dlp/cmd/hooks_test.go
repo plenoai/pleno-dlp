@@ -588,10 +588,7 @@ func TestRunHookCursor_AllowsCleanStagedDiff(t *testing.T) {
 	}
 }
 
-// TestShellQuote pins POSIX single-quoting semantics: the only escape a
-// single-quoted shell token needs is ' -> '\'', and shell metacharacters
-// such as $, backticks, !, spaces and glob chars pass through literally
-// so they can never re-enter expansion in a generated script.
+// TestShellQuote pins POSIX single-quoting semantics for generated scripts.
 func TestShellQuote(t *testing.T) {
 	cases := map[string]string{
 		"/usr/local/bin/pleno-dlp":    "'/usr/local/bin/pleno-dlp'",
@@ -608,10 +605,7 @@ func TestShellQuote(t *testing.T) {
 	}
 }
 
-// TestWriteHookScriptQuotesExecutablePath guards the A03 regression:
-// the generated script must embed the binary path as a single-quoted
-// token, not a Go %q literal (which leaves $ and backticks live for
-// command substitution on every hook run).
+// TestWriteHookScriptQuotesExecutablePath guards the A03 regression.
 func TestWriteHookScriptQuotesExecutablePath(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
