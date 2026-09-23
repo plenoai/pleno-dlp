@@ -590,8 +590,8 @@ func TestRunHookCursor_AllowsCleanStagedDiff(t *testing.T) {
 
 // TestShellQuote pins POSIX single-quoting semantics: the only escape a
 // single-quoted shell token needs is ' -> '\'', and shell metacharacters
-// ($, backticks, !, spaces, glob chars) pass through literally so they
-// can never re-enter expansion in a generated script.
+// such as $, backticks, !, spaces and glob chars pass through literally
+// so they can never re-enter expansion in a generated script.
 func TestShellQuote(t *testing.T) {
 	cases := map[string]string{
 		"/usr/local/bin/pleno-dlp":    "'/usr/local/bin/pleno-dlp'",

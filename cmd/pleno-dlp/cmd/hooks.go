@@ -129,8 +129,8 @@ exec %s hooks run %s
 // double-quoted literal that leaves $, backticks, and ! untouched, so an
 // executable path containing shell metacharacters (for example a
 // directory named $(id)) would run command substitution on every hook
-// invocation. Single quotes admit no expansion; the only escape needed is
-// ' -> '\''.
+// invocation. Single quotes admit no expansion, so the only byte that
+// needs escaping is ' itself.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
