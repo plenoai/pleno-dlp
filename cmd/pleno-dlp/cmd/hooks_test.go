@@ -588,6 +588,49 @@ func TestRunHookCursor_AllowsCleanStagedDiff(t *testing.T) {
 	}
 }
 
+// TestShellQuote pins POSIX single-quoting semantics for generated scripts.
+func TestShellQuote(t *testing.T) {
+	cases := map[string]string{
+		"/usr/local/bin/pleno-dlp":    "'/usr/local/bin/pleno-dlp'",
+		"/opt/dir with space/bin/x":   "'/opt/dir with space/bin/x'",
+		"/home/u/$(id)/bin/pleno-dlp": "'/home/u/$(id)/bin/pleno-dlp'",
+		"/home/u/`id`/bin/pleno-dlp":  "'/home/u/`id`/bin/pleno-dlp'",
+		"/it's/here":                  `'/it'\''s/here'`,
+		"":                            "''",
+	}
+	for in, want := range cases {
+		if got := shellQuote(in); got != want {
+			t.Errorf("shellQuote(%q) = %s, want %s", in, got, want)
+		}
+	}
+}
+
+// TestWriteHookScriptQuotesExecutablePath guards the A03 regression.
+func TestWriteHookScriptQuotesExecutablePath(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	rel, err := writeHookScript(filepath.Join(".claude", "hooks", "pleno-dlp-scan.sh"), hookTargetClaudeCode)
+	if err != nil {
+		t.Fatalf("writeHookScript: %v", err)
+	}
+	data, err := os.ReadFile(rel)
+	if err != nil {
+		t.Fatalf("read script: %v", err)
+	}
+	exe := resolveExecutable()
+	if exe == "" {
+		t.Skip("no executable path in this environment")
+	}
+	want := "exec " + shellQuote(exe) + " hooks run " + hookTargetClaudeCode
+	if !strings.Contains(string(data), want) {
+		t.Errorf("script does not embed single-quoted executable path\nwant line: %s\ngot:\n%s", want, data)
+	}
+	if strings.Contains(string(data), `"`+exe+`"`) {
+		t.Errorf("script still embeds a double-quoted path: %s", data)
+	}
+}
+
 // readJSONFile / rewriteJSONFile are tiny test helpers for asserting on
 // / mutating JSON config files as generic maps.
 func readJSONFile(t *testing.T, path string) map[string]any {
