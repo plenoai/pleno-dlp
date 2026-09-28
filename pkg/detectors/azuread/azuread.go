@@ -77,6 +77,11 @@ const maxSeparators = 2
 // grant during verification.
 const verifyTimeout = 5 * time.Second
 
+// httpClient never follows redirects: a 307/308 would replay the token-endpoint
+// POST body — client_id + client_secret — to whatever origin the endpoint
+// points at.
+var httpClient = detectors.NewVerifyHTTPClient(verifyTimeout)
+
 // tenantKeyNames are keys tried in key=value / "key":"value" patterns by
 // FindNearbyKeyValue. Each is tried in order; the first hit wins.
 var tenantKeyNames = []string{
@@ -218,7 +223,7 @@ func verifyOAuth2(ctx context.Context, tenantID, clientID, clientSecret string) 
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return false, nil
 	}
