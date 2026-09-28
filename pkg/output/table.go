@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"sync"
 	"text/tabwriter"
+	"unicode"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
@@ -42,10 +44,26 @@ func (s *tableSink) Emit(f engine.Finding) {
 	fmt.Fprintf(s.tw, "%s\t%s\t%s\t%s\t%s\n",
 		f.Detector.String(),
 		verdictSymbol(f),
-		tableLocationOf(f),
-		f.Result.Redacted,
-		f.SuppressedBy,
+		sanitizeTerminal(tableLocationOf(f)),
+		sanitizeTerminal(f.Result.Redacted),
+		sanitizeTerminal(f.SuppressedBy),
 	)
+}
+
+// sanitizeTerminal replaces control and non-printing runes (ANSI/OSC
+// escapes, bidi overrides, NULs) with '?' in values rendered to a
+// terminal. The fields it guards — file paths, repo filenames, PR
+// titles, channel names, suppression labels — are attacker-controlled
+// when scanning untrusted content; raw emission would let a hostile
+// source clear the screen, forge rows, or hide findings behind cursor
+// moves. JSON/SARIF sinks intentionally keep exact bytes.
+func sanitizeTerminal(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return '?'
+	}, s)
 }
 
 func (s *tableSink) Close() error {
