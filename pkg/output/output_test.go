@@ -8,6 +8,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
@@ -433,6 +434,40 @@ func TestTableSinkVerdictGlyph(t *testing.T) {
 				t.Errorf("did not want %q in %q", tc.notWant, out)
 			}
 		})
+	}
+}
+
+// TestTableSinkStripsControlSequences pins that attacker-controlled
+// source metadata (filenames, redaction prefixes) cannot smuggle ANSI /
+// OSC escape sequences or other control bytes into the terminal — the
+// scanner's output is trusted evidence and a hostile repo could
+// otherwise clear the screen or forge verdict rows.
+func TestTableSinkStripsControlSequences(t *testing.T) {
+	f := sample()
+	f.Chunk.SourceMetadata.Filesystem.Path = "/tmp/leak\x1b[2J\x1b]8;;https://evil.example\x07.txt"
+	f.Result.Redacted = "AKIA\x1b[31m…AMPLE"
+	f.SuppressedBy = "rule\x1b[1mX"
+	var buf bytes.Buffer
+	s, _ := NewSink("table", &buf, "test")
+	s.Emit(f)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	out := buf.String()
+	for _, r := range out {
+		if !unicode.IsPrint(r) && r != '\n' && r != '\t' {
+			t.Errorf("non-printable rune %U leaked into table output: %q", r, out)
+		}
+	}
+	if !strings.Contains(out, "leak?[2J?]8;;https://evil.example?.txt") {
+		t.Errorf("sanitized location missing or mangled: %q", out)
+	}
+	if !strings.Contains(out, "AKIA?[31m…AMPLE") {
+		t.Errorf("sanitized redaction missing: %q", out)
+	}
+	if !strings.Contains(out, "rule?[1mX") {
+		t.Errorf("sanitized suppression label missing: %q", out)
 	}
 }
 
