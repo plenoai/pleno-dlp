@@ -8,6 +8,8 @@ package runpod
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -92,14 +94,32 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 		return false, err
 	}
 	defer resp.Body.Close()
-	switch resp.StatusCode {
-	case http.StatusOK:
-		return true, nil
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests:
-		return false, nil
-	default:
-		return false, nil
+	if resp.StatusCode != http.StatusOK {
+		// Forbidden can indicate insufficient permissions, not an invalid key.
+		return detectors.ClassifyVerifyHTTP(resp, nil, nil, []int{http.StatusUnauthorized})
 	}
+
+	// HTTP success alone does not establish GraphQL success. Keep failures
+	// indeterminate, including partial data accompanied by GraphQL errors.
+	var body struct {
+		Data *struct {
+			Myself *struct {
+				ID string `json:"id"`
+			} `json:"myself"`
+		} `json:"data"`
+		Errors []json.RawMessage `json:"errors"`
+	}
+	if err := detectors.DecodeVerifyJSON(resp.Body, 64<<10, &body); err != nil {
+		return false, fmt.Errorf("runpod verify: decode response: %w", err)
+	}
+	if len(body.Errors) > 0 {
+		// Do not copy provider error messages into findings: they may echo secrets.
+		return false, fmt.Errorf("runpod verify: ambiguous GraphQL error response")
+	}
+	if body.Data == nil || body.Data.Myself == nil || strings.TrimSpace(body.Data.Myself.ID) == "" {
+		return false, fmt.Errorf("runpod verify: response lacks authenticated identity")
+	}
+	return true, nil
 }
 
 func nearKeyword(lower string, start, end int) bool {
