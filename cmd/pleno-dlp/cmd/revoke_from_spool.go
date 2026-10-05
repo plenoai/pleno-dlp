@@ -24,6 +24,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/plenoai/pleno-dlp/pkg/audit"
+	"github.com/plenoai/pleno-dlp/pkg/termutil"
 	"github.com/plenoai/pleno-dlp/pkg/verify"
 )
 
@@ -60,7 +61,7 @@ func runRevokeFromSpool(cmd *cobra.Command, path string, auditW *audit.Writer) e
 		var rec spoolRecord
 		if err := json.Unmarshal([]byte(line), &rec); err != nil {
 			failed++
-			fmt.Fprintf(cmd.ErrOrStderr(), "revoke-from-spool: line %d: parse failed: %v\n", lineNo, err)
+			fmt.Fprintf(cmd.ErrOrStderr(), "revoke-from-spool: line %d: parse failed: %s\n", lineNo, termutil.Sanitize(err.Error()))
 			continue
 		}
 		if rec.Version != spoolRecordVersion {
@@ -71,13 +72,13 @@ func runRevokeFromSpool(cmd *cobra.Command, path string, auditW *audit.Writer) e
 		secret, derr := base64.StdEncoding.DecodeString(rec.SecretB64)
 		if derr != nil {
 			failed++
-			fmt.Fprintf(cmd.ErrOrStderr(), "revoke-from-spool: line %d: decode secret_b64: %v\n", lineNo, derr)
+			fmt.Fprintf(cmd.ErrOrStderr(), "revoke-from-spool: line %d: decode secret_b64: %s\n", lineNo, termutil.Sanitize(derr.Error()))
 			continue
 		}
 		r, detectorType, rerr := resolveRevoker(strings.ToLower(rec.Detector))
 		if rerr != nil {
 			skipped++
-			fmt.Fprintf(cmd.ErrOrStderr(), "revoke-from-spool: line %d: %v\n", lineNo, rerr)
+			fmt.Fprintf(cmd.ErrOrStderr(), "revoke-from-spool: line %d: %s\n", lineNo, termutil.Sanitize(rerr.Error()))
 			continue
 		}
 		attempted++

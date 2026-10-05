@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/termutil"
 )
 
 const (
@@ -328,5 +329,13 @@ func (c *redashClient) getQueryResult(ctx context.Context, queryID int) (*redash
 }
 
 var redashWarn = func(format string, args ...any) {
+	for i, a := range args {
+		switch v := a.(type) {
+		case string:
+			args[i] = termutil.Sanitize(v)
+		case error:
+			args[i] = termutil.Sanitize(v.Error())
+		}
+	}
 	fmt.Fprintf(os.Stderr, "redash: warning: "+format+"\n", args...)
 }

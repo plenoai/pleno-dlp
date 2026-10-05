@@ -32,6 +32,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/plenoai/pleno-dlp/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/termutil"
 )
 
 const (
@@ -61,6 +62,14 @@ func init() {
 // It exists so a single bad thread (auth/rate/decode error) is visible
 // instead of being silently reported as zero findings.
 var slackWarn = func(format string, args ...any) {
+	for i, a := range args {
+		switch v := a.(type) {
+		case string:
+			args[i] = termutil.Sanitize(v)
+		case error:
+			args[i] = termutil.Sanitize(v.Error())
+		}
+	}
 	fmt.Fprintf(os.Stderr, "slack: warning: "+format+"\n", args...)
 }
 

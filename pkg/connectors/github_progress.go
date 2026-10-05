@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/plenoai/pleno-dlp/pkg/termutil"
 )
 
 // githubHeartbeatInterval paces both the heartbeat line and the clone-progress
@@ -54,7 +56,7 @@ func startRepoHeartbeat(repoKey string, interval time.Duration) *repoHeartbeat {
 				var m runtime.MemStats
 				runtime.ReadMemStats(&m)
 				fmt.Fprintf(os.Stderr, "github: heartbeat %s phase=%s chunks=%d heap=%s sys=%s elapsed=%s\n",
-					hb.repoKey, hb.phase.Load(), hb.chunks.Load(),
+					termutil.Sanitize(hb.repoKey), hb.phase.Load(), hb.chunks.Load(),
 					formatBytes(m.HeapAlloc), formatBytes(m.Sys),
 					time.Since(hb.start).Round(time.Second))
 			}
@@ -86,7 +88,7 @@ type cloneProgressWriter struct {
 func (w *cloneProgressWriter) Write(p []byte) (int, error) {
 	if time.Since(w.last) >= w.interval {
 		if line := lastProgressLine(p); line != "" {
-			fmt.Fprintf(os.Stderr, "github: clone %s: %s\n", w.repoKey, line)
+			fmt.Fprintf(os.Stderr, "github: clone %s: %s\n", termutil.Sanitize(w.repoKey), termutil.Sanitize(line))
 			w.last = time.Now()
 		}
 	}

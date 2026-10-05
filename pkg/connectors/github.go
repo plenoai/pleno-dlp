@@ -56,6 +56,7 @@ import (
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/termutil"
 )
 
 const (
@@ -771,7 +772,7 @@ func scanGitHubPullRequestsIncremental(ctx context.Context, cli *githubClient, r
 		nextPath = next
 	}
 	if timeframeItems > 0 || avoidedPages > 0 {
-		fmt.Fprintf(os.Stderr, "github: PR timeframe %s/%s fetched %d pages, skipped %d old items, avoided at least %d pages\n", repo.Owner.Login, repo.Name, pages, timeframeItems, avoidedPages)
+		fmt.Fprintf(os.Stderr, "github: PR timeframe %s/%s fetched %d pages, skipped %d old items, avoided at least %d pages\n", termutil.Sanitize(repo.Owner.Login), termutil.Sanitize(repo.Name), pages, timeframeItems, avoidedPages)
 	}
 	return nil
 }

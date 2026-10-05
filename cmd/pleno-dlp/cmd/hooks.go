@@ -21,6 +21,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/plenoai/pleno-dlp/pkg/termutil"
 )
 
 const (
@@ -454,12 +456,12 @@ func (p claudeHookPayload) scanClaudeContent() string {
 func runHookClaudeCode(cmd *cobra.Command) error {
 	raw, err := io.ReadAll(cmd.InOrStdin())
 	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: read hook payload: %v — allowing\n", err)
+		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: read hook payload: %s — allowing\n", termutil.Sanitize(err.Error()))
 		return nil
 	}
 	var payload claudeHookPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: parse hook payload: %v — allowing\n", err)
+		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: parse hook payload: %s — allowing\n", termutil.Sanitize(err.Error()))
 		return nil
 	}
 	content := payload.scanClaudeContent()
@@ -469,7 +471,7 @@ func runHookClaudeCode(cmd *cobra.Command) error {
 
 	n, err := scanOfflineFunc([]byte(content))
 	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: %v — allowing\n", err)
+		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: %s — allowing\n", termutil.Sanitize(err.Error()))
 		return nil
 	}
 	if n == 0 {
@@ -699,7 +701,7 @@ func runHookCursor(cmd *cobra.Command) error {
 
 func allowCursor(cmd *cobra.Command, warnMsg string) error {
 	if warnMsg != "" {
-		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run cursor: %s — allowing\n", warnMsg)
+		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run cursor: %s — allowing\n", termutil.Sanitize(warnMsg))
 	}
 	return writeCursorPermission(cmd, cursorPermissionOutput{Permission: "allow"})
 }
