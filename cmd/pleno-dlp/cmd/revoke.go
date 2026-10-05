@@ -22,6 +22,7 @@ import (
 	gitlabdet "github.com/plenoai/pleno-dlp/pkg/detectors/gitlab"
 	slackdet "github.com/plenoai/pleno-dlp/pkg/detectors/slack"
 	stripedet "github.com/plenoai/pleno-dlp/pkg/detectors/stripe"
+	"github.com/plenoai/pleno-dlp/pkg/termutil"
 	"github.com/plenoai/pleno-dlp/pkg/verify"
 )
 
@@ -312,15 +313,15 @@ func emitRevoke(cmd *cobra.Command, format string, rec revokeRecord) {
 		// Table-style: human-readable line on stderr.
 		switch {
 		case rec.DryRun:
-			fmt.Fprintf(cmd.ErrOrStderr(), "DRY-RUN: would revoke %s secret %s\n", rec.Detector, rec.RedactedSecret)
+			fmt.Fprintf(cmd.ErrOrStderr(), "DRY-RUN: would revoke %s secret %s\n", rec.Detector, termutil.Sanitize(rec.RedactedSecret))
 		case rec.Revoked && rec.Error == "":
-			fmt.Fprintf(cmd.ErrOrStderr(), "OK: revoked %s secret %s\n", rec.Detector, rec.RedactedSecret)
+			fmt.Fprintf(cmd.ErrOrStderr(), "OK: revoked %s secret %s\n", rec.Detector, termutil.Sanitize(rec.RedactedSecret))
 		case rec.Revoked && rec.Error != "":
-			fmt.Fprintf(cmd.ErrOrStderr(), "OK: revoked (idempotent) %s secret %s — %s\n", rec.Detector, rec.RedactedSecret, rec.Error)
+			fmt.Fprintf(cmd.ErrOrStderr(), "OK: revoked (idempotent) %s secret %s — %s\n", rec.Detector, termutil.Sanitize(rec.RedactedSecret), termutil.Sanitize(rec.Error))
 		case !rec.Revoked && rec.Error != "":
-			fmt.Fprintf(cmd.ErrOrStderr(), "FAIL: %s secret %s — %s\n", rec.Detector, rec.RedactedSecret, rec.Error)
+			fmt.Fprintf(cmd.ErrOrStderr(), "FAIL: %s secret %s — %s\n", rec.Detector, termutil.Sanitize(rec.RedactedSecret), termutil.Sanitize(rec.Error))
 		default:
-			fmt.Fprintf(cmd.ErrOrStderr(), "FAIL: %s secret %s — provider declined revocation\n", rec.Detector, rec.RedactedSecret)
+			fmt.Fprintf(cmd.ErrOrStderr(), "FAIL: %s secret %s — provider declined revocation\n", rec.Detector, termutil.Sanitize(rec.RedactedSecret))
 		}
 	}
 }

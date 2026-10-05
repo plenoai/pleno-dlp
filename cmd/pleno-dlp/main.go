@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/plenoai/pleno-dlp/cmd/pleno-dlp/cmd"
+	"github.com/plenoai/pleno-dlp/pkg/termutil"
 
 	// Activate detector and source self-registration.
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/all"
@@ -31,6 +32,6 @@ func main() {
 	if cmd.IsVerifyError(err) {
 		os.Exit(1)
 	}
-	fmt.Fprintln(os.Stderr, "error:", err)
+	fmt.Fprintln(os.Stderr, "error:", termutil.Sanitize(err.Error()))
 	os.Exit(2)
 }

@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/plenoai/pleno-dlp/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/termutil"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -345,6 +346,14 @@ func trimEOL(b []byte) []byte {
 // sqldumpWarnf reports non-fatal scan degradation (e.g. skipped oversized
 // lines) to stderr. It is a package var so tests can capture the warnings.
 var sqldumpWarnf = func(format string, args ...any) {
+	for i, a := range args {
+		switch v := a.(type) {
+		case string:
+			args[i] = termutil.Sanitize(v)
+		case error:
+			args[i] = termutil.Sanitize(v.Error())
+		}
+	}
 	fmt.Fprintf(os.Stderr, format, args...)
 }
 

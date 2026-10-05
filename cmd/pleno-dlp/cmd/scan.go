@@ -30,6 +30,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 	gitsource "github.com/plenoai/pleno-dlp/pkg/sources/git"
 	"github.com/plenoai/pleno-dlp/pkg/sources/stdin"
+	"github.com/plenoai/pleno-dlp/pkg/termutil"
 	"github.com/plenoai/pleno-dlp/pkg/verify"
 )
 
@@ -596,7 +597,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// stderr warning + skip; we never abort the secret scan because
 	// the PII side-channel is unavailable.
 	if stopPII, err := startPIIEngine(ctx, cmd, cmd.ErrOrStderr()); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "pii-engine: %v — continuing without PII detection\n", err)
+		fmt.Fprintf(cmd.ErrOrStderr(), "pii-engine: %s — continuing without PII detection\n", termutil.Sanitize(err.Error()))
 	} else if stopPII != nil {
 		defer stopPII()
 	}
