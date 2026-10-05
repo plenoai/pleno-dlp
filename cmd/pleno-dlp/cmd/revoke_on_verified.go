@@ -18,6 +18,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/audit"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
+	"github.com/plenoai/pleno-dlp/pkg/termutil"
 )
 
 // revokingSink wraps an inner Sink. When a finding is verified AND its
@@ -121,7 +122,7 @@ func (r *revokingSink) Emit(f engine.Finding) {
 	targetLink := spoolSourceLink(f.Chunk)
 
 	if r.dryRun {
-		fmt.Fprintf(r.logW, "DRY-RUN revoke: %s %s\n", f.Detector.String(), redacted)
+		fmt.Fprintf(r.logW, "DRY-RUN revoke: %s %s\n", f.Detector.String(), termutil.Sanitize(redacted))
 		writeAuditRecord(r.logW, r.auditW, audit.New(audit.Attempt{
 			Path:       audit.PathOnVerified,
 			Detector:   f.Detector.String(),
@@ -143,14 +144,14 @@ func (r *revokingSink) Emit(f engine.Finding) {
 	case err != nil:
 		r.failed.Add(1)
 		attemptErr = err
-		fmt.Fprintf(r.logW, "revoke FAIL: %s %s — %s\n", f.Detector.String(), redacted, err.Error())
+		fmt.Fprintf(r.logW, "revoke FAIL: %s %s — %s\n", f.Detector.String(), termutil.Sanitize(redacted), termutil.Sanitize(err.Error()))
 	case res.Revoked && res.Err == nil:
 		r.revoked.Add(1)
-		fmt.Fprintf(r.logW, "revoke OK: %s %s\n", f.Detector.String(), redacted)
+		fmt.Fprintf(r.logW, "revoke OK: %s %s\n", f.Detector.String(), termutil.Sanitize(redacted))
 	case res.Revoked && res.Err != nil:
 		r.revoked.Add(1)
 		attemptErr = res.Err
-		fmt.Fprintf(r.logW, "revoke OK (idempotent): %s %s — %s\n", f.Detector.String(), redacted, res.Err.Error())
+		fmt.Fprintf(r.logW, "revoke OK (idempotent): %s %s — %s\n", f.Detector.String(), termutil.Sanitize(redacted), termutil.Sanitize(res.Err.Error()))
 	default:
 		r.failed.Add(1)
 		msg := "provider declined revocation"
@@ -158,7 +159,7 @@ func (r *revokingSink) Emit(f engine.Finding) {
 			msg = res.Err.Error()
 			attemptErr = res.Err
 		}
-		fmt.Fprintf(r.logW, "revoke FAIL: %s %s — %s\n", f.Detector.String(), redacted, msg)
+		fmt.Fprintf(r.logW, "revoke FAIL: %s %s — %s\n", f.Detector.String(), termutil.Sanitize(redacted), termutil.Sanitize(msg))
 	}
 	writeAuditRecord(r.logW, r.auditW, audit.New(audit.Attempt{
 		Path:       audit.PathOnVerified,

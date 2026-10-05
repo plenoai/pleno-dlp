@@ -20,6 +20,7 @@ import (
 	archivepkg "github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/termutil"
 )
 
 const (
@@ -689,7 +690,7 @@ drain:
 	if w.skipped > 0 {
 		fmt.Fprintf(os.Stderr, "git: %s: skipped %d promisor-omitted blob changes (intentional partial-clone boundary)\n", s.repoAbs, w.skipped)
 		for _, entry := range w.skipSample {
-			fmt.Fprintf(os.Stderr, "git: %s: skipped omitted blob %s\n", s.repoAbs, entry)
+			fmt.Fprintf(os.Stderr, "git: %s: skipped omitted blob %s\n", s.repoAbs, termutil.Sanitize(entry))
 		}
 	}
 	var metadataErr error
