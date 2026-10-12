@@ -1270,6 +1270,16 @@ func nativeGitCloneArgs(cloneURL, dir string) []string {
 // token or the URL is a local path (no scheme/host — the shape tests use to
 // inject a fixture repo, which needs no auth). The Basic credentials mirror
 // the x-access-token convention the go-git path uses via BasicAuth.
+//
+// The header is scoped with http.<url>.extraheader rather than the global
+// http.extraheader: the unscoped form is re-sent on every request git
+// issues, including redirects to a different origin, while the scoped form
+// matches only requests under the clone URL (scheme, host, port, path
+// prefix) and is dropped anywhere else. This gives the native path the same
+// cross-origin protection net/http already gives the go-git path, which
+// strips Authorization on cross-domain redirects — a git endpoint (or the
+// proxy in front of it) answering the smart-HTTP negotiation with a
+// redirect can no longer collect the token on the follow-up request.
 func nativeGitAuthEnv(cloneURL, token string) []string {
 	if token == "" {
 		return nil
@@ -1281,7 +1291,7 @@ func nativeGitAuthEnv(cloneURL, token string) []string {
 	basic := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
 	return []string{
 		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=http.extraheader",
+		"GIT_CONFIG_KEY_0=http." + cloneURL + ".extraheader",
 		"GIT_CONFIG_VALUE_0=Authorization: Basic " + basic,
 	}
 }

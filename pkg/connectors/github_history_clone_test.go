@@ -29,10 +29,13 @@ import (
 )
 
 // TestNativeGitAuthEnv covers the native-clone auth-env helper: the token is
-// handed to git as an http.extraheader Authorization value through
-// GIT_CONFIG_* environment variables — never argv, never the URL — for a
-// real HTTP(S) URL, and omitted entirely for the local-path shape the
-// fixture tests use (no scheme/host) or when there is no token at all.
+// handed to git as a URL-scoped http.<url>.extraheader Authorization value
+// through GIT_CONFIG_* environment variables — never argv, never the URL —
+// for a real HTTP(S) URL, and omitted entirely for the local-path shape the
+// fixture tests use (no scheme/host) or when there is no token at all. The
+// scope is pinned to the full clone URL so a redirect to another origin or
+// path drops the credential instead of forwarding it (the global
+// http.extraheader would be re-sent on every request).
 func TestNativeGitAuthEnv(t *testing.T) {
 	token := "ghp_secret123"
 	basic := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
@@ -44,12 +47,22 @@ func TestNativeGitAuthEnv(t *testing.T) {
 		want     []string
 	}{
 		{
-			name:     "https url gets extraheader auth env",
+			name:     "https url gets url-scoped extraheader auth env",
 			cloneURL: "https://github.com/acme/widget.git",
 			token:    token,
 			want: []string{
 				"GIT_CONFIG_COUNT=1",
-				"GIT_CONFIG_KEY_0=http.extraheader",
+				"GIT_CONFIG_KEY_0=http.https://github.com/acme/widget.git.extraheader",
+				"GIT_CONFIG_VALUE_0=Authorization: Basic " + basic,
+			},
+		},
+		{
+			name:     "scope key embeds the full clone url including port",
+			cloneURL: "https://ghe.example:8443/acme/r.git",
+			token:    token,
+			want: []string{
+				"GIT_CONFIG_COUNT=1",
+				"GIT_CONFIG_KEY_0=http.https://ghe.example:8443/acme/r.git.extraheader",
 				"GIT_CONFIG_VALUE_0=Authorization: Basic " + basic,
 			},
 		},
