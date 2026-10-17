@@ -12,6 +12,7 @@ name: action-test
 # guaranteed clean. Scanning the dedicated fixture keeps this smoke test
 # deterministic and immune to documentation drift.
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - "action.yml"
