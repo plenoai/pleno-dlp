@@ -42,6 +42,12 @@ publishing, archives, SLSA provenance, and SBOM generation.
 - The git-hook end-to-end test builds the pleno-dlp binary once per test
   package in `TestMain` instead of once per test (#516).
 
+### Security
+
+- Scan contiguous-file (`tar` type `7`) entries like regular files, and
+  report other non-regular entries that carry a body as `special-file`
+  coverage gaps instead of dropping them silently.
+
 ## [v0.67.1] - 2026-10-18
 
 ### Fixed
