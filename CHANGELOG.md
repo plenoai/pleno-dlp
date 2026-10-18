@@ -8,6 +8,17 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Added
+
+- Crash telemetry now captures fatal panics and runtime crashes in-process
+  via `runtime/debug.SetCrashOutput` (Go 1.23+), replacing the re-exec
+  supervisor and its stderr parsing. No second process start, no detector
+  re-registration, and panics on any goroutine (not only main) are recorded
+  to a local spool file. See [`pkg/telemetry/crash`](pkg/telemetry/crash).
+  Set `PLENO_DLP_CRASH_DISABLE=1` to opt out, `PLENO_DLP_CRASH_DIR` to
+  relocate the spool, and `PLENO_DLP_CRASH_REPORT=1` to read back dumps from
+  earlier crashes.
+
 ## [v0.65.0] - 2026-09-21
 
 ### Added
