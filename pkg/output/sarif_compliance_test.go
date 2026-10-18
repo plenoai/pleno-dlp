@@ -3,6 +3,7 @@ package output
 import (
 	"bytes"
 	"encoding/json"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -204,6 +205,130 @@ func findingFor(det detectors.DetectorType, raw string) engine.Finding {
 				Filesystem: &sources.FilesystemMeta{Path: "/x.txt", Line: 1},
 			},
 		},
+	}
+}
+
+// TestSARIF_ArtifactLocationURIEncoded pins that artifactLocation.uri is a
+// valid RFC 3986 URI-reference even when a path or object key contains the
+// characters that break an unencoded reference: space (illegal), `#`
+// (fragment delimiter), `%` (invalid percent-escape), and `?` (query
+// delimiter). Regression test for raw OS paths being emitted verbatim.
+func TestSARIF_ArtifactLocationURIEncoded(t *testing.T) {
+	const trickyRel = "a b/x#1%.env?tab=1"
+	const trickyAbs = "/tmp/sx/a b/x#1%.env?tab=1"
+
+	cases := []struct {
+		name     string
+		md       sources.Metadata
+		want     string
+		wantPath string
+	}{
+		{
+			name:     "filesystem absolute becomes file URL",
+			md:       sources.Metadata{Filesystem: &sources.FilesystemMeta{Path: trickyAbs, Line: 7}},
+			want:     "file:///tmp/sx/a%20b/x%231%25.env%3Ftab=1",
+			wantPath: trickyAbs,
+		},
+		{
+			name:     "git repo-relative path",
+			md:       sources.Metadata{Git: &sources.GitMeta{File: trickyRel, Line: 3}},
+			want:     "a%20b/x%231%25.env%3Ftab=1",
+			wantPath: trickyRel,
+		},
+		{
+			name:     "github path",
+			md:       sources.Metadata{GitHub: &sources.GitHubMeta{File: trickyRel, Line: 4}},
+			want:     "a%20b/x%231%25.env%3Ftab=1",
+			wantPath: trickyRel,
+		},
+		{
+			name:     "s3 key",
+			md:       sources.Metadata{S3: &sources.S3Meta{Bucket: "my bucket", Key: trickyRel}},
+			want:     "s3://my%20bucket/a%20b/x%231%25.env%3Ftab=1",
+			wantPath: trickyRel,
+		},
+		{
+			name:     "gcs object",
+			md:       sources.Metadata{GCS: &sources.GCSMeta{Bucket: "my bucket", Object: trickyRel}},
+			want:     "gs://my%20bucket/a%20b/x%231%25.env%3Ftab=1",
+			wantPath: trickyRel,
+		},
+		{
+			name:     "sqldump file",
+			md:       sources.Metadata{SQLDump: &sources.SQLDumpMeta{File: "/dumps/a b/x#1%.sql?x=1", Line: 9}},
+			want:     "/dumps/a%20b/x%231%25.sql%3Fx=1",
+			wantPath: "/dumps/a b/x#1%.sql?x=1",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _ := sourceURI(tc.md)
+			if got != tc.want {
+				t.Fatalf("sourceURI = %q, want %q", got, tc.want)
+			}
+			if strings.Contains(got, " ") {
+				t.Fatalf("uri %q contains an unencoded space", got)
+			}
+			u, err := url.Parse(got)
+			if err != nil {
+				t.Fatalf("url.Parse(%q): %v", got, err)
+			}
+			if u.Fragment != "" {
+				t.Fatalf("uri %q leaked a fragment: %q", got, u.Fragment)
+			}
+			if u.RawQuery != "" {
+				t.Fatalf("uri %q leaked a query: %q", got, u.RawQuery)
+			}
+			if u.Path != tc.wantPath {
+				t.Fatalf("round-trip path = %q, want %q", u.Path, tc.wantPath)
+			}
+		})
+	}
+}
+
+// TestSARIF_ArtifactLocationURIOnFinding drives the encoded URI through the
+// public sink so a regression in toSARIFResult's wiring (not just the helper)
+// is caught.
+func TestSARIF_ArtifactLocationURIOnFinding(t *testing.T) {
+	tricky := "/tmp/sx/a b/x#1%.env?tab=1"
+	f := engine.Finding{
+		Detector: detectors.AWS,
+		Result:   detectors.Result{DetectorType: detectors.AWS, Raw: []byte("AKIAIOSFODNN7EXAMPLE")},
+		Chunk: &sources.Chunk{
+			SourceMetadata: sources.Metadata{
+				Filesystem: &sources.FilesystemMeta{Path: tricky, Line: 42},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	s, _ := NewSink("sarif", &buf, "test")
+	s.Emit(f)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+		t.Fatalf("not valid JSON: %v", err)
+	}
+	results := doc["runs"].([]any)[0].(map[string]any)["results"].([]any)
+	pl := results[0].(map[string]any)["locations"].([]any)[0].(map[string]any)["physicalLocation"].(map[string]any)
+	uri := pl["artifactLocation"].(map[string]any)["uri"].(string)
+
+	u, err := url.Parse(uri)
+	if err != nil {
+		t.Fatalf("url.Parse(%q): %v", uri, err)
+	}
+	if u.Scheme != "file" {
+		t.Fatalf("scheme = %q, want file", u.Scheme)
+	}
+	if u.Path != tricky {
+		t.Fatalf("round-trip path = %q, want %q", u.Path, tricky)
+	}
+	if pl["region"].(map[string]any)["startLine"].(float64) != 42 {
+		t.Fatalf("startLine = %v, want 42", pl["region"])
 	}
 }
 
