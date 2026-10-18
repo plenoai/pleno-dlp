@@ -8,16 +8,37 @@ crash is written to a local spool so you can read it first.
 ## Enable, disable, inspect
 
 ```sh
-pleno-dlp telemetry status       # enabled/disabled, source (file/env/default), endpoint, spool dir
+pleno-dlp telemetry status       # crash opt-in + that feedback ignores it, source, endpoint, spool dir
 pleno-dlp telemetry enable       # writes {"crash_reports": true} to telemetry.json
 pleno-dlp telemetry disable      # writes {"crash_reports": false}; spool is kept
 pleno-dlp telemetry show-last    # pretty-prints the most recent spooled report
 pleno-dlp telemetry send <file>  # uploads one reviewed spool file as-is
 ```
 
+`telemetry status` prints the crash opt-in and, separately, that
+`pleno-dlp feedback` always sends and ignores that opt-in.
+
 `telemetry send` works even when sending is disabled: it is an explicit,
 per-file action. It accepts only files that match the report schema exactly
 (unknown fields are rejected), so it cannot be used to upload other files.
+
+## Feedback
+
+`pleno-dlp feedback` sends a short message to the same relay. It **ignores
+the crash opt-in**: running the command is the consent, so it sends even when
+crash reports are disabled.
+
+```sh
+pleno-dlp feedback "the --format sarif flag saved my afternoon"
+echo "please add a Jira label filter" | pleno-dlp feedback --yes
+```
+
+The message is read from the arguments, or from stdin when none are given.
+Before sending, the same redaction pipeline as crash reports runs over the
+message (URLs, emails, IPs, absolute paths, tokens, and any built-in secret
+detector match). Without `--yes`, an interactive prompt confirms the send; a
+non-interactive invocation must pass `--yes`. Feedback is also subject to the
+local throttle below.
 
 ## Local-only reports (`--crash-report`)
 
@@ -140,6 +161,19 @@ a `...[truncated]` marker.
 Reports are written to `<root>/crash/last.json` and
 `<root>/crash/<fingerprint>-<unix>.json`. The directory is `0700`, files are
 `0600`, and at most 20 per-crash files are kept (oldest pruned).
+
+## Local throttling
+
+The client keeps its own best-effort limit in `<root>/throttle.json` so a
+crash loop or a scripted `pleno-dlp feedback --yes` cannot lean entirely on
+the relay's per-address limit:
+
+- an automatic crash upload is sent at most once per fingerprint per hour;
+- at most 5 feedback uploads are sent per hour.
+
+Explicit `telemetry send <file>` is a per-file action and is not throttled.
+The state file is best-effort: an unreadable or corrupt file is ignored, and
+a throttle that cannot be written fails open so it never blocks a report.
 
 ## Crash notice
 

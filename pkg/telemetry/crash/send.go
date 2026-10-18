@@ -19,8 +19,14 @@ func Send(ctx context.Context, client *http.Client, endpoint, version string, r 
 	if err != nil {
 		return err
 	}
-	if len(body) > MaxReportBytes {
-		return fmt.Errorf("crash report is %d bytes, exceeds %d", len(body), MaxReportBytes)
+	return Post(ctx, client, endpoint, version, body, MaxReportBytes)
+}
+
+// Post uploads an already-serialized telemetry payload to endpoint. Any 2xx
+// is success. It is the shared transport for crash reports and feedback.
+func Post(ctx context.Context, client *http.Client, endpoint, version string, payload []byte, maxBytes int) error {
+	if len(payload) > maxBytes {
+		return fmt.Errorf("telemetry payload is %d bytes, exceeds %d", len(payload), maxBytes)
 	}
 	if err := ValidateEndpoint(endpoint); err != nil {
 		return err
@@ -32,7 +38,7 @@ func Send(ctx context.Context, client *http.Client, endpoint, version string, r 
 	}
 	ctx, cancel := context.WithTimeout(ctx, SendTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}

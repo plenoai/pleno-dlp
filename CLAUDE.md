@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-10-18 | core-engineer, qa | Add `pleno-dlp feedback` (redacted, ignores the crash opt-in) and a client-side spool-layer throttle (one crash upload per fingerprint per hour, five feedback uploads per hour); `telemetry status` prints both facts. |
 | 2026-10-18 | connector-engineer, core-engineer, qa | Attribute git findings to `Data[0]`: the go-git fallback emits one segment per added hunk with the leading-context line, native `beginAddedLine`/`nativeAddedHunks` follow the same rule, and the `Line`-means-`Data[0]` contract is documented on the line-bearing metadata structs with a shared engine contract test. |
 | 2026-10-18 | core-engineer, qa | Add local-only `--crash-report <path>`; record flags given before the subcommand in crash invocation descriptions (#516); build the git-hook end-to-end test binary once per package in `TestMain`. |
 | 2026-10-18 | Claude, core-engineer | Add opt-in anonymized crash telemetry (`pleno-dlp telemetry`, supervisor re-exec, relay at crash.plenoai.com) and a native git pre-commit target (`hooks install|print|run git`) that delegates to `protect`; protect, the git hook, and the cursor hook now share one staged-diff transform. |

@@ -54,12 +54,14 @@ func (rt *Runtime) redactor() *Redactor {
 	return red
 }
 
-// Outcome is what handle did with a captured crash.
+// Outcome is what handle did with a captured crash. Throttled is true when a
+// local send limit suppressed the upload; the report is still spooled.
 type Outcome struct {
-	Report  Report
-	Path    string
-	Sent    bool
-	SendErr error
+	Report    Report
+	Path      string
+	Sent      bool
+	Throttled bool
+	SendErr   error
 }
 
 // handle builds, spools, optionally sends, and announces a crash. Failures
@@ -83,6 +85,15 @@ func (rt *Runtime) handle(kind Kind, message, stack string, args []string) Outco
 	out.Path = path
 	if cfgErr != nil || !cfg.Enabled {
 		fmt.Fprintf(rt.Stderr, "pleno-dlp crashed; report saved to %s. Opt in to anonymous crash reports with: pleno-dlp telemetry enable\n", path)
+		return out
+	}
+	th := &Throttle{Dir: cfg.Dir, Now: rt.Now}
+	switch ok, terr := th.AllowCrash(out.Report.Fingerprint); {
+	case terr != nil:
+		fmt.Fprintf(rt.Stderr, "pleno-dlp: crash report throttle unavailable (%v); sending anyway\n", terr)
+	case !ok:
+		out.Throttled = true
+		fmt.Fprintf(rt.Stderr, "pleno-dlp crashed; report saved to %s. Upload throttled locally (one per fingerprint per hour); retry with: pleno-dlp telemetry send %s. Opt out: pleno-dlp telemetry disable.\n", path, path)
 		return out
 	}
 	out.SendErr = Send(context.Background(), rt.HTTPClient, cfg.Endpoint, rt.Version, out.Report)
