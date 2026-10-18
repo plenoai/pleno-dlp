@@ -1,26 +1,32 @@
-# Agent hooks (claude-code, cursor)
+# Hooks (claude-code, cursor, git)
 
-`pleno-dlp hooks install claude-code|cursor` wires up a secret scan
-directly into an AI coding agent's own hook mechanism, so a
-credential the agent is about to write (or commit) gets flagged before it
-lands.
+`pleno-dlp hooks install claude-code|cursor|git` wires up a secret scan
+directly into an AI coding agent's own hook mechanism or a repository's
+native git hook, so a credential about to be written or committed gets
+flagged before it lands.
 
 ```sh
 pleno-dlp hooks install claude-code
 pleno-dlp hooks install cursor
+pleno-dlp hooks install git
 ```
 
-Both are idempotent: rerunning either command changes nothing unless
-pleno-dlp's own binary path moved, in which
-case the hook's embedded path is refreshed in place. Remove either with:
+All are idempotent: rerunning a command changes nothing unless
+pleno-dlp's own binary path moved, in
+which case the hook's embedded path is refreshed in place. Remove one with:
 
 ```sh
 pleno-dlp hooks uninstall claude-code
 pleno-dlp hooks uninstall cursor
+pleno-dlp hooks uninstall git
 ```
 
 Uninstall only touches the entry pleno-dlp itself registered — any other
-hooks already configured for that tool are left alone.
+hooks already configured for that tool are left alone. For the `git`
+target that means the generated `pre-commit` script in the repository's
+hooks directory (resolved via `git rev-parse --git-path hooks`, which
+honors `core.hooksPath` and linked worktrees); a pre-commit hook
+pleno-dlp did not write is never deleted.
 
 ## Why `--no-verify`
 
@@ -75,6 +81,28 @@ allowed immediately.
 
 **Not yet covered for cursor:** an edit-time equivalent of claude-code's
 `PreToolUse` block.
+
+### git
+
+- `<git-dir>/hooks/pre-commit` — a generated wrapper that execs the
+  resolved `pleno-dlp` binary as `hooks run git`.
+
+`hooks run git` runs `git diff --cached` in the repository root, scans the
+staged diff offline, and exits non-zero on a finding, which is how git
+interprets "block this commit". A clean diff, or any failure in the hook's
+own plumbing, allows the commit. This is the native-git complement to the
+`protect` pre-commit recipe in
+[`docs/recipes/pre-commit.md`](recipes/pre-commit.md).
+
+## Crash reports
+
+`pleno-dlp` never sends telemetry anywhere. If a command panics, a
+`--crash-report <path>` root flag (disabled by default) writes a local JSON
+report containing the command path, the *names* of the flags passed — never
+their values, which can be tokens or private paths — the version, and the
+stack trace. The invocation description spans the whole command line, so a
+root/persistent flag given before the subcommand
+(`pleno-dlp --crash-report crash.json scan github ...`) is recorded too.
 
 ## The `--no-verify` flag
 

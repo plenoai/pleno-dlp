@@ -26,44 +26,54 @@ import (
 const (
 	hookTargetClaudeCode = "claude-code"
 	hookTargetCursor     = "cursor"
+	hookTargetGit        = "git"
 
 	// hookScriptMarker is the substring every registered hook command
 	// must contain, used to find (and only ever touch) our own entry
 	// inside a settings/hooks file that may hold unrelated hooks too.
 	hookScriptMarker = "pleno-dlp-scan.sh"
+
+	// gitHookMarker is the substring written into our generated
+	// pre-commit script. Unlike claude-code/cursor, a git hook has no
+	// settings file to hold an entry: the script file *is* the
+	// registration, so uninstall must recognize its own content before
+	// deleting a path a developer may have replaced by hand. The
+	// executable path is shell-quoted in the script, so the literal
+	// marker is the unquoted `hooks run git` tail, not a full line.
+	gitHookMarker = "hooks run " + hookTargetGit
 )
 
 var hooksCmd = &cobra.Command{
 	Use:   "hooks",
 	Short: "Install, remove, or run a fast offline agent hook (pre-commit-style) backed by `scan stdin --no-verify`",
-	Long: "Manage a latency-tolerant secret-scanning hook for AI coding agents.\n\n" +
-		"`pleno-dlp hooks install claude-code|cursor` wires up the target's own hook\n" +
-		"mechanism to call `pleno-dlp scan stdin --no-verify` — the network Verify()\n" +
-		"round-trip is skipped so the hook stays fast enough to run on every edit or\n" +
-		"commit. Findings are still reported (as unverified, never provider-confirmed)\n" +
-		"so the hook trades confidence for latency; it is not a substitute for CI's\n" +
-		"fully-verified `pleno-dlp scan` gate.\n\n" +
+	Long: "Manage a latency-tolerant secret-scanning hook for AI coding agents and git.\n\n" +
+		"`pleno-dlp hooks install claude-code|cursor|git` wires up the target's own hook\n" +
+		"mechanism to call an offline scan — the network Verify() round-trip is skipped\n" +
+		"so the hook stays fast enough to run on every edit or commit. Findings are\n" +
+		"still reported (as unverified, never provider-confirmed) so the hook trades\n" +
+		"confidence for latency; it is not a substitute for CI's fully-verified\n" +
+		"`pleno-dlp scan` gate.\n\n" +
 		"`pleno-dlp hooks run <target>` is internal plumbing invoked by the installed\n" +
 		"hook config — it is not meant to be run directly.",
 }
 
 var hooksInstallCmd = &cobra.Command{
-	Use:   "install <claude-code|cursor>",
-	Short: "Install the hook for claude-code or cursor in the current project",
+	Use:   "install <claude-code|cursor|git>",
+	Short: "Install the hook for claude-code, cursor, or git in the current project",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runHooksInstall,
 }
 
 var hooksUninstallCmd = &cobra.Command{
-	Use:   "uninstall <claude-code|cursor>",
+	Use:   "uninstall <claude-code|cursor|git>",
 	Short: "Remove a previously installed hook",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runHooksUninstall,
 }
 
 var hooksRunCmd = &cobra.Command{
-	Use:    "run <claude-code|cursor>",
-	Short:  "Internal: translate one hook invocation into a scan stdin --no-verify call",
+	Use:    "run <claude-code|cursor|git>",
+	Short:  "Internal: translate one hook invocation into an offline scan",
 	Args:   cobra.ExactArgs(1),
 	Hidden: true,
 	RunE:   runHooksRun,
@@ -80,8 +90,10 @@ func runHooksInstall(cmd *cobra.Command, args []string) error {
 		return installClaudeCodeHook(cmd)
 	case hookTargetCursor:
 		return installCursorHook(cmd)
+	case hookTargetGit:
+		return installGitHook(cmd)
 	default:
-		return fmt.Errorf("hooks install: unknown target %q (want %q or %q)", args[0], hookTargetClaudeCode, hookTargetCursor)
+		return fmt.Errorf("hooks install: unknown target %q (want %q, %q, or %q)", args[0], hookTargetClaudeCode, hookTargetCursor, hookTargetGit)
 	}
 }
 
@@ -91,8 +103,10 @@ func runHooksUninstall(cmd *cobra.Command, args []string) error {
 		return uninstallClaudeCodeHook(cmd)
 	case hookTargetCursor:
 		return uninstallCursorHook(cmd)
+	case hookTargetGit:
+		return uninstallGitHook(cmd)
 	default:
-		return fmt.Errorf("hooks uninstall: unknown target %q (want %q or %q)", args[0], hookTargetClaudeCode, hookTargetCursor)
+		return fmt.Errorf("hooks uninstall: unknown target %q (want %q, %q, or %q)", args[0], hookTargetClaudeCode, hookTargetCursor, hookTargetGit)
 	}
 }
 
@@ -102,8 +116,10 @@ func runHooksRun(cmd *cobra.Command, args []string) error {
 		return runHookClaudeCode(cmd)
 	case hookTargetCursor:
 		return runHookCursor(cmd)
+	case hookTargetGit:
+		return runHookGit(cmd)
 	default:
-		return fmt.Errorf("hooks run: unknown target %q (want %q or %q)", args[0], hookTargetClaudeCode, hookTargetCursor)
+		return fmt.Errorf("hooks run: unknown target %q (want %q, %q, or %q)", args[0], hookTargetClaudeCode, hookTargetCursor, hookTargetGit)
 	}
 }
 
@@ -725,4 +741,104 @@ func gitDiffCached(cwd string) ([]byte, error) {
 		return nil, fmt.Errorf("git diff --cached: %w: %s", err, stderr.String())
 	}
 	return stdout.Bytes(), nil
+}
+
+// ---------------------------------------------------------------------
+// git: native pre-commit hook in the repository's own hooks directory
+// ---------------------------------------------------------------------
+//
+// Unlike the claude-code/cursor targets there is no agent settings file to
+// merge into: git itself discovers `pre-commit` in its hooks directory, so
+// the script file is the registration. Install only writes that one file
+// (resolved via `git rev-parse --git-path hooks`, which honors
+// core.hooksPath and linked worktrees), and uninstall refuses to delete
+// anything pleno-dlp did not write.
+
+// gitHooksDir resolves the hooks directory git itself would use. It uses
+// `rev-parse --git-path hooks` rather than joining --git-dir with "hooks"
+// so linked worktrees resolve to the shared hooks directory, and it errors
+// when cwd is not inside a git repository so `hooks install git` fails
+// loudly instead of creating a stray hooks tree.
+func gitHooksDir() (string, error) {
+	c := exec.Command("git", "rev-parse", "--git-path", "hooks")
+	var stdout, stderr bytes.Buffer
+	c.Stdout = &stdout
+	c.Stderr = &stderr
+	if err := c.Run(); err != nil {
+		return "", fmt.Errorf("hooks git: not a git repository (%v: %s)", err, strings.TrimSpace(stderr.String()))
+	}
+	dir := strings.TrimSpace(stdout.String())
+	if dir == "" {
+		return "", fmt.Errorf("hooks git: git rev-parse --git-path hooks returned no path")
+	}
+	return dir, nil
+}
+
+func gitHookScriptPath() (string, error) {
+	dir, err := gitHooksDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "pre-commit"), nil
+}
+
+func installGitHook(cmd *cobra.Command) error {
+	path, err := gitHookScriptPath()
+	if err != nil {
+		return err
+	}
+	if _, err := writeHookScript(path, hookTargetGit); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "installed git hook:\n  script: %s\n  trigger: pre-commit -> hooks run git\n", path)
+	return nil
+}
+
+func uninstallGitHook(cmd *cobra.Command) error {
+	path, err := gitHookScriptPath()
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Fprintf(cmd.OutOrStdout(), "git hook not installed at %s; nothing to do\n", path)
+			return nil
+		}
+		return fmt.Errorf("hooks uninstall git: read %s: %w", path, err)
+	}
+	if !strings.Contains(string(data), gitHookMarker) {
+		return fmt.Errorf("hooks uninstall git: %s was not installed by pleno-dlp (missing %q marker); refusing to remove it", path, gitHookMarker)
+	}
+	if err := removeHookScript(path); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "uninstalled git hook: deleted %s\n", path)
+	return nil
+}
+
+// runHookGit implements a native pre-commit hook: it scans the staged diff
+// offline and returns an error (non-zero exit) when findings are present,
+// which is exactly how git interprets "block this commit". Any plumbing
+// failure fails open (allow) for the same reason as the agent hooks: a
+// broken scanner must never make a repository uncommittable.
+func runHookGit(cmd *cobra.Command) error {
+	diff, err := gitDiffCached("")
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run git: %s — allowing\n", err)
+		return nil
+	}
+	if len(bytes.TrimSpace(diff)) == 0 {
+		return nil
+	}
+	n, err := scanOfflineFunc(diff)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run git: %s — allowing\n", err)
+		return nil
+	}
+	if n == 0 {
+		return nil
+	}
+	return fmt.Errorf("pleno-dlp: %d potential secret(s) in the staged diff (offline, unverified scan) — "+
+		"run `pleno-dlp scan git --repo .` for full verification, or fix the finding before committing", n)
 }

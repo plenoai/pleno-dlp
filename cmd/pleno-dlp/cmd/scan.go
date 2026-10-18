@@ -40,10 +40,14 @@ var Root = &cobra.Command{
 	SilenceErrors: true,
 }
 
-var toolVersion string
+var (
+	toolVersion string
+	toolCommit  string
+)
 
 func SetVersion(version, commit string) {
 	toolVersion = version
+	toolCommit = commit
 	Root.Version = fmt.Sprintf("%s (%s)", version, commit)
 }
 
@@ -1539,6 +1543,16 @@ func (s *providerConfirmedOnlySink) Close() error { return s.inner.Close() }
 
 // Execute is a thin wrapper main.go invokes. Returning instead of calling
 // os.Exit here keeps the cmd package testable.
-func Execute(ctx context.Context) error {
+//
+// It installs the crash-report recovery (issue #497) so a panic anywhere in
+// the command tree is turned into a local report when --crash-report was
+// given. Without that flag handleCrash re-panics, so this wrapper does not
+// otherwise change crash behaviour.
+func Execute(ctx context.Context) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = handleCrash(r)
+		}
+	}()
 	return Root.ExecuteContext(ctx)
 }

@@ -8,6 +8,22 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Added
+
+- `pleno-dlp hooks install git` installs a native `.git/hooks/pre-commit`
+  wrapper that scans the staged diff offline and blocks the commit on a
+  finding; `hooks uninstall git` removes only a hook pleno-dlp wrote.
+- `--crash-report <path>` records a local, secret-free JSON crash report
+  (command path, flag names, version, stack trace) when a command panics.
+  Flag values are never recorded, and nothing is sent anywhere.
+
+### Fixed
+
+- Crash-report invocation descriptions record flags given *before* the
+  subcommand (`pleno-dlp --some-root-flag scan ...`), not just those after
+  it. The git-hook end-to-end test now builds the binary once in
+  `TestMain` instead of per test.
+
 ## [v0.65.0] - 2026-09-21
 
 ### Added
