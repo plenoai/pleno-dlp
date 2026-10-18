@@ -329,12 +329,10 @@ func TestChunks_FirstChangedLine(t *testing.T) {
 	if got[0].SourceMetadata.Git.Line != 1 {
 		t.Fatalf("c1 line: got %d", got[0].SourceMetadata.Git.Line)
 	}
-	// Git.Line is the 1-based line of Data[0]; the engine adds the newlines
-	// before a match to resolve the changed line. The modification's leading
-	// context ("line1") starts at line 1, so c2's base line is 1 even though
-	// the changed line ("lineTWO") is line 2.
+	// The modified line is the 2nd one, but the retained window starts at
+	// the leading context (new-side line 1), matching the Data[0] contract.
 	if got[1].SourceMetadata.Git.Line != 1 {
-		t.Fatalf("c2 base line: got %d (want 1)", got[1].SourceMetadata.Git.Line)
+		t.Fatalf("c2 line: got %d (want 1)", got[1].SourceMetadata.Git.Line)
 	}
 }
 
@@ -387,20 +385,23 @@ func TestChunks_ModificationEmitsAddedHunkOnly(t *testing.T) {
 	if strings.Contains(string(add.Data), "line-01 unrelated code") {
 		t.Fatalf("added-hunk chunk leaked far-away context; data=%q", add.Data)
 	}
-	// Line metadata is the 1-based line of Data[0]. The appended secret sits
-	// at line 41 and is preceded by three lines of unified context, so the
-	// emitted window starts at line 38; the engine resolves the secret's own
-	// line by adding the newlines before it.
+	// Line metadata must point at Data[0] — the first retained leading-context
+	// line (the added secret is on line 41, so the three context lines begin at
+	// line 38), not at the secret line itself.
 	if add.SourceMetadata.Git.Line != 38 {
 		t.Fatalf("Line: got %d, want 38", add.SourceMetadata.Git.Line)
+	}
+	if !strings.HasPrefix(string(add.Data), "line-38 unrelated code\n") {
+		t.Fatalf("Data[0] is not the first leading-context line: %q", add.Data)
 	}
 }
 
 func TestAddedHunks_OversizedBlobSkipsDiff(t *testing.T) {
 	// A single line changed near the start of an otherwise identical file
-	// well over maxDiffBlobSize. If addedHunks actually diffed this it would
-	// materialize both huge blobs. The size guard must intercept it before
-	// change.Patch() runs and report ok=false instead.
+	// well over maxDiffBlobSize. If addedHunks actually diffed this (like the
+	// small-file case in TestChunks_FirstChangedLine) it would emit a hunk.
+	// The size guard must intercept it before change.Patch() runs and decline
+	// the change instead.
 	const chunk = "xxxx\n" // 5 bytes/line
 	var b strings.Builder
 	for i := 0; i < 250000; i++ { // 1,250,000 bytes > maxDiffBlobSize (1 MiB)
@@ -456,8 +457,88 @@ func TestAddedHunks_OversizedBlobSkipsDiff(t *testing.T) {
 		t.Fatalf("fixture blob not oversized: to=%v", to)
 	}
 
-	if _, _, ok := addedHunks(change, from, to, false); ok {
-		t.Fatal("addedHunks returned ok for an oversized blob; diff must be skipped")
+	if segments, ok := addedHunks(change, from, to, false); ok || segments != nil {
+		t.Fatalf("addedHunks on oversized blob = (%d segments, ok=%t), want (nil, false)", len(segments), ok)
+	}
+}
+
+// TestChunks_LineAttributionMatchesAcrossPaths pins the native and go-git
+// history paths to the same (File, Line, Data) tuples. The modification
+// replaces two far-apart lines, so each path must emit one segment per hunk
+// with Line set to the new-side line of Data[0] (the first retained
+// leading-context line), not to the first changed line.
+func TestChunks_LineAttributionMatchesAcrossPaths(t *testing.T) {
+	lines := make([]string, 40)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("L%02d", i+1)
+	}
+	v1 := strings.Join(lines, "\n") + "\n"
+	lines[9] = "SECRET_A"
+	lines[29] = "SECRET_B"
+	v2 := strings.Join(lines, "\n") + "\n"
+
+	repo, _ := buildRepo(t, []commitSpec{
+		{files: map[string]string{"L.txt": v1}, msg: "add"},
+		{files: map[string]string{"L.txt": v2}, msg: "modify"},
+	})
+
+	type tuple struct {
+		file string
+		line int
+		data string
+	}
+	run := func(t *testing.T) []tuple {
+		t.Helper()
+		s := &Source{}
+		mustInit(t, s, Config{Repo: repo})
+		got, err := drain(t, s, 10*time.Second)
+		if err != nil {
+			t.Fatalf("Chunks: %v", err)
+		}
+		out := make([]tuple, 0, len(got))
+		for _, c := range got {
+			md := c.SourceMetadata.Git
+			if md == nil {
+				t.Fatalf("chunk without git metadata: %#v", c)
+			}
+			out = append(out, tuple{file: md.File, line: md.Line, data: string(c.Data)})
+		}
+		return out
+	}
+
+	var fallback []tuple
+	t.Run("go-git fallback", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+		fallback = run(t)
+	})
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("native git unavailable; go-git fallback tuples captured but not compared")
+	}
+	var native []tuple
+	t.Run("native git", func(t *testing.T) {
+		native = run(t)
+	})
+
+	if len(native) != len(fallback) {
+		t.Fatalf("chunk count differs: native=%d go-git=%d\nnative=%v\ngo-git=%v",
+			len(native), len(fallback), native, fallback)
+	}
+	for i := range native {
+		if native[i] != fallback[i] {
+			t.Fatalf("chunk %d differs:\n native=%+v\n go-git=%+v", i, native[i], fallback[i])
+		}
+	}
+
+	// Pin the concrete contract: both hunks point at the retained context
+	// (lines 7 and 27), not at the changed lines (10 and 30).
+	var modLines []int
+	for _, tp := range native {
+		if strings.Contains(tp.data, "SECRET_A") || strings.Contains(tp.data, "SECRET_B") {
+			modLines = append(modLines, tp.line)
+		}
+	}
+	if len(modLines) != 2 || modLines[0] != 7 || modLines[1] != 27 {
+		t.Fatalf("modification hunk lines = %v, want [7 27]", modLines)
 	}
 }
 
@@ -491,8 +572,8 @@ func TestChunks_OversizedModificationUsesBoundedNativeDiff(t *testing.T) {
 		}
 		if strings.Contains(string(chunk.Data), secret) {
 			found = true
-			// Base line of the emitted window: the secret is line 220001 and
-			// three lines of preceding context start the window at 219998.
+			// Data[0] is the first of three retained leading-context lines, so
+			// the window starts three lines before the appended secret (220001).
 			if chunk.SourceMetadata.Git.Line != 219998 {
 				t.Fatalf("secret chunk line = %d, want 219998", chunk.SourceMetadata.Git.Line)
 			}
@@ -777,8 +858,8 @@ func TestChunks_LargeNativeDiffKeepsDistantHunkLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Base line of each emitted window: three lines of leading context
-	// precede the changed line, so windows start at 7 and 219987.
+	// Each hunk's line points at Data[0], i.e. the first retained leading
+	// context line: 3 before the change on line 10, and 3 before line 219990.
 	want := map[int]bool{7: false, 219987: false}
 	for _, c := range got {
 		if c.SourceMetadata.Git.Message != "two hunks" {
@@ -788,7 +869,7 @@ func TestChunks_LargeNativeDiffKeepsDistantHunkLines(t *testing.T) {
 			want[c.SourceMetadata.Git.Line] = true
 		}
 	}
-	if !want[10] || !want[219990] {
+	if !want[7] || !want[219987] {
 		t.Fatalf("distant hunk lines = %v", want)
 	}
 }

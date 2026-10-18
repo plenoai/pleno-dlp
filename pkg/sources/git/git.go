@@ -975,9 +975,9 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 				}
 			}
 		} else if from.Size <= maxDiffBlobSize && to.Size <= maxDiffBlobSize {
-			data, line, ok := addedHunks(change, from, to, s.trufflehogCompatible)
+			hunks, ok := addedHunks(change, from, to, s.trufflehogCompatible)
 			if ok {
-				segments = []diffSegment{{data: data, line: line}}
+				segments = hunks
 			}
 		} else {
 			segments, err = s.nativeAddedHunks(ctx, c, path)
@@ -1331,6 +1331,12 @@ func (s *Source) nativeAddedHunks(ctx context.Context, c *object.Commit, path st
 			appendData(append([]byte(line[1:]), '\n'))
 			lineNo++
 		case ' ':
+			// Leading context is part of the segment: record the window's
+			// first new-side line before appending, not at the addition, so
+			// line points at Data[0].
+			if segmentLine == 0 {
+				segmentLine = lineNo
+			}
 			if s.trufflehogCompatible {
 				appendData([]byte{'\n'})
 			} else {
@@ -1507,37 +1513,37 @@ func sameGitDiffType(from, to filemode.FileMode) bool {
 
 // addedHunks extracts every added hunk from a modification's diff, each
 // bordered by up to diffContextLines lines of unchanged context, and returns
-// them concatenated as the chunk's scan content. This replaces full-blob
-// emission for modifications (#264): full-history previously emitted the
-// entire new file on every commit that touched it, so a large,
-// frequently-edited file was rescanned end to end on every touching commit.
-// Only the actually-added material, plus enough context for regexes that
-// span lines, is scanned now.
+// one diffSegment per hunk. This replaces full-blob emission for modifications
+// (#264): full-history previously emitted the entire new file on every commit
+// that touched it, so a large, frequently-edited file was rescanned end to end
+// on every touching commit. Only the actually-added material, plus enough
+// context for regexes that span lines, is scanned now.
+//
+// Each segment's line is the new-side line of the first byte of its data: the
+// first retained leading-context line, or the first added line when the hunk
+// has no leading context. The engine derives a finding's line as
+// segment.line + the newlines between Data[0] and the match (see
+// engine.computeLineFromMatch), so line must point at Data[0], never at the
+// first addition. Attributing the addition instead reports every finding in
+// the leading context too high.
 //
 // ok=false means the diff was not computed (see maxDiffBlobSize) or the
 // change added no lines (pure deletion or a no-content-change rename/mode
 // change) — callers must skip the change, not fall back to full-file
 // content, or the problem this function exists to fix comes right back.
-// The returned line is the 1-based new-side line of the first byte of the
-// returned data (the contract every source metadata Line shares), which is
-// the leading context line in front of the first added hunk — not the first
-// added line itself. Callers such as the engine add the newlines before a
-// match to this base, so it must point at data[0].
-func addedHunks(change *object.Change, from, to *object.File, blankContext bool) ([]byte, int, bool) {
+func addedHunks(change *object.Change, from, to *object.File, blankContext bool) ([]diffSegment, bool) {
 	if to != nil && to.Size > maxDiffBlobSize {
-		return nil, 0, false
+		return nil, false
 	}
 	if from != nil && from.Size > maxDiffBlobSize {
-		return nil, 0, false
+		return nil, false
 	}
 	patch, err := change.Patch()
 	if err != nil || patch == nil {
-		return nil, 0, false
+		return nil, false
 	}
 
-	var out bytes.Buffer
-	wrote := false
-	firstLine := 0
+	var segments []diffSegment
 	for _, fp := range patch.FilePatches() {
 		if fp.IsBinary() {
 			continue
@@ -1546,38 +1552,33 @@ func addedHunks(change *object.Change, from, to *object.File, blankContext bool)
 		newLine := 1
 		for i, c := range chunks {
 			switch c.Type() {
-			case diff.Equal:
-				newLine += countLines(c.Content())
-			case diff.Delete:
-				// old-side only, no new-side advance
 			case diff.Add:
-				if out.Len() > 0 && out.Bytes()[out.Len()-1] != '\n' {
-					out.WriteByte('\n')
-				}
 				trailing := trailingContext(chunks, i, diffContextLines)
 				leading := leadingContext(chunks, i, diffContextLines)
 				if blankContext {
 					trailing = blankDiffContext(trailing)
 					leading = blankDiffContext(leading)
 				}
-				if !wrote {
-					firstLine = newLine - countLines(trailing)
-					if firstLine < 1 {
-						firstLine = 1
-					}
-				}
-				out.WriteString(trailing)
-				out.WriteString(c.Content())
-				out.WriteString(leading)
+				var buf bytes.Buffer
+				buf.WriteString(trailing)
+				buf.WriteString(c.Content())
+				buf.WriteString(leading)
+				segments = append(segments, diffSegment{
+					data: buf.Bytes(),
+					line: newLine - countLines(trailing),
+				})
 				newLine += countLines(c.Content())
-				wrote = true
+			case diff.Equal:
+				newLine += countLines(c.Content())
+			case diff.Delete:
+				// no new-side advance
 			}
 		}
 	}
-	if !wrote {
-		return nil, 0, false
+	if len(segments) == 0 {
+		return nil, false
 	}
-	return out.Bytes(), firstLine, true
+	return segments, true
 }
 
 func blankDiffContext(context string) string {

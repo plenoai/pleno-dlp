@@ -1223,10 +1223,14 @@ func (p *nativeLogParser) beginAddedLine() {
 	h.hasAdd = true
 	if h.firstAddLine == 0 {
 		h.firstAddLine = h.newLine
-		// h.data may already hold leading unified-context lines. Line is
-		// the 1-based line of Data[0], so subtract the context newlines
-		// already buffered in front of the first addition.
-		h.dataLine = h.newLine - bytes.Count(h.data, []byte{'\n'})
+	}
+	if h.dataLine == 0 {
+		// Unified context can precede the first addition, and it is already
+		// buffered in h.data. The scan window's first byte is therefore
+		// countLines(h.data) new-side lines before this addition, matching
+		// the Data[0] line contract in pkg/sources/sources.go. Pointing at
+		// the addition instead reported leading-context findings too high.
+		h.dataLine = h.newLine - countLines(string(h.data))
 	}
 }
 

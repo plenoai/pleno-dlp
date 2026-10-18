@@ -21,11 +21,14 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 const (
 	hookTargetClaudeCode = "claude-code"
 	hookTargetCursor     = "cursor"
+	hookTargetGit        = "git"
 
 	// hookScriptMarker is the substring every registered hook command
 	// must contain, used to find (and only ever touch) our own entry
@@ -48,40 +51,80 @@ var hooksCmd = &cobra.Command{
 }
 
 var hooksInstallCmd = &cobra.Command{
-	Use:   "install <claude-code|cursor>",
-	Short: "Install the hook for claude-code or cursor in the current project",
+	Use:   "install <claude-code|cursor|git>",
+	Short: "Install the hook for claude-code, cursor, or git pre-commit in the current project",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runHooksInstall,
 }
 
 var hooksUninstallCmd = &cobra.Command{
-	Use:   "uninstall <claude-code|cursor>",
+	Use:   "uninstall <claude-code|cursor|git>",
 	Short: "Remove a previously installed hook",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runHooksUninstall,
 }
 
 var hooksRunCmd = &cobra.Command{
-	Use:    "run <claude-code|cursor>",
+	Use:    "run <claude-code|cursor|git>",
 	Short:  "Internal: translate one hook invocation into a scan stdin --no-verify call",
 	Args:   cobra.ExactArgs(1),
 	Hidden: true,
 	RunE:   runHooksRun,
 }
 
+var hooksPrintCmd = &cobra.Command{
+	Use:   "print <git>",
+	Short: "Print a PATH-resolving git pre-commit script for hooks managed outside the repo (core.hooksPath, home-manager, lefthook)",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runHooksPrint,
+}
+
+// hooksFailOn is the --fail-on threshold for the git target. It shares
+// scan's vocabulary and parser (parseFailOn) so a hook and a CI scan
+// configured with the same word gate on the same severities.
+var hooksFailOn string
+
 func init() {
-	hooksCmd.AddCommand(hooksInstallCmd, hooksUninstallCmd, hooksRunCmd)
+	const failOnUsage = "git target only: minimum severity that blocks the commit: any|info|low|medium|high|critical"
+	for _, c := range []*cobra.Command{hooksInstallCmd, hooksRunCmd, hooksPrintCmd} {
+		c.Flags().StringVar(&hooksFailOn, "fail-on", "high", failOnUsage)
+	}
+	hooksCmd.AddCommand(hooksInstallCmd, hooksUninstallCmd, hooksRunCmd, hooksPrintCmd)
 	Root.AddCommand(hooksCmd)
+}
+
+// hooksUnknownTarget keeps the three switch statements' error text in
+// one place so adding a target cannot leave one message stale.
+func hooksUnknownTarget(verb, got string) error {
+	return fmt.Errorf("hooks %s: unknown target %q (want %q, %q, or %q)", verb, got, hookTargetClaudeCode, hookTargetCursor, hookTargetGit)
+}
+
+// rejectFailOnForAgentTargets refuses --fail-on on claude-code/cursor,
+// whose hooks block on any finding; silently ignoring the flag would
+// let an operator believe they configured a threshold that is not applied.
+func rejectFailOnForAgentTargets(cmd *cobra.Command, target string) error {
+	if f := cmd.Flags().Lookup("fail-on"); f != nil && f.Changed {
+		return fmt.Errorf("hooks %s %s: --fail-on applies only to the %q target", cmd.Name(), target, hookTargetGit)
+	}
+	return nil
 }
 
 func runHooksInstall(cmd *cobra.Command, args []string) error {
 	switch args[0] {
 	case hookTargetClaudeCode:
+		if err := rejectFailOnForAgentTargets(cmd, args[0]); err != nil {
+			return err
+		}
 		return installClaudeCodeHook(cmd)
 	case hookTargetCursor:
+		if err := rejectFailOnForAgentTargets(cmd, args[0]); err != nil {
+			return err
+		}
 		return installCursorHook(cmd)
+	case hookTargetGit:
+		return installGitHook(cmd)
 	default:
-		return fmt.Errorf("hooks install: unknown target %q (want %q or %q)", args[0], hookTargetClaudeCode, hookTargetCursor)
+		return hooksUnknownTarget("install", args[0])
 	}
 }
 
@@ -91,20 +134,42 @@ func runHooksUninstall(cmd *cobra.Command, args []string) error {
 		return uninstallClaudeCodeHook(cmd)
 	case hookTargetCursor:
 		return uninstallCursorHook(cmd)
+	case hookTargetGit:
+		return uninstallGitHook(cmd)
 	default:
-		return fmt.Errorf("hooks uninstall: unknown target %q (want %q or %q)", args[0], hookTargetClaudeCode, hookTargetCursor)
+		return hooksUnknownTarget("uninstall", args[0])
 	}
 }
 
 func runHooksRun(cmd *cobra.Command, args []string) error {
 	switch args[0] {
 	case hookTargetClaudeCode:
+		if err := rejectFailOnForAgentTargets(cmd, args[0]); err != nil {
+			return err
+		}
 		return runHookClaudeCode(cmd)
 	case hookTargetCursor:
+		if err := rejectFailOnForAgentTargets(cmd, args[0]); err != nil {
+			return err
+		}
 		return runHookCursor(cmd)
+	case hookTargetGit:
+		return runHookGit(cmd)
 	default:
-		return fmt.Errorf("hooks run: unknown target %q (want %q or %q)", args[0], hookTargetClaudeCode, hookTargetCursor)
+		return hooksUnknownTarget("run", args[0])
 	}
+}
+
+func runHooksPrint(cmd *cobra.Command, args []string) error {
+	if args[0] != hookTargetGit {
+		return fmt.Errorf("hooks print: unknown target %q (only %q has a standalone script; claude-code and cursor need their settings file, use `hooks install`)", args[0], hookTargetGit)
+	}
+	script, err := gitHookScriptPortable(hooksFailOn)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(cmd.OutOrStdout(), script)
+	return err
 }
 
 // ---------------------------------------------------------------------
@@ -210,15 +275,29 @@ func writeJSONObject(path string, obj map[string]json.RawMessage) error {
 // uvBin/gitBin override pattern in pii_server.go).
 var scanOfflineFunc = scanOffline
 
+// hookFinding is the subset of one `--format json` record (schema in
+// pkg/output/json.go) the hooks consume. Raw is never serialized there,
+// so nothing here can carry an unmasked secret except whatever the
+// detector chose to put in Redacted — see maskRedacted.
+type hookFinding struct {
+	Detector     string `json:"detector"`
+	Severity     string `json:"severity"`
+	Redacted     string `json:"redacted"`
+	SuppressedBy string `json:"suppressed_by,omitempty"`
+	// Start is the byte offset of the match inside the scanned stdin
+	// buffer; the git hook maps it back to a staged path and line.
+	Start *int `json:"start,omitempty"`
+}
+
 // scanOffline shells out to this same pleno-dlp binary (`scan stdin
-// --no-verify`) against data and reports how many findings it emitted.
+// --no-verify`) against data and returns the findings it emitted.
 // Deliberately does not reimplement engine wiring: reusing the CLI path
 // means hook behaviour — dedup, allowlist discovery, output shape —
 // never drifts from `pleno-dlp scan stdin --no-verify` run by hand.
-func scanOffline(data []byte) (int, error) {
+func scanOffline(data []byte) ([]hookFinding, error) {
 	exe := resolveExecutable()
 	if exe == "" {
-		return 0, fmt.Errorf("could not resolve pleno-dlp's own executable path")
+		return nil, fmt.Errorf("could not resolve pleno-dlp's own executable path")
 	}
 	c := exec.Command(exe, "scan", "stdin", "--no-verify", "--quiet", "--format", "json")
 	c.Stdin = bytes.NewReader(data)
@@ -229,21 +308,21 @@ func scanOffline(data []byte) (int, error) {
 	if runErr != nil {
 		var exitErr *exec.ExitError
 		if !errors.As(runErr, &exitErr) {
-			return 0, fmt.Errorf("run scan stdin: %w", runErr)
+			return nil, fmt.Errorf("run scan stdin: %w", runErr)
 		}
 		// Stdin scans always exit 0 — findings are reported on stdout,
 		// never via the exit code (that gating is reserved for
 		// file/git/SaaS kinds). Any non-zero exit is a real error.
-		return 0, fmt.Errorf("scan stdin exited %d: %s", exitErr.ExitCode(), stderr.String())
+		return nil, fmt.Errorf("scan stdin exited %d: %s", exitErr.ExitCode(), stderr.String())
 	}
 	if len(bytes.TrimSpace(stdout.Bytes())) == 0 {
-		return 0, nil
+		return nil, nil
 	}
-	var records []json.RawMessage
+	var records []hookFinding
 	if err := json.Unmarshal(stdout.Bytes(), &records); err != nil {
-		return 0, fmt.Errorf("parse scan stdin output: %w", err)
+		return nil, fmt.Errorf("parse scan stdin output: %w", err)
 	}
-	return len(records), nil
+	return records, nil
 }
 
 // ---------------------------------------------------------------------
@@ -467,11 +546,12 @@ func runHookClaudeCode(cmd *cobra.Command) error {
 		return nil
 	}
 
-	n, err := scanOfflineFunc([]byte(content))
+	records, err := scanOfflineFunc([]byte(content))
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: %v — allowing\n", err)
 		return nil
 	}
+	n := len(records)
 	if n == 0 {
 		return nil
 	}
@@ -676,18 +756,19 @@ func runHookCursor(cmd *cobra.Command) error {
 		return allowCursor(cmd, "")
 	}
 
-	diff, err := gitDiffCached(payload.Cwd)
+	diff, origins, err := collectDiffForScanFunc(cmd.Context(), payload.Cwd, true)
 	if err != nil {
 		return allowCursor(cmd, fmt.Sprintf("collect staged diff: %v", err))
 	}
-	if len(bytes.TrimSpace(diff)) == 0 {
+	if len(origins) == 0 {
 		return allowCursor(cmd, "")
 	}
 
-	n, err := scanOfflineFunc(diff)
+	records, err := scanOfflineFunc(diff)
 	if err != nil {
 		return allowCursor(cmd, fmt.Sprintf("scan staged diff: %v", err))
 	}
+	n := len(records)
 	if n == 0 {
 		return allowCursor(cmd, "")
 	}
@@ -713,16 +794,210 @@ func writeCursorPermission(cmd *cobra.Command, out cursorPermissionOutput) error
 	return nil
 }
 
-func gitDiffCached(cwd string) ([]byte, error) {
-	c := exec.Command("git", "diff", "--cached")
-	if cwd != "" {
-		c.Dir = cwd
+// ---------------------------------------------------------------------
+// git: native pre-commit hook (gitleaks `git --staged` replacement)
+// ---------------------------------------------------------------------
+
+// gitHookMarker identifies a pre-commit file pleno-dlp wrote. install
+// overwrites and uninstall deletes only files carrying it, so an
+// operator's own pre-commit hook is never clobbered.
+const gitHookMarker = "# pleno-dlp-git-hook"
+
+// gitHookBlockedFmt is the final stderr line on a blocked commit. It names
+// both escape hatches so the operator is never stuck at the prompt.
+const gitHookBlockedFmt = "pleno-dlp: blocked commit (%d findings at or above %s). Bypass once with git commit --no-verify; allowlist known fixtures in .pleno-allow.json (see docs/recipes/pre-commit.md).\n"
+
+// stagedScanFunc is the seam hook tests use to replace protect's
+// in-process scan; production runs scanStagedBuffer.
+var stagedScanFunc = scanStagedBuffer
+
+// severityRank maps a JSON severity string back to detectors.Severity by
+// inverting Severity.String, so the vocabulary has one source of truth.
+func severityRank(s string) detectors.Severity {
+	for sev := detectors.SeverityCritical; sev > detectors.SeverityUnknown; sev-- {
+		if sev.String() == s {
+			return sev
+		}
 	}
-	var stdout, stderr bytes.Buffer
-	c.Stdout = &stdout
-	c.Stderr = &stderr
-	if err := c.Run(); err != nil {
-		return nil, fmt.Errorf("git diff --cached: %w: %s", err, stderr.String())
+	return detectors.SeverityUnknown
+}
+
+// findingsAtOrAbove keeps unsuppressed records whose severity meets the
+// threshold produced by parseFailOn. "any" parses to Info, the floor of
+// Severity.String's output, so it keeps every record.
+func findingsAtOrAbove(records []hookFinding, threshold detectors.Severity) []hookFinding {
+	var kept []hookFinding
+	for _, r := range records {
+		if r.SuppressedBy == "" && severityRank(r.Severity) >= threshold {
+			kept = append(kept, r)
+		}
 	}
-	return stdout.Bytes(), nil
+	return kept
+}
+
+// maskRedacted bounds what the hook prints to six leading characters.
+// Redacted is produced per detector and nothing outside the detector
+// enforces its shape, so the hook re-masks rather than trusting it.
+func maskRedacted(s string) string {
+	r := []rune(strings.TrimSuffix(s, "..."))
+	if len(r) == 0 {
+		return "(redacted)"
+	}
+	if len(r) > 6 {
+		r = r[:6]
+	}
+	return string(r) + "..."
+}
+
+// runHookGit is `protect` plus hook ergonomics: the diff collection,
+// transform, and in-process scan are protect's (collectDiffForScan,
+// scanStagedBuffer); this layer adds the masked stderr list, the
+// blocked-commit message, and fail-open on plumbing errors so a
+// pleno-dlp bug can never prevent a commit. Exit 1 (errFindingsFound)
+// blocks.
+func runHookGit(cmd *cobra.Command) error {
+	threshold, err := parseFailOn(hooksFailOn)
+	if err != nil {
+		return err
+	}
+	errw := cmd.ErrOrStderr()
+	buf, origins, err := collectDiffForScanFunc(cmd.Context(), "", true)
+	if err != nil {
+		fmt.Fprintf(errw, "pleno-dlp: hooks run git: %v — allowing commit\n", err)
+		return nil
+	}
+	if len(origins) == 0 {
+		return nil
+	}
+	records, err := stagedScanFunc(cmd, buf)
+	if err != nil {
+		fmt.Fprintf(errw, "pleno-dlp: hooks run git: %v — allowing commit\n", err)
+		return nil
+	}
+	blocking := findingsAtOrAbove(records, threshold)
+	if len(blocking) == 0 {
+		return nil
+	}
+	level := strings.ToLower(strings.TrimSpace(hooksFailOn))
+	fmt.Fprintln(errw, "pleno-dlp: potential secrets in staged changes (offline, unverified scan):")
+	for _, r := range blocking {
+		where := "(unknown location)"
+		if o, ok := originAt(buf, origins, r.Start); ok {
+			where = o.path
+			if o.line > 0 {
+				where = fmt.Sprintf("%s:%d", o.path, o.line)
+			}
+		}
+		fmt.Fprintf(errw, "  %-8s %-24s %-12s %s\n", r.Severity, r.Detector, maskRedacted(r.Redacted), where)
+	}
+	fmt.Fprintf(errw, gitHookBlockedFmt, len(blocking), level)
+	return errFindingsFound
+}
+
+// gitHooksDir resolves the directory git will run hooks from. `git
+// rev-parse --git-path hooks` honours core.hooksPath (local or global)
+// and linked worktrees, so install writes where git actually looks.
+func gitHooksDir() (string, error) {
+	out, err := exec.Command("git", "rev-parse", "--git-path", "hooks").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return "", fmt.Errorf("hooks install git: not inside a git repository: %s", strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		return "", fmt.Errorf("hooks install git: run git: %w", err)
+	}
+	return filepath.Abs(strings.TrimSpace(string(out)))
+}
+
+// gitHookScriptInstalled pins the absolute binary path, matching the
+// claude-code/cursor wrappers, so the hook does not depend on PATH.
+func gitHookScriptInstalled(failOn string) (string, error) {
+	if _, err := parseFailOn(failOn); err != nil {
+		return "", err
+	}
+	exe := resolveExecutable()
+	if exe == "" {
+		return "", fmt.Errorf("hooks install: could not resolve pleno-dlp's own executable path")
+	}
+	script := fmt.Sprintf(hookScriptTemplate, hookTargetGit, shellQuote(exe), hookTargetGit+" --fail-on "+shellQuote(failOn))
+	return strings.Replace(script, "#!/bin/sh\n", "#!/bin/sh\n"+gitHookMarker+"\n", 1), nil
+}
+
+// gitHookScriptPortable resolves pleno-dlp from PATH for hooks shared
+// across machines (dotfiles, core.hooksPath); when the binary is
+// missing it warns and lets the commit through rather than failing.
+func gitHookScriptPortable(failOn string) (string, error) {
+	if _, err := parseFailOn(failOn); err != nil {
+		return "", err
+	}
+	return "#!/bin/sh\n" + gitHookMarker + "\n" +
+		"# Generated by `pleno-dlp hooks print git`. Resolves pleno-dlp from PATH.\n" +
+		"if ! command -v pleno-dlp >/dev/null 2>&1; then\n" +
+		"  echo 'pleno-dlp: not found on PATH; skipping staged secret scan' >&2\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"exec pleno-dlp hooks run git --fail-on " + shellQuote(failOn) + "\n", nil
+}
+
+func installGitHook(cmd *cobra.Command) error {
+	script, err := gitHookScriptInstalled(hooksFailOn)
+	if err != nil {
+		return err
+	}
+	dir, err := gitHooksDir()
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "pre-commit")
+	state := "installed"
+	existing, err := os.ReadFile(path)
+	switch {
+	case err == nil && !strings.Contains(string(existing), gitHookMarker):
+		return fmt.Errorf("hooks install git: %s already exists and was not written by pleno-dlp; refusing to overwrite. "+
+			"Run `pleno-dlp hooks print git` and merge its last line into your hook by hand", path)
+	case err == nil && string(existing) == script:
+		fmt.Fprintf(cmd.OutOrStdout(), "git pre-commit hook already installed at %s\n", path)
+		return nil
+	case err == nil:
+		state = "updated"
+	case !os.IsNotExist(err):
+		return fmt.Errorf("hooks install git: read %s: %w", path, err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("hooks install git: create %s: %w", dir, err)
+	}
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		return fmt.Errorf("hooks install git: write %s: %w", path, err)
+	}
+	// WriteFile keeps an existing file's mode; force the exec bit on update.
+	if err := os.Chmod(path, 0o755); err != nil {
+		return fmt.Errorf("hooks install git: chmod %s: %w", path, err)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "%s git pre-commit hook:\n  path:    %s\n  fail-on: %s\n", state, path, hooksFailOn)
+	return nil
+}
+
+func uninstallGitHook(cmd *cobra.Command) error {
+	dir, err := gitHooksDir()
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "pre-commit")
+	existing, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		fmt.Fprintf(cmd.OutOrStdout(), "git pre-commit hook not installed at %s; nothing to do\n", path)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("hooks uninstall git: read %s: %w", path, err)
+	}
+	if !strings.Contains(string(existing), gitHookMarker) {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s was not written by pleno-dlp; leaving it untouched\n", path)
+		return nil
+	}
+	if err := removeHookScript(path); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "uninstalled git pre-commit hook: deleted %s\n", path)
+	return nil
 }
