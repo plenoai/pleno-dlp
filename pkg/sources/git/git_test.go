@@ -329,9 +329,12 @@ func TestChunks_FirstChangedLine(t *testing.T) {
 	if got[0].SourceMetadata.Git.Line != 1 {
 		t.Fatalf("c1 line: got %d", got[0].SourceMetadata.Git.Line)
 	}
-	// Modified line is the 2nd one — the patch's first Add appears at new-side line 2.
-	if got[1].SourceMetadata.Git.Line != 2 {
-		t.Fatalf("c2 line: got %d (want 2)", got[1].SourceMetadata.Git.Line)
+	// Git.Line is the 1-based line of Data[0]; the engine adds the newlines
+	// before a match to resolve the changed line. The modification's leading
+	// context ("line1") starts at line 1, so c2's base line is 1 even though
+	// the changed line ("lineTWO") is line 2.
+	if got[1].SourceMetadata.Git.Line != 1 {
+		t.Fatalf("c2 base line: got %d (want 1)", got[1].SourceMetadata.Git.Line)
 	}
 }
 
@@ -384,19 +387,20 @@ func TestChunks_ModificationEmitsAddedHunkOnly(t *testing.T) {
 	if strings.Contains(string(add.Data), "line-01 unrelated code") {
 		t.Fatalf("added-hunk chunk leaked far-away context; data=%q", add.Data)
 	}
-	// Line metadata must point at the secret line's actual position in the
-	// new file (41st line), not at the start of the emitted window.
-	if add.SourceMetadata.Git.Line != 41 {
-		t.Fatalf("Line: got %d, want 41", add.SourceMetadata.Git.Line)
+	// Line metadata is the 1-based line of Data[0]. The appended secret sits
+	// at line 41 and is preceded by three lines of unified context, so the
+	// emitted window starts at line 38; the engine resolves the secret's own
+	// line by adding the newlines before it.
+	if add.SourceMetadata.Git.Line != 38 {
+		t.Fatalf("Line: got %d, want 38", add.SourceMetadata.Git.Line)
 	}
 }
 
-func TestFirstChangedLine_OversizedBlobSkipsDiff(t *testing.T) {
+func TestAddedHunks_OversizedBlobSkipsDiff(t *testing.T) {
 	// A single line changed near the start of an otherwise identical file
-	// well over maxDiffBlobSize. If firstChangedLine actually diffed this
-	// (like the small-file case in TestChunks_FirstChangedLine) it would
-	// report line 1. The size guard must intercept it before change.Patch()
-	// runs and report 0 instead.
+	// well over maxDiffBlobSize. If addedHunks actually diffed this it would
+	// materialize both huge blobs. The size guard must intercept it before
+	// change.Patch() runs and report ok=false instead.
 	const chunk = "xxxx\n" // 5 bytes/line
 	var b strings.Builder
 	for i := 0; i < 250000; i++ { // 1,250,000 bytes > maxDiffBlobSize (1 MiB)
@@ -452,8 +456,8 @@ func TestFirstChangedLine_OversizedBlobSkipsDiff(t *testing.T) {
 		t.Fatalf("fixture blob not oversized: to=%v", to)
 	}
 
-	if got := firstChangedLine(change, from, to); got != 0 {
-		t.Fatalf("firstChangedLine on oversized blob = %d, want 0 (diff skipped)", got)
+	if _, _, ok := addedHunks(change, from, to, false); ok {
+		t.Fatal("addedHunks returned ok for an oversized blob; diff must be skipped")
 	}
 }
 
@@ -487,8 +491,10 @@ func TestChunks_OversizedModificationUsesBoundedNativeDiff(t *testing.T) {
 		}
 		if strings.Contains(string(chunk.Data), secret) {
 			found = true
-			if chunk.SourceMetadata.Git.Line != 220001 {
-				t.Fatalf("secret chunk line = %d, want 220001", chunk.SourceMetadata.Git.Line)
+			// Base line of the emitted window: the secret is line 220001 and
+			// three lines of preceding context start the window at 219998.
+			if chunk.SourceMetadata.Git.Line != 219998 {
+				t.Fatalf("secret chunk line = %d, want 219998", chunk.SourceMetadata.Git.Line)
 			}
 		}
 	}
@@ -771,7 +777,9 @@ func TestChunks_LargeNativeDiffKeepsDistantHunkLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[int]bool{10: false, 219990: false}
+	// Base line of each emitted window: three lines of leading context
+	// precede the changed line, so windows start at 7 and 219987.
+	want := map[int]bool{7: false, 219987: false}
 	for _, c := range got {
 		if c.SourceMetadata.Git.Message != "two hunks" {
 			continue
