@@ -10,6 +10,10 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Added
 
+- `engine.ScanBytes(ctx, data, Options)` exposes an offline, in-memory
+  scan that returns detector results without a filter chain, so crash
+  telemetry and git-hook callers no longer re-implement the keyword
+  prefilter and detector registry iteration.
 - `--crash-report <path>` writes a local, secret-free JSON crash report
   (command path, flag names, version, stack) to the named path when a
   command panics. Flag values are never recorded and nothing is sent, so an
