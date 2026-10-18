@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-10-18 | architect, core-engineer, connector-engineer, qa | Publish the `pleno-dlp.crash/v1` crash-report schema; assert the Go `crash.Report` struct and the vendored `plenoai.com` relay `validate()` against it so field drift fails CI on either side. |
 | 2026-10-18 | connector-engineer, core-engineer, qa | Attribute git findings to `Data[0]`: the go-git fallback emits one segment per added hunk with the leading-context line, native `beginAddedLine`/`nativeAddedHunks` follow the same rule, and the `Line`-means-`Data[0]` contract is documented on the line-bearing metadata structs with a shared engine contract test. |
 | 2026-10-18 | core-engineer | Fold local `--crash-report` into the shared `pkg/telemetry/crash` report schema and redactor (`kind: crash`, canonical `Encode`); the file is byte-identical to `telemetry show-last` and the private struct is gone (#559, #586). |
 | 2026-10-18 | core-engineer, qa | Add local-only `--crash-report <path>`; record flags given before the subcommand in crash invocation descriptions (#516); build the git-hook end-to-end test binary once per package in `TestMain`. |

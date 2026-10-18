@@ -59,7 +59,9 @@ inside your organization.
 
 ## What a report contains
 
-Every field is listed here; there are no others.
+Every field is listed here; there are no others. The machine-readable
+contract shared with the relay is
+[`pleno-dlp.crash/v1`](crash-telemetry-schema.md).
 
 | Field | Content |
 |---|---|

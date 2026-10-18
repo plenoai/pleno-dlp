@@ -10,6 +10,12 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Added
 
+- Published the `pleno-dlp.crash/v1` crash-report schema as
+  [`pkg/telemetry/crash/schema/pleno-dlp.crash.v1.json`](pkg/telemetry/crash/schema/pleno-dlp.crash.v1.json).
+  The Go `crash.Report` struct and the `plenoai.com` crash relay are both
+  asserted against it, so a field added to either side without the schema
+  fails CI on that side (`pkg/telemetry/crash/report_test.go`,
+  `workers/crash-relay/crash-relay.test.js`).
 - `engine.ScanBytes(ctx, data, Options)` exposes an offline, in-memory
   scan that returns detector results without a filter chain, so crash
   telemetry and git-hook callers no longer re-implement the keyword
