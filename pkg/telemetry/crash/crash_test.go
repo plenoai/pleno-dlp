@@ -435,6 +435,26 @@ func TestSuperviseReportsChildCrash(t *testing.T) {
 	}
 }
 
+func TestHandleThrottlesRepeatedCrash(t *testing.T) {
+	rl := &relay{status: http.StatusOK}
+	srv := httptest.NewServer(rl)
+	defer srv.Close()
+	rt, _, stderr := newTestRuntime(t, true, srv.URL)
+	rt.HTTPClient = srv.Client()
+
+	first := rt.handle(KindRecovered, "panic: same", sampleStack, nil)
+	if first.Throttled || !first.Sent || len(rl.bodies) != 1 {
+		t.Fatalf("first handle: %+v bodies=%d", first, len(rl.bodies))
+	}
+	second := rt.handle(KindRecovered, "panic: same", sampleStack, nil)
+	if !second.Throttled || second.Sent || len(rl.bodies) != 1 {
+		t.Fatalf("second handle: %+v bodies=%d", second, len(rl.bodies))
+	}
+	if !strings.Contains(stderr.String(), "throttled locally") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestSupervisePassesThroughNonCrashExits(t *testing.T) {
 	for mode, want := range map[string]int{"exit3": 3, "clean": 0} {
 		rt, env, _ := newTestRuntime(t, true, "")

@@ -44,7 +44,8 @@ func TestTelemetryEnableDisableStatus(t *testing.T) {
 
 	out, err := runRoot(t, "telemetry", "status")
 	if err != nil || !strings.Contains(out, "crash reports: disabled") || !strings.Contains(out, "source:        default") ||
-		!strings.Contains(out, crash.DefaultEndpoint) || !strings.Contains(out, filepath.Join(dir, "crash")) {
+		!strings.Contains(out, crash.DefaultEndpoint) || !strings.Contains(out, filepath.Join(dir, "crash")) ||
+		!strings.Contains(out, "feedback:") || !strings.Contains(out, "ignores the crash opt-in") {
 		t.Fatalf("default status: %v\n%s", err, out)
 	}
 	if _, err := runRoot(t, "telemetry", "enable"); err != nil {
