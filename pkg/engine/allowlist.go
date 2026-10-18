@@ -185,8 +185,8 @@ func findingPath(f Finding) string {
 	return ""
 }
 
-// pathMatch matches against the full path and basename.
-// `**` uses a lightweight ordered-fragment fallback.
+// pathMatch matches pattern against the full path and, for `**`-free
+// patterns, the basename. `**` is handled by globContainsMatch.
 func pathMatch(pattern, path string) bool {
 	if pattern == "" {
 		return false
@@ -203,38 +203,63 @@ func pathMatch(pattern, path string) bool {
 	return false
 }
 
-// globContainsMatch is the lightweight `**` fallback.
+// globContainsMatch reports whether pattern, which contains at least one `**`,
+// matches path. `**` matches zero or more whole path segments rather than an
+// arbitrary substring, so a literal fragment can never align with part of a
+// segment: `test/**` matches `test/a/b.env` but not `latest/prod.env` or
+// `src/contest.go`, and `**/vendor/**` matches `vendor/x.go` and
+// `a/vendor/x.go` but not `src/notvendor/x/key.go`.
+//
+// Like the `**`-free branch, the match is not anchored to the start of the
+// path: the pattern may begin at any segment boundary, which keeps the
+// documented `fixtures/**/*.env` entry matching `repo/fixtures/sub/secret.env`.
+// Every literal pattern segment must still align with a complete path segment.
 func globContainsMatch(pattern, path string) bool {
-	frags := strings.Split(pattern, "**")
-	rest := filepath.ToSlash(path)
-	for i, frag := range frags {
-		if frag == "" {
-			continue
+	pattern = strings.Trim(filepath.ToSlash(pattern), "/")
+	path = strings.Trim(filepath.ToSlash(path), "/")
+	if pattern == "" {
+		return path == ""
+	}
+	pSegs := strings.Split(pattern, "/")
+	pathSegs := strings.Split(path, "/")
+	for i := 0; i <= len(pathSegs); i++ {
+		if matchSegments(pSegs, pathSegs[i:]) {
+			return true
 		}
-		frag = strings.Trim(frag, "/")
-		if i == len(frags)-1 && strings.ContainsAny(frag, "*?[") {
-			for {
-				if rest == "" {
-					return false
-				}
-				if ok, _ := filepath.Match(frag, rest); ok {
-					return true
-				}
-				if ok, _ := filepath.Match(frag, filepath.Base(rest)); ok {
-					return true
-				}
-				idx := strings.IndexByte(rest, '/')
-				if idx < 0 {
-					return false
-				}
-				rest = rest[idx+1:]
+	}
+	return false
+}
+
+// matchSegments matches pattern segments against name segments. A `**` segment
+// matches zero or more whole name segments; any other segment is matched with
+// filepath.Match, which keeps `*`, `?` and character classes scoped to a single
+// path segment.
+func matchSegments(pattern, name []string) bool {
+	for len(pattern) > 0 {
+		if pattern[0] == "**" {
+			pattern = pattern[1:]
+			for len(pattern) > 0 && pattern[0] == "**" {
+				pattern = pattern[1:]
 			}
-		}
-		idx := strings.Index(rest, frag)
-		if idx < 0 {
+			if len(pattern) == 0 {
+				return true
+			}
+			for i := 0; i <= len(name); i++ {
+				if matchSegments(pattern, name[i:]) {
+					return true
+				}
+			}
 			return false
 		}
-		rest = rest[idx+len(frag):]
+		if len(name) == 0 {
+			return false
+		}
+		ok, err := filepath.Match(pattern[0], name[0])
+		if err != nil || !ok {
+			return false
+		}
+		pattern = pattern[1:]
+		name = name[1:]
 	}
-	return true
+	return len(name) == 0
 }
