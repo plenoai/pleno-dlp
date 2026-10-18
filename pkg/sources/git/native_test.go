@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
@@ -186,6 +188,50 @@ func TestChunks_TrufflehogCompatibleBlanksContext(t *testing.T) {
 			}
 			if got, want := string(changed.Data), "\nadded\n\n"; got != want {
 				t.Fatalf("data=%q, want trufflehog-compatible context %q", got, want)
+			}
+		})
+	}
+}
+
+func TestNativeLogParserLeadingContextKeepsDataBaseLine(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		trufflehogCompatible bool
+		wantData             string
+	}{
+		{name: "default", wantData: "ctx1\nctx2\nSECRET\n"},
+		{name: "trufflehog-compatible", trufflehogCompatible: true, wantData: "\n\nSECRET\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Source{trufflehogCompatible: tc.trufflehogCompatible}
+			ch := make(chan *sources.Chunk, 4)
+			parser := nativeLogParser{
+				ctx:    context.Background(),
+				source: s,
+				ch:     ch,
+				commit: &nativeCommit{hash: strings.Repeat("1", 40)},
+			}
+			diff := "diff --git a/f.txt b/f.txt\n" +
+				"--- a/f.txt\n+++ b/f.txt\n" +
+				"@@ -1,2 +1,3 @@\n ctx1\n ctx2\n+SECRET\n"
+			if err := parser.parse(strings.NewReader(diff)); err != nil {
+				t.Fatal(err)
+			}
+			close(ch)
+			var got []*sources.Chunk
+			for chunk := range ch {
+				got = append(got, chunk)
+			}
+			if len(got) != 1 {
+				t.Fatalf("chunks=%d, want 1", len(got))
+			}
+			if string(got[0].Data) != tc.wantData {
+				t.Fatalf("data=%q, want %q", got[0].Data, tc.wantData)
+			}
+			// Data[0] is the first context line, i.e. line 1. The engine
+			// later adds the two context newlines to report SECRET at line 3.
+			if line := got[0].SourceMetadata.Git.Line; line != 1 {
+				t.Fatalf("Line=%d, want 1 (the 1-based line of Data[0])", line)
 			}
 		})
 	}
@@ -1468,4 +1514,92 @@ func commitOrder(chunks []*sources.Chunk) []string {
 		order = append(order, chunk.SourceMetadata.Git.Commit)
 	}
 	return order
+}
+
+// nativeLineTokenDetector emits a fixed token so the engine's line resolution
+// has a concrete match offset inside a git hunk with leading context.
+type nativeLineTokenDetector struct{ token string }
+
+func (d *nativeLineTokenDetector) Type() detectors.DetectorType { return detectors.AWS }
+func (d *nativeLineTokenDetector) Keywords() []string { return []string{d.token} }
+func (d *nativeLineTokenDetector) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	if !bytes.Contains(data, []byte(d.token)) {
+		return nil, nil
+	}
+	return []detectors.Result{{DetectorType: detectors.AWS, Raw: []byte(d.token)}}, nil
+}
+
+type nativeLineSink struct {
+	mu       sync.Mutex
+	findings []engine.Finding
+}
+
+func (s *nativeLineSink) Emit(f engine.Finding) {
+	s.mu.Lock()
+	s.findings = append(s.findings, f)
+	s.mu.Unlock()
+}
+
+func (s *nativeLineSink) Close() error { return nil }
+
+func (s *nativeLineSink) Findings() []engine.Finding {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]engine.Finding, len(s.findings))
+	copy(out, s.findings)
+	return out
+}
+
+// TestChunks_EngineLineMatchesGoGitForLeadingContext is the end-to-end
+// regression test for the leading-context line shift: the token is appended
+// as the fourth new-side line, so both the native and the go-git paths must
+// resolve the engine's finding to line 4 — not 4 plus the three context
+// newlines in front of it.
+func TestChunks_EngineLineMatchesGoGitForLeadingContext(t *testing.T) {
+	requireNativeGit(t)
+	const token = "CONTEXT_SHIFT_SECRET"
+	repoPath, hashes := buildRepo(t, []commitSpec{
+		{files: map[string]string{"f.txt": "a\nb\nc\n"}, msg: "base"},
+		{files: map[string]string{"f.txt": "a\nb\nc\n" + token + "\n"}, msg: "append secret"},
+	})
+
+	scanLine := func(t *testing.T, cfg Config) int {
+		t.Helper()
+		s := &Source{}
+		mustInit(t, s, cfg)
+		sink := &nativeLineSink{}
+		eng := engine.NewWithDetectors(
+			[]detectors.Detector{&nativeLineTokenDetector{token: token}},
+			engine.Options{Concurrency: 1},
+			sink,
+		)
+		if _, err := eng.RunWithStats(context.Background(), s); err != nil {
+			t.Fatalf("engine run: %v", err)
+		}
+		var lines []int
+		for _, f := range sink.Findings() {
+			if f.Chunk != nil && f.Chunk.SourceMetadata.Git != nil && f.Chunk.SourceMetadata.Git.Commit == hashes[1] {
+				lines = append(lines, f.Chunk.SourceMetadata.Git.Line)
+			}
+		}
+		if len(lines) != 1 {
+			t.Fatalf("findings on the append commit = %d, want exactly 1", len(lines))
+		}
+		return lines[0]
+	}
+
+	nativeLine := scanLine(t, Config{Repo: repoPath})
+	if nativeLine != 4 {
+		t.Fatalf("native reported line = %d, want 4", nativeLine)
+	}
+
+	// Hide git from PATH to force the go-git fallback for the same repo.
+	t.Setenv("PATH", t.TempDir())
+	goGitLine := scanLine(t, Config{Repo: repoPath})
+	if goGitLine != 4 {
+		t.Fatalf("go-git reported line = %d, want 4", goGitLine)
+	}
+	if nativeLine != goGitLine {
+		t.Fatalf("native line %d != go-git line %d", nativeLine, goGitLine)
+	}
 }
