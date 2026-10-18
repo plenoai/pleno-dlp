@@ -20,6 +20,11 @@ publishing, archives, SLSA provenance, and SBOM generation.
   scan that returns detector results without a filter chain, so crash
   telemetry and git-hook callers no longer re-implement the keyword
   prefilter and detector registry iteration.
+- `pleno-dlp feedback [message]` (or `--stdin`) sends a redacted message to
+  the maintainers. Every sent report is written to the local spool first, so
+  there is always a local copy of what left the machine. The confirmation
+  prompt reads `/dev/tty`, so `--stdin` can be piped and still confirmed
+  interactively without `--yes`.
 - `--crash-report <path>` writes a local, secret-free JSON crash report
   (command path, flag names, version, stack) to the named path when a
   command panics. Flag values are never recorded and nothing is sent, so an
