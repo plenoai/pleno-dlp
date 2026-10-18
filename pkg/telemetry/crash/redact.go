@@ -61,7 +61,10 @@ func EnvPrefixes(getenv func(string) string, home string) map[string]string {
 	add(getenv("GOMODCACHE"), "$GOMODCACHE")
 	goroot := getenv("GOROOT")
 	if goroot == "" {
-		goroot = runtime.GOROOT() //nolint:staticcheck // build-time root names stdlib frames of non-trimpath builds
+		// The build-time root is exactly the prefix stdlib frames carry in a
+		// non-trimpath build, which is the string being redacted here.
+		//lint:ignore SA1019 build-time GOROOT is the wanted value, not the host's
+		goroot = runtime.GOROOT()
 	}
 	add(goroot, "$GOROOT")
 	return m
