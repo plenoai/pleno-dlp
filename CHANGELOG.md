@@ -8,12 +8,28 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+## [v0.68.0] - 2026-10-18
+
 ### Added
 
+- `pleno-dlp feedback [message...]` sends anonymized feedback, or with
+  `--kind false-positive --detector <Type>` a false-positive report, through the
+  crash-report redaction and relay; it prints the payload and asks before sending
+  (`--dry-run`, `--yes`, `--file`, `--stdin`), and needs no `telemetry enable`.
 - `--crash-report <path>` writes a local, secret-free JSON crash report
   (command path, flag names, version, stack) to the named path when a
   command panics. Flag values are never recorded and nothing is sent, so an
   offline or scripted crash can be captured without enabling `telemetry`.
+
+### Changed
+
+- **Breaking for consumers of `pleno-dlp.crash/v1`:** reports use schema
+  `pleno-dlp.report/v1` with `kind` = `crash|feedback|false-positive`; the former
+  kinds `panic|fatal|recovered` move to `crash_kind`, and `detector` is added.
+- The endpoint override is now `PLENO_DLP_TELEMETRY_ENDPOINT` (`PLENO_DLP_CRASH_ENDPOINT`
+  is no longer read), the default endpoint is `https://intake.plenoai.com/v1/pleno-dlp`,
+  and the spool moved from `crash/` to `reports/`. `telemetry send` and
+  `telemetry show-last` handle every report kind.
 
 ### Fixed
 

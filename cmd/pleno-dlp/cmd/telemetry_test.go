@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/plenoai/pleno-dlp/pkg/telemetry/crash"
+	"github.com/plenoai/pleno-dlp/pkg/telemetry/report"
 )
 
 // isolateTelemetry points telemetry commands at a temp dir and a fixed env.
@@ -21,7 +21,7 @@ func isolateTelemetry(t *testing.T, env map[string]string) string {
 	t.Helper()
 	resetCommandFlags(t)
 	dir := t.TempDir()
-	env[crash.EnvDir] = dir
+	env[report.EnvDir] = dir
 	prev := telemetryGetenv
 	telemetryGetenv = func(k string) string { return env[k] }
 	t.Cleanup(func() { telemetryGetenv = prev })
@@ -30,6 +30,9 @@ func isolateTelemetry(t *testing.T, env map[string]string) string {
 
 func runRoot(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+	// Flag values persist on the package-level command tree between
+	// Execute calls; reset so each invocation sees only its own flags.
+	resetCommandFlagsNow()
 	var out bytes.Buffer
 	Root.SetOut(&out)
 	Root.SetErr(&out)
@@ -44,7 +47,7 @@ func TestTelemetryEnableDisableStatus(t *testing.T) {
 
 	out, err := runRoot(t, "telemetry", "status")
 	if err != nil || !strings.Contains(out, "crash reports: disabled") || !strings.Contains(out, "source:        default") ||
-		!strings.Contains(out, crash.DefaultEndpoint) || !strings.Contains(out, filepath.Join(dir, "crash")) {
+		!strings.Contains(out, report.DefaultEndpoint) || !strings.Contains(out, filepath.Join(dir, "reports")) {
 		t.Fatalf("default status: %v\n%s", err, out)
 	}
 	if _, err := runRoot(t, "telemetry", "enable"); err != nil {
@@ -54,12 +57,12 @@ func TestTelemetryEnableDisableStatus(t *testing.T) {
 	if !strings.Contains(out, "crash reports: enabled") || !strings.Contains(out, "source:        file") {
 		t.Fatalf("after enable:\n%s", out)
 	}
-	env[crash.EnvReports] = "0"
+	env[report.EnvReports] = "0"
 	out, _ = runRoot(t, "telemetry", "status")
 	if !strings.Contains(out, "crash reports: disabled") || !strings.Contains(out, "source:        env") {
 		t.Fatalf("env override:\n%s", out)
 	}
-	delete(env, crash.EnvReports)
+	delete(env, report.EnvReports)
 	if _, err := runRoot(t, "telemetry", "disable"); err != nil {
 		t.Fatal(err)
 	}
@@ -71,8 +74,8 @@ func TestTelemetryEnableDisableStatus(t *testing.T) {
 
 func spoolSample(t *testing.T, dir string) string {
 	t.Helper()
-	r := crash.Build(crash.KindPanic, "panic: sample", "goroutine 1 [running]:\n", crash.Meta{Version: "t"}, &crash.Redactor{}, time.Now())
-	p, err := crash.Spool(filepath.Join(dir, "crash"), r)
+	r := report.BuildCrash(report.CrashPanic, "panic: sample", "goroutine 1 [running]:\n", report.Meta{Version: "t"}, &report.Redactor{}, time.Now())
+	p, err := report.Spool(filepath.Join(dir, "reports"), r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,27 +84,27 @@ func spoolSample(t *testing.T, dir string) string {
 
 func TestTelemetryShowLast(t *testing.T) {
 	dir := isolateTelemetry(t, map[string]string{})
-	if _, err := runRoot(t, "telemetry", "show-last"); err == nil || !strings.Contains(err.Error(), "no crash report spooled") {
+	if _, err := runRoot(t, "telemetry", "show-last"); err == nil || !strings.Contains(err.Error(), "no report spooled") {
 		t.Fatalf("empty spool err = %v", err)
 	}
 	spoolSample(t, dir)
 	out, err := runRoot(t, "telemetry", "show-last")
-	if err != nil || !strings.Contains(out, `"schema": "pleno-dlp.crash/v1"`) || !strings.Contains(out, `"message": "panic: sample"`) {
+	if err != nil || !strings.Contains(out, `"schema": "pleno-dlp.report/v1"`) || !strings.Contains(out, `"crash_kind": "panic"`) || !strings.Contains(out, `"message": "panic: sample"`) {
 		t.Fatalf("show-last: %v\n%s", err, out)
 	}
 }
 
 func TestTelemetrySend(t *testing.T) {
-	var got crash.Report
+	var got report.Report
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(b, &got)
 	}))
 	defer srv.Close()
-	dir := isolateTelemetry(t, map[string]string{crash.EnvEndpoint: srv.URL})
+	dir := isolateTelemetry(t, map[string]string{report.EnvEndpoint: srv.URL})
 	p := spoolSample(t, dir)
 	out, err := runRoot(t, "telemetry", "send", p)
-	if err != nil || got.Message != "panic: sample" || !strings.Contains(out, "sent crash report") {
+	if err != nil || got.Message != "panic: sample" || !strings.Contains(out, "crash report sent to ") {
 		t.Fatalf("send: %v %+v\n%s", err, got, out)
 	}
 	foreign := filepath.Join(dir, "notes.json")

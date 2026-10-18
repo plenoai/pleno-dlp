@@ -3,6 +3,8 @@ package crash
 import (
 	"fmt"
 	"runtime/debug"
+
+	"github.com/plenoai/pleno-dlp/pkg/telemetry/report"
 )
 
 // Recover runs fn and converts a main-goroutine panic into a spooled
@@ -19,7 +21,7 @@ func (rt *Runtime) Recover(args []string, fn func() error) (err error) {
 			return
 		}
 		stack := string(debug.Stack())
-		rt.handle(KindRecovered, fmt.Sprintf("panic: %v", v), stack, args)
+		rt.handle(report.CrashRecovered, fmt.Sprintf("panic: %v", v), stack, args)
 		fmt.Fprintf(rt.Stderr, "panic: %v\n\n%s", v, stack)
 		rt.Exit(2)
 	}()

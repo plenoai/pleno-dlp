@@ -1,4 +1,4 @@
-package crash
+package report
 
 import (
 	"bytes"

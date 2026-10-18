@@ -42,7 +42,8 @@ var Root = &cobra.Command{
 
 var (
 	toolVersion string
-	toolCommit  string
+	// toolCommit is the short VCS revision stamped into reports.
+	toolCommit string
 )
 
 func SetVersion(version, commit string) {

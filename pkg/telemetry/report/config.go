@@ -1,4 +1,4 @@
-package crash
+package report
 
 import (
 	"encoding/json"
@@ -12,16 +12,15 @@ import (
 	"strings"
 )
 
-// DefaultEndpoint is the open-source relay (plenoai/plenoai.com
-// workers/crash-relay) that receives opted-in reports.
-const DefaultEndpoint = "https://crash.plenoai.com/v1/pleno-dlp"
+// DefaultEndpoint is the relay that files reports into the private
+// plenoai/pleno-dlp-intake repository. The client never talks to GitHub.
+const DefaultEndpoint = "https://intake.plenoai.com/v1/pleno-dlp"
 
 // Environment variables that control telemetry.
 const (
-	EnvReports  = "PLENO_DLP_CRASH_REPORTS"  // "0"/"1" overrides the config file
-	EnvEndpoint = "PLENO_DLP_CRASH_ENDPOINT" // overrides the endpoint
-	EnvDir      = "PLENO_DLP_TELEMETRY_DIR"  // overrides the config/spool root
-	EnvChild    = "PLENO_DLP_CRASH_CHILD"    // set by the supervisor on its child
+	EnvReports  = "PLENO_DLP_CRASH_REPORTS"      // "0"/"1" overrides the crash opt-in in the file
+	EnvEndpoint = "PLENO_DLP_TELEMETRY_ENDPOINT" // overrides the endpoint for every report kind
+	EnvDir      = "PLENO_DLP_TELEMETRY_DIR"      // overrides the config/spool root
 )
 
 const configFile = "telemetry.json"
@@ -43,15 +42,17 @@ type fileConfig struct {
 
 // Config is the resolved telemetry configuration.
 type Config struct {
+	// Enabled is the crash-report opt-in. Feedback and false-positive
+	// reports ignore it: the explicit command is the consent.
 	Enabled  bool
 	Source   Source
 	Endpoint string
-	// Dir is the root holding telemetry.json and crash/.
+	// Dir is the root holding telemetry.json and reports/.
 	Dir string
 }
 
-// SpoolDir is where reports are written.
-func (c Config) SpoolDir() string { return filepath.Join(c.Dir, "crash") }
+// SpoolDir is where reports of every kind are written.
+func (c Config) SpoolDir() string { return filepath.Join(c.Dir, "reports") }
 
 // Dir resolves the telemetry root: $PLENO_DLP_TELEMETRY_DIR, else
 // os.UserConfigDir()/pleno-dlp.
@@ -108,7 +109,7 @@ func Load(getenv func(string) string) (Config, error) {
 func ValidateEndpoint(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
-		return fmt.Errorf("crash endpoint %q: not an absolute URL", raw)
+		return fmt.Errorf("telemetry endpoint %q: not an absolute URL", raw)
 	}
 	switch u.Scheme {
 	case "https":
@@ -118,7 +119,7 @@ func ValidateEndpoint(raw string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("crash endpoint %q: must be https (http allowed only for loopback)", raw)
+	return fmt.Errorf("telemetry endpoint %q: must be https (http allowed only for loopback)", raw)
 }
 
 func readFile(dir string) (fileConfig, bool, error) {

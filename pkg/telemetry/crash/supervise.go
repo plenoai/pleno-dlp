@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+
+	"github.com/plenoai/pleno-dlp/pkg/telemetry/report"
 )
 
 // ringSize bounds how much child stderr the supervisor retains. A crash
@@ -39,7 +41,7 @@ func (rt *Runtime) Supervise(ctx context.Context, argv, env []string) (int, erro
 	if rt.Getenv(EnvChild) != "" {
 		return 0, ErrNotSupervised
 	}
-	cfg, err := Load(rt.Getenv)
+	cfg, err := report.Load(rt.Getenv)
 	if err != nil || !cfg.Enabled {
 		return 0, ErrNotSupervised
 	}
@@ -104,7 +106,7 @@ func exitCode(ps *os.ProcessState, waitErr error) int {
 // parseCrash extracts the runtime crash header and the goroutine dump that
 // follows it. The last header wins so CLI output that happens to contain
 // "panic: " earlier is not mistaken for the crash.
-func parseCrash(buf string) (Kind, string, string, bool) {
+func parseCrash(buf string) (report.CrashKind, string, string, bool) {
 	locs := crashHeadRe.FindAllStringIndex(buf, -1)
 	if len(locs) == 0 {
 		return "", "", "", false
@@ -120,9 +122,9 @@ func parseCrash(buf string) (Kind, string, string, bool) {
 		start = locs[i][0]
 	}
 	tail := buf[start:]
-	kind := KindPanic
+	kind := report.CrashPanic
 	if strings.HasPrefix(tail, "fatal error: ") {
-		kind = KindFatal
+		kind = report.CrashFatal
 	}
 	g := strings.Index(tail, "\ngoroutine ")
 	if g < 0 {

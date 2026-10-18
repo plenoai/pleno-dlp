@@ -9,7 +9,12 @@ import (
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/telemetry/report"
 )
+
+// EnvChild is set by the supervisor on its child so the child neither
+// supervises again nor recovers panics the parent will report.
+const EnvChild = "PLENO_DLP_CRASH_CHILD"
 
 // Runtime carries the dependencies of the crash path. Fields are
 // injectable for tests; New fills production defaults.
@@ -45,9 +50,9 @@ func New(version, commit string, describe func([]string) (string, []string)) *Ru
 	}
 }
 
-func (rt *Runtime) redactor() *Redactor {
+func (rt *Runtime) redactor() *report.Redactor {
 	home, _ := os.UserHomeDir()
-	red := &Redactor{Prefixes: EnvPrefixes(rt.Getenv, home)}
+	red := &report.Redactor{Prefixes: report.EnvPrefixes(rt.Getenv, home)}
 	if rt.Detectors != nil {
 		red.Detectors = rt.Detectors()
 	}
@@ -56,7 +61,7 @@ func (rt *Runtime) redactor() *Redactor {
 
 // Outcome is what handle did with a captured crash.
 type Outcome struct {
-	Report  Report
+	Report  report.Report
 	Path    string
 	Sent    bool
 	SendErr error
@@ -64,18 +69,18 @@ type Outcome struct {
 
 // handle builds, spools, optionally sends, and announces a crash. Failures
 // here are reported on stderr but never mask the original crash.
-func (rt *Runtime) handle(kind Kind, message, stack string, args []string) Outcome {
-	cfg, cfgErr := Load(rt.Getenv)
-	meta := Meta{Version: rt.Version, Commit: rt.Commit}
+func (rt *Runtime) handle(kind report.CrashKind, message, stack string, args []string) Outcome {
+	cfg, cfgErr := report.Load(rt.Getenv)
+	meta := report.Meta{Version: rt.Version, Commit: rt.Commit}
 	if rt.Describe != nil {
 		meta.Command, meta.Flags = rt.Describe(args)
 	}
-	out := Outcome{Report: Build(kind, message, stack, meta, rt.redactor(), rt.Now())}
+	out := Outcome{Report: report.BuildCrash(kind, message, stack, meta, rt.redactor(), rt.Now())}
 	if cfg.Dir == "" {
 		fmt.Fprintf(rt.Stderr, "pleno-dlp crashed; crash report not saved: %v\n", cfgErr)
 		return out
 	}
-	path, err := Spool(cfg.SpoolDir(), out.Report)
+	path, err := report.Spool(cfg.SpoolDir(), out.Report)
 	if err != nil {
 		fmt.Fprintf(rt.Stderr, "pleno-dlp crashed; crash report not saved: %v\n", err)
 		return out
@@ -85,7 +90,7 @@ func (rt *Runtime) handle(kind Kind, message, stack string, args []string) Outco
 		fmt.Fprintf(rt.Stderr, "pleno-dlp crashed; report saved to %s. Opt in to anonymous crash reports with: pleno-dlp telemetry enable\n", path)
 		return out
 	}
-	out.SendErr = Send(context.Background(), rt.HTTPClient, cfg.Endpoint, rt.Version, out.Report)
+	_, out.SendErr = report.Send(context.Background(), rt.HTTPClient, cfg.Endpoint, rt.Version, out.Report)
 	out.Sent = out.SendErr == nil
 	sent := ""
 	if out.Sent {

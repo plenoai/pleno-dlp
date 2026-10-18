@@ -118,12 +118,16 @@ pleno-dlp hooks install claude-code
 pleno-dlp hooks install cursor
 ```
 
-## Crash reports (opt-in)
+## Crash reports and feedback (opt-in)
 
 Crash reports are off by default. A crash is always spooled locally and
 redacted (paths, emails, IPs, URLs, tokens, and any secret a built-in
 detector matches); it is uploaded only after `pleno-dlp telemetry enable`.
-See [docs/telemetry.md](docs/telemetry.md) for the exact fields and how to
+`pleno-dlp feedback "..."` and
+`pleno-dlp feedback --kind false-positive --detector <Type> "..."` send
+feedback through the same redaction and channel after you confirm the exact
+payload. Reports go to a private intake that only maintainers can read. See
+[docs/telemetry.md](docs/telemetry.md) for the exact fields and how to
 inspect, send, or point reports at your own relay.
 
 ## License

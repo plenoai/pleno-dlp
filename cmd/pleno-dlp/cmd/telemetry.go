@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/plenoai/pleno-dlp/pkg/telemetry/crash"
+	"github.com/plenoai/pleno-dlp/pkg/telemetry/report"
 )
 
 // telemetryGetenv is the environment lookup for telemetry commands; tests
@@ -23,10 +23,12 @@ var telemetryGetenv = os.Getenv
 
 var telemetryCmd = &cobra.Command{
 	Use:   "telemetry",
-	Short: "Manage opt-in anonymized crash reports",
+	Short: "Manage opt-in crash reports and the local report spool",
 	Long: `Crash reports are disabled by default. When pleno-dlp crashes, a redacted
 report is always written to the local spool; it is uploaded only after
-'pleno-dlp telemetry enable' (or PLENO_DLP_CRASH_REPORTS=1). See docs/telemetry.md.`,
+'pleno-dlp telemetry enable' (or PLENO_DLP_CRASH_REPORTS=1). Feedback and
+false-positive reports are sent with 'pleno-dlp feedback' and need no opt-in.
+See docs/telemetry.md.`,
 }
 
 var telemetryEnableCmd = &cobra.Command{
@@ -44,24 +46,24 @@ var telemetryDisableCmd = &cobra.Command{
 }
 
 func setTelemetry(c *cobra.Command, enabled bool) error {
-	path, err := crash.SetEnabled(telemetryGetenv, enabled)
+	path, err := report.SetEnabled(telemetryGetenv, enabled)
 	if err != nil {
 		return err
 	}
 	state := map[bool]string{true: "enabled", false: "disabled"}[enabled]
 	fmt.Fprintf(c.OutOrStdout(), "crash reports %s (%s)\n", state, path)
-	if v := telemetryGetenv(crash.EnvReports); v != "" {
-		fmt.Fprintf(c.ErrOrStderr(), "note: %s=%s overrides this setting\n", crash.EnvReports, v)
+	if v := telemetryGetenv(report.EnvReports); v != "" {
+		fmt.Fprintf(c.ErrOrStderr(), "note: %s=%s overrides this setting\n", report.EnvReports, v)
 	}
 	return nil
 }
 
 var telemetryStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show whether crash reports are sent, and where",
+	Short: "Show whether crash reports are sent, the endpoint, and the spool",
 	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
-		cfg, err := crash.Load(telemetryGetenv)
+		cfg, err := report.Load(telemetryGetenv)
 		if err != nil {
 			return err
 		}
@@ -80,17 +82,17 @@ var telemetryStatusCmd = &cobra.Command{
 
 var telemetryShowLastCmd = &cobra.Command{
 	Use:   "show-last",
-	Short: "Print the most recent spooled crash report",
+	Short: "Print the most recent spooled report of any kind",
 	Args:  cobra.NoArgs,
 	RunE: func(c *cobra.Command, _ []string) error {
-		cfg, err := crash.Load(telemetryGetenv)
+		cfg, err := report.Load(telemetryGetenv)
 		if cfg.Dir == "" {
 			return err
 		}
-		path := filepath.Join(cfg.SpoolDir(), crash.LastFile)
-		_, raw, err := crash.ReadReport(path)
+		path := filepath.Join(cfg.SpoolDir(), report.LastFile)
+		_, raw, err := report.ReadReport(path)
 		if errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("no crash report spooled at %s", path)
+			return fmt.Errorf("no report spooled at %s", path)
 		}
 		if err != nil {
 			return err
@@ -106,24 +108,26 @@ var telemetryShowLastCmd = &cobra.Command{
 
 var telemetrySendCmd = &cobra.Command{
 	Use:   "send <file>",
-	Short: "Send a reviewed spooled crash report",
-	Long: `Send uploads the file exactly as it is on disk, so what you reviewed is
-what is sent. Only files matching the crash report schema are accepted.
+	Short: "Send a reviewed spooled report of any kind",
+	Long: `Send uploads a spooled report in its canonical encoding, which is what
+the spool file holds, so what you reviewed is what is sent. Only files
+matching the report schema and its per-kind field rules are accepted.
 Sending is an explicit action and does not require 'telemetry enable'.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(c *cobra.Command, args []string) error {
-		cfg, err := crash.Load(telemetryGetenv)
+		cfg, err := report.Load(telemetryGetenv)
 		if err != nil {
 			return err
 		}
-		r, _, err := crash.ReadReport(args[0])
+		r, _, err := report.ReadReport(args[0])
 		if err != nil {
 			return err
 		}
-		if err := crash.Send(c.Context(), nil, cfg.Endpoint, toolVersion, r); err != nil {
+		rc, err := report.Send(c.Context(), nil, cfg.Endpoint, toolVersion, r)
+		if err != nil {
 			return err
 		}
-		fmt.Fprintf(c.OutOrStdout(), "sent crash report %s to %s\n", r.Fingerprint, cfg.Endpoint)
+		printSent(c, r.Kind, cfg.Endpoint, rc)
 		return nil
 	},
 }
@@ -160,7 +164,7 @@ func init() {
 // DescribeInvocation maps args (argv without the program name) to the
 // subcommand path and the names of recognised flags. Values, positional
 // arguments, and unrecognised tokens are never returned, so the result is
-// safe to put in a crash report.
+// safe to put in a report.
 //
 // Flag names are collected from the whole argument vector rather than only
 // the tokens cobra's Find leaves after the command, so a root/persistent

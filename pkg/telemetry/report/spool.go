@@ -1,6 +1,9 @@
-package crash
+package report
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,22 +12,28 @@ import (
 	"strings"
 )
 
-// MaxSpoolFiles caps retained per-crash files; last.json is not counted.
+// MaxSpoolFiles caps retained per-report files; last.json is not counted.
 const MaxSpoolFiles = 20
 
 // LastFile is the name of the most recent report in the spool.
 const LastFile = "last.json"
 
-// Spool writes the report to <dir>/<fingerprint>-<unix>.json and
+// Spool writes the report to <dir>/<kind>-<id>-<unix>.json and
 // <dir>/last.json, then prunes the oldest files beyond MaxSpoolFiles.
-// It returns the per-crash path.
+// <id> is the crash fingerprint, or for other kinds the first 16 hex
+// characters of the SHA-256 of the encoded report. It returns the
+// per-report path.
 func Spool(dir string, r Report) (string, error) {
-	b, err := json.MarshalIndent(r, "", "  ")
+	b, err := Marshal(r)
 	if err != nil {
 		return "", err
 	}
-	b = append(b, '\n')
-	path := filepath.Join(dir, fmt.Sprintf("%s-%d.json", r.Fingerprint, r.CreatedAt.Unix()))
+	id := r.Fingerprint
+	if r.Kind != KindCrash || !fingerprintRe.MatchString(id) {
+		sum := sha256.Sum256(b)
+		id = hex.EncodeToString(sum[:])[:16]
+	}
+	path := filepath.Join(dir, fmt.Sprintf("%s-%s-%d.json", r.Kind, id, r.CreatedAt.Unix()))
 	if err := writePrivate(dir, path, b); err != nil {
 		return "", err
 	}
@@ -34,7 +43,7 @@ func Spool(dir string, r Report) (string, error) {
 	return path, prune(dir, path)
 }
 
-// prune removes the oldest per-crash files, never the one just written.
+// prune removes the oldest per-report files, never the one just written.
 func prune(dir, keep string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -73,8 +82,9 @@ func prune(dir, keep string) error {
 	return nil
 }
 
-// ReadReport loads a spooled report, rejecting unknown fields and foreign
-// schemas so `telemetry send` cannot be used to upload arbitrary files.
+// ReadReport loads a spooled report, rejecting unknown fields, foreign
+// schemas, and per-kind contract violations so `telemetry send` cannot be
+// used to upload arbitrary files.
 func ReadReport(path string) (Report, []byte, error) {
 	var r Report
 	b, err := os.ReadFile(path)
@@ -82,15 +92,15 @@ func ReadReport(path string) (Report, []byte, error) {
 		return r, nil, err
 	}
 	if len(b) > MaxReportBytes*2 {
-		return r, nil, fmt.Errorf("%s: %d bytes exceeds crash report bound", path, len(b))
+		return r, nil, fmt.Errorf("%s: %d bytes exceeds report bound", path, len(b))
 	}
-	dec := json.NewDecoder(strings.NewReader(string(b)))
+	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&r); err != nil {
-		return r, nil, fmt.Errorf("%s: not a crash report: %w", path, err)
+		return r, nil, fmt.Errorf("%s: not a pleno-dlp report: %w", path, err)
 	}
-	if r.Schema != Schema {
-		return r, nil, fmt.Errorf("%s: schema %q, want %q", path, r.Schema, Schema)
+	if err := r.Validate(); err != nil {
+		return r, nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return r, b, nil
 }

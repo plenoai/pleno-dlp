@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-10-18 | Claude, core-engineer | Generalize crash telemetry into `pleno-dlp.report/v1` (`pkg/telemetry/report`; kinds crash, feedback, false-positive) and add `pleno-dlp feedback`; reports go through intake.plenoai.com to the private plenoai/pleno-dlp-intake repository. |
 | 2026-10-18 | core-engineer, qa | Add local-only `--crash-report <path>`; record flags given before the subcommand in crash invocation descriptions (#516); build the git-hook end-to-end test binary once per package in `TestMain`. |
 | 2026-10-18 | Claude, core-engineer | Add opt-in anonymized crash telemetry (`pleno-dlp telemetry`, supervisor re-exec, relay at crash.plenoai.com) and a native git pre-commit target (`hooks install|print|run git`) that delegates to `protect`; protect, the git hook, and the cursor hook now share one staged-diff transform. |
 | 2026-09-22 | Codex, core-engineer, qa | Reuse decoder scan scratch across sequential passes; allocate decode buffers and compile line-detector regexps only after eligible content is found. |

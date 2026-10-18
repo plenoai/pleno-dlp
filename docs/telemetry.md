@@ -1,23 +1,64 @@
-# Crash reports (opt-in)
+# Crash reports and feedback
 
-pleno-dlp can send an anonymized report when it crashes. Sending is
-**disabled by default** and is never enabled implicitly: no prompt, no CI
-detection, no first-run banner. Whether or not sending is enabled, every
-crash is written to a local spool so you can read it first.
+pleno-dlp can send three kinds of anonymized report through one channel:
 
-## Enable, disable, inspect
+| Kind | Created by | Consent |
+|---|---|---|
+| `crash` | pleno-dlp itself, when it panics or hits a runtime fatal error | opt-in: `pleno-dlp telemetry enable` (disabled by default) |
+| `feedback` | you, with `pleno-dlp feedback "..."` | the command itself, confirmed per invocation |
+| `false-positive` | you, with `pleno-dlp feedback --kind false-positive --detector <Type> "..."` | the command itself, confirmed per invocation |
+
+Crash sending is never enabled implicitly: no prompt, no CI detection, no
+first-run banner. Whether or not it is enabled, every crash is written to a
+local spool so you can read it first. Feedback and false-positive reports
+need no opt-in because you run the command and confirm the exact payload;
+they still use the configured endpoint.
+
+Reports are relayed into the **private** repository
+`plenoai/pleno-dlp-intake`; only pleno-dlp maintainers can read them. The
+client talks only to the relay, never to GitHub, and sends no credentials.
+
+## Sending feedback
 
 ```sh
-pleno-dlp telemetry status       # enabled/disabled, source (file/env/default), endpoint, spool dir
-pleno-dlp telemetry enable       # writes {"crash_reports": true} to telemetry.json
-pleno-dlp telemetry disable      # writes {"crash_reports": false}; spool is kept
-pleno-dlp telemetry show-last    # pretty-prints the most recent spooled report
-pleno-dlp telemetry send <file>  # uploads one reviewed spool file as-is
+pleno-dlp feedback "the SARIF output is missing rule help text"
+pleno-dlp feedback --kind false-positive --detector AWS "matches AKIAIOSFODNN7EXAMPLE in docs"
+pleno-dlp feedback --file notes.txt --dry-run     # print the exact payload, send nothing
+git log -1 --format=%B | pleno-dlp feedback --stdin --yes
 ```
 
-`telemetry send` works even when sending is disabled: it is an explicit,
-per-file action. It accepts only files that match the report schema exactly
-(unknown fields are rejected), so it cannot be used to upload other files.
+| Flag | Meaning |
+|---|---|
+| `--kind feedback\|false-positive` | report kind (default `feedback`) |
+| `--detector <Type>` | required for `false-positive`, rejected otherwise; must be a Type from `pleno-dlp detectors list` |
+| `--file <path>` / `--stdin` | read the message from a file or stdin (at most 64 KiB) instead of arguments; exactly one source is allowed |
+| `--dry-run` | print the exact redacted JSON to stdout and exit 0 without sending |
+| `--yes` | skip the confirmation prompt (required with `--stdin`) |
+
+The command redacts the message, prints the payload to stderr, then asks
+`Send this anonymized report? [y/N]` on the terminal. Without a terminal
+and without `--yes` it refuses. A message that is empty after redaction is
+never sent. On success it prints
+`<kind> report recorded as <issue URL> (private intake)` when the relay
+returns an issue link (the link opens only for maintainers), otherwise
+`<kind> report sent to <endpoint>`. On failure the report is spooled and
+the `pleno-dlp telemetry send <path>` retry command is printed; the exit
+status is non-zero.
+
+## Managing crash reports and the spool
+
+```sh
+pleno-dlp telemetry status       # crash opt-in, its source (file/env/default), endpoint, spool dir
+pleno-dlp telemetry enable       # writes {"crash_reports": true} to telemetry.json
+pleno-dlp telemetry disable      # writes {"crash_reports": false}; spool is kept
+pleno-dlp telemetry show-last    # pretty-prints the most recent spooled report of any kind
+pleno-dlp telemetry send <file>  # uploads one reviewed spool file of any kind
+```
+
+`telemetry send` works even when crash sending is disabled: it is an
+explicit, per-file action. It accepts only files that match the report
+schema exactly (unknown fields and per-kind contract violations are
+rejected), so it cannot be used to upload other files.
 
 ## Local-only reports (`--crash-report`)
 
@@ -41,43 +82,46 @@ applies).
 
 | Setting | Where | Default |
 |---|---|---|
-| Opt-in | `crash_reports` in `<config>/pleno-dlp/telemetry.json` | `false` |
-| Opt-in override | `PLENO_DLP_CRASH_REPORTS=0` or `=1` (wins over the file) | unset |
-| Endpoint | `endpoint` in `telemetry.json`, or `PLENO_DLP_CRASH_ENDPOINT` (wins) | `https://crash.plenoai.com/v1/pleno-dlp` |
+| Crash opt-in | `crash_reports` in `<config>/pleno-dlp/telemetry.json` | `false` |
+| Crash opt-in override | `PLENO_DLP_CRASH_REPORTS=0` or `=1` (wins over the file) | unset |
+| Endpoint (all kinds) | `endpoint` in `telemetry.json`, or `PLENO_DLP_TELEMETRY_ENDPOINT` (wins) | `https://intake.plenoai.com/v1/pleno-dlp` |
 | Config/spool root | `PLENO_DLP_TELEMETRY_DIR` | `os.UserConfigDir()/pleno-dlp` |
 
 `<config>` is `os.UserConfigDir()`: `~/.config` (or `$XDG_CONFIG_HOME`) on
 Linux, `~/Library/Application Support` on macOS, `%AppData%` on Windows.
 The endpoint must be `https`; plain `http` is accepted only for loopback
-hosts, for running a relay locally.
-
-The default endpoint is a relay whose source is public in
-[plenoai/plenoai.com](https://github.com/plenoai/plenoai.com) under
-`workers/crash-relay`. Point `endpoint` at your own relay to keep reports
-inside your organization.
+hosts, for running a relay locally. Point `endpoint` at your own relay to
+keep reports inside your organization. v0.67's `PLENO_DLP_CRASH_ENDPOINT`
+is no longer read.
 
 ## What a report contains
 
-Every field is listed here; there are no others.
+Schema `pleno-dlp.report/v1`. Every key below is present in every report;
+a field that does not apply to the kind is the empty string. There are no
+other fields.
 
-| Field | Content |
-|---|---|
-| `schema` | `pleno-dlp.crash/v1` |
-| `fingerprint` | 16 hex chars of SHA-256 over the digit-normalized message and the top five in-module function names; stable across versions and line moves |
-| `version`, `commit` | build metadata |
-| `goos`, `goarch`, `go_version` | platform and toolchain |
-| `command` | subcommand words only, e.g. `scan filesystem` |
-| `flags` | names of recognised flags only, e.g. `["format"]`; never values |
-| `kind` | `panic` / `fatal` (seen by the supervisor) or `recovered` (caught in-process) |
-| `message` | the redacted panic or fatal-error line |
-| `stack` | the redacted goroutine dump |
-| `created_at` | UTC, truncated to the minute |
+| Field | crash | feedback | false-positive | Content |
+|---|---|---|---|---|
+| `schema` | yes | yes | yes | `pleno-dlp.report/v1` |
+| `kind` | yes | yes | yes | `crash`, `feedback`, or `false-positive` |
+| `crash_kind` | yes | `""` | `""` | `panic` / `fatal` (seen by the supervisor) or `recovered` (caught in-process) |
+| `fingerprint` | yes | `""` | `""` | 16 hex chars of SHA-256 over the digit-normalized message and the top five in-module function names; stable across versions and line moves |
+| `version`, `commit` | yes | yes | yes | build metadata |
+| `goos`, `goarch`, `go_version` | yes | yes | yes | platform and toolchain |
+| `command` | yes | `feedback` | `feedback` | subcommand words only, e.g. `scan filesystem` |
+| `flags` | yes | yes | yes | names of flags that were set, e.g. `["format"]`; never values |
+| `message` | yes | yes | yes | crash: the redacted panic or fatal-error line; otherwise your redacted text |
+| `stack` | yes | `""` | `""` | the redacted goroutine dump |
+| `detector` | `""` | `""` | yes | detector Type name as in `pleno-dlp detectors list` |
+| `created_at` | yes | yes | yes | UTC, truncated to the minute |
 
-Example (produced by `pleno-dlp telemetry crash-test --goroutine`):
+Crash example (produced by `pleno-dlp telemetry crash-test --goroutine`):
 
 ```json
 {
-  "schema": "pleno-dlp.crash/v1",
+  "schema": "pleno-dlp.report/v1",
+  "kind": "crash",
+  "crash_kind": "panic",
   "fingerprint": "527f8de5bcffdad9",
   "version": "1.4.0",
   "commit": "3f2c1ab",
@@ -86,9 +130,31 @@ Example (produced by `pleno-dlp telemetry crash-test --goroutine`):
   "go_version": "go1.26.9",
   "command": "telemetry crash-test",
   "flags": ["goroutine"],
-  "kind": "panic",
   "message": "panic: pleno-dlp telemetry crash-test (goroutine)",
-  "stack": "goroutine [running]:\ngithub.com/plenoai/pleno-dlp/cmd/pleno-dlp/cmd.init.func7.1()\n\tgithub.com/plenoai/pleno-dlp/cmd/pleno-dlp/cmd/telemetry.go:147\ncreated by github.com/plenoai/pleno-dlp/cmd/pleno-dlp/cmd.init.func7 in goroutine N\n\tgithub.com/plenoai/pleno-dlp/cmd/pleno-dlp/cmd/telemetry.go:147\n",
+  "stack": "goroutine [running]:\ngithub.com/plenoai/pleno-dlp/cmd/pleno-dlp/cmd.init.func7.1()\n\tgithub.com/plenoai/pleno-dlp/cmd/pleno-dlp/cmd/telemetry.go:147\n",
+  "detector": "",
+  "created_at": "2026-10-18T11:41:00Z"
+}
+```
+
+False-positive example (`pleno-dlp feedback --kind false-positive --detector AWS --dry-run "AKIA example in /Users/alice/docs/x.md"`):
+
+```json
+{
+  "schema": "pleno-dlp.report/v1",
+  "kind": "false-positive",
+  "crash_kind": "",
+  "fingerprint": "",
+  "version": "1.4.0",
+  "commit": "3f2c1ab",
+  "goos": "darwin",
+  "goarch": "arm64",
+  "go_version": "go1.26.9",
+  "command": "feedback",
+  "flags": ["detector", "dry-run", "kind"],
+  "message": "AKIA example in $HOME/docs/x.md",
+  "stack": "",
+  "detector": "AWS",
   "created_at": "2026-10-18T11:41:00Z"
 }
 ```
@@ -96,14 +162,15 @@ Example (produced by `pleno-dlp telemetry crash-test --goroutine`):
 ### Never collected
 
 Hostname, username, working directory, environment variables, positional
-arguments (paths, URLs, repository names), flag values, scanned content,
-findings, IP addresses, and machine identifiers. The relay necessarily sees
-the client IP of the HTTP connection; what it retains is defined by the
-relay's public source.
+arguments of other commands (paths, URLs, repository names), flag values,
+scanned content, findings, IP addresses, and machine identifiers. For
+feedback, the only free text is the message you wrote, after redaction.
+The relay necessarily sees the client IP of the HTTP connection.
 
 ### Redaction pipeline
 
-Applied to `message`, `stack`, and `command` before the report is spooled:
+Applied to `message`, `stack`, and `command` of every kind before the report
+is previewed, spooled, or sent:
 
 1. Drop `+0x…` PC offsets, replace hex addresses and arguments with `0x?`,
    rewrite `goroutine 17 [running]:` to `goroutine [running]:`.
@@ -117,8 +184,10 @@ Applied to `message`, `stack`, and `command` before the report is spooled:
 5. Run every built-in secret detector offline (never verified) over the
    result and replace each match with `[REDACTED:<Detector>]`.
 
-The marshalled report is capped at 32 KiB; the stack tail is truncated with
-a `...[truncated]` marker.
+Bounds: `message` at most 2048 bytes, `stack` at most 24 KiB, and the
+encoded report at most 32 KiB. Truncated fields end in a `...[truncated]`
+marker. Redaction is pattern- and detector-based: it removes what it
+recognizes, so do not paste data you would not want maintainers to read.
 
 ## How crashes are captured
 
@@ -137,9 +206,13 @@ a `...[truncated]` marker.
 
 ## Spool
 
-Reports are written to `<root>/crash/last.json` and
-`<root>/crash/<fingerprint>-<unix>.json`. The directory is `0700`, files are
-`0600`, and at most 20 per-crash files are kept (oldest pruned).
+Reports are written to `<root>/reports/last.json` and
+`<root>/reports/<kind>-<id>-<unix>.json`, where `<id>` is the crash
+fingerprint, or for feedback and false-positive reports the first 16 hex
+characters of the SHA-256 of the encoded report. Crashes are always
+spooled; feedback is spooled only when sending fails. The directory is
+`0700`, files are `0600`, and at most 20 per-report files are kept (oldest
+pruned).
 
 ## Crash notice
 
