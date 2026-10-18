@@ -8,6 +8,23 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+## [v0.67.0] - 2026-10-18
+
+### Added
+
+- Opt-in anonymized crash reports: `pleno-dlp telemetry enable|disable|status|show-last|send`.
+  Off by default; reports hold version, platform, subcommand path, flag names and a
+  redacted module-relative stack, are always spooled locally, and are sent credential-less
+  to crash.plenoai.com only after opt-in (`docs/telemetry.md`).
+- Native git pre-commit target: `pleno-dlp hooks install|uninstall|print git`, with
+  `hooks run git` delegating to `protect` and adding `--fail-on` gating, `path:line`
+  attribution and fail-open plumbing (`docs/hooks.md`, `docs/recipes/pre-commit.md`).
+
+### Changed
+
+- `protect`, the git hook and the cursor hook share one staged-diff transform that scans
+  added lines only and passes `--no-color --no-ext-diff --diff-filter=ACMR`.
+
 ## [v0.65.0] - 2026-09-21
 
 ### Added
