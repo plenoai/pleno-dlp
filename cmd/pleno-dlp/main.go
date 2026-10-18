@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/plenoai/pleno-dlp/cmd/pleno-dlp/cmd"
 	"github.com/plenoai/pleno-dlp/pkg/telemetry/crash"
@@ -21,7 +22,30 @@ var (
 	commit  = "none"
 )
 
+// buildInfoVersion fills version and commit from the module build info when
+// the binary was produced by `go install module@vX.Y.Z` (mise, pre-commit's
+// golang language) instead of GoReleaser's -ldflags. Without this every such
+// binary reports "dev (none)", and so would its crash reports.
+func buildInfoVersion(version, commit string) (string, string) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return version, commit
+	}
+	if version == "dev" && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		version = info.Main.Version
+	}
+	if commit == "none" {
+		for _, s := range info.Settings {
+			if s.Key == "vcs.revision" && len(s.Value) >= 7 {
+				commit = s.Value[:7]
+			}
+		}
+	}
+	return version, commit
+}
+
 func main() {
+	version, commit := buildInfoVersion(version, commit)
 	cmd.SetVersion(version, commit)
 	ctx := context.Background()
 	rt := crash.New(version, commit, cmd.DescribeInvocation)
