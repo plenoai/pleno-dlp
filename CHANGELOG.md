@@ -21,6 +21,10 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Fixed
 
+- `--crash-report` now writes the shared telemetry report schema (redacted
+  with the same pipeline, `kind: crash`) instead of a parallel schema, so the
+  file is byte-identical to `pleno-dlp telemetry show-last`. Flag values are
+  still never recorded and nothing is sent.
 - Crash-report invocation descriptions record flags given *before* the
   subcommand (`pleno-dlp --crash-report out scan ...`), not just those after
   it (#516).

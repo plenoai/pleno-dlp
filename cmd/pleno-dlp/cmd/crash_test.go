@@ -1,12 +1,14 @@
 package cmd
 
 import (
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/plenoai/pleno-dlp/pkg/telemetry/crash"
 )
 
 // TestDescribeInvocation_RecordsPreSubcommandFlags is the #516 regression:
@@ -33,29 +35,14 @@ func TestDescribeInvocation_RecordsPreSubcommandFlags(t *testing.T) {
 	}
 }
 
-// TestInvocationDescription_OneLine pins the crash report's invocation text:
-// command path, then each flag with its -- prefix, and no values.
-func TestInvocationDescription_OneLine(t *testing.T) {
-	resetCommandFlags(t)
-
-	got := invocationDescription([]string{"--crash-report", "out.json", "scan", "filesystem", "--format=json"})
-	for _, want := range []string{"pleno-dlp", "scan filesystem", "--crash-report", "--format"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("invocationDescription = %q; missing %q", got, want)
-		}
-	}
-	if strings.Contains(got, "out.json") {
-		t.Errorf("invocationDescription = %q; leaked a flag value", got)
-	}
-}
-
-func TestWriteCrashReport_SchemaAndPerms(t *testing.T) {
+func TestCrashReport_WriteFileSchemaAndPerms(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "crash.json")
 
-	want := newCrashReport("boom", "pleno-dlp --crash-report scan")
-	if err := writeCrashReport(path, want); err != nil {
-		t.Fatalf("writeCrashReport: %v", err)
+	want := crash.Build(crash.KindCrash, "panic: boom", "goroutine [running]:\n",
+		crash.Meta{Version: "t"}, &crash.Redactor{}, time.Now())
+	if err := crash.WriteFile(path, want); err != nil {
+		t.Fatalf("WriteFile: %v", err)
 	}
 
 	info, err := os.Stat(path)
@@ -66,25 +53,18 @@ func TestWriteCrashReport_SchemaAndPerms(t *testing.T) {
 		t.Errorf("report perms = %o, want 600", got)
 	}
 
-	data, err := os.ReadFile(path)
+	got, raw, err := crash.ReadReport(path)
 	if err != nil {
-		t.Fatalf("read report: %v", err)
+		t.Fatalf("report is not a valid crash report: %v", err)
 	}
-	var got crashReport
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("report is not valid JSON: %v\n%s", err, data)
+	if got.Schema != crash.Schema || got.Kind != crash.KindCrash {
+		t.Errorf("schema=%q kind=%q, want %q/%q", got.Schema, got.Kind, crash.Schema, crash.KindCrash)
 	}
-	if got.Schema != 1 {
-		t.Errorf("schema = %d, want 1", got.Schema)
+	if !strings.Contains(got.Message, "boom") || got.Stack == "" {
+		t.Errorf("report missing panic/stack: %+v", got)
 	}
-	if got.Panic != "boom" {
-		t.Errorf("panic = %q, want boom", got.Panic)
-	}
-	if got.Invocation != "pleno-dlp --crash-report scan" {
-		t.Errorf("invocation = %q", got.Invocation)
-	}
-	if got.Stack == "" {
-		t.Error("stack must not be empty")
+	if canonical, _ := crash.Encode(want); string(canonical) != string(raw) {
+		t.Errorf("on-disk bytes differ from the canonical encoding:\n%s", raw)
 	}
 }
 
@@ -103,8 +83,15 @@ func TestHandleCrash_WritesReportAndReturnsError(t *testing.T) {
 	if !strings.Contains(err.Error(), "kaboom") {
 		t.Errorf("returned error %v should include the panic value", err)
 	}
-	if _, statErr := os.Stat(path); statErr != nil {
-		t.Fatalf("crash report not written: %v", statErr)
+	got, _, rerr := crash.ReadReport(path)
+	if rerr != nil {
+		t.Fatalf("crash report not written or not readable: %v", rerr)
+	}
+	if got.Kind != crash.KindCrash {
+		t.Errorf("kind = %q, want %q", got.Kind, crash.KindCrash)
+	}
+	if !strings.Contains(got.Message, "kaboom") {
+		t.Errorf("message = %q, want the panic value", got.Message)
 	}
 }
 
@@ -129,19 +116,25 @@ func TestCrashReport_EndToEnd(t *testing.T) {
 		t.Fatalf("crash-test should exit non-zero; output:\n%s", out)
 	}
 
-	data, rerr := os.ReadFile(path)
+	got, _, rerr := crash.ReadReport(path)
 	if rerr != nil {
 		t.Fatalf("crash report not written: %v\noutput:\n%s", rerr, out)
 	}
-	var got crashReport
-	if jerr := json.Unmarshal(data, &got); jerr != nil {
-		t.Fatalf("report is not valid JSON: %v\n%s", jerr, data)
+	if got.Kind != crash.KindCrash {
+		t.Errorf("kind = %q, want %q", got.Kind, crash.KindCrash)
 	}
-	if !strings.Contains(got.Invocation, "--crash-report") {
-		t.Errorf("invocation %q should record the pre-subcommand flag", got.Invocation)
+	if got.Command != "telemetry crash-test" {
+		t.Errorf("command = %q, want %q", got.Command, "telemetry crash-test")
 	}
-	if !strings.Contains(got.Panic, "crash-test") {
-		t.Errorf("panic = %q, want the crash-test panic", got.Panic)
+	if !strings.Contains(strings.Join(got.Flags, " "), "crash-report") {
+		t.Errorf("flags %v should record the pre-subcommand flag", got.Flags)
+	}
+	if !strings.Contains(got.Message, "crash-test") {
+		t.Errorf("message = %q, want the crash-test panic", got.Message)
+	}
+	// Offline guarantee: the local report must not be spooled or sent.
+	if _, err := os.Stat(filepath.Join(dir, "crash")); !os.IsNotExist(err) {
+		t.Errorf("--crash-report must not spool a telemetry report; stat err = %v", err)
 	}
 }
 
