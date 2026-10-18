@@ -8,6 +8,12 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Fixed
+
+- Native git hunk parsing no longer shifts finding line numbers by the
+  leading unified-context lines; the chunk base line now points at the
+  first byte of the emitted scan window, matching the go-git path.
+
 ## [v0.67.1] - 2026-10-18
 
 ### Fixed

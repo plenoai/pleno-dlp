@@ -53,17 +53,16 @@ const (
 // history refs. The name is retained for compatibility with existing callers.
 var ErrNoBranchHeads = errors.New("git: no history refs to walk")
 
-// maxDiffBlobSize bounds the blob size (either side) that firstChangedLine
-// and addedHunks will run a diff over. change.Patch() reads both blob sides
-// fully into strings with no cap of its own — maxBlobSize above does not
-// protect this path — and then hands them to a Myers diff that expands them
-// roughly 4x further as []rune. A single large text blob (SQL dump,
-// lockfile, generated code) can therefore spike memory by multiple GiB.
-// Above this bound emitCommit uses native git's streaming diff output and
-// splits added content into maxDiffChunkSize pieces. firstChangedLine and
-// addedHunks themselves still decline oversized blobs; callers must use the
-// native fallback rather than full-blob emission, which would reintroduce
-// the #264 memory/scan-bytes blowup.
+// maxDiffBlobSize bounds the blob size (either side) that addedHunks will
+// run a diff over. change.Patch() reads both blob sides fully into strings
+// with no cap of its own — maxBlobSize above does not protect this path — and
+// then hands them to a Myers diff that expands them roughly 4x further as
+// []rune. A single large text blob (SQL dump, lockfile, generated code) can
+// therefore spike memory by multiple GiB. Above this bound emitCommit uses
+// native git's streaming diff output and splits added content into
+// maxDiffChunkSize pieces. addedHunks itself still declines oversized blobs;
+// callers must use the native fallback rather than full-blob emission, which
+// would reintroduce the #264 memory/scan-bytes blowup.
 const maxDiffBlobSize int64 = 1 << 20 // 1 MiB
 
 // maxDiffChunkSize bounds chunks produced by native diff parsing. The fast
@@ -976,9 +975,9 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 				}
 			}
 		} else if from.Size <= maxDiffBlobSize && to.Size <= maxDiffBlobSize {
-			data, ok := addedHunks(change, from, to, s.trufflehogCompatible)
+			data, line, ok := addedHunks(change, from, to, s.trufflehogCompatible)
 			if ok {
-				segments = []diffSegment{{data: data, line: firstChangedLine(change, from, to)}}
+				segments = []diffSegment{{data: data, line: line}}
 			}
 		} else {
 			segments, err = s.nativeAddedHunks(ctx, c, path)
@@ -1287,6 +1286,12 @@ func (s *Source) nativeAddedHunks(ctx context.Context, c *object.Commit, path st
 			return
 		}
 		totalBytes += int64(len(data))
+		if len(data) > 0 && len(buf) == 0 && segmentLine == 0 {
+			// segmentLine is the line of buf's first byte. Leading unified
+			// context is appended before any addition, so record the line of
+			// the first retained context line rather than the first `+`.
+			segmentLine = lineNo
+		}
 		for len(data) > 0 {
 			room := maxDiffChunkSize - len(buf)
 			if room == 0 {
@@ -1420,11 +1425,6 @@ func readBlobLimit(f *object.File, limit int64) ([]byte, bool) {
 	return data, true
 }
 
-// firstChangedLine walks the patch's chunks and returns the 1-based line
-// number on the new side where the first Add chunk begins. Returns 0 when
-// the commit added the file as a whole (no patch context), when either blob
-// side exceeds maxDiffBlobSize, or when the patch cannot be computed —
-// callers treat 0 as "unknown".
 func gitRenameOptions(trufflehogCompatible bool) *object.DiffTreeOptions {
 	if !trufflehogCompatible {
 		return &object.DiffTreeOptions{}
@@ -1505,37 +1505,6 @@ func sameGitDiffType(from, to filemode.FileMode) bool {
 	return normalizeGitBlobMode(from) == normalizeGitBlobMode(to)
 }
 
-func firstChangedLine(change *object.Change, from, to *object.File) int {
-	if to != nil && to.Size > maxDiffBlobSize {
-		return 0
-	}
-	if from != nil && from.Size > maxDiffBlobSize {
-		return 0
-	}
-	patch, err := change.Patch()
-	if err != nil || patch == nil {
-		return 0
-	}
-	for _, fp := range patch.FilePatches() {
-		if fp.IsBinary() {
-			continue
-		}
-		newLine := 1
-		for _, ch := range fp.Chunks() {
-			lines := countLines(ch.Content())
-			switch ch.Type() {
-			case diff.Add:
-				return newLine
-			case diff.Equal:
-				newLine += lines
-			case diff.Delete:
-				// no new-side advance
-			}
-		}
-	}
-	return 0
-}
-
 // addedHunks extracts every added hunk from a modification's diff, each
 // bordered by up to diffContextLines lines of unchanged context, and returns
 // them concatenated as the chunk's scan content. This replaces full-blob
@@ -1549,48 +1518,66 @@ func firstChangedLine(change *object.Change, from, to *object.File) int {
 // change added no lines (pure deletion or a no-content-change rename/mode
 // change) — callers must skip the change, not fall back to full-file
 // content, or the problem this function exists to fix comes right back.
-func addedHunks(change *object.Change, from, to *object.File, blankContext bool) ([]byte, bool) {
+// The returned line is the 1-based new-side line of the first byte of the
+// returned data (the contract every source metadata Line shares), which is
+// the leading context line in front of the first added hunk — not the first
+// added line itself. Callers such as the engine add the newlines before a
+// match to this base, so it must point at data[0].
+func addedHunks(change *object.Change, from, to *object.File, blankContext bool) ([]byte, int, bool) {
 	if to != nil && to.Size > maxDiffBlobSize {
-		return nil, false
+		return nil, 0, false
 	}
 	if from != nil && from.Size > maxDiffBlobSize {
-		return nil, false
+		return nil, 0, false
 	}
 	patch, err := change.Patch()
 	if err != nil || patch == nil {
-		return nil, false
+		return nil, 0, false
 	}
 
 	var out bytes.Buffer
 	wrote := false
+	firstLine := 0
 	for _, fp := range patch.FilePatches() {
 		if fp.IsBinary() {
 			continue
 		}
 		chunks := fp.Chunks()
+		newLine := 1
 		for i, c := range chunks {
-			if c.Type() != diff.Add {
-				continue
+			switch c.Type() {
+			case diff.Equal:
+				newLine += countLines(c.Content())
+			case diff.Delete:
+				// old-side only, no new-side advance
+			case diff.Add:
+				if out.Len() > 0 && out.Bytes()[out.Len()-1] != '\n' {
+					out.WriteByte('\n')
+				}
+				trailing := trailingContext(chunks, i, diffContextLines)
+				leading := leadingContext(chunks, i, diffContextLines)
+				if blankContext {
+					trailing = blankDiffContext(trailing)
+					leading = blankDiffContext(leading)
+				}
+				if !wrote {
+					firstLine = newLine - countLines(trailing)
+					if firstLine < 1 {
+						firstLine = 1
+					}
+				}
+				out.WriteString(trailing)
+				out.WriteString(c.Content())
+				out.WriteString(leading)
+				newLine += countLines(c.Content())
+				wrote = true
 			}
-			if out.Len() > 0 && out.Bytes()[out.Len()-1] != '\n' {
-				out.WriteByte('\n')
-			}
-			trailing := trailingContext(chunks, i, diffContextLines)
-			leading := leadingContext(chunks, i, diffContextLines)
-			if blankContext {
-				trailing = blankDiffContext(trailing)
-				leading = blankDiffContext(leading)
-			}
-			out.WriteString(trailing)
-			out.WriteString(c.Content())
-			out.WriteString(leading)
-			wrote = true
 		}
 	}
 	if !wrote {
-		return nil, false
+		return nil, 0, false
 	}
-	return out.Bytes(), true
+	return out.Bytes(), firstLine, true
 }
 
 func blankDiffContext(context string) string {
