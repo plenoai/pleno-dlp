@@ -5,7 +5,10 @@ import (
 	"testing"
 )
 
-func TestExtractAddedLines(t *testing.T) {
+// TestProtectUsesSharedTransform pins that protect scans only added
+// lines through the shared stagedDiffForScan transform (detailed cases
+// live in hooks_git_test.go).
+func TestProtectUsesSharedTransform(t *testing.T) {
 	diff := `diff --git a/config.go b/config.go
 index abc..def 100644
 --- a/config.go
@@ -16,42 +19,15 @@ index abc..def 100644
 -old_key=AKIAIOSFODNN7EXAMPLE
  // context line
 `
-
-	got := extractAddedLines(diff)
-
-	if !strings.Contains(got, "aws_access_key=AKIA1234567890ABCDEF") {
+	buf, _ := stagedDiffForScan([]byte(diff))
+	got := string(buf)
+	if !strings.Contains(got, "\naws_access_key=AKIA1234567890ABCDEF\n") {
 		t.Errorf("added line missing from result:\n%s", got)
 	}
-
-	if strings.Contains(got, "old_key=") || strings.Contains(got, "AKIAIOSFODNN7EXAMPLE") {
-		t.Errorf("removed line leaked into result:\n%s", got)
-	}
-
-	if strings.Contains(got, "context line") {
-		t.Errorf("context line leaked into result:\n%s", got)
-	}
-
-	if strings.Contains(got, "+++") {
-		t.Errorf("diff header leaked into result:\n%s", got)
-	}
-}
-
-func TestExtractAddedLines_EmptyDiff(t *testing.T) {
-	if got := extractAddedLines(""); got != "" {
-		t.Errorf("empty diff should return empty string, got %q", got)
-	}
-}
-
-func TestExtractAddedLines_NoAdditions(t *testing.T) {
-	diff := `diff --git a/foo.go b/foo.go
---- a/foo.go
-+++ b/foo.go
-@@ -1,2 +1,1 @@
- unchanged
--removed line
-`
-	if got := extractAddedLines(diff); got != "" {
-		t.Errorf("diff with no additions should return empty string, got %q", got)
+	for _, leak := range []string{"old_key=", "AKIAIOSFODNN7EXAMPLE", "context line", "--- a/", "@@"} {
+		if strings.Contains(got, leak) {
+			t.Errorf("%q leaked into result:\n%s", leak, got)
+		}
 	}
 }
 
