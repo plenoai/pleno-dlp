@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-10-18 | connector-engineer, core-engineer, qa | Attribute git findings to `Data[0]`: the go-git fallback emits one segment per added hunk with the leading-context line, native `beginAddedLine`/`nativeAddedHunks` follow the same rule, and the `Line`-means-`Data[0]` contract is documented on the line-bearing metadata structs with a shared engine contract test. |
 | 2026-09-22 | Codex, core-engineer, qa | Reuse decoder scan scratch across sequential passes; allocate decode buffers and compile line-detector regexps only after eligible content is found. |
 | 2026-09-22 | connector-engineer, qa | Read filesystem inputs larger than 512 KiB on demand to avoid retaining medium file bodies in queued chunks. |
 | 2026-09-22 | Codex, connector-engineer, qa | Preserve ordered GitHub sink errors across cancellation branches while retaining caller cancellation and deadline errors. |
