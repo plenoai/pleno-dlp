@@ -45,13 +45,20 @@ func New(version, commit string, describe func([]string) (string, []string)) *Ru
 	}
 }
 
-func (rt *Runtime) redactor() *Redactor {
+// NewRedactor returns a Redactor wired to getenv and the registered secret
+// detectors. It is the single redaction path shared by the telemetry spool
+// and local --crash-report files.
+func NewRedactor(getenv func(string) string, detectors func() []detectors.Detector) *Redactor {
 	home, _ := os.UserHomeDir()
-	red := &Redactor{Prefixes: EnvPrefixes(rt.Getenv, home)}
-	if rt.Detectors != nil {
-		red.Detectors = rt.Detectors()
+	red := &Redactor{Prefixes: EnvPrefixes(getenv, home)}
+	if detectors != nil {
+		red.Detectors = detectors()
 	}
 	return red
+}
+
+func (rt *Runtime) redactor() *Redactor {
+	return NewRedactor(rt.Getenv, rt.Detectors)
 }
 
 // Outcome is what handle did with a captured crash.
