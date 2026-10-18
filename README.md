@@ -118,6 +118,14 @@ pleno-dlp hooks install claude-code
 pleno-dlp hooks install cursor
 ```
 
+## Crash reports (opt-in)
+
+Crash reports are off by default. A crash is always spooled locally and
+redacted (paths, emails, IPs, URLs, tokens, and any secret a built-in
+detector matches); it is uploaded only after `pleno-dlp telemetry enable`.
+See [docs/telemetry.md](docs/telemetry.md) for the exact fields and how to
+inspect, send, or point reports at your own relay.
+
 ## License
 
 [AGPL-3.0](LICENSE)
