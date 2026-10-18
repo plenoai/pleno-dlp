@@ -143,10 +143,25 @@ func runGitDiff(cmd *cobra.Command, repoDir string, args []string) (string, erro
 // stripping the leading '+' so detectors see raw content.
 // Removed ('-') and context lines are discarded to avoid false positives
 // on secrets that are being deleted.
+//
+// Added lines are recognized by hunk state rather than by prefix alone.
+// The '+++ b/file' header appears before the first '@@' marker and is
+// skipped, while content added inside a hunk may itself begin with '++'
+// (rendered as '+++...') and must still be scanned.
 func extractAddedLines(diff string) string {
 	var sb strings.Builder
+	inHunk := false
 	for _, line := range strings.SplitAfter(diff, "\n") {
-		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+		switch {
+		case strings.HasPrefix(line, "diff "):
+			// Start of a new file's diff section: back to header state
+			// so a following '+++ b/file' header is not mistaken for content.
+			inHunk = false
+		case strings.HasPrefix(line, "@@"):
+			inHunk = true
+		case inHunk && strings.HasPrefix(line, "+"):
+			// Added content line. Lines such as '\ No newline at end of
+			// file' start with '\' and are intentionally skipped.
 			sb.WriteString(line[1:])
 		}
 	}
