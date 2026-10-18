@@ -1223,7 +1223,10 @@ func (p *nativeLogParser) beginAddedLine() {
 	h.hasAdd = true
 	if h.firstAddLine == 0 {
 		h.firstAddLine = h.newLine
-		h.dataLine = h.firstAddLine
+		// h.data may already hold leading unified-context lines. Line is
+		// the 1-based line of Data[0], so subtract the context newlines
+		// already buffered in front of the first addition.
+		h.dataLine = h.newLine - bytes.Count(h.data, []byte{'\n'})
 	}
 }
 
