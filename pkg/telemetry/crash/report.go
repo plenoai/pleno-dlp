@@ -28,7 +28,20 @@ const (
 	KindFatal Kind = "fatal"
 	// KindRecovered is a main-goroutine panic caught by Recover.
 	KindRecovered Kind = "recovered"
+	// KindCrash is a main-goroutine panic written by an explicitly requested
+	// local report (--crash-report) rather than the telemetry spool.
+	KindCrash Kind = "crash"
 )
+
+// Encode returns the canonical on-disk encoding of a report: the exact bytes
+// Spool writes and `telemetry show-last` prints.
+func Encode(r Report) ([]byte, error) {
+	b, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(b, '\n'), nil
+}
 
 // Report is the complete crash payload. Fields are an allowlist: anything
 // not declared here is never collected.
