@@ -56,9 +56,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
-            goos: darwin
-            goarch: arm64
           - runner: ubuntu-latest
             goos: linux
             goarch: amd64
