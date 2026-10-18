@@ -32,6 +32,9 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Fixed
 
+- Native git hunk parsing no longer shifts finding line numbers by the
+  leading unified-context lines; the chunk base line now points at the
+  first byte of the emitted scan window, matching the go-git path.
 - `--crash-report` now writes the shared telemetry report schema (redacted
   with the same pipeline, `kind: crash`) instead of a parallel schema, so the
   file is byte-identical to `pleno-dlp telemetry show-last`. Flag values are

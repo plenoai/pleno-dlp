@@ -53,16 +53,16 @@ const (
 // history refs. The name is retained for compatibility with existing callers.
 var ErrNoBranchHeads = errors.New("git: no history refs to walk")
 
-// maxDiffBlobSize bounds the blob size (either side) that addedHunks will run
-// a diff over. change.Patch() reads both blob sides fully into strings with no
-// cap of its own — maxBlobSize above does not protect this path — and then
-// hands them to a Myers diff that expands them roughly 4x further as []rune. A
-// single large text blob (SQL dump, lockfile, generated code) can therefore
-// spike memory by multiple GiB. Above this bound emitCommit uses native git's
-// streaming diff output and splits added content into maxDiffChunkSize pieces.
-// addedHunks itself still declines oversized blobs; callers must use the native
-// fallback rather than full-blob emission, which would reintroduce the #264
-// memory/scan-bytes blowup.
+// maxDiffBlobSize bounds the blob size (either side) that addedHunks will
+// run a diff over. change.Patch() reads both blob sides fully into strings
+// with no cap of its own — maxBlobSize above does not protect this path — and
+// then hands them to a Myers diff that expands them roughly 4x further as
+// []rune. A single large text blob (SQL dump, lockfile, generated code) can
+// therefore spike memory by multiple GiB. Above this bound emitCommit uses
+// native git's streaming diff output and splits added content into
+// maxDiffChunkSize pieces. addedHunks itself still declines oversized blobs;
+// callers must use the native fallback rather than full-blob emission, which
+// would reintroduce the #264 memory/scan-bytes blowup.
 const maxDiffBlobSize int64 = 1 << 20 // 1 MiB
 
 // maxDiffChunkSize bounds chunks produced by native diff parsing. The fast
@@ -1286,6 +1286,12 @@ func (s *Source) nativeAddedHunks(ctx context.Context, c *object.Commit, path st
 			return
 		}
 		totalBytes += int64(len(data))
+		if len(data) > 0 && len(buf) == 0 && segmentLine == 0 {
+			// segmentLine is the line of buf's first byte. Leading unified
+			// context is appended before any addition, so record the line of
+			// the first retained context line rather than the first `+`.
+			segmentLine = lineNo
+		}
 		for len(data) > 0 {
 			room := maxDiffChunkSize - len(buf)
 			if room == 0 {
