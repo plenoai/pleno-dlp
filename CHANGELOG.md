@@ -8,6 +8,21 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Added
+
+- `--crash-report <path>` writes a local, secret-free JSON crash report
+  (command path, flag names, version, stack) to the named path when a
+  command panics. Flag values are never recorded and nothing is sent, so an
+  offline or scripted crash can be captured without enabling `telemetry`.
+
+### Fixed
+
+- Crash-report invocation descriptions record flags given *before* the
+  subcommand (`pleno-dlp --crash-report out scan ...`), not just those after
+  it (#516).
+- The git-hook end-to-end test builds the pleno-dlp binary once per test
+  package in `TestMain` instead of once per test (#516).
+
 ## [v0.67.1] - 2026-10-18
 
 ### Fixed

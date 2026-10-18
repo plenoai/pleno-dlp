@@ -19,6 +19,24 @@ pleno-dlp telemetry send <file>  # uploads one reviewed spool file as-is
 per-file action. It accepts only files that match the report schema exactly
 (unknown fields are rejected), so it cannot be used to upload other files.
 
+## Local-only reports (`--crash-report`)
+
+For an offline or scripted run, `--crash-report <path>` writes a local,
+secret-free report to the path you name when a command panics, without
+sending anything:
+
+```sh
+pleno-dlp --crash-report /tmp/pleno-crash.json scan github --repo .
+```
+
+The file is written `0600` (parent directories `0700`) and records the
+command path, recognised flag names (never values), version, platform, and
+the stack trace. It does not run the telemetry redaction pipeline, so treat
+the file like a crash log; unlike a telemetry report it is never sent. With
+`--crash-report` set the panic is contained and the process exits non-zero;
+without it, crash behaviour is unchanged (the telemetry path above still
+applies).
+
 ## Configuration
 
 | Setting | Where | Default |
