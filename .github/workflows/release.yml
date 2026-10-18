@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64, hikae-flash]
     timeout-minutes: 45
     permissions:
       contents: read
@@ -59,10 +59,10 @@ jobs:
           - runner: macos-14
             goos: darwin
             goarch: arm64
-          - runner: ubuntu-latest
+          - runner: hikae-flash
             goos: linux
             goarch: amd64
-          - runner: ubuntu-24.04-arm
+          - runner: hikae-flash
             goos: linux
             goarch: arm64
     runs-on: ${{ matrix.runner }}
@@ -151,7 +151,7 @@ jobs:
 
   draft:
     needs: [quality, native]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64, hikae-flash]
     timeout-minutes: 30
     permissions:
       attestations: write
@@ -241,7 +241,7 @@ jobs:
 
   finalize:
     needs: draft
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64, hikae-flash]
     timeout-minutes: 5
     permissions:
       contents: write
@@ -303,7 +303,7 @@ jobs:
 
   homebrew:
     needs: finalize
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64, hikae-flash]
     timeout-minutes: 10
     permissions:
       contents: read
