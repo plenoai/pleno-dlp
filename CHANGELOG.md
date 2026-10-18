@@ -8,6 +8,15 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Added
+
+- Published the `pleno-dlp.crash/v1` crash-report schema as
+  [`pkg/telemetry/crash/schema/pleno-dlp.crash.v1.json`](pkg/telemetry/crash/schema/pleno-dlp.crash.v1.json).
+  The Go `crash.Report` struct and the `plenoai.com` crash relay are both
+  asserted against it, so a field added to either side without the schema
+  fails CI on that side (`pkg/telemetry/crash/report_test.go`,
+  `workers/crash-relay/crash-relay.test.js`).
+
 ## [v0.67.1] - 2026-10-18
 
 ### Fixed
