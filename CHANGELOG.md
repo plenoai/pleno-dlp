@@ -15,6 +15,16 @@ publishing, archives, SLSA provenance, and SBOM generation.
   there is always a local copy of what left the machine. The confirmation
   prompt reads `/dev/tty`, so `--stdin` can be piped and still confirmed
   interactively without `--yes`.
+- Published the `pleno-dlp.crash/v1` crash-report schema as
+  [`pkg/telemetry/crash/schema/pleno-dlp.crash.v1.json`](pkg/telemetry/crash/schema/pleno-dlp.crash.v1.json).
+  The Go `crash.Report` struct and the `plenoai.com` crash relay are both
+  asserted against it, so a field added to either side without the schema
+  fails CI on that side (`pkg/telemetry/crash/report_test.go`,
+  `workers/crash-relay/crash-relay.test.js`).
+- `engine.ScanBytes(ctx, data, Options)` exposes an offline, in-memory
+  scan that returns detector results without a filter chain, so crash
+  telemetry and git-hook callers no longer re-implement the keyword
+  prefilter and detector registry iteration.
 - `--crash-report <path>` writes a local, secret-free JSON crash report
   (command path, flag names, version, stack) to the named path when a
   command panics. Flag values are never recorded and nothing is sent, so an
@@ -22,6 +32,10 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Fixed
 
+- `--crash-report` now writes the shared telemetry report schema (redacted
+  with the same pipeline, `kind: crash`) instead of a parallel schema, so the
+  file is byte-identical to `pleno-dlp telemetry show-last`. Flag values are
+  still never recorded and nothing is sent.
 - Crash-report invocation descriptions record flags given *before* the
   subcommand (`pleno-dlp --crash-report out scan ...`), not just those after
   it (#516).
