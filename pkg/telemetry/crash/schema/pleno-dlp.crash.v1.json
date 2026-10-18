@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pleno-dlp.crash/v1",
+  "title": "pleno-dlp crash report",
+  "description": "Wire contract between the pleno-dlp client (pkg/telemetry/crash) and the plenoai.com crash relay (workers/crash-relay). This file is the single source of truth: the Go Report struct and the relay's validate() are both asserted against its property allowlist by tests on either side.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "report_id",
+    "timestamp",
+    "version",
+    "go_version",
+    "os",
+    "arch",
+    "command",
+    "error_type",
+    "error_message"
+  ],
+  "properties": {
+    "schema": {
+      "description": "Contract identifier. The relay rejects any other value.",
+      "const": "pleno-dlp.crash/v1"
+    },
+    "report_id": {
+      "description": "Random per-report identifier used only to correlate relay logs with client logs.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "timestamp": {
+      "description": "When the crash was captured, RFC 3339 / ISO 8601 in UTC.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "version": {
+      "description": "pleno-dlp build version (GoReleaser main.version).",
+      "type": "string",
+      "maxLength": 64
+    },
+    "commit": {
+      "description": "pleno-dlp build commit (GoReleaser main.commit); omitted when unknown.",
+      "type": "string",
+      "maxLength": 64
+    },
+    "go_version": {
+      "description": "Go runtime version that produced the report (runtime.Version()).",
+      "type": "string",
+      "maxLength": 64
+    },
+    "os": {
+      "description": "runtime.GOOS.",
+      "type": "string",
+      "maxLength": 32
+    },
+    "arch": {
+      "description": "runtime.GOARCH.",
+      "type": "string",
+      "maxLength": 32
+    },
+    "command": {
+      "description": "Top-level subcommand that panicked, e.g. scan or revoke.",
+      "type": "string",
+      "maxLength": 64
+    },
+    "error_type": {
+      "description": "Panic value's Go type, or \"error\" for a handled fatal error.",
+      "type": "string",
+      "maxLength": 128
+    },
+    "error_message": {
+      "description": "Redacted panic message. Scanned file content and secrets MUST NOT appear here; the relay rejects any key outside this allowlist so a client cannot smuggle them in.",
+      "type": "string",
+      "maxLength": 4096
+    },
+    "stack_trace": {
+      "description": "Redacted goroutine stack. Optional; omitted when unavailable.",
+      "type": "string",
+      "maxLength": 65536
+    },
+    "install_id": {
+      "description": "Stable, non-reversible installation identifier for deduplication. Optional; omitted when telemetry is disabled.",
+      "type": "string",
+      "maxLength": 64
+    }
+  }
+}

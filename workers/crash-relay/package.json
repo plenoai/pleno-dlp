@@ -1,0 +1,9 @@
+{
+  "name": "crash-relay-contract",
+  "private": true,
+  "type": "module",
+  "description": "Vendored plenoai.com crash relay + contract test against the published pleno-dlp.crash/v1 schema.",
+  "scripts": {
+    "test": "node --test"
+  }
+}
