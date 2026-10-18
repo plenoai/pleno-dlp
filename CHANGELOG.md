@@ -8,6 +8,12 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Security
+
+- Scan contiguous-file (`tar` type `7`) entries like regular files, and
+  report other non-regular entries that carry a body as `special-file`
+  coverage gaps instead of dropping them silently.
+
 ## [v0.65.0] - 2026-09-21
 
 ### Added
