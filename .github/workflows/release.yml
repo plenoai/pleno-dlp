@@ -56,9 +56,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
-            goos: darwin
-            goarch: arm64
           - runner: ubuntu-latest
             goos: linux
             goarch: amd64
@@ -186,8 +183,8 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           files=("$NATIVE_DIST"/*)
-          if [ "${#files[@]}" -ne 12 ]; then
-            echo "::error::expected 12 native release files, found ${#files[@]}" >&2
+          if [ "${#files[@]}" -ne 8 ]; then
+            echo "::error::expected 8 native release files, found ${#files[@]}" >&2
             exit 1
           fi
           for file in "${files[@]}"; do
@@ -198,7 +195,7 @@ jobs:
           done
           identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/${GITHUB_REF_NAME}"
           mkdir -p dist-native
-          for platform in darwin_arm64 linux_amd64 linux_arm64; do
+          for platform in linux_amd64 linux_arm64; do
             asset="pleno-dlp-opf-native_${platform}.tar.gz"
             test -f "$NATIVE_DIST/$asset"
             test -f "$NATIVE_DIST/$asset.sha256"
@@ -270,7 +267,7 @@ jobs:
             pleno-dlp_windows_amd64.zip pleno-dlp_windows_amd64.zip.sbom.json
             pleno-dlp_windows_arm64.zip pleno-dlp_windows_arm64.zip.sbom.json
           )
-          for platform in darwin_arm64 linux_amd64 linux_arm64; do
+          for platform in linux_amd64 linux_arm64; do
             asset="pleno-dlp-opf-native_${platform}.tar.gz"
             expected+=("$asset" "$asset.sha256" "$asset.sigstore.json" "$asset.spdx.json")
           done
