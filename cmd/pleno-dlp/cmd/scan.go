@@ -213,7 +213,7 @@ func init() {
 		"generic-entropy, JWT, PEM, and PII findings default to medium and do not; pass any to gate on every finding, "+
 		"including that lower tier, once the repo's baseline is clean; ignored for stdin — stdin scans always exit 0)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file that mutes known false positives (auto-discovers .pleno-allow.json from the repo root)")
-	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated, case-insensitive Type names; see `pleno-dlp detectors list`). Custom rules from --rules count as GenericHighEntropy.")
+	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated, case-insensitive Type names; see 'pleno-dlp detectors list'). Custom rules from --rules count as GenericHighEntropy.")
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.excludeDetectors, "exclude-detectors", nil, "skip these detectors (comma-separated, case-insensitive Type names). Applied after --include-detectors.")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.quiet, "quiet", false, "suppress the end-of-scan summary line on stderr (use in scripted callers parsing stderr)")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.revokeOnVerified, "revoke-on-verified", false,

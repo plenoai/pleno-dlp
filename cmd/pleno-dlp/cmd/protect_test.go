@@ -239,4 +239,13 @@ func TestProtectHelp(t *testing.T) {
 			t.Errorf("protect help missing %q:\n%s", want, got)
 		}
 	}
+	// --fail-on's usage used to contain a backticked command reference
+	// ("`scan --help`"), which cobra's UnquoteUsage promoted to the value
+	// placeholder and rendered as "--fail-on scan --help". Pin the real
+	// placeholders so a backtick can never reappear here unnoticed.
+	for _, want := range []string{"--fail-on string", "--include-detectors strings"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("protect help missing rendered placeholder %q in:\n%s", want, got)
+		}
+	}
 }
