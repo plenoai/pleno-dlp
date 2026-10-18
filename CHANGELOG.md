@@ -8,6 +8,13 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Added
+
+- `engine.ScanBytes(ctx, data, Options)` exposes an offline, in-memory
+  scan that returns detector results without a filter chain, so crash
+  telemetry and git-hook callers no longer re-implement the keyword
+  prefilter and detector registry iteration.
+
 ## [v0.65.0] - 2026-09-21
 
 ### Added
