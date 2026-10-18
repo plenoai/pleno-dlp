@@ -33,6 +33,11 @@ pleno-dlp scan git --repo ./repo --max-depth 200
 pleno-dlp scan filesystem ./repo --format sarif > findings.sarif
 ```
 
+On operator machines, dogfood the signed release from the tap and keep
+it current with `brew upgrade pleno-dlp`; see
+[`docs/dogfooding.md`](docs/dogfooding.md) for why the ad-hoc mise
+`go:` pin was dropped.
+
 ## Sources
 
 `filesystem`, `git` history (branch, depth, and time filters), `stdin`,

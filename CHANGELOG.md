@@ -8,6 +8,13 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Changed
+
+- Dogfooding installs the signed release binary from the Homebrew tap
+  (`brew upgrade pleno-dlp`); the ad-hoc `mise` `go:` pin that drifted
+  ~20 minors behind is dropped. See
+  [`docs/dogfooding.md`](docs/dogfooding.md).
+
 ## [v0.65.0] - 2026-09-21
 
 ### Added
