@@ -62,6 +62,40 @@ func TestChunks_DefaultLabel(t *testing.T) {
 	}
 }
 
+func TestChunks_DiffParsesAddedLinesAndLocations(t *testing.T) {
+	s := &Source{}
+	if err := s.Init(t.Context(), "stdin", 0, 0, false, []byte(`{"label":"git-diff-staged","diff":true}`), 1); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	diff := "diff --git a/fixtures/leak.env b/fixtures/leak.env\n" +
+		"--- a/fixtures/leak.env\n" +
+		"+++ b/fixtures/leak.env\n" +
+		"@@ -1,1 +1,2 @@\n" +
+		" context\n" +
+		"+AWS_ACCESS_KEY_ID=AKIA1234567890ABCDEF\n"
+	s.SetReader(strings.NewReader(diff))
+
+	ch := make(chan *sources.Chunk, 1)
+	if err := s.Chunks(t.Context(), ch); err != nil {
+		t.Fatalf("Chunks: %v", err)
+	}
+	close(ch)
+	got := drain(t, ch, time.Second)
+	if len(got) != 1 {
+		t.Fatalf("want 1 chunk, got %d", len(got))
+	}
+	if string(got[0].Data) != "AWS_ACCESS_KEY_ID=AKIA1234567890ABCDEF\n" {
+		t.Fatalf("added-only data mismatch: %q", got[0].Data)
+	}
+	md := got[0].SourceMetadata.Stdin
+	if md == nil {
+		t.Fatal("StdinMeta not set")
+	}
+	if loc, ok := md.Locations[1]; !ok || loc.Path != "fixtures/leak.env" || loc.Line != 2 {
+		t.Fatalf("location for added line = %+v (ok=%v), want {fixtures/leak.env 2}", loc, ok)
+	}
+}
+
 func TestChunks_TruncationReportsError(t *testing.T) {
 	s := &Source{}
 	cfg := []byte(`{"max_bytes": 4}`)

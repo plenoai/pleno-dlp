@@ -2433,6 +2433,19 @@ func chunkWithMatchLine(c *sources.Chunk, raw []byte) *sources.Chunk {
 			cp.SourceMetadata.DockerImage = &m
 			return &cp
 		}
+	case md.Stdin != nil && len(md.Stdin.Locations) > 0:
+		// A diff-backed stdin chunk (protect, cursor hook) carries a map
+		// from line number to the file it came from. Resolve the finding to
+		// a FilesystemMeta so allowlist path rules and every output
+		// formatter see the real location instead of "git-diff-staged".
+		if line := computeLineFromMatch(c.Data, raw, 1); line > 0 {
+			if loc, ok := md.Stdin.Locations[line]; ok && loc.Path != "" {
+				cp := *c
+				cp.SourceMetadata.Stdin = nil
+				cp.SourceMetadata.Filesystem = &sources.FilesystemMeta{Path: loc.Path, Line: loc.Line}
+				return &cp
+			}
+		}
 	}
 	return c
 }

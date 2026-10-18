@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/plenoai/pleno-dlp/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/sources/stdin"
 )
 
 // protectFlags captures protect-specific options. Scan-wide flags
@@ -99,7 +100,8 @@ func runProtect(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	added := extractAddedLines(diffContent)
+	addedBytes, locations := stdin.CollectDiffForScan([]byte(diffContent))
+	added := string(addedBytes)
 	if added == "" {
 		if !scanOpts.quiet {
 			fmt.Fprintf(cmd.ErrOrStderr(), "protect: no changes to scan\n")
@@ -116,7 +118,8 @@ func runProtect(cmd *cobra.Command, _ []string) error {
 	}
 
 	cfg, err := json.Marshal(map[string]any{
-		"label": label,
+		"label":     label,
+		"locations": locations,
 	})
 	if err != nil {
 		return fmt.Errorf("encode source config: %w", err)
@@ -139,16 +142,35 @@ func runGitDiff(cmd *cobra.Command, repoDir string, args []string) (string, erro
 	return string(out), nil
 }
 
-// extractAddedLines returns only the added lines from a unified diff,
-// stripping the leading '+' so detectors see raw content.
-// Removed ('-') and context lines are discarded to avoid false positives
-// on secrets that are being deleted.
-func extractAddedLines(diff string) string {
-	var sb strings.Builder
-	for _, line := range strings.SplitAfter(diff, "\n") {
-		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
-			sb.WriteString(line[1:])
+// collectDiffForScan returns only the added lines from a unified diff
+// (leading '+' stripped) plus a map from each added line's 1-based position
+// in the returned content to its source location as "path:line". Removed
+// ('-') and context lines are discarded to avoid false positives on secrets
+// that are being deleted.
+//
+// It is the string view of stdin.CollectDiffForScan; runProtect uses the
+// source-level parser directly so locations reach the result metadata as
+// structured (path, line) pairs.
+func collectDiffForScan(diff string) (string, map[int]string) {
+	added, locations := stdin.CollectDiffForScan([]byte(diff))
+	out := make(map[int]string, len(locations))
+	for line, loc := range locations {
+		if loc.Path == "" {
+			continue
+		}
+		if loc.Line > 0 {
+			out[line] = fmt.Sprintf("%s:%d", loc.Path, loc.Line)
+		} else {
+			out[line] = loc.Path
 		}
 	}
-	return sb.String()
+	return string(added), out
+}
+
+// extractAddedLines returns only the added lines from a unified diff,
+// stripping the leading '+'. Retained as the thin, path-less view of
+// collectDiffForScan for callers that only need the bytes.
+func extractAddedLines(diff string) string {
+	added, _ := collectDiffForScan(diff)
+	return added
 }

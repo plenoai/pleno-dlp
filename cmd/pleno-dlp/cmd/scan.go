@@ -149,6 +149,7 @@ var scanGitCmd = &cobra.Command{
 type stdinFlags struct {
 	label    string
 	maxBytes int64
+	diff     bool
 }
 
 var stdinOpts stdinFlags
@@ -284,6 +285,7 @@ func init() {
 
 	scanStdinCmd.Flags().StringVar(&stdinOpts.label, "label", "", "label for the stdin input (rendered in output; default \"<stdin>\")")
 	scanStdinCmd.Flags().Int64Var(&stdinOpts.maxBytes, "max-bytes", 0, "buffer cap for stdin (0 = default 64 MiB); excess input is truncated and a warning is printed to stderr")
+	scanStdinCmd.Flags().BoolVar(&stdinOpts.diff, "diff", false, "treat stdin as a unified diff: scan only added lines and resolve each finding to the real file path and line")
 
 	scanSQLDumpCmd.Flags().StringVar(&sqldumpOpts.format, "dump-format", "auto", "dump format: auto, mysql, postgres, sqlite")
 	scanSQLDumpCmd.Flags().StringSliceVar(&sqldumpOpts.includeTables, "include-tables", nil, "only scan these tables (case-insensitive)")
@@ -332,6 +334,7 @@ func runScanStdin(cmd *cobra.Command, _ []string) error {
 	cfg, err := json.Marshal(map[string]any{
 		"label":     stdinOpts.label,
 		"max_bytes": stdinOpts.maxBytes,
+		"diff":      stdinOpts.diff,
 	})
 	if err != nil {
 		return fmt.Errorf("encode source config: %w", err)

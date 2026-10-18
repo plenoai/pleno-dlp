@@ -174,11 +174,28 @@ type BitbucketMeta struct {
 	Branch    string
 }
 
+// LineLocation is a file path plus a 1-based line number. Diff-backed
+// stdin callers (protect, the cursor agent hook) attach one per added line
+// so findings can carry the real path and line even though the bytes
+// arrived through the path-less stdin source.
+type LineLocation struct {
+	Path string `json:"path"`
+	Line int    `json:"line"`
+}
+
 // StdinMeta describes a chunk read from standard input. Label defaults to
 // "<stdin>" but callers can override it so the output formatters render
 // something more useful than a generic placeholder.
+//
+// Locations is optional. When set, it maps a 1-based line number within the
+// chunk's Data to the source file and line that content was collected from.
+// It exists so a concatenated diff (see stdin.CollectDiffForScan) can still
+// resolve each finding to its true file: the engine rewrites such a finding's
+// metadata to FilesystemMeta, which the allowlist and every output formatter
+// already understand.
 type StdinMeta struct {
-	Label string
+	Label     string
+	Locations map[int]LineLocation
 }
 
 type ForgeMeta struct {

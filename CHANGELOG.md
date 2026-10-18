@@ -8,6 +8,19 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Fixed
+
+- `protect` and the `cursor` agent hook now resolve each finding in a
+  scanned diff to its real file path and line, so `.pleno-allow.json`
+  `path` entries match and the output location column no longer prints the
+  opaque `git-diff-staged` label. `scan stdin --diff` exposes the same
+  parsing, and the `claude-code` hook labels its scan with the file path.
+
+### Added
+
+- `scan stdin --diff` parses a unified diff, scans only added lines, and
+  reports each finding at the file it came from.
+
 ## [v0.65.0] - 2026-09-21
 
 ### Added

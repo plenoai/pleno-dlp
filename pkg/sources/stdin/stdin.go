@@ -25,6 +25,15 @@ func init() {
 type Config struct {
 	Label    string `json:"label,omitempty"`
 	MaxBytes int64  `json:"max_bytes,omitempty"`
+	// Diff treats the input as a unified diff: only added lines are scanned
+	// and each finding is resolved to the real file path and line it came
+	// from. Used by protect and the cursor agent hook, which otherwise feed
+	// path-less content through stdin.
+	Diff bool `json:"diff,omitempty"`
+	// Locations supplies per-line provenance directly when the caller has
+	// already parsed the diff (protect does, in-process). Keys are 1-based
+	// line offsets into Data and take precedence over Diff.
+	Locations map[int]sources.LineLocation `json:"locations,omitempty"`
 }
 
 type Source struct {
@@ -98,13 +107,20 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 		return nil
 	}
 
+	locations := s.cfg.Locations
+	if len(locations) == 0 && s.cfg.Diff {
+		var added []byte
+		added, locations = CollectDiffForScan(data)
+		data = added
+	}
+
 	chunk := &sources.Chunk{
 		SourceID:   s.sourceID,
 		SourceType: sources.SourceStdin,
 		SourceName: s.name,
 		Data:       data,
 		SourceMetadata: sources.Metadata{
-			Stdin: &sources.StdinMeta{Label: s.cfg.Label},
+			Stdin: &sources.StdinMeta{Label: s.cfg.Label, Locations: locations},
 		},
 	}
 	select {

@@ -203,6 +203,17 @@ func writeJSONObject(path string, obj map[string]json.RawMessage) error {
 	return nil
 }
 
+// offlineScanRequest carries one hook scan: the bytes to scan plus the
+// provenance the scan needs to report real locations. Label names the file
+// for edit-time hooks (claude-code knows tool_input.file_path); Diff tells
+// the stdin source to parse a unified diff so each finding resolves to the
+// file it came from (cursor scans `git diff --cached`).
+type offlineScanRequest struct {
+	Data  []byte
+	Label string
+	Diff  bool
+}
+
 // scanOfflineFunc is the seam runHookClaudeCode / runHookCursor call
 // through instead of scanOffline directly. Production leaves it at the
 // default; tests replace it with a fake so the allow/deny decision logic
@@ -211,17 +222,24 @@ func writeJSONObject(path string, obj map[string]json.RawMessage) error {
 var scanOfflineFunc = scanOffline
 
 // scanOffline shells out to this same pleno-dlp binary (`scan stdin
-// --no-verify`) against data and reports how many findings it emitted.
-// Deliberately does not reimplement engine wiring: reusing the CLI path
-// means hook behaviour — dedup, allowlist discovery, output shape —
+// --no-verify`) against the request and reports how many findings it
+// emitted. Deliberately does not reimplement engine wiring: reusing the CLI
+// path means hook behaviour — dedup, allowlist discovery, output shape —
 // never drifts from `pleno-dlp scan stdin --no-verify` run by hand.
-func scanOffline(data []byte) (int, error) {
+func scanOffline(req offlineScanRequest) (int, error) {
 	exe := resolveExecutable()
 	if exe == "" {
 		return 0, fmt.Errorf("could not resolve pleno-dlp's own executable path")
 	}
-	c := exec.Command(exe, "scan", "stdin", "--no-verify", "--quiet", "--format", "json")
-	c.Stdin = bytes.NewReader(data)
+	args := []string{"scan", "stdin", "--no-verify", "--quiet", "--format", "json"}
+	if req.Diff {
+		args = append(args, "--diff")
+	}
+	if req.Label != "" {
+		args = append(args, "--label", req.Label)
+	}
+	c := exec.Command(exe, args...)
+	c.Stdin = bytes.NewReader(req.Data)
 	var stdout, stderr bytes.Buffer
 	c.Stdout = &stdout
 	c.Stderr = &stderr
@@ -467,7 +485,7 @@ func runHookClaudeCode(cmd *cobra.Command) error {
 		return nil
 	}
 
-	n, err := scanOfflineFunc([]byte(content))
+	n, err := scanOfflineFunc(offlineScanRequest{Data: []byte(content), Label: payload.ToolInput.FilePath})
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: %v — allowing\n", err)
 		return nil
@@ -684,7 +702,7 @@ func runHookCursor(cmd *cobra.Command) error {
 		return allowCursor(cmd, "")
 	}
 
-	n, err := scanOfflineFunc(diff)
+	n, err := scanOfflineFunc(offlineScanRequest{Data: diff, Label: "git-diff-staged", Diff: true})
 	if err != nil {
 		return allowCursor(cmd, fmt.Sprintf("scan staged diff: %v", err))
 	}

@@ -14,7 +14,7 @@ import (
 // test and restores the real implementation afterward, mirroring the
 // uvBin/gitBin override pattern in pii_server.go. fn also lets callers
 // assert the hook actually invoked (or skipped) the scan.
-func withFakeScanOffline(t *testing.T, fn func(data []byte) (int, error)) {
+func withFakeScanOffline(t *testing.T, fn func(req offlineScanRequest) (int, error)) {
 	t.Helper()
 	orig := scanOfflineFunc
 	scanOfflineFunc = fn
@@ -349,7 +349,7 @@ func TestHooksUninstallCursor_RemovesEntry(t *testing.T) {
 
 func TestRunHookClaudeCode_AllowsCleanContent(t *testing.T) {
 	resetCommandFlags(t)
-	withFakeScanOffline(t, func(data []byte) (int, error) { return 0, nil })
+	withFakeScanOffline(t, func(req offlineScanRequest) (int, error) { return 0, nil })
 
 	var out bytes.Buffer
 	Root.SetOut(&out)
@@ -363,9 +363,9 @@ func TestRunHookClaudeCode_AllowsCleanContent(t *testing.T) {
 
 func TestRunHookClaudeCode_BlocksOnFindings(t *testing.T) {
 	resetCommandFlags(t)
-	var gotData string
-	withFakeScanOffline(t, func(data []byte) (int, error) {
-		gotData = string(data)
+	var gotData, gotLabel string
+	withFakeScanOffline(t, func(req offlineScanRequest) (int, error) {
+		gotData, gotLabel = string(req.Data), req.Label
 		return 2, nil
 	})
 
@@ -387,6 +387,9 @@ func TestRunHookClaudeCode_BlocksOnFindings(t *testing.T) {
 	if gotData != "AWS_KEY=AKIA..." {
 		t.Errorf("scanOfflineFunc got %q, want the tool_input.content verbatim", gotData)
 	}
+	if gotLabel != "secrets.env" {
+		t.Errorf("scanOfflineFunc label = %q, want the tool_input.file_path so allowlist paths can match", gotLabel)
+	}
 }
 
 // TestRunHookClaudeCode_BlocksOnEditNewString is the regression test for
@@ -398,8 +401,8 @@ func TestRunHookClaudeCode_BlocksOnFindings(t *testing.T) {
 func TestRunHookClaudeCode_BlocksOnEditNewString(t *testing.T) {
 	resetCommandFlags(t)
 	var gotData string
-	withFakeScanOffline(t, func(data []byte) (int, error) {
-		gotData = string(data)
+	withFakeScanOffline(t, func(req offlineScanRequest) (int, error) {
+		gotData = string(req.Data)
 		return 1, nil
 	})
 
@@ -422,8 +425,8 @@ func TestRunHookClaudeCode_BlocksOnEditNewString(t *testing.T) {
 func TestRunHookClaudeCode_BlocksOnMultiEdit(t *testing.T) {
 	resetCommandFlags(t)
 	var gotData string
-	withFakeScanOffline(t, func(data []byte) (int, error) {
-		gotData = string(data)
+	withFakeScanOffline(t, func(req offlineScanRequest) (int, error) {
+		gotData = string(req.Data)
 		if strings.Contains(gotData, "AKIA_multi_secret") {
 			return 1, nil
 		}
@@ -445,7 +448,7 @@ func TestRunHookClaudeCode_BlocksOnMultiEdit(t *testing.T) {
 
 func TestRunHookClaudeCode_FailsOpenOnScanError(t *testing.T) {
 	resetCommandFlags(t)
-	withFakeScanOffline(t, func(data []byte) (int, error) {
+	withFakeScanOffline(t, func(req offlineScanRequest) (int, error) {
 		return 0, os.ErrPermission // simulate a spawn / infra failure
 	})
 
@@ -465,7 +468,7 @@ func TestRunHookClaudeCode_FailsOpenOnScanError(t *testing.T) {
 func TestRunHookClaudeCode_AllowsMalformedPayload(t *testing.T) {
 	resetCommandFlags(t)
 	calls := 0
-	withFakeScanOffline(t, func(data []byte) (int, error) {
+	withFakeScanOffline(t, func(req offlineScanRequest) (int, error) {
 		calls++
 		return 0, nil
 	})
@@ -486,7 +489,7 @@ func TestRunHookClaudeCode_AllowsMalformedPayload(t *testing.T) {
 func TestRunHookCursor_AllowsNonCommitCommandWithoutScanning(t *testing.T) {
 	resetCommandFlags(t)
 	calls := 0
-	withFakeScanOffline(t, func(data []byte) (int, error) {
+	withFakeScanOffline(t, func(req offlineScanRequest) (int, error) {
 		calls++
 		return 5, nil // if this ever ran, it would deny — proves the skip below matters
 	})
@@ -522,9 +525,12 @@ func TestRunHookCursor_DeniesOnFindingsInStagedDiff(t *testing.T) {
 	}
 	runGit(t, dir, "add", "leak.env")
 
-	withFakeScanOffline(t, func(data []byte) (int, error) {
-		if !strings.Contains(string(data), "AKIA1234567890ABCDEF") {
-			t.Errorf("scanOfflineFunc should receive the staged diff; got %q", data)
+	withFakeScanOffline(t, func(req offlineScanRequest) (int, error) {
+		if !strings.Contains(string(req.Data), "AKIA1234567890ABCDEF") {
+			t.Errorf("scanOfflineFunc should receive the staged diff; got %q", req.Data)
+		}
+		if !req.Diff {
+			t.Error("cursor must request diff parsing so findings carry real paths")
 		}
 		return 1, nil
 	})
@@ -565,7 +571,7 @@ func TestRunHookCursor_AllowsCleanStagedDiff(t *testing.T) {
 	}
 	runGit(t, dir, "add", "clean.txt")
 
-	withFakeScanOffline(t, func(data []byte) (int, error) { return 0, nil })
+	withFakeScanOffline(t, func(req offlineScanRequest) (int, error) { return 0, nil })
 
 	var out bytes.Buffer
 	Root.SetOut(&out)
