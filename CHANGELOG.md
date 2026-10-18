@@ -8,6 +8,14 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+## [v0.67.1] - 2026-10-18
+
+### Fixed
+
+- Binaries built with `go install module@vX.Y.Z` (mise, pre-commit) report the module
+  version and VCS revision instead of `dev (none)`, so `--version` and crash reports
+  identify the build.
+
 ## [v0.67.0] - 2026-10-18
 
 ### Added
