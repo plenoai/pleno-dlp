@@ -148,6 +148,35 @@ func scanStagedBuffer(cmd *cobra.Command, buf []byte) ([]hookFinding, error) {
 	return records, nil
 }
 
+// extractAddedLines returns only the added lines from a unified diff,
+// stripping the leading '+' so detectors see raw content.
+// Removed ('-') and context lines are discarded to avoid false positives
+// on secrets that are being deleted.
+//
+// Added lines are recognized by hunk state rather than by prefix alone.
+// The '+++ b/file' header appears before the first '@@' marker and is
+// skipped, while content added inside a hunk may itself begin with '++'
+// (rendered as '+++...') and must still be scanned.
+func extractAddedLines(diff string) string {
+	var sb strings.Builder
+	inHunk := false
+	for _, line := range strings.SplitAfter(diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "diff "):
+			// Start of a new file's diff section: back to header state
+			// so a following '+++ b/file' header is not mistaken for content.
+			inHunk = false
+		case strings.HasPrefix(line, "@@"):
+			inHunk = true
+		case inHunk && strings.HasPrefix(line, "+"):
+			// Added content line. Lines such as '\ No newline at end of
+			// file' start with '\' and are intentionally skipped.
+			sb.WriteString(line[1:])
+		}
+	}
+	return sb.String()
+}
+
 // collectDiffForScanFunc is the seam hook tests use to inject a diff.
 var collectDiffForScanFunc = collectDiffForScan
 

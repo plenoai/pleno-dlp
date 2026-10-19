@@ -97,6 +97,61 @@ func TestWalk_TarGzExpandsThroughGzipThenTar(t *testing.T) {
 	}
 }
 
+func TestWalk_TarContiguousFileIsScanned(t *testing.T) {
+	akia := "AKIAIOSFODNN7EXAMPLE"
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	body := []byte(akia + " secret")
+	if err := tw.WriteHeader(&tar.Header{Name: "creds.txt", Typeflag: tar.TypeCont, Size: int64(len(body)), Mode: 0o644}); err != nil {
+		t.Fatalf("tar header: %v", err)
+	}
+	if _, err := tw.Write(body); err != nil {
+		t.Fatalf("tar write: %v", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("tar close: %v", err)
+	}
+
+	entries, err := Walk("cont.tar", buf.Bytes(), Limits{})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if len(entries) != 1 || !containsAKIA(entries, akia) {
+		t.Fatalf("TypeCont entry not scanned: %+v", entries)
+	}
+}
+
+func TestWalk_TarUnknownSpecialFileReported(t *testing.T) {
+	akia := "AKIAIOSFODNN7EXAMPLE"
+	// archive/tar's writer refuses to attach a body to special types, so craft
+	// the header directly to model a hostile archive that hides bytes in a
+	// non-regular entry.
+	archiveData := buildRawTar(t, "payload", tar.TypeFifo, []byte(akia))
+
+	entries, err := Walk("special.tar", archiveData, Limits{})
+	var partial *PartialError
+	if !errors.As(err, &partial) || partial.Kind != "special-file" {
+		t.Fatalf("error=%v, want special-file PartialError", err)
+	}
+	if containsAKIA(entries, akia) {
+		t.Fatalf("special entry must not be scanned; got %+v", entries)
+	}
+}
+
+func TestWalk_TarZeroSizeSpecialFileIsNotAGap(t *testing.T) {
+	// Device nodes and fifos are normally bare headers with no body; they carry
+	// no unscanned bytes and must not be reported as coverage gaps.
+	archiveData := buildRawTar(t, "dev/null", tar.TypeChar, nil)
+
+	entries, err := Walk("devices.tar", archiveData, Limits{})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("bare special entry expanded: %+v", entries)
+	}
+}
+
 func TestWalkStreamContextGzipConcatenatedMembers(t *testing.T) {
 	var compressed bytes.Buffer
 	for _, payload := range [][]byte{[]byte("first member\n"), []byte("second member\n")} {
@@ -616,6 +671,43 @@ func buildTar(t *testing.T, files map[string]string) []byte {
 	if err := tw.Close(); err != nil {
 		t.Fatalf("tar close: %v", err)
 	}
+	return buf.Bytes()
+}
+
+// buildRawTar emits a single USTAR entry with an arbitrary typeflag and body.
+// archive/tar's writer rejects bodies on special types, so a hand-built header
+// is required to exercise how the reader treats them.
+func buildRawTar(t *testing.T, name string, typeflag byte, body []byte) []byte {
+	t.Helper()
+	if len(name) > 100 {
+		t.Fatalf("raw tar name too long: %q", name)
+	}
+	header := make([]byte, 512)
+	copy(header[0:100], name)
+	copy(header[100:108], "0000644\x00")
+	copy(header[108:116], "0000000\x00")
+	copy(header[116:124], "0000000\x00")
+	copy(header[124:136], fmt.Sprintf("%011o\x00", len(body)))
+	copy(header[136:148], "00000000000\x00")
+	for i := 148; i < 156; i++ {
+		header[i] = ' '
+	}
+	header[156] = typeflag
+	copy(header[257:263], "ustar\x00")
+	copy(header[263:265], "00")
+	var sum int64
+	for _, b := range header {
+		sum += int64(b)
+	}
+	copy(header[148:156], fmt.Sprintf("%06o\x00 ", sum))
+
+	var buf bytes.Buffer
+	buf.Write(header)
+	buf.Write(body)
+	if padding := (512 - len(body)%512) % 512; padding > 0 {
+		buf.Write(make([]byte, padding))
+	}
+	buf.Write(make([]byte, 1024))
 	return buf.Bytes()
 }
 

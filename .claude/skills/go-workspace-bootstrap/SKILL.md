@@ -136,7 +136,7 @@ builds:
     binary: pleno-dlp
     env: [CGO_ENABLED=0]
     goos: [linux, darwin, windows]
-    goarch: [amd64, arm64]
+    goarch: [arm64]
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}}
 archives:

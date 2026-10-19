@@ -1,6 +1,7 @@
 package crash
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -261,6 +262,44 @@ func TestSpoolPermsAndPrune(t *testing.T) {
 	}
 	if _, _, err := ReadReport(last); err != nil {
 		t.Fatalf("ReadReport: %v", err)
+	}
+}
+
+// TestWriteFileMatchesSpoolEncoding pins the --crash-report guarantee: a
+// local report is byte-identical to the spooled last.json that
+// `telemetry show-last` prints.
+func TestWriteFileMatchesSpoolEncoding(t *testing.T) {
+	dir := t.TempDir()
+	r := Report{
+		Schema:      Schema,
+		Fingerprint: "0123456789abcdef",
+		Version:     "1.2.3",
+		Kind:        KindCrash,
+		Message:     "panic: boom",
+		Stack:       "goroutine [running]:\n",
+		CreatedAt:   time.Unix(1_700_000_000, 0).UTC(),
+	}
+	local := filepath.Join(dir, "local.json")
+	if err := WriteFile(local, r); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	spoolDir := filepath.Join(dir, "crash")
+	if _, err := Spool(spoolDir, r); err != nil {
+		t.Fatalf("Spool: %v", err)
+	}
+	got, err := os.ReadFile(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(spoolDir, LastFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("local report differs from spool encoding:\nlocal:\n%s\nspool:\n%s", got, want)
+	}
+	if _, _, err := ReadReport(local); err != nil {
+		t.Fatalf("local report not readable as a crash report: %v", err)
 	}
 }
 

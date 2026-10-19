@@ -47,9 +47,19 @@ const (
 	SourceCircleCI
 )
 
-// Metadata is a discriminated union of source-specific location info. Each
-// source populates exactly one field. Output formatters dispatch on the
-// non-nil field to render "where the secret was found".
+// Line contract
+//
+// Every line-bearing metadata field (Filesystem, Git, GitHub, Forge, SQLDump,
+// DockerImage) records the 1-based line number of the first byte of the
+// Chunk.Data it accompanies. The engine derives a finding's line as
+// Line + the number of newlines between Data[0] and the match
+// (engine.computeLineFromMatch), so Line MUST point at Data[0] — the start of
+// the emitted window, including any unchanged context prepended to it — and
+// never at the first changed line. A source that prepends leading context but
+// sets Line to the first added line reports findings up to the context length
+// too high. Every line-bearing source (filesystem, git, github, forge,
+// sqldump, dockerimage) must pass the shared contract check in
+// pkg/engine/line_contract_test.go.
 type Metadata struct {
 	Filesystem  *FilesystemMeta
 	Git         *GitMeta
@@ -72,14 +82,14 @@ type Metadata struct {
 
 type FilesystemMeta struct {
 	Path string
-	Line int
+	Line int // 1-based line of Chunk.Data[0]; see "Line contract"
 }
 
 type GitMeta struct {
 	Repository   string
 	Commit       string
 	File         string
-	Line         int
+	Line         int // 1-based line of Chunk.Data[0]; see "Line contract"
 	Email        string
 	Author       string
 	AuthoredDate string // RFC3339
@@ -97,7 +107,7 @@ type GitHubMeta struct {
 	Link       string
 	Commit     string
 	File       string
-	Line       int
+	Line       int // 1-based line of Chunk.Data[0]; see "Line contract"
 	Visibility string
 	Owner      string
 	Repo       string
@@ -187,7 +197,7 @@ type ForgeMeta struct {
 	Branch     string
 	Commit     string
 	File       string
-	Line       int
+	Line       int // 1-based line of Chunk.Data[0]; see "Line contract"
 }
 
 // SIEMMeta is populated by SIEM connectors (Datadog, Splunk, BigQuery,
@@ -210,7 +220,7 @@ type SQLDumpMeta struct {
 	File     string // path to the dump file
 	Database string // database name (from USE or CREATE DATABASE)
 	Table    string // current table context (from INSERT INTO or CREATE TABLE)
-	Line     int    // 1-based line number in the dump file
+	Line     int    // 1-based line of Chunk.Data[0]; see "Line contract"
 	Format   string // "mysql", "postgres", or "sqlite"
 }
 
@@ -247,7 +257,7 @@ type DockerImageMeta struct {
 	Digest string // image manifest digest (sha256:...)
 	Layer  string // layer digest (sha256:...) or "config" for the image config blob
 	File   string // path within the layer (empty for the config blob)
-	Line   int    // 1-based line number within the file (0 if unknown)
+	Line   int    // 1-based line of Chunk.Data[0]; see "Line contract"
 }
 
 // HuggingFaceMeta is populated by the HuggingFace connector. It tracks

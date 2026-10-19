@@ -22,6 +22,25 @@ func Send(ctx context.Context, client *http.Client, endpoint, version string, r 
 	if len(body) > MaxReportBytes {
 		return fmt.Errorf("crash report is %d bytes, exceeds %d", len(body), MaxReportBytes)
 	}
+	return post(ctx, client, endpoint, version, body)
+}
+
+// Post uploads an arbitrary JSON payload with the same transport policy as
+// Send: loopback-only plain http, no redirects, one timeout, no retries. It
+// lets sibling report kinds (feedback) share one sender instead of cloning
+// the transport rules.
+func Post(ctx context.Context, client *http.Client, endpoint, version string, payload any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if len(body) > MaxReportBytes {
+		return fmt.Errorf("report is %d bytes, exceeds %d", len(body), MaxReportBytes)
+	}
+	return post(ctx, client, endpoint, version, body)
+}
+
+func post(ctx context.Context, client *http.Client, endpoint, version string, body []byte) error {
 	if err := ValidateEndpoint(endpoint); err != nil {
 		return err
 	}

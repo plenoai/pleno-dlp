@@ -79,9 +79,8 @@ runs:
           *) echo "::error::unsupported runner.os=$PLENO_DLP_RUNNER_OS" >&2; exit 1 ;;
         esac
         case "$PLENO_DLP_RUNNER_ARCH" in
-          X64) goarch=amd64 ;;
           ARM64) goarch=arm64 ;;
-          *) echo "::error::unsupported runner.arch=$PLENO_DLP_RUNNER_ARCH (pleno-dlp releases amd64/arm64 only)" >&2; exit 1 ;;
+          *) echo "::error::unsupported runner.arch=$PLENO_DLP_RUNNER_ARCH (pleno-dlp publishes arm64 only)" >&2; exit 1 ;;
         esac
         echo "goos=$goos" >> "$GITHUB_OUTPUT"
         echo "goarch=$goarch" >> "$GITHUB_OUTPUT"

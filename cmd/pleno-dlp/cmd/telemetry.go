@@ -161,8 +161,13 @@ func init() {
 // subcommand path and the names of recognised flags. Values, positional
 // arguments, and unrecognised tokens are never returned, so the result is
 // safe to put in a crash report.
+//
+// Flag names are collected from the whole argument vector rather than only
+// the tokens cobra's Find leaves after the command, so a root/persistent
+// flag given before its subcommand (`pleno-dlp --crash-report out scan ...`)
+// is recorded too (#516).
 func DescribeInvocation(args []string) (string, []string) {
-	c, rest, err := Root.Find(args)
+	c, _, err := Root.Find(args)
 	if err != nil || c == nil {
 		return "", []string{}
 	}
@@ -180,7 +185,7 @@ func DescribeInvocation(args []string) (string, []string) {
 		}
 		return c.InheritedFlags().ShorthandLookup(s)
 	}
-	for _, a := range rest {
+	for _, a := range args {
 		if a == "--" {
 			break
 		}
