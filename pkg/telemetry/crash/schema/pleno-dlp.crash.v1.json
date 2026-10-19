@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pleno-dlp.crash/v1",
+  "title": "pleno-dlp crash report",
+  "description": "Wire contract between the pleno-dlp client (pkg/telemetry/crash) and the plenoai.com crash relay (workers/crash-relay). This file is the single source of truth: the Go Report struct and the relay's validate() are both asserted against its property allowlist by tests on either side.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "fingerprint",
+    "version",
+    "commit",
+    "goos",
+    "goarch",
+    "go_version",
+    "command",
+    "flags",
+    "kind",
+    "message",
+    "stack",
+    "created_at"
+  ],
+  "properties": {
+    "schema": {
+      "description": "Contract identifier. The relay rejects any other value.",
+      "const": "pleno-dlp.crash/v1"
+    },
+    "fingerprint": {
+      "description": "16 hex chars of SHA-256 over the digit-normalized message and the top in-module function names; groups crashes by cause across versions.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "version": {
+      "description": "pleno-dlp build version (GoReleaser main.version).",
+      "type": "string",
+      "maxLength": 64
+    },
+    "commit": {
+      "description": "pleno-dlp build commit (GoReleaser main.commit); empty when unknown.",
+      "type": "string",
+      "maxLength": 64
+    },
+    "goos": {
+      "description": "runtime.GOOS.",
+      "type": "string",
+      "maxLength": 32
+    },
+    "goarch": {
+      "description": "runtime.GOARCH.",
+      "type": "string",
+      "maxLength": 32
+    },
+    "go_version": {
+      "description": "Go runtime version that produced the report (runtime.Version()).",
+      "type": "string",
+      "maxLength": 64
+    },
+    "command": {
+      "description": "Redacted subcommand words that panicked, e.g. scan filesystem. Never positional arguments.",
+      "type": "string",
+      "maxLength": 256
+    },
+    "flags": {
+      "description": "Names of recognised flags only, never values.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "maxItems": 64
+    },
+    "kind": {
+      "description": "How the crash was captured: panic/fatal observed by the supervisor, recovered caught in-process.",
+      "type": "string",
+      "enum": ["panic", "fatal", "recovered"]
+    },
+    "message": {
+      "description": "Redacted panic or fatal-error line. Scanned file content and secrets MUST NOT appear here; the relay rejects any key outside this allowlist so a client cannot smuggle them in.",
+      "type": "string",
+      "maxLength": 4096
+    },
+    "stack": {
+      "description": "Redacted goroutine dump, module-relative and capped by the client.",
+      "type": "string",
+      "maxLength": 65536
+    },
+    "created_at": {
+      "description": "When the crash was captured, RFC 3339 / ISO 8601 in UTC, truncated to the minute.",
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

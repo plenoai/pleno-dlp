@@ -18,6 +18,41 @@ any` to also block on Medium-and-below noise
 once the repo has an allowlist tuned — see
 [`staged-rollout.md`](staged-rollout.md).
 
+## Without the pre-commit framework
+
+```sh
+pleno-dlp hooks install git            # writes <git-dir>/hooks/pre-commit
+pleno-dlp hooks print git > hook.sh    # for core.hooksPath, home-manager, lefthook
+```
+
+The hook is `pleno-dlp protect` plus hook ergonomics: a masked
+`path:line` list, a blocked-commit message, and exit 0 when the hook
+itself fails. It scans only lines that the commit adds, runs offline, and
+blocks on `high` or above by default. For CI or a scripted check that
+needs `--format`, verification, or detector filters, run `protect`
+directly. [`docs/hooks.md`](../hooks.md#git-native-pre-commit)
+describes the diff transform, `--fail-on`, and the behaviour when the
+hook itself fails.
+
+### Migrating from gitleaks
+
+| gitleaks | pleno-dlp |
+|---|---|
+| `gitleaks git --staged --redact` (pre-commit) | `pleno-dlp hooks run git` (installed by `hooks install git`) |
+| `gitleaks git --staged` (scripted or CI) | `pleno-dlp protect` (`--format json\|sarif`, `--fail-on`, `--no-verify`) |
+| `gitleaks git --pre-commit` (unstaged) | `pleno-dlp protect --no-staged` |
+| `.gitleaksignore` / `[allowlist]` | `.pleno-allow.json` (below) |
+| `--no-verify` bypass | `git commit --no-verify` (unchanged) |
+
+`--redact` has no pleno-dlp equivalent because the hook always masks.
+The JSON, table, and hook outputs contain only each detector's
+`redacted` rendering and a SHA-256 `secret_hash`, never the raw match.
+The hook additionally truncates the rendering to six characters,
+because each detector produces its own `redacted` value.
+
+Remove the gitleaks hook before installing, because `hooks install git`
+refuses to overwrite a `pre-commit` file that pleno-dlp did not write.
+
 ## Bypass for an emergency
 
 ```sh
@@ -56,3 +91,7 @@ Place `.pleno-allow.json` at the repo root:
 ```
 
 The hook auto-discovers this file from cwd up to 8 directories.
+
+`hooks install git` scans the staged diff as stdin, so `path` entries do
+not match its findings. Use `detector` + `raw` or `raw_regex` entries for
+fixtures that the git hook must allow.

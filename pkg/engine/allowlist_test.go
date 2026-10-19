@@ -98,6 +98,48 @@ func TestMatch_PathBasenameAndFull(t *testing.T) {
 	}
 }
 
+func TestPathMatch_DoublestarSegments(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		path    string
+		want    bool
+	}{
+		// Regression cases from the issue: `**` must match whole
+		// segments, never substrings of unrelated directories.
+		{"test-prefix-not-substring-of-latest", "test/**", "latest/prod.env", false},
+		{"test-prefix-not-substring-of-contest", "test/**", "src/contest.go", false},
+		{"test-prefix-not-substring-of-attest", "test/**", "attest/x.key", false},
+		{"vendor-not-substring-of-notvendor", "**/vendor/**", "src/notvendor/x/key.go", false},
+		{"docs-not-substring-of-mydocs", "docs/**/*.md", "mydocs/a.md", false},
+
+		// Positive cases.
+		{"test-prefix-matches-nested", "test/**", "test/a/b.env", true},
+		{"leading-doublestar-matches-root-vendor", "**/vendor/**", "vendor/x.go", true},
+		{"leading-doublestar-matches-nested-vendor", "**/vendor/**", "a/vendor/x.go", true},
+		{"documented-fixtures-pattern", "fixtures/**/*.env", "/repo/fixtures/sub/secret.env", true},
+		{"leading-doublestar-suffix", "**/*.env", "/repo/sub/secret.env", true},
+		{"docs-scoped-pattern", "docs/**", "/repo/docs/a/b.md", true},
+		{"internal-testdata-pattern", "internal/testdata/**", "repo/internal/testdata/x.json", true},
+
+		// `**` matches zero segments, so the trailing form also
+		// accepts the directory itself.
+		{"trailing-doublestar-matches-dir", "test/**", "test", true},
+		{"middle-doublestar-matches-zero-segments", "**/vendor/**", "vendor", true},
+
+		// A `**`-free pattern keeps basename matching.
+		{"basename-glob", "*_test.go", "/repo/foo_test.go", true},
+		{"basename-glob-rejects-other", "*_test.go", "/repo/foo.go", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := pathMatch(tc.pattern, tc.path); got != tc.want {
+				t.Errorf("pathMatch(%q, %q) = %v, want %v", tc.pattern, tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestMatch_AndAcrossDimensions(t *testing.T) {
 	a, err := LoadAllowlist(strings.NewReader(`{"entries":[
 		{"detector":"AWS","path":"*.env"}

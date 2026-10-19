@@ -55,6 +55,12 @@ without invoking the orchestrator.
 | Date | Owners | Change |
 |---|---|---|
 | 2026-10-18 | architect, qa | Drop the ad-hoc mise `go:` dogfooding pin that drifted ~20 minors behind; dogfood the signed release via the Homebrew tap, guarded by `docs/dogfooding.md` and `tests/ci/dogfooding_test.go`. |
+| 2026-10-18 | qa, core-engineer | Parse `protect` unified diffs by hunk state so added content beginning with `++` (rendered `+++...`) is scanned; skip only `+++` file headers before the first `@@`. |
+| 2026-10-18 | architect, core-engineer, connector-engineer, qa | Publish the `pleno-dlp.crash/v1` crash-report schema; assert the Go `crash.Report` struct and the vendored `plenoai.com` relay `validate()` against it so field drift fails CI on either side. |
+| 2026-10-18 | connector-engineer, core-engineer, qa | Attribute git findings to `Data[0]`: the go-git fallback emits one segment per added hunk with the leading-context line, native `beginAddedLine`/`nativeAddedHunks` follow the same rule, and the `Line`-means-`Data[0]` contract is documented on the line-bearing metadata structs with a shared engine contract test. |
+| 2026-10-18 | core-engineer | Fold local `--crash-report` into the shared `pkg/telemetry/crash` report schema and redactor (`kind: crash`, canonical `Encode`); the file is byte-identical to `telemetry show-last` and the private struct is gone (#559, #586). |
+| 2026-10-18 | core-engineer, qa | Add local-only `--crash-report <path>`; record flags given before the subcommand in crash invocation descriptions (#516); build the git-hook end-to-end test binary once per package in `TestMain`. |
+| 2026-10-18 | Claude, core-engineer | Add opt-in anonymized crash telemetry (`pleno-dlp telemetry`, supervisor re-exec, relay at crash.plenoai.com) and a native git pre-commit target (`hooks install|print|run git`) that delegates to `protect`; protect, the git hook, and the cursor hook now share one staged-diff transform. |
 | 2026-09-22 | Codex, core-engineer, qa | Reuse decoder scan scratch across sequential passes; allocate decode buffers and compile line-detector regexps only after eligible content is found. |
 | 2026-09-22 | connector-engineer, qa | Read filesystem inputs larger than 512 KiB on demand to avoid retaining medium file bodies in queued chunks. |
 | 2026-09-22 | Codex, connector-engineer, qa | Preserve ordered GitHub sink errors across cancellation branches while retaining caller cancellation and deadline errors. |
@@ -64,3 +70,4 @@ without invoking the orchestrator.
 | 2026-09-22 | Devin, Codex, core-engineer, qa | Resolve streamed Raw positions with bounded indexes built for dense groups and lazy prefix observation; preserve earliest spans, line numbers, cancellation, and read errors. |
 | 2026-09-22 | Devin, connector-engineer, qa | Open worktreeConfig repositories and linked worktrees without modifying repository config; continue rejecting unknown extensions. |
 | 2026-09-22 | Devin, connector-engineer, Codex, qa | Stream retained content and merge resolutions in existing partial clones; keep incomplete coverage from advancing checkpoints. GitHub mirrors remain complete while #378 transfer and scale acceptance is pending. |
+| 2026-10-18 | core-engineer, qa | Add `engine.ScanBytes`/`ScanBytesWithDetectors`, an offline in-memory scan that returns detector results through the standard engine pipeline with `NoVerify` forced, so crash telemetry and git hooks no longer re-implement the keyword prefilter and detector iteration. |

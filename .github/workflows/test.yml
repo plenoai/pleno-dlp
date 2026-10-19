@@ -47,6 +47,10 @@ jobs:
         run: go test ./pkg/connectors -run '^TestSourceFixtureDetectorKeywordMatrix$' -race -count=1
       - name: CLI boundary E2E
         run: bash tests/e2e/run.sh
+      - name: Crash telemetry schema contract
+        run: go test ./pkg/telemetry/crash -count=1
+      - name: Crash relay schema contract (vendored)
+        run: node --test workers/crash-relay/crash-relay.test.js
 
   detector-unit:
     runs-on: ubuntu-latest
