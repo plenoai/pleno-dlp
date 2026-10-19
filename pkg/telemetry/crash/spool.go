@@ -19,11 +19,10 @@ const LastFile = "last.json"
 // <dir>/last.json, then prunes the oldest files beyond MaxSpoolFiles.
 // It returns the per-crash path.
 func Spool(dir string, r Report) (string, error) {
-	b, err := json.MarshalIndent(r, "", "  ")
+	b, err := Encode(r)
 	if err != nil {
 		return "", err
 	}
-	b = append(b, '\n')
 	path := filepath.Join(dir, fmt.Sprintf("%s-%d.json", r.Fingerprint, r.CreatedAt.Unix()))
 	if err := writePrivate(dir, path, b); err != nil {
 		return "", err
@@ -93,4 +92,24 @@ func ReadReport(path string) (Report, []byte, error) {
 		return r, nil, fmt.Errorf("%s: schema %q, want %q", path, r.Schema, Schema)
 	}
 	return r, b, nil
+}
+
+// WriteFile writes r to an operator-named path for a local --crash-report. It
+// uses the same encoding as Spool, so the file is byte-identical to what
+// `telemetry show-last` prints for the same report; it creates parent
+// directories 0700, writes the file 0600, and never sends anything.
+func WriteFile(path string, r Report) error {
+	b, err := Encode(r)
+	if err != nil {
+		return fmt.Errorf("crash-report: encode: %w", err)
+	}
+	if dir := filepath.Dir(path); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("crash-report: create %s: %w", dir, err)
+		}
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		return fmt.Errorf("crash-report: write %s: %w", path, err)
+	}
+	return nil
 }

@@ -19,6 +19,25 @@ pleno-dlp telemetry send <file>  # uploads one reviewed spool file as-is
 per-file action. It accepts only files that match the report schema exactly
 (unknown fields are rejected), so it cannot be used to upload other files.
 
+## Local-only reports (`--crash-report`)
+
+For an offline or scripted run, `--crash-report <path>` writes a local,
+secret-free report to the path you name when a command panics, without
+sending anything:
+
+```sh
+pleno-dlp --crash-report /tmp/pleno-crash.json scan github --repo .
+```
+
+The file uses the same schema, redaction pipeline, and canonical encoding as
+the spool above (`kind` is `crash`), so it is byte-identical to what
+`pleno-dlp telemetry show-last` prints for the same report. It is written
+`0600` (parent directories `0700`) and records the command path, recognised
+flag names (never values), version, platform, and the redacted stack. Unlike
+a telemetry report it is never sent. With `--crash-report` set the panic is
+contained and the process exits non-zero; without it, crash behaviour is
+unchanged (the telemetry path above still applies).
+
 ## Configuration
 
 | Setting | Where | Default |
@@ -40,7 +59,9 @@ inside your organization.
 
 ## What a report contains
 
-Every field is listed here; there are no others.
+Every field is listed here; there are no others. The machine-readable
+contract shared with the relay is
+[`pleno-dlp.crash/v1`](crash-telemetry-schema.md).
 
 | Field | Content |
 |---|---|
@@ -50,7 +71,7 @@ Every field is listed here; there are no others.
 | `goos`, `goarch`, `go_version` | platform and toolchain |
 | `command` | subcommand words only, e.g. `scan filesystem` |
 | `flags` | names of recognised flags only, e.g. `["format"]`; never values |
-| `kind` | `panic` / `fatal` (seen by the supervisor) or `recovered` (caught in-process) |
+| `kind` | `panic` / `fatal` (seen by the supervisor), `recovered` (caught in-process), or `crash` (written by `--crash-report`) |
 | `message` | the redacted panic or fatal-error line |
 | `stack` | the redacted goroutine dump |
 | `created_at` | UTC, truncated to the minute |
@@ -85,7 +106,8 @@ relay's public source.
 
 ### Redaction pipeline
 
-Applied to `message`, `stack`, and `command` before the report is spooled:
+Applied to `message`, `stack`, and `command` before the report is written
+(spooled by telemetry, or written to the `--crash-report` path):
 
 1. Drop `+0x…` PC offsets, replace hex addresses and arguments with `0x?`,
    rewrite `goroutine 17 [running]:` to `goroutine [running]:`.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,34 @@ import (
 )
 
 const fixtureAWSKey = "AKIA1234567890ABCDEF"
+
+// hooksGitTestBinary is the real pleno-dlp binary, built once for the whole
+// package in TestMain. The git hook can only be exercised end-to-end by git
+// itself: `git commit` spawns the generated pre-commit wrapper, which execs
+// this binary as `hooks run git`. Building it per test paid the compile cost
+// over and over; TestMain pays it once.
+var hooksGitTestBinary string
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "pleno-dlp-cmd-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "cmd: create temp dir:", err)
+		os.Exit(1)
+	}
+	bin := filepath.Join(dir, "pleno-dlp")
+	build := exec.Command("go", "build", "-o", bin, "github.com/plenoai/pleno-dlp/cmd/pleno-dlp")
+	build.Stderr = os.Stderr
+	if err := build.Run(); err != nil {
+		_ = os.RemoveAll(dir)
+		fmt.Fprintln(os.Stderr, "cmd: build pleno-dlp:", err)
+		os.Exit(1)
+	}
+	hooksGitTestBinary = bin
+
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 func initGitRepo(t *testing.T) string {
 	t.Helper()
@@ -358,19 +387,18 @@ func TestHooksPrintGit_DegradesWithoutBinary(t *testing.T) {
 	}
 }
 
-// TestHookGitEndToEnd builds the real binary, installs the hook into a
-// fresh repo, and drives `git commit` so the whole chain — git env,
-// diff transform, `scan stdin` subprocess, exit-code mapping in main.go —
-// is exercised.
+// TestHookGitEndToEnd uses the package's prebuilt binary (see TestMain),
+// installs the hook into a fresh repo, and drives `git commit` so the whole
+// chain — git env, diff transform, `scan stdin` subprocess, exit-code
+// mapping in main.go — is exercised.
 func TestHookGitEndToEnd(t *testing.T) {
 	if testing.Short() {
-		t.Skip("builds the pleno-dlp binary")
+		t.Skip("drives the pleno-dlp binary")
 	}
-	bin := filepath.Join(t.TempDir(), "pleno-dlp")
-	build := exec.Command("go", "build", "-o", bin, "github.com/plenoai/pleno-dlp/cmd/pleno-dlp")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("go build: %v\n%s", err, out)
+	if hooksGitTestBinary == "" {
+		t.Fatal("pleno-dlp test binary was not built")
 	}
+	bin := hooksGitTestBinary
 	dir := initGitRepo(t)
 	if out, err := exec.Command(bin, "-h").CombinedOutput(); err != nil {
 		t.Fatalf("binary smoke: %v\n%s", err, out)
