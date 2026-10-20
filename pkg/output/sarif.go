@@ -916,8 +916,9 @@ func itoa(n int) string {
 //   - filesystem: absolute paths become file:// URLs; relative paths stay
 //     relative with each segment escaped.
 //   - git / github / sqldump: repo-relative paths, escaped per segment.
-//   - s3 / gcs: scheme + escaped bucket + escaped object key.
-//   - slack / stdin / siem: already URLs or opaque labels; passed through.
+//   - s3 / gcs: valid buckets stay in the authority; invalid buckets stay path data.
+//   - slack / siem: valid links stay intact; malformed links are escaped as one path segment.
+//   - stdin: the label is escaped as a relative path.
 //
 // The line number is returned alongside so callers can populate the region.
 func sourceURI(md sources.Metadata) (string, int) {
@@ -929,38 +930,83 @@ func sourceURI(md sources.Metadata) (string, int) {
 	case md.GitHub != nil:
 		return encodePathSegments(md.GitHub.File), md.GitHub.Line
 	case md.S3 != nil:
-		return "s3://" + url.PathEscape(md.S3.Bucket) + "/" + encodePathSegments(md.S3.Key), 0
+		return objectStoreURI("s3", md.S3.Bucket, md.S3.Key), 0
 	case md.GCS != nil:
-		return "gs://" + url.PathEscape(md.GCS.Bucket) + "/" + encodePathSegments(md.GCS.Object), 0
+		return objectStoreURI("gs", md.GCS.Bucket, md.GCS.Object), 0
 	case md.Slack != nil:
-		return md.Slack.Permalink, 0
+		return sourceReference(md.Slack.Permalink), 0
 	case md.Stdin != nil:
-		return md.Stdin.Label, 0
+		return encodePathSegments(md.Stdin.Label), 0
 	case md.SIEM != nil:
 		if md.SIEM.Link != "" {
-			return md.SIEM.Link, 0
+			return sourceReference(md.SIEM.Link), 0
 		}
-		return md.SIEM.Provider + "://" + md.SIEM.Host + "/" + md.SIEM.Index, 0
+		return authorityURI(md.SIEM.Provider, md.SIEM.Host, md.SIEM.Index), 0
 	case md.SQLDump != nil:
 		return encodePathSegments(md.SQLDump.File), md.SQLDump.Line
 	}
 	return "", 0
 }
 
+func objectStoreURI(scheme, bucket, key string) string {
+	path := encodePathSegments(key)
+	if bucket == "" {
+		return scheme + ":///" + path
+	}
+	authority, err := url.Parse("//" + bucket)
+	if err == nil && authority.Host == bucket && authority.User == nil && authority.Path == "" && authority.RawQuery == "" && authority.Fragment == "" && !strings.Contains(bucket, ":") {
+		return scheme + "://" + bucket + "/" + path
+	}
+	return scheme + ":/" + url.PathEscape(bucket) + "/" + path
+}
+
+func authorityURI(scheme, host, path string) string {
+	rawURL := url.URL{Scheme: scheme, Host: host, Path: "/" + path}
+	ref := rawURL.String()
+	u, err := url.Parse(ref)
+	if err == nil && u.Scheme == scheme && u.Host == host && u.User == nil && u.RawQuery == "" && u.Fragment == "" && u.Path == "/"+path {
+		return ref
+	}
+	return strings.Replace(url.PathEscape(scheme+"://"+host+"/"+path), ":", "%3A", 1)
+}
+
+func sourceReference(ref string) string {
+	u, err := url.Parse(ref)
+	if err != nil {
+		return strings.Replace(url.PathEscape(ref), ":", "%3A", 1)
+	}
+	return u.String()
+}
+
 // encodePathSegments percent-encodes each `/`-separated segment with
 // url.PathEscape and rejoins them with literal `/` separators. Splitting
 // first is required because url.PathEscape escapes `/` itself; per-segment
 // escaping turns spaces, `#`, `%`, and `?` into valid escapes without
-// hiding the path structure.
+// hiding the path structure. It also escapes a leading colon and dot segments
+// so relative references keep their path meaning when parsed or resolved.
 func encodePathSegments(p string) string {
 	if p == "" {
 		return ""
 	}
-	segs := strings.Split(filepath.ToSlash(p), "/")
+	p = filepath.ToSlash(p)
+	segs := strings.Split(p, "/")
 	for i, seg := range segs {
+		if seg == "." || seg == ".." {
+			segs[i] = strings.ReplaceAll(seg, ".", "%2E")
+			continue
+		}
 		segs[i] = url.PathEscape(seg)
+		if i == 0 && !strings.HasPrefix(p, "/") {
+			segs[i] = strings.ReplaceAll(segs[i], ":", "%3A")
+		}
 	}
-	return strings.Join(segs, "/")
+	encoded := strings.Join(segs, "/")
+	if strings.HasPrefix(p, "//") {
+		// A relative URI beginning with two slashes is parsed as an authority.
+		// Escape the second slash so the original path remains data, not a host.
+		return "/%2F" + strings.TrimPrefix(encoded, "//")
+	}
+	return encoded
 }
 
 // fileURI turns an absolute filesystem path into a file:// URL and leaves
