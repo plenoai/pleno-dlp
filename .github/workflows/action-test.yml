@@ -36,8 +36,6 @@ env:
 jobs:
   smoke:
     runs-on: [self-hosted, linux, arm64, hikae-flash]
-    env:
-      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,6 +44,8 @@ jobs:
       - name: Run pleno-dlp action against a secret-free target
         id: scan
         uses: ./
+        env:
+          TMPDIR: ${{ runner.temp }}
         with:
           target: .github/action-smoke
           version: ${{ env.PLENO_DLP_SMOKE_VERSION }}
