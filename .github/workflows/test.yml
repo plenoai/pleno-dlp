@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: [self-hosted, linux, arm64, hikae-flash]
+    runs-on: [self-hosted, linux, arm64, hikae-long]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,7 +85,7 @@ jobs:
       - run: go test -tags=detector_unit ./pkg/detectors/... -race -count=1 -timeout 15m
 
   opf-native:
-    runs-on: [self-hosted, linux, arm64, hikae-flash]
+    runs-on: [self-hosted, linux, arm64, hikae-long]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

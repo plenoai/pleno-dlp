@@ -10,12 +10,13 @@ import (
 )
 
 // hikaeFlashLabels is the AWS Lambda MicroVM self-hosted runner label set that
-// every non-matrix job must target. GitHub-hosted runners (ubuntu-latest,
+// jobs without a measured capacity exception must target. GitHub-hosted runners (ubuntu-latest,
 // macos-*, windows-*) are retired for this repository.
 const hikaeFlashLabels = "[self-hosted, linux, arm64, hikae-flash]"
 
 var (
 	runnerLine = regexp.MustCompile(`^(\s*)runs-on:\s*(.*)$`)
+	jobLine    = regexp.MustCompile(`^  ([a-zA-Z0-9_-]+):\s*$`)
 	hostedOS   = regexp.MustCompile(`ubuntu|macos|windows`)
 )
 
@@ -42,7 +43,11 @@ func TestWorkflowsUseSelfHostedFlashRunner(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		job := ""
 		for i, line := range strings.Split(string(data), "\n") {
+			if match := jobLine.FindStringSubmatch(line); match != nil {
+				job = match[1]
+			}
 			match := runnerLine.FindStringSubmatch(line)
 			if match == nil {
 				continue
@@ -57,8 +62,13 @@ func TestWorkflowsUseSelfHostedFlashRunner(t *testing.T) {
 			if hostedOS.MatchString(value) {
 				t.Errorf("%s:%d: runs-on must not select a GitHub-hosted runner: %q", name, i+1, value)
 			}
-			if value != hikaeFlashLabels {
-				t.Errorf("%s:%d: runs-on = %q, want %q", name, i+1, value, hikaeFlashLabels)
+			want := hikaeFlashLabels
+			// Measured ENOSPC: HikaruEgashira/iac-aws#697.
+			if name == "test.yml" && (job == "test" || job == "opf-native") {
+				want = "[self-hosted, linux, arm64, hikae-long]"
+			}
+			if value != want {
+				t.Errorf("%s:%d: runs-on = %q, want %q", name, i+1, value, want)
 			}
 		}
 	}
