@@ -890,7 +890,7 @@ func (p *nativeLogParser) walkError(err error) error {
 }
 
 func missingTreeHash(message string) plumbing.Hash {
-	for _, prefix := range []string{"unable to read tree (", "bad tree object "} {
+	for _, prefix := range []string{"unable to read tree (", "unable to read tree ", "bad tree object "} {
 		start := strings.Index(message, prefix)
 		if start < 0 {
 			continue

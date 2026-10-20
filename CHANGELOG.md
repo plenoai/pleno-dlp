@@ -30,6 +30,13 @@ publishing, archives, SLSA provenance, and SBOM generation.
   command panics. Flag values are never recorded and nothing is sent, so an
   offline or scripted crash can be captured without enabling `telemetry`.
 
+### Changed
+
+- Dogfooding installs the signed release binary from the Homebrew tap
+  (`brew upgrade pleno-dlp`); the ad-hoc `mise` `go:` pin that drifted
+  ~20 minors behind is dropped. See
+  [`docs/dogfooding.md`](docs/dogfooding.md).
+
 ### Fixed
 
 - Native git hunk parsing no longer shifts finding line numbers by the

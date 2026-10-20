@@ -54,7 +54,8 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
-| 2026-10-18 | qa, core-engineer | Parse `protect` unified diffs by hunk state so added content beginning with `++` (rendered `+++...`) is scanned; skip only `+++` file headers before the first `@@`. |
+| 2026-10-18 | architect, qa | Drop the ad-hoc mise `go:` dogfooding pin that drifted ~20 minors behind; dogfood the signed release via the Homebrew tap, guarded by `docs/dogfooding.md` and `tests/ci/dogfooding_test.go`. |
+| 2026-10-18 | qa, core-engineer | Parse `protect` unified diffs by hunk state so added content beginning with `++` (rendered `+++...`) is scanned; `+++ b/<path>` counts as a file header only outside a hunk (before the first `@@`), with regression tests pinning double-plus content, removed `---` lines, the `\ No newline` marker, and multi-file hunks through `stagedDiffForScan`. |
 | 2026-10-18 | architect, core-engineer, connector-engineer, qa | Publish the `pleno-dlp.crash/v1` crash-report schema; assert the Go `crash.Report` struct and the vendored `plenoai.com` relay `validate()` against it so field drift fails CI on either side. |
 | 2026-10-18 | connector-engineer, core-engineer, qa | Attribute git findings to `Data[0]`: the go-git fallback emits one segment per added hunk with the leading-context line, native `beginAddedLine`/`nativeAddedHunks` follow the same rule, and the `Line`-means-`Data[0]` contract is documented on the line-bearing metadata structs with a shared engine contract test. |
 | 2026-10-18 | core-engineer | Fold local `--crash-report` into the shared `pkg/telemetry/crash` report schema and redactor (`kind: crash`, canonical `Encode`); the file is byte-identical to `telemetry show-last` and the private struct is gone (#559, #586). |

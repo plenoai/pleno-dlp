@@ -56,12 +56,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
-            goos: darwin
-            goarch: arm64
-          - runner: ubuntu-latest
-            goos: linux
-            goarch: amd64
           - runner: ubuntu-24.04-arm
             goos: linux
             goarch: arm64
@@ -186,8 +180,8 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           files=("$NATIVE_DIST"/*)
-          if [ "${#files[@]}" -ne 12 ]; then
-            echo "::error::expected 12 native release files, found ${#files[@]}" >&2
+          if [ "${#files[@]}" -ne 4 ]; then
+            echo "::error::expected 4 native release files, found ${#files[@]}" >&2
             exit 1
           fi
           for file in "${files[@]}"; do
@@ -198,7 +192,7 @@ jobs:
           done
           identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/${GITHUB_REF_NAME}"
           mkdir -p dist-native
-          for platform in darwin_arm64 linux_amd64 linux_arm64; do
+          for platform in linux_arm64; do
             asset="pleno-dlp-opf-native_${platform}.tar.gz"
             test -f "$NATIVE_DIST/$asset"
             test -f "$NATIVE_DIST/$asset.sha256"
@@ -263,14 +257,11 @@ jobs:
 
           expected=(
             checksums.txt checksums.txt.sigstore.json
-            pleno-dlp_darwin_amd64.tar.gz pleno-dlp_darwin_amd64.tar.gz.sbom.json
             pleno-dlp_darwin_arm64.tar.gz pleno-dlp_darwin_arm64.tar.gz.sbom.json
-            pleno-dlp_linux_amd64.tar.gz pleno-dlp_linux_amd64.tar.gz.sbom.json
             pleno-dlp_linux_arm64.tar.gz pleno-dlp_linux_arm64.tar.gz.sbom.json
-            pleno-dlp_windows_amd64.zip pleno-dlp_windows_amd64.zip.sbom.json
             pleno-dlp_windows_arm64.zip pleno-dlp_windows_arm64.zip.sbom.json
           )
-          for platform in darwin_arm64 linux_amd64 linux_arm64; do
+          for platform in linux_arm64; do
             asset="pleno-dlp-opf-native_${platform}.tar.gz"
             expected+=("$asset" "$asset.sha256" "$asset.sigstore.json" "$asset.spdx.json")
           done
@@ -325,13 +316,13 @@ jobs:
           test "$(find "$(dirname "$FORMULA")" -type f | wc -l | tr -d ' ')" = 1
           ruby -c "$FORMULA"
           grep -F "version \"${TAG#v}\"" "$FORMULA" >/dev/null
-          for platform in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
+          for platform in darwin_arm64 linux_arm64; do
             grep -F "releases/download/v#{version}/pleno-dlp_${platform}.tar.gz" "$FORMULA" >/dev/null
           done
-          test "$(grep -Ec '^[[:space:]]+sha256 \"[0-9a-f]{64}\"$' "$FORMULA")" = 4
+          test "$(grep -Ec '^[[:space:]]+sha256 \"[0-9a-f]{64}\"$' "$FORMULA")" = 2
 
       - name: Mint Homebrew tap token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: tap-token
         with:
           client-id: ${{ vars.HOMEBREW_TAP_APP_ID }}
