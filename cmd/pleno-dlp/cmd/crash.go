@@ -35,7 +35,7 @@ func init() {
 	Root.PersistentFlags().StringVar(&crashReportPath, crashReportFlagName, "",
 		"write a local, secret-free crash report to this path if pleno-dlp panics "+
 			"(disabled by default). The report uses the same schema and redaction "+
-			"as `telemetry show-last`; it is never sent anywhere.")
+			"as 'telemetry show-last'; it is never sent anywhere.")
 }
 
 // handleCrash is the panic path used by Execute. When the operator did not

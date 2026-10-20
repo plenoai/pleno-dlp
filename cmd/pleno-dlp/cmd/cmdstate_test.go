@@ -186,3 +186,38 @@ func TestHelpInvocationDoesNotLeakIntoNextExecution(t *testing.T) {
 		})
 	}
 }
+
+// TestNoBackticksInFlagUsage is the regression guard for the corrupt
+// --help output caused by backticks in flag usage strings. cobra's
+// UnquoteUsage promotes the first backtick-quoted word in a flag's
+// usage to its value placeholder, so a backticked command reference
+// such as "`pleno-dlp detectors list`" renders as
+// "--include-detectors pleno-dlp detectors list" instead of the real
+// "--include-detectors strings". Walk every command in the Root tree
+// and reject any flag usage containing a backtick; command references
+// in usage text belong in single quotes.
+func TestNoBackticksInFlagUsage(t *testing.T) {
+	seen := map[*pflag.Flag]bool{}
+	check := func(c *cobra.Command, fs *pflag.FlagSet) {
+		fs.VisitAll(func(f *pflag.Flag) {
+			if seen[f] {
+				return
+			}
+			seen[f] = true
+			if strings.Contains(f.Usage, "`") {
+				t.Errorf("%s --%s usage contains a backtick (cobra's UnquoteUsage turns it into the value placeholder): %q",
+					c.CommandPath(), f.Name, f.Usage)
+			}
+		})
+	}
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		check(c, c.Flags())
+		check(c, c.PersistentFlags())
+		check(c, c.LocalFlags())
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
+	}
+	walk(Root)
+}
