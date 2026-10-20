@@ -1603,3 +1603,12 @@ func TestChunks_EngineLineMatchesGoGitForLeadingContext(t *testing.T) {
 		t.Fatalf("native line %d != go-git line %d", nativeLine, goGitLine)
 	}
 }
+
+func TestMissingTreeHashDiagnosticForms(t *testing.T) {
+	const hash = "a957a6497be70120d764292fecbdafcdb3fe6505"
+	for _, message := range []string{"fatal: unable to read tree (" + hash + ")", "fatal: unable to read tree " + hash, "fatal: bad tree object " + hash} {
+		if got := missingTreeHash(message).String(); got != hash {
+			t.Errorf("%q: got %s", message, got)
+		}
+	}
+}

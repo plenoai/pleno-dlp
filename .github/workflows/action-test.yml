@@ -35,10 +35,7 @@ env:
 
 jobs:
   smoke:
-    # The action installs arm64 archives only, so the smoke test needs an
-    # arm64 runner. hikae-flash is not usable yet: the action unpacks and
-    # executes the binary under `mktemp -d`, and /tmp is noexec there.
-    runs-on: ubuntu-24.04-arm
+    runs-on: [self-hosted, linux, arm64, hikae-flash]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -47,6 +44,8 @@ jobs:
       - name: Run pleno-dlp action against a secret-free target
         id: scan
         uses: ./
+        env:
+          TMPDIR: ${{ runner.temp }}
         with:
           target: .github/action-smoke
           version: ${{ env.PLENO_DLP_SMOKE_VERSION }}

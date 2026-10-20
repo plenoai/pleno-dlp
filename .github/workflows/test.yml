@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64, hikae-long]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -19,6 +19,29 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Install Git with offline promisor-object support
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends software-properties-common
+          sudo add-apt-repository -y ppa:git-core/ppa
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends git
+          git --version
+      - name: Record clean runner capacity
+        run: |
+          go clean -cache
+          {
+            df -Pk "$GITHUB_WORKSPACE" /tmp
+            go env GOCACHE GOMODCACHE
+            du -sk /opt/hostedtoolcache/go "$(go env GOCACHE)" "$(go env GOMODCACHE)" 2>/dev/null || true
+          } | tee "$RUNNER_TEMP/disk-before-validation.txt"
+      - name: Preserve capacity evidence before compilation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: flash-disk-before-validation
+          path: ${{ runner.temp }}/disk-before-validation.txt
+          if-no-files-found: error
+          retention-days: 1
       - name: gofmt
         run: |
           unformatted=$(git ls-files -z -- '*.go' | xargs -0 gofmt -l)
@@ -53,7 +76,7 @@ jobs:
         run: node --test workers/crash-relay/crash-relay.test.js
 
   detector-unit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64, hikae-flash]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -70,7 +93,7 @@ jobs:
       - run: go test -tags=detector_unit ./pkg/detectors/... -race -count=1 -timeout 15m
 
   opf-native:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64, hikae-long]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -80,5 +103,17 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Install Git with offline promisor-object support
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends software-properties-common
+          sudo add-apt-repository -y ppa:git-core/ppa
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends git
+          git --version
+      - name: Install native build configuration tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake
       - run: cmake --version
       - run: make opf-native-test
