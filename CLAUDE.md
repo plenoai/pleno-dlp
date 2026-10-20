@@ -55,6 +55,7 @@ without invoking the orchestrator.
 | Date | Owners | Change |
 |---|---|---|
 | 2026-10-20 | qa, core-engineer | Remove backticks from CLI flag usage that Cobra treats as value placeholders; retain the recursive regression guard (#491). |
+| 2026-10-20 | architect | Align tag-release checks with main, route measured race/native jobs to hikae-long, and provision Git, CMake, and Ruby in their consuming jobs (#650, #565). |
 | 2026-10-18 | architect, qa | Drop the ad-hoc mise `go:` dogfooding pin that drifted ~20 minors behind; dogfood the signed release via the Homebrew tap, guarded by `docs/dogfooding.md` and `tests/ci/dogfooding_test.go`. |
 | 2026-10-18 | qa, core-engineer | Parse `protect` unified diffs by hunk state so added content beginning with `++` (rendered `+++...`) is scanned; `+++ b/<path>` counts as a file header only outside a hunk (before the first `@@`), with regression tests pinning double-plus content, removed `---` lines, the `\ No newline` marker, and multi-file hunks through `stagedDiffForScan`. |
 | 2026-10-18 | architect, core-engineer, connector-engineer, qa | Publish the `pleno-dlp.crash/v1` crash-report schema; assert the Go `crash.Report` struct and the vendored `plenoai.com` relay `validate()` against it so field drift fails CI on either side. |
