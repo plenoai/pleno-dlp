@@ -3,6 +3,7 @@ package output
 import (
 	"bytes"
 	"encoding/json"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -204,6 +205,251 @@ func findingFor(det detectors.DetectorType, raw string) engine.Finding {
 				Filesystem: &sources.FilesystemMeta{Path: "/x.txt", Line: 1},
 			},
 		},
+	}
+}
+
+// TestSARIF_ArtifactLocationURIEncoded pins that artifactLocation.uri is a
+// valid RFC 3986 URI-reference even when a path or object key contains the
+// characters that break an unencoded reference: space (illegal), `#`
+// (fragment delimiter), `%` (invalid percent-escape), and `?` (query
+// delimiter). Regression test for raw OS paths being emitted verbatim.
+func TestSARIF_ArtifactLocationURIEncoded(t *testing.T) {
+	const trickyRel = "a b/x#1%.env?tab=1"
+	const trickyAbs = "/tmp/sx/a b/x#1%.env?tab=1"
+
+	cases := []struct {
+		name         string
+		md           sources.Metadata
+		want         string
+		wantScheme   string
+		wantHost     string
+		wantPath     string
+		wantQuery    string
+		wantFragment string
+	}{
+		{
+			name:       "filesystem absolute becomes file URL",
+			md:         sources.Metadata{Filesystem: &sources.FilesystemMeta{Path: trickyAbs, Line: 7}},
+			want:       "file:///tmp/sx/a%20b/x%231%25.env%3Ftab=1",
+			wantScheme: "file",
+			wantPath:   trickyAbs,
+		},
+		{
+			name:     "git repo-relative path",
+			md:       sources.Metadata{Git: &sources.GitMeta{File: trickyRel, Line: 3}},
+			want:     "a%20b/x%231%25.env%3Ftab=1",
+			wantPath: trickyRel,
+		},
+		{
+			name:     "github path",
+			md:       sources.Metadata{GitHub: &sources.GitHubMeta{File: trickyRel, Line: 4}},
+			want:     "a%20b/x%231%25.env%3Ftab=1",
+			wantPath: trickyRel,
+		},
+		{
+			name:     "relative path keeps colon and dot segments as path data",
+			md:       sources.Metadata{Git: &sources.GitMeta{File: "owner:repo/../config"}},
+			want:     "owner%3Arepo/%2E%2E/config",
+			wantPath: "owner:repo/../config",
+		},
+		{
+			name:     "relative network path remains path data",
+			md:       sources.Metadata{Git: &sources.GitMeta{File: "//bad host/key"}},
+			want:     "/%2Fbad%20host/key",
+			wantPath: "//bad host/key",
+		},
+		{
+			name:       "s3 valid bucket remains URI authority",
+			md:         sources.Metadata{S3: &sources.S3Meta{Bucket: "my-bucket", Key: trickyRel}},
+			want:       "s3://my-bucket/a%20b/x%231%25.env%3Ftab=1",
+			wantScheme: "s3",
+			wantHost:   "my-bucket",
+			wantPath:   "/" + trickyRel,
+		},
+		{
+			name:       "s3 invalid bucket stays escaped path data",
+			md:         sources.Metadata{S3: &sources.S3Meta{Bucket: "my bucket", Key: trickyRel}},
+			want:       "s3:/my%20bucket/a%20b/x%231%25.env%3Ftab=1",
+			wantScheme: "s3",
+			wantPath:   "/my bucket/" + trickyRel,
+		},
+		{
+			name:       "s3 empty bucket remains visible",
+			md:         sources.Metadata{S3: &sources.S3Meta{Key: trickyRel}},
+			want:       "s3:///a%20b/x%231%25.env%3Ftab=1",
+			wantScheme: "s3",
+			wantPath:   "/" + trickyRel,
+		},
+		{
+			name:       "gcs valid bucket remains URI authority",
+			md:         sources.Metadata{GCS: &sources.GCSMeta{Bucket: "my-bucket", Object: trickyRel}},
+			want:       "gs://my-bucket/a%20b/x%231%25.env%3Ftab=1",
+			wantScheme: "gs",
+			wantHost:   "my-bucket",
+			wantPath:   "/" + trickyRel,
+		},
+		{
+			name:       "gcs invalid bucket stays escaped path data",
+			md:         sources.Metadata{GCS: &sources.GCSMeta{Bucket: "my bucket", Object: trickyRel}},
+			want:       "gs:/my%20bucket/a%20b/x%231%25.env%3Ftab=1",
+			wantScheme: "gs",
+			wantPath:   "/my bucket/" + trickyRel,
+		},
+		{
+			name:       "slack permalink remains a URI",
+			md:         sources.Metadata{Slack: &sources.SlackMeta{Permalink: "https://slack.example.test/thread/a%20b?team=T1"}},
+			want:       "https://slack.example.test/thread/a%20b?team=T1",
+			wantScheme: "https",
+			wantHost:   "slack.example.test",
+			wantPath:   "/thread/a b",
+			wantQuery:  "team=T1",
+		},
+		{
+			name:     "malformed slack link stays escaped path data",
+			md:       sources.Metadata{Slack: &sources.SlackMeta{Permalink: "https://slack.example.test/bad%zz"}},
+			want:     "https%3A%2F%2Fslack.example.test%2Fbad%25zz",
+			wantPath: "https://slack.example.test/bad%zz",
+		},
+		{
+			name:     "malformed slack network path stays path data",
+			md:       sources.Metadata{Slack: &sources.SlackMeta{Permalink: "//bad host/key"}},
+			want:     "%2F%2Fbad%20host%2Fkey",
+			wantPath: "//bad host/key",
+		},
+		{
+			name:     "stdin label is escaped as a path",
+			md:       sources.Metadata{Stdin: &sources.StdinMeta{Label: "<stdin>"}},
+			want:     "%3Cstdin%3E",
+			wantPath: "<stdin>",
+		},
+		{
+			name:       "siem link remains a URI",
+			md:         sources.Metadata{SIEM: &sources.SIEMMeta{Link: "https://logs.example.test/events/1?view=full"}},
+			want:       "https://logs.example.test/events/1?view=full",
+			wantScheme: "https",
+			wantHost:   "logs.example.test",
+			wantPath:   "/events/1",
+			wantQuery:  "view=full",
+		},
+		{
+			name:       "siem fallback encodes index delimiters",
+			md:         sources.Metadata{SIEM: &sources.SIEMMeta{Provider: "datadog", Host: "logs.example.test", Index: "index #?1"}},
+			want:       "datadog://logs.example.test/index%20%23%3F1",
+			wantScheme: "datadog",
+			wantHost:   "logs.example.test",
+			wantPath:   "/index #?1",
+		},
+		{
+			name:     "malformed siem network path stays path data",
+			md:       sources.Metadata{SIEM: &sources.SIEMMeta{Link: "//bad host/key"}},
+			want:     "%2F%2Fbad%20host%2Fkey",
+			wantPath: "//bad host/key",
+		},
+		{
+			name:     "sqldump file",
+			md:       sources.Metadata{SQLDump: &sources.SQLDumpMeta{File: "/dumps/a b/x#1%.sql?x=1", Line: 9}},
+			want:     "/dumps/a%20b/x%231%25.sql%3Fx=1",
+			wantPath: "/dumps/a b/x#1%.sql?x=1",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _ := sourceURI(tc.md)
+			if got != tc.want {
+				t.Fatalf("sourceURI = %q, want %q", got, tc.want)
+			}
+			if strings.Contains(got, " ") {
+				t.Fatalf("uri %q contains an unencoded space", got)
+			}
+			u, err := url.Parse(got)
+			if err != nil {
+				t.Fatalf("url.Parse(%q): %v", got, err)
+			}
+			if u.Scheme != tc.wantScheme || u.Host != tc.wantHost {
+				t.Fatalf("parsed scheme/host = %q://%q, want %q://%q", u.Scheme, u.Host, tc.wantScheme, tc.wantHost)
+			}
+			if u.Fragment != tc.wantFragment {
+				t.Fatalf("fragment = %q, want %q", u.Fragment, tc.wantFragment)
+			}
+			if u.RawQuery != tc.wantQuery {
+				t.Fatalf("query = %q, want %q", u.RawQuery, tc.wantQuery)
+			}
+			if u.Path != tc.wantPath {
+				t.Fatalf("round-trip path = %q, want %q", u.Path, tc.wantPath)
+			}
+		})
+	}
+}
+
+// TestSARIF_ArtifactLocationURIOnFinding drives the encoded URI through the
+// public sink so a regression in toSARIFResult's wiring (not just the helper)
+// is caught.
+func TestSARIF_ArtifactLocationURIOnFinding(t *testing.T) {
+	const tricky = "/tmp/sx/a b/x#1%.env?tab=1"
+	cases := []struct {
+		name       string
+		md         sources.Metadata
+		want       string
+		wantScheme string
+		wantHost   string
+		wantPath   string
+	}{
+		{
+			name:       "filesystem",
+			md:         sources.Metadata{Filesystem: &sources.FilesystemMeta{Path: tricky, Line: 42}},
+			want:       "file:///tmp/sx/a%20b/x%231%25.env%3Ftab=1",
+			wantScheme: "file",
+			wantPath:   tricky,
+		},
+		{
+			name:       "s3 malformed bucket",
+			md:         sources.Metadata{S3: &sources.S3Meta{Bucket: "my bucket", Key: "a b/key#1%?"}},
+			want:       "s3:/my%20bucket/a%20b/key%231%25%3F",
+			wantScheme: "s3",
+			wantPath:   "/my bucket/a b/key#1%?",
+		},
+		{
+			name:       "gcs malformed bucket",
+			md:         sources.Metadata{GCS: &sources.GCSMeta{Bucket: "my bucket", Object: "a b/key#1%?"}},
+			want:       "gs:/my%20bucket/a%20b/key%231%25%3F",
+			wantScheme: "gs",
+			wantPath:   "/my bucket/a b/key#1%?",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := findingFor(detectors.AWS, "sarif-uri-fixture")
+			f.Chunk = &sources.Chunk{SourceMetadata: tc.md}
+			var buf bytes.Buffer
+			s, _ := NewSink("sarif", &buf, "test")
+			s.Emit(f)
+			if err := s.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+
+			var doc map[string]any
+			if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+				t.Fatalf("not valid JSON: %v", err)
+			}
+			results := doc["runs"].([]any)[0].(map[string]any)["results"].([]any)
+			pl := results[0].(map[string]any)["locations"].([]any)[0].(map[string]any)["physicalLocation"].(map[string]any)
+			uri := pl["artifactLocation"].(map[string]any)["uri"].(string)
+			if uri != tc.want {
+				t.Fatalf("SARIF uri = %q, want %q", uri, tc.want)
+			}
+			u, err := url.Parse(uri)
+			if err != nil {
+				t.Fatalf("url.Parse(%q): %v", uri, err)
+			}
+			if u.Scheme != tc.wantScheme || u.Host != tc.wantHost || u.Path != tc.wantPath {
+				t.Fatalf("parsed URI = %q://%q%q, want %q://%q%q", u.Scheme, u.Host, u.Path, tc.wantScheme, tc.wantHost, tc.wantPath)
+			}
+			if tc.name == "filesystem" && pl["region"].(map[string]any)["startLine"].(float64) != 42 {
+				t.Fatalf("startLine = %v, want 42", pl["region"])
+			}
+		})
 	}
 }
 

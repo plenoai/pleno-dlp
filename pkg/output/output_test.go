@@ -273,7 +273,7 @@ func TestSARIFSinkShape(t *testing.T) {
 	locs := r["locations"].([]any)
 	pl := locs[0].(map[string]any)["physicalLocation"].(map[string]any)
 	uri := pl["artifactLocation"].(map[string]any)["uri"]
-	if uri != "/tmp/leak.txt" {
+	if uri != "file:///tmp/leak.txt" {
 		t.Errorf("uri: %v", uri)
 	}
 	if pl["region"].(map[string]any)["startLine"].(float64) != 42 {
