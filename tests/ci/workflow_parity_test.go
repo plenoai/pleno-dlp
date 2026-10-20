@@ -11,6 +11,19 @@ import (
 func TestTestAndReleaseUseCentralFullRaceGate(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	sharedGates := []string{
+		"sudo add-apt-repository -y ppa:git-core/ppa",
+		"go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...",
+		"go vet ./...",
+		"select(.finding and .finding.osv != \"GO-2026-5932\")",
+		"go build ./...",
+		"bash tests/ci/full-race.sh",
+		"go test ./pkg/connectors -run '^TestSourceFixtureDetectorKeywordMatrix$' -race -count=1",
+		"bash tests/e2e/run.sh",
+		"go test ./pkg/telemetry/crash -count=1",
+		"node --test workers/crash-relay/crash-relay.test.js",
+		"go test -tags=detector_unit ./pkg/detectors/... -race -count=1 -timeout 15m",
+	}
 	for _, name := range []string{"test.yml", "release.yml"} {
 		data, err := os.ReadFile(filepath.Join(root, ".github", "workflows", name))
 		if err != nil {
@@ -23,6 +36,42 @@ func TestTestAndReleaseUseCentralFullRaceGate(t *testing.T) {
 		if strings.Contains(text, "go test ./... -race") {
 			t.Errorf("%s contains a divergent inline full-race command", name)
 		}
+		for _, gate := range sharedGates {
+			if !strings.Contains(text, gate) {
+				t.Errorf("%s omits main's shared release gate %q", name, gate)
+			}
+		}
+	}
+}
+
+func TestReleaseWorkflowRemainsTagOnlyAndProvisionsJobTools(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	releaseData, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := string(releaseData)
+	header := strings.SplitN(release, "jobs:", 2)[0]
+	if !strings.Contains(header, "on:\n  push:\n    tags: ['v*']") || strings.Contains(header, "pull_request:") || strings.Contains(header, "workflow_dispatch:") {
+		t.Error("release.yml must publish only from version tag pushes")
+	}
+
+	setupGoJobs := strings.Count(release, "- uses: actions/setup-go@")
+	if setupGoJobs != 3 || strings.Count(release, "cache: false") != setupGoJobs || strings.Contains(release, "cache: true") {
+		t.Errorf("all %d release Go setup jobs must disable cache to avoid flash disk pressure", setupGoJobs)
+	}
+
+	cmakeInstall := strings.Index(release, "Install native build configuration tool")
+	cmakeVersion := strings.Index(release, "cmake --version")
+	if cmakeInstall < 0 || cmakeVersion < cmakeInstall || !strings.Contains(release, "sudo apt-get install -y --no-install-recommends cmake") {
+		t.Error("native release job must install CMake before checking or building with it")
+	}
+
+	rubySetup := strings.Index(release, "ruby/setup-ruby@824c0e29fdfc7d689c191c27acc969d2d04b7dd8 # v1.331.0")
+	formulaValidation := strings.Index(release, "Validate Homebrew formula")
+	if rubySetup < 0 || formulaValidation < rubySetup || !strings.Contains(release[rubySetup:formulaValidation], "ruby-version: '3.4'") {
+		t.Error("Homebrew validation must provision pinned Ruby before invoking ruby")
 	}
 }
 
