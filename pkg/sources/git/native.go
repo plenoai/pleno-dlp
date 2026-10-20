@@ -890,7 +890,7 @@ func (p *nativeLogParser) walkError(err error) error {
 }
 
 func missingTreeHash(message string) plumbing.Hash {
-	for _, prefix := range []string{"unable to read tree (", "bad tree object "} {
+	for _, prefix := range []string{"unable to read tree (", "unable to read tree ", "bad tree object "} {
 		start := strings.Index(message, prefix)
 		if start < 0 {
 			continue
@@ -1223,7 +1223,14 @@ func (p *nativeLogParser) beginAddedLine() {
 	h.hasAdd = true
 	if h.firstAddLine == 0 {
 		h.firstAddLine = h.newLine
-		h.dataLine = h.firstAddLine
+	}
+	if h.dataLine == 0 {
+		// Unified context can precede the first addition, and it is already
+		// buffered in h.data. The scan window's first byte is therefore
+		// countLines(h.data) new-side lines before this addition, matching
+		// the Data[0] line contract in pkg/sources/sources.go. Pointing at
+		// the addition instead reported leading-context findings too high.
+		h.dataLine = h.newLine - countLines(string(h.data))
 	}
 }
 
