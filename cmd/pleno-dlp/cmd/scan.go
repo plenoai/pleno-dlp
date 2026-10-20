@@ -223,7 +223,7 @@ func init() {
 		"when used with --revoke-on-verified, log what would be revoked without contacting the provider")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.revokeSpool, "revoke-spool", "",
 		"path to a JSONL spool file that captures verified findings whose detector supports revoke. "+
-			"Decouples scan from revoke: replay later with `pleno-dlp revoke --revoke-from-spool <path>`. "+
+			"Decouples scan from revoke: replay later with 'pleno-dlp revoke --revoke-from-spool <path>'. "+
 			"The file holds raw secrets and is created mode 0600. "+
 			"Requires "+EnvAllowRawExport+"=1 so a misconfigured CI cannot accidentally serialize live credentials. "+
 			"Mutually exclusive with --revoke-on-verified.")

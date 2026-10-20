@@ -152,11 +152,11 @@ func init() {
 			"(see defaultPIIServerGitRef / docs/pii-detection.md). Pass an explicit ref (including \"\" or \"main\") "+
 			"to knowingly track a mutable ref instead")
 	piiServerCmd.Flags().StringVar(&piiServerOpts.source, "source", defaultPIIServerSource,
-		"clone source. A `git+<URL>` value triggers cached clone+fetch; an absolute filesystem path is treated as an existing workspace root and used in-place.")
+		"clone source. A 'git+<URL>' value triggers cached clone+fetch; an absolute filesystem path is treated as an existing workspace root and used in-place.")
 	piiServerCmd.Flags().StringVar(&piiServerOpts.cacheDir, "cache-dir", "",
 		"directory holding the cached pleno-anonymize checkout and uv venv. Empty = $PLENO_DLP_ANONYMIZE_CACHE if set, else <os.UserCacheDir>/pleno-dlp/pleno-anonymize. Created with 0o700 perms.")
 	piiServerCmd.Flags().BoolVar(&piiServerOpts.noFetch, "no-fetch", false,
-		"skip the `git fetch` on warm cache; use the existing checkout as-is. Useful for offline use and reproducible runs.")
+		"skip the 'git fetch' on warm cache; use the existing checkout as-is. Useful for offline use and reproducible runs.")
 	Root.AddCommand(piiServerCmd)
 }
 

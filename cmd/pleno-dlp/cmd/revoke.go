@@ -85,7 +85,7 @@ func init() {
 	revokeCmd.Flags().StringVar(&revokeOpts.format, "format", "table", "output format: table, json")
 	revokeCmd.Flags().IntVar(&revokeOpts.rateLimitRPS, "rate-limit-rps", 0, "per-host requests-per-second cap during revoke (0 = disabled). Useful when revoking many secrets in a loop to avoid provider rate limits.")
 	revokeCmd.Flags().StringVar(&revokeOpts.fromSpool, "revoke-from-spool", "",
-		"path to a JSONL spool file produced by `pleno-dlp scan --revoke-spool`. "+
+		"path to a JSONL spool file produced by 'pleno-dlp scan --revoke-spool'. "+
 			"Each line is dispatched to the per-detector Revoker. --detector/--secret are ignored in this mode.")
 	revokeCmd.Flags().StringVar(&revokeOpts.auditTrail, auditTrailFlagName, "", auditTrailFlagHelp)
 
