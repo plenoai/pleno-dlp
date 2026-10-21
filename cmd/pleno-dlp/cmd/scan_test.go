@@ -297,6 +297,16 @@ func TestScanHelp(t *testing.T) {
 			t.Errorf("help missing %q in:\n%s", want, got)
 		}
 	}
+	// cobra's UnquoteUsage treats the first backtick-quoted word as the
+	// flag's value placeholder. A backticked command reference in the
+	// usage string therefore leaks into --help as a bogus placeholder
+	// (e.g. "--include-detectors pleno-dlp detectors list"). Pin the
+	// rendered placeholders so that class of regression is caught.
+	for _, want := range []string{"--fail-on string", "--include-detectors strings"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("scan help missing rendered placeholder %q in:\n%s", want, got)
+		}
+	}
 }
 
 func TestScanCPUProfile(t *testing.T) {

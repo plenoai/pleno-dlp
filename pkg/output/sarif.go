@@ -5,11 +5,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"net/url"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
+	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
 // SARIF 2.1.0 envelope. Field set chosen to satisfy the GitHub Code
@@ -789,7 +793,11 @@ func toSARIFResult(f engine.Finding) sarifResult {
 		Message:             sarifMessage{Text: f.Result.Redacted},
 		PartialFingerprints: fingerprints(f),
 	}
-	uri, line := sarifLocationOf(f)
+	var uri string
+	var line int
+	if f.Chunk != nil {
+		uri, line = sourceURI(f.Chunk.SourceMetadata)
+	}
 	if uri != "" {
 		loc := sarifLocation{PhysicalLocation: sarifPhysicalLocation{
 			ArtifactLocation: sarifArtifactLocation{URI: uri},
@@ -862,15 +870,15 @@ func levelFor(f engine.Finding) string {
 // (detector, raw, location) variant is added separately so location
 // changes don't lose the dedup link.
 func fingerprints(f engine.Finding) map[string]string {
-	uri, line := sarifLocationOf(f)
-
 	contentH := sha256.Sum256(append([]byte(f.Detector.String()+":"), f.Result.Raw...))
 	out := map[string]string{
 		"secret/v1": hex.EncodeToString(contentH[:]),
 	}
-	if uri != "" {
-		locH := sha256.Sum256([]byte(uri))
-		out["location/v1"] = hex.EncodeToString(locH[:]) + ":" + itoa(line)
+	if f.Chunk != nil {
+		if uri, line := sourceURI(f.Chunk.SourceMetadata); uri != "" {
+			locH := sha256.Sum256([]byte(uri))
+			out["location/v1"] = hex.EncodeToString(locH[:]) + ":" + itoa(line)
+		}
 	}
 	return out
 }
@@ -899,36 +907,123 @@ func itoa(n int) string {
 	return string(b[i:])
 }
 
-// sarifLocationOf extracts a (uri, line) pair from chunk metadata. Sources
-// that don't have a file-shaped origin return their best-effort
-// URI and zero line.
-func sarifLocationOf(f engine.Finding) (string, int) {
-	if f.Chunk == nil {
-		return "", 0
-	}
-	md := f.Chunk.SourceMetadata
+// sourceURI renders source metadata as an RFC 3986 URI-reference for
+// physicalLocation.artifactLocation.uri. SARIF requires `uri` to be a valid
+// URI-reference, so raw OS paths must not be emitted verbatim: a space is
+// illegal, `#` starts a fragment, `?` starts a query, and `%` can introduce
+// an invalid percent-escape. Every path/key is percent-encoded per segment.
+//
+//   - filesystem: absolute paths become file:// URLs; relative paths stay
+//     relative with each segment escaped.
+//   - git / github / sqldump: repo-relative paths, escaped per segment.
+//   - s3 / gcs: valid buckets stay in the authority; invalid buckets stay path data.
+//   - slack / siem: valid links stay intact; malformed links are escaped as one path segment.
+//   - stdin: the label is escaped as a relative path.
+//
+// The line number is returned alongside so callers can populate the region.
+func sourceURI(md sources.Metadata) (string, int) {
 	switch {
 	case md.Filesystem != nil:
-		return md.Filesystem.Path, md.Filesystem.Line
+		return fileURI(md.Filesystem.Path), md.Filesystem.Line
 	case md.Git != nil:
-		return md.Git.File, md.Git.Line
+		return encodePathSegments(md.Git.File), md.Git.Line
 	case md.GitHub != nil:
-		return md.GitHub.File, md.GitHub.Line
+		return encodePathSegments(md.GitHub.File), md.GitHub.Line
 	case md.S3 != nil:
-		return "s3://" + md.S3.Bucket + "/" + md.S3.Key, 0
+		return objectStoreURI("s3", md.S3.Bucket, md.S3.Key), 0
 	case md.GCS != nil:
-		return "gs://" + md.GCS.Bucket + "/" + md.GCS.Object, 0
+		return objectStoreURI("gs", md.GCS.Bucket, md.GCS.Object), 0
 	case md.Slack != nil:
-		return md.Slack.Permalink, 0
+		return sourceReference(md.Slack.Permalink), 0
 	case md.Stdin != nil:
-		return md.Stdin.Label, 0
+		return encodePathSegments(md.Stdin.Label), 0
 	case md.SIEM != nil:
 		if md.SIEM.Link != "" {
-			return md.SIEM.Link, 0
+			return sourceReference(md.SIEM.Link), 0
 		}
-		return md.SIEM.Provider + "://" + md.SIEM.Host + "/" + md.SIEM.Index, 0
+		return authorityURI(md.SIEM.Provider, md.SIEM.Host, md.SIEM.Index), 0
 	case md.SQLDump != nil:
-		return md.SQLDump.File, md.SQLDump.Line
+		return encodePathSegments(md.SQLDump.File), md.SQLDump.Line
 	}
 	return "", 0
+}
+
+func objectStoreURI(scheme, bucket, key string) string {
+	path := encodePathSegments(key)
+	if bucket == "" {
+		return scheme + ":///" + path
+	}
+	authority, err := url.Parse("//" + bucket)
+	if err == nil && authority.Host == bucket && authority.User == nil && authority.Path == "" && authority.RawQuery == "" && authority.Fragment == "" && !strings.Contains(bucket, ":") {
+		return scheme + "://" + bucket + "/" + path
+	}
+	return scheme + ":/" + url.PathEscape(bucket) + "/" + path
+}
+
+func authorityURI(scheme, host, path string) string {
+	rawURL := url.URL{Scheme: scheme, Host: host, Path: "/" + path}
+	ref := rawURL.String()
+	u, err := url.Parse(ref)
+	if err == nil && u.Scheme == scheme && u.Host == host && u.User == nil && u.RawQuery == "" && u.Fragment == "" && u.Path == "/"+path {
+		return ref
+	}
+	return strings.Replace(url.PathEscape(scheme+"://"+host+"/"+path), ":", "%3A", 1)
+}
+
+func sourceReference(ref string) string {
+	u, err := url.Parse(ref)
+	if err != nil {
+		return strings.Replace(url.PathEscape(ref), ":", "%3A", 1)
+	}
+	return u.String()
+}
+
+// encodePathSegments percent-encodes each `/`-separated segment with
+// url.PathEscape and rejoins them with literal `/` separators. Splitting
+// first is required because url.PathEscape escapes `/` itself; per-segment
+// escaping turns spaces, `#`, `%`, and `?` into valid escapes without
+// hiding the path structure. It also escapes a leading colon and dot segments
+// so relative references keep their path meaning when parsed or resolved.
+func encodePathSegments(p string) string {
+	if p == "" {
+		return ""
+	}
+	p = filepath.ToSlash(p)
+	segs := strings.Split(p, "/")
+	for i, seg := range segs {
+		if seg == "." || seg == ".." {
+			segs[i] = strings.ReplaceAll(seg, ".", "%2E")
+			continue
+		}
+		segs[i] = url.PathEscape(seg)
+		if i == 0 && !strings.HasPrefix(p, "/") {
+			segs[i] = strings.ReplaceAll(segs[i], ":", "%3A")
+		}
+	}
+	encoded := strings.Join(segs, "/")
+	if strings.HasPrefix(p, "//") {
+		// A relative URI beginning with two slashes is parsed as an authority.
+		// Escape the second slash so the original path remains data, not a host.
+		return "/%2F" + strings.TrimPrefix(encoded, "//")
+	}
+	return encoded
+}
+
+// fileURI turns an absolute filesystem path into a file:// URL and leaves
+// relative paths as escaped relative references. url.URL applies the
+// platform-correct path encoding (space -> %20, `#` -> %23, `%` -> %25).
+func fileURI(p string) string {
+	if p == "" {
+		return ""
+	}
+	if !filepath.IsAbs(p) {
+		return encodePathSegments(p)
+	}
+	u := url.URL{Scheme: "file", Path: filepath.ToSlash(p)}
+	if !strings.HasPrefix(u.Path, "/") {
+		// Windows volume paths ("C:/x") need a leading slash so the
+		// drive letter stays part of the path, not the URL host.
+		u.Path = "/" + u.Path
+	}
+	return u.String()
 }

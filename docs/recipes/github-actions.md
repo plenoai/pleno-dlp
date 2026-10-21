@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm   # pleno-dlp publishes arm64 archives only
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,7 +25,7 @@ jobs:
 
       - name: Install pleno-dlp
         run: |
-          curl -sSL https://github.com/plenoai/pleno-dlp/releases/latest/download/pleno-dlp_linux_amd64.tar.gz \
+          curl -sSL https://github.com/plenoai/pleno-dlp/releases/latest/download/pleno-dlp_linux_arm64.tar.gz \
             | tar xz -C /usr/local/bin pleno-dlp
 
       - name: Scan filesystem

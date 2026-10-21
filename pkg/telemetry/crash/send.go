@@ -19,15 +19,28 @@ func Send(ctx context.Context, client *http.Client, endpoint, version string, r 
 	if err != nil {
 		return err
 	}
-	return Post(ctx, client, endpoint, version, body, MaxReportBytes)
+	if len(body) > MaxReportBytes {
+		return fmt.Errorf("crash report is %d bytes, exceeds %d", len(body), MaxReportBytes)
+	}
+	return post(ctx, client, endpoint, version, body)
 }
 
-// Post uploads an already-serialized telemetry payload to endpoint. Any 2xx
-// is success. It is the shared transport for crash reports and feedback.
-func Post(ctx context.Context, client *http.Client, endpoint, version string, payload []byte, maxBytes int) error {
-	if len(payload) > maxBytes {
-		return fmt.Errorf("telemetry payload is %d bytes, exceeds %d", len(payload), maxBytes)
+// Post uploads an arbitrary JSON payload with the same transport policy as
+// Send: loopback-only plain http, no redirects, one timeout, no retries. It
+// lets sibling report kinds (feedback) share one sender instead of cloning
+// the transport rules.
+func Post(ctx context.Context, client *http.Client, endpoint, version string, payload any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
 	}
+	if len(body) > MaxReportBytes {
+		return fmt.Errorf("report is %d bytes, exceeds %d", len(body), MaxReportBytes)
+	}
+	return post(ctx, client, endpoint, version, body)
+}
+
+func post(ctx context.Context, client *http.Client, endpoint, version string, body []byte) error {
 	if err := ValidateEndpoint(endpoint); err != nil {
 		return err
 	}
@@ -38,7 +51,7 @@ func Post(ctx context.Context, client *http.Client, endpoint, version string, pa
 	}
 	ctx, cancel := context.WithTimeout(ctx, SendTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

@@ -63,9 +63,9 @@ func init() {
 	protectCmd.Flags().IntVar(&scanOpts.verifyRPS, "verify-rps", 10, "per-host requests-per-second cap during verification (0 = disable)")
 	protectCmd.Flags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
 	protectCmd.Flags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
-	protectCmd.Flags().StringVar(&scanOpts.failOn, "fail-on", "high", "minimum severity that triggers exit 1: any|info|low|medium|high|critical (default high: audit-first — see `scan --help`)")
+	protectCmd.Flags().StringVar(&scanOpts.failOn, "fail-on", "high", "minimum severity that triggers exit 1: any|info|low|medium|high|critical (default high: audit-first — see 'scan --help')")
 	protectCmd.Flags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file (.pleno-allow.json auto-discovered when unset)")
-	protectCmd.Flags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated; see `pleno-dlp detectors list`)")
+	protectCmd.Flags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated; see 'pleno-dlp detectors list')")
 	protectCmd.Flags().StringSliceVar(&scanOpts.excludeDetectors, "exclude-detectors", nil, "skip these detectors (comma-separated)")
 	protectCmd.Flags().BoolVar(&scanOpts.quiet, "quiet", false, "suppress the end-of-scan summary line on stderr")
 
@@ -146,6 +146,35 @@ func scanStagedBuffer(cmd *cobra.Command, buf []byte) ([]hookFinding, error) {
 		return nil, fmt.Errorf("parse protect output: %w", err)
 	}
 	return records, nil
+}
+
+// extractAddedLines returns only the added lines from a unified diff,
+// stripping the leading '+' so detectors see raw content.
+// Removed ('-') and context lines are discarded to avoid false positives
+// on secrets that are being deleted.
+//
+// Added lines are recognized by hunk state rather than by prefix alone.
+// The '+++ b/file' header appears before the first '@@' marker and is
+// skipped, while content added inside a hunk may itself begin with '++'
+// (rendered as '+++...') and must still be scanned.
+func extractAddedLines(diff string) string {
+	var sb strings.Builder
+	inHunk := false
+	for _, line := range strings.SplitAfter(diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "diff "):
+			// Start of a new file's diff section: back to header state
+			// so a following '+++ b/file' header is not mistaken for content.
+			inHunk = false
+		case strings.HasPrefix(line, "@@"):
+			inHunk = true
+		case inHunk && strings.HasPrefix(line, "+"):
+			// Added content line. Lines such as '\ No newline at end of
+			// file' start with '\' and are intentionally skipped.
+			sb.WriteString(line[1:])
+		}
+	}
+	return sb.String()
 }
 
 // collectDiffForScanFunc is the seam hook tests use to inject a diff.

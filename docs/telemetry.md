@@ -16,7 +16,7 @@ pleno-dlp telemetry send <file>  # uploads one reviewed spool file as-is
 ```
 
 `telemetry status` prints the crash opt-in and, separately, that
-`pleno-dlp feedback` always sends and ignores that opt-in.
+explicit feedback sends ignore that opt-in.
 
 `telemetry send` works even when sending is disabled: it is an explicit,
 per-file action. It accepts only files that match the report schema exactly
@@ -24,16 +24,16 @@ per-file action. It accepts only files that match the report schema exactly
 
 ## Feedback
 
-`pleno-dlp feedback` sends a short message to the same relay. It **ignores
+`pleno-dlp feedback` sends a short message to its dedicated feedback relay. It **ignores
 the crash opt-in**: running the command is the consent, so it sends even when
 crash reports are disabled.
 
 ```sh
 pleno-dlp feedback "the --format sarif flag saved my afternoon"
-echo "please add a Jira label filter" | pleno-dlp feedback --yes
+echo "please add a Jira label filter" | pleno-dlp feedback --stdin --yes
 ```
 
-The message is read from the arguments, or from stdin when none are given.
+The message is read from the arguments, or from stdin with `--stdin`.
 Before sending, the same redaction pipeline as crash reports runs over the
 message (URLs, emails, IPs, absolute paths, tokens, and any built-in secret
 detector match). Without `--yes`, an interactive prompt confirms the send; a
@@ -50,13 +50,14 @@ sending anything:
 pleno-dlp --crash-report /tmp/pleno-crash.json scan github --repo .
 ```
 
-The file is written `0600` (parent directories `0700`) and records the
-command path, recognised flag names (never values), version, platform, and
-the stack trace. It does not run the telemetry redaction pipeline, so treat
-the file like a crash log; unlike a telemetry report it is never sent. With
-`--crash-report` set the panic is contained and the process exits non-zero;
-without it, crash behaviour is unchanged (the telemetry path above still
-applies).
+The file uses the same schema, redaction pipeline, and canonical encoding as
+the spool above (`kind` is `crash`), so it is byte-identical to what
+`pleno-dlp telemetry show-last` prints for the same report. It is written
+`0600` (parent directories `0700`) and records the command path, recognised
+flag names (never values), version, platform, and the redacted stack. Unlike
+a telemetry report it is never sent. With `--crash-report` set the panic is
+contained and the process exits non-zero; without it, crash behaviour is
+unchanged (the telemetry path above still applies).
 
 ## Configuration
 
@@ -79,7 +80,9 @@ inside your organization.
 
 ## What a report contains
 
-Every field is listed here; there are no others.
+Every field is listed here; there are no others. The machine-readable
+contract shared with the relay is
+[`pleno-dlp.crash/v1`](crash-telemetry-schema.md).
 
 | Field | Content |
 |---|---|
@@ -89,7 +92,7 @@ Every field is listed here; there are no others.
 | `goos`, `goarch`, `go_version` | platform and toolchain |
 | `command` | subcommand words only, e.g. `scan filesystem` |
 | `flags` | names of recognised flags only, e.g. `["format"]`; never values |
-| `kind` | `panic` / `fatal` (seen by the supervisor) or `recovered` (caught in-process) |
+| `kind` | `panic` / `fatal` (seen by the supervisor), `recovered` (caught in-process), or `crash` (written by `--crash-report`) |
 | `message` | the redacted panic or fatal-error line |
 | `stack` | the redacted goroutine dump |
 | `created_at` | UTC, truncated to the minute |
@@ -124,7 +127,8 @@ relay's public source.
 
 ### Redaction pipeline
 
-Applied to `message`, `stack`, and `command` before the report is spooled:
+Applied to `message`, `stack`, and `command` before the report is written
+(spooled by telemetry, or written to the `--crash-report` path):
 
 1. Drop `+0x…` PC offsets, replace hex addresses and arguments with `0x?`,
    rewrite `goroutine 17 [running]:` to `goroutine [running]:`.
