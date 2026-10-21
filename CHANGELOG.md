@@ -29,6 +29,12 @@ publishing, archives, SLSA provenance, and SBOM generation.
   (command path, flag names, version, stack) to the named path when a
   command panics. Flag values are never recorded and nothing is sent, so an
   offline or scripted crash can be captured without enabling `telemetry`.
+- `pleno-dlp feedback` sends a short, redacted message to the feedback relay
+  regardless of the crash opt-in; `telemetry send` and `telemetry status`
+  now report both facts.
+- Client-side upload throttling in the spool layer: automatic crash reports
+  are sent at most once per fingerprint per hour and feedback at most five
+  times per hour, independent of the relay's per-address limit.
 
 ### Changed
 

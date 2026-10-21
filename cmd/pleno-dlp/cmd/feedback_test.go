@@ -151,3 +151,24 @@ func TestFeedbackRedactsSecrets(t *testing.T) {
 		t.Fatalf("PII left the machine: %q", bodies[0].Message)
 	}
 }
+
+func TestFeedbackThrottledPreservesLocalCopy(t *testing.T) {
+	srv, reports := feedbackRelay(t)
+	dir := isolateFeedback(t, map[string]string{feedback.EnvEndpoint: srv.URL})
+	for i := 0; i < crash.FeedbackSendLimit; i++ {
+		if _, err := runRoot(t, "feedback", "--yes", "message"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := runRoot(t, "feedback", "--yes", "over limit")
+	if err == nil || !strings.Contains(err.Error(), "local copy saved") {
+		t.Fatalf("expected throttled, spooled feedback, got %v", err)
+	}
+	if got := len(reports()); got != crash.FeedbackSendLimit {
+		t.Fatalf("uploads = %d, want %d", got, crash.FeedbackSendLimit)
+	}
+	paths, err := filepath.Glob(filepath.Join(dir, "feedback", "*.json"))
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("feedback spool missing: %v %v", paths, err)
+	}
+}

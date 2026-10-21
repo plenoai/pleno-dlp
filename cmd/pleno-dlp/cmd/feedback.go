@@ -104,6 +104,17 @@ func runFeedback(c *cobra.Command, args []string) error {
 		}
 	}
 
+	cfg, err := crash.Load(feedbackGetenv)
+	if err != nil {
+		return err
+	}
+	throttle := &crash.Throttle{Dir: cfg.Dir}
+	if ok, err := throttle.AllowFeedback(); err != nil {
+		fmt.Fprintf(c.ErrOrStderr(), "feedback: local throttle unavailable (%v); sending anyway\n", err)
+	} else if !ok {
+		return fmt.Errorf("feedback: local rate limit reached (%d per hour); local copy saved to %s", crash.FeedbackSendLimit, path)
+	}
+
 	if err := feedback.Send(c.Context(), nil, endpoint, toolVersion, report); err != nil {
 		return fmt.Errorf("feedback: send %s: %w (local copy saved to %s)", report.Fingerprint, err, path)
 	}

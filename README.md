@@ -128,7 +128,9 @@ pleno-dlp hooks install cursor
 Crash reports are off by default. A crash is always spooled locally and
 redacted (paths, emails, IPs, URLs, tokens, and any secret a built-in
 detector matches); it is uploaded only after `pleno-dlp telemetry enable`.
-See [docs/telemetry.md](docs/telemetry.md) for the exact fields and how to
+`pleno-dlp feedback "…"` sends a short redacted message and ignores the
+opt-in; both paths are locally rate-limited. See
+[docs/telemetry.md](docs/telemetry.md) for the exact fields and how to
 inspect, send, or point reports at your own relay.
 
 ## Feedback
