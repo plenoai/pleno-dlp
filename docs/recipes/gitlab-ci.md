@@ -1,6 +1,7 @@
 # GitLab CI integration
 
 Run pleno-dlp on every push and surface findings in the merge request UI.
+The runner must be arm64: pleno-dlp publishes arm64 archives only.
 
 ```yaml
 # .gitlab-ci.yml
@@ -9,7 +10,7 @@ secret-scan:
   stage: test
   before_script:
     - apk add --no-cache curl tar
-    - curl -sSL https://github.com/plenoai/pleno-dlp/releases/latest/download/pleno-dlp_linux_amd64.tar.gz \
+    - curl -sSL https://github.com/plenoai/pleno-dlp/releases/latest/download/pleno-dlp_linux_arm64.tar.gz \
         | tar xz -C /usr/local/bin pleno-dlp
   script:
     - pleno-dlp scan filesystem . --format sarif --fail-on high > findings.sarif

@@ -1,4 +1,4 @@
-# Agent hooks (claude-code, cursor)
+# Hooks (claude-code, cursor, git)
 
 `pleno-dlp hooks install claude-code|cursor` wires up a secret scan
 directly into an AI coding agent's own hook mechanism, so a
@@ -85,3 +85,115 @@ appears under this flag: `indeterminate` means a verification attempt
 was made and failed, and `--no-verify` makes no attempt. The flag is
 mutually exclusive with `--only-verified` and works against any scan
 kind.
+
+## git (native pre-commit)
+
+`pleno-dlp hooks install git` replaces a gitleaks pre-commit hook without
+the `pre-commit` framework. `hooks run git` is
+[`pleno-dlp protect`](recipes/pre-commit.md#without-the-pre-commit-framework)
+plus hook ergonomics. Both commands use the same diff collection,
+transform, and in-process scan. The hook adds the following:
+
+- a stderr list with masked values and `path:line` for each finding,
+- the blocked-commit message,
+- exit 0 with a warning when the hook itself fails.
+
+The hook always scans offline. `protect` verifies findings unless
+`--no-verify` is passed.
+
+```sh
+pleno-dlp hooks install git                 # blocks on high and critical
+pleno-dlp hooks install git --fail-on any   # blocks on every finding
+pleno-dlp hooks uninstall git
+```
+
+### What install writes
+
+Install writes one file, `pre-commit`, into the directory printed by
+`git rev-parse --git-path hooks`. That directory honours `core.hooksPath`
+(local or global) and linked worktrees, and install prints the resolved
+path. The script carries the marker line `# pleno-dlp-git-hook` and execs
+the absolute path of the installing binary as
+`hooks run git --fail-on '<level>'`.
+
+- When `pre-commit` already exists without the marker, install refuses
+  and leaves the file unchanged. Merge the last line of
+  `pleno-dlp hooks print git` into that hook by hand.
+- Rerunning install with the same binary and threshold changes nothing.
+  When the binary path or `--fail-on` differs, install rewrites the file.
+- Uninstall deletes the file only when it carries the marker.
+
+### Hooks managed outside the repository
+
+`pleno-dlp hooks print git [--fail-on X]` prints a script that resolves
+`pleno-dlp` from `PATH` instead of embedding an absolute path. When the
+binary is missing, the script prints one warning and exits 0, so a hook
+shared through dotfiles does not block commits on machines without
+pleno-dlp.
+
+Plain global hooks directory:
+
+```sh
+git config --global core.hooksPath ~/.config/git/hooks
+mkdir -p ~/.config/git/hooks
+pleno-dlp hooks print git > ~/.config/git/hooks/pre-commit
+chmod +x ~/.config/git/hooks/pre-commit
+```
+
+home-manager:
+
+```nix
+programs.git.hooks.pre-commit = pkgs.writeShellScript "pre-commit" ''
+  if ! command -v pleno-dlp >/dev/null 2>&1; then
+    echo 'pleno-dlp: not found on PATH; skipping staged secret scan' >&2
+    exit 0
+  fi
+  exec pleno-dlp hooks run git --fail-on high
+'';
+```
+
+A global `core.hooksPath` replaces each repository's `.git/hooks`, so
+repository-local hooks stop running unless the global script chains to
+them.
+
+### What gets scanned
+
+The hook and `protect` run
+`git diff --cached --diff-filter=ACMR --no-color --no-ext-diff` in the
+working directory. `protect --no-staged` drops `--cached`. Git sets that directory and the `GIT_DIR` /
+`GIT_INDEX_FILE` environment, so `git commit -a` and alternate indexes
+work. Before scanning, the hook transforms the diff as follows:
+
+| Diff line | Treatment |
+|---|---|
+| `+` inside a hunk | Scanned, with the leading `+` removed |
+| `-` inside a hunk | Dropped, so removing a secret is never blocked |
+| context (` `) | Dropped, because the line is already committed |
+| `+++ b/<path>` | Kept, to attribute findings to a path |
+| other headers | Dropped |
+
+The transformed text is scanned as one stdin-source buffer under the
+`protect` scan kind. The hook maps each finding's byte offset back to
+`<path>:<line>` in the staged file. The cursor hook collects its staged
+diff with the same transform.
+
+### Exit behaviour and `--fail-on`
+
+`--fail-on` takes the same values as `scan --fail-on`: `any`, `info`,
+`low`, `medium`, `high` (default), and `critical`. Findings at or above
+the threshold block the commit with exit 1. The hook prints the findings
+to stderr as follows:
+
+```text
+pleno-dlp: potential secrets in staged changes (offline, unverified scan):
+  high     AWS                      AKIA...      leak.env:1
+pleno-dlp: blocked commit (1 findings at or above high). Bypass once with git commit --no-verify; allowlist known fixtures in .pleno-allow.json (see docs/recipes/pre-commit.md).
+```
+
+The masked column shows at most six leading characters of the
+detector's `redacted` field. The hook never prints the raw match.
+
+An empty staged diff exits 0 silently. When git is missing, the
+directory is not a repository, or the scan subprocess fails, the hook
+prints a warning and exits 0, so a pleno-dlp failure never blocks a
+commit.

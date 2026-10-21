@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   quality:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64, hikae-long]
     timeout-minutes: 45
     permissions:
       contents: read
@@ -25,7 +25,16 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Install Git with offline promisor-object support
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends software-properties-common
+          sudo add-apt-repository -y ppa:git-core/ppa
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends git
+          git --version
 
       # Tags do not trigger test.yml. Repeat every release gate here so no
       # artifact can be published from an untested tag.
@@ -37,35 +46,39 @@ jobs:
         run: go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
       - run: go vet ./...
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+        run: |
+          report="$(mktemp)"
+          trap 'rm -f "$report"' EXIT
+          go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 -json ./... > "$report"
+          # ponytail: GO-2026-5932 has no fixed version and only a module-level
+          # trace; remove this exception when x/crypto or go-git ships a fix.
+          unexpected="$(
+            jq -r 'select(.finding and .finding.osv != "GO-2026-5932") | .finding.osv' "$report" |
+              sort -u
+          )"
+          if [ -n "$unexpected" ]; then
+            printf 'Unexpected govulncheck findings:\n%s\n' "$unexpected"
+            exit 1
+          fi
       - run: go build ./...
       - run: bash tests/ci/full-race.sh
       - name: Source-to-detector prefilter boundary
         run: go test ./pkg/connectors -run '^TestSourceFixtureDetectorKeywordMatrix$' -race -count=1
       - name: CLI boundary E2E
         run: bash tests/e2e/run.sh
+      - name: Crash telemetry schema contract
+        run: go test ./pkg/telemetry/crash -count=1
+      - name: Crash relay schema contract (vendored)
+        run: node --test workers/crash-relay/crash-relay.test.js
       - run: go test -tags=detector_unit ./pkg/detectors/... -race -count=1 -timeout 15m
 
   native:
+    runs-on: [self-hosted, linux, arm64, hikae-long]
     permissions:
       attestations: write
       contents: read
       id-token: write
     timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-14
-            goos: darwin
-            goarch: arm64
-          - runner: ubuntu-latest
-            goos: linux
-            goarch: amd64
-          - runner: ubuntu-24.04-arm
-            goos: linux
-            goarch: arm64
-    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -75,7 +88,21 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Install Git with offline promisor-object support
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends software-properties-common
+          sudo add-apt-repository -y ppa:git-core/ppa
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends git
+          git --version
+
+      - name: Install native build configuration tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake
 
       - run: cmake --version
 
@@ -110,7 +137,7 @@ jobs:
 
       - name: Package archive, checksum, and SBOM
         env:
-          ASSET: pleno-dlp-opf-native_${{ matrix.goos }}_${{ matrix.goarch }}
+          ASSET: pleno-dlp-opf-native_linux_arm64
         run: |
           set -euo pipefail
           mkdir -p dist-native/stage
@@ -127,31 +154,31 @@ jobs:
 
       - name: Sign native archive
         env:
-          ASSET: pleno-dlp-opf-native_${{ matrix.goos }}_${{ matrix.goarch }}
+          ASSET: pleno-dlp-opf-native_linux_arm64
         run: cosign sign-blob --yes --bundle "dist-native/${ASSET}.tar.gz.sigstore.json" "dist-native/${ASSET}.tar.gz"
 
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
-            dist-native/pleno-dlp-opf-native_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
-            dist-native/pleno-dlp-opf-native_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz.spdx.json
+            dist-native/pleno-dlp-opf-native_linux_arm64.tar.gz
+            dist-native/pleno-dlp-opf-native_linux_arm64.tar.gz.spdx.json
 
       - name: Stage native release inputs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: opf-native-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: opf-native-linux-arm64
           path: |
-            dist-native/pleno-dlp-opf-native_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
-            dist-native/pleno-dlp-opf-native_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz.sha256
-            dist-native/pleno-dlp-opf-native_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz.sigstore.json
-            dist-native/pleno-dlp-opf-native_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz.spdx.json
+            dist-native/pleno-dlp-opf-native_linux_arm64.tar.gz
+            dist-native/pleno-dlp-opf-native_linux_arm64.tar.gz.sha256
+            dist-native/pleno-dlp-opf-native_linux_arm64.tar.gz.sigstore.json
+            dist-native/pleno-dlp-opf-native_linux_arm64.tar.gz.spdx.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
 
   draft:
     needs: [quality, native]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64, hikae-flash]
     timeout-minutes: 30
     permissions:
       attestations: write
@@ -166,10 +193,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Collect native release inputs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: opf-native-*
           path: ${{ runner.temp }}/native-release
@@ -186,8 +213,8 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           files=("$NATIVE_DIST"/*)
-          if [ "${#files[@]}" -ne 12 ]; then
-            echo "::error::expected 12 native release files, found ${#files[@]}" >&2
+          if [ "${#files[@]}" -ne 4 ]; then
+            echo "::error::expected 4 native release files, found ${#files[@]}" >&2
             exit 1
           fi
           for file in "${files[@]}"; do
@@ -198,7 +225,7 @@ jobs:
           done
           identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/${GITHUB_REF_NAME}"
           mkdir -p dist-native
-          for platform in darwin_arm64 linux_amd64 linux_arm64; do
+          for platform in linux_arm64; do
             asset="pleno-dlp-opf-native_${platform}.tar.gz"
             test -f "$NATIVE_DIST/$asset"
             test -f "$NATIVE_DIST/$asset.sha256"
@@ -215,12 +242,29 @@ jobs:
               "$NATIVE_DIST/$asset.sigstore.json" "$NATIVE_DIST/$asset.spdx.json" dist-native/
           done
 
+      - name: Record clean Go build capacity
+        run: |
+          go clean -cache
+          {
+            df -Pk "$GITHUB_WORKSPACE" /tmp
+            go env GOCACHE GOMODCACHE
+            du -sk /opt/hostedtoolcache/go "$(go env GOCACHE)" "$(go env GOMODCACHE)" 2>/dev/null || true
+          } | tee "$RUNNER_TEMP/disk-before-goreleaser.txt"
+
+      - name: Preserve Go build capacity evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-draft-disk-before-goreleaser
+          path: ${{ runner.temp }}/disk-before-goreleaser.txt
+          if-no-files-found: error
+          retention-days: 1
+
       # GoReleaser leaves one draft containing the portable and validated
       # native assets. Publication stays deferred until provenance succeeds.
-      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean --parallelism=1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -232,7 +276,7 @@ jobs:
             dist/checksums.txt
 
       - name: Stage Homebrew formula
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: homebrew-formula
           path: dist/homebrew/Casks/pleno-dlp.rb
@@ -241,7 +285,7 @@ jobs:
 
   finalize:
     needs: draft
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64, hikae-flash]
     timeout-minutes: 5
     permissions:
       contents: write
@@ -263,14 +307,11 @@ jobs:
 
           expected=(
             checksums.txt checksums.txt.sigstore.json
-            pleno-dlp_darwin_amd64.tar.gz pleno-dlp_darwin_amd64.tar.gz.sbom.json
             pleno-dlp_darwin_arm64.tar.gz pleno-dlp_darwin_arm64.tar.gz.sbom.json
-            pleno-dlp_linux_amd64.tar.gz pleno-dlp_linux_amd64.tar.gz.sbom.json
             pleno-dlp_linux_arm64.tar.gz pleno-dlp_linux_arm64.tar.gz.sbom.json
-            pleno-dlp_windows_amd64.zip pleno-dlp_windows_amd64.zip.sbom.json
             pleno-dlp_windows_arm64.zip pleno-dlp_windows_arm64.zip.sbom.json
           )
-          for platform in darwin_arm64 linux_amd64 linux_arm64; do
+          for platform in linux_arm64; do
             asset="pleno-dlp-opf-native_${platform}.tar.gz"
             expected+=("$asset" "$asset.sha256" "$asset.sigstore.json" "$asset.spdx.json")
           done
@@ -303,13 +344,17 @@ jobs:
 
   homebrew:
     needs: finalize
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64, hikae-flash]
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
+      - uses: ruby/setup-ruby@824c0e29fdfc7d689c191c27acc969d2d04b7dd8 # v1.331.0
+        with:
+          ruby-version: '3.4'
+
       - name: Collect Homebrew formula
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: homebrew-formula
           path: ${{ runner.temp }}/homebrew-formula
@@ -325,13 +370,13 @@ jobs:
           test "$(find "$(dirname "$FORMULA")" -type f | wc -l | tr -d ' ')" = 1
           ruby -c "$FORMULA"
           grep -F "version \"${TAG#v}\"" "$FORMULA" >/dev/null
-          for platform in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
+          for platform in darwin_arm64 linux_arm64; do
             grep -F "releases/download/v#{version}/pleno-dlp_${platform}.tar.gz" "$FORMULA" >/dev/null
           done
-          test "$(grep -Ec '^[[:space:]]+sha256 \"[0-9a-f]{64}\"$' "$FORMULA")" = 4
+          test "$(grep -Ec '^[[:space:]]+sha256 \"[0-9a-f]{64}\"$' "$FORMULA")" = 2
 
       - name: Mint Homebrew tap token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: tap-token
         with:
           client-id: ${{ vars.HOMEBREW_TAP_APP_ID }}

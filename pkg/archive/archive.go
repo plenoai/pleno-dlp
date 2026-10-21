@@ -494,7 +494,15 @@ func (s *walkState) walkTarReader(name string, input io.Reader, depth int) error
 			s.partial("symlink", header.Name, errors.New("link entries are not scanned"))
 			continue
 		}
-		if header.Typeflag != tar.TypeReg {
+		// Contiguous files (POSIX type '7') are regular files, but Go's tar
+		// package preserves the typeflag instead of folding it into TypeReg,
+		// so both must reach the regular-file path below.
+		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeCont {
+			// Any other non-regular entry may carry unscanned bytes. Record
+			// the coverage gap instead of dropping it silently.
+			if header.Size > 0 {
+				s.partial("special-file", header.Name, errors.New("non-regular entries are not scanned"))
+			}
 			continue
 		}
 		clean, ok := safeEntryName(header.Name)

@@ -18,7 +18,7 @@ permissions:
 jobs:
   check-pr:
     if: github.event_name == 'pull_request_target'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64, hikae-flash]
     steps:
       - uses: mitchellh/vouch/action/check-pr@d66fa29a64600490892131ad87597c30c91fcac4 # v1.5.0
         with:
@@ -30,7 +30,7 @@ jobs:
 
   check-issue:
     if: github.event_name == 'issues'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64, hikae-flash]
     steps:
       - uses: mitchellh/vouch/action/check-issue@d66fa29a64600490892131ad87597c30c91fcac4 # v1.5.0
         with:
@@ -43,7 +43,7 @@ jobs:
 
   manage:
     if: github.event_name == 'issue_comment'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64, hikae-flash]
     steps:
       - uses: mitchellh/vouch/action/manage-by-issue@d66fa29a64600490892131ad87597c30c91fcac4 # v1.5.0
         with:

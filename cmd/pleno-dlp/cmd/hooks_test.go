@@ -16,6 +16,16 @@ import (
 // assert the hook actually invoked (or skipped) the scan.
 func withFakeScanOffline(t *testing.T, fn func(data []byte) (int, error)) {
 	t.Helper()
+	withFakeScanRecords(t, func(data []byte) ([]hookFinding, error) {
+		n, err := fn(data)
+		return make([]hookFinding, n), err
+	})
+}
+
+// withFakeScanRecords is withFakeScanOffline for tests that need the
+// record contents (severity, offsets), not just the count.
+func withFakeScanRecords(t *testing.T, fn func(data []byte) ([]hookFinding, error)) {
+	t.Helper()
 	orig := scanOfflineFunc
 	scanOfflineFunc = fn
 	t.Cleanup(func() { scanOfflineFunc = orig })

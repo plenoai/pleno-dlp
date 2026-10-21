@@ -40,10 +40,14 @@ var Root = &cobra.Command{
 	SilenceErrors: true,
 }
 
-var toolVersion string
+var (
+	toolVersion string
+	toolCommit  string
+)
 
 func SetVersion(version, commit string) {
 	toolVersion = version
+	toolCommit = commit
 	Root.Version = fmt.Sprintf("%s (%s)", version, commit)
 }
 
@@ -209,7 +213,7 @@ func init() {
 		"generic-entropy, JWT, PEM, and PII findings default to medium and do not; pass any to gate on every finding, "+
 		"including that lower tier, once the repo's baseline is clean; ignored for stdin — stdin scans always exit 0)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file that mutes known false positives (auto-discovers .pleno-allow.json from the repo root)")
-	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated, case-insensitive Type names; see `pleno-dlp detectors list`). Custom rules from --rules count as GenericHighEntropy.")
+	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated, case-insensitive Type names; see 'pleno-dlp detectors list'). Custom rules from --rules count as GenericHighEntropy.")
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.excludeDetectors, "exclude-detectors", nil, "skip these detectors (comma-separated, case-insensitive Type names). Applied after --include-detectors.")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.quiet, "quiet", false, "suppress the end-of-scan summary line on stderr (use in scripted callers parsing stderr)")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.revokeOnVerified, "revoke-on-verified", false,
@@ -219,7 +223,7 @@ func init() {
 		"when used with --revoke-on-verified, log what would be revoked without contacting the provider")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.revokeSpool, "revoke-spool", "",
 		"path to a JSONL spool file that captures verified findings whose detector supports revoke. "+
-			"Decouples scan from revoke: replay later with `pleno-dlp revoke --revoke-from-spool <path>`. "+
+			"Decouples scan from revoke: replay later with 'pleno-dlp revoke --revoke-from-spool <path>'. "+
 			"The file holds raw secrets and is created mode 0600. "+
 			"Requires "+EnvAllowRawExport+"=1 so a misconfigured CI cannot accidentally serialize live credentials. "+
 			"Mutually exclusive with --revoke-on-verified.")
@@ -1539,6 +1543,16 @@ func (s *providerConfirmedOnlySink) Close() error { return s.inner.Close() }
 
 // Execute is a thin wrapper main.go invokes. Returning instead of calling
 // os.Exit here keeps the cmd package testable.
-func Execute(ctx context.Context) error {
+//
+// It installs the --crash-report recovery so a panic anywhere in the command
+// tree is turned into a local report when that flag was given. Without the
+// flag handleCrash re-panics, so the opt-in telemetry path in main.go (and
+// ordinary crash behaviour) is unchanged.
+func Execute(ctx context.Context) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = handleCrash(r)
+		}
+	}()
 	return Root.ExecuteContext(ctx)
 }

@@ -71,7 +71,7 @@ var revokeCmd = &cobra.Command{
 
 func init() {
 	revokeCmd.Flags().StringVar(&revokeOpts.detector, "detector", "", "detector type whose leaked secret should be revoked (supported: github, gitlab, slack, aws, stripe)")
-	revokeCmd.Flags().StringVar(&revokeOpts.secret, "secret", "", "the leaked credential, or `-` to read it from stdin")
+	revokeCmd.Flags().StringVar(&revokeOpts.secret, "secret", "", "the leaked credential, or '-' to read it from stdin")
 	revokeCmd.Flags().StringVar(&revokeOpts.clientID, "client-id", "", "OAuth app client_id (GitHub: overrides "+githubdet.EnvClientID+")")
 	revokeCmd.Flags().StringVar(&revokeOpts.clientSecret, "client-secret", "", "OAuth app client_secret (GitHub: overrides "+githubdet.EnvClientSecret+")")
 	revokeCmd.Flags().StringVar(&revokeOpts.githubMode, "github-revoke-mode", "", "GitHub revoke mode: auto, credentials, oauth-app (overrides "+githubdet.EnvRevokeMode+")")
@@ -85,7 +85,7 @@ func init() {
 	revokeCmd.Flags().StringVar(&revokeOpts.format, "format", "table", "output format: table, json")
 	revokeCmd.Flags().IntVar(&revokeOpts.rateLimitRPS, "rate-limit-rps", 0, "per-host requests-per-second cap during revoke (0 = disabled). Useful when revoking many secrets in a loop to avoid provider rate limits.")
 	revokeCmd.Flags().StringVar(&revokeOpts.fromSpool, "revoke-from-spool", "",
-		"path to a JSONL spool file produced by `pleno-dlp scan --revoke-spool`. "+
+		"path to a JSONL spool file produced by 'pleno-dlp scan --revoke-spool'. "+
 			"Each line is dispatched to the per-detector Revoker. --detector/--secret are ignored in this mode.")
 	revokeCmd.Flags().StringVar(&revokeOpts.auditTrail, auditTrailFlagName, "", auditTrailFlagHelp)
 

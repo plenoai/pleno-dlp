@@ -33,6 +33,11 @@ pleno-dlp scan git --repo ./repo --max-depth 200
 pleno-dlp scan filesystem ./repo --format sarif > findings.sarif
 ```
 
+On operator machines, dogfood the signed release from the tap and keep
+it current with `brew upgrade pleno-dlp`; see
+[`docs/dogfooding.md`](docs/dogfooding.md) for why the ad-hoc mise
+`go:` pin was dropped.
+
 ## Sources
 
 `filesystem`, `git` history (branch, depth, and time filters), `stdin`,
@@ -117,6 +122,21 @@ in [`docs/hooks.md`](docs/hooks.md).
 pleno-dlp hooks install claude-code
 pleno-dlp hooks install cursor
 ```
+
+## Crash reports (opt-in)
+
+Crash reports are off by default. A crash is always spooled locally and
+redacted (paths, emails, IPs, URLs, tokens, and any secret a built-in
+detector matches); it is uploaded only after `pleno-dlp telemetry enable`.
+See [docs/telemetry.md](docs/telemetry.md) for the exact fields and how to
+inspect, send, or point reports at your own relay.
+
+## Feedback
+
+`pleno-dlp feedback [message]` (or `--stdin`) sends a redacted message to the
+maintainers. Every sent report is spooled locally first, and the confirmation
+prompt reads `/dev/tty`, so a piped message can still be confirmed
+interactively. See [docs/feedback.md](docs/feedback.md).
 
 ## License
 
