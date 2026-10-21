@@ -75,6 +75,50 @@ func TestReleaseWorkflowRemainsTagOnlyAndProvisionsJobTools(t *testing.T) {
 	}
 }
 
+func TestReleaseDraftMeasuresCleanFlashCapacityBeforeSerialBuilds(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	releaseData, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := string(releaseData)
+	draftStart := strings.Index(release, "\n  draft:\n")
+	if draftStart < 0 {
+		t.Fatal("release.yml must define draft and finalize jobs")
+	}
+	finalizeStart := strings.Index(release[draftStart+1:], "\n  finalize:\n")
+	if finalizeStart < 0 {
+		t.Fatal("release.yml must define draft and finalize jobs")
+	}
+	draft := release[draftStart+1 : draftStart+1+finalizeStart]
+	for _, required := range []string{
+		"runs-on: [self-hosted, linux, arm64, hikae-flash]",
+		"timeout-minutes: 30",
+		"go clean -cache",
+		`df -Pk "$GITHUB_WORKSPACE" /tmp`,
+		"go env GOCACHE GOMODCACHE",
+		`tee "$RUNNER_TEMP/disk-before-goreleaser.txt"`,
+		"uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2",
+		"name: release-draft-disk-before-goreleaser",
+		"path: ${{ runner.temp }}/disk-before-goreleaser.txt",
+		"if-no-files-found: error",
+		"retention-days: 1",
+		"args: release --clean --parallelism=1",
+	} {
+		if !strings.Contains(draft, required) {
+			t.Errorf("release draft job must contain %q", required)
+		}
+	}
+	staging := strings.Index(draft, "name: Validate native release inputs")
+	capacity := strings.Index(draft, "name: Record clean Go build capacity")
+	evidence := strings.Index(draft, "name: Preserve Go build capacity evidence")
+	build := strings.Index(draft, "args: release --clean --parallelism=1")
+	if staging < 0 || capacity < staging || evidence < capacity || build < evidence {
+		t.Error("draft must stage native inputs, record capacity, preserve the evidence, then build")
+	}
+}
+
 func TestReleasePublishesNativeAssetsInsideImmutableBoundary(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))

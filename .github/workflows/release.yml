@@ -242,12 +242,29 @@ jobs:
               "$NATIVE_DIST/$asset.sigstore.json" "$NATIVE_DIST/$asset.spdx.json" dist-native/
           done
 
+      - name: Record clean Go build capacity
+        run: |
+          go clean -cache
+          {
+            df -Pk "$GITHUB_WORKSPACE" /tmp
+            go env GOCACHE GOMODCACHE
+            du -sk /opt/hostedtoolcache/go "$(go env GOCACHE)" "$(go env GOMODCACHE)" 2>/dev/null || true
+          } | tee "$RUNNER_TEMP/disk-before-goreleaser.txt"
+
+      - name: Preserve Go build capacity evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-draft-disk-before-goreleaser
+          path: ${{ runner.temp }}/disk-before-goreleaser.txt
+          if-no-files-found: error
+          retention-days: 1
+
       # GoReleaser leaves one draft containing the portable and validated
       # native assets. Publication stays deferred until provenance succeeds.
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean --parallelism=1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
