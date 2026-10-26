@@ -77,6 +77,13 @@ const maxSeparators = 2
 // grant during verification.
 const verifyTimeout = 5 * time.Second
 
+// tokenURLFormat is the OAuth2 token endpoint; overridable in tests.
+var tokenURLFormat = "https://login.microsoftonline.com/%s/oauth2/v2.0/token"
+
+// httpClient rejects redirects so the credential-bearing POST body is never
+// replayed to another origin (307/308).
+var httpClient = detectors.NewVerifyHTTPClient(verifyTimeout)
+
 // tenantKeyNames are keys tried in key=value / "key":"value" patterns by
 // FindNearbyKeyValue. Each is tried in order; the first hit wins.
 var tenantKeyNames = []string{
@@ -200,7 +207,7 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 // credential triple is live). Returns (false, nil) for definitive rejections
 // (invalid_client). Returns (false, err) for transient / ambiguous errors.
 func verifyOAuth2(ctx context.Context, tenantID, clientID, clientSecret string) (bool, error) {
-	tokenURL := fmt.Sprintf("https://login.microsoftonline.com/%s/oauth2/v2.0/token", tenantID)
+	tokenURL := fmt.Sprintf(tokenURLFormat, tenantID)
 
 	form := url.Values{
 		"grant_type":    {"client_credentials"},
@@ -218,7 +225,7 @@ func verifyOAuth2(ctx context.Context, tenantID, clientID, clientSecret string) 
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return false, nil
 	}
