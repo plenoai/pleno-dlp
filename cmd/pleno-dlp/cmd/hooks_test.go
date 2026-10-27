@@ -3,12 +3,62 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
+
+func TestScanOffline(t *testing.T) {
+	resetCommandFlags(t)
+	t.Chdir(t.TempDir())
+	var requests atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	rules := `[{"name":"ACME Token","keywords":["ACME_"],"regex":"ACME_[A-Z0-9]{20}","severity":"medium","verify_url":"` + srv.URL + `"}]`
+	if err := os.WriteFile("rules.json", []byte(rules), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scanOpts.rulesPath = "rules.json"
+	scanOpts.onlyVerified = true // Hooks must override this for their offline scan.
+	scanOpts.failOn = "critical"
+	before := scanOpts
+	data := []byte("ACME_QWERTYUIOPASDFGHJKLZ\nACME_QWERTYUIOPASDFGHJKLZ\n")
+	records, err := scanOffline(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Severity != "medium" {
+		t.Fatalf("expected one deduplicated finding below the CLI threshold, got %+v", records)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("offline scan made %d verification requests", requests.Load())
+	}
+	if scanOpts.format != before.format || scanOpts.quiet != before.quiet || scanOpts.noVerify != before.noVerify || scanOpts.onlyVerified != before.onlyVerified || scanOpts.failOn != before.failOn {
+		t.Fatal("hook scan did not restore CLI options")
+	}
+	if records, err := scanOffline([]byte("nothing secret here")); err != nil || len(records) != 0 {
+		t.Fatalf("clean scan: records=%+v err=%v", records, err)
+	}
+	if err := os.WriteFile("allow.json", []byte(`{"entries":[{"raw":"ACME_QWERTYUIOPASDFGHJKLZ","reason":"test fixture"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scanOpts.allowlistPath = "allow.json"
+	if records, err := scanOffline(data); err != nil || len(records) != 0 {
+		t.Fatalf("allowlisted scan: records=%+v err=%v", records, err)
+	}
+	scanOpts.rulesPath = "missing-rules.json"
+	if _, err := scanOffline(data); err == nil {
+		t.Fatal("expected operational error to propagate")
+	}
+}
 
 // withFakeScanOffline replaces scanOfflineFunc for the duration of the
 // test and restores the real implementation afterward, mirroring the
@@ -352,10 +402,8 @@ func TestHooksUninstallCursor_RemovesEntry(t *testing.T) {
 
 // --- runHookClaudeCode / runHookCursor decision-logic tests ---
 // These inject a fake scanOfflineFunc so the allow/deny/fail-open
-// branching is verified directly, without spawning a real subprocess.
-// The real scanOffline -> `pleno-dlp scan stdin --no-verify` wiring is
-// covered end-to-end by TestScanStdin_NoVerifySkipsNetworkCall in
-// scan_test.go and by manual verification with a built binary.
+// branching is verified directly. TestScanOffline exercises the real
+// in-process pipeline, including offline verification and error handling.
 
 func TestRunHookClaudeCode_AllowsCleanContent(t *testing.T) {
 	resetCommandFlags(t)

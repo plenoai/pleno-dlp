@@ -2149,6 +2149,89 @@ func TestScanGit_CommitMessageAndNoteFindingsReachJSON(t *testing.T) {
 	}
 }
 
+func TestScanStdin_ExitCode(t *testing.T) {
+	for _, tc := range []struct {
+		threshold string
+		wantCode  int
+	}{
+		{"high", 1},
+		{"critical", 0},
+		{"invalid", 2},
+	} {
+		t.Run(tc.threshold, func(t *testing.T) {
+			c := exec.Command(hooksGitTestBinary, "scan", "stdin", "--no-verify", "--quiet", "--format", "json", "--include-detectors", "aws", "--fail-on", tc.threshold)
+			c.Dir = t.TempDir()
+			c.Stdin = strings.NewReader("aws_access_key=" + fixtureAWSKey)
+			var out, stderr bytes.Buffer
+			c.Stdout = &out
+			c.Stderr = &stderr
+			err := c.Run()
+			code := 0
+			if err != nil {
+				var exitErr *exec.ExitError
+				if !errors.As(err, &exitErr) {
+					t.Fatal(err)
+				}
+				code = exitErr.ExitCode()
+			}
+			if code != tc.wantCode {
+				t.Fatalf("exit = %d, want %d; stderr: %s", code, tc.wantCode, stderr.String())
+			}
+			if code != 2 {
+				var records []hookFinding
+				if err := json.Unmarshal(out.Bytes(), &records); err != nil || len(records) != 1 {
+					t.Fatalf("want one JSON finding; err=%v output=%s", err, out.String())
+				}
+			}
+		})
+	}
+}
+
+func TestScanStdin_FailOn(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		threshold string
+		wantFail  bool
+	}{
+		{"default high", "", false},
+		{"any", "any", true},
+		{"info", "info", true},
+		{"low", "low", true},
+		{"medium", "medium", true},
+		{"high", "high", false},
+		{"critical", "critical", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetCommandFlags(t)
+			t.Chdir(t.TempDir())
+			rules := "rules.json"
+			if err := writeFile(rules, `[{"name":"ACME Token","keywords":["ACME_"],"regex":"ACME_[A-Z0-9]{20}","severity":"medium"}]`); err != nil {
+				t.Fatal(err)
+			}
+			var out, stderr bytes.Buffer
+			Root.SetOut(&out)
+			Root.SetErr(&stderr)
+			Root.SetIn(strings.NewReader("ACME_QWERTYUIOPASDFGHJKLZ"))
+			args := []string{"scan", "stdin", "--no-verify", "--rules", rules, "--format", "json"}
+			if tc.threshold != "" {
+				args = append(args, "--fail-on", tc.threshold)
+			}
+			Root.SetArgs(args)
+			err := Root.Execute()
+			if IsFindingsError(err) != tc.wantFail || (err != nil && !IsFindingsError(err)) {
+				t.Fatalf("err = %v, want findings error = %t; stderr: %s", err, tc.wantFail, stderr.String())
+			}
+			var records []hookFinding
+			if err := json.Unmarshal(out.Bytes(), &records); err != nil || len(records) != 1 {
+				t.Fatalf("want one JSON finding regardless of gate; err=%v output=%s", err, out.String())
+			}
+			if !tc.wantFail && !strings.Contains(stderr.String(), "exit gate: --fail-on=") {
+				t.Fatalf("missing below-threshold hint: %s", stderr.String())
+			}
+		})
+	}
+}
+
 func TestScanStdin_FindsSecretFromPipe(t *testing.T) {
 	resetCommandFlags(t)
 
@@ -2159,8 +2242,8 @@ func TestScanStdin_FindsSecretFromPipe(t *testing.T) {
 	Root.SetArgs([]string{"scan", "--format", "json", "stdin", "--label", "test-pipe"})
 
 	err := Root.Execute()
-	if err != nil {
-		t.Fatalf("stdin scans must exit 0 even with findings; got %v\noutput:\n%s", err, out.String())
+	if !IsFindingsError(err) {
+		t.Fatalf("stdin findings at the threshold must return a findings error; got %v\noutput:\n%s", err, out.String())
 	}
 	if !strings.Contains(out.String(), "test-pipe") {
 		t.Errorf("expected --label to ride through to output:\n%s", out.String())
@@ -2207,8 +2290,8 @@ func TestScanStdin_NoVerifySkipsNetworkCall(t *testing.T) {
 	Root.SetArgs([]string{"scan", "--rules", rules, "--no-verify", "--format", "json", "stdin"})
 
 	err := Root.Execute()
-	if err != nil {
-		t.Fatalf("stdin scans must exit 0 even with findings; got %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
+	if !IsFindingsError(err) {
+		t.Fatalf("stdin findings at the threshold must return a findings error; got %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
 	}
 
 	if n := requests.Load(); n != 0 {
@@ -2400,8 +2483,8 @@ func TestScanStdin_TruncatedButFoundStillReportsFindings(t *testing.T) {
 	Root.SetArgs([]string{"scan", "--format", "json", "stdin", "--max-bytes", "40"})
 
 	err := Root.Execute()
-	if err != nil {
-		t.Fatalf("truncated stdin with a finding must still exit 0 — stdin findings never gate the exit code; got %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
+	if !IsFindingsError(err) {
+		t.Fatalf("truncated stdin with a finding must return a findings error; got %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
 	}
 	if !strings.Contains(errBuf.String(), "max_bytes") {
 		t.Errorf("expected truncation warning on stderr; got:\n%s", errBuf.String())

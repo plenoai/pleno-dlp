@@ -60,10 +60,10 @@ Use the merge-base diff instead of the full filesystem:
 
 ## Gate merges with --fail-on
 
-`--fail-on` applies to non-stdin kinds (`filesystem`, `git`, SaaS
-connectors). The diff recipe above uses `scan stdin`, which always exits
-0 — findings are still exported to SARIF, but gating happens on the
-filesystem/git scan step's `--fail-on` instead.
+`--fail-on` applies to every source kind (`filesystem`, `git`, SaaS
+connectors, and `stdin`). The diff recipe above exports findings to SARIF
+and exits 1 when a finding meets the default `high` threshold. Pass
+`--fail-on` to tune that threshold.
 
 | `--fail-on`  | Exit 1 when … |
 |--------------|---------------|

@@ -24,7 +24,7 @@ hooks already configured for that tool are left alone.
 
 ## Why `--no-verify`
 
-Both hooks scan with `pleno-dlp scan stdin --no-verify` (see
+Both hooks run the `scan stdin --no-verify` pipeline in-process (see
 [`--no-verify`](#the---no-verify-flag) below). Verification is never
 attempted: the scan runs fully offline, without the network round-trip
 that would put a hook in an agent's or developer's way, and every
@@ -194,6 +194,6 @@ The masked column shows at most six leading characters of the
 detector's `redacted` field. The hook never prints the raw match.
 
 An empty staged diff exits 0 silently. When git is missing, the
-directory is not a repository, or the scan subprocess fails, the hook
+directory is not a repository, or the in-process scan fails, the hook
 prints a warning and exits 0, so a pleno-dlp failure never blocks a
 commit.
