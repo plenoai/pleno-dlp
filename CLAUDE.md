@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-10-27 | core-engineer, qa | Reconcile #611 with the dedicated feedback relay and spool: keep crash opt-in independent, preserve the feedback endpoint on telemetry toggles, support implicit stdin and `-y`, and verify local throttling and explicit send behavior. |
 | 2026-10-21 | architect | Raise the module's minimum Go version to 1.26.10 so `go-version-file` CI uses the crypto/x509 fix for GO-2026-6809; leave the existing GO-2026-5932 exception unchanged (#454). |
 | 2026-10-20 | qa, core-engineer | Remove backticks from CLI flag usage that Cobra treats as value placeholders; retain the recursive regression guard (#491). |
 | 2026-10-20 | architect | Align tag-release checks with main, route measured race/native jobs to hikae-long, and provision Git, CMake, and Ruby in their consuming jobs (#650, #565). |

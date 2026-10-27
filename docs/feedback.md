@@ -3,10 +3,14 @@
 `pleno-dlp feedback` sends a short, redacted message to the maintainers. It
 is user-initiated and never runs on its own: nothing leaves the machine until
 you confirm at the terminal, or pass `--yes` in a script you control.
+Feedback ignores the crash opt-in and is locally limited to five upload
+attempts per hour, shared across invocations. A throttled report is still
+saved locally. See [Local throttling](telemetry.md#local-throttling).
 
 ```sh
 pleno-dlp feedback "scan of a 2 GB monorepo OOMs"
 echo "docs typo in verify-coverage.md" | pleno-dlp feedback --stdin
+echo "please add a Jira label filter" | pleno-dlp feedback --yes
 ```
 
 ## Local record
@@ -49,6 +53,9 @@ accident.
 |---|---|
 | `--stdin` | read the message from stdin instead of arguments |
 | `--yes` | skip the confirmation prompt and send immediately |
+
+With no message argument, the command reads stdin automatically; `--stdin`
+also requests this explicitly. `-y` is an alias for `--yes`.
 
 Declining does not delete the spooled copy; it prints the path so you can
 review, edit, or retry later.

@@ -74,7 +74,7 @@ var telemetryStatusCmd = &cobra.Command{
 		fmt.Fprintf(w, "source:        %s\n", cfg.Source)
 		fmt.Fprintf(w, "endpoint:      %s\n", cfg.Endpoint)
 		fmt.Fprintf(w, "spool dir:     %s\n", cfg.SpoolDir())
-		fmt.Fprintln(w, "feedback:      always sends; ignores the crash opt-in above")
+		fmt.Fprintln(w, "feedback:      explicit sends; ignores the crash opt-in above (confirmation or --yes required)")
 		return nil
 	},
 }
