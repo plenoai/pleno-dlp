@@ -221,3 +221,69 @@ func TestNoBackticksInFlagUsage(t *testing.T) {
 	}
 	walk(Root)
 }
+
+// Check the rendered help as well as the declarations: pflag interprets
+// backticks even for boolean flags, where the bogus placeholder otherwise
+// makes --no-fetch look like it accepts a value. Include a scan subcommand
+// to check the persistent flag's inherited help too.
+func TestFlagUsageHelp(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "pii-server",
+			args: []string{"pii-server", "--help"},
+			want: []string{
+				"--source string",
+				"--no-fetch   skip the 'git fetch'",
+				"A 'git+<URL>' value",
+			},
+		},
+		{
+			name: "revoke",
+			args: []string{"revoke", "--help"},
+			want: []string{
+				"--secret string",
+				"--revoke-from-spool string",
+				"produced by 'pleno-dlp scan --revoke-spool'",
+			},
+		},
+		{
+			name: "scan",
+			args: []string{"scan", "--help"},
+			want: []string{
+				"--revoke-spool string",
+				"replay later with 'pleno-dlp revoke --revoke-from-spool <path>'",
+			},
+		},
+		{
+			name: "scan git",
+			args: []string{"scan", "git", "--help"},
+			want: []string{
+				"--revoke-spool string",
+				"--include-detectors strings",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetCommandFlags(t)
+			var out bytes.Buffer
+			Root.SetOut(&out)
+			Root.SetErr(&out)
+			Root.SetArgs(tc.args)
+			if err := Root.Execute(); err != nil {
+				t.Fatalf("%s --help: %v", tc.name, err)
+			}
+			// Ignore column padding while preserving flag/placeholder order.
+			got := strings.Join(strings.Fields(out.String()), " ")
+			for _, want := range tc.want {
+				want = strings.Join(strings.Fields(want), " ")
+				if !strings.Contains(got, want) {
+					t.Errorf("%s help missing %q:\n%s", tc.name, want, out.String())
+				}
+			}
+		})
+	}
+}
