@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-10-27 | core-engineer, connector-engineer, qa | Move the diff reducer into `pkg/sources/stdin` and thread its per-line path:line map into `StdinMeta.Locations` (protect, git/cursor hooks, `scan stdin --diff`) so allowlist `path` entries match diff findings (#513, supersedes #527). |
 | 2026-10-21 | architect | Raise the module's minimum Go version to 1.26.10 so `go-version-file` CI uses the crypto/x509 fix for GO-2026-6809; leave the existing GO-2026-5932 exception unchanged (#454). |
 | 2026-10-20 | qa, core-engineer | Remove backticks from CLI flag usage that Cobra treats as value placeholders; retain the recursive regression guard (#491). |
 | 2026-10-20 | architect | Align tag-release checks with main, route measured race/native jobs to hikae-long, and provision Git, CMake, and Ruby in their consuming jobs (#650, #565). |

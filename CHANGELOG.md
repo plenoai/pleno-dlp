@@ -8,8 +8,17 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Fixed
+
+- `protect`, the `git` and `cursor` agent hooks now resolve each diff
+  finding to its real file path and line, so `.pleno-allow.json` `path`
+  entries match and output no longer shows the `git-diff-staged` label;
+  the `claude-code` hook labels its scan with the edited file path (#513).
+
 ### Added
 
+- `scan stdin --diff` parses a unified diff, scans only added lines, and
+  reports each finding at the file and line it came from.
 - Published the `pleno-dlp.crash/v1` crash-report schema as
   [`pkg/telemetry/crash/schema/pleno-dlp.crash.v1.json`](pkg/telemetry/crash/schema/pleno-dlp.crash.v1.json).
   The Go `crash.Report` struct and the `plenoai.com` crash relay are both

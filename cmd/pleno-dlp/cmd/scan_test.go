@@ -2170,6 +2170,44 @@ func TestScanStdin_FindsSecretFromPipe(t *testing.T) {
 	}
 }
 
+// TestScanStdin_DiffAttachesRealPaths checks that `scan stdin --diff`
+// scans only added lines and resolves each finding to the file it came
+// from, so output and allowlists see a real path instead of the label.
+func TestScanStdin_DiffAttachesRealPaths(t *testing.T) {
+	resetCommandFlags(t)
+
+	diff := "diff --git a/fixtures/leak.env b/fixtures/leak.env\n" +
+		"--- a/fixtures/leak.env\n" +
+		"+++ b/fixtures/leak.env\n" +
+		"@@ -0,0 +1,2 @@\n" +
+		"+lines_before=1\n" +
+		"+AWS_ACCESS_KEY_ID=AKIA1234567890ABCDEF\n"
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetIn(strings.NewReader(diff))
+	Root.SetArgs([]string{"scan", "--no-verify", "--format", "json", "stdin", "--diff"})
+
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("stdin scans must exit 0 even with findings; got %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
+	}
+	var records []map[string]any
+	if err := json.Unmarshal(out.Bytes(), &records); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v\n%s", err, out.String())
+	}
+	var found bool
+	for _, rec := range records {
+		src, _ := rec["source"].(map[string]any)
+		md, _ := src["metadata"].(map[string]any)
+		if md != nil && md["path"] == "fixtures/leak.env" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no finding resolved to the real diff path fixtures/leak.env:\n%s", out.String())
+	}
+}
+
 // TestScanStdin_NoVerifySkipsNetworkCall is the issue #303 CLI-level
 // contract test for the fast hook path: --no-verify must genuinely bypass
 // the detector's Verify() network round-trip, not merely post-filter a

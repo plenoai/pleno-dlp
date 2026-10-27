@@ -289,18 +289,36 @@ type hookFinding struct {
 	Start *int `json:"start,omitempty"`
 }
 
+// offlineScanRequest carries one hook scan: the bytes plus the provenance
+// needed to report real locations. Label names the file for edit-time
+// hooks (claude-code knows tool_input.file_path); Diff asks the stdin
+// source to parse a unified diff so each finding resolves to its file
+// (cursor scans `git diff --cached`).
+type offlineScanRequest struct {
+	Data  []byte
+	Label string
+	Diff  bool
+}
+
 // scanOffline shells out to this same pleno-dlp binary (`scan stdin
-// --no-verify`) against data and returns the findings it emitted.
+// --no-verify`) against the request and returns the findings it emitted.
 // Deliberately does not reimplement engine wiring: reusing the CLI path
 // means hook behaviour — dedup, allowlist discovery, output shape —
 // never drifts from `pleno-dlp scan stdin --no-verify` run by hand.
-func scanOffline(data []byte) ([]hookFinding, error) {
+func scanOffline(req offlineScanRequest) ([]hookFinding, error) {
 	exe := resolveExecutable()
 	if exe == "" {
 		return nil, fmt.Errorf("could not resolve pleno-dlp's own executable path")
 	}
-	c := exec.Command(exe, "scan", "stdin", "--no-verify", "--quiet", "--format", "json")
-	c.Stdin = bytes.NewReader(data)
+	args := []string{"scan", "stdin", "--no-verify", "--quiet", "--format", "json"}
+	if req.Diff {
+		args = append(args, "--diff")
+	}
+	if req.Label != "" {
+		args = append(args, "--label", req.Label)
+	}
+	c := exec.Command(exe, args...)
+	c.Stdin = bytes.NewReader(req.Data)
 	var stdout, stderr bytes.Buffer
 	c.Stdout = &stdout
 	c.Stderr = &stderr
@@ -546,7 +564,7 @@ func runHookClaudeCode(cmd *cobra.Command) error {
 		return nil
 	}
 
-	records, err := scanOfflineFunc([]byte(content))
+	records, err := scanOfflineFunc(offlineScanRequest{Data: []byte(content), Label: payload.ToolInput.FilePath})
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: %v — allowing\n", err)
 		return nil
@@ -756,15 +774,15 @@ func runHookCursor(cmd *cobra.Command) error {
 		return allowCursor(cmd, "")
 	}
 
-	diff, origins, err := collectDiffForScanFunc(cmd.Context(), payload.Cwd, true)
+	diff, err := gitDiffForScan(cmd.Context(), payload.Cwd, true)
 	if err != nil {
 		return allowCursor(cmd, fmt.Sprintf("collect staged diff: %v", err))
 	}
-	if len(origins) == 0 {
+	if _, origins := stagedDiffForScan(diff); len(origins) == 0 {
 		return allowCursor(cmd, "")
 	}
 
-	records, err := scanOfflineFunc(diff)
+	records, err := scanOfflineFunc(offlineScanRequest{Data: diff, Label: "git-diff-staged", Diff: true})
 	if err != nil {
 		return allowCursor(cmd, fmt.Sprintf("scan staged diff: %v", err))
 	}
@@ -869,7 +887,7 @@ func runHookGit(cmd *cobra.Command) error {
 	if len(origins) == 0 {
 		return nil
 	}
-	records, err := stagedScanFunc(cmd, buf)
+	records, err := stagedScanFunc(cmd, buf, origins)
 	if err != nil {
 		fmt.Fprintf(errw, "pleno-dlp: hooks run git: %v — allowing commit\n", err)
 		return nil

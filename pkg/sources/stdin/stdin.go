@@ -25,6 +25,12 @@ func init() {
 type Config struct {
 	Label    string `json:"label,omitempty"`
 	MaxBytes int64  `json:"max_bytes,omitempty"`
+	// Diff treats the input as a unified diff: only added lines are
+	// scanned and each finding resolves to the file and line it came from.
+	Diff bool `json:"diff,omitempty"`
+	// Locations supplies per-line provenance (1-based buffer line → file
+	// location) when the caller already reduced the diff, as protect does.
+	Locations map[int]sources.LineLocation `json:"locations,omitempty"`
 }
 
 type Source struct {
@@ -89,8 +95,14 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	if err != nil {
 		return err
 	}
-	current := incrementalState{Version: 1, Hash: hashData(data), Label: s.cfg.Label}
+	current := incrementalState{Version: 1, Hash: hashData(data), Label: s.cfg.Label, Diff: s.cfg.Diff}
 	s.nextState = &current
+	locations := s.cfg.Locations
+	if s.cfg.Diff {
+		var locs []sources.LineLocation
+		data, locs = ParseDiff(data)
+		locations = LocationMap(locs)
+	}
 	if s.hasPreviousState && s.previousState != nil && *s.previousState == current {
 		if truncated {
 			return errStdinTruncated
@@ -104,7 +116,7 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 		SourceName: s.name,
 		Data:       data,
 		SourceMetadata: sources.Metadata{
-			Stdin: &sources.StdinMeta{Label: s.cfg.Label},
+			Stdin: &sources.StdinMeta{Label: s.cfg.Label, Locations: locations},
 		},
 	}
 	select {
@@ -123,7 +135,7 @@ func (s *Source) ResourceFingerprint(_ context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	state := incrementalState{Version: 1, Hash: hashData(data), Label: s.cfg.Label}
+	state := incrementalState{Version: 1, Hash: hashData(data), Label: s.cfg.Label, Diff: s.cfg.Diff}
 	s.nextState = &state
 	if truncated {
 		return state.Hash + ":truncated", nil
@@ -135,6 +147,7 @@ type incrementalState struct {
 	Version int    `json:"version"`
 	Hash    string `json:"hash"`
 	Label   string `json:"label"`
+	Diff    bool   `json:"diff,omitempty"`
 }
 
 func (s *Source) SetIncrementalState(previous json.RawMessage) error {

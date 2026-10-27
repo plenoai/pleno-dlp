@@ -233,6 +233,32 @@ func TestComputeLineFromMatch(t *testing.T) {
 	}
 }
 
+func TestChunkWithMatchLine_ResolvesStdinDiffLocation(t *testing.T) {
+	const token = "AKIA_DIFF_SECRET"
+	c := &sources.Chunk{
+		Data:       []byte("clean\n" + token + "\nmore\n"),
+		SourceType: sources.SourceStdin,
+		SourceMetadata: sources.Metadata{Stdin: &sources.StdinMeta{
+			Label:     "git-diff-staged",
+			Locations: map[int]sources.LineLocation{2: {Path: "fixtures/leak.env", Line: 42}},
+		}},
+	}
+	got := chunkWithMatchLine(c, []byte(token))
+	md := got.SourceMetadata
+	if md.Filesystem == nil {
+		t.Fatalf("stdin diff location was not resolved to FilesystemMeta: %+v", md)
+	}
+	if md.Stdin != nil {
+		t.Errorf("StdinMeta should be cleared once resolved; got %+v", md.Stdin)
+	}
+	if md.Filesystem.Path != "fixtures/leak.env" || md.Filesystem.Line != 42 {
+		t.Errorf("resolved location = %+v, want {fixtures/leak.env 42}", md.Filesystem)
+	}
+	if c.SourceMetadata.Filesystem != nil || c.SourceMetadata.Stdin == nil {
+		t.Errorf("source chunk mutated: %+v", c.SourceMetadata)
+	}
+}
+
 func TestRunWithStats_SequentialReuseReturnsPerRunMetrics(t *testing.T) {
 	sink := &engineRecordingSink{}
 	eng := NewWithDetectors([]detectors.Detector{&stubKeywordDet{}}, Options{Concurrency: 1}, sink)
