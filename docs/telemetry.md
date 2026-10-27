@@ -2,8 +2,9 @@
 
 pleno-dlp can send an anonymized report when it crashes. Sending is
 **disabled by default** and is never enabled implicitly: no prompt, no CI
-detection, no first-run banner. Whether or not sending is enabled, every
-crash is written to a local spool so you can read it first.
+detection, no first-run banner. Main-goroutine panics produce redacted JSON reports immediately. Fatal
+crashes on any goroutine are also captured as private, raw runtime dumps
+unless local capture is disabled; raw dumps are never uploaded.
 
 ## Enable, disable, inspect
 
@@ -67,6 +68,9 @@ unchanged (the telemetry path above still applies).
 | Opt-in override | `PLENO_DLP_CRASH_REPORTS=0` or `=1` (wins over the file) | unset |
 | Endpoint | `endpoint` in `telemetry.json`, or `PLENO_DLP_CRASH_ENDPOINT` (wins) | `https://crash.plenoai.com/v1/pleno-dlp` |
 | Config/spool root | `PLENO_DLP_TELEMETRY_DIR` | `os.UserConfigDir()/pleno-dlp` |
+| Disable automatic crash capture | `PLENO_DLP_CRASH_DISABLE=1` | unset |
+| Raw runtime dump directory | `PLENO_DLP_CRASH_DIR` | `os.UserCacheDir()/pleno-dlp/crashes` |
+| Print and remove earlier raw dumps on startup | `PLENO_DLP_CRASH_REPORT=1` | unset |
 
 `<config>` is `os.UserConfigDir()`: `~/.config` (or `$XDG_CONFIG_HOME`) on
 Linux, `~/Library/Application Support` on macOS, `%AppData%` on Windows.
@@ -92,12 +96,12 @@ contract shared with the relay is
 | `goos`, `goarch`, `go_version` | platform and toolchain |
 | `command` | subcommand words only, e.g. `scan filesystem` |
 | `flags` | names of recognised flags only, e.g. `["format"]`; never values |
-| `kind` | `panic` / `fatal` (seen by the supervisor), `recovered` (caught in-process), or `crash` (written by `--crash-report`) |
+| `kind` | `panic` / `fatal` (runtime crash classifications), `recovered` (caught in-process), or `crash` (written by `--crash-report`) |
 | `message` | the redacted panic or fatal-error line |
 | `stack` | the redacted goroutine dump |
 | `created_at` | UTC, truncated to the minute |
 
-Example (produced by `pleno-dlp telemetry crash-test --goroutine`):
+Example of the JSON schema (raw goroutine dumps are stored separately):
 
 ```json
 {
@@ -147,18 +151,37 @@ a `...[truncated]` marker.
 
 ## How crashes are captured
 
-- **Sending enabled.** pleno-dlp re-executes itself as a child with the same
-  arguments (`PLENO_DLP_CRASH_CHILD=1`), inherits stdin/stdout, tees stderr,
-  and forwards SIGINT/SIGTERM. When the child exits with status 2 and its
-  stderr carries a Go `panic:` or `fatal error:` dump, the parent builds,
-  spools, and sends a report, then exits with the child's status (or
-  128+signal). This catches panics in any goroutine and runtime fatal errors
-  such as `concurrent map writes`. If re-exec fails, pleno-dlp runs
-  in-process.
-- **Sending disabled (default).** No child process is started. A panic on
-  the main goroutine is recovered, spooled, and re-printed, and the process
-  exits 2. Panics in other goroutines and runtime fatal errors are not
-  captured in this mode.
+Go's `runtime/debug.SetCrashOutput` (Go 1.23+) writes fatal crash output
+straight to a private spool file in the running process. It captures panics
+on any goroutine and runtime fatal errors such as `concurrent map writes`,
+without re-executing the binary, repeating detector registration, forwarding
+signals, or parsing stderr. Ordinary error exits that print `panic:` are
+never mistaken for runtime crashes.
+
+Main-goroutine panics still produce redacted JSON telemetry immediately,
+with the existing upload opt-in and throttling, then re-panic to preserve the
+runtime dump and non-zero exit. `--crash-report` continues to contain a
+main-goroutine panic and writes only the requested local JSON report.
+Panics on other goroutines and runtime fatal errors leave raw dumps for
+local inspection; they do not trigger an automatic JSON upload.
+
+Raw runtime dumps contain the same unredacted text as Go's crash stderr and
+may contain secrets or private paths. They are stored locally under
+`PLENO_DLP_CRASH_DIR` (default: the user's cache directory plus
+`pleno-dlp/crashes`), with directory mode `0700` and file mode `0600`.
+`PLENO_DLP_CRASH_REPORT=1` explicitly prints earlier dumps to stderr on the
+next invocation and deletes each only after a successful write. Without
+that opt-in, dumps remain available for manual inspection. The JSON report
+schema and redaction guarantees below apply to JSON telemetry, not raw dumps.
+
+`PLENO_DLP_CRASH_DISABLE=1` disables automatic local capture and recovered
+panic telemetry; it does not disable an explicitly requested `--crash-report`
+file. Failure to set up capture prints a warning and the CLI continues.
+Normal returns (including findings and command errors) release the crash
+writer and remove the empty spool. Startup keeps the ten newest non-empty
+raw dumps. Empty files are ignored by reporting and pruning because they
+may belong to another live scanner; an abrupt exit or signal can leave an
+empty file that operators can remove once the scanner has stopped.
 
 ## Spool
 

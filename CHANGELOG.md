@@ -10,6 +10,16 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Added
 
+- Capture fatal panics on any goroutine and runtime crashes in-process with
+  `runtime/debug.SetCrashOutput` (Go 1.23+), replacing the re-exec supervisor
+  and stderr parser. Private raw dumps stay local; existing redacted JSON
+  reports and `--crash-report` remain supported. Set
+  `PLENO_DLP_CRASH_DISABLE=1` to opt out, `PLENO_DLP_CRASH_DIR` to relocate
+  raw dumps, and `PLENO_DLP_CRASH_REPORT=1` to print and remove earlier dumps.
+  See [crash telemetry](docs/telemetry.md).
+
+### Added
+
 - Published the `pleno-dlp.crash/v1` crash-report schema as
   [`pkg/telemetry/crash/schema/pleno-dlp.crash.v1.json`](pkg/telemetry/crash/schema/pleno-dlp.crash.v1.json).
   The Go `crash.Report` struct and the `plenoai.com` crash relay are both

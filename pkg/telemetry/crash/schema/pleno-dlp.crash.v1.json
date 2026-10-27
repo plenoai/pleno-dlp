@@ -70,7 +70,7 @@
       "maxItems": 64
     },
     "kind": {
-      "description": "How the crash was captured: panic/fatal observed by the supervisor, recovered caught in-process.",
+      "description": "How the crash was captured: panic/fatal from runtime crashes, recovered caught in-process.",
       "type": "string",
       "enum": ["panic", "fatal", "recovered"]
     },

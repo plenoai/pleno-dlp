@@ -3,6 +3,9 @@
 //
 // The package never prompts and never sends by default. Every report is
 // spooled locally so an operator can inspect it before choosing to send.
-// Reports carry only build metadata, the subcommand path, flag names, and a
+// Install also captures raw runtime dumps locally, including panics on other
+// goroutines and runtime fatal errors. Raw dumps are never uploaded and are
+// read back only on explicit opt-in. Redacted reports carry only build metadata,
+// the subcommand path, flag names, and a
 // redacted panic message and stack; see docs/telemetry.md.
 package crash

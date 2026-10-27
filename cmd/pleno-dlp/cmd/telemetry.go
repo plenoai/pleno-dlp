@@ -24,9 +24,11 @@ var telemetryGetenv = os.Getenv
 var telemetryCmd = &cobra.Command{
 	Use:   "telemetry",
 	Short: "Manage opt-in anonymized crash reports",
-	Long: `Crash reports are disabled by default. When pleno-dlp crashes, a redacted
-report is always written to the local spool; it is uploaded only after
-'pleno-dlp telemetry enable' (or PLENO_DLP_CRASH_REPORTS=1). See docs/telemetry.md.`,
+	Long: `Crash uploads are disabled by default. Main-goroutine panics write a
+redacted local report; it is uploaded only after 'pleno-dlp telemetry enable'
+(or PLENO_DLP_CRASH_REPORTS=1). Fatal runtime dumps are captured locally and
+never uploaded. PLENO_DLP_CRASH_DISABLE=1 disables automatic capture.
+See docs/telemetry.md.`,
 }
 
 var telemetryEnableCmd = &cobra.Command{
@@ -133,7 +135,7 @@ var crashTestGoroutine bool
 
 // telemetryCrashTestCmd exists for end-to-end verification of both capture
 // paths: a main-goroutine panic (recoverable in-process) and a spawned
-// goroutine panic (only the supervisor can observe it).
+// goroutine panic (captured by the runtime crash writer).
 var telemetryCrashTestCmd = &cobra.Command{
 	Use:    "crash-test",
 	Short:  "Deliberately panic to exercise crash reporting",

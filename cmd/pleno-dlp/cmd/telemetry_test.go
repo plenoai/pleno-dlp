@@ -125,7 +125,7 @@ func TestTelemetryCrashTestPanics(t *testing.T) {
 
 func TestTelemetryCrashTestGoroutineFlag(t *testing.T) {
 	// The goroutine variant kills the process, so it is exercised end to
-	// end by pkg/telemetry/crash's supervisor tests; here only its wiring.
+	// end by pkg/telemetry/crash's runtime capture tests; here only its wiring.
 	f := telemetryCrashTestCmd.Flags().Lookup("goroutine")
 	if f == nil || !telemetryCrashTestCmd.Hidden {
 		t.Fatal("crash-test must be hidden and expose --goroutine")

@@ -110,7 +110,7 @@ func TestCrashReport_EndToEnd(t *testing.T) {
 	path := filepath.Join(dir, "crash.json")
 
 	c := exec.Command(hooksGitTestBinary, "--crash-report", path, "telemetry", "crash-test")
-	c.Env = append(os.Environ(), "PLENO_DLP_TELEMETRY_DIR="+dir, "PLENO_DLP_CRASH_REPORTS=0")
+	c.Env = append(os.Environ(), "PLENO_DLP_TELEMETRY_DIR="+dir, "PLENO_DLP_CRASH_REPORTS=0", crash.EnvCrashDir+"="+filepath.Join(dir, "raw"), crash.EnvDisable+"=0", crash.EnvReport+"=0")
 	out, err := c.CombinedOutput()
 	if err == nil {
 		t.Fatalf("crash-test should exit non-zero; output:\n%s", out)
@@ -132,6 +132,9 @@ func TestCrashReport_EndToEnd(t *testing.T) {
 	if !strings.Contains(got.Message, "crash-test") {
 		t.Errorf("message = %q, want the crash-test panic", got.Message)
 	}
+	if entries, err := os.ReadDir(filepath.Join(dir, "raw")); err != nil || len(entries) != 0 {
+		t.Fatalf("contained panic left raw spools: %v %v", entries, err)
+	}
 	// Offline guarantee: the local report must not be spooled or sent.
 	if _, err := os.Stat(filepath.Join(dir, "crash")); !os.IsNotExist(err) {
 		t.Errorf("--crash-report must not spool a telemetry report; stat err = %v", err)
@@ -150,4 +153,125 @@ func TestHandleCrash_DisabledRepanics(t *testing.T) {
 	}()
 	_ = handleCrash("kaboom")
 	t.Fatal("handleCrash should have re-panicked")
+}
+
+// Exercise startup, fatal capture, and readback through the production main.
+func TestRuntimeCrashCapture_EndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives the pleno-dlp binary")
+	}
+	if hooksGitTestBinary == "" {
+		t.Fatal("pleno-dlp test binary was not built")
+	}
+	for _, tc := range []struct{ mode, enabled string }{{"goroutine", "0"}, {"goroutine", "1"}, {"main", "0"}} {
+		t.Run(tc.mode+"-upload-opt-in-"+tc.enabled, func(t *testing.T) {
+			dir := t.TempDir()
+			rawDir := filepath.Join(dir, "raw")
+			env := append(os.Environ(), crash.EnvDir+"="+dir, crash.EnvCrashDir+"="+rawDir,
+				crash.EnvReports+"="+tc.enabled, crash.EnvDisable+"=0", crash.EnvReport+"=0", "GOTRACEBACK=single")
+			args := []string{"telemetry", "crash-test"}
+			if tc.mode == "goroutine" {
+				args = append(args, "--goroutine")
+			}
+			c := exec.Command(hooksGitTestBinary, args...)
+			c.Env = env
+			out, err := c.CombinedOutput()
+			if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 2 {
+				t.Fatalf("crash exit: %v\n%s", err, out)
+			}
+			dumps, err := crash.Pending(rawDir)
+			if err != nil || len(dumps) != 1 {
+				t.Fatalf("Pending: %v %v\n%s", dumps, err, out)
+			}
+			if !strings.Contains(string(dumps[0].Data), "pleno-dlp telemetry crash-test") {
+				t.Fatalf("missing panic: %s", dumps[0].Data)
+			}
+			// A normal invocation must retain earlier dumps unless explicitly asked.
+			c = exec.Command(hooksGitTestBinary, "telemetry", "status")
+			c.Env = env
+			out, err = c.CombinedOutput()
+			if err != nil {
+				t.Fatalf("status: %v\n%s", err, out)
+			}
+			if strings.Contains(string(out), "--- crash report") {
+				t.Fatalf("reported without opt-in: %s", out)
+			}
+			if _, err := os.Stat(dumps[0].Path); err != nil {
+				t.Fatal(err)
+			}
+			c = exec.Command(hooksGitTestBinary, "telemetry", "status")
+			c.Env = append(env, crash.EnvReport+"=1")
+			out, err = c.CombinedOutput()
+			if err != nil || !strings.Contains(string(out), "reported 1 previous crash dump(s)") {
+				t.Fatalf("readback: %v\n%s", err, out)
+			}
+			entries, err := os.ReadDir(rawDir)
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("readback/normal exit left files: %v %v", entries, err)
+			}
+		})
+	}
+}
+
+func TestRuntimeCaptureStartupFailure_EndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives the pleno-dlp binary")
+	}
+	if hooksGitTestBinary == "" {
+		t.Fatal("pleno-dlp test binary was not built")
+	}
+	dir := t.TempDir()
+	invalid := filepath.Join(dir, "file")
+	if err := os.WriteFile(invalid, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := exec.Command(hooksGitTestBinary, "telemetry", "status")
+	c.Env = append(os.Environ(), crash.EnvDir+"="+dir, crash.EnvCrashDir+"="+invalid, crash.EnvDisable+"=0", crash.EnvReports+"=0")
+	out, err := c.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "warning: crash capture disabled:") || !strings.Contains(string(out), "crash reports: disabled") {
+		t.Fatalf("capture failure blocked CLI: %v\n%s", err, out)
+	}
+}
+
+func TestRuntimeCaptureErrorExit_EndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives the pleno-dlp binary")
+	}
+	if hooksGitTestBinary == "" {
+		t.Fatal("pleno-dlp test binary was not built")
+	}
+	dir := t.TempDir()
+	c := exec.Command(hooksGitTestBinary, "--definitely-invalid-flag")
+	c.Env = append(os.Environ(), crash.EnvCrashDir+"="+dir, crash.EnvDisable+"=0", crash.EnvReport+"=0")
+	out, err := c.CombinedOutput()
+	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 2 {
+		t.Fatalf("error exit: %v\n%s", err, out)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("error exit left spools: %v %v", entries, err)
+	}
+}
+
+func TestRuntimeCaptureDisabledReadback_EndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives the pleno-dlp binary")
+	}
+	if hooksGitTestBinary == "" {
+		t.Fatal("pleno-dlp test binary was not built")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "crash-old.dump")
+	if err := os.WriteFile(path, []byte("private old crash"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := exec.Command(hooksGitTestBinary, "telemetry", "status")
+	c.Env = append(os.Environ(), crash.EnvDir+"="+dir, crash.EnvCrashDir+"="+dir, crash.EnvDisable+"=1", crash.EnvReport+"=1", crash.EnvReports+"=0")
+	out, err := c.CombinedOutput()
+	if err != nil || strings.Contains(string(out), "private old crash") {
+		t.Fatalf("disabled readback: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("disabled readback removed dump: %v", err)
+	}
 }

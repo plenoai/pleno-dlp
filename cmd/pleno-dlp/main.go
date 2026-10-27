@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"runtime/debug"
@@ -50,17 +49,22 @@ func main() {
 	ctx := context.Background()
 	rt := crash.New(version, commit, cmd.DescribeInvocation)
 
-	// With crash reports enabled the process becomes a thin supervisor and
-	// exits with the child's status; otherwise it runs the CLI in-process.
-	code, err := rt.Supervise(ctx, os.Args, os.Environ())
-	if err == nil {
-		os.Exit(code)
+	// Close only after Execute returns: a deferred Close would unlink the
+	// spool while a panic unwinds, before the runtime writes its fatal dump.
+	session, installErr := crash.Install(crash.CaptureConfig{})
+	if installErr != nil {
+		fmt.Fprintln(os.Stderr, "warning: crash capture disabled:", installErr)
+	} else if session.Dir() != "" && os.Getenv(crash.EnvReport) == "1" {
+		if n, err := crash.ReportPending(session.Dir(), os.Stderr); err != nil {
+			fmt.Fprintln(os.Stderr, "warning: read previous crash dumps:", err)
+		} else if n > 0 {
+			fmt.Fprintf(os.Stderr, "pleno-dlp: reported %d previous crash dump(s)\n", n)
+		}
 	}
-	if !errors.Is(err, crash.ErrNotSupervised) {
-		fmt.Fprintln(os.Stderr, "pleno-dlp: crash supervisor unavailable, running unsupervised:", err)
-	}
+	defer crash.Recover()
 
-	err = rt.Recover(os.Args[1:], func() error { return cmd.Execute(ctx) })
+	err := rt.Recover(os.Args[1:], func() error { return cmd.Execute(ctx) })
+	session.Close()
 	if err == nil {
 		return
 	}

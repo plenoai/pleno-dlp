@@ -21,7 +21,6 @@ const (
 	EnvReports  = "PLENO_DLP_CRASH_REPORTS"  // "0"/"1" overrides the config file
 	EnvEndpoint = "PLENO_DLP_CRASH_ENDPOINT" // overrides the endpoint
 	EnvDir      = "PLENO_DLP_TELEMETRY_DIR"  // overrides the config/spool root
-	EnvChild    = "PLENO_DLP_CRASH_CHILD"    // set by the supervisor on its child
 )
 
 const configFile = "telemetry.json"

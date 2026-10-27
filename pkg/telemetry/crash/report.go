@@ -44,10 +44,10 @@ const truncatedMarker = "\n...[truncated]"
 type Kind string
 
 const (
-	// KindPanic is an unrecovered panic observed by the supervisor.
+	// KindPanic classifies an unrecovered panic.
 	KindPanic Kind = "panic"
 	// KindFatal is a runtime fatal error (e.g. concurrent map writes)
-	// observed by the supervisor; these cannot be recovered in-process.
+	// that cannot be recovered in-process.
 	KindFatal Kind = "fatal"
 	// KindRecovered is a main-goroutine panic caught by Recover.
 	KindRecovered Kind = "recovered"

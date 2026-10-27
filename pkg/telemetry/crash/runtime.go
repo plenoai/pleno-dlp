@@ -25,23 +25,18 @@ type Runtime struct {
 	// Detectors returns the secret detectors used for redaction; it is a
 	// func so the registry is read after init() self-registration.
 	Detectors func() []detectors.Detector
-	Exit      func(code int)
-	// Executable returns the path to re-exec in Supervise.
-	Executable func() (string, error)
 }
 
 // New returns a Runtime wired to the real process.
 func New(version, commit string, describe func([]string) (string, []string)) *Runtime {
 	return &Runtime{
-		Version:    version,
-		Commit:     commit,
-		Describe:   describe,
-		Getenv:     os.Getenv,
-		Stderr:     os.Stderr,
-		Now:        time.Now,
-		Detectors:  detectors.All,
-		Exit:       os.Exit,
-		Executable: os.Executable,
+		Version:   version,
+		Commit:    commit,
+		Describe:  describe,
+		Getenv:    os.Getenv,
+		Stderr:    os.Stderr,
+		Now:       time.Now,
+		Detectors: detectors.All,
 	}
 }
 
