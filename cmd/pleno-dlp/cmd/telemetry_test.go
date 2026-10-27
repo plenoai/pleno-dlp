@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/telemetry/crash"
+	"github.com/plenoai/pleno-dlp/pkg/telemetry/feedback"
 )
 
 // isolateTelemetry points telemetry commands at a temp dir and a fixed env.
@@ -101,6 +102,17 @@ func TestTelemetrySend(t *testing.T) {
 	defer srv.Close()
 	dir := isolateTelemetry(t, map[string]string{crash.EnvEndpoint: srv.URL})
 	p := spoolSample(t, dir)
+	report, _, err := crash.ReadReport(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	throttle := &crash.Throttle{Dir: dir}
+	if ok, err := throttle.AllowCrash(report.Fingerprint); err != nil || !ok {
+		t.Fatalf("seed throttle: %v, %v", ok, err)
+	}
+	if ok, err := throttle.AllowCrash(report.Fingerprint); err != nil || ok {
+		t.Fatalf("expected automatic upload to be throttled: %v, %v", ok, err)
+	}
 	out, err := runRoot(t, "telemetry", "send", p)
 	if err != nil || got.Message != "panic: sample" || !strings.Contains(out, "sent crash report") {
 		t.Fatalf("send: %v %+v\n%s", err, got, out)
@@ -109,6 +121,23 @@ func TestTelemetrySend(t *testing.T) {
 	_ = os.WriteFile(foreign, []byte(`{"secret":"x"}`), 0o600)
 	if _, err := runRoot(t, "telemetry", "send", foreign); err == nil {
 		t.Fatal("send accepted a non-report file")
+	}
+}
+
+func TestTelemetryTogglePreservesFeedbackEndpoint(t *testing.T) {
+	dir := isolateTelemetry(t, map[string]string{})
+	endpoint := "https://feedback.example.com/v1/pleno-dlp"
+	if err := os.WriteFile(filepath.Join(dir, "telemetry.json"),
+		[]byte(`{"feedback_endpoint":"`+endpoint+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"enable", "disable"} {
+		if _, err := runRoot(t, "telemetry", action); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := feedback.Endpoint(telemetryGetenv); err != nil || got != endpoint {
+			t.Fatalf("after %s: feedback endpoint = %q, %v", action, got, err)
+		}
 	}
 }
 

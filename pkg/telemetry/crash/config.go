@@ -37,8 +37,9 @@ const (
 
 // fileConfig is the on-disk shape of telemetry.json.
 type fileConfig struct {
-	CrashReports bool   `json:"crash_reports"`
-	Endpoint     string `json:"endpoint,omitempty"`
+	CrashReports     bool   `json:"crash_reports"`
+	Endpoint         string `json:"endpoint,omitempty"`
+	FeedbackEndpoint string `json:"feedback_endpoint,omitempty"`
 }
 
 // Config is the resolved telemetry configuration.

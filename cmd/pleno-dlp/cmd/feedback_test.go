@@ -172,3 +172,34 @@ func TestFeedbackThrottledPreservesLocalCopy(t *testing.T) {
 		t.Fatalf("feedback spool missing: %v %v", paths, err)
 	}
 }
+
+func TestFeedbackIgnoresCrashSettings(t *testing.T) {
+	for _, setting := range []string{"0", "1", "invalid"} {
+		t.Run(setting, func(t *testing.T) {
+			srv, reports := feedbackRelay(t)
+			isolateFeedback(t, map[string]string{
+				feedback.EnvEndpoint: srv.URL,
+				crash.EnvReports:     setting,
+				crash.EnvEndpoint:    "invalid crash endpoint",
+			})
+			if _, err := runRoot(t, "feedback", "--yes", "hello"); err != nil {
+				t.Fatal(err)
+			}
+			if len(reports()) != 1 {
+				t.Fatal("explicit feedback was not uploaded")
+			}
+		})
+	}
+}
+
+func TestFeedbackImplicitStdin(t *testing.T) {
+	srv, reports := feedbackRelay(t)
+	isolateFeedback(t, map[string]string{feedback.EnvEndpoint: srv.URL})
+	feedbackCmd.SetIn(strings.NewReader("from stdin\n"))
+	if _, err := runRoot(t, "feedback", "-y"); err != nil {
+		t.Fatal(err)
+	}
+	if got := reports(); len(got) != 1 || got[0].Message != "from stdin" {
+		t.Fatalf("reports = %+v", got)
+	}
+}

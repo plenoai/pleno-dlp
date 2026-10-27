@@ -48,7 +48,9 @@ var feedbackCmd = &cobra.Command{
 	Long: `Send a short message to the pleno-dlp maintainers. The message is redacted
 with the same pipeline as crash reports before it leaves the machine, every
 sent report is also saved to a local spool, and nothing is uploaded until you
-confirm at the terminal (or pass --yes).
+confirm at the terminal (or pass --yes). Feedback ignores the crash opt-in
+and is locally limited to five uploads per hour. With no message argument,
+the message is read from stdin.
 
   pleno-dlp feedback "scan of a 2 GB monorepo OOMs"
   echo "docs typo in verify-coverage.md" | pleno-dlp feedback --stdin`,
@@ -104,11 +106,11 @@ func runFeedback(c *cobra.Command, args []string) error {
 		}
 	}
 
-	cfg, err := crash.Load(feedbackGetenv)
+	root, err := crash.Dir(feedbackGetenv)
 	if err != nil {
 		return err
 	}
-	throttle := &crash.Throttle{Dir: cfg.Dir}
+	throttle := &crash.Throttle{Dir: root}
 	if ok, err := throttle.AllowFeedback(); err != nil {
 		fmt.Fprintf(c.ErrOrStderr(), "feedback: local throttle unavailable (%v); sending anyway\n", err)
 	} else if !ok {
@@ -122,9 +124,9 @@ func runFeedback(c *cobra.Command, args []string) error {
 	return nil
 }
 
-// feedbackMessage resolves the message from --stdin or the positional args.
+// feedbackMessage reads stdin when requested or when no message was given.
 func feedbackMessage(c *cobra.Command, args []string) (string, error) {
-	if feedbackOpts.stdin {
+	if feedbackOpts.stdin || len(args) == 0 {
 		if len(args) > 0 {
 			return "", errors.New("feedback: --stdin cannot be combined with a positional message")
 		}
@@ -171,6 +173,6 @@ func confirmFeedback(c *cobra.Command, report feedback.Report, endpoint string) 
 
 func init() {
 	feedbackCmd.Flags().BoolVar(&feedbackOpts.stdin, "stdin", false, "read the feedback message from stdin instead of arguments")
-	feedbackCmd.Flags().BoolVar(&feedbackOpts.yes, "yes", false, "skip the interactive confirmation prompt and send immediately")
+	feedbackCmd.Flags().BoolVarP(&feedbackOpts.yes, "yes", "y", false, "skip the interactive confirmation prompt and send immediately")
 	Root.AddCommand(feedbackCmd)
 }

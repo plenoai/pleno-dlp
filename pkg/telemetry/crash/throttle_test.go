@@ -1,9 +1,52 @@
 package crash
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestThrottleCorruptStateFailsOpen(t *testing.T) {
+	for _, kind := range []string{"crash", "feedback"} {
+		t.Run(kind, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, throttleFile)
+			if err := os.WriteFile(path, []byte("invalid json"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			th := &Throttle{Dir: dir}
+			var ok bool
+			var err error
+			if kind == "crash" {
+				ok, err = th.AllowCrash("fp")
+			} else {
+				ok, err = th.AllowFeedback()
+			}
+			if err != nil || !ok {
+				t.Fatalf("corrupt state blocked upload: %v, %v", ok, err)
+			}
+			info, err := os.Stat(path)
+			if err != nil || info.Mode().Perm() != 0o600 {
+				t.Fatalf("state permissions: %v, %v", info, err)
+			}
+		})
+	}
+}
+
+func TestThrottleWriteFailureAllowsUpload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	th := &Throttle{Dir: path}
+	if ok, err := th.AllowCrash("fp"); !ok || err == nil {
+		t.Fatalf("write failure: %v, %v", ok, err)
+	}
+	if ok, err := th.AllowFeedback(); !ok || err == nil {
+		t.Fatalf("write failure: %v, %v", ok, err)
+	}
+}
 
 func TestThrottleCrashOnePerFingerprintPerHour(t *testing.T) {
 	dir := t.TempDir()
