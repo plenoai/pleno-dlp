@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 	"hash"
 	"io"
 	"net/http"
@@ -61,7 +62,7 @@ func init() {
 // It exists so a single bad thread (auth/rate/decode error) is visible
 // instead of being silently reported as zero findings.
 var slackWarn = func(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "slack: warning: "+format+"\n", args...)
+	termsafe.Fprintf(os.Stderr, "slack: warning: "+format+"\n", args...)
 }
 
 // scanSlack is the Lambda handler. cfg keys:

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 	"os"
 	"runtime/debug"
 
@@ -71,6 +72,6 @@ func main() {
 	if cmd.IsVerifyError(err) {
 		os.Exit(1)
 	}
-	fmt.Fprintln(os.Stderr, "error:", err)
+	termsafe.Fprintf(os.Stderr, "error: %v\n", err)
 	os.Exit(2)
 }

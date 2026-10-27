@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 	"io"
 	"io/fs"
 	"maps"
@@ -235,7 +236,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 	if gitCfg.TrufflehogCompatible {
 		mergeMode = "off (trufflehog-compatible)"
 	}
-	fmt.Fprintf(os.Stderr, "github: history merge diff mode: %s\n", mergeMode)
+	termsafe.Fprintf(os.Stderr, "github: history merge diff mode: %s\n", mergeMode)
 	if _, err := githubRepoWalkTimeout(cfg); err != nil {
 		return err
 	}
@@ -381,7 +382,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 		if r.Size > 0 {
 			sizeNote = " (" + formatBytes(uint64(r.Size)*1024) + ")"
 		}
-		fmt.Fprintf(os.Stderr, "github: scan %s%s\n", repoKey, sizeNote)
+		termsafe.Fprintf(os.Stderr, "github: scan %s%s\n", repoKey, sizeNote)
 		repoStart := time.Now()
 		prevRepo := previousRepos[repoKey]
 		var nextRepo githubRepoIncrementalState
@@ -394,7 +395,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 				// Never treat a failed freshness probe as evidence that history is
 				// unchanged. Fall through to the regular clone+walk; if that also
 				// fails, the completed history checkpoint remains at prevRepo.
-				fmt.Fprintf(os.Stderr, "WARN: github: pull-ref probe failed for %s, falling back to clone: %v\n", repoKey, probeErr)
+				termsafe.Fprintf(os.Stderr, "WARN: github: pull-ref probe failed for %s, falling back to clone: %v\n", repoKey, probeErr)
 			} else {
 				unchanged = maps.Equal(prevRepo.PullRefHeads, currentPullRefs)
 			}
@@ -405,7 +406,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 			// Carry the state; REST collaboration surfaces still run below.
 			nextRepo = prevRepo
 			nextRepo.Visibility = githubVisibility(r)
-			fmt.Fprintf(os.Stderr, "github: scan %s unchanged since last run (pushed_at %s, pull refs verified), clone skipped\n", repoKey, r.PushedAt)
+			termsafe.Fprintf(os.Stderr, "github: scan %s unchanged since last run (pushed_at %s, pull refs verified), clone skipped\n", repoKey, r.PushedAt)
 		} else {
 			var err error
 			seed := githubHistoryWalkSeed(prevRepo, historyPolicy)
@@ -427,13 +428,13 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 					nextRepo.Visibility = githubVisibility(r)
 					nextRepo.RefHeads = nil
 					nextRepo.PullRefHeads = map[string]string{}
-					fmt.Fprintf(os.Stderr, "github: scan %s has no history refs, history skipped\n", repoKey)
+					termsafe.Fprintf(os.Stderr, "github: scan %s has no history refs, history skipped\n", repoKey)
 				} else if acceptedImmutableGap {
-					fmt.Fprintf(os.Stderr, "WARN: github: scan completed with explicitly allowed immutable coverage gaps for %s after %s; retaining ref heads: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
+					termsafe.Fprintf(os.Stderr, "WARN: github: scan completed with explicitly allowed immutable coverage gaps for %s after %s; retaining ref heads: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
 				} else if retainedImmutableHeads {
-					fmt.Fprintf(os.Stderr, "WARN: github: scan completed with non-allowed immutable coverage gaps for %s after %s; retaining previous ref heads: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
+					termsafe.Fprintf(os.Stderr, "WARN: github: scan completed with non-allowed immutable coverage gaps for %s after %s; retaining previous ref heads: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
 				} else {
-					fmt.Fprintf(os.Stderr, "WARN: github: scan failed for %s after %s, skipping: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
+					termsafe.Fprintf(os.Stderr, "WARN: github: scan failed for %s after %s, skipping: %v\n", repoKey, time.Since(repoStart).Round(time.Second), err)
 				}
 				if !errors.Is(err, gitsource.ErrNoBranchHeads) {
 					surfaceFailures = append(surfaceFailures, githubSurfaceFailure{Surface: "repository-history", Err: err})
@@ -460,7 +461,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 				// keep the new RefHeads and the previous comment cursors so
 				// neither side full-rescans next run. A partially emitted
 				// comment page may re-emit then; dedup downstream absorbs it.
-				fmt.Fprintf(os.Stderr, "WARN: github: comment scan failed for %s, skipping: %v\n", repoKey, err)
+				termsafe.Fprintf(os.Stderr, "WARN: github: comment scan failed for %s, skipping: %v\n", repoKey, err)
 				merged := nextRepo
 				merged.IssueComments = commentPrev.IssueComments
 				merged.PullReviewComments = commentPrev.PullReviewComments
@@ -490,7 +491,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 				surfaceFailures = append(surfaceFailures, githubSurfaceFailure{Surface: "repository-pull-requests", Err: err})
 			}
 		}
-		fmt.Fprintf(os.Stderr, "github: scan %s done in %s\n", repoKey, time.Since(repoStart).Round(time.Second))
+		termsafe.Fprintf(os.Stderr, "github: scan %s done in %s\n", repoKey, time.Since(repoStart).Round(time.Second))
 		stats := githubUnitStats{CostItems: 1}
 		if empty {
 			stats.Skipped = "empty"
@@ -551,7 +552,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 		if flush := IncrementalFlushFromContext(ctx); flush != nil && time.Since(lastFlush) >= githubIncrementalFlushInterval {
 			if data, err := json.Marshal(nextState); err == nil {
 				if ferr := flush(data); ferr != nil {
-					fmt.Fprintf(os.Stderr, "WARN: github incremental flush failed after %s: %v\n", result.Unit.ID, ferr)
+					termsafe.Fprintf(os.Stderr, "WARN: github incremental flush failed after %s: %v\n", result.Unit.ID, ferr)
 				}
 				lastFlush = time.Now()
 			}
@@ -580,17 +581,17 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 	} else {
 		finalFlushErr = fmt.Errorf("github: marshal final incremental state: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "github: org scan complete: %d units, concurrency %d, %d unchanged, %d empty, wiki-disabled=%d wiki-missing=%d, %d filtered (fork=%d archived=%d excluded=%d not-included=%d duplicate=%d), %d failed, %d items, %d bytes, peak %d pending, took %s\n",
+	termsafe.Fprintf(os.Stderr, "github: org scan complete: %d units, concurrency %d, %d unchanged, %d empty, wiki-disabled=%d wiki-missing=%d, %d filtered (fork=%d archived=%d excluded=%d not-included=%d duplicate=%d), %d failed, %d items, %d bytes, peak %d pending, took %s\n",
 		stats.Total, concurrency, stats.Skipped["unchanged"], stats.Skipped["empty"],
 		stats.Skipped["wiki-disabled"], stats.Skipped["wiki-missing"],
 		enumerationSkipped["fork"]+enumerationSkipped["archived"]+enumerationSkipped["excluded"]+enumerationSkipped["not-included"]+enumerationSkipped["duplicate"],
 		enumerationSkipped["fork"], enumerationSkipped["archived"], enumerationSkipped["excluded"], enumerationSkipped["not-included"], enumerationSkipped["duplicate"],
 		stats.Failed, stats.CostItems, stats.CostBytes, stats.PeakInFlight, time.Since(orgStart).Round(time.Second))
 	if prunedState > 0 {
-		fmt.Fprintf(os.Stderr, "github: incremental state pruned=%d\n", prunedState)
+		termsafe.Fprintf(os.Stderr, "github: incremental state pruned=%d\n", prunedState)
 	}
 	rateWait, constrainedAcquisitions := cli.rateCoordinationStats()
-	fmt.Fprintf(os.Stderr, "github: rate coordination: %d constrained request acquisition(s), %s aggregate permit wait\n", constrainedAcquisitions, rateWait.Round(time.Millisecond))
+	termsafe.Fprintf(os.Stderr, "github: rate coordination: %d constrained request acquisition(s), %s aggregate permit wait\n", constrainedAcquisitions, rateWait.Round(time.Millisecond))
 	if unitFailureTotal > 0 {
 		degraded := &engine.DegradedError{
 			Total:    unitFailureTotal,
@@ -705,7 +706,7 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 		}
 		return githubRepoIncrementalState{}, fmt.Errorf("github: clone %s/%s: %w", repo.Owner.Login, repo.Name, err)
 	}
-	fmt.Fprintf(os.Stderr, "github: clone %s done in %s (%s)\n", repoKey, time.Since(cloneStart).Round(time.Second), cloneMethodLabel(usedNative))
+	termsafe.Fprintf(os.Stderr, "github: clone %s done in %s (%s)\n", repoKey, time.Since(cloneStart).Round(time.Second), cloneMethodLabel(usedNative))
 	if githubCloneBytesObserver != nil {
 		githubCloneBytesObserver(repoKey, directoryBytes(dir))
 	}
@@ -844,7 +845,7 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 	if err := walkCtx.Err(); err != nil {
 		return githubRepoIncrementalState{}, normalizeGitHubRepoWalkError(ctx, repoKey, walkTimeout, err)
 	}
-	fmt.Fprintf(os.Stderr, "github: walk %s done: %d chunks in %s\n", repoKey, hb.chunks.Load(), time.Since(walkStart).Round(time.Second))
+	termsafe.Fprintf(os.Stderr, "github: walk %s done: %d chunks in %s\n", repoKey, hb.chunks.Load(), time.Since(walkStart).Round(time.Second))
 
 	next := githubRepoIncrementalState{
 		Mode:       githubScanModeHistory,

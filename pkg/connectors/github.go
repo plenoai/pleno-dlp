@@ -42,6 +42,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 	"hash"
 	"io"
 	"net"
@@ -771,7 +772,7 @@ func scanGitHubPullRequestsIncremental(ctx context.Context, cli *githubClient, r
 		nextPath = next
 	}
 	if timeframeItems > 0 || avoidedPages > 0 {
-		fmt.Fprintf(os.Stderr, "github: PR timeframe %s/%s fetched %d pages, skipped %d old items, avoided at least %d pages\n", repo.Owner.Login, repo.Name, pages, timeframeItems, avoidedPages)
+		termsafe.Fprintf(os.Stderr, "github: PR timeframe %s/%s fetched %d pages, skipped %d old items, avoided at least %d pages\n", repo.Owner.Login, repo.Name, pages, timeframeItems, avoidedPages)
 	}
 	return nil
 }
@@ -1369,7 +1370,7 @@ func (c *githubClient) waitForBucket(ctx context.Context) error {
 	// この待ちは quota 全消費後の reset 待ちで、 数十分に及び得る。
 	// サイレントに寝ると外部からはハングと区別できないので必ず残す。
 	if delay > 30*time.Second {
-		fmt.Fprintf(os.Stderr, "pleno-dlp: github rate limit exhausted, sleeping %s until reset\n", delay.Round(time.Second))
+		termsafe.Fprintf(os.Stderr, "pleno-dlp: github rate limit exhausted, sleeping %s until reset\n", delay.Round(time.Second))
 	}
 	select {
 	case <-ctx.Done():
@@ -1383,7 +1384,7 @@ func (c *githubClient) waitForBucket(ctx context.Context) error {
 // silently here before; the ECS runbook decides liveness from log output, so
 // every sleep longer than a heartbeat must leave a trace.
 func logGitHubWait(cause string, wait time.Duration, attempt, maxAttempts int) {
-	fmt.Fprintf(os.Stderr, "pleno-dlp: github %s, waiting %s before retry (attempt %d/%d)\n",
+	termsafe.Fprintf(os.Stderr, "pleno-dlp: github %s, waiting %s before retry (attempt %d/%d)\n",
 		cause, wait.Round(time.Second), attempt, maxAttempts)
 }
 

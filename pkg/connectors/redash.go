@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 	"hash"
 	"io"
 	"net/http"
@@ -328,5 +329,5 @@ func (c *redashClient) getQueryResult(ctx context.Context, queryID int) (*redash
 }
 
 var redashWarn = func(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "redash: warning: "+format+"\n", args...)
+	termsafe.Fprintf(os.Stderr, "redash: warning: "+format+"\n", args...)
 }

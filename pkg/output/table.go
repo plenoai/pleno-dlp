@@ -9,6 +9,7 @@ import (
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 )
 
 // tableSink renders findings as a column-aligned ASCII table. The header is
@@ -40,11 +41,14 @@ func (s *tableSink) Emit(f engine.Finding) {
 	// column: existing table-format consumers that grep/awk fixed
 	// column positions still find DETECTOR..REDACTED unchanged.
 	fmt.Fprintf(s.tw, "%s\t%s\t%s\t%s\t%s\n",
-		f.Detector.String(),
+		// Location, redacted value and suppression label come from scanned
+		// content; escape controls (incl. tabs/newlines) so they can't
+		// rewrite the terminal or break column alignment.
+		termsafe.String(f.Detector.String()),
 		verdictSymbol(f),
-		tableLocationOf(f),
-		f.Result.Redacted,
-		f.SuppressedBy,
+		termsafe.String(tableLocationOf(f)),
+		termsafe.String(f.Result.Redacted),
+		termsafe.String(f.SuppressedBy),
 	)
 }
 

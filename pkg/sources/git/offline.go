@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 	"io"
 	"os"
 	"os/exec"
@@ -687,9 +688,9 @@ drain:
 		return err
 	}
 	if w.skipped > 0 {
-		fmt.Fprintf(os.Stderr, "git: %s: skipped %d promisor-omitted blob changes (intentional partial-clone boundary)\n", s.repoAbs, w.skipped)
+		termsafe.Fprintf(os.Stderr, "git: %s: skipped %d promisor-omitted blob changes (intentional partial-clone boundary)\n", s.repoAbs, w.skipped)
 		for _, entry := range w.skipSample {
-			fmt.Fprintf(os.Stderr, "git: %s: skipped omitted blob %s\n", s.repoAbs, entry)
+			termsafe.Fprintf(os.Stderr, "git: %s: skipped omitted blob %s\n", s.repoAbs, entry)
 		}
 	}
 	var metadataErr error

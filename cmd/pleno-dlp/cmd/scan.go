@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 	"io"
 	"os"
 	"os/signal"
@@ -1240,7 +1241,7 @@ func prepareIncremental(ctx context.Context, kind string, cfg []byte, src source
 		return "", nil, nil, fmt.Errorf("--incremental is not supported for %s source", kind)
 	}
 	if !scanOpts.quiet {
-		fmt.Fprintf(os.Stderr, "incremental: fingerprinting %s resources\n", kind)
+		termsafe.Fprintf(os.Stderr, "incremental: fingerprinting %s resources\n", kind)
 	}
 	resourceFP, err := fp.ResourceFingerprint(ctx)
 	if err != nil {
