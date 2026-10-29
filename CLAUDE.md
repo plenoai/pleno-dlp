@@ -55,6 +55,7 @@ without invoking the orchestrator.
 | Date | Owners | Change |
 |---|---|---|
 | 2026-10-30 | core-engineer, connector-engineer, qa | Move the diff reducer into `pkg/sources/stdin` and thread its per-line path:line map into `StdinMeta.Locations` (protect, git/cursor hooks, `scan stdin --diff`) so allowlist `path` entries match diff findings; preserve each occurrence across files to prevent cross-file suppression (#502). |
+| 2026-10-30 | Codex | Add a local-only false-positive feedback path that rescans one file and sends a safe match plus raw hashes under feedback schema v2 (#592). |
 | 2026-10-30 | detector-engineer, core-engineer, qa | Enforce shared Raw/RawV2-safe displays at built-in detector returns and output boundaries; check every detector fixture through a common redaction assertion (#503). |
 | 2026-10-30 | connector-engineer, qa | Scope native Git Authorization headers to the validated clone URL and reject redirects for authenticated clone/ref probes; exercise same-origin path redirects with real Git (#458). |
 | 2026-10-27 | core-engineer, qa | Reconcile #611 with the dedicated feedback relay and spool: keep crash opt-in independent, preserve the feedback endpoint on telemetry toggles, support implicit stdin and `-y`, and verify local throttling and explicit send behavior. |

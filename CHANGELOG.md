@@ -19,6 +19,9 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 - `scan stdin --diff` parses a unified diff, scans only added lines, and
   reports each finding at the file and line it came from.
+- False-positive feedback can rescan one local file offline and include one
+  selected detector's safe redacted match and SHA-256 hashes in feedback
+  schema v2; raw values and source paths are not sent.
 - Published the `pleno-dlp.crash/v1` crash-report schema as
   [`pkg/telemetry/crash/schema/pleno-dlp.crash.v1.json`](pkg/telemetry/crash/schema/pleno-dlp.crash.v1.json).
   The Go `crash.Report` struct and the `plenoai.com` crash relay are both

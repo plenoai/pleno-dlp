@@ -90,8 +90,20 @@ func ReadReport(path string) (Report, []byte, error) {
 	if err := dec.Decode(&r); err != nil {
 		return r, nil, fmt.Errorf("%s: not a feedback report: %w", path, err)
 	}
-	if r.Schema != Schema {
-		return r, nil, fmt.Errorf("%s: schema %q, want %q", path, r.Schema, Schema)
+	switch r.Schema {
+	case Schema:
+		if r.Match != nil {
+			return r, nil, fmt.Errorf("%s: schema %q cannot contain match context", path, Schema)
+		}
+	case SchemaV2:
+		if r.Match == nil {
+			return r, nil, fmt.Errorf("%s: schema %q requires match context", path, SchemaV2)
+		}
+		if err := validateMatch(*r.Match); err != nil {
+			return r, nil, fmt.Errorf("%s: invalid match context: %w", path, err)
+		}
+	default:
+		return r, nil, fmt.Errorf("%s: schema %q, want %q or %q", path, r.Schema, Schema, SchemaV2)
 	}
 	return r, b, nil
 }
