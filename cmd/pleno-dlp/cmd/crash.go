@@ -21,6 +21,8 @@ import (
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/telemetry/crash"
+
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 )
 
 // crashReportFlagName is the root persistent flag that opts a process into
@@ -52,9 +54,9 @@ func handleCrash(panicValue any) error {
 	report := crash.Build(crash.KindCrash, fmt.Sprintf("panic: %v", panicValue), string(debug.Stack()),
 		meta, crash.NewRedactor(os.Getenv, detectors.All), time.Now())
 	if err := crash.WriteFile(crashReportPath, report); err != nil {
-		fmt.Fprintf(os.Stderr, "pleno-dlp: %v\n", err)
+		termsafe.Fprintf(os.Stderr, "pleno-dlp: %v\n", err)
 	} else {
-		fmt.Fprintf(os.Stderr, "pleno-dlp: crash report written to %s\n", crashReportPath)
+		termsafe.Fprintf(os.Stderr, "pleno-dlp: crash report written to %s\n", crashReportPath)
 	}
 	return fmt.Errorf("internal error: %v", panicValue)
 }

@@ -23,6 +23,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 )
 
 const (
@@ -391,7 +393,7 @@ func installClaudeCodeHook(cmd *cobra.Command) error {
 	}
 
 	if state == "unchanged" {
-		fmt.Fprintf(cmd.OutOrStdout(), "claude-code hook already installed in %s (PreToolUse Edit|Write -> %s)\n", claudeSettingsPath, claudeHookCommand)
+		termsafe.Fprintf(cmd.OutOrStdout(), "claude-code hook already installed in %s (PreToolUse Edit|Write -> %s)\n", claudeSettingsPath, claudeHookCommand)
 		return nil
 	}
 
@@ -409,7 +411,7 @@ func installClaudeCodeHook(cmd *cobra.Command) error {
 		return err
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "%s claude-code hook:\n  script:   %s\n  settings: %s\n  trigger:  PreToolUse Edit|Write -> %s\n",
+	termsafe.Fprintf(cmd.OutOrStdout(), "%s claude-code hook:\n  script:   %s\n  settings: %s\n  trigger:  PreToolUse Edit|Write -> %s\n",
 		map[string]string{"installed": "installed", "updated": "updated"}[state], claudeScriptPath, claudeSettingsPath, claudeHookCommand)
 	return nil
 }
@@ -450,7 +452,7 @@ func uninstallClaudeCodeHook(cmd *cobra.Command) error {
 	}
 
 	if !removed {
-		fmt.Fprintf(cmd.OutOrStdout(), "claude-code hook not installed in %s; nothing to do\n", claudeSettingsPath)
+		termsafe.Fprintf(cmd.OutOrStdout(), "claude-code hook not installed in %s; nothing to do\n", claudeSettingsPath)
 		return nil
 	}
 
@@ -479,7 +481,7 @@ func uninstallClaudeCodeHook(cmd *cobra.Command) error {
 		return err
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "uninstalled claude-code hook: removed PreToolUse entry from %s and deleted %s\n", claudeSettingsPath, claudeScriptPath)
+	termsafe.Fprintf(cmd.OutOrStdout(), "uninstalled claude-code hook: removed PreToolUse entry from %s and deleted %s\n", claudeSettingsPath, claudeScriptPath)
 	return nil
 }
 
@@ -533,12 +535,12 @@ func (p claudeHookPayload) scanClaudeContent() string {
 func runHookClaudeCode(cmd *cobra.Command) error {
 	raw, err := io.ReadAll(cmd.InOrStdin())
 	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: read hook payload: %v — allowing\n", err)
+		termsafe.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: read hook payload: %v — allowing\n", err)
 		return nil
 	}
 	var payload claudeHookPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: parse hook payload: %v — allowing\n", err)
+		termsafe.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: parse hook payload: %v — allowing\n", err)
 		return nil
 	}
 	content := payload.scanClaudeContent()
@@ -548,7 +550,7 @@ func runHookClaudeCode(cmd *cobra.Command) error {
 
 	records, err := scanOfflineFunc([]byte(content))
 	if err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: %v — allowing\n", err)
+		termsafe.Fprintf(cmd.ErrOrStderr(), "hooks run claude-code: %v — allowing\n", err)
 		return nil
 	}
 	n := len(records)
@@ -626,7 +628,7 @@ func installCursorHook(cmd *cobra.Command) error {
 	}
 
 	if state == "unchanged" {
-		fmt.Fprintf(cmd.OutOrStdout(), "cursor hook already installed in %s (%s -> %s)\n", cursorHooksPath, cursorHookEvent, cursorHookCommand)
+		termsafe.Fprintf(cmd.OutOrStdout(), "cursor hook already installed in %s (%s -> %s)\n", cursorHooksPath, cursorHookEvent, cursorHookCommand)
 		return nil
 	}
 
@@ -645,7 +647,7 @@ func installCursorHook(cmd *cobra.Command) error {
 		return err
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "%s cursor hook:\n  script: %s\n  config: %s\n  trigger: %s (gates `git commit`) -> %s\n",
+	termsafe.Fprintf(cmd.OutOrStdout(), "%s cursor hook:\n  script: %s\n  config: %s\n  trigger: %s (gates `git commit`) -> %s\n",
 		state, cursorScriptPath, cursorHooksPath, cursorHookEvent, cursorHookCommand)
 	return nil
 }
@@ -679,7 +681,7 @@ func uninstallCursorHook(cmd *cobra.Command) error {
 	}
 
 	if !removed {
-		fmt.Fprintf(cmd.OutOrStdout(), "cursor hook not installed in %s; nothing to do\n", cursorHooksPath)
+		termsafe.Fprintf(cmd.OutOrStdout(), "cursor hook not installed in %s; nothing to do\n", cursorHooksPath)
 		return nil
 	}
 
@@ -708,7 +710,7 @@ func uninstallCursorHook(cmd *cobra.Command) error {
 		return err
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "uninstalled cursor hook: removed %s entry from %s and deleted %s\n", cursorHookEvent, cursorHooksPath, cursorScriptPath)
+	termsafe.Fprintf(cmd.OutOrStdout(), "uninstalled cursor hook: removed %s entry from %s and deleted %s\n", cursorHookEvent, cursorHooksPath, cursorScriptPath)
 	return nil
 }
 
@@ -780,7 +782,7 @@ func runHookCursor(cmd *cobra.Command) error {
 
 func allowCursor(cmd *cobra.Command, warnMsg string) error {
 	if warnMsg != "" {
-		fmt.Fprintf(cmd.ErrOrStderr(), "hooks run cursor: %s — allowing\n", warnMsg)
+		termsafe.Fprintf(cmd.ErrOrStderr(), "hooks run cursor: %s — allowing\n", warnMsg)
 	}
 	return writeCursorPermission(cmd, cursorPermissionOutput{Permission: "allow"})
 }
@@ -863,7 +865,7 @@ func runHookGit(cmd *cobra.Command) error {
 	errw := cmd.ErrOrStderr()
 	buf, origins, err := collectDiffForScanFunc(cmd.Context(), "", true)
 	if err != nil {
-		fmt.Fprintf(errw, "pleno-dlp: hooks run git: %v — allowing commit\n", err)
+		termsafe.Fprintf(errw, "pleno-dlp: hooks run git: %v — allowing commit\n", err)
 		return nil
 	}
 	if len(origins) == 0 {
@@ -871,7 +873,7 @@ func runHookGit(cmd *cobra.Command) error {
 	}
 	records, err := stagedScanFunc(cmd, buf)
 	if err != nil {
-		fmt.Fprintf(errw, "pleno-dlp: hooks run git: %v — allowing commit\n", err)
+		termsafe.Fprintf(errw, "pleno-dlp: hooks run git: %v — allowing commit\n", err)
 		return nil
 	}
 	blocking := findingsAtOrAbove(records, threshold)
@@ -888,9 +890,9 @@ func runHookGit(cmd *cobra.Command) error {
 				where = fmt.Sprintf("%s:%d", o.path, o.line)
 			}
 		}
-		fmt.Fprintf(errw, "  %-8s %-24s %-12s %s\n", r.Severity, r.Detector, maskRedacted(r.Redacted), where)
+		termsafe.Fprintf(errw, "  %-8s %-24s %-12s %s\n", r.Severity, r.Detector, maskRedacted(r.Redacted), where)
 	}
-	fmt.Fprintf(errw, gitHookBlockedFmt, len(blocking), level)
+	termsafe.Fprintf(errw, gitHookBlockedFmt, len(blocking), level)
 	return errFindingsFound
 }
 
@@ -956,7 +958,7 @@ func installGitHook(cmd *cobra.Command) error {
 		return fmt.Errorf("hooks install git: %s already exists and was not written by pleno-dlp; refusing to overwrite. "+
 			"Run `pleno-dlp hooks print git` and merge its last line into your hook by hand", path)
 	case err == nil && string(existing) == script:
-		fmt.Fprintf(cmd.OutOrStdout(), "git pre-commit hook already installed at %s\n", path)
+		termsafe.Fprintf(cmd.OutOrStdout(), "git pre-commit hook already installed at %s\n", path)
 		return nil
 	case err == nil:
 		state = "updated"
@@ -973,7 +975,7 @@ func installGitHook(cmd *cobra.Command) error {
 	if err := os.Chmod(path, 0o755); err != nil {
 		return fmt.Errorf("hooks install git: chmod %s: %w", path, err)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s git pre-commit hook:\n  path:    %s\n  fail-on: %s\n", state, path, hooksFailOn)
+	termsafe.Fprintf(cmd.OutOrStdout(), "%s git pre-commit hook:\n  path:    %s\n  fail-on: %s\n", state, path, hooksFailOn)
 	return nil
 }
 
@@ -985,19 +987,19 @@ func uninstallGitHook(cmd *cobra.Command) error {
 	path := filepath.Join(dir, "pre-commit")
 	existing, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		fmt.Fprintf(cmd.OutOrStdout(), "git pre-commit hook not installed at %s; nothing to do\n", path)
+		termsafe.Fprintf(cmd.OutOrStdout(), "git pre-commit hook not installed at %s; nothing to do\n", path)
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("hooks uninstall git: read %s: %w", path, err)
 	}
 	if !strings.Contains(string(existing), gitHookMarker) {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s was not written by pleno-dlp; leaving it untouched\n", path)
+		termsafe.Fprintf(cmd.OutOrStdout(), "%s was not written by pleno-dlp; leaving it untouched\n", path)
 		return nil
 	}
 	if err := removeHookScript(path); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "uninstalled git pre-commit hook: deleted %s\n", path)
+	termsafe.Fprintf(cmd.OutOrStdout(), "uninstalled git pre-commit hook: deleted %s\n", path)
 	return nil
 }

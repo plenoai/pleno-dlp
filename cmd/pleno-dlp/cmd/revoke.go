@@ -23,6 +23,8 @@ import (
 	slackdet "github.com/plenoai/pleno-dlp/pkg/detectors/slack"
 	stripedet "github.com/plenoai/pleno-dlp/pkg/detectors/stripe"
 	"github.com/plenoai/pleno-dlp/pkg/verify"
+
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 )
 
 // revokeFlags collects `pleno-dlp revoke` options.
@@ -112,7 +114,7 @@ func runRevoke(cmd *cobra.Command, _ []string) error {
 	}
 	if revokeOpts.confirm && !revokeOpts.dryRun {
 		if !isInteractiveStdin(cmd.InOrStdin()) && os.Getenv(EnvAllowRevoke) != "1" {
-			fmt.Fprintf(cmd.ErrOrStderr(),
+			termsafe.Fprintf(cmd.ErrOrStderr(),
 				"revoke: refusing to proceed in a non-interactive context without %s=1\n", EnvAllowRevoke)
 			return errRevokeRefused
 		}
@@ -312,15 +314,15 @@ func emitRevoke(cmd *cobra.Command, format string, rec revokeRecord) {
 		// Table-style: human-readable line on stderr.
 		switch {
 		case rec.DryRun:
-			fmt.Fprintf(cmd.ErrOrStderr(), "DRY-RUN: would revoke %s secret %s\n", rec.Detector, rec.RedactedSecret)
+			termsafe.Fprintf(cmd.ErrOrStderr(), "DRY-RUN: would revoke %s secret %s\n", rec.Detector, rec.RedactedSecret)
 		case rec.Revoked && rec.Error == "":
-			fmt.Fprintf(cmd.ErrOrStderr(), "OK: revoked %s secret %s\n", rec.Detector, rec.RedactedSecret)
+			termsafe.Fprintf(cmd.ErrOrStderr(), "OK: revoked %s secret %s\n", rec.Detector, rec.RedactedSecret)
 		case rec.Revoked && rec.Error != "":
-			fmt.Fprintf(cmd.ErrOrStderr(), "OK: revoked (idempotent) %s secret %s — %s\n", rec.Detector, rec.RedactedSecret, rec.Error)
+			termsafe.Fprintf(cmd.ErrOrStderr(), "OK: revoked (idempotent) %s secret %s — %s\n", rec.Detector, rec.RedactedSecret, rec.Error)
 		case !rec.Revoked && rec.Error != "":
-			fmt.Fprintf(cmd.ErrOrStderr(), "FAIL: %s secret %s — %s\n", rec.Detector, rec.RedactedSecret, rec.Error)
+			termsafe.Fprintf(cmd.ErrOrStderr(), "FAIL: %s secret %s — %s\n", rec.Detector, rec.RedactedSecret, rec.Error)
 		default:
-			fmt.Fprintf(cmd.ErrOrStderr(), "FAIL: %s secret %s — provider declined revocation\n", rec.Detector, rec.RedactedSecret)
+			termsafe.Fprintf(cmd.ErrOrStderr(), "FAIL: %s secret %s — provider declined revocation\n", rec.Detector, rec.RedactedSecret)
 		}
 	}
 }
