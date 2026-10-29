@@ -10,6 +10,7 @@ package connectors
 import (
 	"context"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"io"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,9 +50,11 @@ func TestNativeGitAuthEnv(t *testing.T) {
 			cloneURL: "https://github.com/acme/widget.git",
 			token:    token,
 			want: []string{
-				"GIT_CONFIG_COUNT=1",
-				"GIT_CONFIG_KEY_0=http.extraheader",
+				"GIT_CONFIG_COUNT=2",
+				"GIT_CONFIG_KEY_0=http.https://github.com/acme/widget.git.extraheader",
 				"GIT_CONFIG_VALUE_0=Authorization: Basic " + basic,
+				"GIT_CONFIG_KEY_1=http.followRedirects",
+				"GIT_CONFIG_VALUE_1=false",
 			},
 		},
 		{
@@ -78,6 +82,103 @@ func TestNativeGitAuthEnv(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNativeGitAuthRedirect(t *testing.T) {
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+	token := "fixture-token"
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+token))
+	var mu sync.Mutex
+	var sourceAuth, redirectAuth, otherPathAuth string
+	var redirectRequests, otherPathRequests int
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.URL.Path {
+		case "/repo.git/info/refs":
+			sourceAuth = r.Header.Get("Authorization")
+			http.Redirect(w, r, "/redirected/repo.git/info/refs?service=git-upload-pack", http.StatusFound)
+		case "/redirected/repo.git/info/refs":
+			redirectRequests++
+			redirectAuth = r.Header.Get("Authorization")
+			w.WriteHeader(http.StatusNotFound)
+		case "/other.git/info/refs":
+			otherPathRequests++
+			otherPathAuth = r.Header.Get("Authorization")
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	caPath := filepath.Join(t.TempDir(), "ca.pem")
+	ca, err := os.Create(caPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pem.Encode(ca, &pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}); err != nil {
+		_ = ca.Close()
+		t.Fatal(err)
+	}
+	if err := ca.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	serverURL := server.URL
+	cloneURL := serverURL + "/repo.git"
+	testEnv := []string{
+		"PATH=" + os.Getenv("PATH"),
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_TERMINAL_PROMPT=0",
+		"NO_PROXY=127.0.0.1",
+		"HTTPS_PROXY=",
+		"HTTP_PROXY=",
+		"GIT_SSL_CAINFO=" + caPath,
+	}
+	runGit := func(args []string, url string) error {
+		t.Helper()
+		cmd := exec.Command(gitBin, args...)
+		cmd.Env = append(append([]string(nil), testEnv...), nativeGitAuthEnv(url, token)...)
+		return cmd.Run()
+	}
+	for _, tc := range []struct {
+		name string
+		args func(string) []string
+	}{
+		{name: "pull ref probe", args: nativeGitPullRefArgs},
+		{name: "mirror clone", args: func(url string) []string { return nativeGitCloneArgs(url, filepath.Join(t.TempDir(), "clone.git")) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := runGit(tc.args(cloneURL), cloneURL); err == nil {
+				t.Fatal("Git followed a redirect despite the authenticated redirect policy")
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if sourceAuth != wantAuth {
+				t.Errorf("origin Authorization = %q, want fixture credentials", sourceAuth)
+			}
+			if redirectRequests != 0 || redirectAuth != "" {
+				t.Errorf("redirect target received a request: count=%d authorization=%q", redirectRequests, redirectAuth)
+			}
+		})
+	}
+
+	if err := runGit(nativeGitPullRefArgs(serverURL+"/other.git"), cloneURL); err == nil {
+		t.Fatal("expected the fixture's non-repository response")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if otherPathRequests == 0 {
+		t.Fatal("Git did not request the non-matching path")
+	}
+	if otherPathAuth != "" {
+		t.Errorf("non-matching path received Authorization: %q", otherPathAuth)
 	}
 }
 
