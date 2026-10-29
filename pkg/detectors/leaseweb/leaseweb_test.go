@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -30,7 +31,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_FoundPair(t *testing.T) {
 	body := []byte("leaseweb_key=" + dummyKey + "\nleaseweb_secret=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1 paired result, got 0")
 	}
@@ -41,7 +42,7 @@ func TestFromData_FoundPair(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte(dummyKey + " " + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without leaseweb keyword, got %d", len(res))
 	}

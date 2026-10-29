@@ -4,13 +4,14 @@ package basicauth
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
 
 func TestFromData_HTTPS(t *testing.T) {
 	// "admin" is a denylisted placeholder user; use a real-looking user so
 	// this remains a true-positive fixture.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("https://svcacct:p4ssw0rdXz@api.example.com/v1"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("https://svcacct:p4ssw0rdXz@api.example.com/v1"))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -24,7 +25,7 @@ func TestFromData_HTTPS(t *testing.T) {
 
 func TestFromData_FTP(t *testing.T) {
 	// "secret" is a denylisted placeholder; use a realistic password.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("ftp://user:Gh7xQ2pL9@files.example.com"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("ftp://user:Gh7xQ2pL9@files.example.com"))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -48,7 +49,7 @@ func TestFromData_SuppressedPlaceholders(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.uri))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.uri))
 			if len(res) != 0 {
 				t.Fatalf("expected 0 (suppressed), got %d for %q", len(res), tc.uri)
 			}
@@ -69,7 +70,7 @@ func TestFromData_StillDetected(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.uri))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.uri))
 			if len(res) != 1 {
 				t.Fatalf("expected 1, got %d for %q", len(res), tc.uri)
 			}
@@ -81,7 +82,7 @@ func TestFromData_StillDetected(t *testing.T) {
 }
 
 func TestFromData_NoUserinfo(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("https://example.com/login"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("https://example.com/login"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0")
 	}
@@ -89,7 +90,7 @@ func TestFromData_NoUserinfo(t *testing.T) {
 
 func TestFromData_EmptyUser(t *testing.T) {
 	// `:p@h` matches the regex shape, but empty user is a template, not a leak.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("https://:p@host"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("https://:p@host"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 with empty user, got %d", len(res))
 	}
@@ -99,7 +100,7 @@ func TestFromData_OwnedSchemeIgnored(t *testing.T) {
 	// We DO match http(s)/ftp(s) only; postgres/etc. aren't matched at the
 	// regex level by basicauth. This test confirms we don't accidentally
 	// match a postgres URL via basicauth.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("postgres://u:p@h:5432"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("postgres://u:p@h:5432"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

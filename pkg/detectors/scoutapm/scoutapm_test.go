@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -30,7 +31,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("scoutapm_agent_key=" + dummyAgent + "\nscoutapm_api_key=" + dummyAPI)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -44,7 +45,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("agent=" + dummyAgent + "\napi=" + dummyAPI)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without scoutapm keyword, got %d", len(res))
 	}
@@ -57,7 +58,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // these; the arm-regex gate must not.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("see the scoutapm dashboard. unrelated values " + dummyAgent + " and " + dummyAPI + " appear here")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare-keyword-no-assignment shape, got %d", len(res))
 	}
@@ -69,7 +70,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 // near-zero entropy. The entropy floor must cull it.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("scout_apm_agent_key=00000000000000000000\nscoutapm_api_key=" + dummyAPI)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for zero-entropy placeholder key, got %d", len(res))
 	}

@@ -66,7 +66,7 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 	if len(out) == 0 {
 		return nil, nil
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 func nearKeyword(lower string, start, end int) bool {

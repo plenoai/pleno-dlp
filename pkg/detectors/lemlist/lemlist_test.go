@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -35,7 +36,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("LEMLIST_USER=" + dummyEmail + " LEMLIST_API_KEY=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -43,7 +44,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED1=" + dummyEmail + " UNRELATED2=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -53,7 +54,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 	// A 32-char hex run near the keyword that is a repeated-nibble placeholder
 	// must no longer match now that an entropy floor is in place.
 	body := []byte("LEMLIST_USER=" + dummyEmail + " LEMLIST_API_KEY=" + lowEntropyHex)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy placeholder, got %d", len(res))
 	}
@@ -63,7 +64,7 @@ func TestFromData_WeakKeywordRejected(t *testing.T) {
 	// A real-shaped token sitting next to a bare "lemlist" mention (e.g. a doc
 	// URL) with no assignment arm must not match under the arm-regex gate.
 	body := []byte("see https://api.lemlist.com/docs and value " + dummyToken + " for " + dummyEmail)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare-keyword context, got %d", len(res))
 	}

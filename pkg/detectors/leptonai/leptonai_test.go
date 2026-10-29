@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "abcdef0123456789ABCDEFabcdef0123"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("LEPTON_API_TOKEN=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -48,7 +49,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // shape the hardening targets.
 func TestFromData_BareKeywordNoAssignment(t *testing.T) {
 	body := []byte("// see https://dashboard.lepton.ai for docs\nrandomHash = " + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (bare keyword, no assignment anchor), got %d", len(res))
 	}
@@ -58,7 +59,7 @@ func TestFromData_BareKeywordNoAssignment(t *testing.T) {
 // LEPTON_API_TOKEN reference must be rejected by the entropy floor.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("LEPTON_API_TOKEN=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (entropy floor), got %d", len(res))
 	}
@@ -69,7 +70,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 func TestFromData_ArmVariants(t *testing.T) {
 	for _, prefix := range []string{"LEPTON_API_TOKEN=", "lepton-token: ", "lepton_secret=", "leptonKey "} {
 		body := []byte(prefix + dummy)
-		res, _ := Scanner{}.FromData(context.Background(), false, body)
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 		if len(res) == 0 {
 			t.Fatalf("expected >=1 for prefix %q", prefix)
 		}

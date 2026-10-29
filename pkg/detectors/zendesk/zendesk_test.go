@@ -4,6 +4,7 @@ package zendesk
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +16,7 @@ const dummyEmail = "ops@example.com"
 
 func TestFromData_Pair(t *testing.T) {
 	body := "zendesk_email=" + dummyEmail + "\nzendesk_token=" + dummyTok
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -37,7 +38,7 @@ func TestFromData_Pair(t *testing.T) {
 // would be a major recall gap.
 func TestFromData_DocumentedTokenScheme(t *testing.T) {
 	body := dummyEmail + "/token:" + dummyTok
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1 for documented <email>/token:<token> form, got %d", len(res))
 	}
@@ -48,7 +49,7 @@ func TestFromData_DocumentedTokenScheme(t *testing.T) {
 
 func TestFromData_HostCapture(t *testing.T) {
 	body := "host=acme.zendesk.com\nzendesk_token=" + dummyTok
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -58,7 +59,7 @@ func TestFromData_HostCapture(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("token="+dummyTok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("token="+dummyTok))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -72,7 +73,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // the entropy gate.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := "see https://acme.zendesk.com/docs build=" + dummyTok
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare-keyword non-armed match, got %d", len(res))
 	}
@@ -85,7 +86,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 func TestFromData_ArmedLowEntropyRejected(t *testing.T) {
 	lowEntropyTok := strings.Repeat("a", 40)
 	body := "zendesk_token=" + lowEntropyTok
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy armed token, got %d", len(res))
 	}
@@ -176,7 +177,7 @@ func TestFromData_VerifySetsResult(t *testing.T) {
 	setAPIBase(t, srv.URL)
 
 	body := "host=acme.zendesk.com zendesk_email=" + dummyEmail + " zendesk_token=" + dummyTok
-	res, err := Scanner{}.FromData(context.Background(), true, []byte(body))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(body))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

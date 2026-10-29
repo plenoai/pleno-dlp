@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummyUser is a UUID-shaped merchant-portal username. dummyKey carries the
@@ -31,7 +32,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("KLARNA_USER=" + dummyUser + "\nKLARNA_API_KEY=" + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -47,7 +48,7 @@ func TestFromData_Found(t *testing.T) {
 func TestFromData_TestKey(t *testing.T) {
 	testKey := "klarna_test_api_dGVzdEtleVNhbmRib3hOb3RSZWFsMDk4NzY1NDMyMXp6enp6"
 	body := []byte("klarna_api_key = " + testKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1 for test-prefixed key, got 0")
 	}
@@ -59,7 +60,7 @@ func TestFromData_TestKey(t *testing.T) {
 func TestFromData_NoKeyword(t *testing.T) {
 	// Key present but no klarna assignment context anywhere near it.
 	body := []byte("SOME_TOKEN=" + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without klarna assignment context, got %d", len(res))
 	}
@@ -71,7 +72,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // old bare [A-Za-z0-9]{32,64} regex this would have been reported.
 func TestFromData_GenericHighEntropyRejected(t *testing.T) {
 	body := []byte("klarna_api_key = Zk9q3RbT7xW2pL8sVnH4mC1dY6gA0eU5jB9fQwXz")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for generic high-entropy string lacking the klarna_ prefix, got %d", len(res))
 	}

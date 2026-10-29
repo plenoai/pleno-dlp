@@ -56,7 +56,7 @@ func (s WebhookScanner) FromData(ctx context.Context, verify bool, data []byte) 
 		}
 		out = append(out, res)
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 func (WebhookScanner) Verify(ctx context.Context, secret string) (bool, error) {

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // makeJWT builds a JWT-shaped token with the given JSON payload and a
@@ -52,7 +53,7 @@ func TestKeywords(t *testing.T) {
 // True positive: ACR token next to its host, payload self-identifies as ACR.
 func TestFromData_TruePositive_AzurecrHost(t *testing.T) {
 	body := []byte("docker login myregistry.azurecr.io -p " + acrToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 true positive, got %d", len(res))
 	}
@@ -61,7 +62,7 @@ func TestFromData_TruePositive_AzurecrHost(t *testing.T) {
 // True positive: acr_refresh keyword + ACR payload.
 func TestFromData_TruePositive_AcrRefreshKeyword(t *testing.T) {
 	body := []byte("acr_refresh_token=" + acrToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 true positive, got %d", len(res))
 	}
@@ -71,7 +72,7 @@ func TestFromData_TruePositive_AcrRefreshKeyword(t *testing.T) {
 // Belongs to AzureAD, not ACR — must be skipped despite the nearby keyword.
 func TestFromData_FP_AzureADTokenNearAzurecrHost(t *testing.T) {
 	body := []byte("registry: myregistry.azurecr.io\nbearer " + azureADToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected Azure AD token suppressed, got %d", len(res))
 	}
@@ -81,7 +82,7 @@ func TestFromData_FP_AzureADTokenNearAzurecrHost(t *testing.T) {
 // Payload references no azurecr.io host, so it must not be flagged.
 func TestFromData_FP_OIDCTokenInWorkflow(t *testing.T) {
 	body := []byte("- uses: docker/login-action\n  registry: myregistry.azurecr.io\n  token: " + oidcToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected OIDC token suppressed, got %d", len(res))
 	}
@@ -94,7 +95,7 @@ func TestFromData_FP_LowEntropyPlaceholder(t *testing.T) {
 	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"aud":"x.azurecr.io"}`))
 	placeholder := header + "." + payload + "." + strings.Repeat("a", 40)
 	body := []byte("acr_token=" + placeholder)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected low-entropy placeholder suppressed, got %d", len(res))
 	}
@@ -103,7 +104,7 @@ func TestFromData_FP_LowEntropyPlaceholder(t *testing.T) {
 // FP suppressed: no context keyword at all.
 func TestFromData_FP_NoKeyword(t *testing.T) {
 	body := []byte("token=" + acrToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -112,7 +113,7 @@ func TestFromData_FP_NoKeyword(t *testing.T) {
 // FP suppressed: keyword is far away (beyond the tightened 64-byte radius).
 func TestFromData_FP_KeywordTooFar(t *testing.T) {
 	body := []byte("myregistry.azurecr.io" + strings.Repeat(" ", 200) + acrToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 when keyword beyond radius, got %d", len(res))
 	}
@@ -120,7 +121,7 @@ func TestFromData_FP_KeywordTooFar(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("azurecr=" + acrToken + "\nazurecr=" + acrToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -128,7 +129,7 @@ func TestFromData_Dedup(t *testing.T) {
 
 func TestFromData_NotJWTShaped(t *testing.T) {
 	body := []byte("azurecr=" + strings.Repeat("a", 50))
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for non-JWT shape, got %d", len(res))
 	}
@@ -205,7 +206,7 @@ func TestIsRefreshToken_NotJWT(t *testing.T) {
 
 func TestFromData_ExtraDataRegistry(t *testing.T) {
 	body := []byte("docker login myregistry.azurecr.io -p " + acrToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(res))
 	}

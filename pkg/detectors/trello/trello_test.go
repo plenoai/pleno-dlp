@@ -4,6 +4,7 @@ package trello
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +16,7 @@ const dummyToken = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345
 
 func TestFromData_Pair(t *testing.T) {
 	body := []byte("# trello\nTRELLO_KEY=" + dummyKey + "\nTRELLO_TOKEN=" + dummyToken)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -31,14 +32,14 @@ func TestFromData_Pair(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("md5="+dummyKey+"\nsha256="+dummyToken))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("md5="+dummyKey+"\nsha256="+dummyToken))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
 }
 
 func TestFromData_KeyWithoutToken(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("# trello\nKEY="+dummyKey))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("# trello\nKEY="+dummyKey))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without companion token, got %d", len(res))
 	}

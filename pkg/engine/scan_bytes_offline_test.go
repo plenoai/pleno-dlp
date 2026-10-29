@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -13,6 +14,8 @@ import (
 type offlineScanBytesProbe struct {
 	keyword    string
 	raw        []byte
+	rawV2      []byte
+	redacted   string
 	calls      atomic.Int64
 	lastVerify atomic.Bool
 }
@@ -22,7 +25,12 @@ func (d *offlineScanBytesProbe) Keywords() []string           { return []string{
 func (d *offlineScanBytesProbe) FromData(_ context.Context, verify bool, _ []byte) ([]detectors.Result, error) {
 	d.calls.Add(1)
 	d.lastVerify.Store(verify)
-	return []detectors.Result{{DetectorType: detectors.AWS, Raw: append([]byte(nil), d.raw...)}}, nil
+	return []detectors.Result{{
+		DetectorType: detectors.AWS,
+		Raw:          append([]byte(nil), d.raw...),
+		RawV2:        append([]byte(nil), d.rawV2...),
+		Redacted:     d.redacted,
+	}}, nil
 }
 
 func TestOfflineScanBytesCollectsFindings(t *testing.T) {
@@ -76,5 +84,29 @@ func TestOfflineScanBytesEmptyInput(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("results: want 0, got %d", len(got))
+	}
+}
+
+func TestOfflineScanBytesSanitizesDetectorRedactedAgainstRawPair(t *testing.T) {
+	for _, candidate := range []string{"p4ss", "s3cr3t"} {
+		t.Run(candidate, func(t *testing.T) {
+			probe := &offlineScanBytesProbe{
+				keyword:  "secret",
+				raw:      []byte("p4ss"),
+				rawV2:    []byte("s3cr3t"),
+				redacted: candidate,
+			}
+
+			got, err := ScanBytesWithDetectors(context.Background(), []detectors.Detector{probe}, []byte("secret marker"), Options{})
+			if err != nil {
+				t.Fatalf("ScanBytesWithDetectors: %v", err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("results: want 1, got %d", len(got))
+			}
+			if strings.Contains(got[0].Redacted, string(got[0].Raw)) || strings.Contains(got[0].Redacted, string(got[0].RawV2)) {
+				t.Fatalf("Redacted=%q contains Raw=%q or RawV2=%q", got[0].Redacted, got[0].Raw, got[0].RawV2)
+			}
+		})
 	}
 }

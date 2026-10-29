@@ -4,6 +4,7 @@ package virustotal
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,7 @@ import (
 const dummy = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("VIRUSTOTAL_API_KEY="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("VIRUSTOTAL_API_KEY="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -26,7 +27,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("sha256="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("sha256="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (sha256 without keyword), got %d", len(res))
 	}

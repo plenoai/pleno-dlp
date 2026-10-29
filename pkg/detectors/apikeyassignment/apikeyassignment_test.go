@@ -4,6 +4,7 @@ package apikeyassignment
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
 
@@ -11,7 +12,7 @@ func TestFromData_YAMLColonWithComment(t *testing.T) {
 	data := []byte("authentication:\n" +
 		"  client_key: 383c8164d4bdd95d8b1bfbf4f540d754 # Informative\n" +
 		"  api_key: 3b6311afca5bd8aac647b316704e9c6d # Risk.\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -25,7 +26,7 @@ func TestFromData_IniEqualsForm(t *testing.T) {
 		"api_key = 3b6311afca5bd8aac647b316704e9c6d\n",
 		"API_KEY = 3b6311afca5bd8aac647b316704e9c6d\n",
 	} {
-		res, _ := Scanner{}.FromData(context.Background(), false, []byte(data))
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(data))
 		if len(res) != 1 {
 			t.Fatalf("expected 1 for %q, got %d: %+v", data, len(res), res)
 		}
@@ -34,7 +35,7 @@ func TestFromData_IniEqualsForm(t *testing.T) {
 
 func TestFromData_EqualSyntaxWithoutColonStillMatches(t *testing.T) {
 	data := []byte("noise api_key=3b6311afca5bd8aac647b316704e9c6d\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected equals assignment without colon to match, got %d: %+v", len(res), res)
 	}
@@ -47,7 +48,7 @@ func TestFromData_HyphenAndBareVariants(t *testing.T) {
 		"DO_API_KEY: 3b6311afca5bd8aac647b316704e9c6d\n",
 	}
 	for _, data := range cases {
-		res, _ := Scanner{}.FromData(context.Background(), false, []byte(data))
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(data))
 		if len(res) != 1 {
 			t.Fatalf("expected 1 for %q, got %d: %+v", data, len(res), res)
 		}
@@ -67,7 +68,7 @@ func TestFromData_Suppressed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.data))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.data))
 			if len(res) != 0 {
 				t.Fatalf("expected 0, got %d findings for %q: %+v", len(res), tc.data, res)
 			}

@@ -4,6 +4,7 @@ package jsonconfigsecret
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
 
@@ -15,7 +16,7 @@ func TestFromData_SFTPEditorConfig(t *testing.T) {
     "password": "hunter22Zz8k",
     "port": "22"
 }`)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -35,7 +36,7 @@ func TestFromData_FtpconfigBarePass(t *testing.T) {
     "pass": "hunter22Zz8k",
     "passphrase": "swordfishR3pl"
 }`)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 2 {
 		t.Fatalf("expected 2, got %d: %+v", len(res), res)
 	}
@@ -48,7 +49,7 @@ func TestFromData_HerokuAPIKey(t *testing.T) {
       "HEROKU_API_KEY": "7a2f9a4289e530bef6dbf31f4cbf63d5"
     }
   }`)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -71,7 +72,7 @@ func TestFromData_RobomongoNestedUserPassword(t *testing.T) {
        }
       ]
    }`)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 2 {
 		t.Fatalf("expected 2, got %d: %+v", len(res), res)
 	}
@@ -92,7 +93,7 @@ func TestFromData_Suppressed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.data))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.data))
 			if len(res) != 0 {
 				t.Fatalf("expected 0, got %d findings for %q: %+v", len(res), tc.data, res)
 			}
@@ -102,7 +103,7 @@ func TestFromData_Suppressed(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	data := []byte(`{"password":"hunter22Zz8k"}` + "\n" + `{"password":"hunter22Zz8k"}`)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 deduped, got %d", len(res))
 	}

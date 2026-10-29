@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummyToken is a documented-shape Pusher secret: 20-char lowercase alnum
@@ -36,7 +37,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("pusher_app_secret=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -44,7 +45,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without pusher keyword, got %d", len(res))
 	}
@@ -52,7 +53,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("pusher_secret=" + dummyToken + "\npusher_app_secret=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -62,7 +63,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 	// Armed by a nearby pusher_secret reference, but the token is a degenerate
 	// low-entropy run — must be culled by the entropy floor.
 	body := []byte("pusher_secret=" + lowEntropyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy token, got %d", len(res))
 	}
@@ -72,7 +73,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 	// "pusher" alone (e.g. a CDN script-src URL or dependency name) must not
 	// arm a generic 20-char run — only an assignment-style reference does.
 	body := []byte("https://js.pusher.com/8.2/ " + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without an assignment-style pusher reference, got %d", len(res))
 	}

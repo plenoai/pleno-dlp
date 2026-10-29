@@ -4,6 +4,7 @@ package shodan
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,7 @@ import (
 const dummy = "AbCdEfGhIjKlMnOpQrStUvWxYz012345"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("SHODAN_API_KEY="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("SHODAN_API_KEY="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -26,7 +27,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -41,7 +42,7 @@ func TestFromData_BareKeywordRejected(t *testing.T) {
 	// dummy has entropy 5.0 — it clears the entropy floor, so only the arm
 	// regex change is responsible for rejecting this case.
 	in := "see https://github.com/achillean/shodan-python for docs; ref " + dummy
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(in))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(in))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare-keyword high-entropy FP shape, got %d", len(res))
 	}
@@ -52,7 +53,7 @@ func TestFromData_BareKeywordRejected(t *testing.T) {
 // and the arm regex but is not a random key).
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	const padded = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 chars, entropy 0
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("SHODAN_API_KEY="+padded))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("SHODAN_API_KEY="+padded))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy run, got %d", len(res))
 	}
@@ -67,7 +68,7 @@ func TestFromData_ArmVariants(t *testing.T) {
 		"shodanApiKey=" + dummy,
 		"my_shodan_secret " + dummy,
 	} {
-		res, err := Scanner{}.FromData(context.Background(), false, []byte(in))
+		res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(in))
 		if err != nil {
 			t.Fatalf("err for %q: %v", in, err)
 		}

@@ -86,7 +86,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if len(out) == 0 {
 		return nil, nil
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // isToken applies the semantic gates that separate a plausible Spinnaker

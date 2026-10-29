@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // A genuine-shaped Wiz OAuth2 access token: header carries alg=RS256, payload
@@ -37,7 +38,7 @@ func TestKeywords(t *testing.T) {
 // TP: a real-shaped Wiz token annotated with a Wiz keyword is still detected.
 func TestFromData_TruePositive(t *testing.T) {
 	body := []byte("# auth.wiz.io service account\nWIZ_TOKEN=" + wizToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 Wiz token, got %d", len(res))
 	}
@@ -49,7 +50,7 @@ func TestFromData_TruePositive(t *testing.T) {
 // FP suppressed: low-entropy aaaa.bbbb.cccc placeholder near a wiz.io mention.
 func TestFromData_SuppressLowEntropyPlaceholder(t *testing.T) {
 	body := []byte("see https://wiz.io docs, token = " + lowEntropyPlaceholder)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected low-entropy placeholder suppressed, got %d", len(res))
 	}
@@ -59,7 +60,7 @@ func TestFromData_SuppressLowEntropyPlaceholder(t *testing.T) {
 // mention must not be attributed to Wiz.
 func TestFromData_SuppressForeignGoogleToken(t *testing.T) {
 	body := []byte("# config for wiz.io integration\nID_TOKEN=" + googleIDToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected Google ID token suppressed, got %d", len(res))
 	}
@@ -68,7 +69,7 @@ func TestFromData_SuppressForeignGoogleToken(t *testing.T) {
 // FP suppressed: an Auth0 access token near a wiz_client_id example value.
 func TestFromData_SuppressForeignAuth0Token(t *testing.T) {
 	body := []byte("wiz_client_id=example-id\n# auth0 fixture\naccess_token=" + auth0Token)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected Auth0 token suppressed, got %d", len(res))
 	}
@@ -76,7 +77,7 @@ func TestFromData_SuppressForeignAuth0Token(t *testing.T) {
 
 // Vicinity gate: a real Wiz token with no nearby Wiz keyword is not emitted.
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+wizToken))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+wizToken))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -85,7 +86,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // Tightened radius: keyword beyond 96 bytes no longer attaches.
 func TestFromData_KeywordTooFar(t *testing.T) {
 	body := []byte("wiz.io" + strings.Repeat(" ", 120) + wizToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 when keyword beyond radius, got %d", len(res))
 	}
@@ -93,7 +94,7 @@ func TestFromData_KeywordTooFar(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("wiz.io " + wizToken + "\nwiz.io " + wizToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -101,7 +102,7 @@ func TestFromData_Dedup(t *testing.T) {
 
 func TestFromData_NoSegments(t *testing.T) {
 	short := strings.Repeat("a", 60)
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("wiz_io "+short))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("wiz_io "+short))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for non-JWT shape, got %d", len(res))
 	}

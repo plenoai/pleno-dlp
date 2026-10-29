@@ -4,6 +4,7 @@ package huggingface
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,7 @@ import (
 const dummyTok = "hf_abcdefghijklmnopqrstuvwxyz01234567"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("HF_TOKEN="+dummyTok))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("HF_TOKEN="+dummyTok))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -23,7 +24,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("hf_short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("hf_short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

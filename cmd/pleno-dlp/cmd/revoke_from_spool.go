@@ -24,6 +24,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/plenoai/pleno-dlp/pkg/audit"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/verify"
 
 	"github.com/plenoai/pleno-dlp/pkg/termsafe"
@@ -83,10 +84,7 @@ func runRevokeFromSpool(cmd *cobra.Command, path string, auditW *audit.Writer) e
 			continue
 		}
 		attempted++
-		redacted := rec.Redacted
-		if redacted == "" {
-			redacted = redactSecret(string(secret))
-		}
+		redacted := detectors.SafeRedacted(rec.Redacted, secret, nil)
 
 		if revokeOpts.dryRun {
 			emitRevoke(cmd, revokeOpts.format, revokeRecord{

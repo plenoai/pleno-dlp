@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 func TestFromData_FiresNearKeyword(t *testing.T) {
@@ -17,7 +18,7 @@ func TestFromData_FiresNearKeyword(t *testing.T) {
   database_url: postgres://localhost
   api_key = "Hf83KdjL9qZ8xVnB2Wm7TpRcJyXuAbCdEfGhIjKlMnOp01"
 `)
-	res, err := Scanner{}.FromData(context.Background(), false, chunk)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -34,7 +35,7 @@ func TestFromData_FiresNearKeyword(t *testing.T) {
 
 func TestFromData_RejectsLowEntropy(t *testing.T) {
 	chunk := []byte(`api_key=000000000000000000000000000000000000000000000000000000000000`)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	if len(res) != 0 {
 		t.Fatalf("expected zero hits on all-zeros, got %d (raw=%q)", len(res), res[0].Raw)
 	}
@@ -44,7 +45,7 @@ func TestFromData_RejectsHighEntropyWithoutKeyword(t *testing.T) {
 	chunk := []byte(`commit abc123def456ghi789jkl012mno345pqr678stu901vwx234yz5
 files: 42
 `)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	if len(res) != 0 {
 		t.Fatalf("expected zero hits without keyword, got %d", len(res))
 	}
@@ -55,7 +56,7 @@ func TestFromData_RejectsKeywordTooFar(t *testing.T) {
 	gap := strings.Repeat("a non-secret line of plain text\n", 12) // ~360 bytes
 	suffix := `  hidden = "Hf83KdjL9qZ8xVnB2Wm7TpRcJyXuAbCdEfGhIjKlMnOp01"`
 	chunk := []byte(prefix + gap + suffix)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	for _, r := range res {
 		if strings.Contains(string(r.Raw), "Hf83KdjL9qZ8") {
 			t.Errorf("entropy run far from keyword must NOT match; got %q", r.Raw)
@@ -118,7 +119,7 @@ func assertSecretShapeMatchesRegexp(t *testing.T, data []byte) {
 func TestFromData_LongRunKeepsGlobalSecretSpans(t *testing.T) {
 	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 	data := []byte(strings.Repeat(alphabet, 16) + "ABCDEFGH" + "token=" + strings.Repeat(" ", 1000))
-	results, err := (Scanner{}).FromData(context.Background(), false, data)
+	results, err := redactiontest.FromData(t, (Scanner{}), context.Background(), false, data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +139,7 @@ func TestFromData_DedupsSameSecret(t *testing.T) {
 	// just confirm we don't double-emit from one chunk.
 	secret := "Hf83KdjL9qZ8xVnB2Wm7TpRcJyXuAbCdEfGhIjKlMnOp01"
 	chunk := []byte("api_key=" + secret + "\nfallback_token=" + secret)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -175,7 +176,7 @@ func TestFromData_RejectsCamelCaseIdentifier(t *testing.T) {
 type CredentialsCache struct {
 	provider CredentialsProvider
 }`)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	for _, r := range res {
 		if strings.Contains(string(r.Raw), "Credentials") {
 			t.Errorf("CamelCase identifier must NOT match; got %q", r.Raw)
@@ -185,7 +186,7 @@ type CredentialsCache struct {
 
 func TestFromData_RejectsImportPath(t *testing.T) {
 	chunk := []byte(`// credential helpers from "github.com/aws/aws-sdk-go-v2/aws/credentials"`)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	for _, r := range res {
 		if strings.Contains(string(r.Raw), "com/aws") {
 			t.Errorf("import path must NOT match; got %q", r.Raw)
@@ -278,7 +279,7 @@ func TestFromData_RejectsSRIHash(t *testing.T) {
   "password": "exampleSensitiveNear",
   "integrity": "sha512-oqVuAfXRKap7fdgcCY5uykM6+R9GqQ8K/eO0EQ3HjgL1WxQvGKYfh8hqQRk="
 }`)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	for _, r := range res {
 		raw := string(r.Raw)
 		if strings.HasPrefix(strings.ToLower(raw), "sha") {
@@ -292,7 +293,7 @@ func TestFromData_RejectsHexDigestInLockfile(t *testing.T) {
   "auth": "token",
   "hash": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
 }`)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	for _, r := range res {
 		if string(r.Raw) == "da39a3ee5e6b4b0d3255bfef95601890afd80709" {
 			t.Errorf("hex digest in hash context must NOT fire; got %q", r.Raw)
@@ -307,7 +308,7 @@ func TestFromData_StillFiresOnRealSecret(t *testing.T) {
   "integrity": "sha256-abc123",
   "api_key": "Hf83KdjL9qZ8xVnB2Wm7TpRcJyXuAbCdEfGhIjKlMnOp01"
 }`)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	found := false
 	for _, r := range res {
 		if strings.Contains(string(r.Raw), "Hf83KdjL9qZ8") {
@@ -377,7 +378,7 @@ func TestFromData_RejectsBcryptHashFragment(t *testing.T) {
             'password' => '$2y$13$Hdxlvi7OZqK3/fKVNypJs.vJqQcmOo3HnnT6w7fec9FRTRYxAhuCO',
         ]);
 `)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	if len(res) != 0 {
 		t.Errorf("bcrypt hash literal near 'password' must NOT fire, got %d: %v", len(res), res)
 	}
@@ -389,7 +390,7 @@ func TestFromData_RejectsArgon2HashFragment(t *testing.T) {
             'password' => '$argon2i$v=19$m=1024,t=2,p=2$OENON0I5bXo2WDQyQnM2bg$3ma8cKHITsmAjyIYKDLdSvtkMCiEz/s6qWnLAf+Ehek',
         ]);
 `)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	if len(res) != 0 {
 		t.Errorf("argon2i hash literal near 'password' must NOT fire, got %d: %v", len(res), res)
 	}
@@ -423,7 +424,7 @@ func TestFromData_RejectsAlgoNameTestIdentifier(t *testing.T) {
         $this->assertTrue(password_verify('password', $subject->password));
     }
 `)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	for _, r := range res {
 		if strings.Contains(strings.ToLower(string(r.Raw)), "argon") {
 			t.Errorf("camelCase test-method identifier must NOT fire; got %q", r.Raw)
@@ -464,7 +465,7 @@ func TestFromData_RejectsBundlerAssetFilename(t *testing.T) {
     "name": "ResetPassword"
   }
 }`)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	for _, r := range res {
 		if strings.Contains(string(r.Raw), "AuthenticatedLayout") || strings.Contains(string(r.Raw), "ResetPassword") {
 			t.Errorf("bundler content-hash filename must NOT fire; got %q", r.Raw)
@@ -497,7 +498,7 @@ func TestFromData_RejectsMimeType(t *testing.T) {
 axios.defaults.headers.post["Content-Type"] =
   "application/x-www-form-urlencoded";
 `)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	for _, r := range res {
 		if strings.Contains(string(r.Raw), "application/x-www-form-urlencoded") {
 			t.Errorf("MIME-type string must NOT fire; got %q", r.Raw)
@@ -525,7 +526,7 @@ func TestFromData_RejectsBase64PlaceholderText(t *testing.T) {
 	// Real shape from axios's tests/browser/basicAuth.browser.test.js —
 	// RFC 7617's canonical Basic-Auth example, base64-encoded.
 	chunk := []byte(`expect(request.requestHeaders.Authorization).toBe('Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==');`)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	for _, r := range res {
 		if strings.Contains(string(r.Raw), "QWxhZGRpbjpvcGVu") {
 			t.Errorf("well-known base64 doc-example credential must NOT fire; got %q", r.Raw)
@@ -551,7 +552,7 @@ class RehashOnLogoutOtherDevicesTest extends TestCase
     }
 }
 `)
-	res, _ := Scanner{}.FromData(context.Background(), false, chunk)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, chunk)
 	found := false
 	for _, r := range res {
 		if strings.Contains(string(r.Raw), "OQyMfXJHNCzYEA8vb3cNZdZw5Y4DUdiujk9urDQvwjE") {

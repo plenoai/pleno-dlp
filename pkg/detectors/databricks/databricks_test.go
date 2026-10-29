@@ -4,6 +4,7 @@ package databricks
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,7 @@ import (
 const dummy = "dapi0123456789abcdef0123456789abcdef"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("DATABRICKS_TOKEN="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("DATABRICKS_TOKEN="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -27,7 +28,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_HostCapture(t *testing.T) {
 	body := "host=acme.cloud.databricks.com\ntoken=" + dummy
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -38,7 +39,7 @@ func TestFromData_HostCapture(t *testing.T) {
 
 func TestFromData_Negative(t *testing.T) {
 	// Bare 32-hex is rejected — no `dapi` prefix.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("md5=0123456789abcdef0123456789abcdef"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("md5=0123456789abcdef0123456789abcdef"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -163,7 +164,7 @@ func TestFromData_VerifyUsesChunkHost(t *testing.T) {
 	// and assert FromData wires verify through end-to-end.
 	withAPIBase(srv.URL, func() {
 		body := []byte("host=acme.cloud.databricks.com\ntoken=" + dummy)
-		res, err := Scanner{}.FromData(context.Background(), true, body)
+		res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, body)
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}

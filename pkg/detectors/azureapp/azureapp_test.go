@@ -4,6 +4,7 @@ package azureapp
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"strings"
 	"testing"
 )
@@ -14,7 +15,7 @@ const dummyTenantID = "aabbccdd-1122-3344-5566-778899aabbcc"
 
 func TestFromData_PairLegacy(t *testing.T) {
 	body := "azure_client_id=" + dummyAppID + "\nazure_client_secret=" + dummyV1Secret
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -39,7 +40,7 @@ func TestFromData_RejectTildeShape(t *testing.T) {
 	// Tilde-bearing secrets belong to pkg/detectors/azuread, not here.
 	tilde := "abc~de_fgh-ijkl0123456789mnopqrstuv"
 	body := "azure_client_id=" + dummyAppID + "\nazure_client_secret=" + tilde
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	for _, r := range res {
 		if string(r.Raw) == tilde {
 			t.Fatalf("azureapp should not claim tilde-bearing secrets, got %v", r)
@@ -50,7 +51,7 @@ func TestFromData_RejectTildeShape(t *testing.T) {
 func TestFromData_NoUUID(t *testing.T) {
 	// Without a client_id UUID nearby, candidate must be ignored.
 	body := "azure_client_secret=" + dummyV1Secret
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without client_id, got %d", len(res))
 	}
@@ -60,7 +61,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 	// Without a secret-intent keyword nearby, candidate must be ignored even
 	// though a client_id UUID is present.
 	body := "azure_client_id=" + dummyAppID + "\nrandom_token=" + dummyV1Secret
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without secret-intent keyword, got %d", len(res))
 	}
@@ -97,7 +98,7 @@ func TestFromData_SuppressedFPs(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.body))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.body))
 			if len(res) != 0 {
 				t.Fatalf("expected 0 hits (suppressed FP), got %d: %+v", len(res), res)
 			}
@@ -109,7 +110,7 @@ func TestFromData_SuppressedFPs(t *testing.T) {
 // the realistic v1 secret co-located with a secret keyword must survive.
 func TestFromData_TruePositiveStillDetected(t *testing.T) {
 	body := "azure_client_id=" + dummyAppID + "\nazure_client_secret=" + dummyV1Secret
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -130,7 +131,7 @@ func TestFromData_ContextExtractTenantEnv(t *testing.T) {
 	chunk := "AZURE_TENANT_ID=" + dummyTenantID + "\n" +
 		"azure_client_id=" + dummyAppID + "\n" +
 		"azure_client_secret=" + dummyV1Secret + "\n"
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(chunk))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(chunk))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -165,7 +166,7 @@ func TestFromData_ContextExtractTenantJSON(t *testing.T) {
     "client_secret": "` + dummyV1Secret + `"
   }
 }`
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(chunk))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(chunk))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -195,7 +196,7 @@ func TestFromData_ContextExtractTenantJSON(t *testing.T) {
 func TestFromData_VerifySkippedWhenNoTenant(t *testing.T) {
 	chunk := "azure_client_id=" + dummyAppID + "\n" +
 		"azure_client_secret=" + dummyV1Secret + "\n"
-	res, err := Scanner{}.FromData(context.Background(), true, []byte(chunk))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(chunk))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

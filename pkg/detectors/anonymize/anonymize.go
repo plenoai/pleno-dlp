@@ -167,7 +167,7 @@ func (Scanner) FromData(ctx context.Context, _ bool, data []byte) ([]detectors.R
 			},
 		})
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // redact returns a safe-to-display rendering of a finding. EMAIL_ADDRESS

@@ -38,6 +38,15 @@ func TestRedactSecret(t *testing.T) {
 	}
 }
 
+func TestRedactSecretNeverReturnsShortSecret(t *testing.T) {
+	for _, secret := range []string{"p4ss", "***", "..."} {
+		got := redactSecret(secret)
+		if strings.Contains(got, secret) {
+			t.Errorf("redactSecret(%q) = %q contains the complete secret", secret, got)
+		}
+	}
+}
+
 func TestResolveSecret(t *testing.T) {
 	t.Run("raw_passthrough_trims", func(t *testing.T) {
 		cmd := &cobra.Command{}

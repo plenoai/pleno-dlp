@@ -4,6 +4,7 @@ package buildkite
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,7 +17,7 @@ const dummyAgent = "bkua_0123456789abcdef0123456789abcdef01234567"
 const dummyAPI = "bka_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd"
 
 func TestFromData_Agent(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("BUILDKITE_AGENT_TOKEN="+dummyAgent))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("BUILDKITE_AGENT_TOKEN="+dummyAgent))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -26,7 +27,7 @@ func TestFromData_Agent(t *testing.T) {
 }
 
 func TestFromData_API(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("BUILDKITE_API_TOKEN="+dummyAPI))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("BUILDKITE_API_TOKEN="+dummyAPI))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -36,7 +37,7 @@ func TestFromData_API(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("bkua_short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("bkua_short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

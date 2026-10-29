@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummy is a 30-char lowercase base36 value matching the documented Twitch
@@ -31,7 +32,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# twitch\nTWITCH_CLIENT_SECRET=" + dummy)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -41,7 +42,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -54,7 +55,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // regex must now reject it.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("see https://player.twitch.tv/?channel=foo for the stream\nbuild_id=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare-keyword-no-arm FP, got %d", len(res))
 	}
@@ -66,7 +67,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 func TestFromData_UppercaseRejected(t *testing.T) {
 	const mixed = "K7M2Q9x4W1z8P3r6T5n0V7b4C9d2Fh"
 	body := []byte("TWITCH_CLIENT_SECRET=" + mixed)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for mixed-case run, got %d", len(res))
 	}
@@ -76,7 +77,7 @@ func TestFromData_UppercaseRejected(t *testing.T) {
 // 30-char lowercase run with no secret-grade randomness, even when armed.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("twitch_secret=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy run, got %d", len(res))
 	}

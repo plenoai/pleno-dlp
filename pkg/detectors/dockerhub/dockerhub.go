@@ -98,7 +98,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		// so reviewers still see the surface area.
 		out = append(out, res)
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // Verify checks a Docker Hub username+token pair against the authenticated

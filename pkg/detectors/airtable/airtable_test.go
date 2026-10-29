@@ -4,6 +4,7 @@ package airtable
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ const dummyPAT = "patABCDEF12345678.0123456789abcdef0123456789abcdef0123456789ab
 const dummyLegacy = "keyABCDEF12345678"
 
 func TestFromData_PAT(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("AIRTABLE_TOKEN="+dummyPAT))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("AIRTABLE_TOKEN="+dummyPAT))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -27,7 +28,7 @@ func TestFromData_PAT(t *testing.T) {
 }
 
 func TestFromData_PATWithoutDotIsIgnored(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("AIRTABLE_TOKEN="+strings.ReplaceAll(dummyPAT, ".", "")))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("AIRTABLE_TOKEN="+strings.ReplaceAll(dummyPAT, ".", "")))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -37,18 +38,18 @@ func TestFromData_PATWithoutDotIsIgnored(t *testing.T) {
 }
 
 func TestFromData_Legacy_KeywordRequired(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummyLegacy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummyLegacy))
 	if len(res) != 0 {
 		t.Fatalf("legacy without keyword should not match, got %d", len(res))
 	}
-	res, _ = Scanner{}.FromData(context.Background(), false, []byte("AIRTABLE_API_KEY="+dummyLegacy))
+	res, _ = redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("AIRTABLE_API_KEY="+dummyLegacy))
 	if len(res) != 1 {
 		t.Fatalf("expected 1 with keyword, got %d", len(res))
 	}
 }
 
 func TestFromData_Legacy_UnicodeLowercaseContext(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("AİRTABLE="+dummyLegacy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("AİRTABLE="+dummyLegacy))
 	if len(res) != 1 {
 		t.Fatalf("strings.ToLower-compatible Unicode context should match, got %d", len(res))
 	}

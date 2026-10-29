@@ -81,7 +81,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	for _, m := range matches {
 		out = append(out, deriveResult(m))
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // FromReader finds complete PPK records with the same regexp grammar as
@@ -95,7 +95,7 @@ func (s Scanner) FromReader(ctx context.Context, _ bool, r io.ReaderAt, size int
 		}
 		return nil
 	})
-	return out, err
+	return detectors.SafeResults(out), err
 }
 
 func deriveResult(block []byte) detectors.Result {

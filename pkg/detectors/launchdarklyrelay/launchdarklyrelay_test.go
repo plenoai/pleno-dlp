@@ -4,6 +4,7 @@ package launchdarklyrelay
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,7 @@ import (
 const dummy = "relay-proxy-12345678-90ab-cdef-1234-567890abcdef"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("LD_RELAY_KEY="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("LD_RELAY_KEY="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -28,7 +29,7 @@ func TestFromData_Positive(t *testing.T) {
 func TestFromData_NotAccessKey(t *testing.T) {
 	// `api-…` is owned by pkg/detectors/launchdarkly.
 	api := "api-" + "00000000-0000-0000-0000-000000000000"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(api))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(api))
 	if len(res) != 0 {
 		t.Fatalf("relay detector must not claim api- tokens; got %d", len(res))
 	}

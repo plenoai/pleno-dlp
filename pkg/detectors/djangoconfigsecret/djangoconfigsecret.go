@@ -159,7 +159,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		add(m[1], "database_password")
 	}
 
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 func redact(s string) string {

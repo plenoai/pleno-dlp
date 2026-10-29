@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "abcdef0123456789ABCDEF0123456789abcdef01"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("PAGODA_API_KEY=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED_VALUE=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -47,7 +48,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // armRe (pagoda_api_key etc.) within radius 64 does not.
 func TestFromData_BareKeywordNoLongerArms(t *testing.T) {
 	body := []byte("See the pagoda docs for details. nonce " + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (bare keyword should not arm), got %d", len(res))
 	}
@@ -57,7 +58,7 @@ func TestFromData_BareKeywordNoLongerArms(t *testing.T) {
 // must be culled by the entropy floor.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("PAGODA_API_KEY=" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low entropy should be culled), got %d", len(res))
 	}
@@ -68,7 +69,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 func TestFromData_AltAnchorsArm(t *testing.T) {
 	for _, prefix := range []string{"NEAR_RPC_API_KEY=", "fastnear-token: ", "nearrpc_secret="} {
 		body := []byte(prefix + dummy)
-		res, _ := Scanner{}.FromData(context.Background(), false, body)
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 		if len(res) == 0 {
 			t.Fatalf("expected >=1 for anchor %q", prefix)
 		}

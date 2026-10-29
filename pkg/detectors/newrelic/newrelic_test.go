@@ -4,6 +4,7 @@ package newrelic
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,7 +21,7 @@ const (
 )
 
 func TestFromData_License(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("X="+dummyLicense))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummyLicense))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -34,7 +35,7 @@ func TestFromData_License(t *testing.T) {
 
 func TestFromData_AllKinds(t *testing.T) {
 	body := []byte("a=" + dummyLicense + "\nb=" + dummyIngest + "\nc=" + dummyInsert)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 3 {
 		t.Fatalf("expected 3, got %d", len(res))
 	}
@@ -50,7 +51,7 @@ func TestFromData_AllKinds(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("NRRA-short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("NRRA-short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyID = "abcdef0123456789abcdef01ABCDEF"
@@ -28,7 +29,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("RINGCENTRAL_CLIENT_ID=" + dummyID + "\nRINGCENTRAL_CLIENT_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -39,7 +40,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("CLIENT_ID=" + dummyID + "\nCLIENT_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -52,7 +53,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // this; the armRe gate must now reject it.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("// uses the ringcentral SDK; build hashes " + dummyID + " and " + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("bare-keyword-no-arm should not match, got %d", len(res))
 	}
@@ -64,7 +65,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	lowEnt := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 30 chars, entropy 0
 	body := []byte("RINGCENTRAL_CLIENT_ID=" + lowEnt + "\nRINGCENTRAL_CLIENT_SECRET=" + lowEnt)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("low-entropy run should not match, got %d", len(res))
 	}

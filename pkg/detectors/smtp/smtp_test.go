@@ -7,10 +7,11 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 func TestFromData_Positive(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("smtp://app:hunter2@mail.example.com:587"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("smtp://app:hunter2@mail.example.com:587"))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -23,7 +24,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_SmtpsScheme(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("smtps://relay:p4ss@smtp.example.com:465"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("smtps://relay:p4ss@smtp.example.com:465"))
 	if len(res) != 1 {
 		t.Fatalf("expected 1")
 	}
@@ -33,7 +34,7 @@ func TestFromData_SmtpsScheme(t *testing.T) {
 }
 
 func TestFromData_NoUserinfo(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("smtp://mail.example.com:25"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("smtp://mail.example.com:25"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0")
 	}

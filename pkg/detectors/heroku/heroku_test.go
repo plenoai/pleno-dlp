@@ -4,6 +4,7 @@ package heroku
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,7 @@ import (
 const dummy = "01234567-89ab-cdef-0123-456789abcdef"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("HEROKU_API_KEY="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("HEROKU_API_KEY="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -26,14 +27,14 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword_DoesNotMatch(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("uuid="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("uuid="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("heroku=not-a-uuid"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("heroku=not-a-uuid"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -108,7 +109,7 @@ func TestFromData_VerifyHighRiskNo2FA(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte("HEROKU_API_KEY="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("HEROKU_API_KEY="+dummy))
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true")
 	}
@@ -145,7 +146,7 @@ func TestFromData_Verify2FANotHighRisk(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte("heroku="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("heroku="+dummy))
 	if res[0].ExtraData["heroku_two_factor"] != "true" {
 		t.Errorf("heroku_two_factor = %q, want true", res[0].ExtraData["heroku_two_factor"])
 	}
@@ -169,7 +170,7 @@ func TestFromData_VerifySSOFederated(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte("heroku="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("heroku="+dummy))
 	if res[0].ExtraData["heroku_sso"] != "true" {
 		t.Errorf("expected heroku_sso=true")
 	}
@@ -192,7 +193,7 @@ func TestFromData_VerifySuspended(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte("heroku="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("heroku="+dummy))
 	if res[0].ExtraData["heroku_account_suspended"] != "true" {
 		t.Errorf("expected heroku_account_suspended=true")
 	}

@@ -4,6 +4,7 @@ package puttyprivatekey
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"strings"
 	"testing"
 )
@@ -37,7 +38,7 @@ Private-MAC: 1122334455667788990011223344556677889900
 `
 
 func TestFromData_Unencrypted(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(syntheticUnencrypted))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(syntheticUnencrypted))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -59,7 +60,7 @@ func TestFromData_Unencrypted(t *testing.T) {
 }
 
 func TestFromData_Encrypted(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(syntheticEncrypted))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(syntheticEncrypted))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -85,7 +86,7 @@ func TestFromData_Suppressed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.data))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.data))
 			if len(res) != 0 {
 				t.Fatalf("expected 0, got %d findings for %q: %+v", len(res), tc.data, res)
 			}

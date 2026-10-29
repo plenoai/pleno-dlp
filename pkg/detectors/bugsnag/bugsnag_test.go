@@ -4,6 +4,7 @@ package bugsnag
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"strings"
 	"testing"
 )
@@ -12,7 +13,7 @@ const dummy = "0123456789abcdef0123456789abcdef"
 
 func detect(t *testing.T, data string) []string {
 	t.Helper()
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(data))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(data))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

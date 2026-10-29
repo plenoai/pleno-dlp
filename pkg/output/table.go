@@ -47,7 +47,7 @@ func (s *tableSink) Emit(f engine.Finding) {
 		termsafe.String(f.Detector.String()),
 		verdictSymbol(f),
 		termsafe.String(tableLocationOf(f)),
-		termsafe.String(f.Result.Redacted),
+		termsafe.String(f.Result.SafeRedacted()),
 		termsafe.String(f.SuppressedBy),
 	)
 }

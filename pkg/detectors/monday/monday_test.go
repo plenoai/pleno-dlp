@@ -10,13 +10,14 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjEyMzQ1Njc4OSwiYWFpIjoxMSwidWlkIjoxMDAwMDAsImlhZCI6IjIwMjQtMDEtMDFUMDA6MDA6MDAuMDAwWiIsInBlciI6Im1lOndyaXRlIiwiYWN0aWQiOjEsInJnbiI6InVzZTEifQ.dummysig0123456"
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# monday.com\nMONDAY_API_TOKEN=" + dummy)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -29,7 +30,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -203,7 +204,7 @@ func TestFromData_ServerErrorProducesIndeterminateVerdict(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	results, err := Scanner{}.FromData(
+	results, err := redactiontest.FromData(t, Scanner{},
 		context.Background(),
 		true,
 		[]byte("MONDAY_API_TOKEN="+dummy),
@@ -239,7 +240,7 @@ func TestVerify_TransportError(t *testing.T) {
 // Previously the "monday " (trailing space) keyword matched casual English.
 func TestFromData_FP_WeekdayMention(t *testing.T) {
 	body := []byte("# meeting on monday \nticket=" + dummy)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -253,7 +254,7 @@ func TestFromData_FP_WeekdayMention(t *testing.T) {
 func TestFromData_FP_GenericJWTNearMonday(t *testing.T) {
 	// A JWT from an unrelated service in a comment mentioning the weekday.
 	body := []byte("# deployed last monday\ntoken=" + dummy)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

@@ -4,11 +4,12 @@ package railsmasterkey
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
 
 func TestFromData_Match(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("7ac21fd94b6e0c831a5f2d9e7c4b81f0"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("7ac21fd94b6e0c831a5f2d9e7c4b81f0"))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -18,7 +19,7 @@ func TestFromData_Match(t *testing.T) {
 }
 
 func TestFromData_MatchWithTrailingNewline(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("7ac21fd94b6e0c831a5f2d9e7c4b81f0\n"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("7ac21fd94b6e0c831a5f2d9e7c4b81f0\n"))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -39,7 +40,7 @@ func TestFromData_Suppressed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.data))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.data))
 			if len(res) != 0 {
 				t.Fatalf("expected 0, got %d findings for %q: %+v", len(res), tc.data, res)
 			}

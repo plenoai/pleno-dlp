@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "P@ssw0rd1234567890ABCabc"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("INTACCT_SENDER_PASSWORD=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED_VALUE=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -48,7 +49,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // shape; post-hardening the armRe gate rejects it.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("see https://developer.intacct.com/docs for details X9kQ2mPv7Lr4Zt6Wn3Bc8Df")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (bare keyword, no assignment anchor), got %d", len(res))
 	}
@@ -59,7 +60,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 // assignment anchor, but must be culled by HasMinEntropy.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("INTACCT_SENDER_PASSWORD=aaaaaaaaaaaaaaaa")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low-entropy run), got %d", len(res))
 	}
@@ -69,7 +70,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 // provisioned-style value next to the assignment anchor must still fire.
 func TestFromData_ArmedStillDetects(t *testing.T) {
 	body := []byte("intacct_sender_password = " + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1 (armed assignment), recall regression")
 	}

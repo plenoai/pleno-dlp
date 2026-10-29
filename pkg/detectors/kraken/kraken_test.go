@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyKey = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123"
@@ -30,7 +31,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("KRAKEN_API_KEY=" + dummyKey + " KRAKEN_API_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -38,7 +39,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED_K=" + dummyKey + " UNRELATED_S=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -145,7 +146,7 @@ func TestFromData_HTTP200RateLimitProducesIndeterminateVerdict(t *testing.T) {
 	defer func() { apiBase = old }()
 
 	body := []byte("KRAKEN_API_KEY=" + dummyKey + " KRAKEN_API_SECRET=" + dummySecret)
-	results, err := Scanner{}.FromData(context.Background(), true, body)
+	results, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, body)
 	if err != nil {
 		t.Fatalf("FromData: %v", err)
 	}

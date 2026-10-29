@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "ll352u9jujauoqz4gstvsae05"
@@ -27,14 +28,14 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# smartsheet\nSMARTSHEET_TOKEN=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -47,7 +48,7 @@ const lowEntropyFP = "deadbeefdeadbeefdeadbeefdead"
 
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("# smartsheet\nSMARTSHEET_TOKEN=" + lowEntropyFP)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected low-entropy FP to be rejected, got %d", len(res))
 	}
@@ -63,7 +64,7 @@ func TestFromData_RadiusTightened(t *testing.T) {
 	}
 	body := append([]byte("smartsheet"), filler...)
 	body = append(body, []byte(" "+dummy)...)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected token beyond radius 64 to be rejected, got %d", len(res))
 	}

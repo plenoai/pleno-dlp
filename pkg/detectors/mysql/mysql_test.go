@@ -6,12 +6,13 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/binary"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
 
 func TestFromData_Positive(t *testing.T) {
 	body := "DATABASE_URL=mysql://root:rootp4ss@db.example.com:3306/app"
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -24,14 +25,14 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_MysqlX(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("mysqlx://u:p@h:33060"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("mysqlx://u:p@h:33060"))
 	if len(res) != 1 {
 		t.Fatalf("expected 1")
 	}
 }
 
 func TestFromData_NoUserinfo(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("mysql://db.local:3306/app"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("mysql://db.local:3306/app"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

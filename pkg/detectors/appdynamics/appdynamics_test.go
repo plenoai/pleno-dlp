@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyClient = "myclient@acme-prod"
@@ -31,7 +32,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("APPDYNAMICS_CLIENT=" + dummyClient + "\nAPPDYNAMICS_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -42,7 +43,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("CLIENT=" + dummyClient + "\nSECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -56,7 +57,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 func TestFromData_RejectsGenericHighEntropy(t *testing.T) {
 	body := []byte("APPDYNAMICS_CLIENT=" + dummyClient +
 		"\nAPPDYNAMICS_SECRET=Zk7Qx3Lm9Rt2Vb8Nw5Hy1Pd4Fc6Sg0Aj")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (non-UUID secret must not match), got %d", len(res))
 	}
@@ -67,7 +68,7 @@ func TestFromData_RejectsGenericHighEntropy(t *testing.T) {
 func TestFromData_RejectsLowEntropyUUID(t *testing.T) {
 	body := []byte("APPDYNAMICS_CLIENT=" + dummyClient +
 		"\nAPPDYNAMICS_SECRET=00000000-0000-0000-0000-000000000000")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low-entropy UUID placeholder must not match), got %d", len(res))
 	}

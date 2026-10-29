@@ -103,7 +103,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		})
 	}
 
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // isPlaceholderBasicAuth reports whether npm's `_auth` base64 blob

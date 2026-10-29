@@ -79,7 +79,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		// see the surface area; they can pair manually if they have the app key.
 		out = append(out, res)
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // nearestApp picks the closest 40-hex match within 256 bytes of the api-key

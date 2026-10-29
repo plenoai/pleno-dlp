@@ -48,7 +48,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		seen[token] = struct{}{}
 		out = append(out, makeResult(ctx, s, token, verify))
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 func makeResult(ctx context.Context, s Scanner, token string, verify bool) detectors.Result {

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // realToken is a high-entropy, mixed-case, URL-safe base64 run with an
@@ -30,7 +31,7 @@ func TestKeywords(t *testing.T) {
 // still detected after hardening.
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# concourse\nFLY_TOKEN=" + realToken)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -43,7 +44,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+realToken))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+realToken))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -51,7 +52,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("concourse=" + realToken + "\nconcourse=" + realToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -89,7 +90,7 @@ func TestFromData_SuppressedFalsePositives(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, err := Scanner{}.FromData(context.Background(), false, []byte(tc.body))
+			res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.body))
 			if err != nil {
 				t.Fatalf("err: %v", err)
 			}

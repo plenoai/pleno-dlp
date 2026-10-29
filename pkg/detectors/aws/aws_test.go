@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 func TestFromData_Positive(t *testing.T) {
@@ -15,7 +16,7 @@ func TestFromData_Positive(t *testing.T) {
 aws_access_key_id     = AKIAIOSFODNN7EXAMPLE
 aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 `)
-	res, err := Scanner{}.FromData(context.Background(), false, data)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -35,7 +36,7 @@ aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 
 func TestFromData_Negative(t *testing.T) {
 	data := []byte("nothing of interest here, just text without an aws key id")
-	res, err := Scanner{}.FromData(context.Background(), false, data)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -56,7 +57,7 @@ func TestFromData_ShapeGateKeepsUnicodeAndRejectsNearMatches(t *testing.T) {
 		{"invalid first then valid", " AKIA0123456789 " + valid, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			res, err := Scanner{}.FromData(context.Background(), false, []byte(tc.body))
+			res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.body))
 			if err != nil {
 				t.Fatalf("FromData err: %v", err)
 			}
@@ -118,7 +119,7 @@ func ptr(s string) *string { return &s }
 func TestFromData_VerifyEnrichesIdentity(t *testing.T) {
 	withFakeSTS(t, "123456789012", "arn:aws:iam::123456789012:user/Alice", "AIDAEXAMPLEUSERID")
 	data := []byte("AKIAIOSFODNN7EXAMPLE\nwJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n")
-	res, err := Scanner{}.FromData(context.Background(), true, data)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, data)
 	if err != nil {
 		t.Fatalf("FromData: %v", err)
 	}
@@ -141,7 +142,7 @@ func TestFromData_VerifyEnrichesIdentity(t *testing.T) {
 
 func TestFromData_RootIsPrivileged(t *testing.T) {
 	withFakeSTS(t, "123456789012", "arn:aws:iam::123456789012:root", "123456789012")
-	res, _ := Scanner{}.FromData(context.Background(), true,
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true,
 		[]byte("AKIAIOSFODNN7EXAMPLE\nwJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n"))
 	if res[0].ExtraData["aws_principal_kind"] != "root" {
 		t.Errorf("expected root, got %q", res[0].ExtraData["aws_principal_kind"])
@@ -155,7 +156,7 @@ func TestFromData_AdminRoleIsPrivileged(t *testing.T) {
 	withFakeSTS(t, "555555555555",
 		"arn:aws:sts::555555555555:assumed-role/AdminRole/session-id",
 		"AROAEXAMPLE:session-id")
-	res, _ := Scanner{}.FromData(context.Background(), true,
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true,
 		[]byte("AKIAIOSFODNN7EXAMPLE\nwJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n"))
 	if res[0].ExtraData["aws_principal_kind"] != "assumed-role" {
 		t.Errorf("kind = %q, want assumed-role", res[0].ExtraData["aws_principal_kind"])
@@ -171,7 +172,7 @@ func TestFromData_VerifyFailureNoMeta(t *testing.T) {
 	stsClientFactory = func(_, _ string) stsCaller {
 		return &fakeSTS{err: context.Canceled}
 	}
-	res, _ := Scanner{}.FromData(context.Background(), true,
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true,
 		[]byte("AKIAIOSFODNN7EXAMPLE\nwJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n"))
 	if res[0].Verified {
 		t.Errorf("expected Verified=false on STS error")

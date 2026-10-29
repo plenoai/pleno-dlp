@@ -111,7 +111,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		}
 		out = append(out, res)
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // FromReader finds complete PEM records without retaining the surrounding
@@ -130,7 +130,7 @@ func (s Scanner) FromReader(ctx context.Context, verify bool, r io.ReaderAt, siz
 		out = append(out, res)
 		return nil
 	})
-	return out, err
+	return detectors.SafeResults(out), err
 }
 
 // Verify is the Verifier-interface entry point used by callers that

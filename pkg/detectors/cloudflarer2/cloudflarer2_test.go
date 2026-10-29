@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -31,7 +32,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# r2_access_key\nR2_ACCESS_KEY_ID=" + dummyID + "\nR2_SECRET=" + dummySecret)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -48,7 +49,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("X=" + dummyID + "\nY=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without R2 keyword, got %d", len(res))
 	}
@@ -56,7 +57,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_MissingSecret(t *testing.T) {
 	body := []byte("# r2_access_key id only\nR2_ACCESS_KEY_ID=" + dummyID)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without companion secret, got %d", len(res))
 	}
@@ -97,7 +98,7 @@ func TestFromData_FalsePositives_Suppressed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, err := Scanner{}.FromData(context.Background(), false, []byte(tc.body))
+			res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.body))
 			if err != nil {
 				t.Fatalf("err: %v", err)
 			}
@@ -115,7 +116,7 @@ func TestFromData_TruePositive_StillDetected(t *testing.T) {
 	body := []byte("# Cloudflare R2 credentials\n" +
 		"R2_ACCESS_KEY_ID=" + dummyID + "\n" +
 		"R2_SECRET_ACCESS_KEY=" + dummySecret + "\n")
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

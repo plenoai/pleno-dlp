@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyToken = "abcdef0123456789abcdef0123456789abcdef0123456789"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("GREENHOUSE_API_KEY=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -39,7 +40,7 @@ func TestFromData_Found(t *testing.T) {
 // credentials assigned to GREENHOUSE_API are not silently dropped.
 func TestFromData_BareApiEnvVar(t *testing.T) {
 	body := []byte("GREENHOUSE_API=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1 for GREENHOUSE_API env-var form, got 0")
 	}
@@ -50,7 +51,7 @@ func TestFromData_BareApiEnvVar(t *testing.T) {
 // a7183e1b7e9ab09b8a5cfa87d1934c3c) referenced via an assignment key.
 func TestFromData_DocumentedShape(t *testing.T) {
 	body := []byte("greenhouse_api_token = a7183e1b7e9ab09b8a5cfa87d1934c3c")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1 for documented 32-hex token, got 0")
 	}
@@ -58,7 +59,7 @@ func TestFromData_DocumentedShape(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without greenhouse keyword, got %d", len(res))
 	}
@@ -71,7 +72,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // gate this fired; under the arm-regex gate it must not.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("see https://harvest.greenhouse.io/docs and config " + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare-keyword-without-arm FP shape, got %d", len(res))
 	}
@@ -82,7 +83,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 // regex and the arm gate but must be culled by the entropy floor.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("greenhouse_api_key = 00000000000000000000000000000000")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy padded hex, got %d", len(res))
 	}

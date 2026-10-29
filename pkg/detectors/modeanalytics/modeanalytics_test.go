@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyID = "abcdef0123456789ABCDEF"
@@ -28,7 +29,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("MODEANALYTICS_TOKEN=" + dummyID + "\nMODE_SECRET=" + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -36,7 +37,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED=" + dummyID + "\nOTHER=" + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -49,7 +50,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // [A-Za-z0-9]{16,80} regex matched these.
 func TestFromData_RejectsNonHexHighEntropy(t *testing.T) {
 	body := []byte("mode_api_token = Xq9ZpL2mNvB7wKfR3sTjYcH8gW0\nmode_secret = Gz5RtYuIoPqWzXcVbNmKjHgFdSaQwErT")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (non-hex high-entropy run must be rejected), got %d", len(res))
 	}
@@ -59,7 +60,7 @@ func TestFromData_RejectsNonHexHighEntropy(t *testing.T) {
 // repeated-nibble hex runs clear the hex regex but are not credential-grade.
 func TestFromData_RejectsLowEntropyHex(t *testing.T) {
 	body := []byte("mode_api_token = 000000000000000000000000\nmode_secret = aaaaaaaaaaaaaaaaaaaaaaaa")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low-entropy hex must be rejected), got %d", len(res))
 	}
@@ -70,7 +71,7 @@ func TestFromData_RejectsLowEntropyHex(t *testing.T) {
 // hardening preserves recall on the real documented format.
 func TestFromData_DocumentedShape(t *testing.T) {
 	body := []byte("mode_access_key = 8b6fdc0a36bf340604a3cedc\nmode_access_secret = 829146cb6c752f51bbbb8c85")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1 for documented 24-hex shape")
 	}

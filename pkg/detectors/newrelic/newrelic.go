@@ -89,7 +89,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			ExtraData:    map[string]string{"kind": "insert"},
 		})
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

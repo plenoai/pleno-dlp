@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyID = "AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz0123456789ABCDEFGHIJKLMNOPQR"
@@ -17,7 +18,7 @@ const dummySecret = "EFGHijklMNOPqrstUVWXyz0123456789AaBbCcDdEeFfGgHhIiJjKkLlMmN
 
 func TestFromData_Pair(t *testing.T) {
 	body := []byte("PAYPAL_CLIENT_ID=" + dummyID + "\nPAYPAL_CLIENT_SECRET=" + dummySecret)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -37,7 +38,7 @@ func TestFromData_Pair(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("X=" + dummyID + "\nY=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

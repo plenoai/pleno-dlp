@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummy is a 32-char lowercase-alnum, high-entropy shape matching the
@@ -34,7 +35,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("TAXJAR_API_TOKEN=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -42,7 +43,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED_KEY=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -54,7 +55,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // the gate is an arm regex rather than a bare substring.
 func TestFromData_BareKeywordRejected(t *testing.T) {
 	body := []byte("// see https://developers.taxjar.com for details\nid = " + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (bare keyword, no arm), got %d", len(res))
 	}
@@ -64,7 +65,7 @@ func TestFromData_BareKeywordRejected(t *testing.T) {
 // is dropped by the entropy floor even when armed by a real reference.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("TAXJAR_API_TOKEN=" + lowEntropyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low entropy), got %d", len(res))
 	}

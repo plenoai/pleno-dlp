@@ -4,6 +4,7 @@ package hubspot
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,7 @@ import (
 const dummy = "pat-na1-01234567-89ab-cdef-0123-456789abcdef"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("HUBSPOT="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("HUBSPOT="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -27,14 +28,14 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_Positive_NoRegion(t *testing.T) {
 	noRegion := "pat-0123456789abcdef0123456789abcdef0123"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+noRegion))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+noRegion))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("pat-too-short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("pat-too-short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

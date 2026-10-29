@@ -144,3 +144,37 @@ func TestSpoolSink_TruncatesExistingFile(t *testing.T) {
 		t.Errorf("spool must truncate on open to avoid stale revoke replay; got: %q", body)
 	}
 }
+
+func TestRevokeFromSpoolDoesNotTrustForgedRedacted(t *testing.T) {
+	resetCommandFlags(t)
+	secret := "p4ss"
+	path := filepath.Join(t.TempDir(), "spool.jsonl")
+	rec := spoolRecord{
+		Version:   spoolRecordVersion,
+		Detector:  "GitHub",
+		SecretB64: base64.StdEncoding.EncodeToString([]byte(secret)),
+		Redacted:  secret,
+	}
+	body, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatalf("marshal forged spool record: %v", err)
+	}
+	if err := os.WriteFile(path, append(body, '\n'), 0o600); err != nil {
+		t.Fatalf("write forged spool: %v", err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"revoke", "--revoke-from-spool", path, "--dry-run", "--format", "json"})
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("dry-run spool replay: %v\nstderr:\n%s", err, errBuf.String())
+	}
+	var output revokeRecord
+	if err := json.Unmarshal(out.Bytes(), &output); err != nil {
+		t.Fatalf("decode revoke output: %v\n%s", err, out.String())
+	}
+	if strings.Contains(output.RedactedSecret, secret) || strings.Contains(out.String(), secret) {
+		t.Fatalf("forged spool redacted value leaked in output: %s", out.String())
+	}
+}

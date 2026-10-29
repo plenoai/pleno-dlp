@@ -104,7 +104,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			Redacted:     redact(token),
 		})
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // looksLikeToken rejects negative lookalikes: pure hex (git/sha fragments and

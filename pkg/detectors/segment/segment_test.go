@@ -4,6 +4,7 @@ package segment
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"strings"
 	"testing"
 )
@@ -11,7 +12,7 @@ import (
 const dummy = "AbCdEfGhIjKlMnOpQrStUvWxYz012345"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("SEGMENT_WRITE_KEY="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("SEGMENT_WRITE_KEY="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -28,14 +29,14 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_NoKeyword_DoesNotMatch(t *testing.T) {
 	// 32-alnum without "segment" → must skip.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("token="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("token="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("segment short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("segment short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -69,7 +70,7 @@ func TestFromData_LowEntropyLookalikes_Suppressed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, err := Scanner{}.FromData(context.Background(), false, []byte(tc.data))
+			res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.data))
 			if err != nil {
 				t.Fatalf("err: %v", err)
 			}
@@ -84,7 +85,7 @@ func TestFromData_LowEntropyLookalikes_Suppressed(t *testing.T) {
 // set so high it suppresses real keys: a random base62 write key next to a
 // Segment anchor must still surface.
 func TestFromData_HighEntropyStillDetected(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("segment.com write key "+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("segment.com write key "+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

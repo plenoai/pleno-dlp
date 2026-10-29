@@ -4,6 +4,7 @@ package bitbucketcloud
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,7 +26,7 @@ const fpHighEntropy = "aZ3kP9xQ7mW2rT5yB8nC1vD4fG6hJ0lK"
 
 func TestFromData_AccessToken(t *testing.T) {
 	body := []byte("BITBUCKET_TOKEN=" + dummyToken)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -39,7 +40,7 @@ func TestFromData_AccessToken(t *testing.T) {
 
 func TestFromData_AppPassword(t *testing.T) {
 	body := []byte("BITBUCKET_APP_PASSWORD=" + dummyAppPassword)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -55,14 +56,14 @@ func TestFromData_AppPassword(t *testing.T) {
 // credential, even with the bitbucket keyword in the same line.
 func TestFromData_BareHighEntropy_Rejected(t *testing.T) {
 	withKW := []byte("BITBUCKET_APP_PASSWORD=" + fpHighEntropy)
-	res, _ := Scanner{}.FromData(context.Background(), false, withKW)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, withKW)
 	if len(res) != 0 {
 		t.Fatalf("bare high-entropy string near keyword must not match, got %d", len(res))
 	}
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("bitbucket=short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("bitbucket=short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

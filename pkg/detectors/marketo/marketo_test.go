@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummyID is a UUID v4 — the authoritative Marketo client_id shape (Adobe docs
@@ -31,7 +32,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("MARKETO_CLIENT_ID=" + dummyID + "\nMARKETO_CLIENT_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -42,7 +43,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("CLIENT_ID=" + dummyID + "\nCLIENT_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -55,7 +56,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 func TestFromData_GenericHighEntropyRejected(t *testing.T) {
 	// 30-char base62 noise (not a UUID) + a 32-char secret, both near "marketo".
 	body := []byte("marketo notes: x9Qm2Lp7Zr4Vt8Nc1Bd6Ws3Kf5Hj plus token kP9mWq2Lz7Rt4Vx8Nc1Bd6Ws3Kf5Hj0a")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (no UUID-shaped client_id), got %d", len(res))
 	}
@@ -66,7 +67,7 @@ func TestFromData_GenericHighEntropyRejected(t *testing.T) {
 // must NOT arm — the bare keyword is only a prefilter, not the gate.
 func TestFromData_BareKeywordNotArmed(t *testing.T) {
 	body := []byte("The marketo platform overview. " + dummyID + " " + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (bare keyword, no assignment anchor), got %d", len(res))
 	}

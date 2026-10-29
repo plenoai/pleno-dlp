@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 func futureDate() string {
@@ -25,7 +26,7 @@ func TestFromData_Positive(t *testing.T) {
 		"&X-Goog-Expires=900" +
 		"&X-Goog-SignedHeaders=host" +
 		"&X-Goog-Signature=" + strings.Repeat("a", 128)
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(urlStr))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(urlStr))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -38,7 +39,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("https://storage.googleapis.com/b/k"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("https://storage.googleapis.com/b/k"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0")
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummy is a spec-correct 40-hex-char value (160-bit secret in hexadecimal
@@ -30,7 +31,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("BAMBOOHR_API_KEY=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -38,7 +39,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -50,7 +51,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // hex-only charset it must no longer be reported.
 func TestFromData_RejectsNonHexHighEntropy(t *testing.T) {
 	body := []byte("BAMBOOHR_API_KEY=Xq7Zk9pLmW3vRtYuIoPaSdFgHjKlZxCvBnMqWeRt")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (non-hex shape), got %d", len(res))
 	}
@@ -61,7 +62,7 @@ func TestFromData_RejectsNonHexHighEntropy(t *testing.T) {
 // mention) without an assignment-style anchor must no longer be promoted.
 func TestFromData_RejectsBareKeywordProximity(t *testing.T) {
 	body := []byte("see the bamboohr integration notes; commit " + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (bare keyword, no anchor), got %d", len(res))
 	}
@@ -71,7 +72,7 @@ func TestFromData_RejectsBareKeywordProximity(t *testing.T) {
 // 40-hex run (repeated digit) clears the regex but is not a real key.
 func TestFromData_RejectsLowEntropyHex(t *testing.T) {
 	body := []byte("BAMBOOHR_API_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low-entropy hex), got %d", len(res))
 	}

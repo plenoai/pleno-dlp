@@ -4,13 +4,14 @@ package npmrcauth
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
 
 func TestFromData_AuthToken(t *testing.T) {
 	data := []byte("registry=\"https://registry.npmjs.org/\"\n" +
 		"//registry.npmjs.org/:_authToken=unit-test-fixture-authtoken-not-a-real-value-0000\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -25,7 +26,7 @@ func TestFromData_AuthToken(t *testing.T) {
 func TestFromData_AuthBase64NonPlaceholder(t *testing.T) {
 	// base64("svc_deploy:R3alNpmR3gistryPassZz8k")
 	data := []byte("_auth = c3ZjX2RlcGxveTpSM2FsTnBtUjNnaXN0cnlQYXNzWno4aw==\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -50,7 +51,7 @@ func TestFromData_Suppressed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.data))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.data))
 			switch tc.name {
 			case "invalid base64 kept as-is not suppressed":
 				if len(res) != 1 {
@@ -68,7 +69,7 @@ func TestFromData_Suppressed(t *testing.T) {
 func TestFromData_Dedup(t *testing.T) {
 	data := []byte("_authToken=unit-test-fixture-authtoken-not-a-real-value-0000\n" +
 		"_authToken=unit-test-fixture-authtoken-not-a-real-value-0000\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 deduped, got %d", len(res))
 	}

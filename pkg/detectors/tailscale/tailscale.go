@@ -73,7 +73,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		}
 		out = append(out, res)
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // Verify checks the token against Tailscale's secret-scanning partner endpoint.

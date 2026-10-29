@@ -28,6 +28,8 @@ import (
 	"io"
 	"sync"
 	"time"
+
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 // SchemaVersion is embedded in every Record as schema_version. Bump this
@@ -171,7 +173,7 @@ func New(a Attempt) Record {
 		Path:          string(a.Path),
 		Detector:      a.Detector,
 		SecretHash:    hash,
-		Redacted:      a.Redacted,
+		Redacted:      detectors.SafeRedacted(a.Redacted, []byte(a.Secret), nil),
 		Revoked:       a.Revoked,
 		ProviderID:    a.ProviderID,
 		DryRun:        a.DryRun,

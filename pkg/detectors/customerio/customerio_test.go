@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -30,7 +31,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("customerio_site_id=" + dummySiteID + "\ncustomerio_api_key=" + dummyAPIKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -38,7 +39,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("site=" + dummySiteID + "\napi=" + dummyAPIKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without customerio keyword, got %d", len(res))
 	}
@@ -52,7 +53,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 	const lowEntA = "aaaaaaaaaa1111111111" // entropy ~1.0
 	const lowEntB = "bbbbbbbbbb2222222222" // entropy ~1.0
 	body := []byte("customerio_site_id=" + lowEntA + "\ncustomerio_api_key=" + lowEntB)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy tokens, got %d", len(res))
 	}
@@ -65,7 +66,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 func TestFromData_BareBrandMentionRejected(t *testing.T) {
 	body := []byte("We integrate with customerio for messaging.\n" +
 		"unrelated_token_a=" + dummySiteID + "\nunrelated_token_b=" + dummyAPIKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare brand mention without assignment anchor, got %d", len(res))
 	}

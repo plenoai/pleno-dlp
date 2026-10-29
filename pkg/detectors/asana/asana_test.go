@@ -4,6 +4,7 @@ package asana
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,7 @@ import (
 const dummy = "1/1234567890123456/0123456789abcdef0123456789abcdef"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("ASANA_PAT="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("ASANA_PAT="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -27,7 +28,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_Negative(t *testing.T) {
 	// Wrong shape — only 8 digits in gid.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("1/12345678/0123456789abcdef0123456789abcdef"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("1/12345678/0123456789abcdef0123456789abcdef"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

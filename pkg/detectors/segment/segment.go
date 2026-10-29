@@ -98,7 +98,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			Redacted:     redact(token),
 		})
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 func nearKeyword(kwSpans [][]int, start, end int) bool {

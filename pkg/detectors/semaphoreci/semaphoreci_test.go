@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyToken = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN0123456789"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("semaphore_token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -42,7 +43,7 @@ func TestFromData_ArmVariants(t *testing.T) {
 		"semaphore_secret = " + dummyToken,
 	}
 	for _, body := range cases {
-		res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 		if len(res) == 0 {
 			t.Fatalf("expected >=1 for %q, got 0", body)
 		}
@@ -51,7 +52,7 @@ func TestFromData_ArmVariants(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without semaphore keyword, got %d", len(res))
 	}
@@ -66,7 +67,7 @@ func TestFromData_RejectsBareKeywordHighEntropy(t *testing.T) {
 	// dummyToken is high-entropy (Shannon ~5.6), so this isolates the arm-regex
 	// gate, not the entropy floor.
 	body := []byte("acquired the semaphore before writing " + dummyToken + " to the cache key")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare-keyword high-entropy FP shape, got %d", len(res))
 	}
@@ -74,7 +75,7 @@ func TestFromData_RejectsBareKeywordHighEntropy(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("semaphore_token=" + dummyToken + "\nsemaphoreci_key=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
