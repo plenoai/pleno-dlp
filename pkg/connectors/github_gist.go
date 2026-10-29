@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 	"net/url"
 	"os"
 	"regexp"
@@ -281,7 +282,7 @@ func scanGitHubGists(ctx context.Context, cfg Config, auth githubTokenProvider, 
 		return err
 	}
 	if n := skippedEmpty.Load(); n > 0 {
-		fmt.Fprintf(os.Stderr, "github: gist comments skipped-empty=%d\n", n)
+		termsafe.Fprintf(os.Stderr, "github: gist comments skipped-empty=%d\n", n)
 	}
 	data, err := json.Marshal(state)
 	if err != nil {

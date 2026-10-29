@@ -120,3 +120,19 @@ func TestIsInteractiveStdin(t *testing.T) {
 		t.Error("isInteractiveStdin(regular file) = true, want false")
 	}
 }
+
+func TestEmitRevokeEscapesTerminalControls(t *testing.T) {
+	rec := revokeRecord{Detector: "provider\x1b[2J", RedactedSecret: "masked\rvalue", Error: "failed\nFAKE"}
+	var out bytes.Buffer
+	command := &cobra.Command{}
+	command.SetErr(&out)
+	emitRevoke(command, "table", rec)
+	if strings.ContainsAny(out.String(), "\x1b\r") || strings.Count(out.String(), "\n") != 1 {
+		t.Fatalf("terminal control leaked: %q", out.String())
+	}
+	for _, want := range []string{`provider\x1b[2J`, `masked\rvalue`, `failed\nFAKE`} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing escaped value %q in %q", want, out.String())
+		}
+	}
+}

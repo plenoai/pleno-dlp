@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 	"hash"
 	"io"
 	"io/fs"
@@ -345,7 +346,7 @@ func trimEOL(b []byte) []byte {
 // sqldumpWarnf reports non-fatal scan degradation (e.g. skipped oversized
 // lines) to stderr. It is a package var so tests can capture the warnings.
 var sqldumpWarnf = func(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, format, args...)
+	termsafe.Fprintf(os.Stderr, format, args...)
 }
 
 func (s *Source) emitChunk(ctx context.Context, ch chan<- *sources.Chunk, file string, p *parser, data []byte, line int, format string) error {

@@ -498,3 +498,50 @@ func TestTableSinkEmptyOutput(t *testing.T) {
 		t.Errorf("zero findings should produce no output, got %q", buf.String())
 	}
 }
+
+// TestTableSinkEscapesTerminalControls pins that source-controlled table
+// fields can't inject terminal controls or extra rows, while JSON keeps the
+// original bytes.
+func TestTableSinkEscapesTerminalControls(t *testing.T) {
+	f := sample()
+	f.Chunk.SourceMetadata.Filesystem.Path = "/tmp/a\x1b[2J\x1b]8;;http://x\x07b\u202e.txt\nFAKE ROW"
+	f.Result.Redacted = "AKIA\r…日本"
+	f.SuppressedBy = "inline\tlabel"
+
+	var buf bytes.Buffer
+	s, _ := NewSink("table", &buf, "test")
+	s.Emit(f)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	out := buf.String()
+	if strings.ContainsAny(out, "\x1b\x07\r\u202e") {
+		t.Errorf("raw control leaked into table: %q", out)
+	}
+	if n := strings.Count(out, "\n"); n != 2 {
+		t.Errorf("want header + 1 row, got %d lines: %q", n, out)
+	}
+	for _, want := range []string{`\x1b[2J`, `\x07b`, `\u202e.txt\nFAKE ROW`, `AKIA\r…日本`, `inline\tlabel`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing escaped %q in %q", want, out)
+		}
+	}
+
+	var jbuf bytes.Buffer
+	js, _ := NewSink("json", &jbuf, "test")
+	js.Emit(f)
+	_ = js.Close()
+	var recs []map[string]any
+	if err := json.Unmarshal(jbuf.Bytes(), &recs); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if len(recs) != 1 {
+		t.Fatalf("want one JSON record, got %d", len(recs))
+	}
+	source := recs[0]["source"].(map[string]any)
+	metadata := source["metadata"].(map[string]any)
+	if metadata["path"] != f.Chunk.SourceMetadata.Filesystem.Path ||
+		recs[0]["redacted"] != f.Result.Redacted || recs[0]["suppressed_by"] != f.SuppressedBy {
+		t.Errorf("JSON changed untrusted values: %s", jbuf.Bytes())
+	}
+}

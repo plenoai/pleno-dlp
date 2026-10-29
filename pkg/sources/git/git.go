@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 	"hash"
 	"io"
 	"os"
@@ -118,7 +119,7 @@ func withArtifactBudget(ctx context.Context, archive bool, blobBytes int64, fn f
 	}
 	defer release()
 	if waited > 10*time.Millisecond {
-		fmt.Fprintf(os.Stderr, "git: artifact budget waited %s for %d bytes\n", waited.Round(time.Millisecond), weight)
+		termsafe.Fprintf(os.Stderr, "git: artifact budget waited %s for %d bytes\n", waited.Round(time.Millisecond), weight)
 	}
 	return fn()
 }
@@ -386,7 +387,7 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 		}
 	}
 	if s.promisorSkipped > 0 {
-		fmt.Fprintf(os.Stderr, "git: %s: skipped %d promisor-omitted objects (intentional partial-clone boundary)\n", s.repoAbs, s.promisorSkipped)
+		termsafe.Fprintf(os.Stderr, "git: %s: skipped %d promisor-omitted objects (intentional partial-clone boundary)\n", s.repoAbs, s.promisorSkipped)
 	}
 	if coverageTotal > 0 {
 		if s.previousState != nil {

@@ -32,6 +32,8 @@ import (
 	gitsource "github.com/plenoai/pleno-dlp/pkg/sources/git"
 	"github.com/plenoai/pleno-dlp/pkg/sources/stdin"
 	"github.com/plenoai/pleno-dlp/pkg/verify"
+
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 )
 
 var Root = &cobra.Command{
@@ -594,7 +596,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// stderr warning + skip; we never abort the secret scan because
 	// the PII side-channel is unavailable.
 	if stopPII, err := startPIIEngine(ctx, cmd, cmd.ErrOrStderr()); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "pii-engine: %v — continuing without PII detection\n", err)
+		termsafe.Fprintf(cmd.ErrOrStderr(), "pii-engine: %v — continuing without PII detection\n", err)
 	} else if stopPII != nil {
 		defer stopPII()
 	}
@@ -820,7 +822,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 			)
 		}
 		if spool != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(),
+			termsafe.Fprintf(cmd.ErrOrStderr(),
 				"revoke-spool: queued=%d skipped-no-revoker=%d write-errors=%d path=%s\n",
 				spool.queued.Load(), spool.skippedNoRv.Load(), spool.writeErrs.Load(), scanOpts.revokeSpool,
 			)
@@ -1244,7 +1246,7 @@ func prepareIncremental(ctx context.Context, kind string, cfg []byte, src source
 		return "", nil, nil, fmt.Errorf("--incremental is not supported for %s source", kind)
 	}
 	if !scanOpts.quiet {
-		fmt.Fprintf(os.Stderr, "incremental: fingerprinting %s resources\n", kind)
+		termsafe.Fprintf(os.Stderr, "incremental: fingerprinting %s resources\n", kind)
 	}
 	resourceFP, err := fp.ResourceFingerprint(ctx)
 	if err != nil {

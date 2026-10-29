@@ -8,6 +8,7 @@ package connectors
 
 import (
 	"fmt"
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 	"os"
 	"runtime"
 	"strings"
@@ -53,7 +54,7 @@ func startRepoHeartbeat(repoKey string, interval time.Duration) *repoHeartbeat {
 			case <-t.C:
 				var m runtime.MemStats
 				runtime.ReadMemStats(&m)
-				fmt.Fprintf(os.Stderr, "github: heartbeat %s phase=%s chunks=%d heap=%s sys=%s elapsed=%s\n",
+				termsafe.Fprintf(os.Stderr, "github: heartbeat %s phase=%s chunks=%d heap=%s sys=%s elapsed=%s\n",
 					hb.repoKey, hb.phase.Load(), hb.chunks.Load(),
 					formatBytes(m.HeapAlloc), formatBytes(m.Sys),
 					time.Since(hb.start).Round(time.Second))
@@ -86,7 +87,7 @@ type cloneProgressWriter struct {
 func (w *cloneProgressWriter) Write(p []byte) (int, error) {
 	if time.Since(w.last) >= w.interval {
 		if line := lastProgressLine(p); line != "" {
-			fmt.Fprintf(os.Stderr, "github: clone %s: %s\n", w.repoKey, line)
+			termsafe.Fprintf(os.Stderr, "github: clone %s: %s\n", w.repoKey, line)
 			w.last = time.Now()
 		}
 	}

@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"runtime/debug"
 
@@ -15,6 +14,8 @@ import (
 	// Activate detector and source self-registration.
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/all"
 	_ "github.com/plenoai/pleno-dlp/pkg/sources/all"
+
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 )
 
 var (
@@ -57,7 +58,7 @@ func main() {
 		os.Exit(code)
 	}
 	if !errors.Is(err, crash.ErrNotSupervised) {
-		fmt.Fprintln(os.Stderr, "pleno-dlp: crash supervisor unavailable, running unsupervised:", err)
+		termsafe.Fprintf(os.Stderr, "pleno-dlp: crash supervisor unavailable, running unsupervised: %v\n", err)
 	}
 
 	err = rt.Recover(os.Args[1:], func() error { return cmd.Execute(ctx) })
@@ -71,6 +72,6 @@ func main() {
 	if cmd.IsVerifyError(err) {
 		os.Exit(1)
 	}
-	fmt.Fprintln(os.Stderr, "error:", err)
+	termsafe.Fprintf(os.Stderr, "error: %v\n", err)
 	os.Exit(2)
 }

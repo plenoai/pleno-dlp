@@ -25,6 +25,8 @@ import (
 
 	"github.com/plenoai/pleno-dlp/pkg/audit"
 	"github.com/plenoai/pleno-dlp/pkg/verify"
+
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 )
 
 func runRevokeFromSpool(cmd *cobra.Command, path string, auditW *audit.Writer) error {
@@ -60,24 +62,24 @@ func runRevokeFromSpool(cmd *cobra.Command, path string, auditW *audit.Writer) e
 		var rec spoolRecord
 		if err := json.Unmarshal([]byte(line), &rec); err != nil {
 			failed++
-			fmt.Fprintf(cmd.ErrOrStderr(), "revoke-from-spool: line %d: parse failed: %v\n", lineNo, err)
+			termsafe.Fprintf(cmd.ErrOrStderr(), "revoke-from-spool: line %d: parse failed: %v\n", lineNo, err)
 			continue
 		}
 		if rec.Version != spoolRecordVersion {
 			skipped++
-			fmt.Fprintf(cmd.ErrOrStderr(), "revoke-from-spool: line %d: unsupported spool version %d (this binary handles %d)\n", lineNo, rec.Version, spoolRecordVersion)
+			termsafe.Fprintf(cmd.ErrOrStderr(), "revoke-from-spool: line %d: unsupported spool version %d (this binary handles %d)\n", lineNo, rec.Version, spoolRecordVersion)
 			continue
 		}
 		secret, derr := base64.StdEncoding.DecodeString(rec.SecretB64)
 		if derr != nil {
 			failed++
-			fmt.Fprintf(cmd.ErrOrStderr(), "revoke-from-spool: line %d: decode secret_b64: %v\n", lineNo, derr)
+			termsafe.Fprintf(cmd.ErrOrStderr(), "revoke-from-spool: line %d: decode secret_b64: %v\n", lineNo, derr)
 			continue
 		}
 		r, detectorType, rerr := resolveRevoker(strings.ToLower(rec.Detector))
 		if rerr != nil {
 			skipped++
-			fmt.Fprintf(cmd.ErrOrStderr(), "revoke-from-spool: line %d: %v\n", lineNo, rerr)
+			termsafe.Fprintf(cmd.ErrOrStderr(), "revoke-from-spool: line %d: %v\n", lineNo, rerr)
 			continue
 		}
 		attempted++
@@ -147,7 +149,7 @@ func runRevokeFromSpool(cmd *cobra.Command, path string, auditW *audit.Writer) e
 		return fmt.Errorf("revoke-from-spool: read %q: %w", path, err)
 	}
 
-	fmt.Fprintf(cmd.ErrOrStderr(),
+	termsafe.Fprintf(cmd.ErrOrStderr(),
 		"revoke-from-spool: lines=%d attempted=%d revoked=%d failed=%d skipped=%d dry-run=%t\n",
 		lineNo, attempted, revoked, failed, skipped, revokeOpts.dryRun,
 	)
