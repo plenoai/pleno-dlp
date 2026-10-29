@@ -687,6 +687,33 @@ func TestLargestGitHubIncrementalEntryRejectsAmbiguousLargest(t *testing.T) {
 	}
 }
 
+func TestLargestGitHubIncrementalEntryPrefersNewestAmongLargest(t *testing.T) {
+	entries := map[string]incrementalStateEntry{
+		"github:older": {
+			UpdatedAt:   "2026-08-18T10:55:30Z",
+			SourceState: json.RawMessage(`{"version":3,"surfaces":{"repository-history":{"acme/one":{},"acme/two":{}}}}`),
+		},
+		"github:newer": {
+			UpdatedAt:   "2026-08-24T04:03:49Z",
+			SourceState: json.RawMessage(`{"version":3,"surfaces":{"repository-history":{"acme/one":{},"acme/other":{}}}}`),
+		},
+		"github:older-twin": {
+			UpdatedAt:   "2026-08-18T10:55:30Z",
+			SourceState: json.RawMessage(`{"version":3,"surfaces":{"repository-history":{"acme/two":{},"acme/three":{}}}}`),
+		},
+	}
+
+	for range 20 {
+		got, found, err := largestGitHubIncrementalEntry(entries)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !found || got.UpdatedAt != "2026-08-24T04:03:49Z" {
+			t.Fatalf("selected entry = (%q, %v), want newest", got.UpdatedAt, found)
+		}
+	}
+}
+
 func TestLargestGitHubIncrementalEntryIgnoresEmptyAndInvalidState(t *testing.T) {
 	entries := map[string]incrementalStateEntry{
 		"github:empty":   {SourceState: json.RawMessage(`{"version":3,"surfaces":{"repository-history":{}}}`)},

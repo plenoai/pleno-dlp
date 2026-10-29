@@ -1307,7 +1307,7 @@ func largestGitHubIncrementalEntry(entries map[string]incrementalStateEntry) (in
 		Surfaces map[string]map[string]json.RawMessage `json:"surfaces"`
 	}
 	var selected incrementalStateEntry
-	selectedCount := 0
+	selectedCount, ambiguous := 0, false
 	for key, entry := range entries {
 		if !strings.HasPrefix(key, "github:") || len(entry.SourceState) == 0 {
 			continue
@@ -1321,14 +1321,31 @@ func largestGitHubIncrementalEntry(entries map[string]incrementalStateEntry) (in
 			continue
 		}
 		if count > selectedCount {
-			selected, selectedCount = entry, count
+			selected, selectedCount, ambiguous = entry, count, false
 			continue
 		}
-		if count == selectedCount && !bytes.Equal(entry.SourceState, selected.SourceState) {
-			return incrementalStateEntry{}, false, fmt.Errorf("incremental: ambiguous GitHub state migration candidates with %d repositories", count)
+		if count < selectedCount || bytes.Equal(entry.SourceState, selected.SourceState) {
+			continue
+		}
+		switch entryAt, selectedAt := incrementalEntryUpdatedAt(entry), incrementalEntryUpdatedAt(selected); {
+		case entryAt.After(selectedAt):
+			selected, ambiguous = entry, false
+		case entryAt.Equal(selectedAt):
+			ambiguous = true
 		}
 	}
+	if ambiguous {
+		return incrementalStateEntry{}, false, fmt.Errorf("incremental: ambiguous GitHub state migration candidates with %d repositories", selectedCount)
+	}
 	return selected, selectedCount > 0, nil
+}
+
+func incrementalEntryUpdatedAt(entry incrementalStateEntry) time.Time {
+	at, err := time.Parse(time.RFC3339, entry.UpdatedAt)
+	if err != nil {
+		return time.Time{}
+	}
+	return at
 }
 
 func scannerFingerprint(kind string, cfg []byte) (string, error) {
