@@ -1299,11 +1299,10 @@ func nativeGitCloneArgs(cloneURL, dir string) []string {
 }
 
 // nativeGitAuthEnv returns the GIT_CONFIG_* environment entries that hand
-// the token to native git as an Authorization header — never via argv or the
-// clone URL, so it cannot appear in process listings. Empty when there is no
-// token or the URL is a local path (no scheme/host — the shape tests use to
-// inject a fixture repo, which needs no auth). The Basic credentials mirror
-// the x-access-token convention the go-git path uses via BasicAuth.
+// the token to native git as an Authorization header scoped to cloneURL, with
+// redirects disabled for authenticated requests. Empty when there is no
+// token or the URL is a local path. The Basic credentials mirror the
+// x-access-token convention the go-git path uses via BasicAuth.
 func nativeGitAuthEnv(cloneURL, token string) []string {
 	if token == "" {
 		return nil
@@ -1314,9 +1313,11 @@ func nativeGitAuthEnv(cloneURL, token string) []string {
 	}
 	basic := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
 	return []string{
-		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=http.extraheader",
+		"GIT_CONFIG_COUNT=2",
+		"GIT_CONFIG_KEY_0=http." + strings.TrimRight(cloneURL, "/") + ".extraheader",
 		"GIT_CONFIG_VALUE_0=Authorization: Basic " + basic,
+		"GIT_CONFIG_KEY_1=http." + strings.TrimRight(cloneURL, "/") + ".followRedirects",
+		"GIT_CONFIG_VALUE_1=false",
 	}
 }
 

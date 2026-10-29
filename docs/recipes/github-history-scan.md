@@ -195,10 +195,12 @@ can appear in symbol and stack metadata.
 
 ## Authentication
 
-`--token` (or `GITHUB_TOKEN`), or GitHub App credentials. The same token is
-reused for REST (`Authorization: Bearer <token>`) and for clones (HTTP Basic
+`--token` (or `GITHUB_TOKEN`), or GitHub App credentials. The token is used
+for REST (`Authorization: Bearer <token>`) and for clones (HTTP Basic
 `x-access-token:<token>`, which works for both PATs and App installation
-tokens).
+tokens). Native Git scopes the clone credential to the validated repository
+URL and rejects redirects on authenticated requests. A repository rename or
+redirected Enterprise URL therefore fails closed; use its canonical clone URL.
 
 ## GitHub Enterprise / clone-URL derivation
 
