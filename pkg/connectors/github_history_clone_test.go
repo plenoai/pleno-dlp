@@ -53,7 +53,7 @@ func TestNativeGitAuthEnv(t *testing.T) {
 				"GIT_CONFIG_COUNT=2",
 				"GIT_CONFIG_KEY_0=http.https://github.com/acme/widget.git.extraheader",
 				"GIT_CONFIG_VALUE_0=Authorization: Basic " + basic,
-				"GIT_CONFIG_KEY_1=http.followRedirects",
+				"GIT_CONFIG_KEY_1=http.https://github.com/acme/widget.git.followRedirects",
 				"GIT_CONFIG_VALUE_1=false",
 			},
 		},
@@ -131,10 +131,14 @@ func TestNativeGitAuthRedirect(t *testing.T) {
 
 	serverURL := server.URL
 	cloneURL := serverURL + "/repo.git"
+	configPath := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(configPath, []byte("[http \""+cloneURL+"\"]\n followRedirects = true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	testEnv := []string{
 		"PATH=" + os.Getenv("PATH"),
 		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_CONFIG_GLOBAL=" + configPath,
 		"GIT_TERMINAL_PROMPT=0",
 		"NO_PROXY=127.0.0.1",
 		"HTTPS_PROXY=",

@@ -1316,7 +1316,7 @@ func nativeGitAuthEnv(cloneURL, token string) []string {
 		"GIT_CONFIG_COUNT=2",
 		"GIT_CONFIG_KEY_0=http." + strings.TrimRight(cloneURL, "/") + ".extraheader",
 		"GIT_CONFIG_VALUE_0=Authorization: Basic " + basic,
-		"GIT_CONFIG_KEY_1=http.followRedirects",
+		"GIT_CONFIG_KEY_1=http." + strings.TrimRight(cloneURL, "/") + ".followRedirects",
 		"GIT_CONFIG_VALUE_1=false",
 	}
 }
