@@ -148,9 +148,7 @@ class PlenoDLPRecognizer(EntityRecognizer):
             argv.append("--no-verify")
         argv.extend(self._extra_args)
         try:
-            # pleno-dlp exits 0 even when findings exist — stdin scans
-            # never gate on findings, so stdout is pure JSON and the
-            # scan summary goes to stderr.
+            # Exit 1 reports findings; their JSON remains available on stdout.
             proc = subprocess.run(
                 argv,
                 input=text.encode("utf-8"),
