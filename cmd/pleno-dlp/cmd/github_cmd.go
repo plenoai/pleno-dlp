@@ -28,6 +28,7 @@ type githubFlags struct {
 	includeComments               bool
 	repoConcurrency               int
 	repoWalkTimeout               time.Duration
+	repoCloneTimeout              time.Duration
 	includeCommitMetadata         bool
 	skipMergeCommits              bool
 	trufflehogCompatible          bool
@@ -40,6 +41,7 @@ type githubFlags struct {
 	archiveTimeout                time.Duration
 	allowCorruptArchives          bool
 	allowRepoWalkTimeouts         bool
+	allowRepoCloneFailures        bool
 	publishPartialRepositoryState bool
 	includeRepoGlobs              []string
 	excludeRepoGlobs              []string
@@ -98,6 +100,7 @@ func init() {
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeComments, "include-comments", false, "also scan issue comments and pull request review comments")
 	scanGitHubCmd.Flags().IntVar(&scanGitHubOpts.repoConcurrency, "repo-concurrency", 1, "maximum concurrent GitHub repository clone/walk workers (independent of --concurrency)")
 	scanGitHubCmd.Flags().DurationVar(&scanGitHubOpts.repoWalkTimeout, "repo-walk-timeout", 0, "maximum Git history walk time per repository (0 = unbounded; clone time is excluded)")
+	scanGitHubCmd.Flags().DurationVar(&scanGitHubOpts.repoCloneTimeout, "repo-clone-timeout", 0, "maximum clone time per repository (0 = unbounded)")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeCommitMetadata, "include-commit-metadata", false, "scan commit messages, author/committer identities, and git notes (opt-in because identities contain expected PII)")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.skipMergeCommits, "skip-merge-commits", false, "omit merge-commit diffs while retaining non-merge history")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.trufflehogCompatible, "trufflehog-compatible", false, "match trufflehog's Git diff surface (omit merge/rename diffs and blank unchanged context)")
@@ -110,6 +113,7 @@ func init() {
 	scanGitHubCmd.Flags().DurationVar(&scanGitHubOpts.archiveTimeout, "git-archive-timeout", 5*time.Second, "maximum archive expansion time per changed blob")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.allowCorruptArchives, "allow-corrupt-archives", false, "accept typed corrupt-archive gaps and intentionally skipped archive symlinks while retaining partial incremental progress")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.allowRepoWalkTimeouts, "allow-repo-walk-timeouts", false, "accept typed per-repository Git history walk timeouts while retaining completed repository progress for the next incremental run")
+	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.allowRepoCloneFailures, "allow-repo-clone-failures", false, "accept typed per-repository clone failures (missing, auth, network, timeout) and retry them on the next incremental run")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.publishPartialRepositoryState, "publish-partial-repository-state", false, "publish successful repository checkpoints while failed repositories retain their previous checkpoints for the next incremental run")
 	scanGitHubCmd.Flags().StringSliceVar(&scanGitHubOpts.includeRepoGlobs, "include-repo", nil, "repository glob to include (repeatable; matches owner/name)")
 	scanGitHubCmd.Flags().StringSliceVar(&scanGitHubOpts.excludeRepoGlobs, "exclude-repo", nil, "repository glob to exclude (repeatable; matches owner/name)")
@@ -240,6 +244,9 @@ func scanGitHubConfig(opts githubFlags) (connectors.Config, error) {
 	if opts.repoWalkTimeout < 0 {
 		return nil, fmt.Errorf("github: --repo-walk-timeout must be non-negative, got %s", opts.repoWalkTimeout)
 	}
+	if opts.repoCloneTimeout < 0 {
+		return nil, fmt.Errorf("github: --repo-clone-timeout must be non-negative, got %s", opts.repoCloneTimeout)
+	}
 	if opts.gitArtifactMaxBytes == 0 {
 		opts.gitArtifactMaxBytes = gitsource.DefaultGitArtifactMaxBytes
 	}
@@ -271,6 +278,7 @@ func scanGitHubConfig(opts githubFlags) (connectors.Config, error) {
 		"include_comments":                 fmt.Sprintf("%t", opts.includeComments),
 		"repo_concurrency":                 fmt.Sprintf("%d", repoConcurrency),
 		"repo_walk_timeout":                opts.repoWalkTimeout.String(),
+		"repo_clone_timeout":               opts.repoCloneTimeout.String(),
 		"include_commit_metadata":          fmt.Sprintf("%t", opts.includeCommitMetadata),
 		"skip_merge_commits":               fmt.Sprintf("%t", opts.skipMergeCommits),
 		"trufflehog_compatible":            fmt.Sprintf("%t", opts.trufflehogCompatible),

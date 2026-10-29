@@ -849,7 +849,7 @@ func TestAcceptedGitHubCoverageAllowsExplicitMixedRetryableFailures(t *testing.T
 			{Kind: engine.FailureSource, Source: "repository-history:acme/slow", Err: timeout},
 		},
 	}
-	accepted, corruptArchives, repoWalkTimeouts := acceptedGitHubCoverage(coverage, true, true)
+	accepted, corruptArchives, repoWalkTimeouts, _ := acceptedGitHubCoverage(coverage, true, true, false)
 	if !accepted || corruptArchives != 1 || repoWalkTimeouts != 1 {
 		t.Fatalf("mixed coverage = (%v, %d, %d), want (true, 1, 1)", accepted, corruptArchives, repoWalkTimeouts)
 	}
@@ -873,11 +873,11 @@ func TestAcceptedGitHubCoverageRejectsImmutableHistoryPolicyGaps(t *testing.T) {
 		Counts:   map[engine.FailureKind]int{engine.FailureSource: 1},
 		Failures: []engine.ScanFailure{{Kind: engine.FailureSource, Source: "repository-history:acme/repo", Err: nested}},
 	}
-	if accepted, _, _ := acceptedGitHubCoverage(coverage, true, false); accepted {
+	if accepted, _, _, _ := acceptedGitHubCoverage(coverage, true, false, true); accepted {
 		t.Fatal("immutable history gap was accepted")
 	}
 	coverage.Failures[0].Err = errors.New(`to: invalid path "untyped": contains control character`)
-	if accepted, _, _ := acceptedGitHubCoverage(coverage, true, false); accepted {
+	if accepted, _, _, _ := acceptedGitHubCoverage(coverage, true, false, true); accepted {
 		t.Fatal("untyped lookalike invalid-path error was accepted")
 	}
 }
