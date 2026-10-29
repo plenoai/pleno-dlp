@@ -37,6 +37,7 @@ func (r *Redactor) RedactWithPII(ctx context.Context, text string, pii detectors
 		if len(result.Raw) == 0 && len(result.RawV2) == 0 {
 			return "", fmt.Errorf("feedback: PII redaction returned an empty match")
 		}
+		matched := false
 		for _, raw := range [][]byte{result.Raw, result.RawV2} {
 			if len(raw) > 0 {
 				for offset := 0; offset < len(text); {
@@ -45,12 +46,16 @@ func (r *Redactor) RedactWithPII(ctx context.Context, text string, pii detectors
 						break
 					}
 					start := offset + index
+					matched = true
 					for i := start; i < start+len(raw); i++ {
 						hidden[i] = true
 					}
 					offset = start + 1
 				}
 			}
+		}
+		if !matched {
+			return "", fmt.Errorf("feedback: PII redaction returned a match outside the input")
 		}
 	}
 	// Union overlapping matches against the original text before replacing them.

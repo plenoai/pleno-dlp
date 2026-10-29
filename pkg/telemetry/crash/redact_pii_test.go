@@ -34,7 +34,7 @@ func TestRedactWithPIIRetainsContextAndRemovesJapaneseNames(t *testing.T) {
 }
 
 func TestRedactWithPIIFailsWithoutReturningInput(t *testing.T) {
-	for _, mode := range []string{"error", "panic", "cancelled", "cancel_during", "invalid_utf8", "nul", "empty_match"} {
+	for _, mode := range []string{"error", "panic", "cancelled", "cancel_during", "invalid_utf8", "nul", "empty_match", "missing_match"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -58,6 +58,8 @@ func TestRedactWithPIIFailsWithoutReturningInput(t *testing.T) {
 					return nil, nil
 				case "empty_match":
 					return []detectors.Result{{}}, nil
+				case "missing_match":
+					return []detectors.Result{{Raw: []byte("unrelated text")}}, nil
 				default:
 					t.Fatal("invalid input must not reach the engine")
 					return nil, nil
