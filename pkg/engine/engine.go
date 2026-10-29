@@ -1975,6 +1975,37 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 			rawSpan = &[2]int{start, start + len(r.Raw)}
 		}
 	}
+	// Diff-backed input can contain the same secret in multiple files. Resolve
+	// every occurrence before allowlist filtering so an allowed fixture cannot
+	// suppress the same value in a different file.
+	if !stream && c.SourceMetadata.Stdin != nil && len(c.SourceMetadata.Stdin.Locations) > 0 && len(r.Raw) > 0 {
+		emitted := false
+		line := 1
+		for offset := 0; offset < len(c.Data); {
+			index := bytes.Index(c.Data[offset:], r.Raw)
+			if index < 0 {
+				break
+			}
+			start := offset + index
+			line += bytes.Count(c.Data[offset:start], []byte{'\n'})
+			if loc, ok := c.SourceMetadata.Stdin.Locations[line]; ok && loc.Path != "" && loc.Line > 0 {
+				located := *c
+				located.SourceMetadata.Stdin = nil
+				located.SourceMetadata.Filesystem = &sources.FilesystemMeta{Path: loc.Path, Line: loc.Line}
+				e.sink.Emit(Finding{
+					Result: r, Chunk: &located, Detector: d.Type(),
+					VerifierBacked: e.isVerifier[di],
+					RawSpan:        &[2]int{start, start + len(r.Raw)},
+				})
+				emitted = true
+			}
+			line += bytes.Count(r.Raw, []byte{'\n'})
+			offset = start + len(r.Raw)
+		}
+		if emitted {
+			return
+		}
+	}
 	e.sink.Emit(Finding{
 		Result:         r,
 		Chunk:          chunk,
@@ -2432,6 +2463,19 @@ func chunkWithMatchLine(c *sources.Chunk, raw []byte) *sources.Chunk {
 			m.Line = line
 			cp.SourceMetadata.DockerImage = &m
 			return &cp
+		}
+	case md.Stdin != nil && len(md.Stdin.Locations) > 0:
+		// A diff-backed stdin chunk (protect, agent hooks) maps each line
+		// to the file it came from. Resolve the finding to FilesystemMeta
+		// so allowlist path rules and output see the real location instead
+		// of a label such as "git-diff-staged".
+		if line := computeLineFromMatch(c.Data, raw, 1); line > 0 {
+			if loc, ok := md.Stdin.Locations[line]; ok && loc.Path != "" {
+				cp := *c
+				cp.SourceMetadata.Stdin = nil
+				cp.SourceMetadata.Filesystem = &sources.FilesystemMeta{Path: loc.Path, Line: loc.Line}
+				return &cp
+			}
 		}
 	}
 	return c

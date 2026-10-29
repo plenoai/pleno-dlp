@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-10-30 | core-engineer, connector-engineer, qa | Move the diff reducer into `pkg/sources/stdin` and thread its per-line path:line map into `StdinMeta.Locations` (protect, git/cursor hooks, `scan stdin --diff`) so allowlist `path` entries match diff findings; preserve each occurrence across files to prevent cross-file suppression (#502). |
 | 2026-10-30 | connector-engineer, qa | Scope native Git Authorization headers to the validated clone URL and reject redirects for authenticated clone/ref probes; exercise same-origin path redirects with real Git (#458). |
 | 2026-10-27 | core-engineer, qa | Reconcile #611 with the dedicated feedback relay and spool: keep crash opt-in independent, preserve the feedback endpoint on telemetry toggles, support implicit stdin and `-y`, and verify local throttling and explicit send behavior. |
 | 2026-10-21 | architect | Raise the module's minimum Go version to 1.26.10 so `go-version-file` CI uses the crypto/x509 fix for GO-2026-6809; leave the existing GO-2026-5932 exception unchanged (#454). |
