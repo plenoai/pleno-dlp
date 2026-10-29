@@ -194,7 +194,14 @@ const (
 	githubCloneMissing githubCloneFailureKind = "missing"
 	githubCloneAuth    githubCloneFailureKind = "auth"
 	githubCloneNetwork githubCloneFailureKind = "network"
+	githubCloneTimeout githubCloneFailureKind = "timeout"
 )
+
+// IsGitHubCloneFailure reports whether err is a typed per-repository clone failure.
+func IsGitHubCloneFailure(err error) bool {
+	var cloneErr *githubCloneError
+	return errors.As(err, &cloneErr)
+}
 
 type githubCloneError struct {
 	Kind   githubCloneFailureKind
@@ -678,6 +685,10 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 	if err != nil {
 		return githubRepoIncrementalState{}, err
 	}
+	cloneTimeout, err := githubRepoCloneTimeout(cfg)
+	if err != nil {
+		return githubRepoIncrementalState{}, err
+	}
 
 	dir, err := os.MkdirTemp("", "pleno-gh-clone-")
 	if err != nil {
@@ -699,8 +710,18 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 
 	cloneStart := time.Now()
 	progress := &cloneProgressWriter{repoKey: repoKey, interval: githubHeartbeatInterval}
-	usedNative, err := cloneRepoBare(ctx, cloneURL, dir, token, progress)
+	cloneCtx, cancelClone := ctx, func() {}
+	if cloneTimeout > 0 {
+		cloneCtx, cancelClone = context.WithTimeout(ctx, cloneTimeout)
+	}
+	usedNative, err := cloneRepoBare(cloneCtx, cloneURL, dir, token, progress)
+	cloneTimedOut := ctx.Err() == nil && errors.Is(cloneCtx.Err(), context.DeadlineExceeded)
+	cancelClone()
 	if err != nil {
+		if cloneTimedOut {
+			return githubRepoIncrementalState{}, fmt.Errorf("github: clone %s/%s: %w", repo.Owner.Login, repo.Name,
+				&githubCloneError{Kind: githubCloneTimeout, Err: context.DeadlineExceeded, Detail: "exceeded " + cloneTimeout.String()})
+		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return githubRepoIncrementalState{}, err
 		}
@@ -947,6 +968,18 @@ func githubRepoWalkTimeout(cfg Config) (time.Duration, error) {
 	timeout, err := time.ParseDuration(raw)
 	if err != nil || timeout <= 0 {
 		return 0, fmt.Errorf("github: repo_walk_timeout must be a positive duration or 0, got %q", raw)
+	}
+	return timeout, nil
+}
+
+func githubRepoCloneTimeout(cfg Config) (time.Duration, error) {
+	raw := strings.TrimSpace(cfg["repo_clone_timeout"])
+	if raw == "" || raw == "0" || raw == "0s" {
+		return 0, nil
+	}
+	timeout, err := time.ParseDuration(raw)
+	if err != nil || timeout <= 0 {
+		return 0, fmt.Errorf("github: repo_clone_timeout must be a positive duration or 0, got %q", raw)
 	}
 	return timeout, nil
 }
