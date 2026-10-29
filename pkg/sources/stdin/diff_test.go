@@ -51,12 +51,15 @@ func TestParseDiff_NoAdditions(t *testing.T) {
 
 func TestDiffFilePath(t *testing.T) {
 	cases := map[string]string{
-		"b/config.go":              "config.go",
-		"b/sub/dir/file.go\tstamp": "sub/dir/file.go",
-		`"b/a b/c.go"`:             "a b/c.go",
-		`"b/tab\tname.go"`:         "tab\tname.go",
-		"/dev/null":                "",
-		"":                         "",
+		`"b/a b.go"` + "\t2026-10-30 00:00:00 +0000": "a b.go",
+		`"b/a\"b.go"` + "\tstamp":                    `a"b.go`,
+		`"b/tab\tname.go"` + "\tstamp":               "tab\tname.go",
+		"b/config.go":                                "config.go",
+		"b/sub/dir/file.go\tstamp":                   "sub/dir/file.go",
+		`"b/a b/c.go"`:                               "a b/c.go",
+		`"b/tab\tname.go"`:                           "tab\tname.go",
+		"/dev/null":                                  "",
+		"":                                           "",
 	}
 	for in, want := range cases {
 		if got := diffFilePath(in); got != want {

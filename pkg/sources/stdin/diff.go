@@ -89,8 +89,10 @@ func diffFilePath(header string) string {
 		if i := strings.IndexByte(path, '\t'); i >= 0 {
 			path = path[:i]
 		}
-	} else if unquoted, err := strconv.Unquote(path); err == nil {
-		path = unquoted
+	} else if quoted, err := strconv.QuotedPrefix(path); err == nil {
+		if unquoted, err := strconv.Unquote(quoted); err == nil {
+			path = unquoted
+		}
 	}
 	if path == "/dev/null" {
 		return ""
