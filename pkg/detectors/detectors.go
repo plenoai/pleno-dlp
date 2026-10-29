@@ -1078,9 +1078,17 @@ type Result struct {
 	// RawV2 is a paired secret (e.g. AWS secret access key when Raw is the
 	// access key id). Empty when single-secret.
 	RawV2 []byte
-	// Redacted is a safe-to-display rendering (prefix + ellipsis).
+	// Redacted is the detector-provided display candidate. Direct FromData
+	// callers must use SafeRedacted() before displaying or persisting it; the
+	// engine and built-in output boundaries enforce that it excludes Raw/RawV2.
 	Redacted  string
 	ExtraData map[string]string
+}
+
+// SafeRedacted returns Redacted when it excludes the complete Raw and RawV2
+// values, or a common mask when the detector supplied an unsafe display.
+func (r Result) SafeRedacted() string {
+	return SafeRedacted(r.Redacted, r.Raw, r.RawV2)
 }
 
 // VerificationAssurance describes the strongest evidence supporting a

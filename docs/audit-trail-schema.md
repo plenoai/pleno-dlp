@@ -38,7 +38,7 @@ file instead of a stderr stream; the file is opened append-only, mode
 | `path`          | string | yes | Which revoke code path produced this record: `single`, `spool`, or `on-verified` (see below). |
 | `detector`      | string | yes | `DetectorType.String()`, the same identifier used throughout `pkg/output` and `pkg/detectors` (e.g. `GitHub`, `SlackBotToken`, `Stripe`). |
 | `secret_hash`   | string (sha256 hex) | yes | `sha256(raw secret)`, hex-encoded. Comparable to `pkg/output`'s `secret_hash` JSON field for the same leaked value, so a scan's JSON output and the audit trail can be joined on this without either side ever holding the raw secret. |
-| `redacted`      | string | no | Prefix + ellipsis rendering, identical to `detectors.Result.Redacted` / `revoke --format json`'s `redacted_secret`, and safe to display. |
+| `redacted`      | string | no | Safe display rendering from the revoke attempt. The shared boundary preserves the supplied candidate only when it excludes the complete secret; otherwise it substitutes a common mask. |
 | `revoked`       | bool   | yes | The provider's confirmation that the credential is now dead. `false` for a `--dry-run` preview or a failed/declined attempt. |
 | `revoked_at`    | string (RFC3339, UTC) | no | When the provider confirmed revocation. Empty when `revoked` is false or the provider does not report a completion time. |
 | `provider_id`   | string | no | Provider-specific non-secret identifier for the revoked credential (e.g. Stripe's key-prefix diagnostic). |

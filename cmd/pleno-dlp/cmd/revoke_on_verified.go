@@ -92,10 +92,8 @@ func (r *revokingSink) Emit(f engine.Finding) {
 	willAttempt := verified && hasRevoker
 
 	secret := string(f.Result.Raw)
-	redacted := f.Result.Redacted
-	if redacted == "" {
-		redacted = redactSecret(secret)
-	}
+	redacted := f.Result.SafeRedacted()
+	f.Result.Redacted = redacted
 
 	var now time.Time
 	var trailID string

@@ -121,7 +121,7 @@ func toJSONRecord(f engine.Finding) jsonRecord {
 		Verdict:      f.Result.Verdict().String(),
 		Assurance:    f.Result.VerificationAssurance.String(),
 		Severity:     f.Result.Severity.String(),
-		Redacted:     f.Result.Redacted,
+		Redacted:     f.Result.SafeRedacted(),
 		SecretHash:   hashSecret(f.Result.Raw),
 		ExtraData:    f.Result.ExtraData,
 		SuppressedBy: f.SuppressedBy,

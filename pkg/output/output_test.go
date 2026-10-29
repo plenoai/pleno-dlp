@@ -122,6 +122,33 @@ func TestJSONSinkEmitsRawV2Hash(t *testing.T) {
 	}
 }
 
+func TestSinksSanitizeRedactedAgainstRawPair(t *testing.T) {
+	raw := []byte("fixtureRawSecret9")
+	rawV2 := []byte("fixtureRawV2Secret9")
+	for _, format := range []string{"json", "table", "sarif"} {
+		t.Run(format, func(t *testing.T) {
+			for _, candidate := range []string{string(raw), string(rawV2)} {
+				var buf bytes.Buffer
+				sink, err := NewSink(format, &buf, "test")
+				if err != nil {
+					t.Fatalf("NewSink(%q): %v", format, err)
+				}
+				f := sample()
+				f.Result.Raw = append([]byte(nil), raw...)
+				f.Result.RawV2 = append([]byte(nil), rawV2...)
+				f.Result.Redacted = candidate
+				sink.Emit(f)
+				if err := sink.Close(); err != nil {
+					t.Fatalf("Close: %v", err)
+				}
+				if bytes.Contains(buf.Bytes(), raw) || bytes.Contains(buf.Bytes(), rawV2) {
+					t.Fatalf("%s output contains Raw or RawV2: %s", format, buf.String())
+				}
+			}
+		})
+	}
+}
+
 func TestJSONSinkEmitsGitHubLink(t *testing.T) {
 	f := sample()
 	f.Chunk.SourceType = sources.SourceGitHub
