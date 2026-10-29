@@ -15,9 +15,8 @@ printf 'slack_token=%s\n' "$token" | \
 status=$?
 set -e
 
-# Stdin scans never gate on findings: the exit code stays 0 even when
-# secrets are found. Findings are reported on stdout only.
-test "$status" -eq 0
+# Findings at the requested severity gate exit 1 after emitting JSON.
+test "$status" -eq 1
 grep -q '"detector": "SlackBotToken"' "$stdout"
 grep -q '"type": "stdin"' "$stdout"
 grep -q '"label": "e2e-stdin"' "$stdout"

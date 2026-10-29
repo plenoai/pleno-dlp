@@ -114,13 +114,20 @@ func runProtectScan(cmd *cobra.Command, buf []byte, staged bool) error {
 	return runScanCommon(cmd, src, cfg, "protect")
 }
 
-// scanStagedBuffer runs runProtectScan in-process with JSON output
-// captured into memory and returns the parsed records, for callers
-// (the git hook) that render findings themselves. It forces the
-// offline, quiet, JSON settings a hook needs; scanOpts is process
-// global, so this is only safe in a one-shot CLI invocation. The
-// returned error is nil on errFindingsFound — gating is the caller's.
+// scanStagedBuffer captures the git hook's offline scan in-process.
 func scanStagedBuffer(cmd *cobra.Command, buf []byte) ([]hookFinding, error) {
+	return scanHookBuffer(cmd, func(sub *cobra.Command) error {
+		return runProtectScan(sub, buf, true)
+	})
+}
+
+// scanHookBuffer captures the shared scan pipeline's JSON records for hooks
+// that render findings and gate severity themselves. Findings errors are
+// expected; operational errors still propagate to the hook's fail-open logic.
+// CLI options are process-global, so restore them after the synchronous scan.
+func scanHookBuffer(cmd *cobra.Command, scan func(*cobra.Command) error) ([]hookFinding, error) {
+	prior := scanOpts
+	defer func() { scanOpts = prior }()
 	var out bytes.Buffer
 	sub := &cobra.Command{}
 	ctx := cmd.Context()
@@ -135,7 +142,7 @@ func scanStagedBuffer(cmd *cobra.Command, buf []byte) ([]hookFinding, error) {
 	scanOpts.noVerify = true
 	scanOpts.onlyVerified = false
 	scanOpts.failOn = "any"
-	if err := runProtectScan(sub, buf, true); err != nil && !IsFindingsError(err) {
+	if err := scan(sub); err != nil && !IsFindingsError(err) {
 		return nil, err
 	}
 	if len(bytes.TrimSpace(out.Bytes())) == 0 {
@@ -143,7 +150,7 @@ func scanStagedBuffer(cmd *cobra.Command, buf []byte) ([]hookFinding, error) {
 	}
 	var records []hookFinding
 	if err := json.Unmarshal(out.Bytes(), &records); err != nil {
-		return nil, fmt.Errorf("parse protect output: %w", err)
+		return nil, fmt.Errorf("parse hook scan output: %w", err)
 	}
 	return records, nil
 }

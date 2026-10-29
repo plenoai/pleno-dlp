@@ -389,7 +389,7 @@ func TestHooksPrintGit_DegradesWithoutBinary(t *testing.T) {
 
 // TestHookGitEndToEnd uses the package's prebuilt binary (see TestMain),
 // installs the hook into a fresh repo, and drives `git commit` so the whole
-// chain — git env, diff transform, `scan stdin` subprocess, exit-code
+// chain — git env, diff transform, in-process scan, exit-code
 // mapping in main.go — is exercised.
 func TestHookGitEndToEnd(t *testing.T) {
 	if testing.Short() {

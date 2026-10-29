@@ -39,6 +39,13 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Changed
 
+- `scan stdin` now honours `--fail-on` (default `high`), exiting 1 for
+  findings at or above the threshold instead of always exiting 0; output
+  is still emitted before exiting. Scripts consuming stdin scan output
+  must handle this findings status.
+- Claude Code and Cursor hooks now scan in-process through the shared
+  offline pipeline, avoiding a second pleno-dlp process.
+
 - Dogfooding installs the signed release binary from the Homebrew tap
   (`brew upgrade pleno-dlp`); the ad-hoc `mise` `go:` pin that drifted
   ~20 minors behind is dropped. See

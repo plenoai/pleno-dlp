@@ -63,8 +63,8 @@ build_analyzer(verify=False)  # appends --no-verify; scores become 0.3 (unverifi
 
 - One `pleno-dlp scan stdin` subprocess per `analyze()` call; text is
   piped, nothing is written to disk.
-- pleno-dlp exits `0` even when findings exist (stdin scans never gate
-  on findings); stdout is pure JSON and the scan summary goes to stderr.
+- pleno-dlp exits `1` when findings meet `--fail-on`; the recognizer still
+  reads the JSON findings from stdout. The scan summary goes to stderr.
 - Requires pleno-dlp ≥ the version that emits `start`/`end` in JSON
   output; older binaries silently yield no results.
 

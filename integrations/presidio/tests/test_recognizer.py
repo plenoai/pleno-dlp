@@ -33,6 +33,7 @@ if m:
         "detector": "FakeProvider", "verdict": "verified",
         "start": m.start(), "end": m.end(),
     }]))
+    sys.exit(1)
 else:
     print("[]")
 """

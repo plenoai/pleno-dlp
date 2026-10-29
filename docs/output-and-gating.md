@@ -135,12 +135,17 @@ pleno-dlp scan filesystem ./repo --fail-on high
 pleno-dlp scan filesystem ./repo --fail-on any
 ```
 
-`scan stdin` is the exception: it always exits 0, with or without
-findings. Stdin is a pipe interface (`git diff | pleno-dlp scan stdin`)
-whose consumer decides what findings mean; the scan reports them on
-stdout and leaves gating to the caller's own logic. Use a non-stdin kind
-(`filesystem`, `git`, or a SaaS connector) when you want the exit code
-to gate CI.
+`--fail-on` applies to every source kind, including `scan stdin`:
+
+```sh
+git diff | pleno-dlp scan stdin --fail-on high
+```
+
+Stdin scans now exit 1 when an emitted finding meets the threshold
+(default `high`), and exit 0 for clean scans or findings below it.
+Findings are still written in the requested output format before exiting.
+Previously stdin always exited 0 regardless of `--fail-on`; scripts that
+consume its output must now handle a findings exit status as well.
 
 The default is `high`, which suits an audit-first rollout. A first scan of an unfamiliar repo
 routinely turns up noise — generic high-entropy strings, JWTs, PEM

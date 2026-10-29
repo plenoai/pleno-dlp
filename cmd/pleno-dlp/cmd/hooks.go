@@ -2,10 +2,8 @@
 // hook (issue #303). The hook itself is just this binary re-invoked as
 // `pleno-dlp hooks run <target>` — install/uninstall only write a tiny
 // wrapper script plus the target's own hook-registration file, and never
-// duplicate scanning logic: every hook run shells out to the already
-// tested `pleno-dlp scan stdin --no-verify` path (see scan.go), so hook
-// behaviour never drifts from what an operator sees running that command
-// by hand.
+// duplicate scanning logic: every hook uses the shared scan pipeline
+// in-process with verification disabled.
 package cmd
 
 import (
@@ -271,7 +269,7 @@ func writeJSONObject(path string, obj map[string]json.RawMessage) error {
 // scanOfflineFunc is the seam runHookClaudeCode / runHookCursor call
 // through instead of scanOffline directly. Production leaves it at the
 // default; tests replace it with a fake so the allow/deny decision logic
-// is verifiable without spawning a real pleno-dlp subprocess (mirrors the
+// is verifiable without running the full scan pipeline (mirrors the
 // uvBin/gitBin override pattern in pii_server.go).
 var scanOfflineFunc = scanOffline
 
@@ -289,40 +287,13 @@ type hookFinding struct {
 	Start *int `json:"start,omitempty"`
 }
 
-// scanOffline shells out to this same pleno-dlp binary (`scan stdin
-// --no-verify`) against data and returns the findings it emitted.
-// Deliberately does not reimplement engine wiring: reusing the CLI path
-// means hook behaviour — dedup, allowlist discovery, output shape —
-// never drifts from `pleno-dlp scan stdin --no-verify` run by hand.
+// scanOffline runs scan stdin --no-verify in-process and captures its
+// findings, including the shared dedup and allowlist filtering.
 func scanOffline(data []byte) ([]hookFinding, error) {
-	exe := resolveExecutable()
-	if exe == "" {
-		return nil, fmt.Errorf("could not resolve pleno-dlp's own executable path")
-	}
-	c := exec.Command(exe, "scan", "stdin", "--no-verify", "--quiet", "--format", "json")
-	c.Stdin = bytes.NewReader(data)
-	var stdout, stderr bytes.Buffer
-	c.Stdout = &stdout
-	c.Stderr = &stderr
-	runErr := c.Run()
-	if runErr != nil {
-		var exitErr *exec.ExitError
-		if !errors.As(runErr, &exitErr) {
-			return nil, fmt.Errorf("run scan stdin: %w", runErr)
-		}
-		// Stdin scans always exit 0 — findings are reported on stdout,
-		// never via the exit code (that gating is reserved for
-		// file/git/SaaS kinds). Any non-zero exit is a real error.
-		return nil, fmt.Errorf("scan stdin exited %d: %s", exitErr.ExitCode(), stderr.String())
-	}
-	if len(bytes.TrimSpace(stdout.Bytes())) == 0 {
-		return nil, nil
-	}
-	var records []hookFinding
-	if err := json.Unmarshal(stdout.Bytes(), &records); err != nil {
-		return nil, fmt.Errorf("parse scan stdin output: %w", err)
-	}
-	return records, nil
+	return scanHookBuffer(&cobra.Command{}, func(sub *cobra.Command) error {
+		sub.SetIn(bytes.NewReader(data))
+		return runScanStdin(sub, nil)
+	})
 }
 
 // ---------------------------------------------------------------------
