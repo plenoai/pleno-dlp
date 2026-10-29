@@ -84,7 +84,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if len(out) == 0 {
 		return nil, nil
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 func nearestKey(idStart int, data []byte, hits [][]int, id string) (string, bool) {

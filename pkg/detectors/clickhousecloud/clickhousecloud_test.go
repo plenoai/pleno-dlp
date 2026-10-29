@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -30,7 +31,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# clickhouse_cloud\nID=" + dummyID + "\nSECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -41,7 +42,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("ID=" + dummyID + "\nSECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -55,7 +56,7 @@ func TestFromData_KeywordFarFromToken(t *testing.T) {
 	// 100 bytes of filler pushes the token past the 64-byte arm radius.
 	filler := "see the docs at https://clickhouse.cloud/console for details about provisioning credentials and rotating "
 	body := []byte(filler + "ID=" + dummyID + " SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 when keyword is outside the 64-byte radius, got %d", len(res))
 	}
@@ -68,7 +69,7 @@ func TestFromData_KeywordFarFromToken(t *testing.T) {
 func TestFromData_LowEntropyIDRejected(t *testing.T) {
 	lowEntID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 chars, entropy 0
 	body := []byte("clickhouse_cloud_key ID=" + lowEntID + " SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy id near keyword, got %d", len(res))
 	}
@@ -83,7 +84,7 @@ func TestRedact(t *testing.T) {
 
 func TestFromData_NoSecret(t *testing.T) {
 	body := []byte("# clickhouse_cloud\nID=" + dummyID)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without paired secret, got %d", len(res))
 	}
@@ -190,7 +191,7 @@ func TestFromData_VerifySetsVerified(t *testing.T) {
 	defer swapBase(srv.URL)()
 
 	body := []byte("# clickhouse_cloud\nID=" + dummyID + "\nSECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}

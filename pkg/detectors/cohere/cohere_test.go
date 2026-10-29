@@ -4,6 +4,7 @@ package cohere
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,7 @@ import (
 const dummy = "abcdefghijABCDEFGHIJ0123456789ABCDEFGHIJ"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("COHERE_API_KEY="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("COHERE_API_KEY="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -23,14 +24,14 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("k="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("k="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
 }
 
 func TestFromData_BareCohereWord(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("cohere key: "+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("cohere key: "+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -42,7 +43,7 @@ func TestFromData_BareCohereWord(t *testing.T) {
 func TestFromData_CoherentNotArmed(t *testing.T) {
 	const sha = "356a192b7913b04c54574d18c28d46e6395428ab"
 	data := "the model gives coherent answers; commit " + sha
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(data))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(data))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (coherent must not arm), got %d", len(res))
 	}

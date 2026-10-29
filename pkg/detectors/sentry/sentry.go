@@ -45,7 +45,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			Redacted:     redact(dsn),
 		})
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 func redact(dsn string) string {

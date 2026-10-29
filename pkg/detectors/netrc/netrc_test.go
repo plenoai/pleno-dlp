@@ -4,6 +4,7 @@ package netrc
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"strings"
 	"testing"
 )
@@ -21,7 +22,7 @@ func TestLoginPrefilterPreservesCaseVariants(t *testing.T) {
 	}
 	for _, keyword := range keywords {
 		data := []byte("machine host " + keyword + " 運用担当 password Qx7-Trout-Ferry-42")
-		got, err := (Scanner{}).FromData(context.Background(), false, data)
+		got, err := redactiontest.FromData(t, (Scanner{}), context.Background(), false, data)
 		if err != nil || (len(got) == 1) != netrcEntryRe().Match(data) {
 			t.Fatalf("keyword %q: findings=%d, err=%v", keyword, len(got), err)
 		}
@@ -42,7 +43,7 @@ func BenchmarkRejectKeywordProse(b *testing.B) {
 
 func TestFromData_LoginThenPassword(t *testing.T) {
 	data := []byte("machine imap.example.com login ops@example.com password " + "Qx7-Trout-Ferry-42\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -56,7 +57,7 @@ func TestFromData_LoginThenPassword(t *testing.T) {
 
 func TestFromData_PasswordThenLogin(t *testing.T) {
 	data := []byte("machine ftp.example.com password " + "Zn4-Cobalt-Marsh-77 login uploader\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -70,7 +71,7 @@ func TestFromData_MultipleMachines(t *testing.T) {
 		"machine imap.example.com login example@example.com password " + "aa-bb-cc-dd-11\n" +
 			"machine smtp.example.com login example@example.com password " + "ee-ff-gg-hh-22\n",
 	)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 2 {
 		t.Fatalf("expected 2, got %d", len(res))
 	}
@@ -78,7 +79,7 @@ func TestFromData_MultipleMachines(t *testing.T) {
 
 func TestFromData_DefaultEntry(t *testing.T) {
 	data := []byte("default login anonymous password " + "Mn9-Willow-Cavern-13\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -97,7 +98,7 @@ func TestFromData_Suppressed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.data))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.data))
 			if len(res) != 0 {
 				t.Fatalf("expected 0, got %d findings for %q: %+v", len(res), tc.data, res)
 			}

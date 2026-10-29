@@ -4,6 +4,7 @@ package azuresas
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ const dummySAS = "https://acmestorage.blob.core.windows.net/container/file.txt?s
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("AZ_SAS_URL=" + dummySAS)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -32,7 +33,7 @@ func TestFromData_Positive(t *testing.T) {
 func TestFromData_Negative_NoSig(t *testing.T) {
 	// No sig= param → not a SAS URL.
 	body := []byte("https://acmestorage.blob.core.windows.net/container/file.txt?sv=2021-08-06")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

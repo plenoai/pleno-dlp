@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -30,7 +31,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Pair(t *testing.T) {
 	body := []byte("frontegg_client_id=" + dummyID + "\nfrontegg_client_secret=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -41,7 +42,7 @@ func TestFromData_Pair(t *testing.T) {
 
 func TestFromData_NoSecret(t *testing.T) {
 	body := []byte("frontegg_client_id=" + dummyID)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without secret half, got %d", len(res))
 	}
@@ -49,7 +50,7 @@ func TestFromData_NoSecret(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("client_id=" + dummyID + "\nclient_secret=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without frontegg keyword, got %d", len(res))
 	}
@@ -58,7 +59,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("frontegg_client_id=" + dummyID + "\nfrontegg_client_secret=" + dummySecret +
 		"\nfrontegg_client_id=" + dummyID + "\nfrontegg_client_secret=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}

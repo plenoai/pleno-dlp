@@ -4,6 +4,7 @@ package djangoconfigsecret
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
 
@@ -14,7 +15,7 @@ SECRET_KEY = 'zX!9$kQ2(mP#wR_bT7vL0eN[cJ4hU8yF*sD5gA1oI]qW6eZ'
 
 DEBUG = True
 `)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -38,7 +39,7 @@ DATABASES = {
     }
 }
 `)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -64,7 +65,7 @@ func TestFromData_Suppressed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.data))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.data))
 			if len(res) != 0 {
 				t.Fatalf("expected 0, got %d findings for %q: %+v", len(res), tc.data, res)
 			}
@@ -77,7 +78,7 @@ func TestFromData_Dedup(t *testing.T) {
 SECRET_KEY = 'zX!9$kQ2(mP#wR_bT7vL0eN[cJ4hU8yF*sD5gA1oI]qW6eZ'
 SECRET_KEY = 'zX!9$kQ2(mP#wR_bT7vL0eN[cJ4hU8yF*sD5gA1oI]qW6eZ'
 `)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d: %+v", len(res), res)
 	}

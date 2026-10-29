@@ -4,12 +4,13 @@ package pgpass
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
 
 func TestFromData_DataLine(t *testing.T) {
 	data := []byte("db.internal.example.com:5432:billing:svc_billing:Tr0ub4dor" + "&3xQ9\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -23,7 +24,7 @@ func TestFromData_DataLine(t *testing.T) {
 
 func TestFromData_WildcardFields(t *testing.T) {
 	data := []byte("*:*:*:replicator:R3pl-S3cr3t-9f8e\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -37,7 +38,7 @@ func TestFromData_MultipleLines(t *testing.T) {
 		"primary.db.example.com:5432:app:app_user:hunter2-Zz8k\n" +
 			"replica.db.example.com:5432:app:app_user:hunter2-Zz8k\n",
 	)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 2 {
 		t.Fatalf("expected 2, got %d", len(res))
 	}
@@ -59,7 +60,7 @@ func TestFromData_Suppressed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.data))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.data))
 			if len(res) != 0 {
 				t.Fatalf("expected 0, got %d findings for %q: %+v", len(res), tc.data, res)
 			}

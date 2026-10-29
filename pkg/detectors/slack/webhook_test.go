@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -46,7 +47,7 @@ func TestWebhookKeywords(t *testing.T) {
 }
 
 func TestWebhookFromDataPositive(t *testing.T) {
-	res, err := WebhookScanner{}.FromData(context.Background(), false, []byte("SLACK_WEBHOOK_URL="+dummyWebhook))
+	res, err := redactiontest.FromData(t, WebhookScanner{}, context.Background(), false, []byte("SLACK_WEBHOOK_URL="+dummyWebhook))
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -63,7 +64,7 @@ func TestWebhookFromDataPositive(t *testing.T) {
 
 func TestWebhookFromDataSlackGov(t *testing.T) {
 	webhook := testWebhookURL(testSlackGovHost, testSecretSegment)
-	res, err := WebhookScanner{}.FromData(context.Background(), false, []byte("webhook="+webhook))
+	res, err := redactiontest.FromData(t, WebhookScanner{}, context.Background(), false, []byte("webhook="+webhook))
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -77,7 +78,7 @@ func TestWebhookFromDataSlackGov(t *testing.T) {
 
 func TestWebhookFromDataDedup(t *testing.T) {
 	body := []byte(dummyWebhook + "\n" + dummyWebhook)
-	res, err := WebhookScanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, WebhookScanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -88,7 +89,7 @@ func TestWebhookFromDataDedup(t *testing.T) {
 
 func TestWebhookFromDataDoesNotOvercapture(t *testing.T) {
 	body := []byte(dummyWebhook + "extra")
-	res, err := WebhookScanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, WebhookScanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -99,7 +100,7 @@ func TestWebhookFromDataDoesNotOvercapture(t *testing.T) {
 
 func TestWebhookFromDataNegative(t *testing.T) {
 	body := []byte(testWebhookURL("example.com", testSecretSegment))
-	res, err := WebhookScanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, WebhookScanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -246,7 +247,7 @@ func TestWebhookFromDataVerify(t *testing.T) {
 	srv := webhookVerifyServer(t, http.StatusBadRequest, "invalid_payload")
 	defer srv.Close()
 
-	res, err := WebhookScanner{}.FromData(context.Background(), true, []byte(dummyWebhook))
+	res, err := redactiontest.FromData(t, WebhookScanner{}, context.Background(), true, []byte(dummyWebhook))
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}

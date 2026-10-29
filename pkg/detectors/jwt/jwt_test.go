@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 func makeJWT(t *testing.T, header, claims map[string]interface{}) string {
@@ -26,7 +27,7 @@ func TestFromData_Positive(t *testing.T) {
 		map[string]interface{}{"alg": "HS256", "typ": "JWT"},
 		map[string]interface{}{"iss": "issuer.example", "sub": "user-123"},
 	)
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("Authorization: Bearer "+tok))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("Authorization: Bearer "+tok))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -48,7 +49,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("not-a-jwt"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("not-a-jwt"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -59,7 +60,7 @@ func TestFromData_AlgNone_PinsCritical(t *testing.T) {
 		map[string]interface{}{"alg": "none", "typ": "JWT"},
 		map[string]interface{}{"sub": "user-1"},
 	)
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(tok))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -80,7 +81,7 @@ func TestFromData_Expired_DowngradesToLow(t *testing.T) {
 		map[string]interface{}{"alg": "HS256"},
 		map[string]interface{}{"sub": "u", "exp": float64(1_000_000_000)},
 	)
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(tok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
 	if res[0].Severity != detectors.SeverityLow {
 		t.Errorf("expired token should be Low, got %v", res[0].Severity)
 	}
@@ -98,7 +99,7 @@ func TestFromData_Active_PinsHigh(t *testing.T) {
 		map[string]interface{}{"alg": "HS256"},
 		map[string]interface{}{"sub": "u", "exp": float64(2_000_000_000)},
 	)
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(tok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
 	if res[0].Severity != detectors.SeverityHigh {
 		t.Errorf("active token should be High, got %v", res[0].Severity)
 	}
@@ -116,7 +117,7 @@ func TestFromData_AlgNoneBeatsActiveExp(t *testing.T) {
 		map[string]interface{}{"alg": "none"},
 		map[string]interface{}{"exp": float64(2_000_000_000)},
 	)
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(tok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
 	if res[0].Severity != detectors.SeverityCritical {
 		t.Errorf("alg=none must override exp severity, got %v", res[0].Severity)
 	}
@@ -137,7 +138,7 @@ func TestFromData_IssuerClassification(t *testing.T) {
 			map[string]interface{}{"alg": "RS256"},
 			map[string]interface{}{"iss": iss},
 		)
-		res, _ := Scanner{}.FromData(context.Background(), false, []byte(tok))
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
 		if got := res[0].ExtraData["issuer_class"]; got != want {
 			t.Errorf("iss=%q → issuer_class=%q, want %q", iss, got, want)
 		}
@@ -149,7 +150,7 @@ func TestFromData_ScopeClaim_String(t *testing.T) {
 		map[string]interface{}{"alg": "RS256"},
 		map[string]interface{}{"scope": "read:user write:repo"},
 	)
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(tok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
 	if res[0].ExtraData["scope"] != "read:user,write:repo" {
 		t.Errorf("scope = %q, want comma-joined", res[0].ExtraData["scope"])
 	}
@@ -160,7 +161,7 @@ func TestFromData_ScopeClaim_Array(t *testing.T) {
 		map[string]interface{}{"alg": "RS256"},
 		map[string]interface{}{"scopes": []interface{}{"admin", "billing"}},
 	)
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(tok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
 	if res[0].ExtraData["scope"] != "admin,billing" {
 		t.Errorf("scope = %q, want admin,billing", res[0].ExtraData["scope"])
 	}
@@ -171,7 +172,7 @@ func TestFromData_AudClaim_Array(t *testing.T) {
 		map[string]interface{}{"alg": "RS256"},
 		map[string]interface{}{"aud": []interface{}{"api1", "api2"}},
 	)
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(tok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
 	if res[0].ExtraData["aud"] != "api1,api2" {
 		t.Errorf("aud = %q, want comma-joined", res[0].ExtraData["aud"])
 	}
@@ -182,7 +183,7 @@ func TestFromData_KidExposed(t *testing.T) {
 		map[string]interface{}{"alg": "RS256", "kid": "key-2024-01"},
 		map[string]interface{}{"sub": "u"},
 	)
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(tok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
 	if res[0].ExtraData["kid"] != "key-2024-01" {
 		t.Errorf("kid missing: %+v", res[0].ExtraData)
 	}

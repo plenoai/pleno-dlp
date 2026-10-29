@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
 
@@ -23,7 +24,7 @@ func TestFromData_SnowflakeIssuer(t *testing.T) {
 		"iss": "ACME_ACCOUNT.SCAN_USER.SHA256:abc123def456abc123def456abc123def456abc123def456abc",
 		"sub": "ACME_ACCOUNT.SCAN_USER",
 	})
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("SNOWFLAKE_JWT="+tok))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("SNOWFLAKE_JWT="+tok))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -43,7 +44,7 @@ func TestFromData_NotSnowflake(t *testing.T) {
 		"iss": "https://accounts.google.com",
 		"sub": "111111111",
 	})
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(tok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
 	if len(res) != 0 {
 		t.Fatalf("non-snowflake JWT must not be claimed; got %d", len(res))
 	}

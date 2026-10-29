@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummyKey mirrors the authoritative shape: "API" prefix + 12 alnum chars
@@ -38,7 +39,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("LIVEKIT_API_KEY=" + dummyKey + " LIVEKIT_API_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -62,7 +63,7 @@ func TestFromData_SecretLengthRange(t *testing.T) {
 		"len45": dummySecret + "Kv", // 45 chars
 	} {
 		body := []byte("LIVEKIT_API_KEY=" + dummyKey + " LIVEKIT_API_SECRET=" + sec)
-		res, _ := Scanner{}.FromData(context.Background(), false, body)
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 		if len(res) == 0 {
 			t.Fatalf("%s: expected >=1, got 0 (length-pin regression)", name)
 		}
@@ -71,7 +72,7 @@ func TestFromData_SecretLengthRange(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED=" + dummyKey + " " + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -82,7 +83,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // must not surface, even though it clears the bare length regex.
 func TestFromData_LowEntropySecretRejected(t *testing.T) {
 	body := []byte("LIVEKIT_API_KEY=" + dummyKey + " LIVEKIT_API_SECRET=" + lowEntropySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low-entropy secret rejected), got %d", len(res))
 	}

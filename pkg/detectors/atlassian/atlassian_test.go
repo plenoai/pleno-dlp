@@ -4,6 +4,7 @@ package atlassian
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"strings"
 	"testing"
 )
@@ -14,7 +15,7 @@ import (
 const dummy = "ATATT3xFfGF0aZ9kQ2mNpR7sT4vW8xY1bC3dE6fG0hJ5kL2mN9pQ4rS7tU0vWxYzAbCdEfGhIjKlMn"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("ATLASSIAN_API_TOKEN="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("ATLASSIAN_API_TOKEN="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -33,7 +34,7 @@ func TestFromData_Positive(t *testing.T) {
 // contextual anchor) is still detected.
 func TestFromData_Positive_AtlassianNetHost(t *testing.T) {
 	body := "curl https://acme.atlassian.net/rest/api/3/myself -u me@acme.com:" + dummy
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -41,7 +42,7 @@ func TestFromData_Positive_AtlassianNetHost(t *testing.T) {
 
 func TestFromData_NoKeyword_DoesNotMatch(t *testing.T) {
 	// Valid-shaped token without any atlassian keyword nearby → must skip.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("token="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("token="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -49,7 +50,7 @@ func TestFromData_NoKeyword_DoesNotMatch(t *testing.T) {
 
 func TestFromData_Negative(t *testing.T) {
 	// Wrong shape near keyword: no ATATT3 prefix.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("atlassian short123"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("atlassian short123"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -59,7 +60,7 @@ func TestFromData_Negative(t *testing.T) {
 // because the regex now requires the ATATT3 prefix.
 func TestFromData_FP_HexBuildHash(t *testing.T) {
 	body := "atlassian-connect plugin build a1b2c3d4e5f6a1b2c3d4e5f6"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("hex build hash must be suppressed; got %d", len(res))
 	}
@@ -69,7 +70,7 @@ func TestFromData_FP_HexBuildHash(t *testing.T) {
 // prefix → no match.
 func TestFromData_FP_ArbitraryIdentifier(t *testing.T) {
 	body := "// atlassian integration\nbuildId = AbCdEfGhIjKlMnOpQrStUvWx"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("arbitrary identifier must be suppressed; got %d", len(res))
 	}
@@ -79,7 +80,7 @@ func TestFromData_FP_ArbitraryIdentifier(t *testing.T) {
 // (sequential/repeated run) is dropped by the entropy gate.
 func TestFromData_FP_LowEntropyBody(t *testing.T) {
 	body := "atlassian token=ATATT3aaaaaaaaaaaaaaaaaaaaaaaa"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("low-entropy body must be suppressed; got %d", len(res))
 	}

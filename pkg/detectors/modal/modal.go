@@ -117,7 +117,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if len(out) == 0 {
 		return nil, nil
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 func nearestSecret(idStart int, data []byte, hits [][]int) (string, bool) {

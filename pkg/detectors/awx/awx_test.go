@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummy is a 30-char base62 string in the shape of an oauthlib-generated AWX
@@ -29,7 +30,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# awx_token\nAWX_OAUTH=" + dummy)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -39,7 +40,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -52,7 +53,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	const lowEntropy = "abc123abc123abc123abc123abc123" // 30 chars, H ~= 2.58 < 3.5
 	body := []byte("awx_token=" + lowEntropy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected low-entropy token rejected, got %d", len(res))
 	}
@@ -67,7 +68,7 @@ func TestFromData_KeywordTooFar(t *testing.T) {
 		filler[i] = ' '
 	}
 	body := []byte("awx_token=" + string(filler) + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected no match when keyword is >64 chars away, got %d", len(res))
 	}
@@ -79,7 +80,7 @@ func TestFromData_KeywordTooFar(t *testing.T) {
 func TestFromData_RealLengthDocExample(t *testing.T) {
 	const docToken = "9epHOqHhnXUcgYK8QanOmUQPSgX92g" // 30 chars, from AWX docs
 	body := []byte("AWX_OAUTH_TOKEN=" + docToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected documented 30-char token to match, got %d", len(res))
 	}
@@ -87,7 +88,7 @@ func TestFromData_RealLengthDocExample(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("awx_token=" + dummy + "\nawx_token=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}

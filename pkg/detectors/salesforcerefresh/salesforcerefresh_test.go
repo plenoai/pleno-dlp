@@ -8,12 +8,13 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 var dummy = "5Aep861" + strings.Repeat("A", 60) + "._-Z0"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), true, []byte("SF_REFRESH="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("SF_REFRESH="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -29,7 +30,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("5Aep861short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("5Aep861short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

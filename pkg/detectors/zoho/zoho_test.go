@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "1000.abc123ABC456def789ghi012jkl345MN.xyz123ABC456def789ghi012jkl345MN"
@@ -25,21 +26,21 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# zoho\nZOHO_REFRESH=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
 }
 
 func TestFromData_BadShape(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("zoho 1000.abc.short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("zoho 1000.abc.short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for short segments, got %d", len(res))
 	}
@@ -47,7 +48,7 @@ func TestFromData_BadShape(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("zoho " + dummy + "\nzoho " + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -57,7 +58,7 @@ func TestFromData_Dedup(t *testing.T) {
 // refresh tokens (which are mixed-case base62). Suppressed.
 func TestFromData_SuppressAllHexDigest(t *testing.T) {
 	body := []byte("# zoho integration\nbuild_hash=1000.a1b2c3d4e5f60718293a4b5c6d7e8f90.deadbeefcafef00dba5eba11c0ffee99")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for all-hex digest, got %d", len(res))
 	}
@@ -67,7 +68,7 @@ func TestFromData_SuppressAllHexDigest(t *testing.T) {
 // not a real token. Suppressed (all-decimal + entropy floor).
 func TestFromData_SuppressLowEntropyPadding(t *testing.T) {
 	body := []byte("// zoho notes\nartifact=1000.00000000000000000000000000000000.11111111111111111111111111111111")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy padding, got %d", len(res))
 	}
@@ -79,7 +80,7 @@ func TestFromData_SuppressLowEntropyPadding(t *testing.T) {
 // vicinity. We assert suppression here via the decimal segment.
 func TestFromData_SuppressDecimalLogFragment(t *testing.T) {
 	body := []byte("zoho_log: 1000.1700000000000000000000000000000.9988776655443322110099887766554433")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for decimal log fragment, got %d", len(res))
 	}
@@ -93,7 +94,7 @@ func TestFromData_SuppressKeywordTooFar(t *testing.T) {
 		pad[i] = ' '
 	}
 	body := []byte("zoho" + string(pad) + "X=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 when keyword >64B away, got %d", len(res))
 	}
@@ -103,7 +104,7 @@ func TestFromData_SuppressKeywordTooFar(t *testing.T) {
 // zoho keyword.
 func TestFromData_StillDetectsRealShape(t *testing.T) {
 	body := []byte("ZOHO_REFRESH=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 for real mixed-case token, got %d", len(res))
 	}

@@ -4,6 +4,7 @@ package vault
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ const dummyHvs = "hvs.AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCDEFG"
 const dummyLegacy = "s.AbCdEfGhIjKlMnOpQrStUvWx"
 
 func TestFromData_Modern(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("VAULT_TOKEN="+dummyHvs))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("VAULT_TOKEN="+dummyHvs))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -30,7 +31,7 @@ func TestFromData_Modern(t *testing.T) {
 }
 
 func TestFromData_Legacy(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("VAULT_TOKEN="+dummyLegacy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("VAULT_TOKEN="+dummyLegacy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -43,7 +44,7 @@ func TestFromData_Legacy(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("hvs.short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("hvs.short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -143,7 +144,7 @@ func TestVerify_Transient429(t *testing.T) {
 func TestFromData_VerifiesWhenAPIBaseSet(t *testing.T) {
 	srv := newVaultServer(t, http.StatusOK)
 	withAPIBase(t, srv.URL)
-	res, err := Scanner{}.FromData(context.Background(), true, []byte("VAULT_TOKEN="+dummyHvs))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("VAULT_TOKEN="+dummyHvs))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

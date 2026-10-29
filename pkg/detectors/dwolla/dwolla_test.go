@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // Dwolla key/secret are each exactly 50 alphanumeric chars (upstream
@@ -30,7 +31,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("DWOLLA_KEY=" + dummyKey + "\nDWOLLA_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -41,7 +42,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token1=" + dummyKey + "\ntoken2=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without dwolla keyword, got %d", len(res))
 	}
@@ -53,7 +54,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // radius 64, not just the bare keyword over radius 256.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("see dwolla docs for setup\nfield1=" + dummyKey + "\nfield2=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare keyword without arm, got %d", len(res))
 	}
@@ -67,7 +68,7 @@ func TestFromData_LowEntropyCulled(t *testing.T) {
 		t.Fatalf("fixture length %d != 50", len(lowEntropy))
 	}
 	body := []byte("dwolla_key=" + lowEntropy + "\ndwolla_secret=" + lowEntropy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy creds, got %d", len(res))
 	}

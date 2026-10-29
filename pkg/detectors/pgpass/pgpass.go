@@ -110,7 +110,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		scanLine(line, seen, &out)
 	}
 
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // FromReader preserves the line grammar of FromData without retaining the
@@ -123,7 +123,7 @@ func (s Scanner) FromReader(ctx context.Context, _ bool, r io.ReaderAt, size int
 		scanMatch(match, seen, &out)
 		return nil
 	})
-	return out, err
+	return detectors.SafeResults(out), err
 }
 
 func scanMatch(match [][]byte, seen map[string]struct{}, out *[]detectors.Result) {

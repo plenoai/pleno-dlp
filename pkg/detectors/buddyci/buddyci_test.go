@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummyToken matches Buddy's documented UUID-v4 PAT shape (see the package
@@ -35,7 +36,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("buddy_token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -43,7 +44,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without buddy keyword, got %d", len(res))
 	}
@@ -51,7 +52,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("buddy_token=" + dummyToken + "\nbuddy_api_key=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -62,7 +63,7 @@ func TestFromData_Dedup(t *testing.T) {
 // surface even when sitting directly next to a buddy_token= reference.
 func TestFromData_RejectsGenericHighEntropy(t *testing.T) {
 	body := []byte("buddy_token=" + fpToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected generic high-entropy run to be rejected, got %d", len(res))
 	}
@@ -72,7 +73,7 @@ func TestFromData_RejectsGenericHighEntropy(t *testing.T) {
 // structurally valid but zero-information UUID near the keyword.
 func TestFromData_RejectsDegenerateUUID(t *testing.T) {
 	body := []byte("buddy_token=00000000-0000-0000-0000-000000000000")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected degenerate UUID to be rejected, got %d", len(res))
 	}

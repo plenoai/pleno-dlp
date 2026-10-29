@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -31,7 +32,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("MUX_TOKEN_ID=" + dummyID + "\nMUX_TOKEN_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -42,7 +43,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_OnlyID(t *testing.T) {
 	body := []byte("MUX_TOKEN_ID=" + dummyID)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 with only id, got %d", len(res))
 	}
@@ -50,7 +51,7 @@ func TestFromData_OnlyID(t *testing.T) {
 
 func TestFromData_NoMuxPrefix(t *testing.T) {
 	body := []byte("ID=" + dummyID + "\nSECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without mux prefix, got %d", len(res))
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummyToken mirrors the documented Mercury shape:
@@ -37,7 +38,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("mercury_api_key=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -48,7 +49,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_FoundSandbox(t *testing.T) {
 	body := []byte("config: " + dummySandboxToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 sandbox token, got %d", len(res))
 	}
@@ -64,7 +65,7 @@ func TestFromData_FoundSandbox(t *testing.T) {
 // reject it.
 func TestFromData_GenericHighEntropyRejected(t *testing.T) {
 	body := []byte("mercury_api_key=abcdefghijklmnopqrstuvwxyzABCDEF1234567890XYZ")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected generic high-entropy run near 'mercury' to be rejected, got %d", len(res))
 	}
@@ -74,7 +75,7 @@ func TestFromData_GenericHighEntropyRejected(t *testing.T) {
 // except the mandatory secret-token: prefix.
 func TestFromData_NoPrefixRejected(t *testing.T) {
 	body := []byte("mercury_production_wma_24SCp4G81X3yHL4Wq8FgzuaP9ye3VKf2mgTDctXyRg5HY_yrucrem")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected token without secret-token: prefix to be rejected, got %d", len(res))
 	}
@@ -82,7 +83,7 @@ func TestFromData_NoPrefixRejected(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=abcdefghijklmnopqrstuvwxyzABCDEF12")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without mercury token shape, got %d", len(res))
 	}
@@ -90,7 +91,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte(dummyToken + "\n" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}

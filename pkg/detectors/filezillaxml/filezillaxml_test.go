@@ -4,6 +4,7 @@ package filezillaxml
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
 
@@ -14,7 +15,7 @@ func TestFromData_Base64Encoded(t *testing.T) {
 	<User>root</User>
 	<Pass encoding="base64">cmVhbC1tYXN0ZXItcHctaGFzaC1aejhrOWY=</Pass>
 </Server>`)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -32,7 +33,7 @@ func TestFromData_PlaintextPass(t *testing.T) {
 	<User>root</User>
 	<Pass>ExamplePas123</Pass>
 </Server>`)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -56,7 +57,7 @@ func TestFromData_Suppressed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.data))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.data))
 			if len(res) != 0 {
 				t.Fatalf("expected 0, got %d findings for %q: %+v", len(res), tc.data, res)
 			}
@@ -67,7 +68,7 @@ func TestFromData_Suppressed(t *testing.T) {
 func TestFromData_Dedup(t *testing.T) {
 	data := []byte(`<Pass encoding="base64">cmVhbC1tYXN0ZXItcHctaGFzaC1aejhrOWY=</Pass>` +
 		`<Pass encoding="base64">cmVhbC1tYXN0ZXItcHctaGFzaC1aejhrOWY=</Pass>`)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 deduped, got %d", len(res))
 	}

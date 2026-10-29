@@ -1909,6 +1909,7 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 		r.RawV2 = bytes.Clone(r.RawV2)
 		r.ExtraData = maps.Clone(r.ExtraData)
 	}
+	r.Redacted = r.SafeRedacted()
 	if v.Source != "" {
 		if r.ExtraData == nil {
 			r.ExtraData = map[string]string{}

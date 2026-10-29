@@ -94,7 +94,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		res.VerificationErr = err
 	}
 	out = append(out, res)
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // nearKeyword reports whether an avalara/avatax assignment-anchor reference

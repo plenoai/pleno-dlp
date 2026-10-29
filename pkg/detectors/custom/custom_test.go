@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 func TestCompile_RequiresFields(t *testing.T) {
@@ -45,7 +46,7 @@ func TestFromData_MatchesAndRedacts(t *testing.T) {
 		t.Fatalf("Compile: %v", err)
 	}
 
-	results, err := d.FromData(context.Background(), false,
+	results, err := redactiontest.FromData(t, d, context.Background(), false,
 		[]byte("config:\n  api_key: ACME_QWERTYUIOPASDFGHJKLZ\n"))
 	if err != nil {
 		t.Fatalf("FromData: %v", err)
@@ -81,11 +82,11 @@ func TestFromData_EntropyGate(t *testing.T) {
 	low := []byte("ACME_AAAAAAAAAAAAAAAAAAAA")
 	high := []byte("ACME_QWERTYUIOPASDFGHJKLZ")
 
-	res, _ := d.FromData(context.Background(), false, low)
+	res, _ := redactiontest.FromData(t, d, context.Background(), false, low)
 	if len(res) != 0 {
 		t.Errorf("low-entropy candidate should be filtered; got %d", len(res))
 	}
-	res, _ = d.FromData(context.Background(), false, high)
+	res, _ = redactiontest.FromData(t, d, context.Background(), false, high)
 	if len(res) != 1 {
 		t.Errorf("high-entropy candidate should match; got %d", len(res))
 	}
@@ -107,7 +108,7 @@ func TestVerify_200IsVerified(t *testing.T) {
 		VerifyURL: srv.URL,
 		VerifyHdr: "Authorization: Bearer {{ .Secret }}",
 	})
-	res, err := d.FromData(context.Background(), true, []byte("ACME_QWERTYUIOPASDFGHJKLZ"))
+	res, err := redactiontest.FromData(t, d, context.Background(), true, []byte("ACME_QWERTYUIOPASDFGHJKLZ"))
 	if err != nil {
 		t.Fatalf("FromData: %v", err)
 	}
@@ -128,7 +129,7 @@ func TestVerify_401IsUnverifiedNotError(t *testing.T) {
 		Regex:     `ACME_[A-Z0-9]{20}`,
 		VerifyURL: srv.URL,
 	})
-	res, err := d.FromData(context.Background(), true, []byte("ACME_QWERTYUIOPASDFGHJKLZ"))
+	res, err := redactiontest.FromData(t, d, context.Background(), true, []byte("ACME_QWERTYUIOPASDFGHJKLZ"))
 	if err != nil {
 		t.Fatalf("FromData: %v", err)
 	}

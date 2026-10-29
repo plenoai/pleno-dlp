@@ -4,6 +4,7 @@ package railssecretkeybase
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
 
@@ -11,7 +12,7 @@ const syntheticKeyBase = "e1f2a3b4c5d6e7f809182736455463728190a1b2c3d4e5f6071829
 
 func TestFromData_Match(t *testing.T) {
 	data := []byte("development:\n  secret_key_base: " + syntheticKeyBase + "\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -25,7 +26,7 @@ func TestFromData_MultipleEnvironments(t *testing.T) {
 		"development:\n  secret_key_base: " + syntheticKeyBase + "\n" +
 			"test:\n  secret_key_base: " + syntheticKeyBase[:1] + syntheticKeyBase[2:] + "z\n",
 	)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 2 {
 		t.Fatalf("expected 2, got %d: %+v", len(res), res)
 	}
@@ -43,7 +44,7 @@ func TestFromData_Suppressed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.data))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.data))
 			if len(res) != 0 {
 				t.Fatalf("expected 0, got %d findings for %q: %+v", len(res), tc.data, res)
 			}

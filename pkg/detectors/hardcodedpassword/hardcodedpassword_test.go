@@ -4,6 +4,7 @@ package hardcodedpassword
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"regexp"
 	"strings"
 	"testing"
@@ -25,7 +26,7 @@ func TestFromData_TerraformDefault(t *testing.T) {
 	data := []byte(`variable "db_password" {
   default = "Aa1234321Bb"
 }`)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -36,7 +37,7 @@ func TestFromData_TerraformDefault(t *testing.T) {
 
 func TestFromData_DockerComposeEnv(t *testing.T) {
 	data := []byte("DB_PASSWORD=P@ssw0rdXz99\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -69,7 +70,7 @@ func TestFromData_Suppressed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.data))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.data))
 			if len(res) != 0 {
 				t.Fatalf("expected 0, got %d findings for %q: %+v", len(res), tc.data, res)
 			}
@@ -95,7 +96,7 @@ func TestFromData_RealSecretsStillFire(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.data))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.data))
 			if len(res) != 1 {
 				t.Fatalf("expected 1 finding, got %d for %q", len(res), tc.data)
 			}

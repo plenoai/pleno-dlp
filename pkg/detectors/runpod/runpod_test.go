@@ -11,13 +11,14 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "ABCDEFGH1234567890ABCDEFGH1234567890ABCD"
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# runpod\nRUNPOD_API_KEY=" + dummy)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -27,7 +28,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -146,7 +147,7 @@ func TestVerify_InconclusiveResponsesRetainFinding(t *testing.T) {
 			apiBase = srv.URL
 			defer func() { apiBase = old }()
 
-			results, err := (Scanner{}).FromData(context.Background(), true, []byte("runpod "+dummy))
+			results, err := redactiontest.FromData(t, (Scanner{}), context.Background(), true, []byte("runpod "+dummy))
 			if err != nil || len(results) != 1 {
 				t.Fatalf("potential secret was dropped: results=%d, err=%v", len(results), err)
 			}
@@ -175,7 +176,7 @@ func TestFromData_CancelledVerificationRetainsFinding(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	results, err := (Scanner{}).FromData(ctx, true, []byte("runpod "+dummy))
+	results, err := redactiontest.FromData(t, (Scanner{}), ctx, true, []byte("runpod "+dummy))
 	if err != nil || len(results) != 1 {
 		t.Fatalf("potential secret was dropped: results=%d, err=%v", len(results), err)
 	}

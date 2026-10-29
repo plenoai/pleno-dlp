@@ -4,6 +4,7 @@ package jira
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"strings"
 	"testing"
 )
@@ -14,7 +15,7 @@ const dummy = "ATATT3xFfGF0abcdEfgh1234"
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("JIRA_API_TOKEN=" + dummy)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -33,21 +34,21 @@ func TestFromData_Positive(t *testing.T) {
 // token shape remains detected after hardening.
 func TestFromData_TruePositive_AssignmentVariant(t *testing.T) {
 	body := []byte("config:\n  jira_token: " + dummy + "\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 true-positive, got %d", len(res))
 	}
 }
 
 func TestFromData_NoKeyword_DoesNotMatch(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("token="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("token="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("jira=short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("jira=short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -85,7 +86,7 @@ func TestFromData_Suppressed_FalsePositives(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.body))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.body))
 			if len(res) != 0 {
 				t.Fatalf("expected 0 (suppressed), got %d: %+v", len(res), res)
 			}

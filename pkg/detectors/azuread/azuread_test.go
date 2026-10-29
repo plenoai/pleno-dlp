@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummySecret = "AbC8Q~aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789ab"
@@ -16,7 +17,7 @@ const dummyTenantID = "aabbccdd-1122-3344-5566-778899aabbcc"
 
 func TestFromData_Positive_PairsAppID(t *testing.T) {
 	body := []byte("AZURE_CLIENT_ID=" + dummyAppID + "\nAZURE_CLIENT_SECRET=" + dummySecret)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -39,7 +40,7 @@ func TestFromData_Positive_PairsAppID(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("X=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -47,7 +48,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Negative_NoTilde(t *testing.T) {
 	body := []byte("AZURE_CLIENT_SECRET=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without tilde, got %d", len(res))
 	}
@@ -95,7 +96,7 @@ func TestFromData_HardeningTable(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			res, err := Scanner{}.FromData(context.Background(), false, []byte(c.body))
+			res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(c.body))
 			if err != nil {
 				t.Fatalf("err: %v", err)
 			}
@@ -123,7 +124,7 @@ func TestFromData_ContextExtractTenantEnv(t *testing.T) {
 	chunk := "AZURE_TENANT_ID=" + dummyTenantID + "\n" +
 		"AZURE_CLIENT_ID=" + dummyAppID + "\n" +
 		"AZURE_CLIENT_SECRET=" + dummySecret + "\n"
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(chunk))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(chunk))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -156,7 +157,7 @@ func TestFromData_ContextExtractTenantJSON(t *testing.T) {
     "client_secret": "` + dummySecret + `"
   }
 }`
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(chunk))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(chunk))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -177,7 +178,7 @@ func TestFromData_ContextExtractTenantJSON(t *testing.T) {
 func TestFromData_VerifySkippedWhenNoTenant(t *testing.T) {
 	chunk := "AZURE_CLIENT_ID=" + dummyAppID + "\n" +
 		"AZURE_CLIENT_SECRET=" + dummySecret + "\n"
-	res, err := Scanner{}.FromData(context.Background(), true, []byte(chunk))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(chunk))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

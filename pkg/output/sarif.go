@@ -790,7 +790,7 @@ func toSARIFResult(f engine.Finding) sarifResult {
 	r := sarifResult{
 		RuleID:              f.Detector.String(),
 		Level:               levelFor(f),
-		Message:             sarifMessage{Text: f.Result.Redacted},
+		Message:             sarifMessage{Text: f.Result.SafeRedacted()},
 		PartialFingerprints: fingerprints(f),
 	}
 	var uri string

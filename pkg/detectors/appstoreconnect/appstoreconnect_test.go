@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyPEM = `-----BEGIN PRIVATE KEY-----
@@ -30,14 +31,14 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# app_store_connect\n" + dummyPEM)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(dummyPEM))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(dummyPEM))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -46,14 +47,14 @@ func TestFromData_NoKeyword(t *testing.T) {
 func TestFromData_DotP8(t *testing.T) {
 	// .p8 is a strong signal — the file extension Apple uses for these keys.
 	body := []byte("AuthKey_ABC123.p8 contents:\n" + dummyPEM)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
 }
 
 func TestFromData_NoMatch(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("# app_store_connect\nno key here"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("# app_store_connect\nno key here"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -61,7 +62,7 @@ func TestFromData_NoMatch(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("app_store_connect\n" + dummyPEM + "\napp_store_connect\n" + dummyPEM)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummy is a realistic 11<32-hex> token shape.
@@ -26,7 +27,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# jenkins\nJENKINS_API_TOKEN=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -34,14 +35,14 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_PositiveQuotedYAML(t *testing.T) {
 	body := []byte(`jenkins_token: "` + dummy + `"`)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 for quoted assignment, got %d", len(res))
 	}
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -49,14 +50,14 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("jenkins_api_token=" + dummy + "\njenkins_api_token=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
 }
 
 func TestFromData_BadShape(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("jenkins_api_token=22abcdef0123456789abcdef0123456789"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("jenkins_api_token=22abcdef0123456789abcdef0123456789"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (must start with 11), got %d", len(res))
 	}
@@ -68,7 +69,7 @@ func TestFromData_BadShape(t *testing.T) {
 // credential-key requirement.
 func TestFromData_FP_ArtifactChecksum(t *testing.T) {
 	body := []byte("jenkins build artifact sha: " + dummy + "\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for artifact checksum near bare 'jenkins', got %d", len(res))
 	}
@@ -77,7 +78,7 @@ func TestFromData_FP_ArtifactChecksum(t *testing.T) {
 // FP2: a content-addressed cache key in a pipeline log near `jenkins`.
 func TestFromData_FP_CacheKey(t *testing.T) {
 	body := []byte("JENKINS_WORKSPACE cache " + dummy + " restored")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for cache key near bare 'jenkins', got %d", len(res))
 	}
@@ -87,7 +88,7 @@ func TestFromData_FP_CacheKey(t *testing.T) {
 // fails, so no match.
 func TestFromData_FP_GitSHASlice(t *testing.T) {
 	body := []byte("jenkins git rev = " + dummy + "cafe00")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for 34-hex slice inside a longer hex run, got %d", len(res))
 	}
@@ -97,7 +98,7 @@ func TestFromData_FP_GitSHASlice(t *testing.T) {
 func TestFromData_FP_LowEntropy(t *testing.T) {
 	// 11 + 32 zeros: passes the shape regex but fails entropy.
 	body := []byte("jenkins_api_token=1100000000000000000000000000000000")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy hex, got %d", len(res))
 	}

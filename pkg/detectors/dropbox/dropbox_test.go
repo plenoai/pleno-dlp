@@ -4,6 +4,7 @@ package dropbox
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +16,7 @@ const dummyShort = "sl." + "abcdefghijABCDEFGHIJ0123456789ABCDEFGHIJabcdefghijAB
 const dummyLegacy = "abcdefghijABCDEFGHIJ0123456789AB-_abcdefghijABCDEFGHIJ0123456789"
 
 func TestFromData_Short(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("DROPBOX_TOKEN="+dummyShort))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("DROPBOX_TOKEN="+dummyShort))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -26,13 +27,13 @@ func TestFromData_Short(t *testing.T) {
 
 func TestFromData_Legacy_KeywordRequired(t *testing.T) {
 	bare := []byte("X-Token: " + dummyLegacy)
-	res, _ := Scanner{}.FromData(context.Background(), false, bare)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, bare)
 	if len(res) != 0 {
 		t.Fatalf("legacy without keyword should not match, got %d", len(res))
 	}
 
 	withKW := []byte("DROPBOX_APP_TOKEN=" + dummyLegacy)
-	res, _ = Scanner{}.FromData(context.Background(), false, withKW)
+	res, _ = redactiontest.FromData(t, Scanner{}, context.Background(), false, withKW)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 with keyword, got %d", len(res))
 	}

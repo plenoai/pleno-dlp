@@ -186,12 +186,13 @@ to stderr as follows:
 
 ```text
 pleno-dlp: potential secrets in staged changes (offline, unverified scan):
-  high     AWS                      AKIA...      leak.env:1
+  high     AWS                      AKIA..       leak.env:1
 pleno-dlp: blocked commit (1 findings at or above high). Bypass once with git commit --no-verify; allowlist known fixtures in .pleno-allow.json (see docs/recipes/pre-commit.md).
 ```
 
-The masked column shows at most six leading characters of the
-detector's `redacted` field. The hook never prints the raw match.
+The masked column shows at most six leading characters of the shared
+safe `redacted` field (see the [detector display contract](redaction.md)). The hook never appends marker characters that
+could reconstruct a short raw match.
 
 An empty staged diff exits 0 silently. When git is missing, the
 directory is not a repository, or the in-process scan fails, the hook

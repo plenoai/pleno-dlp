@@ -4,6 +4,7 @@ package postmark
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,7 @@ import (
 const dummy = "01234567-89ab-cdef-0123-456789abcdef"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("POSTMARK_API_TOKEN="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("POSTMARK_API_TOKEN="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -26,14 +27,14 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword_DoesNotMatch(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("uuid="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("uuid="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("postmark not-a-uuid"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("postmark not-a-uuid"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

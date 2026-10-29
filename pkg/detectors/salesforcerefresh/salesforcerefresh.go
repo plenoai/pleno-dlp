@@ -53,7 +53,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			Redacted:     redact(token),
 		})
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 func redact(t string) string {

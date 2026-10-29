@@ -103,7 +103,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		scanLine([]byte(line), seen, &out)
 	}
 
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // FromReader keeps the regexp grammar and line anchors of FromData while the
@@ -115,7 +115,7 @@ func (s Scanner) FromReader(ctx context.Context, _ bool, r io.ReaderAt, size int
 		scanMatch(match, seen, &out)
 		return nil
 	})
-	return out, err
+	return detectors.SafeResults(out), err
 }
 
 func scanLine(line []byte, seen map[string]struct{}, out *[]detectors.Result) {

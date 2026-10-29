@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyToken = "prod_abcdefghijklmnopqrstuvwxyzABCDEF1234"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("hyperline_api_key=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("apikey=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without hyperline keyword, got %d", len(res))
 	}
@@ -45,7 +46,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // surface — only `prod_`/`test_`-prefixed keys are real.
 func TestFromData_GenericHighEntropyNoPrefix(t *testing.T) {
 	body := []byte("hyperline_api_key=Zk9Qx2Lm7Rp4Tn8Wv3Yb6Cd1Hf5Js0Ag2Ue4")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for unprefixed high-entropy string, got %d", len(res))
 	}
@@ -53,7 +54,7 @@ func TestFromData_GenericHighEntropyNoPrefix(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("hyperline=" + dummyToken + "\nhyperline_key=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}

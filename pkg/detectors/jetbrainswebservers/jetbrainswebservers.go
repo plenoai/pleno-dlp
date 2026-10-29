@@ -113,7 +113,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		})
 	}
 
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 func redact(s string) string {

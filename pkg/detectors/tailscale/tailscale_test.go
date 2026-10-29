@@ -4,6 +4,7 @@ package tailscale
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +16,7 @@ const dummyAPI = "tskey-api-kFcd1234567890-ZYXWVUTSRQPONMLKJIHGFEDCBAzyxwvutsrqp
 const dummyOAuth = "tskey-client-kFcd1234567890-Ab_Cd9012345678_90AbCdEfGhIjKlMnOpQr"
 
 func TestFromData_Auth(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("TS_AUTHKEY="+dummyAuth))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("TS_AUTHKEY="+dummyAuth))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -28,7 +29,7 @@ func TestFromData_Auth(t *testing.T) {
 }
 
 func TestFromData_API(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("TS_API_KEY="+dummyAPI))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("TS_API_KEY="+dummyAPI))
 	if len(res) != 1 {
 		t.Fatalf("expected 1 api hit, got %d", len(res))
 	}
@@ -37,7 +38,7 @@ func TestFromData_API(t *testing.T) {
 // OAuth client secrets contain underscores in the body; the broadened regex
 // must still match them so they reach Verify.
 func TestFromData_OAuth(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("TS_OAUTH="+dummyOAuth))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("TS_OAUTH="+dummyOAuth))
 	if len(res) != 1 {
 		t.Fatalf("expected 1 oauth hit, got %d", len(res))
 	}
@@ -47,7 +48,7 @@ func TestFromData_OAuth(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("tskey-short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("tskey-short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -158,7 +159,7 @@ func TestFromData_VerifyWiresResult(t *testing.T) {
 	defer srv.Close()
 	withAPIBase(t, srv.URL)
 
-	res, err := Scanner{}.FromData(context.Background(), true, []byte("TS_AUTHKEY="+dummyAuth))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("TS_AUTHKEY="+dummyAuth))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

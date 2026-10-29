@@ -4,6 +4,7 @@ package honeycomb
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ const dummyModern = "hcaik_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ
 const dummyLegacy = "0123456789abcdef0123456789abcdef"
 
 func TestFromData_Modern(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("HONEYCOMB_API_KEY="+dummyModern))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("HONEYCOMB_API_KEY="+dummyModern))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -27,14 +28,14 @@ func TestFromData_Modern(t *testing.T) {
 }
 
 func TestFromData_Legacy(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("HONEYCOMB_API_KEY="+dummyLegacy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("HONEYCOMB_API_KEY="+dummyLegacy))
 	if len(res) != 1 {
 		t.Fatalf("expected 1 legacy hit, got %d", len(res))
 	}
 }
 
 func TestFromData_LegacyNoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("hex="+dummyLegacy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("hex="+dummyLegacy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

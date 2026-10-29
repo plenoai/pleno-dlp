@@ -4,6 +4,7 @@ package ghcr
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,7 +14,7 @@ const dummy = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
 
 func TestFromData_Positive(t *testing.T) {
 	body := "registry=ghcr.io\nGHCR_TOKEN=" + dummy
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -24,7 +25,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_NoGHCRKeyword(t *testing.T) {
 	// No ghcr keyword — generic github detector owns this hit, not us.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("GITHUB_TOKEN="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("GITHUB_TOKEN="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

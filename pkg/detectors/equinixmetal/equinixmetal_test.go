@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyToken = "abcdefghijklmnopqrstuvwxyzABCDEF"
@@ -36,7 +37,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("equinix_metal_token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -44,7 +45,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without equinix keyword, got %d", len(res))
 	}
@@ -54,7 +55,7 @@ func TestFromData_Dedup(t *testing.T) {
 	// Both occurrences use anchored credential shapes (a bare `equinix=` no
 	// longer arms a token after hardening).
 	body := []byte("metal_token=" + dummyToken + "\nmetal_api_key=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -64,7 +65,7 @@ func TestFromData_Dedup(t *testing.T) {
 // longer arms a token — only anchored credential shapes do.
 func TestFromData_BareEquinixNotArmed(t *testing.T) {
 	body := []byte("equinix=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare equinix= proximity, got %d", len(res))
 	}
@@ -75,7 +76,7 @@ func TestFromData_BareEquinixNotArmed(t *testing.T) {
 // not over-cull it.
 func TestFromData_HexTokenArmed(t *testing.T) {
 	body := []byte("metal_api_key=" + hexToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected hex-style token to detect, got 0")
 	}
@@ -85,7 +86,7 @@ func TestFromData_HexTokenArmed(t *testing.T) {
 // rejected by the entropy gate even with an anchored reference.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("metal_api_key=" + lowEntropyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected low-entropy token to be rejected, got %d", len(res))
 	}

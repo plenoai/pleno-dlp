@@ -4,6 +4,7 @@ package confluence
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"strings"
 	"testing"
 )
@@ -14,7 +15,7 @@ const dummy = "ATATT3xFfGF0aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3AbCdEfGhIjKlMn
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("CONFLUENCE_API_TOKEN=" + dummy)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -27,7 +28,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword_DoesNotMatch(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("token="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("token="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -38,7 +39,7 @@ func TestFromData_NoKeyword_DoesNotMatch(t *testing.T) {
 // prefix-anchored regex must reject it.
 func TestFromData_MongoObjectId_Suppressed(t *testing.T) {
 	body := []byte("# synced to confluence\nconfluence_doc_id=507f1f77bcf86cd799439011")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("MongoDB ObjectId should not match, got %d", len(res))
 	}
@@ -47,7 +48,7 @@ func TestFromData_MongoObjectId_Suppressed(t *testing.T) {
 // FP regression: a 24-char build/asset fingerprint beside a confluence comment.
 func TestFromData_AssetHash_Suppressed(t *testing.T) {
 	body := []byte("// synced to confluence  assetHash=a1b2c3d4e5f6A7B8C9D0E1F2")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("asset hash should not match, got %d", len(res))
 	}
@@ -56,7 +57,7 @@ func TestFromData_AssetHash_Suppressed(t *testing.T) {
 // FP regression: a 24-char base64-ish session id near the confluence keyword.
 func TestFromData_SessionId_Suppressed(t *testing.T) {
 	body := []byte("confluence session sid=Zm9vYmFyYmF6cXV4MTIzNDU2")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("session id should not match, got %d", len(res))
 	}
@@ -66,14 +67,14 @@ func TestFromData_SessionId_Suppressed(t *testing.T) {
 func TestFromData_ATCTT_Skipped(t *testing.T) {
 	atctt := "ATCTT3xFfGF0" + strings.Repeat("aB1cD2eF3g", 10)
 	body := []byte("confluence near bitbucket token=" + atctt)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("ATCTT token belongs to bitbucketcloud, got %d", len(res))
 	}
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("confluence=short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("confluence=short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

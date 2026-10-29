@@ -4,6 +4,7 @@ package sendgrid
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ import (
 const dummyKey = "SG.aBcDeFgHiJkLmNoPqRsTuV.aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789abcdefg"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("SENDGRID="+dummyKey))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("SENDGRID="+dummyKey))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -24,7 +25,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("SG.short.short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("SG.short.short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -92,7 +93,7 @@ func TestFromData_VerifyFullAccessKey(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyKey))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyKey))
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true")
 	}
@@ -123,7 +124,7 @@ func TestFromData_VerifyRestrictedReadOnly(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyKey))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyKey))
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true")
 	}
@@ -144,7 +145,7 @@ func TestFromData_VerifyRestrictedWithMailSend(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyKey))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyKey))
 	if res[0].ExtraData["sendgrid_key_kind"] != "restricted" {
 		t.Errorf("sendgrid_key_kind = %q, want restricted", res[0].ExtraData["sendgrid_key_kind"])
 	}
@@ -162,7 +163,7 @@ func TestFromData_VerifyEmptyScopes(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyKey))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyKey))
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true on 200 with empty scopes")
 	}

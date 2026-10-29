@@ -4,6 +4,7 @@ package npm
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ import (
 const dummyTok = "npm_abcdefghijklmnopqrstuvwxyz0123456789"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("//registry.npmjs.org/:_authToken="+dummyTok))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("//registry.npmjs.org/:_authToken="+dummyTok))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -24,7 +25,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("npm_short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("npm_short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -95,7 +96,7 @@ func TestFromData_VerifyEnrichesIdentityAndTFAStrong(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyTok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyTok))
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true")
 	}
@@ -130,7 +131,7 @@ func TestFromData_VerifyTFAAuthOnlyMarkedHighRisk(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyTok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyTok))
 	if res[0].ExtraData["npm_tfa_mode"] != "auth-only" {
 		t.Errorf("npm_tfa_mode = %q, want auth-only", res[0].ExtraData["npm_tfa_mode"])
 	}
@@ -156,7 +157,7 @@ func TestFromData_VerifyTFAFalseDisabledHighRisk(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyTok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyTok))
 	if res[0].ExtraData["npm_tfa_mode"] != "disabled" {
 		t.Errorf("npm_tfa_mode = %q, want disabled", res[0].ExtraData["npm_tfa_mode"])
 	}
@@ -179,7 +180,7 @@ func TestFromData_VerifyProfileFetchFailure(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyTok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyTok))
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true even when profile fetch fails")
 	}

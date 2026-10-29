@@ -58,7 +58,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		}
 		out = append(out, result)
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 func shouldVerify(token string) bool {

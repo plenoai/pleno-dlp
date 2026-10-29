@@ -5,6 +5,7 @@ package dockerhub
 import (
 	"context"
 	"encoding/json"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,7 @@ import (
 const dummy = "dckr_pat_AbCdEfGhIjKlMnOpQrStUvWx12"
 
 func TestFromData_Positive(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("DOCKERHUB_TOKEN="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("DOCKERHUB_TOKEN="+dummy))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -25,7 +26,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_WithUsername(t *testing.T) {
 	body := "DOCKER_USERNAME=alice\nDOCKERHUB_TOKEN=" + dummy
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1")
 	}
@@ -38,7 +39,7 @@ func TestFromData_WithUsername(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("password=hunter2"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("password=hunter2"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0")
 	}
@@ -159,7 +160,7 @@ func TestFromData_VerifyPairOK(t *testing.T) {
 	setAPIBase(t, srv.URL)
 
 	body := "DOCKER_USERNAME=alice\nDOCKERHUB_TOKEN=" + dummy
-	res, err := Scanner{}.FromData(context.Background(), true, []byte(body))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(body))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -178,7 +179,7 @@ func TestFromData_VerifyTokenOnlyNotVerified(t *testing.T) {
 	defer srv.Close()
 	setAPIBase(t, srv.URL)
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte("DOCKERHUB_TOKEN="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("DOCKERHUB_TOKEN="+dummy))
 	if len(res) != 1 {
 		t.Fatalf("expected 1")
 	}

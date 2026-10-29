@@ -48,6 +48,20 @@ func TestNew_RedactsSecret(t *testing.T) {
 	}
 }
 
+func TestNew_SanitizesForgedRedactedValue(t *testing.T) {
+	const secret = "p4ss"
+	rec := New(Attempt{
+		Path:     PathSingle,
+		Detector: "fixture",
+		Secret:   secret,
+		Redacted: secret,
+		Now:      fixedNow,
+	})
+	if strings.Contains(rec.Redacted, secret) {
+		t.Fatalf("audit Redacted=%q contains the secret", rec.Redacted)
+	}
+}
+
 func TestNew_SchemaVersionEmbedded(t *testing.T) {
 	rec := New(Attempt{Path: PathOnVerified, Detector: "Slack", Secret: "xoxb-x", Now: fixedNow})
 	if rec.SchemaVersion != SchemaVersion {

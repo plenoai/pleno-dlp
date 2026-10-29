@@ -45,10 +45,11 @@ hook itself fails.
 | `--no-verify` bypass | `git commit --no-verify` (unchanged) |
 
 `--redact` has no pleno-dlp equivalent because the hook always masks.
-The JSON, table, and hook outputs contain only each detector's
-`redacted` rendering and a SHA-256 `secret_hash`, never the raw match.
-The hook additionally truncates the rendering to six characters,
-because each detector produces its own `redacted` value.
+The JSON output includes a safe `redacted` rendering and a SHA-256
+`secret_hash`; table and hook output show only the safe rendering. Output
+boundaries check the rendering against both `Raw` and `RawV2` and replace
+it with a common mask when it contains either full value. The hook limits
+that safe rendering to its first six characters without adding a suffix.
 
 Remove the gitleaks hook before installing, because `hooks install git`
 refuses to overwrite a `pre-commit` file that pleno-dlp did not write.

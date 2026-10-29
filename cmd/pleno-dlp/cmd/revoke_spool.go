@@ -127,6 +127,7 @@ func newSpoolSink(inner engine.Sink, dets []detectors.Detector, path string, log
 // Ordering matches revokingSink so the two paths behave identically
 // from the report's perspective.
 func (s *spoolSink) Emit(f engine.Finding) {
+	f.Result.Redacted = f.Result.SafeRedacted()
 	s.inner.Emit(f)
 	// Same guard as revokingSink: only a confirmed-live verdict is queued
 	// for revocation. Indeterminate (verification attempt failed) means
@@ -143,7 +144,7 @@ func (s *spoolSink) Emit(f engine.Finding) {
 		Version:    spoolRecordVersion,
 		Detector:   f.Detector.String(),
 		SecretB64:  base64.StdEncoding.EncodeToString(f.Result.Raw),
-		Redacted:   f.Result.Redacted,
+		Redacted:   f.Result.SafeRedacted(),
 		SourceLink: spoolSourceLink(f.Chunk),
 		Timestamp:  s.now().UTC().Format(time.RFC3339),
 	}

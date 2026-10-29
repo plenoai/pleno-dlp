@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyID = "ASIAQWERTYUIOPASDFGH"
@@ -25,7 +26,7 @@ func tripleBody() []byte {
 }
 
 func TestFromData_TripleNearKeyword(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, tripleBody())
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, tripleBody())
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -50,7 +51,7 @@ func TestFromData_NoSessionContext(t *testing.T) {
 	// Bare ASIA without any session_token co-occurrence and no keyword
 	// nearby — must not fire. ASIA shows up in IAM policy fixtures.
 	body := []byte("Resource: arn:aws:iam::000000000000:role/foo " + dummyID)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -111,7 +112,7 @@ func TestFromData_VerifyAccept(t *testing.T) {
 			UserId:  ptr("AROAEXAMPLE:sess"),
 		}}
 	})
-	res, err := Scanner{}.FromData(context.Background(), true, tripleBody())
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, tripleBody())
 	if err != nil {
 		t.Fatalf("FromData: %v", err)
 	}
@@ -136,7 +137,7 @@ func TestFromData_VerifyReject(t *testing.T) {
 		swapFactory(t, func(_, _, _ string) stsCaller {
 			return &fakeSTS{err: errors.New("operation error STS: GetCallerIdentity, https response error StatusCode: 403, api error " + code + ": The security token included in the request is invalid.")}
 		})
-		res, _ := Scanner{}.FromData(context.Background(), true, tripleBody())
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, tripleBody())
 		if res[0].Verified {
 			t.Errorf("%s: expected Verified=false", code)
 		}
@@ -161,7 +162,7 @@ func TestFromData_VerifyTransient(t *testing.T) {
 		swapFactory(t, func(_, _, _ string) stsCaller {
 			return &fakeSTS{err: e}
 		})
-		res, _ := Scanner{}.FromData(context.Background(), true, tripleBody())
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, tripleBody())
 		if res[0].Verified {
 			t.Errorf("%s: expected Verified=false", name)
 		}

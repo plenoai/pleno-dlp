@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyToken = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL0123"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("pumble_api_key=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_FoundPumbleToken(t *testing.T) {
 	body := []byte("PUMBLE_TOKEN=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1 for PUMBLE_TOKEN")
 	}
@@ -43,7 +44,7 @@ func TestFromData_FoundPumbleToken(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without pumble keyword, got %d", len(res))
 	}
@@ -51,7 +52,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("pumble_api=" + dummyToken + "\npumble_token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -63,7 +64,7 @@ func TestFromData_Dedup(t *testing.T) {
 // must no longer trigger. (e.g. release-notes prose, doc comment.)
 func TestFromData_FP_ProseWithoutAnchor(t *testing.T) {
 	body := []byte("// pumble is a chat platform; the hash " + dummyToken + " is unrelated")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("prose-without-anchor FP: expected 0, got %d", len(res))
 	}
@@ -73,7 +74,7 @@ func TestFromData_FP_ProseWithoutAnchor(t *testing.T) {
 func TestFromData_FP_NpmHashAdjacent(t *testing.T) {
 	body := []byte(`# pumble release notes
 integrity sha512-` + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("npm-hash adjacent FP: expected 0, got %d", len(res))
 	}
@@ -84,7 +85,7 @@ integrity sha512-` + dummyToken)
 func TestFromData_FP_LowEntropyZeros(t *testing.T) {
 	zero := "00000000000000000000000000000000000000000000"
 	body := []byte("pumble_api_key=" + zero)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("low-entropy zeros FP: expected 0, got %d", len(res))
 	}
@@ -93,7 +94,7 @@ func TestFromData_FP_LowEntropyZeros(t *testing.T) {
 func TestFromData_FP_LowEntropyRepeated(t *testing.T) {
 	rep := "abababababababababababababababababababababab"
 	body := []byte("pumble_token=" + rep)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("low-entropy repeated FP: expected 0, got %d", len(res))
 	}

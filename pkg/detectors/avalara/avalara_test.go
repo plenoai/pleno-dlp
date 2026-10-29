@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyAccount = "1234567890"
@@ -28,7 +29,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("AVALARA_ACCOUNT_ID=" + dummyAccount + "\nAVALARA_LICENSE=" + dummyLicense)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -39,7 +40,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("ACCOUNT=" + dummyAccount + "\nLICENSE=" + dummyLicense)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -52,7 +53,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 func TestFromData_BareKeywordNoAnchor(t *testing.T) {
 	body := []byte("We migrated our tax stack to avalara last quarter.\n" +
 		"id=" + dummyAccount + "\nsecret=" + dummyLicense)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (no assignment anchor), got %d", len(res))
 	}
@@ -67,7 +68,7 @@ func TestFromData_OutOfRadius(t *testing.T) {
 	}
 	body := []byte("AVALARA_ACCOUNT_ID=" + dummyAccount + string(pad) +
 		dummyLicense)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (license out of radius), got %d", len(res))
 	}
@@ -78,7 +79,7 @@ func TestFromData_OutOfRadius(t *testing.T) {
 func TestFromData_LowEntropyLicenseRejected(t *testing.T) {
 	body := []byte("AVALARA_ACCOUNT_ID=" + dummyAccount +
 		"\nAVALARA_LICENSE=aaaaaaaaaaaaaaaaaaaaaaaa")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low-entropy license), got %d", len(res))
 	}

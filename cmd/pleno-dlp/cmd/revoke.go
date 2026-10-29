@@ -283,9 +283,9 @@ func isInteractiveStdin(r io.Reader) bool {
 // across scan and revoke share a single redaction style.
 func redactSecret(s string) string {
 	if len(s) <= 8 {
-		return "***"
+		return detectors.SafeRedacted("***", []byte(s), nil)
 	}
-	return s[:8] + "..."
+	return detectors.SafeRedacted(s[:8]+"...", []byte(s), nil)
 }
 
 // revokeRecord is the structured shape rendered by --format json. Keep

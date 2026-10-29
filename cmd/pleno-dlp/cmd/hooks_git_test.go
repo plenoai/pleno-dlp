@@ -139,13 +139,42 @@ func TestFindingsAtOrAbove(t *testing.T) {
 func TestMaskRedacted(t *testing.T) {
 	for in, want := range map[string]string{
 		"":                       "(redacted)",
-		"AKIA...":                "AKIA...",
-		"AKIA1234567890ABCDEF":   "AKIA12...",
-		"sk_live_abcdefghijk...": "sk_liv...",
+		"AKIA...":                "AKIA..",
+		"AKIA1234567890ABCDEF":   "AKIA12",
+		"sk_live_abcdefghijk...": "sk_liv",
 	} {
 		if got := maskRedacted(in); got != want {
 			t.Errorf("maskRedacted(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestMaskRedactedIsPrefixOfSafeCandidate(t *testing.T) {
+	for _, candidate := range []string{"AKIA12...", "***", "safe", "秘密の値..."} {
+		got := maskRedacted(candidate)
+		if !strings.HasPrefix(candidate, got) {
+			t.Errorf("maskRedacted(%q) = %q, want a prefix of the safe candidate", candidate, got)
+		}
+		if n := len([]rune(got)); n > 6 {
+			t.Errorf("maskRedacted(%q) returned %d runes, want at most 6", candidate, n)
+		}
+	}
+}
+
+func TestMaskRedactedDoesNotRecombineSafeShortSecret(t *testing.T) {
+	const raw = "abcdef..."
+	// A six-character detector prefix is safe by itself. Adding the hook's old
+	// ellipsis would have reconstructed this complete short secret.
+	candidate := detectors.SafeRedacted("abcdef", []byte(raw), nil)
+	got := maskRedacted(candidate)
+	if strings.Contains(got, raw) {
+		t.Fatalf("maskRedacted(%q) = %q contains Raw %q", candidate, got, raw)
+	}
+
+	const shortRaw = "p4ss"
+	safe := detectors.SafeRedacted(shortRaw, []byte(shortRaw), nil)
+	if got := maskRedacted(safe); strings.Contains(got, shortRaw) {
+		t.Fatalf("maskRedacted(%q) = %q contains Raw %q", safe, got, shortRaw)
 	}
 }
 
@@ -199,7 +228,7 @@ func TestRunHookGit_BlocksAtThreshold(t *testing.T) {
 	if strings.Contains(out, fixtureAWSKey) {
 		t.Errorf("stderr leaks the unmasked secret:\n%s", out)
 	}
-	for _, want := range []string{"AWS", "AKIA12...", "leak.env:2", "blocked commit (1 findings at or above high)", "git commit --no-verify"} {
+	for _, want := range []string{"AWS", "AKIA12", "leak.env:2", "blocked commit (1 findings at or above high)", "git commit --no-verify"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("stderr missing %q:\n%s", want, out)
 		}

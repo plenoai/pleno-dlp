@@ -4,6 +4,7 @@ package openai
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +16,7 @@ const dummyProjKey = "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789ABCDE"
 const anthropicKey = "sk-ant-abcdefghijklmnopqrstuvwxyz0123456789"
 
 func TestFromData_PositiveStandard(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("OPENAI_API_KEY="+dummyKey))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("OPENAI_API_KEY="+dummyKey))
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -25,21 +26,21 @@ func TestFromData_PositiveStandard(t *testing.T) {
 }
 
 func TestFromData_PositiveProject(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("key="+dummyProjKey))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("key="+dummyProjKey))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
 }
 
 func TestFromData_ExcludeAnthropic(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("key="+anthropicKey))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("key="+anthropicKey))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (anthropic must not match openai), got %d", len(res))
 	}
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("nothing here"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("nothing here"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -105,7 +106,7 @@ func TestFromData_KeyKindAlwaysSet(t *testing.T) {
 		dummyProjKey: "project",
 	}
 	for tok, want := range cases {
-		res, _ := Scanner{}.FromData(context.Background(), false, []byte(tok))
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
 		if len(res) != 1 {
 			t.Fatalf("token=%q expected 1 result, got %d", tok, len(res))
 		}
@@ -116,14 +117,14 @@ func TestFromData_KeyKindAlwaysSet(t *testing.T) {
 }
 
 func TestFromData_LegacyKeyMarkedPrivileged(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(dummyKey))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(dummyKey))
 	if res[0].ExtraData["openai_privileged"] != "true" {
 		t.Errorf("legacy-user key must be marked openai_privileged=true")
 	}
 }
 
 func TestFromData_ProjectKeyNotPrivileged(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(dummyProjKey))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(dummyProjKey))
 	if _, ok := res[0].ExtraData["openai_privileged"]; ok {
 		t.Errorf("project-scoped key must NOT carry openai_privileged")
 	}
@@ -149,7 +150,7 @@ func TestFromData_VerifyEnrichesFromModelsList(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyKey))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyKey))
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true")
 	}
@@ -181,7 +182,7 @@ func TestFromData_VerifyHandlesEmptyModelsList(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyKey))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyKey))
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true even with empty data")
 	}

@@ -4,6 +4,7 @@ package upstashredis
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"strings"
 	"testing"
 )
@@ -14,7 +15,7 @@ const dummy = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKlMnOpQrStUv"
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# upstash\nUPSTASH_REDIS_REST_TOKEN=" + dummy + "\nUPSTASH_REDIS_REST_URL=https://us1-test-12345.upstash.io")
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -39,7 +40,7 @@ func TestFromData_Positive(t *testing.T) {
 // host binding is optional, the assignment context is enough.
 func TestFromData_Positive_NoHost(t *testing.T) {
 	body := []byte(`UPSTASH_REDIS_REST_TOKEN="` + dummy + `"`)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 result, got %d: %+v", len(res), res)
 	}
@@ -52,7 +53,7 @@ func TestFromData_Positive_NoHost(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -65,7 +66,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 func TestFromData_FP_HexDigestNearUpstashDep(t *testing.T) {
 	hex := "a3f9c1d2b4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f"
 	body := []byte("# @upstash/redis@1.2.3\n# integrity sha256-" + hex + "\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	for _, r := range res {
 		if string(r.Raw) == hex {
 			t.Fatalf("hex digest near upstash dep should be suppressed, got %+v", r)
@@ -87,7 +88,7 @@ func TestFromData_FP_FarVendorKey(t *testing.T) {
 	body := []byte("UPSTASH_REDIS_REST_URL=https://us1-x.upstash.io\n" +
 		padding +
 		"SENTRY_AUTH_TOKEN=" + dummy + "\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	for _, r := range res {
 		if string(r.Raw) == dummy {
 			t.Fatalf("foreign key far from upstash context should be suppressed, got %+v", r)
@@ -100,7 +101,7 @@ func TestFromData_FP_FarVendorKey(t *testing.T) {
 func TestFromData_FP_AllDecimalRun(t *testing.T) {
 	dec := "12345678901234567890123456789012345678901234567890123456"
 	body := []byte("upstash\nrequest_id=" + dec)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("all-decimal run should be suppressed, got %+v", res)
 	}

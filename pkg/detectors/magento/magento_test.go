@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // realShape is a 32-char [a-z0-9] token that uses letters outside the
@@ -30,7 +31,7 @@ func TestKeywords(t *testing.T) {
 // assignment next to the magento keyword is still detected.
 func TestFromData_TruePositive(t *testing.T) {
 	body := []byte("MAGENTO_ADMIN_TOKEN=" + realShape)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(res))
 	}
@@ -41,7 +42,7 @@ func TestFromData_TruePositive(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED_TOKEN=" + realShape)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -52,7 +53,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // reported — it is pure [a-f0-9] and carries no credential.
 func TestFromData_SuppressesHexDigest(t *testing.T) {
 	body := []byte("magento.CRITICAL: cache hash d41d8cd98f00b204e9800998ecf8427e written")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (hex digest suppressed), got %d", len(res))
 	}
@@ -63,7 +64,7 @@ func TestFromData_SuppressesHexDigest(t *testing.T) {
 // exclusion.
 func TestFromData_SuppressesFormKeyHex(t *testing.T) {
 	body := []byte("Magento cache key 1a79a4d60de6718e8e5b326e338ae533 stored")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (form-key hex suppressed), got %d", len(res))
 	}
@@ -76,7 +77,7 @@ func TestFromData_SuppressesNoCredentialContext(t *testing.T) {
 	// realShape passes the hex/entropy gates and "magento" is present,
 	// but there is no credential-context term within the tight window.
 	body := []byte("vendor/magento/module-foo build artifact " + realShape + " bundled")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (no credential context), got %d", len(res))
 	}

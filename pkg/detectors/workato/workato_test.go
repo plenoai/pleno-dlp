@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummy is a synthetic 64-char lowercase-hex value matching the documented
@@ -35,14 +36,14 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# workato\nWORKATO_TOKEN=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -53,7 +54,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // even with the candidate close by.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("# see workato docs\ndigest=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare-keyword (no arm), got %d", len(res))
 	}
@@ -63,7 +64,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 // low-information 64-hex run armed by a real keyword must be rejected.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("WORKATO_TOKEN=" + lowEntropyHex)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy hex, got %d", len(res))
 	}

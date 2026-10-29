@@ -4,6 +4,7 @@ package twilio
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +16,7 @@ const dummyToken = "fedcba9876543210fedcba9876543210"
 
 func TestFromData_Pair(t *testing.T) {
 	body := []byte("TWILIO_SID=" + dummySID + "\nTWILIO_TOKEN=" + dummyToken)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -29,7 +30,7 @@ func TestFromData_Pair(t *testing.T) {
 
 func TestFromData_SIDOnly(t *testing.T) {
 	body := []byte("TWILIO_SID=" + dummySID)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -110,7 +111,7 @@ func TestFromData_VerifyEnrichesFullActive(t *testing.T) {
 	defer func() { apiBase = old }()
 
 	body := []byte("TWILIO_SID=" + dummySID + "\nTWILIO_TOKEN=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, body)
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true")
 	}
@@ -148,7 +149,7 @@ func TestFromData_VerifyTrialNotHighValue(t *testing.T) {
 	defer func() { apiBase = old }()
 
 	body := []byte(dummySID + " " + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, body)
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true")
 	}
@@ -173,7 +174,7 @@ func TestFromData_VerifyInactiveNotHighValue(t *testing.T) {
 	defer func() { apiBase = old }()
 
 	body := []byte(dummySID + " " + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, body)
 	if _, ok := res[0].ExtraData["twilio_high_value"]; ok {
 		t.Errorf("suspended Full account must not be high_value")
 	}
@@ -198,7 +199,7 @@ func TestFromData_VerifySubaccountFlagged(t *testing.T) {
 	defer func() { apiBase = old }()
 
 	body := []byte(dummySID + " " + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, body)
 	if res[0].ExtraData["twilio_subaccount"] != "true" {
 		t.Errorf("expected twilio_subaccount=true")
 	}

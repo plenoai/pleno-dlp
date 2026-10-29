@@ -96,7 +96,7 @@ func (Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Res
 			Redacted:     redact(token),
 		})
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 func windowBounds(textLen, start, end, radius int) (int, int) {

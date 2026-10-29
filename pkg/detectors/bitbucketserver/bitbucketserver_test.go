@@ -4,6 +4,7 @@ package bitbucketserver
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ const dummyHTTPAccess = "BBDC-OTQyNzgwNTk0NjI4OnUlfBFxe9SrJqZbnY7zxMbW1ZmgWQ5q"
 const dummyPAT = "0123456789abcdefghijklmnopqrstuvwxyzABCD"
 
 func TestFromData_HTTPAccess(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("STASH_TOKEN="+dummyHTTPAccess))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("STASH_TOKEN="+dummyHTTPAccess))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -30,7 +31,7 @@ func TestFromData_HTTPAccess(t *testing.T) {
 }
 
 func TestFromData_PATWithKeyword(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("# bitbucket pat\nTOKEN="+dummyPAT))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("# bitbucket pat\nTOKEN="+dummyPAT))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -43,7 +44,7 @@ func TestFromData_PATWithKeyword(t *testing.T) {
 }
 
 func TestFromData_PATNoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("nonce="+dummyPAT))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("nonce="+dummyPAT))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -57,7 +58,7 @@ func TestFromData_PATBareKeywordRejected(t *testing.T) {
 	// High-entropy 40-char base62 run (clears the entropy floor) sitting
 	// near a bare "bitbucket" mention that is NOT a credential assignment.
 	const fp = "See the bitbucket mirror at our repo host x9K2mQ7pL4vR8sN1tB6wY3cF5hD0jG2aZ7eU4iO"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(fp))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(fp))
 	if len(res) != 0 {
 		t.Fatalf("bare-keyword high-entropy FP must be rejected, got %d", len(res))
 	}
@@ -67,7 +68,7 @@ func TestFromData_PATBareKeywordRejected(t *testing.T) {
 // rejected by the entropy floor even though the arm regex matches.
 func TestFromData_PATLowEntropyRejected(t *testing.T) {
 	const lowEnt = "bitbucket_token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(lowEnt))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(lowEnt))
 	if len(res) != 0 {
 		t.Fatalf("low-entropy padded run must be rejected, got %d", len(res))
 	}
@@ -187,7 +188,7 @@ func TestFromData_VerifyWired(t *testing.T) {
 	defer srv.Close()
 	withAPIBase(t, srv.URL)
 
-	res, err := Scanner{}.FromData(context.Background(), true, []byte("STASH_TOKEN="+dummyHTTPAccess))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("STASH_TOKEN="+dummyHTTPAccess))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

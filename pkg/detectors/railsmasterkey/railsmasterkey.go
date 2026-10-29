@@ -68,7 +68,7 @@ func (Scanner) WantsFullChunk() bool { return true }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
 	trimmed := bytes.TrimSpace(data)
-	return resultForKey(trimmed), nil
+	return detectors.SafeResults(resultForKey(trimmed)), nil
 }
 
 // FromReader keeps only the 32-byte candidate and the Unicode whitespace
@@ -120,7 +120,7 @@ func (s Scanner) FromReader(ctx context.Context, _ bool, r io.ReaderAt, size int
 	if keyLen != len(key) {
 		return nil, nil
 	}
-	return resultForKey(key[:]), nil
+	return detectors.SafeResults(resultForKey(key[:])), nil
 }
 
 func resultForKey(trimmed []byte) []detectors.Result {

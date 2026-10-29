@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyID = "suABCDEFGHIJKL"
@@ -17,7 +18,7 @@ const dummyKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
 
 func TestFromData_Pair(t *testing.T) {
 	body := []byte("SUMOLOGIC_ACCESS_ID=" + dummyID + "\nSUMOLOGIC_ACCESS_KEY=" + dummyKey)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -37,7 +38,7 @@ func TestFromData_Pair(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("X=" + dummyID + "\nY=" + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -51,7 +52,7 @@ func TestFromData_LowEntropyKeyRejected(t *testing.T) {
 	// 64 chars but a single repeated character: entropy ~0, well under 3.5.
 	lowEntropyKey := strings.Repeat("a", 64)
 	body := []byte("SUMOLOGIC_ACCESS_ID=" + dummyID + "\nSUMOLOGIC_ACCESS_KEY=" + lowEntropyKey)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -68,7 +69,7 @@ func TestFromData_LowEntropyKeyRejected(t *testing.T) {
 // assignment-style reference no longer arms the detector.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("we evaluated sumo and other vendors today\nX=" + dummyID + "\nY=" + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (bare prose keyword should not arm), got %d", len(res))
 	}

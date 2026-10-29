@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -30,7 +31,7 @@ func TestFromData_GoogleIssuer(t *testing.T) {
 		"aud":   "https://my-service.example.com",
 		"email": "scanner@example.iam.gserviceaccount.com",
 	})
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("ID_TOKEN="+tok))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("ID_TOKEN="+tok))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -50,7 +51,7 @@ func TestFromData_ServiceAccountIssuer(t *testing.T) {
 		"iss": "scanner@example.iam.gserviceaccount.com",
 		"aud": "https://my-service.example.com",
 	})
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(tok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -61,7 +62,7 @@ func TestFromData_NotGoogle(t *testing.T) {
 		"iss": "https://login.microsoftonline.com/abc",
 		"aud": "api://something",
 	})
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(tok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
 	if len(res) != 0 {
 		t.Fatalf("non-Google issuer must not be claimed; got %d", len(res))
 	}
@@ -165,7 +166,7 @@ func TestVerify_EnrichesExtraData(t *testing.T) {
 		"email": "user@example.com",
 	})
 
-	res, err := Scanner{}.FromData(context.Background(), true, []byte("TOKEN="+tok))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("TOKEN="+tok))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

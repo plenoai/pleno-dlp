@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -29,7 +30,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("exoscale_key=" + dummyKey + " exoscale_secret=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -43,7 +44,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("k=" + dummyKey + " s=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without exoscale keyword, got %d", len(res))
 	}
@@ -51,7 +52,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_NoSecret(t *testing.T) {
 	body := []byte("exoscale_key=" + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without paired secret, got %d", len(res))
 	}
@@ -59,7 +60,7 @@ func TestFromData_NoSecret(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("exoscale=" + dummyKey + " " + dummySecret + "\nexoscale=" + dummyKey + " " + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -98,7 +99,7 @@ func TestFromData_FalsePositivesSuppressed(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			body := []byte("exoscale_key=" + dummyKey + " value=" + tc.blob)
-			res, _ := Scanner{}.FromData(context.Background(), false, body)
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 			if len(res) != 0 {
 				t.Fatalf("expected %s to be suppressed, got %d results (RawV2=%q)",
 					tc.name, len(res), res[0].RawV2)
@@ -116,7 +117,7 @@ func TestFromData_SecretMustBeNearKeyword(t *testing.T) {
 	gap := bytes.Repeat([]byte("."), 400)
 	body := append([]byte("exoscale_key="+dummyKey+" "), gap...)
 	body = append(body, []byte(" "+dummySecret)...)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected secret far from keyword to be suppressed, got %d", len(res))
 	}
@@ -127,7 +128,7 @@ func TestFromData_SecretMustBeNearKeyword(t *testing.T) {
 func TestFromData_TruePositiveStillDetected(t *testing.T) {
 	body := []byte("# exoscale credentials\nEXOSCALE_API_KEY=" + dummyKey +
 		"\nEXOSCALE_API_SECRET=" + dummySecret + "\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 true positive, got %d", len(res))
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyTest = "sk_test_AbCdEf0123456789AbCdEf0123456789AbCd"
@@ -17,7 +18,7 @@ const dummyLive = "sk_live_ZyXwVu9876543210ZyXwVu9876543210ZyXw"
 
 func TestFromData_TestKey(t *testing.T) {
 	body := []byte("# clerk\nCLERK_SECRET_KEY=" + dummyTest)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -31,7 +32,7 @@ func TestFromData_TestKey(t *testing.T) {
 
 func TestFromData_LiveKey_Critical(t *testing.T) {
 	body := []byte("# clerk.com\nCLERK_SECRET=" + dummyLive)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -43,7 +44,7 @@ func TestFromData_LiveKey_Critical(t *testing.T) {
 // Without a `clerk` keyword the detector defers to Stripe — no result
 // here means Clerk does not duplicate Stripe-only hits.
 func TestFromData_NoClerkKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("STRIPE_SECRET_KEY="+dummyLive))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("STRIPE_SECRET_KEY="+dummyLive))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without clerk keyword, got %d", len(res))
 	}

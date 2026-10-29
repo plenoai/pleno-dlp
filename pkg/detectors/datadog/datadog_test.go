@@ -4,6 +4,7 @@ package datadog
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,7 +15,7 @@ const dummyAPP = "0123456789abcdef0123456789abcdef01234567"
 
 func TestFromData_Pair(t *testing.T) {
 	body := []byte("DD_API_KEY=" + dummyAPI + "\nDD_APP_KEY=" + dummyAPP)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -28,7 +29,7 @@ func TestFromData_Pair(t *testing.T) {
 
 func TestFromData_SingleAPIOnly(t *testing.T) {
 	body := []byte("DD_API_KEY=" + dummyAPI)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -113,7 +114,7 @@ func TestFromData_VerifyEnrichesNameAndOrg(t *testing.T) {
 	defer func() { apiBase = old }()
 
 	body := []byte("DD_API_KEY=" + dummyAPI + "\nDD_APP_KEY=" + dummyAPP)
-	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, body)
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true")
 	}
@@ -145,7 +146,7 @@ func TestFromData_VerifyTolerantOfEnrichmentFailure(t *testing.T) {
 	defer func() { apiBase = old }()
 
 	body := []byte("DD_API_KEY=" + dummyAPI + "\nDD_APP_KEY=" + dummyAPP)
-	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, body)
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true even when enrichment endpoints 403")
 	}
@@ -177,7 +178,7 @@ func TestFromData_VerifyMultipleOrgsJoined(t *testing.T) {
 	defer func() { apiBase = old }()
 
 	body := []byte("DD_API_KEY=" + dummyAPI + "\nDD_APP_KEY=" + dummyAPP)
-	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, body)
 	if res[0].ExtraData["dd_org_names"] != "Acme Parent,Zeta Sub" {
 		t.Errorf("dd_org_names = %q, want sorted csv", res[0].ExtraData["dd_org_names"])
 	}

@@ -5,6 +5,7 @@ package mongodbatlas
 import (
 	"context"
 	"encoding/base64"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,7 +17,7 @@ const dummyPriv = "01234567-89ab-cdef-0123-456789abcdef"
 
 func TestFromData_Pair(t *testing.T) {
 	body := []byte("MONGODB_ATLAS_PUBLIC_KEY=" + dummyPub + "\nMONGODB_ATLAS_PRIVATE_KEY=" + dummyPriv)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -36,7 +37,7 @@ func TestFromData_PrivateKeyOnly_NoPair(t *testing.T) {
 	// and Verified must be false (we can't probe Atlas without the public
 	// half).
 	body := []byte("# atlas\nPRIV=" + dummyPriv)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -51,7 +52,7 @@ func TestFromData_PrivateKeyOnly_NoPair(t *testing.T) {
 func TestFromData_NoKeyword_DoesNotMatch(t *testing.T) {
 	// UUID alone, no atlas/mongodb keyword in the window → must skip.
 	body := []byte("uuid=" + dummyPriv)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

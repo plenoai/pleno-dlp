@@ -4,6 +4,7 @@ package square
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ const dummyProd = "EAAA" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWX01
 const dummySandbox = "sq0atp-" + "abcdefghijABCDEFGHIJ12"
 
 func TestFromData_Production(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("token="+dummyProd))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("token="+dummyProd))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -27,7 +28,7 @@ func TestFromData_Production(t *testing.T) {
 }
 
 func TestFromData_Sandbox(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(dummySandbox))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(dummySandbox))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -37,7 +38,7 @@ func TestFromData_Sandbox(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("EAAAshort"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("EAAAshort"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

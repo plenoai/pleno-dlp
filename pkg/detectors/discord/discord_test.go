@@ -4,6 +4,7 @@ package discord
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,7 @@ import (
 const dummy = "MTAxMjM0NTY3ODkwMTIzNDU2Nzg.AbCdEf.AbCdEfGhIjKlMnOpQrStUvWxYz0_aBcDeFgHiJ"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("DISCORD_TOKEN="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("DISCORD_TOKEN="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -26,7 +27,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("not-a-discord-token"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("not-a-discord-token"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

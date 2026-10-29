@@ -276,9 +276,8 @@ func writeJSONObject(path string, obj map[string]json.RawMessage) error {
 var scanOfflineFunc = scanOffline
 
 // hookFinding is the subset of one `--format json` record (schema in
-// pkg/output/json.go) the hooks consume. Raw is never serialized there,
-// so nothing here can carry an unmasked secret except whatever the
-// detector chose to put in Redacted — see maskRedacted.
+// pkg/output/json.go) the hooks consume. Raw is never serialized there, and
+// the JSON sink enforces the Redacted contract before this boundary.
 type hookFinding struct {
 	Detector     string `json:"detector"`
 	Severity     string `json:"severity"`
@@ -818,18 +817,18 @@ func findingsAtOrAbove(records []hookFinding, threshold detectors.Severity) []ho
 	return kept
 }
 
-// maskRedacted bounds what the hook prints to six leading characters.
-// Redacted is produced per detector and nothing outside the detector
-// enforces its shape, so the hook re-masks rather than trusting it.
+// maskRedacted bounds what the hook prints to a prefix of Redacted. The JSON
+// sink already enforces the shared contract; adding an ellipsis here could
+// recombine a short secret that ends with three dots.
 func maskRedacted(s string) string {
-	r := []rune(strings.TrimSuffix(s, "..."))
+	r := []rune(s)
 	if len(r) == 0 {
 		return "(redacted)"
 	}
 	if len(r) > 6 {
 		r = r[:6]
 	}
-	return string(r) + "..."
+	return string(r)
 }
 
 // runHookGit is `protect` plus hook ergonomics: the diff collection,

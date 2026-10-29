@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyClassic = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"
@@ -21,7 +22,7 @@ const dummyFine = "github_pat_" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRS
 
 func TestFromData_Positive(t *testing.T) {
 	body := "leak: " + dummyClassic + " and another " + dummyFine
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -31,7 +32,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("no token here, ghp shorter"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("no token here, ghp shorter"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -52,7 +53,7 @@ func TestFromData_RegexBoundaries(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, err := Scanner{}.FromData(context.Background(), false, []byte(tc.body))
+			res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.body))
 			if err != nil {
 				t.Fatalf("FromData err: %v", err)
 			}
@@ -76,7 +77,7 @@ func TestFromData_ShapeGateKeepsUnicodeAndRejectsNearMatches(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			res, err := Scanner{}.FromData(context.Background(), false, []byte(tc.body))
+			res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.body))
 			if err != nil {
 				t.Fatalf("FromData err: %v", err)
 			}
@@ -423,7 +424,7 @@ func TestRevoke_InterfaceSatisfied(t *testing.T) {
 
 func TestFromData_TokenTypeStamped(t *testing.T) {
 	body := dummyClassic + "\n" + dummyFine
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 2 {
 		t.Fatalf("want 2, got %d", len(res))
 	}
@@ -451,7 +452,7 @@ func TestFromData_VerifyEnrichesBlastRadius(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, err := Scanner{}.FromData(context.Background(), true, []byte(dummyClassic))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyClassic))
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -493,7 +494,7 @@ func TestFromData_VerifyNonPrivilegedScopes_NoFlag(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyClassic))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyClassic))
 	if _, ok := res[0].ExtraData["github_privileged"]; ok {
 		t.Errorf("privileged flag must not be set for read-only scopes: %v", res[0].ExtraData)
 	}

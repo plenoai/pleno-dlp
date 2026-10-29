@@ -4,6 +4,7 @@ package stripe
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +16,7 @@ const dummyTest = "sk_test_abcdefghijklmnopqrstu"
 const dummyRk = "rk_live_abcdefghijklmnopqrstu"
 
 func TestFromData_PositiveLive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("STRIPE_KEY="+dummyLive))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("STRIPE_KEY="+dummyLive))
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -25,21 +26,21 @@ func TestFromData_PositiveLive(t *testing.T) {
 }
 
 func TestFromData_PositiveTest(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(dummyTest))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(dummyTest))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
 }
 
 func TestFromData_PositiveRestricted(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(dummyRk))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(dummyRk))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("nothing here"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("nothing here"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -101,7 +102,7 @@ func TestFromData_KeyModeAlwaysSet(t *testing.T) {
 		dummyRk:   "restricted-live",
 	}
 	for tok, want := range cases {
-		res, _ := Scanner{}.FromData(context.Background(), false, []byte(tok))
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
 		if got := res[0].ExtraData["stripe_key_mode"]; got != want {
 			t.Errorf("token=%q stripe_key_mode=%q, want %q", tok, got, want)
 		}
@@ -129,7 +130,7 @@ func TestFromData_VerifyEnrichesAccount(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyLive))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyLive))
 	if !res[0].Verified {
 		t.Errorf("expected Verified=true")
 	}
@@ -165,7 +166,7 @@ func TestFromData_VerifyTestKeyNotHighValue(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyTest))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyTest))
 	if _, ok := res[0].ExtraData["stripe_high_value"]; ok {
 		t.Errorf("test-mode key must never be high_value")
 	}

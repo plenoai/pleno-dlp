@@ -4,6 +4,7 @@ package flyio
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ import (
 const dummy = "fm2_lJPECAAAAAAAAAAAxBCJzpNZ_XR_DEADBEEFCAFEd1cF8vrxbZv-_J7m-1k0"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("FLY_API_TOKEN="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("FLY_API_TOKEN="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -28,7 +29,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_Negative(t *testing.T) {
 	// Too short — must not match.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("fm1_short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("fm1_short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

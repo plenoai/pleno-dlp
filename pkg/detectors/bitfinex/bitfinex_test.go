@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // 43 alnum chars exactly, matching the regex.
@@ -29,7 +30,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("BITFINEX_API_KEY=" + dummyKey + " BITFINEX_API_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -37,7 +38,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED_KEY=" + dummyKey + " UNRELATED_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -50,7 +51,7 @@ const lowEntropySecret = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("BITFINEX_API_KEY=" + lowEntropyKey + " BITFINEX_API_SECRET=" + lowEntropySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low entropy culled), got %d", len(res))
 	}
@@ -60,7 +61,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 // rejected: the gate requires BOTH tokens to clear the threshold.
 func TestFromData_MixedEntropyRejected(t *testing.T) {
 	body := []byte("BITFINEX_API_KEY=" + dummyKey + " BITFINEX_API_SECRET=" + lowEntropySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (mixed entropy culled), got %d", len(res))
 	}
@@ -69,7 +70,7 @@ func TestFromData_MixedEntropyRejected(t *testing.T) {
 // High-entropy pair with keyword present still detects (recall guard).
 func TestFromData_HighEntropyFound(t *testing.T) {
 	body := []byte("bitfinex creds " + dummyKey + " " + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1 for high-entropy pair")
 	}

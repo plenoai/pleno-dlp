@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummy is a mixed-case, high-entropy 24-char alnum string shaped like a
@@ -36,7 +37,7 @@ func TestFromData_Positive(t *testing.T) {
 		"DRONE_SERVER_TOKEN: " + dummy,
 	}
 	for _, body := range cases {
-		res, err := Scanner{}.FromData(context.Background(), false, []byte(body))
+		res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 		if err != nil {
 			t.Fatalf("%q: err: %v", body, err)
 		}
@@ -54,7 +55,7 @@ func TestFromData_Positive(t *testing.T) {
 func TestFromData_SuppressesUnanchoredKeyword(t *testing.T) {
 	// base62 object id near a comment mentioning drone.io
 	body := []byte("# see drone.io docs\nobject_id = 0Oj4kFhT2mXbQv8sZc1Rd6Yp")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (no drone assignment anchor), got %d", len(res))
 	}
@@ -67,7 +68,7 @@ func TestFromData_SuppressesForeignProviderKey(t *testing.T) {
 environment:
   DRONE_SERVER: https://drone.example.com
   SEGMENT_WRITE_KEY: Xk29Lm03Pq84Rt61Vw57Zb40`)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (foreign-provider key, not drone-anchored), got %d", len(res))
 	}
@@ -77,7 +78,7 @@ environment:
 // assigned to a drone-prefixed key is rejected by the pure-hex exclusion.
 func TestFromData_SuppressesHexCommitSha(t *testing.T) {
 	body := []byte("DRONE_COMMIT_SHA=a1b2c3d4e5f6a7b8c9d0e1f2")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (pure-hex commit sha), got %d", len(res))
 	}
@@ -87,7 +88,7 @@ func TestFromData_SuppressesHexCommitSha(t *testing.T) {
 // drone key is dropped by the entropy / all-same-char gate.
 func TestFromData_SuppressesLowEntropy(t *testing.T) {
 	body := []byte("DRONE_TOKEN=AAAAAAAAAAAAAAAAAAAAAAAA")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low-entropy lookalike), got %d", len(res))
 	}
@@ -95,7 +96,7 @@ func TestFromData_SuppressesLowEntropy(t *testing.T) {
 
 func TestFromData_DedupesIdenticalTokens(t *testing.T) {
 	body := []byte("DRONE_TOKEN=" + dummy + "\ndrone_secret=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1 result, got %d", len(res))
 	}

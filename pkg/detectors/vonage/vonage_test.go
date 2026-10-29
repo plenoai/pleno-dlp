@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -31,7 +32,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# vonage\nVONAGE_API_KEY=" + dummyKey + "\nVONAGE_API_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -47,7 +48,7 @@ func TestFromData_Positive(t *testing.T) {
 // the bare alnum regex.
 func TestFromData_RejectsHexDigestSecret(t *testing.T) {
 	body := []byte("# vonage\nVONAGE_API_KEY=" + dummyKey + "\nVONAGE_API_SECRET=a1b2c3d4e5f6a7b8")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (hex digest fails composition), got %d", len(res))
 	}
@@ -58,7 +59,7 @@ func TestFromData_RejectsHexDigestSecret(t *testing.T) {
 // entropy floor.
 func TestFromData_RejectsLowEntropySecret(t *testing.T) {
 	body := []byte("# vonage\nVONAGE_API_KEY=" + dummyKey + "\nVONAGE_API_SECRET=Aa1Aa1Aa1Aa1")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low entropy), got %d", len(res))
 	}
@@ -73,7 +74,7 @@ func TestFromData_RadiusTightened(t *testing.T) {
 		filler[i] = '.'
 	}
 	body := []byte("vonage stuff" + string(filler) + "KEY=" + dummyKey + "\nSECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (keyword beyond radius 64 / not an arm reference), got %d", len(res))
 	}
@@ -87,7 +88,7 @@ func TestImplementsVerifier(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("KEY=" + dummyKey + "\nSECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
