@@ -111,6 +111,17 @@ func TestNew_AcceptsLoopbackVariants(t *testing.T) {
 	}
 }
 
+func TestMergeEnvironmentOverridesChildOnly(t *testing.T) {
+	base := []string{"PATH=/bin", "HF_HUB_OFFLINE=0", "KEEP=value"}
+	got := mergeEnvironment(base, []string{"HF_HUB_OFFLINE=1", "TRANSFORMERS_OFFLINE=1"})
+	if strings.Join(got, ",") != "PATH=/bin,KEEP=value,HF_HUB_OFFLINE=1,TRANSFORMERS_OFFLINE=1" {
+		t.Fatalf("merged environment = %#v", got)
+	}
+	if base[1] != "HF_HUB_OFFLINE=0" {
+		t.Fatalf("parent environment was changed: %#v", base)
+	}
+}
+
 func TestAnalyze_HappyPath(t *testing.T) {
 	fe := newFakeEngine(t)
 	fe.analyzeFn = func(req analyzeRequest) (int, []Finding, string) {

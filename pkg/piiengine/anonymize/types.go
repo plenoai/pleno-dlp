@@ -10,6 +10,8 @@ import (
 type Config struct {
 	// Cmd is the argv to spawn. `{PORT}` is substituted before exec.
 	Cmd []string
+	// Env overrides child environment variables without changing the parent.
+	Env []string
 
 	// Host defaults to loopback and rejects non-loopback values.
 	Host string

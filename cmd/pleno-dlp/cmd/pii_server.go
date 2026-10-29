@@ -64,7 +64,10 @@ const defaultPIIServerSource = "git+https://github.com/plenoai/pleno-anonymize.g
 //
 // Pinned from: gh api repos/plenoai/pleno-anonymize/tags
 // v0.1.0 -> commit 3539ef6e3d82d01d90f6019a7af9d6b116d263eb (2026-03-27, latest release at pin time).
-const defaultPIIServerGitRef = "v0.1.0"
+const (
+	defaultPIIServerGitRef = "v0.1.0"
+	defaultPIIServerCommit = "3539ef6e3d82d01d90f6019a7af9d6b116d263eb"
+)
 
 // nerWheel is a hash-pinned third-party artifact. These wheels live
 // outside PyPI (GitHub Releases / Hugging Face) so uv.lock cannot pin
@@ -411,6 +414,13 @@ func resolveCacheDir(flagVal string) (string, error) {
 		return "", fmt.Errorf("locate user cache dir: %w", err)
 	}
 	return filepath.Join(base, "pleno-dlp", "pleno-anonymize"), nil
+}
+
+func isPinnedPIIServerCache(dir string) bool {
+	c := exec.Command(gitBin, "-C", dir, "rev-parse", "--verify", "HEAD")
+	c.Stderr = io.Discard
+	out, err := c.Output()
+	return err == nil && strings.TrimSpace(string(out)) == defaultPIIServerCommit
 }
 
 // runGitClone shells out to `git clone --depth 1 [--branch ref] url dst`.
