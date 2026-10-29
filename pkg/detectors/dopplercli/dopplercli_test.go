@@ -4,6 +4,7 @@ package dopplercli
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,7 @@ import (
 const dummy = "dp.cli.0123456789abcdef0123456789abcdef0123456789ABCD"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("DOPPLER_CLI_TOKEN="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("DOPPLER_CLI_TOKEN="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -28,7 +29,7 @@ func TestFromData_Positive(t *testing.T) {
 func TestFromData_NotServiceToken(t *testing.T) {
 	// dp.st.… belongs to pkg/detectors/doppler, not here.
 	st := "dp.st.0123456789abcdef0123456789abcdef0123456789ABCD"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("DOPPLER="+st))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("DOPPLER="+st))
 	if len(res) != 0 {
 		t.Fatalf("dopplercli must not claim service tokens; got %d", len(res))
 	}

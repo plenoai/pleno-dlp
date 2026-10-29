@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -39,7 +40,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("SUMSUB_APP_TOKEN=" + dummyKey + " SUMSUB_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 paired result, got %d", len(res))
 	}
@@ -50,7 +51,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED=" + dummyKey + " UNRELATED=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -61,7 +62,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // the real format, not just the legacy colon fixture.
 func TestFromData_DocShape(t *testing.T) {
 	body := []byte("SUMSUB_APP_TOKEN=" + docKey + " SUMSUB_SECRET_KEY=" + docSecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 paired result for documented shape, got %d", len(res))
 	}
@@ -77,7 +78,7 @@ func TestFromData_DocShape(t *testing.T) {
 func TestFromData_FP_SecretFarFromKeyword(t *testing.T) {
 	pad := strings.Repeat(" filler ", 24) // ~192 bytes of distance
 	body := []byte("SUMSUB_APP_TOKEN=" + dummyKey + pad + "cache_digest=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (secret too far from keyword), got %d", len(res))
 	}
@@ -89,7 +90,7 @@ func TestFromData_FP_SecretFarFromKeyword(t *testing.T) {
 func TestFromData_FP_LowEntropySecret(t *testing.T) {
 	lowEnt := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 'a', entropy 0
 	body := []byte("SUMSUB_APP_TOKEN=" + dummyKey + " SUMSUB_SECRET_KEY=" + lowEnt)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low-entropy secret), got %d", len(res))
 	}

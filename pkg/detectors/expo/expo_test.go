@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // 32-char [A-Za-z0-9_-] — matches the real Expo PAT shape.
@@ -28,7 +29,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("EXPO_TOKEN=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -36,7 +37,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_FoundEASToken(t *testing.T) {
 	body := []byte("EAS_TOKEN=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1 for EAS_TOKEN")
 	}
@@ -44,7 +45,7 @@ func TestFromData_FoundEASToken(t *testing.T) {
 
 func TestFromData_FoundExpoDevURL(t *testing.T) {
 	body := []byte("curl https://expo.dev/api -H 'Authorization: Bearer " + dummy + "'")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1 when expo.dev is in context")
 	}
@@ -52,7 +53,7 @@ func TestFromData_FoundExpoDevURL(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -68,7 +69,7 @@ func TestFromData_FP_ExportKeyword(t *testing.T) {
 	// 32-char hex string — looks like an Expo PAT but is just a
 	// hash literal next to the word "export".
 	body := []byte(`export const apiKey = "abcdef0123456789abcdef0123456789";`)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -86,7 +87,7 @@ func TestFromData_FP_GitSHA(t *testing.T) {
 	body := []byte(`commit abcdef0123456789abcdef0123456789abcdef00
 Author: someone
     exposing internal helper`)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -98,7 +99,7 @@ Author: someone
 // FP-3: "exposure" prose near a 32-char hash.
 func TestFromData_FP_ExposureProse(t *testing.T) {
 	body := []byte(`# exposure: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -111,7 +112,7 @@ func TestFromData_FP_ExposureProse(t *testing.T) {
 func TestFromData_FP_NpmHashDump(t *testing.T) {
 	body := []byte(`integrity sha512-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa==
 resolved "https://registry.npmjs.org/express/-/express-4.18.2.tgz"`)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -124,7 +125,7 @@ resolved "https://registry.npmjs.org/express/-/express-4.18.2.tgz"`)
 // "Exponent", so this is a particularly nasty FP source.
 func TestFromData_FP_ExponentProse(t *testing.T) {
 	body := []byte(`// exponent backoff using token bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

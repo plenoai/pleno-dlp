@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "abcdef0123456789ABCDEF0123456789abcdef0123456789ABCDEF0123456789"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("PLANHAT_TOKEN=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED_VALUE=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -47,7 +48,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // planhat_token / planhat-api-key anchor must no longer match.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("see https://app.planhat.com for details build hash " + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (bare keyword, no arm anchor), got %d", len(res))
 	}
@@ -63,7 +64,7 @@ func TestFromData_ArmVariants(t *testing.T) {
 		"planhatToken ",
 	} {
 		body := []byte(prefix + dummy)
-		res, _ := Scanner{}.FromData(context.Background(), false, body)
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 		if len(res) == 0 {
 			t.Fatalf("expected >=1 for arm shape %q", prefix)
 		}
@@ -76,7 +77,7 @@ func TestFromData_ArmVariants(t *testing.T) {
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 'a'
 	body := []byte("planhat_token=" + lowEntropy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low entropy), got %d", len(res))
 	}

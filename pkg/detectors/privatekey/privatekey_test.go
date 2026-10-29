@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"github.com/plenoai/pleno-dlp/pkg/detectors/privatekey/blastradius"
 )
 
@@ -39,7 +40,7 @@ lQVYBGRkZGQBDAC5example+base64+content+here==
 -----END PGP PRIVATE KEY BLOCK-----`
 
 func TestFromData_RSA(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("preamble\n"+rsaBlock+"\nepilogue"))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("preamble\n"+rsaBlock+"\nepilogue"))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -52,7 +53,7 @@ func TestFromData_RSA(t *testing.T) {
 }
 
 func TestFromData_OpenSSH(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(opensshBlock))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(opensshBlock))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -62,7 +63,7 @@ func TestFromData_OpenSSH(t *testing.T) {
 }
 
 func TestFromData_PGP(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(pgpBlock))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(pgpBlock))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -75,7 +76,7 @@ func TestFromData_PGP(t *testing.T) {
 }
 
 func TestFromData_PKCS8(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(pkcs8Block))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(pkcs8Block))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -85,14 +86,14 @@ func TestFromData_PKCS8(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("PRIVATE KEY but no markers"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("PRIVATE KEY but no markers"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
 }
 
 func TestRedact(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(rsaBlock))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(rsaBlock))
 	if !strings.Contains(res[0].Redacted, "BEGIN RSA PRIVATE KEY") {
 		t.Fatalf("redacted missing alg: %q", res[0].Redacted)
 	}
@@ -115,7 +116,7 @@ func freshRSA(t *testing.T) []byte {
 
 func TestFromData_PopulatesFingerprint(t *testing.T) {
 	body := freshRSA(t)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -181,7 +182,7 @@ func TestFromData_EncryptedFlag(t *testing.T) {
 		Type:  "ENCRYPTED PRIVATE KEY",
 		Bytes: []byte("dummy ciphertext"),
 	})
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -211,7 +212,7 @@ func TestFromData_VerifyPropagatesBlastRadius(t *testing.T) {
 	}))
 	defer srv.Close()
 	s := Scanner{CT: &blastradius.CTClient{BaseURL: srv.URL, HTTPClient: srv.Client()}}
-	res, err := s.FromData(context.Background(), true, freshRSA(t))
+	res, err := redactiontest.FromData(t, s, context.Background(), true, freshRSA(t))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -242,7 +243,7 @@ func TestFromData_VerifyNoMatch_NoVerifiedFlag(t *testing.T) {
 	}))
 	defer srv.Close()
 	s := Scanner{CT: &blastradius.CTClient{BaseURL: srv.URL, HTTPClient: srv.Client()}}
-	res, err := s.FromData(context.Background(), true, freshRSA(t))
+	res, err := redactiontest.FromData(t, s, context.Background(), true, freshRSA(t))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

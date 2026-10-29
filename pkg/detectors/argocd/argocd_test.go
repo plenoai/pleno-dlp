@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhcmdvIn0.AbCdEf0123456789AbCdEf01"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("ARGOCD_TOKEN=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_NoContext(t *testing.T) {
 	body := []byte("# generic jwt\nX=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without argocd context, got %d", len(res))
 	}
@@ -43,7 +44,7 @@ func TestFromData_NoContext(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("argocd_token=" + dummy + "\nargocd_token=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -128,7 +129,7 @@ func TestVerify_Transient500(t *testing.T) {
 func TestFromData_VerifyWired(t *testing.T) {
 	withServer(t, http.StatusOK)
 	body := []byte("ARGOCD_TOKEN=" + dummy)
-	res, err := Scanner{}.FromData(context.Background(), true, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, body)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}

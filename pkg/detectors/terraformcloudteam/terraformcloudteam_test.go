@@ -4,6 +4,7 @@ package terraformcloudteam
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,7 +15,7 @@ const dummy = "abcdefghij1234.atlasv1." +
 
 func TestFromData_TeamScope(t *testing.T) {
 	body := "TFE_TEAM_TOKEN=" + dummy
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -28,7 +29,7 @@ func TestFromData_TeamScope(t *testing.T) {
 
 func TestFromData_NoTeamKeyword(t *testing.T) {
 	// Without a team keyword nearby, this detector defers to terraformcloud.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("TFE_TOKEN="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("TFE_TOKEN="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without team keyword, got %d", len(res))
 	}

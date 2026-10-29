@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummy is a 64-char high-entropy alphanumeric matching the Hasura
@@ -34,7 +35,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("HASURA_ADMIN_SECRET=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -42,7 +43,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -53,7 +54,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // longer be surfaced.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("HASURA_ADMIN_SECRET=" + lowEntropyRun)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low-entropy run rejected), got %d", len(res))
 	}
@@ -64,7 +65,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 // admin-secret-style assignment, must not arm.
 func TestFromData_BareKeywordNoAssignment(t *testing.T) {
 	body := []byte("see the hasura graphql tutorial " + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (bare keyword, no assignment), got %d", len(res))
 	}
@@ -201,7 +202,7 @@ func TestFromData_ServerErrorProducesIndeterminateVerdict(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	results, err := Scanner{}.FromData(
+	results, err := redactiontest.FromData(t, Scanner{},
 		context.Background(),
 		true,
 		[]byte("HASURA_ADMIN_SECRET="+dummy),

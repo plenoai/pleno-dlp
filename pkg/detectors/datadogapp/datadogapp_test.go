@@ -4,6 +4,7 @@ package datadogapp
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
 
@@ -17,7 +18,7 @@ const sha1Noise = "da39a3ee5e6b4b0d3255bfef95601890afd80709"
 
 func TestFromData_StandaloneApp_HeaderForm(t *testing.T) {
 	body := "DD-APPLICATION-KEY: " + dummyApp
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -31,7 +32,7 @@ func TestFromData_StandaloneApp_HeaderForm(t *testing.T) {
 
 func TestFromData_StandaloneApp_AssignmentForm(t *testing.T) {
 	body := `DD_APP_KEY="` + dummyApp2 + `"`
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -41,7 +42,7 @@ func TestFromData_StandaloneApp_AssignmentForm(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("sha1="+dummyApp))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("sha1="+dummyApp))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -51,7 +52,7 @@ func TestFromData_SkipPaired(t *testing.T) {
 	// When a 32-hex API key sits adjacent, the `datadog` detector owns this;
 	// datadogapp must not also fire.
 	body := "DD_API_KEY=" + dummyAPI + "\nDD_APPLICATION_KEY=" + dummyApp
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (paired path delegates to datadog), got %d", len(res))
 	}
@@ -63,7 +64,7 @@ func TestFromData_SkipPaired(t *testing.T) {
 // NOT in the assignment/header form. Anchoring kills it.
 func TestFromData_FP_CommitShaNearKeyword(t *testing.T) {
 	body := "# DD_APP_KEY is injected at deploy; pinned at commit " + sha1Noise + " (a real SHA-1 within 256 bytes of the keyword)"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("FP: commit SHA near DD_APP_KEY keyword should be suppressed, got %d", len(res))
 	}
@@ -72,7 +73,7 @@ func TestFromData_FP_CommitShaNearKeyword(t *testing.T) {
 // FP2: an action-pin SHA near a DD_APPLICATION_KEY doc comment.
 func TestFromData_FP_ActionPinSha(t *testing.T) {
 	body := "steps:\n  - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b  # near DD_APPLICATION_KEY doc comment"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("FP: action-pin SHA near keyword should be suppressed, got %d", len(res))
 	}
@@ -82,7 +83,7 @@ func TestFromData_FP_ActionPinSha(t *testing.T) {
 // 40-hex on the chunk is an explicit `sha1:` checksum on another line.
 func TestFromData_FP_VaultPlaceholderWithSha1Checksum(t *testing.T) {
 	body := "DD_APPLICATION_KEY=\"<set-in-vault>\"\n# integrity sha1: " + sha1Noise
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("FP: sha1 checksum line should be suppressed, got %d", len(res))
 	}
@@ -92,12 +93,12 @@ func TestFromData_FP_VaultPlaceholderWithSha1Checksum(t *testing.T) {
 // entropy floor even though the anchor matches.
 func TestFromData_FP_LowEntropyPlaceholder(t *testing.T) {
 	body := "DD_APP_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("FP: low-entropy repeated-nibble filler should be suppressed, got %d", len(res))
 	}
 	body0 := "DD_APP_KEY=0000000000000000000000000000000000000000"
-	res0, _ := Scanner{}.FromData(context.Background(), false, []byte(body0))
+	res0, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body0))
 	if len(res0) != 0 {
 		t.Fatalf("FP: all-zero placeholder should be suppressed, got %d", len(res0))
 	}
@@ -107,7 +108,7 @@ func TestFromData_FP_LowEntropyPlaceholder(t *testing.T) {
 // even when an unrelated SHA-1 checksum sits on a nearby line.
 func TestFromData_TP_StillDetectedDespiteNearbySha(t *testing.T) {
 	body := "DD_APPLICATION_KEY=" + dummyApp2 + "\n# integrity sha1: " + sha1Noise
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("TP: real app key in assignment form should still be detected, got %d", len(res))
 	}

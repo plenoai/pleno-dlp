@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyToken = "abcdefABCDEF0123456789abcdefABCDEF01234567890XYZ"
@@ -30,7 +31,7 @@ func TestFromData_Found(t *testing.T) {
 	// requires a `rippling[_-]?(api[_-]?)?(token|key|secret)` shape near the
 	// candidate, which this realistic env-var key satisfies.
 	body := []byte("RIPPLING_API_TOKEN=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -43,7 +44,7 @@ func TestFromData_Found(t *testing.T) {
 func TestFromData_BareEnvVarForms(t *testing.T) {
 	for _, key := range []string{"RIPPLING_API", "RIPPLING_AUTH", "RIPPLING_CREDENTIAL"} {
 		body := []byte(key + "=" + dummyToken)
-		res, _ := Scanner{}.FromData(context.Background(), false, body)
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 		if len(res) == 0 {
 			t.Fatalf("%s=: expected >=1, got 0 (arm-regex recall regression)", key)
 		}
@@ -52,7 +53,7 @@ func TestFromData_BareEnvVarForms(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without rippling keyword, got %d", len(res))
 	}
@@ -64,7 +65,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // the candidate must be rejected.
 func TestFromData_BareKeywordRejected(t *testing.T) {
 	body := []byte("// see https://developer.rippling.com docs\nsha=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare rippling keyword (no assignment anchor), got %d", len(res))
 	}
@@ -76,7 +77,7 @@ func TestFromData_BareKeywordRejected(t *testing.T) {
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	lowEntropy := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" // 44x 'A'
 	body := []byte("RIPPLING_API_KEY=" + lowEntropy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy run, got %d", len(res))
 	}

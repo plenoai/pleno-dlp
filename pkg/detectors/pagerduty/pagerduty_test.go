@@ -4,6 +4,7 @@ package pagerduty
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,7 +13,7 @@ import (
 const dummy = "u_NbAkKc66ryYTWUXYEu" // 20 chars [A-Za-z0-9_-]
 
 func TestFromData_Positive_WithKeyword(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("PD_API_KEY="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("PD_API_KEY="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -26,14 +27,14 @@ func TestFromData_Positive_WithKeyword(t *testing.T) {
 
 func TestFromData_Negative_NoKeyword(t *testing.T) {
 	// 20-char shape, but no PagerDuty context keyword nearby — must skip.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
 }
 
 func TestFromData_Negative_TooShort(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("pagerduty key=short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("pagerduty key=short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -103,7 +104,7 @@ func TestFromData_VerifyUserScopedAdmin(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte("PD_API_KEY="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("PD_API_KEY="+dummy))
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true")
 	}
@@ -131,7 +132,7 @@ func TestFromData_VerifyUserScopedReadOnlyNotPrivileged(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte("PD_API_KEY="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("PD_API_KEY="+dummy))
 	if res[0].ExtraData["pd_user_role"] != "observer" {
 		t.Errorf("pd_user_role = %q, want observer", res[0].ExtraData["pd_user_role"])
 	}
@@ -157,7 +158,7 @@ func TestFromData_VerifyGeneralAccessFallback(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte("PD_API_KEY="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("PD_API_KEY="+dummy))
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true via /users fallback")
 	}
@@ -180,7 +181,7 @@ func TestFromData_VerifyForbiddenStopsImmediately(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte("PD_API_KEY="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("PD_API_KEY="+dummy))
 	if res[0].Verified {
 		t.Errorf("expected verified=false on 403")
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -31,7 +32,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("JUMIO_API_TOKEN=" + dummyKey + " JUMIO_API_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 paired result, got %d", len(res))
 	}
@@ -42,7 +43,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED_KEY=" + dummyKey + " UNRELATED_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -55,7 +56,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // assignment anchor must reject them.
 func TestFromData_KeywordButNoAnchor(t *testing.T) {
 	body := []byte("// jumio integration notes\nasset_hash=" + dummyKey + "\nbuild_sha=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (no assignment anchor), got %d", len(res))
 	}
@@ -67,7 +68,7 @@ func TestFromData_KeywordButNoAnchor(t *testing.T) {
 func TestFromData_AnchorButLowEntropy(t *testing.T) {
 	lowEnt := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 40 'a's, len in [32,64]
 	body := []byte("JUMIO_API_TOKEN=" + lowEnt + " JUMIO_API_SECRET=" + lowEnt)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low entropy), got %d", len(res))
 	}
@@ -77,7 +78,7 @@ func TestFromData_AnchorButLowEntropy(t *testing.T) {
 // dash/no-underscore and bare token/secret spellings.
 func TestFromData_AnchorVariants(t *testing.T) {
 	body := []byte("jumio-token: " + dummyKey + "\njumio_secret = " + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 paired result, got %d", len(res))
 	}

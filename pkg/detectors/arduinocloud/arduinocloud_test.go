@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "abcdef0123456789ABCDEFabcdef0123456789AB"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("ARDUINO_CLIENT_SECRET=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -48,7 +49,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // regex now requires an `arduino...secret|token|key|id` shape.
 func TestFromData_BareKeyword_NoMatch(t *testing.T) {
 	body := []byte("// see the arduino board reference\nsessionHash=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (bare keyword, no assignment arm), got %d", len(res))
 	}
@@ -60,7 +61,7 @@ func TestFromData_BareKeyword_NoMatch(t *testing.T) {
 func TestFromData_LowEntropy_NoMatch(t *testing.T) {
 	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 40x 'a', entropy 0
 	body := []byte("ARDUINO_CLIENT_SECRET=" + lowEntropy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (entropy floor), got %d", len(res))
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummy is a realistic Webex access-token shape: 64-char lowercase hex, the
@@ -32,14 +33,14 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# webex\nWEBEX_ACCESS_TOKEN=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -47,7 +48,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("webex_token " + dummy + "\nwebex_token " + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -55,7 +56,7 @@ func TestFromData_Dedup(t *testing.T) {
 
 func TestFromData_TooShort(t *testing.T) {
 	short := strings.Repeat("a", 30)
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("webex_token "+short))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("webex_token "+short))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for too-short token, got %d", len(res))
 	}
@@ -67,7 +68,7 @@ func TestFromData_TooShort(t *testing.T) {
 // strings.Contains gate armed on any "webex" substring.
 func TestFromData_BareKeywordRejected(t *testing.T) {
 	body := []byte("see the webex docs for details " + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare-keyword window, got %d", len(res))
 	}
@@ -80,7 +81,7 @@ func TestFromData_BareKeywordRejected(t *testing.T) {
 func TestFromData_NonHexRejected(t *testing.T) {
 	nonHex := "Zk9QmX2vRb7TpL4nW8sJ6yH3dF1gN5cA0eUoIqKzVxBwSrMtYuPlDjGhCfEaWnOx"
 	body := []byte("webex_token=" + nonHex)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for non-hex candidate, got %d", len(res))
 	}
@@ -92,7 +93,7 @@ func TestFromData_NonHexRejected(t *testing.T) {
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	lowEntropy := strings.Repeat("a", 64)
 	body := []byte("webex_token=" + lowEntropy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy hex, got %d", len(res))
 	}

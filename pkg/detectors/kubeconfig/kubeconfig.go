@@ -309,7 +309,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		}
 	}
 
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // Verify implements detectors.Verifier. The secret format is:

@@ -4,6 +4,7 @@ package slack
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,7 +13,7 @@ import (
 const dummyToken = "xoxb-1234567890-1234567890123-abcdefghijklmnopqrstuvwx"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("token leaked: "+dummyToken))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("token leaked: "+dummyToken))
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -25,7 +26,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("xoxa-not-bot 12345"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("xoxa-not-bot 12345"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -123,7 +124,7 @@ func TestFromData_VerifyEnrichesIdentity(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, err := Scanner{}.FromData(context.Background(), true, []byte(dummyToken))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyToken))
 	if err != nil {
 		t.Fatalf("FromData: %v", err)
 	}
@@ -166,7 +167,7 @@ func TestFromData_VerifyEnterpriseFlag(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyToken))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyToken))
 	if res[0].ExtraData["slack_enterprise_id"] != "E0123456789" {
 		t.Errorf("enterprise_id missing: %v", res[0].ExtraData)
 	}
@@ -185,7 +186,7 @@ func TestFromData_VerifyNonPrivilegedScopes(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyToken))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyToken))
 	if _, ok := res[0].ExtraData["slack_privileged"]; ok {
 		t.Errorf("read-only scopes must not flip privileged: %v", res[0].ExtraData)
 	}
@@ -200,7 +201,7 @@ func TestFromData_VerifyOKNoMetaOnFailure(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummyToken))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummyToken))
 	if res[0].Verified {
 		t.Errorf("Verified must be false")
 	}

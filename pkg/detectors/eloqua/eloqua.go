@@ -101,7 +101,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		res.Verified = v
 		res.VerificationErr = err
 	}
-	return []detectors.Result{res}, nil
+	return detectors.SafeResults([]detectors.Result{res}), nil
 }
 
 // nearKeyword reports whether an `eloqua[_-]?(client[_-]?)?(id|secret|token|key)`

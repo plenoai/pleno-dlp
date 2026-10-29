@@ -4,6 +4,7 @@ package klaviyo
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ const dummyPK = "pk_0123456789abcdef0123456789abcdef0123"
 const dummySK = "sk_0123456789abcdef0123456789abcdef0123"
 
 func TestFromData_Private(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("KLAVIYO_PRIVATE_API_KEY="+dummyPK))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("KLAVIYO_PRIVATE_API_KEY="+dummyPK))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -27,7 +28,7 @@ func TestFromData_Private(t *testing.T) {
 }
 
 func TestFromData_Site(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("KLAVIYO_SK="+dummySK))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("KLAVIYO_SK="+dummySK))
 	if len(res) != 1 {
 		t.Fatalf("expected 1 sk hit, got %d", len(res))
 	}
@@ -37,7 +38,7 @@ func TestFromData_NotStripeKey(t *testing.T) {
 	// Stripe sk_live_… should not match Klaviyo's regex because the `_`
 	// after `live` breaks the [A-Za-z0-9]{32,64} body.
 	stripe := "sk_live_4eC39HqLyjWDarjtT1zdp7dc"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("STRIPE="+stripe))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("STRIPE="+stripe))
 	for _, r := range res {
 		if string(r.Raw) == stripe {
 			t.Fatalf("klaviyo detector should not match Stripe sk_live_ token, got %v", r)

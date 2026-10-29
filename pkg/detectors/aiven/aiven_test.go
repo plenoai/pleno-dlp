@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "AbCdEf0123456789AbCdEf0123456789aaaa"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# aiven\nAIVEN_TOKEN=" + dummy)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -37,7 +38,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -52,7 +53,7 @@ func TestFromData_ProseMentionFarFromToken(t *testing.T) {
 	// "Aiven is a data platform" provides no assignment arm near the token.
 	padding := "Aiven is a data platform. Some prose here that is filler text used to push the high entropy blob comfortably beyond sixty-four bytes. "
 	body := []byte(padding + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for prose mention far from token, got %d", len(res))
 	}
@@ -64,7 +65,7 @@ func TestFromData_ProseMentionFarFromToken(t *testing.T) {
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 36 chars, entropy 0
 	body := []byte("AIVEN_TOKEN=" + lowEntropy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy run, got %d", len(res))
 	}

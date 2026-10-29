@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyKey = "abcdef0123456789ABCD"
@@ -28,7 +29,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("FIVETRAN_API_KEY=" + dummyKey + " FIVETRAN_API_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -36,7 +37,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED_KEY=" + dummyKey + " UNRELATED_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -48,7 +49,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 func TestFromData_TwoUnrelatedIDs(t *testing.T) {
 	body := []byte("# fivetran connector notes\n" +
 		"build commit a1b2c3d4e5f60718293A and asset Qz9Xy8Wv7Ut6Sr5Qp4Oz referenced in the changelog above.")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (no assignment anchor near either ID), got %d", len(res))
 	}
@@ -58,7 +59,7 @@ func TestFromData_TwoUnrelatedIDs(t *testing.T) {
 // 64 of one half arms the pair even when only one side carries the anchor word.
 func TestFromData_AnchoredPair(t *testing.T) {
 	body := []byte("fivetran_key: " + dummyKey + "\nsecret: " + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1 anchored pair")
 	}

@@ -4,6 +4,7 @@ package modal
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"strings"
 	"testing"
 )
@@ -13,7 +14,7 @@ const dummySecret = "as-ZyXwVu9876543210ZyXw"
 
 func TestFromData_Pair(t *testing.T) {
 	body := []byte("MODAL_TOKEN_ID=" + dummyID + "\nMODAL_TOKEN_SECRET=" + dummySecret)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -29,7 +30,7 @@ func TestFromData_Pair(t *testing.T) {
 }
 
 func TestFromData_OnlyID(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("MODAL_TOKEN_ID="+dummyID))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("MODAL_TOKEN_ID="+dummyID))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without secret, got %d", len(res))
 	}
@@ -56,7 +57,7 @@ func TestFromData_SuppressedFalsePositives(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			res, err := Scanner{}.FromData(context.Background(), false, []byte(c.body))
+			res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(c.body))
 			if err != nil {
 				t.Fatalf("err: %v", err)
 			}
@@ -71,7 +72,7 @@ func TestFromData_SuppressedFalsePositives(t *testing.T) {
 // mixed-case-with-digits pair still passes the hardened gate.
 func TestFromData_TruePositiveStillDetected(t *testing.T) {
 	body := []byte("MODAL_TOKEN_ID=" + dummyID + "\nMODAL_TOKEN_SECRET=" + dummySecret)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

@@ -51,7 +51,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		res.Verified = v
 		res.VerificationErr = err
 	}
-	return []detectors.Result{res}, nil
+	return detectors.SafeResults([]detectors.Result{res}), nil
 }
 
 func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {

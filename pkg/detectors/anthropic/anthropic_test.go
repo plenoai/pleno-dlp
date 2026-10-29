@@ -10,12 +10,13 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 var dummyKey = "sk-ant-api03-" + strings.Repeat("a", 93) + "AA"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("ANTHROPIC_API_KEY="+dummyKey))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("ANTHROPIC_API_KEY="+dummyKey))
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -29,7 +30,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_Negative_OpenAI(t *testing.T) {
 	openai := "sk-abcdefghijklmnopqrstuvwxyz0123456789"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("key="+openai))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("key="+openai))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (openai must not match anthropic), got %d", len(res))
 	}
@@ -37,7 +38,7 @@ func TestFromData_Negative_OpenAI(t *testing.T) {
 
 func TestFromData_RejectsBroadLegacyShape(t *testing.T) {
 	broadLegacyShape := "sk-ant-" + strings.Repeat("a", 40)
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("ANTHROPIC_API_KEY="+broadLegacyShape))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("ANTHROPIC_API_KEY="+broadLegacyShape))
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -48,7 +49,7 @@ func TestFromData_RejectsBroadLegacyShape(t *testing.T) {
 
 func TestFromData_RejectsWrongLength(t *testing.T) {
 	wrongLength := "sk-ant-api03-" + strings.Repeat("a", 92) + "AA"
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("ANTHROPIC_API_KEY="+wrongLength))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("ANTHROPIC_API_KEY="+wrongLength))
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -58,7 +59,7 @@ func TestFromData_RejectsWrongLength(t *testing.T) {
 }
 
 func TestFromData_Negative_Empty(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("nothing here"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("nothing here"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -168,7 +169,7 @@ func TestFromData_VerificationFailureIsIndeterminate(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	results, err := Scanner{}.FromData(context.Background(), true, []byte("ANTHROPIC_API_KEY="+dummyKey))
+	results, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("ANTHROPIC_API_KEY="+dummyKey))
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}

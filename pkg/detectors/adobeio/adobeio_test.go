@@ -4,6 +4,7 @@ package adobeio
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,7 +15,7 @@ const dummySecret = "p8e-AbCdEfGhIjKlMnOpQrStUvWxYz012345"
 
 func TestFromData_Pair(t *testing.T) {
 	body := "adobeio_client_id=" + dummyKey + "\nadobeio_client_secret=" + dummySecret
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -28,7 +29,7 @@ func TestFromData_Pair(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := "id=" + dummyKey + "\nsecret=" + dummySecret
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -37,7 +38,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 func TestFromData_KeyAlone_Skipped(t *testing.T) {
 	// 32-hex without a paired secret is indistinguishable from md5.
 	body := "adobeio_client_id=" + dummyKey
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

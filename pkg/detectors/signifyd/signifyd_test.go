@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyID = "abcdef0123456789ABCDEF"
@@ -28,7 +29,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("SIGNIFYD_TEAM=" + dummyID + "\nSIGNIFYD_KEY=" + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -36,7 +37,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED=" + dummyID + "\nOTHER=" + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -48,7 +49,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // strings.Contains gate matched this; the armRe gate must not.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("// see https://api.signifyd.com for details\nVALUE_A=" + dummyID + "\nVALUE_B=" + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (bare keyword, no assignment anchor), got %d", len(res))
 	}
@@ -60,7 +61,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	const lowEnt = "AAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	body := []byte("SIGNIFYD_KEY=" + lowEnt + "\nSIGNIFYD_KEY2=" + lowEnt)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low entropy), got %d", len(res))
 	}

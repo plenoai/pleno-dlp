@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyToken = "AAAA1234567:APA91b" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_abcdefg"
@@ -28,7 +29,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("firebase_server_key=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -36,7 +37,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without firebase keyword, got %d", len(res))
 	}
@@ -44,7 +45,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("fcm=" + dummyToken + "\nfirebase=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}

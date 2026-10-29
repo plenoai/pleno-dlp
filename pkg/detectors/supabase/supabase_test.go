@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 func mintJWT(t *testing.T, claims map[string]string) string {
@@ -30,7 +31,7 @@ func TestFromData_ServiceRole_Critical(t *testing.T) {
 		"iss":  "supabase",
 	})
 	body := []byte("# supabase\nSUPABASE_SERVICE_ROLE_KEY=" + tok + "\nSUPABASE_URL=https://abcdefghijklmnopqrst.supabase.co")
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -54,7 +55,7 @@ func TestFromData_AnonKey_High(t *testing.T) {
 		"ref":  "abcdefghijklmnopqrst",
 	})
 	body := []byte("# supabase\nNEXT_PUBLIC_SUPABASE_ANON_KEY=" + tok)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -68,7 +69,7 @@ func TestFromData_NotSupabase(t *testing.T) {
 		"sub": "111",
 		"iss": "https://accounts.google.com",
 	})
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("# supabase\nX="+tok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("# supabase\nX="+tok))
 	if len(res) != 0 {
 		t.Fatalf("non-supabase JWT must not be claimed; got %d", len(res))
 	}
@@ -78,7 +79,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 	tok := mintJWT(t, map[string]string{
 		"role": "service_role",
 	})
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+tok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+tok))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -117,7 +118,7 @@ func TestVerify_Accept200(t *testing.T) {
 	defer srv.Close()
 	withAPIBase(t, srv.URL)
 
-	res, err := Scanner{}.FromData(context.Background(), true, serviceRoleChunk(t))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, serviceRoleChunk(t))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -136,7 +137,7 @@ func TestVerify_Reject401(t *testing.T) {
 	defer srv.Close()
 	withAPIBase(t, srv.URL)
 
-	res, err := Scanner{}.FromData(context.Background(), true, serviceRoleChunk(t))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, serviceRoleChunk(t))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -155,7 +156,7 @@ func TestVerify_Reject403(t *testing.T) {
 	defer srv.Close()
 	withAPIBase(t, srv.URL)
 
-	res, _ := Scanner{}.FromData(context.Background(), true, serviceRoleChunk(t))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, serviceRoleChunk(t))
 	if res[0].Verified {
 		t.Fatal("expected verified=false on 403")
 	}
@@ -171,7 +172,7 @@ func TestVerify_Transient500(t *testing.T) {
 	defer srv.Close()
 	withAPIBase(t, srv.URL)
 
-	res, _ := Scanner{}.FromData(context.Background(), true, serviceRoleChunk(t))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, serviceRoleChunk(t))
 	if res[0].Verified {
 		t.Fatal("expected verified=false on 500")
 	}
@@ -187,7 +188,7 @@ func TestVerify_Transient429(t *testing.T) {
 	defer srv.Close()
 	withAPIBase(t, srv.URL)
 
-	res, _ := Scanner{}.FromData(context.Background(), true, serviceRoleChunk(t))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, serviceRoleChunk(t))
 	if res[0].Verified {
 		t.Fatal("expected verified=false on 429")
 	}

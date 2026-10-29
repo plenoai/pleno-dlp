@@ -4,6 +4,7 @@ package mistral
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,7 +13,7 @@ import (
 const dummy = "abcdefghijABCDEFGHIJ0123456789AB"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("MISTRAL_API_KEY="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("MISTRAL_API_KEY="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -22,7 +23,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("k="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("k="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -35,7 +36,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 const lowEntropyToken = "deadbeefdeadbeefdeadbeefdeadbeef"
 
 func TestFromData_LowEntropyRejected(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("MISTRAL_API_KEY="+lowEntropyToken))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("MISTRAL_API_KEY="+lowEntropyToken))
 	if len(res) != 0 {
 		t.Fatalf("expected low-entropy token to be rejected, got %d", len(res))
 	}
@@ -46,7 +47,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 func TestFromData_KeywordTooFar(t *testing.T) {
 	// 80-char filler pushes the keyword outside the 64-char window.
 	filler := "// configuration block follows, see the section below for credential wiring //"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("mistral_api_key referenced here "+filler+" value "+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("mistral_api_key referenced here "+filler+" value "+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected token beyond keyword radius to be rejected, got %d", len(res))
 	}

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -32,7 +33,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# b2_application_key\nB2_KEY_ID=" + dummyID + "\nB2_APP_KEY=" + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -47,7 +48,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("X=" + dummyID + "\nY=" + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -55,7 +56,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_OnlyID(t *testing.T) {
 	body := []byte("b2_app id only " + dummyID)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without paired key, got %d", len(res))
 	}
@@ -63,7 +64,7 @@ func TestFromData_OnlyID(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("b2_ " + dummyID + "\nb2_ " + dummyKey + "\nb2_ " + dummyID)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -178,7 +179,7 @@ func TestFromData_VerifySetsResult(t *testing.T) {
 	withAPIBase(t, srv.URL)
 
 	body := []byte("# b2_application_key\nB2_KEY_ID=" + dummyID + "\nB2_APP_KEY=" + dummyKey)
-	res, err := Scanner{}.FromData(context.Background(), true, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, body)
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}

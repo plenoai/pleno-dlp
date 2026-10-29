@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyID = "pscale_oauth_AbCdEf0123456789AbCdEf0123456789ABCD"
@@ -17,7 +18,7 @@ const dummySecret = "ZyXwVu9876543210ZyXwVu9876543210ZyXwVu98"
 
 func TestFromData_Pair(t *testing.T) {
 	body := []byte("# planetscale\nPSCALE_TOKEN_ID=" + dummyID + "\nPSCALE_TOKEN=" + dummySecret)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -36,7 +37,7 @@ func TestFromData_Pair(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummyID))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummyID))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -49,7 +50,7 @@ const lowEntropySecret = "ABABABABABABABABABABABABABABABABABABABAB"
 
 func TestFromData_LowEntropySecretRejected(t *testing.T) {
 	body := []byte("# planetscale\nPSCALE_TOKEN_ID=" + dummyID + "\nPSCALE_TOKEN=" + lowEntropySecret)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -65,7 +66,7 @@ func TestFromData_LowEntropySecretRejected(t *testing.T) {
 // `planetscale` mention (no `_token`-style reference) no longer arms the id.
 func TestFromData_BareKeywordRejected(t *testing.T) {
 	body := []byte("// see planetscale.com for docs\nID=" + dummyID)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 with bare keyword only, got %d", len(res))
 	}

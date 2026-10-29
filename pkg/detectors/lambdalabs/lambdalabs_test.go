@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyToken = "abcdefABCDEF0123456789abcdefABCDEF01234567890XYZ"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("LAMBDALABS_API_KEY=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without lambdalabs keyword, got %d", len(res))
 	}
@@ -49,7 +50,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // "lambdalabs").
 func TestFromData_BareKeywordNotArmed(t *testing.T) {
 	body := []byte("// see https://cloud.lambdalabs.com for docs\ncache_digest = " + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare-keyword-without-assignment-anchor, got %d", len(res))
 	}
@@ -61,7 +62,7 @@ func TestFromData_BareKeywordNotArmed(t *testing.T) {
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 42 'a's
 	body := []byte("LAMBDALABS_API_KEY=" + lowEntropy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy armed run, got %d", len(res))
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyID = "abcdefABCDEF0123456789abcdef0123"
@@ -28,7 +29,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("PAYLOCITY_CLIENT_ID=" + dummyID + "\nPAYLOCITY_CLIENT_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -39,7 +40,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("ID=" + dummyID + "\nSECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -52,7 +53,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // the arm regex + radius-64 gate must now reject them.
 func TestFromData_BareKeywordNoAnchor(t *testing.T) {
 	body := []byte("// integrates with the paylocity platform\nFOO=" + dummyID + "\nBAR=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (no assignment anchor), got %d", len(res))
 	}
@@ -64,7 +65,7 @@ func TestFromData_BareKeywordNoAnchor(t *testing.T) {
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	const lowEnt = "aaaaaaaaaaaaaaaabbbbbbbbbbbbbbbb" // 32 chars, entropy ~1.0
 	body := []byte("PAYLOCITY_CLIENT_ID=" + lowEnt + "\nPAYLOCITY_CLIENT_SECRET=" + lowEnt)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (entropy floor), got %d", len(res))
 	}

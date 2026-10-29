@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // TestContractType verifies that every registered detector reports a known
@@ -55,7 +56,7 @@ func TestContractFromData_NilData(t *testing.T) {
 		d := d
 		t.Run(d.Type().String(), func(t *testing.T) {
 			t.Parallel()
-			results, err := d.FromData(ctx, false, nil)
+			results, err := redactiontest.FromData(t, d, ctx, false, nil)
 			if err != nil {
 				t.Errorf("detector %T (%s) returned non-nil error for nil data: %v", d, d.Type(), err)
 			}
@@ -75,7 +76,7 @@ func TestContractFromData_EmptyData(t *testing.T) {
 		d := d
 		t.Run(d.Type().String(), func(t *testing.T) {
 			t.Parallel()
-			results, err := d.FromData(ctx, false, []byte{})
+			results, err := redactiontest.FromData(t, d, ctx, false, []byte{})
 			if err != nil {
 				t.Errorf("detector %T (%s) returned non-nil error for empty data: %v", d, d.Type(), err)
 			}

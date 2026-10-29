@@ -4,6 +4,7 @@ package digitalocean
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ const dummy = "dop_v1_" + // 7 chars prefix
 	"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" // 64 hex
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("DO_TOKEN="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("DO_TOKEN="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -28,7 +29,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_Negative(t *testing.T) {
 	// Wrong prefix and too short: must not match.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("dop_v2_aaaa"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("dop_v2_aaaa"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -100,7 +101,7 @@ func TestFromData_VerifyEnrichesActiveVerified(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummy))
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true")
 	}
@@ -134,7 +135,7 @@ func TestFromData_VerifyLockedNotHighRisk(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummy))
 	if res[0].ExtraData["do_account_locked"] != "true" {
 		t.Errorf("expected do_account_locked=true")
 	}
@@ -155,7 +156,7 @@ func TestFromData_VerifyUnverifiedEmailNotHighRisk(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(dummy))
 	if res[0].ExtraData["do_email_verified"] != "false" {
 		t.Errorf("do_email_verified = %q, want false", res[0].ExtraData["do_email_verified"])
 	}

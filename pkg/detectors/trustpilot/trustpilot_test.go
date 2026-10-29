@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "abcdef0123456789ABCDEF0123456789abcdef01"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("TRUSTPILOT_API_KEY=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -46,7 +47,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // longer arm the detector: the assignment-style arm regex is absent.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("https://widget.trustpilot.com/bootstrap.js sessionId=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (bare keyword, no assignment arm), got %d", len(res))
 	}
@@ -56,7 +57,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 // placeholder must be rejected by the entropy floor even when armed.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("TRUSTPILOT_API_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low-entropy placeholder), got %d", len(res))
 	}
@@ -66,7 +67,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 // must still detect at the tightened radius.
 func TestFromData_ArmedStillDetects(t *testing.T) {
 	body := []byte("trustpilot_api_secret: " + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1 (armed, high-entropy)")
 	}

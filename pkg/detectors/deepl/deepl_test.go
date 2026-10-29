@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyFree = "abcdef01-1234-5678-9abc-def012345678:fx"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found_FreeSuffix(t *testing.T) {
 	body := []byte("DEEPL_AUTH_KEY=" + dummyFree)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -36,7 +37,7 @@ func TestFromData_Found_FreeSuffix(t *testing.T) {
 func TestFromData_NoKeyword(t *testing.T) {
 	// Bare UUID without :fx and no `deepl` keyword should not surface.
 	body := []byte("UNRELATED=abcdef01-1234-5678-9abc-def012345678")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

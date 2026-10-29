@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // tpToken is a realistic-shaped opaque Spinnaker bearer credential: 52-char
@@ -31,7 +32,7 @@ func TestKeywords(t *testing.T) {
 
 func count(t *testing.T, body string) int {
 	t.Helper()
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if err != nil {
 		t.Fatalf("FromData error: %v", err)
 	}

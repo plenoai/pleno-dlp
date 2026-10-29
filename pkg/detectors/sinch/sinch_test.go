@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // realKey is a realistic high-entropy random UUID-shaped API key.
@@ -32,7 +33,7 @@ func TestKeywords(t *testing.T) {
 // still detected after hardening.
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# sinch\nSINCH_API_KEY=" + realKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -41,14 +42,14 @@ func TestFromData_Positive(t *testing.T) {
 // TestFromData_PositiveColonAssignment: `sinch:` style assignment context.
 func TestFromData_PositiveColonAssignment(t *testing.T) {
 	body := []byte("sinch_token: " + realKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+realKey))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+realKey))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -56,14 +57,14 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("sinch_key=" + realKey + "\nsinch_key=" + realKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
 }
 
 func TestFromData_BadShape(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("sinch_key=1234567812341234"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("sinch_key=1234567812341234"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -77,7 +78,7 @@ func TestFromData_BadShape(t *testing.T) {
 func TestFromData_FP_TraceIDNearBrandWord(t *testing.T) {
 	body := []byte("// using the sinch SDK provider for delivery\n" +
 		"X-Request-Id: f47ac10b-58cc-4372-a567-0e02b2c3d479")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (trace id near bare brand word), got %d", len(res))
 	}
@@ -88,7 +89,7 @@ func TestFromData_FP_TraceIDNearBrandWord(t *testing.T) {
 // next to an assignment keyword.
 func TestFromData_FP_SequentialPlaceholder(t *testing.T) {
 	body := []byte("# sinch example config\nSINCH_API_KEY=" + seqDummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (sequential placeholder), got %d", len(res))
 	}
@@ -97,7 +98,7 @@ func TestFromData_FP_SequentialPlaceholder(t *testing.T) {
 // FP3: the all-zero placeholder project_id sample is suppressed.
 func TestFromData_FP_AllZeroPlaceholder(t *testing.T) {
 	body := []byte("sinch_key=00000000-0000-0000-0000-000000000000")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (all-zero placeholder), got %d", len(res))
 	}
@@ -113,7 +114,7 @@ func TestFromData_FP_HighEntropyFarFromKeyword(t *testing.T) {
 	}
 	body := append([]byte("sinch_api_key reference appears here"), pad...)
 	body = append(body, []byte(realKey)...)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (real key beyond proximity radius), got %d", len(res))
 	}

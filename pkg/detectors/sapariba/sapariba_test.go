@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummy is a 32-char mixed-case alphanumeric value matching the documented
@@ -30,7 +31,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("ARIBA_API_KEY=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -38,7 +39,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -49,7 +50,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // content (repetitive), must no longer match.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("ariba_api_key=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low entropy culled), got %d", len(res))
 	}
@@ -59,7 +60,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 // 40-char high-entropy run near the keyword must not match.
 func TestFromData_WrongLengthRejected(t *testing.T) {
 	body := []byte("ariba_api_key=uEnCwXMo7YYmQE7el7iqqciAqT7Og0IkXYZ8mnop")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (length != 32 culled), got %d", len(res))
 	}
@@ -70,7 +71,7 @@ func TestFromData_WrongLengthRejected(t *testing.T) {
 // assignment anchor) must no longer match.
 func TestFromData_BareKeywordProseRejected(t *testing.T) {
 	body := []byte("the ariba platform is great. unrelated=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (bare prose keyword, no arm match), got %d", len(res))
 	}

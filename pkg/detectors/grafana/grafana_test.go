@@ -4,6 +4,7 @@ package grafana
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,7 @@ import (
 const dummy = "glsa_AbCdEfGhIjKlMnOpQrStUvWxYz012345_0a1b2c3d"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("GRAFANA_TOKEN="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("GRAFANA_TOKEN="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -29,7 +30,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("glsa_short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("glsa_short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -92,7 +93,7 @@ func TestVerify_FromData_Accept200(t *testing.T) {
 	defer srv.Close()
 	setAPIBase(t, srv.URL)
 
-	res, err := Scanner{}.FromData(context.Background(), true, []byte("GRAFANA_TOKEN="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("GRAFANA_TOKEN="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

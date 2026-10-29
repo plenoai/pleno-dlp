@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 func futureDate() string {
@@ -27,7 +28,7 @@ func TestFromData_VirtualHostStyle(t *testing.T) {
 		"&X-Amz-Expires=900" +
 		"&X-Amz-SignedHeaders=host" +
 		"&X-Amz-Signature=" + strings.Repeat("a", 64)
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(url))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(url))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -50,7 +51,7 @@ func TestFromData_Expired(t *testing.T) {
 		"&X-Amz-Expires=60" +
 		"&X-Amz-SignedHeaders=host" +
 		"&X-Amz-Signature=" + strings.Repeat("a", 64)
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(url))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(url))
 	if len(res) != 1 {
 		t.Fatalf("expected 1")
 	}
@@ -63,7 +64,7 @@ func TestFromData_Expired(t *testing.T) {
 }
 
 func TestFromData_NoSignature(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("https://b.s3.amazonaws.com/o"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("https://b.s3.amazonaws.com/o"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0")
 	}

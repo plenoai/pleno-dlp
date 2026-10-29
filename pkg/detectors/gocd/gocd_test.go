@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "Zk9aP2qL7mZ3rT6yB1vN8wQ4eD5sG0hJ2cF7uK3a"
@@ -25,14 +26,14 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# gocd\nGOCD_TOKEN=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -40,14 +41,14 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("gocd " + dummy + "\ngocd " + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
 }
 
 func TestFromData_TooShort(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("gocd abc123"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("gocd abc123"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for short token, got %d", len(res))
 	}
@@ -74,7 +75,7 @@ func TestFromData_FalsePositives(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.body))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.body))
 			if len(res) != 0 {
 				t.Fatalf("expected 0 (suppressed FP), got %d: %v", len(res), res)
 			}
@@ -85,7 +86,7 @@ func TestFromData_FalsePositives(t *testing.T) {
 func TestFromData_StrongAnchor(t *testing.T) {
 	tok := "Xk9aP2qL7mZ3rT6yB1vN8wQ4eD5sG0hJ2cF7uK3a"
 	body := []byte("gocd_token = \"" + tok + "\"")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 for strong anchor, got %d", len(res))
 	}

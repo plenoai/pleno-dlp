@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -31,7 +32,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("branch_io key=" + dummyKey + " secret=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -45,7 +46,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("k=" + dummyKey + " s=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without branch keyword, got %d", len(res))
 	}
@@ -53,7 +54,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_NoSecret(t *testing.T) {
 	body := []byte("branch_key=" + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without paired secret, got %d", len(res))
 	}
@@ -61,7 +62,7 @@ func TestFromData_NoSecret(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("branch_io=" + dummyKey + " " + dummySecret + "\nbranch_io=" + dummyKey + " " + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -74,7 +75,7 @@ func TestFromData_Dedup(t *testing.T) {
 // + `contextKeywords = ["branch", ...]` behaviour.)
 func TestFromData_FP_GitBranchProse(t *testing.T) {
 	body := []byte("// branched off main; key=" + dummyKey + " secret=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("git-branch prose FP: expected 0, got %d", len(res))
 	}

@@ -97,7 +97,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		res.Verified = v
 		res.VerificationErr = err
 	}
-	return []detectors.Result{res}, nil
+	return detectors.SafeResults([]detectors.Result{res}), nil
 }
 
 // firstArmed returns the first regex hit that is armed by a nearby Marketo

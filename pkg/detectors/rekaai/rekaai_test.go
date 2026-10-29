@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "abcdef0123456789ABCDEF0123456789abcdef0123456789ABCDEF0123456789"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("REKA_API_KEY=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED_VALUE=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -47,7 +48,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // gate is an assignment-anchored arm regex within radius 64.
 func TestFromData_KeywordWithoutAssignment(t *testing.T) {
 	body := []byte("Reka builds frontier models. const build = " + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (no assignment anchor near keyword), got %d", len(res))
 	}
@@ -58,7 +59,7 @@ func TestFromData_KeywordWithoutAssignment(t *testing.T) {
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 40 chars, entropy 0
 	body := []byte("REKA_API_KEY=" + lowEntropy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low entropy), got %d", len(res))
 	}
@@ -74,7 +75,7 @@ func TestFromData_ArmVariants(t *testing.T) {
 		"reka.ai_api_key=" + dummy,
 	}
 	for _, c := range cases {
-		res, _ := Scanner{}.FromData(context.Background(), false, []byte(c))
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(c))
 		if len(res) == 0 {
 			t.Fatalf("expected >=1 for %q", c)
 		}

@@ -104,12 +104,12 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if clientID == "" || clientSecret == "" || clientID == clientSecret {
 		return nil, nil
 	}
-	return []detectors.Result{{
+	return detectors.SafeResults([]detectors.Result{{
 		DetectorType: detectors.Looker,
 		Raw:          []byte(clientID),
 		RawV2:        []byte(clientID + ":" + clientSecret),
 		Redacted:     redact(clientID),
-	}}, nil
+	}}), nil
 }
 
 // validCandidate rejects low-entropy lookalikes and pure-hex / pure-decimal

@@ -4,6 +4,7 @@ package gcpoauth
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ const dummy = "1//0eABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01234567
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("GOOGLE_REFRESH_TOKEN=" + dummy)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -27,7 +28,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NegativeShort(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("1//0eShort"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("1//0eShort"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

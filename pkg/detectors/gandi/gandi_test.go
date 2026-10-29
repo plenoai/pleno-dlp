@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyToken = "abcdefghijklmnopqrstuvwx"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("gandi_api_key=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without gandi keyword, got %d", len(res))
 	}
@@ -48,7 +49,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	// "gandi" appears, but only as prose — not an assignment anchor.
 	body := []byte("see the gandi provider notes; build id Xy7Kp2Lm9Qr4Ns6Tv8Wz1Bc")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare-keyword-no-arm FP shape, got %d", len(res))
 	}
@@ -59,7 +60,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 // match.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("gandi_api_key=aaaaaaaaaaaaaaaaaaaaaaaa")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy token, got %d", len(res))
 	}
@@ -67,7 +68,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("gandi=" + dummyToken + "\ngandi_token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}

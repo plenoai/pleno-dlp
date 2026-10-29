@@ -9,13 +9,14 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "fd0123456789abcdefABCD"
 
 func TestFromData_Positive(t *testing.T) {
 	body := "freshdesk_api_key=" + dummy
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -29,7 +30,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_HostCapture(t *testing.T) {
 	body := "host=acme.freshdesk.com\nfreshdesk_token=" + dummy
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -39,7 +40,7 @@ func TestFromData_HostCapture(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("random_token="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("random_token="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -49,7 +50,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // generic alnum token. The old 256-byte bare-keyword gate would have fired.
 func TestFromData_BareKeywordNoAnchor(t *testing.T) {
 	body := "see the freshdesk connector docs\nsome_value " + dummy
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 on bare keyword without anchor/host, got %d", len(res))
 	}
@@ -62,7 +63,7 @@ func TestFromData_BareKeywordNoAnchor(t *testing.T) {
 func TestFromData_GitSHANearKeyword_Negative(t *testing.T) {
 	const sha = "da39a3ee5e6b4b0d3255bfef95601890afd80709" // 40-char SHA-1
 	body := "freshdesk connector bump to " + sha + " (see PR #42)"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for git SHA near freshdesk, got %d (raw=%q)", len(res), rawList(res))
 	}
@@ -73,7 +74,7 @@ func TestFromData_GitSHANearKeyword_Negative(t *testing.T) {
 func TestFromData_GitSHAWithAnchor_Negative(t *testing.T) {
 	const sha = "356a192b7913b04c54574d18c28d46e6395428ab" // 40-char SHA-1
 	body := "freshdesk_revision=" + sha
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for 40-char SHA assigned to freshdesk var, got %d (raw=%q)", len(res), rawList(res))
 	}
@@ -83,7 +84,7 @@ func TestFromData_GitSHAWithAnchor_Negative(t *testing.T) {
 // still arm the token (host OR anchor, not host AND anchor).
 func TestFromData_AnchorNoHost_Positive(t *testing.T) {
 	body := `FRESHDESK_API_KEY = "` + dummy + `"`
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1 from anchor without host, got %d", len(res))
 	}
@@ -96,7 +97,7 @@ func TestFromData_AnchorNoHost_Positive(t *testing.T) {
 // the secondary entropy filter even with a valid anchor.
 func TestFromData_LowEntropy_Negative(t *testing.T) {
 	body := "freshdesk_api_key=aaaaaaaaaaaaaaaaaaaa" // 20 'a's
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy run, got %d", len(res))
 	}
@@ -232,7 +233,7 @@ func TestFromData_VerifyUsesChunkHost(t *testing.T) {
 	defer func() { apiBase = old }()
 
 	body := "host=acme.freshdesk.com\nfreshdesk_token=" + dummy
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}

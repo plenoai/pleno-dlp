@@ -94,7 +94,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		// rotate, but Verify isn't possible without the username half.
 		out = append(out, res)
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 func nearKeyword(lower string, start, end int) bool {

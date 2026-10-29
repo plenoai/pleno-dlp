@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyBU = "0Uv0123456789ABCDE"
@@ -28,7 +29,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("PARDOT_BU=" + dummyBU + "\nPARDOT_TOKEN=" + dummyTok)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -39,7 +40,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("BU=" + dummyBU + "\nTOKEN=" + dummyTok)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -53,7 +54,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // bare `[A-Za-z0-9]{18,256}` + radius-256 keyword gate is now rejected.
 func TestFromData_GenericHighEntropyRejected(t *testing.T) {
 	body := []byte("pardot_api_token config\nfirst=Zk9Qm2Xc7VtRbN4hYpL8dWg3\nsecond=Jq6Tn1Bs5Hx0CwM8eRf2KdVa9")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (generic high-entropy strings must not match), got %d", len(res))
 	}
@@ -66,7 +67,7 @@ func TestFromData_GenericHighEntropyRejected(t *testing.T) {
 func TestFromData_RealisticToken(t *testing.T) {
 	const realTok = "00DB0000000TfcRMAQ!AQQAQFhoK8vTMg_rKA.esrJ2bCs.OOIjJgl9Cx6O7Kqj"
 	body := []byte("PARDOT_BUSINESS_UNIT_ID=" + dummyBU + "\nPARDOT_API_TOKEN=" + realTok)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1 for realistic Salesforce OAuth token")
 	}

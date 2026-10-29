@@ -83,7 +83,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			Severity:     sev,
 		})
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // splitEmail returns the service-account email portion of an

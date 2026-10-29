@@ -50,3 +50,11 @@ func safeMarker(raw, rawV2 []byte) string {
 	}
 	return ""
 }
+
+// SafeResults enforces the display contract on every result before a detector returns.
+func SafeResults(results []Result) []Result {
+	for i := range results {
+		results[i].Redacted = results[i].SafeRedacted()
+	}
+	return results
+}

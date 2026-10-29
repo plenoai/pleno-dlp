@@ -122,7 +122,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		}
 		results = append(results, res)
 	}
-	return results, nil
+	return detectors.SafeResults(results), nil
 }
 
 // nearestSecret picks the closest 40-char base64-ish run within 256 bytes of

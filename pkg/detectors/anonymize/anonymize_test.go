@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // fakeAnalyzer is the standard test substitute. It records the last
@@ -73,7 +74,7 @@ func TestFromData_EngineOff_ReturnsNil(t *testing.T) {
 	fetchAnalyzer = func() Analyzer { return nil }
 	t.Cleanup(func() { fetchAnalyzer = prev })
 
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("alice@example.com"))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("alice@example.com"))
 	if err != nil {
 		t.Fatalf("engine-off must not error, got %v", err)
 	}
@@ -95,7 +96,7 @@ func TestFromData_BinaryInput_ShortCircuits(t *testing.T) {
 	f := &fakeAnalyzer{}
 	withAnalyzer(t, f)
 
-	res, err := Scanner{}.FromData(context.Background(), false, append([]byte("PNG\x00\x00"), []byte("john@example.com")...))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, append([]byte("PNG\x00\x00"), []byte("john@example.com")...))
 	if err != nil || res != nil {
 		t.Fatalf("binary input must return (nil, nil), got (%v, %v)", res, err)
 	}
@@ -107,7 +108,7 @@ func TestFromData_BinaryInput_ShortCircuits(t *testing.T) {
 func TestFromData_EmptyFindings(t *testing.T) {
 	withAnalyzer(t, &fakeAnalyzer{})
 
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("nothing to see"))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("nothing to see"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -120,7 +121,7 @@ func TestFromData_AnalyzerError(t *testing.T) {
 	want := errors.New("transport oops")
 	withAnalyzer(t, &fakeAnalyzer{err: want})
 
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("x"))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("x"))
 	if !errors.Is(err, want) {
 		t.Fatalf("expected propagated error, got %v", err)
 	}
@@ -140,7 +141,7 @@ func TestFromData_SingleEmailFinding(t *testing.T) {
 		}},
 	})
 
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("contact: alice@example.com"))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("contact: alice@example.com"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -177,7 +178,7 @@ func TestFromData_MultipleEntityKinds(t *testing.T) {
 		},
 	})
 
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("doc"))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("doc"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -204,7 +205,7 @@ func TestFromData_PassesLanguageHint(t *testing.T) {
 	f := &fakeAnalyzer{}
 	withAnalyzer(t, f)
 
-	_, _ = Scanner{}.FromData(context.Background(), false, []byte("payload"))
+	_, _ = redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("payload"))
 	if f.lastLang != "" {
 		t.Errorf("language hint: want %q (defer to supervisor config), got %q", "", f.lastLang)
 	}
@@ -243,19 +244,19 @@ func TestRegistered(t *testing.T) {
 func TestFromReaderSkipsDisabledAndPreservesEnabledInput(t *testing.T) {
 	withAnalyzer(t, nil)
 	// A disabled analyzer must not read or allocate the declared large body.
-	if results, err := (Scanner{}).FromReader(context.Background(), false, nil, 64<<20); err != nil || len(results) != 0 {
+	if results, err := redactiontest.FromReader(t, (Scanner{}), context.Background(), false, nil, 64<<20); err != nil || len(results) != 0 {
 		t.Fatalf("disabled reader: results=%v error=%v", results, err)
 	}
 	analyzer := &fakeAnalyzer{}
 	fetchAnalyzer = func() Analyzer { return analyzer }
 	text := "contact: alice@example.com"
-	if _, err := (Scanner{}).FromReader(context.Background(), false, strings.NewReader(text), int64(len(text))); err != nil {
+	if _, err := redactiontest.FromReader(t, (Scanner{}), context.Background(), false, strings.NewReader(text), int64(len(text))); err != nil {
 		t.Fatal(err)
 	}
 	if analyzer.lastText != text {
 		t.Fatalf("input changed: %q", analyzer.lastText)
 	}
-	if _, err := (Scanner{}).FromReader(context.Background(), false, strings.NewReader(text), int64(len(text)+1)); err == nil {
+	if _, err := redactiontest.FromReader(t, (Scanner{}), context.Background(), false, strings.NewReader(text), int64(len(text)+1)); err == nil {
 		t.Fatal("truncated reader silently accepted")
 	}
 }

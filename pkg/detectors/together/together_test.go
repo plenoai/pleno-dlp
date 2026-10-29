@@ -4,6 +4,7 @@ package together
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,7 +13,7 @@ import (
 const dummy = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("TOGETHER_API_KEY="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("TOGETHER_API_KEY="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -22,7 +23,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("commit="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("commit="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

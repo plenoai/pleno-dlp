@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -47,7 +48,7 @@ func sampleJSON(t *testing.T) []byte {
 func TestFromData_Positive(t *testing.T) {
 	blob := sampleJSON(t)
 	wrapped := []byte("LEAD\n" + string(blob) + "\nTRAIL")
-	res, err := Scanner{}.FromData(context.Background(), false, wrapped)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, wrapped)
 	if err != nil {
 		t.Fatalf("FromData err: %v", err)
 	}
@@ -63,7 +64,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NotAServiceAccount(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(`{"type": "user"}`))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(`{"type": "user"}`))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

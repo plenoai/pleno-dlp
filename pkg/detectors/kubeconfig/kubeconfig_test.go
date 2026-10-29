@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const sample = `apiVersion: v1
@@ -43,7 +44,7 @@ users:
     token: ` + "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJrdWJlcm5ldGVzIn0.AbCdEfGhIj"
 
 func TestFromData_AllThreeFields(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(sample))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(sample))
 	if len(res) != 3 {
 		t.Fatalf("expected 3 (cert, key, token), got %d", len(res))
 	}
@@ -63,14 +64,14 @@ func TestFromData_AllThreeFields(t *testing.T) {
 
 func TestFromData_NotKubeconfig(t *testing.T) {
 	// Bare `token:` line without kind: Config is not a kubeconfig leak.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("token: abcdefghijklmnopqrstu"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("token: abcdefghijklmnopqrstu"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
 }
 
 func TestFromData_UserNameCapture(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(sample))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(sample))
 	for _, r := range res {
 		if r.ExtraData["field"] != "token" {
 			continue
@@ -135,7 +136,7 @@ func TestFromData_SuppressesFalsePositives(t *testing.T) {
 		"helm values webhook descriptor":  fpHelmValues,
 		"doc example placeholder token":   fpDocExample,
 	} {
-		res, _ := Scanner{}.FromData(context.Background(), false, []byte(fixture))
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(fixture))
 		if len(res) != 0 {
 			t.Errorf("%s: expected 0 findings, got %d (%q)", name, len(res), res[0].Raw)
 		}
@@ -157,7 +158,7 @@ users:
     token: ` + "eyJhbGciOiJSUzI1NiIsImtpZCI6Ik1xN1pBcVQ4In0.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50In0.Zx9QwErTyUiOpAsDfGhJkLzXcVbNm123"
 
 func TestFromData_StillDetectsRealToken(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(tpExecAuth))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tpExecAuth))
 	if len(res) != 1 {
 		t.Fatalf("expected 1 token finding, got %d", len(res))
 	}
@@ -176,7 +177,7 @@ users:
 - name: admin
   user:
     token: ` + "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJrdWJlcm5ldGVzIn0.AbCdEfGhIj"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(noApiVersion))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(noApiVersion))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without apiVersion, got %d", len(res))
 	}
@@ -242,7 +243,7 @@ users:
 }
 
 func TestFromData_ServerExtraData(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(sample))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(sample))
 	for _, r := range res {
 		srv := r.ExtraData["server"]
 		if srv != "https://k8s.example.com" {
@@ -266,7 +267,7 @@ users:
 - name: admin
   user:
     token: ` + "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJrdWJlcm5ldGVzIn0.AbCdEfGhIj"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(doc))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(doc))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -390,7 +391,7 @@ users:
   user:
     token: ` + "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJrdWJlcm5ldGVzIn0.AbCdEfGhIj"
 
-	res, err := Scanner{}.FromData(context.Background(), true, []byte(doc))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(doc))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -419,7 +420,7 @@ users:
   user:
     token: ` + "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJrdWJlcm5ldGVzIn0.AbCdEfGhIj"
 
-	res, err := Scanner{}.FromData(context.Background(), true, []byte(doc))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(doc))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

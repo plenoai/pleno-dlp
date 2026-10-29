@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummyToken is a dummy-shaped HS256 JWT (eyJ header . payload . signature),
@@ -35,7 +36,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("WOODPECKER_TOKEN=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -43,7 +44,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("TOKEN=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without woodpecker keyword, got %d", len(res))
 	}
@@ -54,7 +55,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // match now that the regex is anchored on the JWT structure.
 func TestFromData_RejectsGenericHighEntropy(t *testing.T) {
 	body := []byte("WOODPECKER_TOKEN=" + fpToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for generic high-entropy non-JWT run, got %d", len(res))
 	}
@@ -64,7 +65,7 @@ func TestFromData_RejectsGenericHighEntropy(t *testing.T) {
 // than 64 bytes from the keyword arm must not match.
 func TestFromData_RejectsFarKeyword(t *testing.T) {
 	body := []byte("woodpecker_token mentioned here, then " + strings.Repeat("x", 80) + " " + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for JWT far from keyword, got %d", len(res))
 	}

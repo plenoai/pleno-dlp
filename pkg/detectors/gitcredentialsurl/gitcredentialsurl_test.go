@@ -4,6 +4,7 @@ package gitcredentialsurl
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
 
@@ -14,7 +15,7 @@ import (
 // detector exists to close (see basicAuthWouldCatch's doc comment).
 func TestFromData_RawReservedChars(t *testing.T) {
 	data := []byte("https://ops@example.com:Qx7!#Zeta9@github.example.com\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -34,7 +35,7 @@ func TestFromData_RawReservedChars(t *testing.T) {
 // no double-reporting under two DetectorTypes for the same secret.
 func TestFromData_DefersToBasicAuth(t *testing.T) {
 	data := []byte("https://alice:Sup3r-Duper-Secret9@db.example.com\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (deferred to basicauth), got %d: %+v", len(res), res)
 	}
@@ -52,7 +53,7 @@ func TestFromData_Suppressed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.data))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.data))
 			if len(res) != 0 {
 				t.Fatalf("expected 0, got %d findings for %q: %+v", len(res), tc.data, res)
 			}

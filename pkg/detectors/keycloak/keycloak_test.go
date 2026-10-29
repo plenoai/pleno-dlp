@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummySecret is a 32-char [A-Za-z0-9] value matching Keycloak's documented
@@ -45,7 +46,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("KEYCLOAK_CLIENT_ID=" + dummyID + "\nKEYCLOAK_CLIENT_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -60,7 +61,7 @@ func TestFromData_Found(t *testing.T) {
 func TestFromData_HS384_HS512Lengths(t *testing.T) {
 	for name, sec := range map[string]string{"HS384(48)": dummySecret384, "HS512(64)": dummySecret512} {
 		body := []byte("KEYCLOAK_CLIENT_SECRET=" + sec)
-		res, _ := Scanner{}.FromData(context.Background(), false, body)
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 		if len(res) == 0 {
 			t.Fatalf("%s: expected >=1, got 0 (length-pin regression)", name)
 		}
@@ -72,7 +73,7 @@ func TestFromData_HS384_HS512Lengths(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("CLIENT_ID=" + dummyID + "\nCLIENT_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -83,7 +84,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // keyword must NOT surface, because it fails the entropy floor.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("KEYCLOAK_CLIENT_SECRET=" + lowEntropySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low-entropy secret rejected), got %d", len(res))
 	}

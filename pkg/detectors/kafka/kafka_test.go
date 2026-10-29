@@ -4,6 +4,7 @@ package kafka
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"strings"
 	"testing"
 )
@@ -14,7 +15,7 @@ func TestFromData_PropertyStyle(t *testing.T) {
 		"sasl.username=alice",
 		"sasl.password=hunter2",
 	}, "\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -31,7 +32,7 @@ func TestFromData_PropertyStyle(t *testing.T) {
 
 func TestFromData_JAASStyle(t *testing.T) {
 	body := `sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="bob" password="s3cr3t";`
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -44,7 +45,7 @@ func TestFromData_JAASStyle(t *testing.T) {
 }
 
 func TestFromData_NoCredentials(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("bootstrap.servers=kafka:9092"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("bootstrap.servers=kafka:9092"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -59,7 +60,7 @@ func TestFromData_JAASStyle_IgnoresUnrelatedDatasource(t *testing.T) {
 		`spring.datasource.password="hunter2dbValueX9"`,
 		`spring.kafka.properties.sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="bob" password="Zk8vQ2pLmN4w";`,
 	}, "\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -81,7 +82,7 @@ func TestFromData_JAASStyle_IgnoresJDBCBean(t *testing.T) {
 		`<bean id="jdbc">username="svc" password="jdbcSecretValue42"</bean>`,
 		`<bean id="kafka">org.apache.kafka.common.security.plain.PlainLoginModule required;</bean>`,
 	}, "\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (JDBC password outside JAAS clause), got %d: %+v", len(res), res)
 	}
@@ -91,7 +92,7 @@ func TestFromData_JAASStyle_IgnoresJDBCBean(t *testing.T) {
 // be suppressed (it is not a live secret).
 func TestFromData_JAASStyle_SuppressesPlaceholder(t *testing.T) {
 	body := `sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="bob" password="${KAFKA_SASL_PASSWORD}";`
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (templated placeholder), got %d: %+v", len(res), res)
 	}
@@ -100,7 +101,7 @@ func TestFromData_JAASStyle_SuppressesPlaceholder(t *testing.T) {
 // True-positive: the original JAAS shape is still detected after hardening.
 func TestFromData_JAASStyle_StillDetected(t *testing.T) {
 	body := `sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="bob" password="s3cr3tP4ss";`
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}

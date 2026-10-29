@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 var dummyPAT = "github_pat_" + strings.Repeat("A", 22) + "_" + strings.Repeat("b", 59)
@@ -28,7 +29,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Match(t *testing.T) {
 	body := []byte("GITHUB_TOKEN=" + dummyPAT)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -38,14 +39,14 @@ func TestFromData_Match(t *testing.T) {
 }
 
 func TestFromData_NoPrefix(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+strings.Repeat("a", 90)))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+strings.Repeat("a", 90)))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without prefix, got %d", len(res))
 	}
 }
 
 func TestFromData_TooShort(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("github_pat_"+strings.Repeat("A", 50)))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("github_pat_"+strings.Repeat("A", 50)))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for short token, got %d", len(res))
 	}
@@ -62,7 +63,7 @@ func TestFromData_ShapeGateKeepsUnicodeAndRejectsNearMatches(t *testing.T) {
 		{"invalid first then valid", " github_pat_short " + dummyPAT, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			res, err := Scanner{}.FromData(context.Background(), false, []byte(tc.body))
+			res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.body))
 			if err != nil {
 				t.Fatalf("FromData err: %v", err)
 			}
@@ -75,7 +76,7 @@ func TestFromData_ShapeGateKeepsUnicodeAndRejectsNearMatches(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte(dummyPAT + "\n" + dummyPAT)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}

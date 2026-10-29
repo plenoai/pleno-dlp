@@ -110,7 +110,7 @@ func (d *Detector) FromData(ctx context.Context, verify bool, data []byte) ([]de
 		}
 		out = append(out, r)
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 func (d *Detector) verify(ctx context.Context, secret string) (bool, error) {

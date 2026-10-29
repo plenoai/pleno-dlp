@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyToken = "api_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL0123"
@@ -28,7 +29,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("close.com api_key=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -36,7 +37,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_UppercaseContext(t *testing.T) {
 	body := []byte("CLOSE.COM api_key=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected case-insensitive close context to match")
 	}
@@ -44,7 +45,7 @@ func TestFromData_UppercaseContext(t *testing.T) {
 
 func TestFromData_UnicodeLongSContextRemainsUnmatched(t *testing.T) {
 	body := []byte("CLOſE.COM api_key=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("strings.ToLower-compatible Unicode context should remain unmatched, got %d", len(res))
 	}
@@ -52,7 +53,7 @@ func TestFromData_UnicodeLongSContextRemainsUnmatched(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without close keyword, got %d", len(res))
 	}
@@ -60,7 +61,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("closecrm=" + dummyToken + "\nclose_api=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}

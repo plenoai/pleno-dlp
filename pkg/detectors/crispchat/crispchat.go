@@ -109,7 +109,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if len(out) == 0 {
 		return nil, nil
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // armedByKeyword reports whether an assignment-style Crisp reference appears in

@@ -4,6 +4,7 @@ package sentry
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"strings"
 	"testing"
 )
@@ -11,7 +12,7 @@ import (
 const dummy = "https://0123456789abcdef0123456789abcdef@o12345.ingest.sentry.io/4504000"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), true, []byte("SENTRY_DSN="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("SENTRY_DSN="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -34,7 +35,7 @@ func TestFromData_Negative(t *testing.T) {
 		[]byte("not a dsn"),
 	}
 	for i, c := range cases {
-		res, _ := Scanner{}.FromData(context.Background(), false, c)
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, c)
 		if len(res) != 0 {
 			t.Fatalf("case %d: expected 0, got %d", i, len(res))
 		}

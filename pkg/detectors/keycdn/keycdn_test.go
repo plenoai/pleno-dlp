@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummyToken mirrors the documented KeyCDN secret-key shape: the `sk_prod_`
@@ -30,7 +31,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("keycdn_api=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -43,7 +44,7 @@ func TestFromData_Found(t *testing.T) {
 // real keys that appear without a nearby "keycdn" substring.
 func TestFromData_FoundNoKeywordContext(t *testing.T) {
 	body := []byte("export API_KEY=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1 (prefix-anchored), got 0")
 	}
@@ -55,7 +56,7 @@ func TestFromData_FoundNoKeywordContext(t *testing.T) {
 // `sk_prod_` prefix anchor it must no longer match.
 func TestFromData_GenericHighEntropyRejected(t *testing.T) {
 	body := []byte("keycdn_api=Xk7Qz9Lm2Rt4Vw8Np1Bc5Df3Gh6Jk0")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for non-prefixed high-entropy string, got %d", len(res))
 	}

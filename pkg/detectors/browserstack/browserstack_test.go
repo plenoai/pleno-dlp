@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -30,7 +31,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("BROWSERSTACK_USERNAME=" + dummyUser + "\nBROWSERSTACK_ACCESS_KEY=" + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -41,7 +42,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_NoUser(t *testing.T) {
 	body := []byte("BROWSERSTACK_ACCESS_KEY=" + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without user, got %d", len(res))
 	}
@@ -49,7 +50,7 @@ func TestFromData_NoUser(t *testing.T) {
 
 func TestFromData_NoKey(t *testing.T) {
 	body := []byte("BROWSERSTACK_USERNAME=" + dummyUser)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without key, got %d", len(res))
 	}

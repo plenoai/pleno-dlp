@@ -4,6 +4,7 @@ package circleci
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +16,7 @@ const dummyProject = "CCIPRJ_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_aBcD-G"
 const dummyHex = "0123456789abcdef0123456789abcdef01234567"
 
 func TestFromData_Project(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("CIRCLECI_TOKEN="+dummyProject))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("CIRCLECI_TOKEN="+dummyProject))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -25,11 +26,11 @@ func TestFromData_Project(t *testing.T) {
 }
 
 func TestFromData_Hex_KeywordRequired(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummyHex))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummyHex))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
-	res, _ = Scanner{}.FromData(context.Background(), false, []byte("CIRCLECI_TOKEN="+dummyHex))
+	res, _ = redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("CIRCLECI_TOKEN="+dummyHex))
 	if len(res) != 1 {
 		t.Fatalf("expected 1 with keyword, got %d", len(res))
 	}

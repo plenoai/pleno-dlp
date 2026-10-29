@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // realKey is a Crisp plugin key shape: 64-char lowercase-hex, high entropy.
@@ -33,7 +34,7 @@ func TestFromData_TruePositives(t *testing.T) {
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, body)
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 			if len(res) == 0 {
 				t.Fatalf("expected >=1 true positive, got 0")
 			}
@@ -67,7 +68,7 @@ func TestFromData_FalsePositivesSuppressed(t *testing.T) {
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, body)
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 			if len(res) != 0 {
 				t.Fatalf("expected FP suppression, got %d result(s): %q", len(res), res[0].Raw)
 			}
@@ -77,7 +78,7 @@ func TestFromData_FalsePositivesSuppressed(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + realKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without crisp assignment, got %d", len(res))
 	}
@@ -85,7 +86,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("crisp_key=" + realKey + "\ncrisp_token=" + realKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}

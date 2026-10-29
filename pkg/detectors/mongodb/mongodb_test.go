@@ -5,12 +5,13 @@ package mongodb
 import (
 	"context"
 	"encoding/binary"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
 
 func TestFromData_StandardScheme(t *testing.T) {
 	body := "MONGO_URL=mongodb://app:p4ss@db.example.com:27017/app"
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -30,7 +31,7 @@ func TestFromData_StandardScheme(t *testing.T) {
 
 func TestFromData_SrvScheme(t *testing.T) {
 	body := "mongodb+srv://app:hunter2@cluster.mongodb.net/app?retryWrites=true"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if len(res) != 1 {
 		t.Fatalf("expected 1")
 	}
@@ -46,7 +47,7 @@ func TestFromData_SrvScheme(t *testing.T) {
 }
 
 func TestFromData_NoUserinfo(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("mongodb://db.local:27017"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("mongodb://db.local:27017"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0")
 	}
@@ -69,7 +70,7 @@ func TestFromData_SuppressesPlaceholders(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, err := Scanner{}.FromData(context.Background(), false, []byte(tc.body))
+			res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.body))
 			if err != nil {
 				t.Fatalf("err: %v", err)
 			}
@@ -85,7 +86,7 @@ func TestFromData_SuppressesPlaceholders(t *testing.T) {
 // snippet would use must still be reported.
 func TestFromData_RealPasswordStillDetected(t *testing.T) {
 	body := "mongodb://svc:Xk9$mZ2pQ7wL@localhost:27017/orders"
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -215,7 +216,7 @@ func TestVerify_DefaultPort(t *testing.T) {
 
 func TestFromData_SrvVerifySkipped(t *testing.T) {
 	body := "mongodb+srv://app:hunter2@cluster.mongodb.net/db"
-	res, err := Scanner{}.FromData(context.Background(), true, []byte(body))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(body))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

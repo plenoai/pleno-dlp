@@ -9,11 +9,12 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 func TestFromData_Positive(t *testing.T) {
 	conn := "Server=tcp:my-srv.database.windows.net,1433;Initial Catalog=appdb;Persist Security Info=False;User ID=admin;Password=Sup3rSecret!;MultipleActiveResultSets=False;"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(conn))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(conn))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -35,14 +36,14 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoHost(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("Server=tcp:localhost;User ID=u;Password=p;"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("Server=tcp:localhost;User ID=u;Password=p;"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0")
 	}
 }
 
 func TestFromData_NoPassword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("Server=tcp:srv.database.windows.net,1433;User ID=u;Authentication=Active Directory Default;"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("Server=tcp:srv.database.windows.net,1433;User ID=u;Authentication=Active Directory Default;"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0")
 	}
@@ -75,7 +76,7 @@ func TestFromData_SuppressFP(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.in))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.in))
 			if len(res) != 0 {
 				t.Fatalf("expected 0 results, got %d (raw=%q)", len(res), res[0].Raw)
 			}
@@ -91,7 +92,7 @@ func TestFromData_NoCrossStringPairing(t *testing.T) {
 	// First conn: host present, AAD auth, no password — separated from the
 	// second conn's Password by more than the {0,3} vicinity window.
 	in := "Server=tcp:aad.database.windows.net,1433;Initial Catalog=db1;Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Persist Security Info=False;Connection Timeout=30;Pooling=True;Password=RealOtherDbPass;"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(in))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(in))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 cross-string pairings, got %d (raw=%q, rawv2=%q)", len(res), res[0].Raw, res[0].RawV2)
 	}
@@ -101,7 +102,7 @@ func TestFromData_NoCrossStringPairing(t *testing.T) {
 // inside the vicinity window is still detected after hardening.
 func TestFromData_StillDetectsReal(t *testing.T) {
 	conn := "Server=tcp:prod.database.windows.net,1433;Initial Catalog=appdb;User ID=admin;Password=x9K#mQ7vL2pR;"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(conn))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(conn))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -117,7 +118,7 @@ func TestFromData_StillDetectsReal(t *testing.T) {
 // (Data Source) is still anchored and detected.
 func TestFromData_DataSourceKeyword(t *testing.T) {
 	conn := "Data Source=alt.database.windows.net,1433;Initial Catalog=db;User ID=u;Password=Tr0ub4dor&3X;"
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte(conn))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(conn))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}

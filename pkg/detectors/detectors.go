@@ -1078,9 +1078,9 @@ type Result struct {
 	// RawV2 is a paired secret (e.g. AWS secret access key when Raw is the
 	// access key id). Empty when single-secret.
 	RawV2 []byte
-	// Redacted is the detector-provided display candidate. Direct FromData
-	// callers must use SafeRedacted() before displaying or persisting it; the
-	// engine and built-in output boundaries enforce that it excludes Raw/RawV2.
+	// Redacted excludes the complete nonempty Raw and RawV2 values. Built-in
+	// detector methods normalize it with SafeResults; output boundaries use
+	// SafeRedacted to revalidate custom or manually constructed results.
 	Redacted  string
 	ExtraData map[string]string
 }

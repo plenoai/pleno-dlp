@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyToken = "abcdefghijklmnopqrstuvwxyz1234"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("pushover_token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without pushover keyword, got %d", len(res))
 	}
@@ -48,7 +49,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // + radius 64 must now reject it.
 func TestFromData_BareKeywordProse(t *testing.T) {
 	body := []byte("We migrated our pushover notifications last week. Build hash X7kQ2mLp9rTvWbN4cZ8sHdF1gJ6yAq was green.")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for high-entropy run near bare prose keyword, got %d", len(res))
 	}
@@ -58,7 +59,7 @@ func TestFromData_BareKeywordProse(t *testing.T) {
 // and an assignment arm but is low-information is dropped by the entropy floor.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("pushover_token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy token, got %d", len(res))
 	}
@@ -66,7 +67,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("pushover=" + dummyToken + "\npushover_app=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}

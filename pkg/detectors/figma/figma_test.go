@@ -4,6 +4,7 @@ package figma
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ const dummyLegacy = "figd_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCDE"
 const dummyPAT = "figpat_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCDEFGHIJ"
 
 func TestFromData_Legacy(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("FIGMA_TOKEN="+dummyLegacy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("FIGMA_TOKEN="+dummyLegacy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -27,14 +28,14 @@ func TestFromData_Legacy(t *testing.T) {
 }
 
 func TestFromData_PAT(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("FIGMA_TOKEN="+dummyPAT))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("FIGMA_TOKEN="+dummyPAT))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("figd_short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("figd_short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

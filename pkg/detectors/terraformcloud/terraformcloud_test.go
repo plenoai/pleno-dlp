@@ -4,6 +4,7 @@ package terraformcloud
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ const dummy = "abcdefghij1234.atlasv1." +
 	"ABCDEFGHIJabcdefghij0123456789-_ABCDEFGHIJabcdefghij0123456789-_"
 
 func TestFromData_Positive(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("TFE_TOKEN="+dummy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("TFE_TOKEN="+dummy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -27,7 +28,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_Negative(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("abc.atlasv1.short"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("abc.atlasv1.short"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

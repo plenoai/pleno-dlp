@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "0.abcdef01-2345-6789-abcd-ef0123456789.AbCdEf0123456789AbCd:ZyXwVu9876543210ZyXw"
@@ -33,7 +34,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# bitwarden\nBWS_ACCESS_TOKEN=" + dummy)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -46,7 +47,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -54,7 +55,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("# bitwarden\n" + dummy + "\nrepeat\n" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -198,7 +199,7 @@ func TestFromData_VerifySetsVerified(t *testing.T) {
 	withAPIBase(t, srv)
 
 	body := []byte("# bitwarden\nBWS_ACCESS_TOKEN=" + dummy)
-	res, err := Scanner{}.FromData(context.Background(), true, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), true, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

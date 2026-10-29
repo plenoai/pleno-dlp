@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyUser = "abcdef0123456789ABCDEF"
@@ -28,7 +29,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("FASTSPRING_USER=" + dummyUser + "\nFASTSPRING_PASSWORD=" + dummyPass)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -36,7 +37,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("USER=" + dummyUser + "\nPASS=" + dummyPass)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without fastspring keyword, got %d", len(res))
 	}
@@ -49,7 +50,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("// see https://api.fastspring.com docs\n" +
 		"id=" + dummyUser + "\nsecret=" + dummyPass)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("bare fastspring keyword should not arm without assignment anchor, got %d", len(res))
 	}
@@ -61,7 +62,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	lowEntropy := "AAAAAAAAAAAAAAAAAAAA" // 20 identical chars: entropy ~0
 	body := []byte("FASTSPRING_USER=" + lowEntropy + "\nFASTSPRING_PASSWORD=" + lowEntropy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("low-entropy run should be rejected, got %d", len(res))
 	}

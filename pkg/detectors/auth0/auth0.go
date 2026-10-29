@@ -109,7 +109,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if len(out) == 0 {
 		return nil, nil
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // isUnsignedOrTrivial reports whether the token's signature segment marks it as

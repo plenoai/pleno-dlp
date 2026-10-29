@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyAppID = "cli_abcdef0123456789"
@@ -28,7 +29,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("LARK_APP_ID=" + dummyAppID + "\nLARK_APP_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -39,7 +40,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoMatch(t *testing.T) {
 	body := []byte("token=cli_short")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for malformed app_id, got %d", len(res))
 	}
@@ -52,7 +53,7 @@ func TestFromData_NoMatch(t *testing.T) {
 func TestFromData_RejectsLowEntropySecret(t *testing.T) {
 	const lowEntropyBlob = "deadbeefdeadbeefdeadbeefdeadbeef" // entropy ~2.16
 	body := []byte("lark_app_id=" + dummyAppID + "\nlark_app_secret=" + lowEntropyBlob)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy secret, got %d", len(res))
 	}

@@ -5,6 +5,7 @@ package mixpanel
 import (
 	"context"
 	"encoding/base64"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,7 +17,7 @@ const dummySecret = "0123456789abcdef0123456789abcdef"
 
 func TestFromData_Pair(t *testing.T) {
 	body := []byte("# mixpanel\nMIXPANEL_SERVICE_ACCOUNT=" + dummyAccount + "\nMIXPANEL_SECRET=" + dummySecret)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -33,7 +34,7 @@ func TestFromData_Pair(t *testing.T) {
 
 func TestFromData_AccountOnly_NoSecret(t *testing.T) {
 	body := []byte("# mixpanel\nACCOUNT=" + dummyAccount)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -48,7 +49,7 @@ func TestFromData_AccountOnly_NoSecret(t *testing.T) {
 func TestFromData_NoKeyword_DoesNotMatch(t *testing.T) {
 	// slug.id shape without "mixpanel" → must skip.
 	body := []byte("hostname=" + dummyAccount + " secret=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

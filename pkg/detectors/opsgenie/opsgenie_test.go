@@ -4,6 +4,7 @@ package opsgenie
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,7 +14,7 @@ const dummy = "12345678-90ab-cdef-1234-567890abcdef"
 
 func TestFromData_Positive(t *testing.T) {
 	body := "opsgenie_api_key=" + dummy
-	res, err := Scanner{}.FromData(context.Background(), false, []byte(body))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(body))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -26,7 +27,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("uuid="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("uuid="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without opsgenie keyword, got %d", len(res))
 	}

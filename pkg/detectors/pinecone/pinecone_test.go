@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "pcsk_AbCdEf0123456789AbCdEf0123456789AbCdEf0123456789AbCdEf01"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("PINECONE_API_KEY=" + dummy)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -37,7 +38,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("noise=AbCdEf0123456789AbCdEf01"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("noise=AbCdEf0123456789AbCdEf01"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without pcsk_ prefix, got %d", len(res))
 	}

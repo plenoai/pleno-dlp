@@ -4,6 +4,7 @@ package cloudflare
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,7 @@ import (
 const dummyTok = "abcdefghijklmnopqrstuvwxyz0123456789ABCD"
 
 func TestFromData_PositiveWithKeyword(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("CF_API_TOKEN="+dummyTok))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("CF_API_TOKEN="+dummyTok))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -24,7 +25,7 @@ func TestFromData_PositiveWithKeyword(t *testing.T) {
 
 func TestFromData_NoKeywordSuppressed(t *testing.T) {
 	// Same shape, no co-occurrence: must NOT emit (otherwise we drown in noise).
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("FOO="+dummyTok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("FOO="+dummyTok))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -111,7 +112,7 @@ func TestFromData_VerifyEnrichesTokenAndAccounts(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte("CF_API_TOKEN="+dummyTok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("CF_API_TOKEN="+dummyTok))
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true")
 	}
@@ -147,7 +148,7 @@ func TestFromData_VerifyDisabledTokenFlagged(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte("CF_API_TOKEN="+dummyTok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("CF_API_TOKEN="+dummyTok))
 	if !res[0].Verified {
 		t.Fatalf("expected Verified=true (verify endpoint returned 200)")
 	}
@@ -180,7 +181,7 @@ func TestFromData_VerifyTruncatesLongAccountList(t *testing.T) {
 	apiBase = srv.URL
 	defer func() { apiBase = old }()
 
-	res, _ := Scanner{}.FromData(context.Background(), true, []byte("CF_API_TOKEN="+dummyTok))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte("CF_API_TOKEN="+dummyTok))
 	if res[0].ExtraData["cf_accounts_count"] != "7" {
 		t.Errorf("cf_accounts_count = %q, want 7", res[0].ExtraData["cf_accounts_count"])
 	}

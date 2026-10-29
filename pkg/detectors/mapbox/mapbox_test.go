@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // dummy token with payload `{"u":"testuser"}` base64url-encoded.
@@ -29,7 +30,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("MAPBOX_SECRET=" + dummy)
-	res, err := Scanner{}.FromData(context.Background(), false, body)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -46,7 +47,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	// pk. (public) tokens must not be reported.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("MAPBOX_PUB=pk.eyJhbGciOiJIUzI1NiJ9.eyJ1IjoidGVzdHVzZXIifQ.AbCdEf0123456789AbCdEf0123456789"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("MAPBOX_PUB=pk.eyJhbGciOiJIUzI1NiJ9.eyJ1IjoidGVzdHVzZXIifQ.AbCdEf0123456789AbCdEf0123456789"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for pk., got %d", len(res))
 	}
@@ -54,7 +55,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_InvalidPayload(t *testing.T) {
 	// sk.<garbage>.<garbage>.<garbage> — payload doesn't JSON-decode to {u:..}.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X=sk.aaaaaaaaaaaaaa.bbbbbbbbbbbbbb.cccccccccccccc"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X=sk.aaaaaaaaaaaaaa.bbbbbbbbbbbbbb.cccccccccccccc"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for non-JSON payload, got %d", len(res))
 	}

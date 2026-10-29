@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyToken = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN0123456789"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("jx_token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without jenkinsx keyword, got %d", len(res))
 	}
@@ -43,7 +44,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("jenkinsx=" + dummyToken + "\njenkins_x_token=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -56,7 +57,7 @@ func TestFromData_Dedup(t *testing.T) {
 // strings.Contains gate matched this; the armRe assignment anchor must not.
 func TestFromData_BareKeywordNoArm(t *testing.T) {
 	body := []byte("# built on the jenkinsx platform\nbuildHash = " + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for high-entropy run near bare keyword (no arm), got %d", len(res))
 	}
@@ -67,7 +68,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 // is structurally low-entropy (repeated substring) must not surface.
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	body := []byte("jenkinsx_token=abcabcabcabcabcabcabcabcabcabcabcabcabcabc")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy armed run, got %d", len(res))
 	}

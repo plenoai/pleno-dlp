@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -31,7 +32,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# tenable\nTENABLE_ACCESS_KEY=" + dummyAccess + "\nTENABLE_SECRET_KEY=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -42,7 +43,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("ACCESS_KEY=" + dummyAccess + "\nSECRET_KEY=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without tenable keyword, got %d", len(res))
 	}
@@ -50,7 +51,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_OnlyAccess(t *testing.T) {
 	body := []byte("tenable: ACCESS_KEY=" + dummyAccess)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 with only access key, got %d", len(res))
 	}
@@ -59,7 +60,7 @@ func TestFromData_OnlyAccess(t *testing.T) {
 func TestFromData_TooShort(t *testing.T) {
 	short := strings.Repeat("a", 32)
 	body := []byte("tenable: ACCESS_KEY=" + short + "\nSECRET_KEY=" + short)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for too-short, got %d", len(res))
 	}

@@ -5,6 +5,7 @@ package pgpass
 import (
 	"bytes"
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"reflect"
 	"strings"
 	"testing"
@@ -16,11 +17,11 @@ func TestFromReaderMatchesFromDataWithLongWhitespace(t *testing.T) {
 		strings.Repeat("\t", 70<<10) + "\n"
 	data := []byte(line + "not a pgpass line\n" + "replica.example.com:5432:billing:svc_replica:An0ther-Secret9\n")
 
-	want, err := (Scanner{}).FromData(context.Background(), false, data)
+	want, err := redactiontest.FromData(t, (Scanner{}), context.Background(), false, data)
 	if err != nil {
 		t.Fatalf("FromData: %v", err)
 	}
-	got, err := (Scanner{}).FromReader(context.Background(), false, bytes.NewReader(data), int64(len(data)))
+	got, err := redactiontest.FromReader(t, (Scanner{}), context.Background(), false, bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		t.Fatalf("FromReader: %v", err)
 	}
@@ -34,11 +35,11 @@ func TestFromReaderMatchesFromDataWithTooManyColons(t *testing.T) {
 		"db.internal.example.com:5432:billing:svc_billing:Tr0ub4dor&3xQ9\n" +
 			"db.internal.example.com:5432:billing:svc_billing:Tr0ub4dor&3xQ9:extra\n",
 	)
-	want, err := (Scanner{}).FromData(context.Background(), false, data)
+	want, err := redactiontest.FromData(t, (Scanner{}), context.Background(), false, data)
 	if err != nil {
 		t.Fatalf("FromData: %v", err)
 	}
-	got, err := (Scanner{}).FromReader(context.Background(), false, bytes.NewReader(data), int64(len(data)))
+	got, err := redactiontest.FromReader(t, (Scanner{}), context.Background(), false, bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		t.Fatalf("FromReader: %v", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "abcdef0123456789ABCDEF0123456789abcdef0123456789ABCDEF0123456789abcd"
@@ -28,14 +29,14 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# activecampaign\nAC_API_KEY=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+dummy))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+dummy))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -43,7 +44,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("activecampaign_api_key=" + dummy + "\nactivecampaign_api_key=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}
@@ -58,7 +59,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 	// High-entropy token (not the hex dummy) near only a bare keyword.
 	highEntropy := "Zk9pQ3rT7wXa2bN8mLcV5dF1gH4jKsR6uYeW0iO3pAqZxCvBnMdFgHjKlPoIuYt"
 	body := []byte("see https://acme.api-us1.com docs about activecampaign integrations: " + highEntropy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare-keyword-no-arm FP shape, got %d", len(res))
 	}
@@ -70,7 +71,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	lowEntropy := strings.Repeat("ab", 34) // 68 chars, entropy ~1.0 bits/char
 	body := []byte("ac_api_key=" + lowEntropy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy run, got %d", len(res))
 	}
@@ -78,7 +79,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 
 func TestFromData_TooShort(t *testing.T) {
 	short := strings.Repeat("a", 40)
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("activecampaign "+short))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("activecampaign "+short))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for too-short, got %d", len(res))
 	}
@@ -164,7 +165,7 @@ func TestVerify_Transient429(t *testing.T) {
 func TestFromData_VerifyWired(t *testing.T) {
 	defer withServer(t, http.StatusOK)()
 	body := []byte("# activecampaign\nAC_API_KEY=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), true, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(res))
 	}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 // A realistic, high-entropy 40-hex trigger token (not a sequential/patterned
@@ -31,7 +32,7 @@ func TestKeywords(t *testing.T) {
 // TRUE POSITIVE: assignment-form trigger token is still detected.
 func TestFromData_Positive_HexAssignment(t *testing.T) {
 	body := []byte("CI_PIPELINE_TRIGGER=" + realToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -43,7 +44,7 @@ func TestFromData_Positive_HexAssignment(t *testing.T) {
 // TRUE POSITIVE: UUID-shaped trigger token assigned to trigger_token key.
 func TestFromData_Positive_UUIDAssignment(t *testing.T) {
 	body := []byte(`trigger_token = "` + realUUID + `"`)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -53,7 +54,7 @@ func TestFromData_Positive_UUIDAssignment(t *testing.T) {
 // NOT in assignment form, plus a commit-context word in vicinity.
 func TestFromData_FP_GitCommitSHA(t *testing.T) {
 	body := []byte("# pipeline_trigger fires on commit " + realToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected commit SHA to be suppressed, got %d", len(res))
 	}
@@ -68,7 +69,7 @@ func TestFromData_FP_UnrelatedUUIDInBlock(t *testing.T) {
   id            = "550e8400-e29b-41d4-a716-446655440000"
   trigger_token = var.secret
 }`)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected unrelated UUID to be suppressed, got %d", len(res))
 	}
@@ -78,7 +79,7 @@ func TestFromData_FP_UnrelatedUUIDInBlock(t *testing.T) {
 // assignment form is dropped by the entropy gate.
 func TestFromData_FP_LowEntropyPlaceholder(t *testing.T) {
 	body := []byte("trigger_token=0000000000000000000000000000000000000000")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected low-entropy placeholder to be suppressed, got %d", len(res))
 	}
@@ -86,7 +87,7 @@ func TestFromData_FP_LowEntropyPlaceholder(t *testing.T) {
 
 // A bare token with no trigger keyword in assignment form must not match.
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X="+realToken))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X="+realToken))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -94,7 +95,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte("pipeline_trigger=" + realToken + "\npipeline_trigger=" + realToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummy = "abcdefABCDEF0123456789abcdefABCDEF01234567"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("OCI_TENANCY_KEY=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED=" + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -45,7 +46,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 // assignment-anchor, alongside an Auth-Token-shaped value.
 func TestFromData_OcidPrefixArms(t *testing.T) {
 	body := []byte("resource = ocid1.tenancy.oc1..aaaa region\ntoken = " + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1 when ocid1. marker is within window")
 	}
@@ -57,7 +58,7 @@ func TestFromData_OcidPrefixArms(t *testing.T) {
 // The tightened arm regex + radius 64 must now reject it.
 func TestFromData_BareKeywordRejected(t *testing.T) {
 	body := []byte("// see the oraclecloud blog post. build id: " + dummy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (bare-keyword FP shape), got %d", len(res))
 	}
@@ -68,7 +69,7 @@ func TestFromData_BareKeywordRejected(t *testing.T) {
 func TestFromData_LowEntropyRejected(t *testing.T) {
 	lowEntropy := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 42x 'a'
 	body := []byte("OCI_AUTH_TOKEN=" + lowEntropy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low-entropy), got %d", len(res))
 	}

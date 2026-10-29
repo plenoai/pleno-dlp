@@ -4,6 +4,7 @@ package gitlabdeploy
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ const dummyDeploy = "gldt-AbCdEfGhIjKlMnOpQrSt"
 const dummyAgent = "glagent-AbCdEfGhIjKlMnOpQrSt"
 
 func TestFromData_Deploy(t *testing.T) {
-	res, err := Scanner{}.FromData(context.Background(), false, []byte("CI_DEPLOY_TOKEN="+dummyDeploy))
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("CI_DEPLOY_TOKEN="+dummyDeploy))
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -27,7 +28,7 @@ func TestFromData_Deploy(t *testing.T) {
 }
 
 func TestFromData_Agent(t *testing.T) {
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("KAS_TOKEN="+dummyAgent))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("KAS_TOKEN="+dummyAgent))
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d", len(res))
 	}
@@ -36,7 +37,7 @@ func TestFromData_Agent(t *testing.T) {
 func TestFromData_Negative_PAT(t *testing.T) {
 	// glpat- is the user PAT shape, owned by the gitlab detector. Do not
 	// fire here.
-	res, _ := Scanner{}.FromData(context.Background(), false, []byte("X=glpat-AbCdEfGhIjKlMnOpQrSt"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X=glpat-AbCdEfGhIjKlMnOpQrSt"))
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}

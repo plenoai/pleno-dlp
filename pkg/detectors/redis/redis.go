@@ -86,7 +86,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	if len(out) == 0 {
 		return nil, nil
 	}
-	return out, nil
+	return detectors.SafeResults(out), nil
 }
 
 // dialTimeout is the maximum time allowed for the TCP connection + AUTH

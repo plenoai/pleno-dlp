@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const dummyToken = "pplx-abcdefghijklmnopqrstuvwxyz0123456789ABCDEF"
@@ -27,7 +28,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Match(t *testing.T) {
 	body := []byte("PERPLEXITY_API_KEY=" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -35,7 +36,7 @@ func TestFromData_Match(t *testing.T) {
 
 func TestFromData_NoPrefix(t *testing.T) {
 	body := []byte("API_KEY=abcdefghijklmnopqrstuvwxyz0123456789ABCDEF")
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without prefix, got %d", len(res))
 	}
@@ -43,7 +44,7 @@ func TestFromData_NoPrefix(t *testing.T) {
 
 func TestFromData_Dedup(t *testing.T) {
 	body := []byte(dummyToken + "\n" + dummyToken)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 1 {
 		t.Fatalf("expected dedup to 1, got %d", len(res))
 	}

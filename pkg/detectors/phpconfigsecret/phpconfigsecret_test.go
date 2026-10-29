@@ -4,6 +4,7 @@ package phpconfigsecret
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
 
@@ -26,7 +27,7 @@ define('SECURE_AUTH_SALT', 'Ed&1cr+{3T$a+{[8LP~i5-[|Z` + "`" + `x-V>;Di_C/E~UnSg
 define('LOGGED_IN_SALT',   'of@~yp:v@SK;Y}hzUo4=bz9WmX&vEw5TO dD$<2djGcE+Qz,Sb9i:{+U<#eM-RmE');
 define('NONCE_SALT',       ':9URM*n56|I|Rf$|ud0cFJ<KAA<1h_w]A!/?])<q+!qK>+Lq&j9^-!{%%pW. ,Z=');
 `)
-	res, err := Scanner{}.FromData(context.Background(), false, data)
+	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,7 +50,7 @@ func TestFromData_DBPasswordPlaceholderSuppressed(t *testing.T) {
 	// suppressed, consistent with hardcodedpassword's and basicauth's
 	// existing "admin" placeholder convention in this codebase.
 	data := []byte(`define( 'DB_PASSWORD', 'admin' );` + "\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (placeholder), got %d: %+v", len(res), res)
 	}
@@ -57,7 +58,7 @@ func TestFromData_DBPasswordPlaceholderSuppressed(t *testing.T) {
 
 func TestFromData_DBPasswordRealValue(t *testing.T) {
 	data := []byte(`define( 'DB_PASSWORD', 'Zx9-Krypton-Whale7' );` + "\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -69,7 +70,7 @@ func TestFromData_DBPasswordRealValue(t *testing.T) {
 func TestFromData_UnknownDefineKeyIgnored(t *testing.T) {
 	data := []byte(`define( 'DB_NAME', 'main' );` + "\n" +
 		`define( 'CACHE_KEY_PREFIX', 'app_' );` + "\n")
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (DB_NAME/CACHE_KEY_PREFIX are not known credential keys), got %d: %+v", len(res), res)
 	}
@@ -86,7 +87,7 @@ func TestFromData_ConfigPHPVariableStyle(t *testing.T) {
     $dbuser = 'root';
     $dbpasswd = 'Rq4-Falcon-Ember9';
 `)
-	res, _ := Scanner{}.FromData(context.Background(), false, data)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
 	if len(res) != 1 {
 		t.Fatalf("expected 1, got %d: %+v", len(res), res)
 	}
@@ -111,7 +112,7 @@ func TestFromData_Suppressed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, _ := Scanner{}.FromData(context.Background(), false, []byte(tc.data))
+			res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tc.data))
 			if len(res) != 0 {
 				t.Fatalf("expected 0, got %d findings for %q: %+v", len(res), tc.data, res)
 			}

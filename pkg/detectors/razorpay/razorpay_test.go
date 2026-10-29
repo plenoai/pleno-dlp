@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -30,7 +31,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Positive(t *testing.T) {
 	body := []byte("# razorpay\nKEY=" + dummyKey + "\nSECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatalf("expected >=1, got 0")
 	}
@@ -44,7 +45,7 @@ func TestFromData_Positive(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("KEY=" + dummyKey + "\nSECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without keyword, got %d", len(res))
 	}
@@ -52,7 +53,7 @@ func TestFromData_NoKeyword(t *testing.T) {
 
 func TestFromData_NoSecret(t *testing.T) {
 	body := []byte("razorpay only key " + dummyKey)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without secret, got %d", len(res))
 	}
@@ -69,7 +70,7 @@ func TestFromData_BareKeywordNoArm(t *testing.T) {
 	// key/secret/token/id assignment word; the secret is high-entropy.
 	body := []byte("see https://github.com/razorpay/razorpay-go for the SDK. " +
 		"value " + dummyKey + " other " + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for bare-keyword-no-arm FP shape, got %d", len(res))
 	}
@@ -87,7 +88,7 @@ func TestFromData_LowEntropySecretRejected(t *testing.T) {
 		t.Fatalf("fixture not 24 chars: %d", len(lowEntropy))
 	}
 	body := []byte("razorpay_key=" + dummyKey + "\nrazorpay_secret=" + lowEntropy)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 for low-entropy secret, got %d", len(res))
 	}

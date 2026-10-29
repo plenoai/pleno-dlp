@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
 const (
@@ -32,7 +33,7 @@ func TestKeywords(t *testing.T) {
 
 func TestFromData_Found(t *testing.T) {
 	body := []byte("HELPSCOUT_APP_ID=" + dummyID + " HELPSCOUT_APP_SECRET=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) == 0 {
 		t.Fatal("expected >=1")
 	}
@@ -40,7 +41,7 @@ func TestFromData_Found(t *testing.T) {
 
 func TestFromData_NoKeyword(t *testing.T) {
 	body := []byte("UNRELATED1=" + dummyID + " UNRELATED2=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0, got %d", len(res))
 	}
@@ -53,7 +54,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 	const lowA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 'a's, entropy 0
 	const lowB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	body := []byte("HELPSCOUT_APP_ID=" + lowA + " HELPSCOUT_APP_SECRET=" + lowB)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (low-entropy runs rejected), got %d", len(res))
 	}
@@ -64,7 +65,7 @@ func TestFromData_LowEntropyRejected(t *testing.T) {
 // 64 chars.
 func TestFromData_KeywordWithoutArm(t *testing.T) {
 	body := []byte("we migrated from helpscout last year. CONFIG_A=" + dummyID + " CONFIG_B=" + dummySecret)
-	res, _ := Scanner{}.FromData(context.Background(), false, body)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
 	if len(res) != 0 {
 		t.Fatalf("expected 0 (no arm match near tokens), got %d", len(res))
 	}
