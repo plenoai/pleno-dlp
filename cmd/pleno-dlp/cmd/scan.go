@@ -22,6 +22,7 @@ import (
 	"github.com/spf13/cobra"
 
 	archivepkg "github.com/plenoai/pleno-dlp/pkg/archive"
+	"github.com/plenoai/pleno-dlp/pkg/connectors"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/detectors/custom"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
@@ -825,13 +826,14 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 			)
 		}
 	}
-	acceptCoverage, acceptedCorruptArchives, acceptedRepoWalkTimeouts := false, 0, 0
+	acceptCoverage, acceptedCorruptArchives, acceptedRepoWalkTimeouts, acceptedRepoCloneFailures := false, 0, 0, 0
 	partialRepositoryState := false
 	if coverageErr != nil && kind == "github" {
-		acceptCoverage, acceptedCorruptArchives, acceptedRepoWalkTimeouts = acceptedGitHubCoverage(
+		acceptCoverage, acceptedCorruptArchives, acceptedRepoWalkTimeouts, acceptedRepoCloneFailures = acceptedGitHubCoverage(
 			coverageErr,
 			scanGitHubOpts.allowCorruptArchives,
 			scanGitHubOpts.allowRepoWalkTimeouts,
+			scanGitHubOpts.allowRepoCloneFailures,
 		)
 		if !acceptCoverage && scanGitHubOpts.publishPartialRepositoryState && githubPartialRepositoryStateSafe(coverageErr, src) {
 			acceptCoverage = true
@@ -882,6 +884,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 			if acceptedRepoWalkTimeouts > 0 {
 				fmt.Fprintf(cmd.ErrOrStderr(), "coverage: accepted-repo-walk-timeouts=%d retry=next-incremental-run\n", acceptedRepoWalkTimeouts)
 			}
+			if acceptedRepoCloneFailures > 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(), "coverage: accepted-repo-clone-failures=%d retry=next-incremental-run\n", acceptedRepoCloneFailures)
+			}
 		} else {
 			return fmt.Errorf("scan: %w", coverageErr)
 		}
@@ -901,30 +906,34 @@ func githubPartialRepositoryStateSafe(coverage *engine.DegradedError, src source
 	return ok && partial.PartialIncrementalStateSafe()
 }
 
-func acceptedGitHubCoverage(coverage *engine.DegradedError, allowCorruptArchives, allowRepoWalkTimeouts bool) (bool, int, int) {
+func acceptedGitHubCoverage(coverage *engine.DegradedError, allowCorruptArchives, allowRepoWalkTimeouts, allowRepoCloneFailures bool) (bool, int, int, int) {
 	if coverage == nil || coverage.Total == 0 || coverage.Total != len(coverage.Failures) {
-		return false, 0, 0
+		return false, 0, 0, 0
 	}
-	corruptArchives, repoWalkTimeouts := 0, 0
+	corruptArchives, repoWalkTimeouts, repoCloneFailures := 0, 0, 0
 	for _, failure := range coverage.Failures {
 		if allowRepoWalkTimeouts && repositoryWalkTimeoutFailure(failure) {
 			repoWalkTimeouts++
 			continue
 		}
+		if allowRepoCloneFailures && repositoryCloneFailure(failure) {
+			repoCloneFailures++
+			continue
+		}
 		if failure.Kind == engine.FailureDetector {
-			return false, 0, 0
+			return false, 0, 0, 0
 		}
 		if !corruptArchiveErrorOnly(failure.Err) || !allowCorruptArchives {
-			return false, 0, 0
+			return false, 0, 0, 0
 		}
 		corruptArchives++
 	}
-	return true, corruptArchives, repoWalkTimeouts
+	return true, corruptArchives, repoWalkTimeouts, repoCloneFailures
 }
 
 func corruptArchiveCoverageOnly(coverage *engine.DegradedError) bool {
-	accepted, corruptArchives, repoWalkTimeouts := acceptedGitHubCoverage(coverage, true, false)
-	return accepted && corruptArchives == coverage.Total && repoWalkTimeouts == 0
+	accepted, corruptArchives, repoWalkTimeouts, repoCloneFailures := acceptedGitHubCoverage(coverage, true, false, false)
+	return accepted && corruptArchives == coverage.Total && repoWalkTimeouts == 0 && repoCloneFailures == 0
 }
 
 func corruptArchiveErrorOnly(err error) bool {
@@ -976,6 +985,12 @@ func repositoryWalkTimeoutFailure(failure engine.ScanFailure) bool {
 	return errors.Is(failure.Err, context.DeadlineExceeded) &&
 		strings.HasPrefix(message, "github: repository walk ") &&
 		strings.Contains(message, " exceeded ")
+}
+
+func repositoryCloneFailure(failure engine.ScanFailure) bool {
+	return failure.Kind == engine.FailureSource &&
+		strings.HasPrefix(failure.Source, "repository-history:") &&
+		connectors.IsGitHubCloneFailure(failure.Err)
 }
 
 func startCPUProfile(path string) (func() error, error) {
@@ -1281,7 +1296,7 @@ func largestGitHubIncrementalEntry(entries map[string]incrementalStateEntry) (in
 		Surfaces map[string]map[string]json.RawMessage `json:"surfaces"`
 	}
 	var selected incrementalStateEntry
-	selectedCount := 0
+	selectedCount, ambiguous := 0, false
 	for key, entry := range entries {
 		if !strings.HasPrefix(key, "github:") || len(entry.SourceState) == 0 {
 			continue
@@ -1295,14 +1310,31 @@ func largestGitHubIncrementalEntry(entries map[string]incrementalStateEntry) (in
 			continue
 		}
 		if count > selectedCount {
-			selected, selectedCount = entry, count
+			selected, selectedCount, ambiguous = entry, count, false
 			continue
 		}
-		if count == selectedCount && !bytes.Equal(entry.SourceState, selected.SourceState) {
-			return incrementalStateEntry{}, false, fmt.Errorf("incremental: ambiguous GitHub state migration candidates with %d repositories", count)
+		if count < selectedCount || bytes.Equal(entry.SourceState, selected.SourceState) {
+			continue
+		}
+		switch entryAt, selectedAt := incrementalEntryUpdatedAt(entry), incrementalEntryUpdatedAt(selected); {
+		case entryAt.After(selectedAt):
+			selected, ambiguous = entry, false
+		case entryAt.Equal(selectedAt):
+			ambiguous = true
 		}
 	}
+	if ambiguous {
+		return incrementalStateEntry{}, false, fmt.Errorf("incremental: ambiguous GitHub state migration candidates with %d repositories", selectedCount)
+	}
 	return selected, selectedCount > 0, nil
+}
+
+func incrementalEntryUpdatedAt(entry incrementalStateEntry) time.Time {
+	at, err := time.Parse(time.RFC3339, entry.UpdatedAt)
+	if err != nil {
+		return time.Time{}
+	}
+	return at
 }
 
 func scannerFingerprint(kind string, cfg []byte) (string, error) {

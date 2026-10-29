@@ -687,6 +687,33 @@ func TestLargestGitHubIncrementalEntryRejectsAmbiguousLargest(t *testing.T) {
 	}
 }
 
+func TestLargestGitHubIncrementalEntryPrefersNewestAmongLargest(t *testing.T) {
+	entries := map[string]incrementalStateEntry{
+		"github:older": {
+			UpdatedAt:   "2026-08-18T10:55:30Z",
+			SourceState: json.RawMessage(`{"version":3,"surfaces":{"repository-history":{"acme/one":{},"acme/two":{}}}}`),
+		},
+		"github:newer": {
+			UpdatedAt:   "2026-08-24T04:03:49Z",
+			SourceState: json.RawMessage(`{"version":3,"surfaces":{"repository-history":{"acme/one":{},"acme/other":{}}}}`),
+		},
+		"github:older-twin": {
+			UpdatedAt:   "2026-08-18T10:55:30Z",
+			SourceState: json.RawMessage(`{"version":3,"surfaces":{"repository-history":{"acme/two":{},"acme/three":{}}}}`),
+		},
+	}
+
+	for range 20 {
+		got, found, err := largestGitHubIncrementalEntry(entries)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !found || got.UpdatedAt != "2026-08-24T04:03:49Z" {
+			t.Fatalf("selected entry = (%q, %v), want newest", got.UpdatedAt, found)
+		}
+	}
+}
+
 func TestLargestGitHubIncrementalEntryIgnoresEmptyAndInvalidState(t *testing.T) {
 	entries := map[string]incrementalStateEntry{
 		"github:empty":   {SourceState: json.RawMessage(`{"version":3,"surfaces":{"repository-history":{}}}`)},
@@ -849,7 +876,7 @@ func TestAcceptedGitHubCoverageAllowsExplicitMixedRetryableFailures(t *testing.T
 			{Kind: engine.FailureSource, Source: "repository-history:acme/slow", Err: timeout},
 		},
 	}
-	accepted, corruptArchives, repoWalkTimeouts := acceptedGitHubCoverage(coverage, true, true)
+	accepted, corruptArchives, repoWalkTimeouts, _ := acceptedGitHubCoverage(coverage, true, true, false)
 	if !accepted || corruptArchives != 1 || repoWalkTimeouts != 1 {
 		t.Fatalf("mixed coverage = (%v, %d, %d), want (true, 1, 1)", accepted, corruptArchives, repoWalkTimeouts)
 	}
@@ -873,11 +900,11 @@ func TestAcceptedGitHubCoverageRejectsImmutableHistoryPolicyGaps(t *testing.T) {
 		Counts:   map[engine.FailureKind]int{engine.FailureSource: 1},
 		Failures: []engine.ScanFailure{{Kind: engine.FailureSource, Source: "repository-history:acme/repo", Err: nested}},
 	}
-	if accepted, _, _ := acceptedGitHubCoverage(coverage, true, false); accepted {
+	if accepted, _, _, _ := acceptedGitHubCoverage(coverage, true, false, true); accepted {
 		t.Fatal("immutable history gap was accepted")
 	}
 	coverage.Failures[0].Err = errors.New(`to: invalid path "untyped": contains control character`)
-	if accepted, _, _ := acceptedGitHubCoverage(coverage, true, false); accepted {
+	if accepted, _, _, _ := acceptedGitHubCoverage(coverage, true, false, true); accepted {
 		t.Fatal("untyped lookalike invalid-path error was accepted")
 	}
 }
