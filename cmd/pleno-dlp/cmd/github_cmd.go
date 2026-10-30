@@ -40,6 +40,7 @@ type githubFlags struct {
 	archiveMaxDepth               int
 	archiveTimeout                time.Duration
 	allowCorruptArchives          bool
+	allowArchiveLimits            bool
 	allowRepoWalkTimeouts         bool
 	allowRepoCloneFailures        bool
 	publishPartialRepositoryState bool
@@ -112,6 +113,7 @@ func init() {
 	scanGitHubCmd.Flags().IntVar(&scanGitHubOpts.archiveMaxDepth, "git-archive-max-depth", 3, "maximum nested archive recursion depth")
 	scanGitHubCmd.Flags().DurationVar(&scanGitHubOpts.archiveTimeout, "git-archive-timeout", 5*time.Second, "maximum archive expansion time per changed blob")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.allowCorruptArchives, "allow-corrupt-archives", false, "accept typed corrupt-archive gaps and intentionally skipped archive symlinks while retaining partial incremental progress")
+	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.allowArchiveLimits, "allow-archive-limits", false, "with --allow-corrupt-archives, also accept typed archive gaps from configured expansion limits and unsafe archive paths")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.allowRepoWalkTimeouts, "allow-repo-walk-timeouts", false, "accept typed per-repository Git history walk timeouts while retaining completed repository progress for the next incremental run")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.allowRepoCloneFailures, "allow-repo-clone-failures", false, "accept typed per-repository clone failures (missing, auth, network, timeout) and retry them on the next incremental run")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.publishPartialRepositoryState, "publish-partial-repository-state", false, "publish successful repository checkpoints while failed repositories retain their previous checkpoints for the next incremental run")
@@ -290,6 +292,7 @@ func scanGitHubConfig(opts githubFlags) (connectors.Config, error) {
 		"archive_max_depth":                fmt.Sprintf("%d", opts.archiveMaxDepth),
 		"archive_timeout":                  opts.archiveTimeout.String(),
 		"allow_corrupt_archives":           fmt.Sprintf("%t", opts.allowCorruptArchives),
+		"allow_archive_limits":             fmt.Sprintf("%t", opts.allowArchiveLimits),
 		"publish_partial_repository_state": fmt.Sprintf("%t", opts.publishPartialRepositoryState),
 		"include_repo_globs":               strings.Join(opts.includeRepoGlobs, "\n"),
 		"exclude_repo_globs":               strings.Join(opts.excludeRepoGlobs, "\n"),

@@ -62,6 +62,12 @@ func TestCorruptArchiveGapOnlyRejectsOtherAndTruncatedCoverage(t *testing.T) {
 	if CorruptArchiveGapOnly(immutable) {
 		t.Fatal("max-depth coverage gap was accepted")
 	}
+	if !ArchiveGapOnly(immutable, true) {
+		t.Fatal("max-depth coverage gap was rejected with allowLimits")
+	}
+	if CorruptArchiveGapOnly(&archivepkg.PartialError{Kind: "path", Entry: "evil.tar", Err: errors.New("unsafe archive path rejected")}) {
+		t.Fatal("unsafe archive path gap was accepted without allowLimits")
+	}
 	truncated := &engine.DegradedError{
 		Total:    2,
 		Counts:   map[engine.FailureKind]int{engine.FailureSource: 2},
