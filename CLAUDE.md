@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-10-31 | architect | Bound opf_native vet, staticcheck, and race tests to native packages and their tested CLI/registry/engine reverse dependencies (HikaruEgashira/hikaevi#6). |
 | 2026-10-31 | connector-engineer, core-engineer, qa | Verify authenticated local GitHub App/GHE clone followed by credential-free offline history walking, plus filtered/full all-branch and incremental metadata parity (#378). |
 | 2026-10-30 | architect, core-engineer, qa | Probe an executable temporary directory for the composite action, reject multiline paths, and validate cleanup targets (iac-aws #701). |
 | 2026-10-30 | core-engineer, connector-engineer, qa | Move the diff reducer into `pkg/sources/stdin` and thread its per-line path:line map into `StdinMeta.Locations` (protect, git/cursor hooks, `scan stdin --diff`) so allowlist `path` entries match diff findings; preserve each occurrence across files to prevent cross-file suppression (#502). |
