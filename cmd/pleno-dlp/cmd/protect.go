@@ -7,13 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/plenoai/pleno-dlp/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/sources/stdin"
 )
 
 // protectFlags captures protect-specific options. Scan-wide flags
@@ -87,7 +86,7 @@ func runProtect(cmd *cobra.Command, _ []string) error {
 		}
 		return nil
 	}
-	return runProtectScan(cmd, buf, protectOpts.staged)
+	return runProtectScan(cmd, buf, origins, protectOpts.staged)
 }
 
 // runProtectScan scans a collectDiffForScan buffer through the stdin
@@ -95,7 +94,7 @@ func runProtect(cmd *cobra.Command, _ []string) error {
 // --fail-on, the allowlist, and detector filters gate exactly as for
 // any other gated scan kind. Output goes to cmd's writers in
 // scanOpts.format.
-func runProtectScan(cmd *cobra.Command, buf []byte, staged bool) error {
+func runProtectScan(cmd *cobra.Command, buf []byte, origins []diffOrigin, staged bool) error {
 	label := "git-diff-unstaged"
 	if staged {
 		label = "git-diff-staged"
@@ -107,7 +106,10 @@ func runProtectScan(cmd *cobra.Command, buf []byte, staged bool) error {
 	if setter, ok := src.(interface{ SetReader(io.Reader) }); ok {
 		setter.SetReader(bytes.NewReader(buf))
 	}
-	cfg, err := json.Marshal(map[string]any{"label": label})
+	cfg, err := json.Marshal(map[string]any{
+		"label":     label,
+		"locations": originLocations(origins),
+	})
 	if err != nil {
 		return fmt.Errorf("encode source config: %w", err)
 	}
@@ -115,9 +117,9 @@ func runProtectScan(cmd *cobra.Command, buf []byte, staged bool) error {
 }
 
 // scanStagedBuffer captures the git hook's offline scan in-process.
-func scanStagedBuffer(cmd *cobra.Command, buf []byte) ([]hookFinding, error) {
+func scanStagedBuffer(cmd *cobra.Command, buf []byte, origins []diffOrigin) ([]hookFinding, error) {
 	return scanHookBuffer(cmd, func(sub *cobra.Command) error {
-		return runProtectScan(sub, buf, true)
+		return runProtectScan(sub, buf, origins, true)
 	})
 }
 
@@ -194,6 +196,17 @@ var collectDiffForScanFunc = collectDiffForScan
 // --no-ext-diff / --no-color keep user config from altering the format
 // the transform parses; ACMR drops pure deletions, which add no content.
 func collectDiffForScan(ctx context.Context, repoDir string, staged bool) ([]byte, []diffOrigin, error) {
+	diff, err := gitDiffForScan(ctx, repoDir, staged)
+	if err != nil {
+		return nil, nil, err
+	}
+	buf, origins := stagedDiffForScan(diff)
+	return buf, origins, nil
+}
+
+// gitDiffForScan returns the raw unified diff collectDiffForScan reduces;
+// the cursor hook hands it to `scan stdin --diff` unreduced.
+func gitDiffForScan(ctx context.Context, repoDir string, staged bool) ([]byte, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -207,10 +220,9 @@ func collectDiffForScan(ctx context.Context, repoDir string, staged bool) ([]byt
 	c.Stdout = &stdout
 	c.Stderr = &stderr
 	if err := c.Run(); err != nil {
-		return nil, nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
-	buf, origins := stagedDiffForScan(stdout.Bytes())
-	return buf, origins, nil
+	return stdout.Bytes(), nil
 }
 
 // diffOrigin attributes one line of the scan buffer to the file and
@@ -220,60 +232,31 @@ type diffOrigin struct {
 	line int
 }
 
-// hunkNewStartRe extracts the new-side start line from "@@ -a,b +c,d @@".
-var hunkNewStartRe = regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
-
-// stagedDiffForScan reduces a unified diff to the text a change adds:
-//
-//   - "+" lines inside a hunk are kept with the leading "+" removed, so
-//     detectors anchored on line starts or "KEY=value" see real content.
-//   - "-" lines are dropped: scanning a secret being deleted would block
-//     the very commit that removes it. Context (" ") lines are dropped
-//     because they are already committed and were gated earlier.
-//   - "+++ b/<path>" headers are kept verbatim so the buffer stays
-//     attributable when read by hand; other headers ("diff --git",
-//     "index", "---", "@@") are dropped.
-//
-// Hunk state matters: inside a hunk, "+++x" is an added line "++x", not
-// a header. The returned origins are indexed by buffer line so a
-// finding's byte offset maps back to path:line (see originAt).
+// stagedDiffForScan reduces a unified diff to the text a change adds
+// (see stdin.ParseDiff for the exact transform). The returned origins
+// are indexed by buffer line so a finding's byte offset maps back to
+// path:line (see originAt).
 func stagedDiffForScan(diff []byte) ([]byte, []diffOrigin) {
-	var out bytes.Buffer
-	var origins []diffOrigin
-	path, newLine, inHunk := "", 0, false
-	emit := func(text string, o diffOrigin) {
-		out.WriteString(text)
-		out.WriteByte('\n')
-		origins = append(origins, o)
+	buf, locs := stdin.ParseDiff(diff)
+	if locs == nil {
+		return nil, nil
 	}
-	for _, line := range strings.Split(string(diff), "\n") {
-		switch {
-		case strings.HasPrefix(line, "diff --git "):
-			inHunk = false
-		case strings.HasPrefix(line, "@@"):
-			if m := hunkNewStartRe.FindStringSubmatch(line); m != nil {
-				newLine, _ = strconv.Atoi(m[1])
-				inHunk = true
-			}
-		case inHunk && strings.HasPrefix(line, "+"):
-			emit(line[1:], diffOrigin{path: path, line: newLine})
-			newLine++
-		case inHunk && strings.HasPrefix(line, " "):
-			newLine++
-		case inHunk:
-			// "-" removals and "\ No newline at end of file" add nothing.
-		case strings.HasPrefix(line, "+++ "):
-			path = strings.TrimPrefix(strings.TrimPrefix(line, "+++ "), "b/")
-			emit(line, diffOrigin{path: path})
-		}
+	origins := make([]diffOrigin, len(locs))
+	for i, l := range locs {
+		origins[i] = diffOrigin{path: l.Path, line: l.Line}
 	}
-	// A diff with headers but no added lines has nothing to scan.
-	for _, o := range origins {
-		if o.line > 0 {
-			return out.Bytes(), origins
-		}
+	return buf, origins
+}
+
+// originLocations converts origins into the 1-based buffer-line map the
+// stdin source attaches as StdinMeta.Locations, so the engine resolves
+// each finding to its real file and allowlist path entries match.
+func originLocations(origins []diffOrigin) map[int]sources.LineLocation {
+	locs := make([]sources.LineLocation, len(origins))
+	for i, o := range origins {
+		locs[i] = sources.LineLocation{Path: o.path, Line: o.line}
 	}
-	return nil, nil
+	return stdin.LocationMap(locs)
 }
 
 // originAt maps a byte offset in the stagedDiffForScan buffer to its

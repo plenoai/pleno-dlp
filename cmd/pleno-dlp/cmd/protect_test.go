@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -221,6 +224,124 @@ diff --git a/b.txt b/b.txt
 	if strings.Contains(got, "+++ b/") {
 		t.Errorf("diff header leaked into result:\n%s", got)
 	}
+}
+
+// TestProtect_AllowlistPathMatchesDiffFinding is the end-to-end
+// regression for #513: a .pleno-allow.json `path` entry must match a
+// protect finding, whose diff arrives through the stdin source. Before
+// the fix the finding carried only the "git-diff-staged" label and the
+// path rule never matched.
+func TestProtect_AllowlistPathMatchesDiffFinding(t *testing.T) {
+	resetCommandFlags(t)
+	dir := t.TempDir()
+	chdir(t, dir)
+	runGit(t, dir, "init", "-q")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "test")
+	if err := os.MkdirAll(filepath.Join(dir, "fixtures"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "fixtures", "leak.env"), []byte("token=FIXTURE_ABCDEFGHIJKLMNOPQRST\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "fixtures/leak.env")
+
+	tmp := t.TempDir()
+	rules := filepath.Join(tmp, "rules.json")
+	if err := writeFile(rules, `[{"name":"Fixture Token","keywords":["FIXTURE_"],"regex":"FIXTURE_[A-Z]{20}","severity":"high"}]`); err != nil {
+		t.Fatal(err)
+	}
+	allow := filepath.Join(tmp, ".pleno-allow.json")
+	if err := writeFile(allow, `{"entries":[{"path":"fixtures/**","reason":"checked-in fixture"}]}`); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"protect", "--rules", rules, "--format", "json"})
+	if err := Root.Execute(); !IsFindingsError(err) {
+		t.Fatalf("without an allowlist protect should gate on the finding; got %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
+	}
+	if !strings.Contains(out.String(), "fixtures/leak.env") {
+		t.Fatalf("finding should report the real path, not git-diff-staged:\n%s", out.String())
+	}
+
+	resetCommandFlagsNow()
+	out.Reset()
+	errBuf.Reset()
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"protect", "--rules", rules, "--allowlist", allow, "--format", "json"})
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("allowlisted finding must exit 0; got %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "allowlist: suppressed") {
+		t.Errorf("expected an allowlist suppression signal on stderr; got:\n%s", errBuf.String())
+	}
+	if strings.Contains(out.String(), "fixtures/leak.env") {
+		t.Errorf("allowlisted finding should not be emitted:\n%s", out.String())
+	}
+}
+
+func TestProtect_AllowlistDoesNotSuppressSameSecretInAnotherFile(t *testing.T) {
+	resetCommandFlags(t)
+	dir := t.TempDir()
+	chdir(t, dir)
+	runGit(t, dir, "init", "-q")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "test")
+	if err := os.MkdirAll(filepath.Join(dir, "fixtures"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "fixtures", "leak.env"), []byte("token=FIXTURE_ABCDEFGHIJKLMNOPQRST\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "production.env"), []byte("token=FIXTURE_ABCDEFGHIJKLMNOPQRST\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "fixtures/leak.env", "production.env")
+
+	tmp := t.TempDir()
+	rules := filepath.Join(tmp, "rules.json")
+	if err := writeFile(rules, `[{"name":"Fixture Token","keywords":["FIXTURE_"],"regex":"FIXTURE_[A-Z]{20}","severity":"high"}]`); err != nil {
+		t.Fatal(err)
+	}
+	allow := filepath.Join(tmp, ".pleno-allow.json")
+	if err := writeFile(allow, `{"entries":[{"path":"fixtures/**","reason":"checked-in fixture"}]}`); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errBuf bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"protect", "--rules", rules, "--format", "json"})
+	if err := Root.Execute(); !IsFindingsError(err) {
+		t.Fatalf("without an allowlist protect should gate on the finding; got %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
+	}
+	if !strings.Contains(out.String(), "fixtures/leak.env") {
+		t.Fatalf("finding should report the real path, not git-diff-staged:\n%s", out.String())
+	}
+
+	resetCommandFlagsNow()
+	out.Reset()
+	errBuf.Reset()
+	Root.SetOut(&out)
+	Root.SetErr(&errBuf)
+	Root.SetArgs([]string{"protect", "--rules", rules, "--allowlist", allow, "--format", "json"})
+	if err := Root.Execute(); !IsFindingsError(err) {
+		t.Fatalf("the production finding must still block; got %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "allowlist: suppressed") {
+		t.Errorf("expected an allowlist suppression signal on stderr; got:\n%s", errBuf.String())
+	}
+	if strings.Contains(out.String(), "fixtures/leak.env") {
+		t.Errorf("allowlisted finding should not be emitted:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "production.env") {
+		t.Errorf("non-allowlisted location was suppressed:\n%s", out.String())
+	}
+
 }
 
 func TestProtectHelp(t *testing.T) {

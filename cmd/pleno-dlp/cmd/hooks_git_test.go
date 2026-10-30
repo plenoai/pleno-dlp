@@ -195,7 +195,7 @@ func withFakeStagedDiff(t *testing.T, diff string, err error) {
 func withFakeStagedScan(t *testing.T, fn func(data []byte) ([]hookFinding, error)) {
 	t.Helper()
 	orig := stagedScanFunc
-	stagedScanFunc = func(_ *cobra.Command, data []byte) ([]hookFinding, error) { return fn(data) }
+	stagedScanFunc = func(_ *cobra.Command, data []byte, _ []diffOrigin) ([]hookFinding, error) { return fn(data) }
 	t.Cleanup(func() { stagedScanFunc = orig })
 }
 

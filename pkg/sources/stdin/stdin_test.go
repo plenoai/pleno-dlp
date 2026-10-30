@@ -3,6 +3,7 @@ package stdin
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -192,5 +193,40 @@ func drain(t *testing.T, ch <-chan *sources.Chunk, timeout time.Duration) []*sou
 		case <-deadline:
 			t.Fatalf("drain: timed out after %s with %d chunks", timeout, len(out))
 		}
+	}
+}
+
+func TestIncrementalStateRescansChangedProvenance(t *testing.T) {
+	configs := []string{
+		`{"label":"diff","locations":{"1":{"path":"fixtures/key.env","line":1}}}`,
+		`{"label":"diff","locations":{"1":{"path":"production.env","line":1}}}`,
+	}
+	var previous json.RawMessage
+	var previousFingerprint string
+	for _, config := range configs {
+		source := &Source{}
+		if err := source.Init(t.Context(), "stdin", 0, 0, false, []byte(config), 1); err != nil {
+			t.Fatal(err)
+		}
+		source.SetReader(strings.NewReader("same-secret"))
+		if err := source.SetIncrementalState(previous); err != nil {
+			t.Fatal(err)
+		}
+		fingerprint, err := source.ResourceFingerprint(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fingerprint == previousFingerprint {
+			t.Error("changed provenance reused the resource fingerprint")
+		}
+		chunks := make(chan *sources.Chunk, 1)
+		if err := source.Chunks(t.Context(), chunks); err != nil {
+			t.Fatal(err)
+		}
+		if len(chunks) != 1 {
+			t.Error("changed provenance skipped scanning")
+		}
+		previous = source.IncrementalState()
+		previousFingerprint = fingerprint
 	}
 }
