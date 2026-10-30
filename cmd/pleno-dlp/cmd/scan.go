@@ -21,7 +21,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	archivepkg "github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/connectors"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/detectors/custom"
@@ -837,6 +836,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		acceptCoverage, acceptedCorruptArchives, acceptedRepoWalkTimeouts, acceptedRepoCloneFailures = acceptedGitHubCoverage(
 			coverageErr,
 			scanGitHubOpts.allowCorruptArchives,
+			scanGitHubOpts.allowArchiveLimits,
 			scanGitHubOpts.allowRepoWalkTimeouts,
 			scanGitHubOpts.allowRepoCloneFailures,
 		)
@@ -911,7 +911,7 @@ func githubPartialRepositoryStateSafe(coverage *engine.DegradedError, src source
 	return ok && partial.PartialIncrementalStateSafe()
 }
 
-func acceptedGitHubCoverage(coverage *engine.DegradedError, allowCorruptArchives, allowRepoWalkTimeouts, allowRepoCloneFailures bool) (bool, int, int, int) {
+func acceptedGitHubCoverage(coverage *engine.DegradedError, allowCorruptArchives, allowArchiveLimits, allowRepoWalkTimeouts, allowRepoCloneFailures bool) (bool, int, int, int) {
 	if coverage == nil || coverage.Total == 0 || coverage.Total != len(coverage.Failures) {
 		return false, 0, 0, 0
 	}
@@ -928,7 +928,7 @@ func acceptedGitHubCoverage(coverage *engine.DegradedError, allowCorruptArchives
 		if failure.Kind == engine.FailureDetector {
 			return false, 0, 0, 0
 		}
-		if !corruptArchiveErrorOnly(failure.Err) || !allowCorruptArchives {
+		if !gitsource.ArchiveGapOnly(failure.Err, allowArchiveLimits) || !allowCorruptArchives {
 			return false, 0, 0, 0
 		}
 		corruptArchives++
@@ -937,54 +937,16 @@ func acceptedGitHubCoverage(coverage *engine.DegradedError, allowCorruptArchives
 }
 
 func corruptArchiveCoverageOnly(coverage *engine.DegradedError) bool {
-	accepted, corruptArchives, repoWalkTimeouts, repoCloneFailures := acceptedGitHubCoverage(coverage, true, false, false)
+	accepted, corruptArchives, repoWalkTimeouts, repoCloneFailures := acceptedGitHubCoverage(coverage, true, false, false, false)
 	return accepted && corruptArchives == coverage.Total && repoWalkTimeouts == 0 && repoCloneFailures == 0
-}
-
-func corruptArchiveErrorOnly(err error) bool {
-	if err == nil {
-		return false
-	}
-	if partial, ok := err.(*archivepkg.PartialError); ok {
-		switch partial.Kind {
-		case "corrupt-archive", "corrupt-entry", "symlink":
-			return true
-		default:
-			return false
-		}
-	}
-	if degraded, ok := err.(*engine.DegradedError); ok {
-		if degraded.Total == 0 || degraded.Total != len(degraded.Failures) {
-			return false
-		}
-		for _, failure := range degraded.Failures {
-			if failure.Kind == engine.FailureDetector || !corruptArchiveErrorOnly(failure.Err) {
-				return false
-			}
-		}
-		return true
-	}
-	if joined, ok := err.(interface{ Unwrap() []error }); ok {
-		children := joined.Unwrap()
-		if len(children) == 0 {
-			return false
-		}
-		for _, child := range children {
-			if !corruptArchiveErrorOnly(child) {
-				return false
-			}
-		}
-		return true
-	}
-	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
-		return corruptArchiveErrorOnly(wrapped.Unwrap())
-	}
-	return false
 }
 
 func repositoryWalkTimeoutFailure(failure engine.ScanFailure) bool {
 	if failure.Kind != engine.FailureSource || !strings.HasPrefix(failure.Source, "repository-history:") || failure.Err == nil {
 		return false
+	}
+	if errors.Is(failure.Err, gitsource.ErrNativeRawDiffLimit) {
+		return true
 	}
 	message := failure.Err.Error()
 	return errors.Is(failure.Err, context.DeadlineExceeded) &&

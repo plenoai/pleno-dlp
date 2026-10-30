@@ -371,7 +371,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 					return githubUnitResult[repoOutcome]{State: repoOutcome{Next: prevWiki, StateValid: prevWiki.Mode == githubScanModeHistory}, Stats: githubUnitStats{Skipped: "wiki-missing"}}
 				}
 				if nextWiki.Mode == githubScanModeHistory {
-					acceptedGap := parseBool(cfg["allow_corrupt_archives"]) && gitsource.CorruptArchiveGapOnly(err)
+					acceptedGap := parseBool(cfg["allow_corrupt_archives"]) && gitsource.ArchiveGapOnly(err, parseBool(cfg["allow_archive_limits"]))
 					if !acceptedGap {
 						nextWiki = prevWiki
 					}
@@ -423,7 +423,7 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 					return githubUnitResult[repoOutcome]{Err: ctx.Err()}
 				}
 				retainedImmutableHeads := nextRepo.Mode == githubScanModeHistory
-				acceptedImmutableGap := retainedImmutableHeads && parseBool(cfg["allow_corrupt_archives"]) && gitsource.CorruptArchiveGapOnly(err)
+				acceptedImmutableGap := retainedImmutableHeads && parseBool(cfg["allow_corrupt_archives"]) && gitsource.ArchiveGapOnly(err, parseBool(cfg["allow_archive_limits"]))
 				if !acceptedImmutableGap {
 					nextRepo = prevRepo
 				}
@@ -538,15 +538,11 @@ func scanGitHubHistory(ctx context.Context, cfg Config, auth githubTokenProvider
 			if failures, ok := result.Err.(githubSurfaceFailures); ok {
 				for _, failure := range failures {
 					unitFailureTotal++
-					if len(unitFailures) < 32 {
-						unitFailures = append(unitFailures, engine.ScanFailure{Kind: engine.FailureSource, Source: failure.Surface + ":" + result.Unit.ID, Err: failure.Err})
-					}
+					unitFailures = append(unitFailures, engine.ScanFailure{Kind: engine.FailureSource, Source: failure.Surface + ":" + result.Unit.ID, Err: failure.Err})
 				}
 			} else {
 				unitFailureTotal++
-				if len(unitFailures) < 32 {
-					unitFailures = append(unitFailures, engine.ScanFailure{Kind: engine.FailureSource, Source: result.Unit.Key(), Err: result.Err})
-				}
+				unitFailures = append(unitFailures, engine.ScanFailure{Kind: engine.FailureSource, Source: result.Unit.Key(), Err: result.Err})
 			}
 		}
 		// per-repo flush。 cmd 層が「ここまで進んだ」状態を atomic に persist
@@ -855,7 +851,7 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 	var corruptArchiveCoverageGap error
 	if err := <-walkErr; err != nil {
 		normalized := normalizeGitHubRepoWalkError(ctx, repoKey, walkTimeout, err)
-		if !gitsource.CorruptArchiveGapOnly(normalized) {
+		if !gitsource.ArchiveGapOnly(normalized, parseBool(cfg["allow_archive_limits"])) {
 			return githubRepoIncrementalState{}, normalized
 		}
 		corruptArchiveCoverageGap = normalized

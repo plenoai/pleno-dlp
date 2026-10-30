@@ -1122,7 +1122,7 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 			return err
 		}
 		if len(p.rawPaths) >= nativePathLimit || p.rawPathBytes+int64(len(path)) > maxBlobSize {
-			return fmt.Errorf("native raw diff paths exceed %d entries or %d bytes", nativePathLimit, maxBlobSize)
+			return fmt.Errorf("%w: exceed %d entries or %d bytes", ErrNativeRawDiffLimit, nativePathLimit, maxBlobSize)
 		}
 		p.rawPaths = append(p.rawPaths, path)
 		p.rawDeleted = append(p.rawDeleted, deleted)

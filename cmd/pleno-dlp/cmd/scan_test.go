@@ -28,6 +28,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
+	gitsource "github.com/plenoai/pleno-dlp/pkg/sources/git"
 
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/all"
 	_ "github.com/plenoai/pleno-dlp/pkg/sources/all"
@@ -876,7 +877,7 @@ func TestAcceptedGitHubCoverageAllowsExplicitMixedRetryableFailures(t *testing.T
 			{Kind: engine.FailureSource, Source: "repository-history:acme/slow", Err: timeout},
 		},
 	}
-	accepted, corruptArchives, repoWalkTimeouts, _ := acceptedGitHubCoverage(coverage, true, true, false)
+	accepted, corruptArchives, repoWalkTimeouts, _ := acceptedGitHubCoverage(coverage, true, false, true, false)
 	if !accepted || corruptArchives != 1 || repoWalkTimeouts != 1 {
 		t.Fatalf("mixed coverage = (%v, %d, %d), want (true, 1, 1)", accepted, corruptArchives, repoWalkTimeouts)
 	}
@@ -900,12 +901,49 @@ func TestAcceptedGitHubCoverageRejectsImmutableHistoryPolicyGaps(t *testing.T) {
 		Counts:   map[engine.FailureKind]int{engine.FailureSource: 1},
 		Failures: []engine.ScanFailure{{Kind: engine.FailureSource, Source: "repository-history:acme/repo", Err: nested}},
 	}
-	if accepted, _, _, _ := acceptedGitHubCoverage(coverage, true, false, true); accepted {
+	if accepted, _, _, _ := acceptedGitHubCoverage(coverage, true, false, false, true); accepted {
 		t.Fatal("immutable history gap was accepted")
 	}
 	coverage.Failures[0].Err = errors.New(`to: invalid path "untyped": contains control character`)
-	if accepted, _, _, _ := acceptedGitHubCoverage(coverage, true, false, true); accepted {
+	if accepted, _, _, _ := acceptedGitHubCoverage(coverage, true, false, false, true); accepted {
 		t.Fatal("untyped lookalike invalid-path error was accepted")
+	}
+}
+
+func TestAcceptedGitHubCoverageAllowsArchiveLimitsOnlyWhenOptedIn(t *testing.T) {
+	limits := &engine.DegradedError{
+		Total:  2,
+		Counts: map[engine.FailureKind]int{engine.FailureSource: 2},
+		Failures: []engine.ScanFailure{
+			{Kind: engine.FailureSource, Err: fmt.Errorf("git archive: %w", &archivepkg.PartialError{Kind: "max-files", Entry: "big.zip", Err: errors.New("file count exceeds 10000")})},
+			{Kind: engine.FailureSource, Err: fmt.Errorf("git archive: %w", &archivepkg.PartialError{Kind: "path", Entry: "evil.tar", Err: errors.New("unsafe archive path rejected")})},
+		},
+	}
+	coverage := &engine.DegradedError{
+		Total:    1,
+		Counts:   map[engine.FailureKind]int{engine.FailureSource: 1},
+		Failures: []engine.ScanFailure{{Kind: engine.FailureSource, Source: "repository-history:acme/repo", Err: limits}},
+	}
+	if accepted, _, _, _ := acceptedGitHubCoverage(coverage, true, false, false, false); accepted {
+		t.Fatal("archive limit gap was accepted without --allow-archive-limits")
+	}
+	if accepted, corruptArchives, _, _ := acceptedGitHubCoverage(coverage, true, true, false, false); !accepted || corruptArchives != 1 {
+		t.Fatalf("archive limit coverage = (%v, %d), want (true, 1)", accepted, corruptArchives)
+	}
+}
+
+func TestAcceptedGitHubCoverageAllowsRawDiffLimitAsWalkLimit(t *testing.T) {
+	rawDiff := fmt.Errorf("git: parse native log: %w: exceed 100000 entries or 65536 bytes", gitsource.ErrNativeRawDiffLimit)
+	coverage := &engine.DegradedError{
+		Total:    1,
+		Counts:   map[engine.FailureKind]int{engine.FailureSource: 1},
+		Failures: []engine.ScanFailure{{Kind: engine.FailureSource, Source: "repository-history:acme/huge", Err: rawDiff}},
+	}
+	if accepted, _, _, _ := acceptedGitHubCoverage(coverage, true, true, false, false); accepted {
+		t.Fatal("raw diff limit was accepted without --allow-repo-walk-timeouts")
+	}
+	if accepted, _, repoWalkTimeouts, _ := acceptedGitHubCoverage(coverage, false, false, true, false); !accepted || repoWalkTimeouts != 1 {
+		t.Fatalf("raw diff coverage = (%v, %d), want (true, 1)", accepted, repoWalkTimeouts)
 	}
 }
 

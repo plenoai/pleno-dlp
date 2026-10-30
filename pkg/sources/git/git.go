@@ -1025,14 +1025,25 @@ func normalizeGitTreeDiffError(err error) error {
 // explicitly classifiable corrupt archive or archive symlink policy skip.
 // Budget, depth, invalid-path, timeout, cleanup, and detector errors remain
 // fail-closed and must not advance repository checkpoints.
+// ErrNativeRawDiffLimit marks a repository whose history cannot be walked within the raw diff path limits.
+var ErrNativeRawDiffLimit = errors.New("native raw diff paths")
+
 func CorruptArchiveGapOnly(err error) bool {
+	return ArchiveGapOnly(err, false)
+}
+
+// ArchiveGapOnly reports whether err contains only typed archive gaps; configured limit gaps require allowLimits.
+func ArchiveGapOnly(err error, allowLimits bool) bool {
 	if err == nil {
 		return false
 	}
 	if partial, ok := err.(*archivepkg.PartialError); ok {
 		switch partial.Kind {
-		case "corrupt-archive", "corrupt-entry", "symlink":
+		case "corrupt-archive", "corrupt-entry", "symlink", "special-file":
 			return true
+		case "path", "max-depth", "max-files", "max-entry-bytes", "max-input-bytes", "max-blob-bytes",
+			"max-headers", "central-directory-bytes", "metadata-bytes":
+			return allowLimits
 		default:
 			return false
 		}
@@ -1042,7 +1053,7 @@ func CorruptArchiveGapOnly(err error) bool {
 			return false
 		}
 		for _, failure := range degraded.Failures {
-			if failure.Kind == engine.FailureDetector || !CorruptArchiveGapOnly(failure.Err) {
+			if failure.Kind == engine.FailureDetector || !ArchiveGapOnly(failure.Err, allowLimits) {
 				return false
 			}
 		}
@@ -1054,14 +1065,14 @@ func CorruptArchiveGapOnly(err error) bool {
 			return false
 		}
 		for _, child := range children {
-			if !CorruptArchiveGapOnly(child) {
+			if !ArchiveGapOnly(child, allowLimits) {
 				return false
 			}
 		}
 		return true
 	}
 	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
-		return CorruptArchiveGapOnly(wrapped.Unwrap())
+		return ArchiveGapOnly(wrapped.Unwrap(), allowLimits)
 	}
 	return false
 }
