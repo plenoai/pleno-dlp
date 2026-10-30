@@ -101,7 +101,9 @@ runs:
         set -euo pipefail
         base="https://github.com/plenoai/pleno-dlp/releases/download/${PLENO_DLP_VERSION}"
         archive="pleno-dlp_${PLENO_DLP_GOOS}_${PLENO_DLP_GOARCH}.${PLENO_DLP_EXT}"
-        workdir="$(mktemp -d)"
+        # RUNNER_TEMP may share a noexec mount with TMPDIR; probe before executing a binary there.
+        workdir="$(sh "$GITHUB_ACTION_PATH/scripts/select-executable-tempdir.sh")"
+        echo "temp-dir=$workdir" >> "$GITHUB_OUTPUT"
 
         curl -fsSL -o "$workdir/$archive" "$base/$archive"
         curl -fsSL -o "$workdir/checksums.txt" "$base/checksums.txt"
@@ -150,3 +152,44 @@ runs:
         # still finds the report.
         echo "sarif-file=$PLENO_DLP_SARIF_FILE" >> "$GITHUB_OUTPUT"
         exit $status
+
+    - name: Clean up downloaded action files
+      if: always()
+      shell: bash
+      env:
+        PLENO_DLP_TEMP_DIR: ${{ steps.install.outputs.temp-dir }}
+      run: |
+        set -euo pipefail
+        temp_dir="${PLENO_DLP_TEMP_DIR:-}"
+        if [[ -z "$temp_dir" ]]; then
+          exit 0
+        fi
+        refuse_cleanup() {
+          echo "::error::refusing to remove an unexpected action temp path" >&2
+          exit 1
+        }
+        if [[ "$temp_dir" == *$'\n'* || "$temp_dir" == *$'\r'* || "$temp_dir" != /* ]]; then
+          refuse_cleanup
+        fi
+        base="${temp_dir##*/}"
+        parent="${temp_dir%/*}"
+        [[ -n "$parent" ]] || parent="/"
+        if [[ ! "$base" =~ ^pleno-dlp-action\.[[:alnum:]]{6}$ ]]; then
+          refuse_cleanup
+        fi
+        if [[ ! -d "$temp_dir" || -L "$temp_dir" ]]; then
+          refuse_cleanup
+        fi
+        canonical_parent="$(cd -P "$parent" 2>/dev/null && pwd -P)" || refuse_cleanup
+        if [[ "$canonical_parent" != "$parent" ]]; then
+          refuse_cleanup
+        fi
+        expected="$canonical_parent"
+        if [[ "$expected" != "/" ]]; then
+          expected="${expected}/"
+        fi
+        expected="${expected}${base}"
+        if [[ "$temp_dir" != "$expected" ]]; then
+          refuse_cleanup
+        fi
+        rm -rf "$temp_dir"
