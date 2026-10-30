@@ -40,8 +40,8 @@ import (
 	gitsource "github.com/plenoai/pleno-dlp/pkg/sources/git"
 )
 
-// githubCloneBytesObserver is test/benchmark instrumentation. Production
-// leaves it nil, avoiding an extra directory walk on every clone.
+// githubCloneBytesObserver is test/benchmark instrumentation. It receives
+// logical file bytes in the completed clone directory, not network bytes.
 var githubCloneBytesObserver func(string, int64)
 
 // githubRepoWalkTestHook runs after the per-repository deadline is installed
@@ -67,17 +67,50 @@ const (
 	githubPullRefGoGitMaxOutputBytes       = githubPullRefAdvertisementMaxBytes
 )
 
-func directoryBytes(root string) int64 {
+func directoryBytes(ctx context.Context, root string) (int64, error) {
 	var total int64
-	_ = filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() {
-			if info, e := d.Info(); e == nil {
-				total += info.Size()
-			}
+	maxInt64 := int64(^uint64(0) >> 1)
+	err := filepath.WalkDir(root, func(_ string, d fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		size := info.Size()
+		if size < 0 || total > maxInt64-size {
+			return errors.New("clone directory file-size total exceeds int64")
+		}
+		total += size
 		return nil
 	})
-	return total
+	if err != nil {
+		return 0, fmt.Errorf("measure clone directory: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func measureDirectoryBytes(ctx context.Context, root string) (int64, time.Duration, error) {
+	started := time.Now()
+	bytes, err := directoryBytes(ctx, root)
+	return bytes, time.Since(started), err
+}
+
+func cloneDirectoryBytesLabel(bytes int64, err error) string {
+	if err != nil {
+		return "unavailable"
+	}
+	return strconv.FormatInt(bytes, 10)
 }
 
 type githubSurfaceFailure struct {
@@ -713,6 +746,24 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 	usedNative, err := cloneRepoBare(cloneCtx, cloneURL, dir, token, progress)
 	cloneTimedOut := ctx.Err() == nil && errors.Is(cloneCtx.Err(), context.DeadlineExceeded)
 	cancelClone()
+	cloneDuration := time.Since(cloneStart)
+	var cloneBytes int64
+	var cloneSizeScan time.Duration
+	var cloneSizeErr error
+	if err != nil && (cloneTimedOut || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		// Do not delay cancellation or a clone timeout by walking a large partial clone.
+		cloneSizeErr = err
+	} else {
+		cloneBytes, cloneSizeScan, cloneSizeErr = measureDirectoryBytes(ctx, dir)
+	}
+	cloneOutcome := "done in"
+	if err != nil {
+		cloneOutcome = "failed after"
+	}
+	termsafe.Fprintf(os.Stderr,
+		"github: clone %s %s %s (%s, clone_dir_file_bytes_on_disk=%s, size_scan=%s)\n",
+		repoKey, cloneOutcome, cloneDuration.Round(time.Second), cloneMethodLabel(usedNative),
+		cloneDirectoryBytesLabel(cloneBytes, cloneSizeErr), cloneSizeScan.Round(time.Millisecond))
 	if err != nil {
 		if cloneTimedOut {
 			return githubRepoIncrementalState{}, fmt.Errorf("github: clone %s/%s: %w", repo.Owner.Login, repo.Name,
@@ -723,9 +774,8 @@ func scanGitHubGitHistory(ctx context.Context, cfg Config, auth githubTokenProvi
 		}
 		return githubRepoIncrementalState{}, fmt.Errorf("github: clone %s/%s: %w", repo.Owner.Login, repo.Name, err)
 	}
-	termsafe.Fprintf(os.Stderr, "github: clone %s done in %s (%s)\n", repoKey, time.Since(cloneStart).Round(time.Second), cloneMethodLabel(usedNative))
-	if githubCloneBytesObserver != nil {
-		githubCloneBytesObserver(repoKey, directoryBytes(dir))
+	if githubCloneBytesObserver != nil && cloneSizeErr == nil {
+		githubCloneBytesObserver(repoKey, cloneBytes)
 	}
 	if walkControl != nil {
 		hb.setPhase("ordered-wait")
