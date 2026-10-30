@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-10-30 | architect, core-engineer, qa | Probe an executable temporary directory for the composite action, reject multiline paths, and validate cleanup targets (iac-aws #701). |
 | 2026-10-30 | core-engineer, connector-engineer, qa | Move the diff reducer into `pkg/sources/stdin` and thread its per-line path:line map into `StdinMeta.Locations` (protect, git/cursor hooks, `scan stdin --diff`) so allowlist `path` entries match diff findings; preserve each occurrence across files to prevent cross-file suppression (#502). |
 | 2026-10-30 | detector-engineer, core-engineer, qa | Enforce shared Raw/RawV2-safe displays at built-in detector returns and output boundaries; check every detector fixture through a common redaction assertion (#503). |
 | 2026-10-30 | connector-engineer, qa | Scope native Git Authorization headers to the validated clone URL and reject redirects for authenticated clone/ref probes; exercise same-origin path redirects with real Git (#458). |
