@@ -23,9 +23,10 @@ func (s *githubLargeOrgBenchmarkSink) Emit(engine.Finding) { s.findings.Add(1) }
 func (*githubLargeOrgBenchmarkSink) Close() error          { return nil }
 
 // TestGitHubLargeOrgBenchmark is an opt-in, deterministic selected-defaults
-// benchmark. Run through the benchmark reports repository's wrapper so peak
-// RSS is measured by the operating system rather than inferred from Go heap
-// counters.
+// benchmark. The clone_bytes record field is logical file bytes in completed
+// clone directories, not wire-transfer bytes. Run through the benchmark reports
+// repository's wrapper so peak RSS is measured by the operating system rather
+// than inferred from Go heap counters.
 func TestGitHubLargeOrgBenchmark(t *testing.T) {
 	if os.Getenv("PLENO_RUN_LARGE_ORG_BENCH") != "1" {
 		t.Skip("set PLENO_RUN_LARGE_ORG_BENCH=1")
