@@ -28,9 +28,12 @@ is limited to 64 MiB and its contents and path remain local.
 
 ## Local record
 
-Every report is written to the spool before it is sent, so there is always a
-local copy of exactly what left the machine — whether the upload succeeds or
-not. Reports live under `<telemetry root>/feedback/`:
+Every report is written to the spool before sending, so there is a local copy
+whether the upload succeeds or not. Reports live under
+`<telemetry root>/feedback/`. The spool uses the local feedback schema. The
+built-in intake endpoint maps it to the separate `pleno-dlp.report/v1` or
+`pleno-dlp.report/v2` envelope; a configured custom relay continues receiving
+the local feedback schema directly.
 
 - `<root>/feedback/last.json` — the most recent report.
 - `<root>/feedback/<fingerprint>-<unix>.json` — one per report.
@@ -47,7 +50,7 @@ approve the send:
 ```
 <message>
 
-Send this feedback report to https://feedback.plenoai.com/v1/pleno-dlp? [y/N]
+Send this feedback report to https://intake.plenoai.com/v1/pleno-dlp? [y/N]
 ```
 
 The question is read from `/dev/tty`, not stdin. That is what lets you pipe
@@ -81,22 +84,27 @@ review, edit, or retry later.
 
 The message and selected redacted match are passed through the same redaction
 pipeline as crash reports (paths, emails, IPs, URLs, tokens, and built-in
-detector matches) before they are stored or sent. Ordinary feedback uses
-schema v1. False-positive reports use schema v2 and include the detector's
-safe display and SHA-256 hashes of `Raw` and, when present, `RawV2`. The raw
-bytes are used in memory only for `SafeRedacted` validation and hashing; they
-are never serialized. The report also carries minimal build context:
+detector matches) before they are stored or sent. The local spool uses
+`pleno-dlp.feedback/v1` for ordinary feedback and `/v2` for false-positive
+reports. The built-in intake maps those records to `pleno-dlp.report/v1` with
+`kind=feedback`, or `/v2` with `kind=false-positive` and a nested match. A
+custom relay receives the local feedback schema directly. False-positive
+records include the detector's safe display and SHA-256 hashes of `Raw` and,
+when present, `RawV2`. The raw bytes are used in memory only for `SafeRedacted`
+validation and hashing; they are never serialized. The report also carries
+minimal build context:
 
 | Field | Content |
 |---|---|
-| `schema` | `pleno-dlp.feedback/v1` or `/v2` for false-positive reports |
+| `schema` (local spool/custom relay) | `pleno-dlp.feedback/v1` or `/v2` for false-positive reports |
+| `schema`, `kind` (built-in intake) | `pleno-dlp.report/v1`, `feedback`; or `/v2`, `false-positive` |
 | `fingerprint` | 16 hex chars of SHA-256 over the digit-normalized message and command; v2 also includes detector and raw hashes |
 | `version`, `commit` | build metadata |
 | `goos`, `goarch`, `go_version` | platform and toolchain |
 | `command` | `feedback` |
 | `flags` | names of the flags you passed; never values |
 | `message` | the redacted message |
-| `created_at` | UTC, truncated to the minute |
+| `created_at` | UTC, truncated to the minute in the local spool and custom-relay payload |
 | `match` (v2 only) | detector, safe `redacted` display, and `raw_hash` / optional `raw_v2_hash` |
 
 Hostname, username, working directory, environment variables, positional
@@ -108,7 +116,7 @@ reports include only the selected safe match fields above.
 
 | Setting | Where | Default |
 |---|---|---|
-| Endpoint | `feedback_endpoint` in `<config>/pleno-dlp/telemetry.json`, or `PLENO_DLP_FEEDBACK_ENDPOINT` (wins) | `https://feedback.plenoai.com/v1/pleno-dlp` |
+| Endpoint | `feedback_endpoint` in `<config>/pleno-dlp/telemetry.json`, or `PLENO_DLP_FEEDBACK_ENDPOINT` (wins) | `https://intake.plenoai.com/v1/pleno-dlp` |
 | Spool root | `PLENO_DLP_TELEMETRY_DIR` | `os.UserConfigDir()/pleno-dlp` |
 
 The endpoint must be `https`; plain `http` is accepted only for loopback

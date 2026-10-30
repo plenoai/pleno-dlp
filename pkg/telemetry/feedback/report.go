@@ -14,8 +14,8 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/telemetry/crash"
 )
 
-// Schema identifies the feedback wire format. Breaking shape changes bump the
-// suffix; the relay rejects schemas it does not know.
+// Schema identifies the local feedback spool format. Built-in intake requests
+// use the separate pleno-dlp.report/v1 or /v2 envelope.
 const Schema = "pleno-dlp.feedback/v1"
 
 // SchemaV2 adds a selected scan match without adding the matched raw bytes.
