@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-10-31 | architect | Move the bounded `test.yml` opf-native job to hikae-flash so it no longer serializes behind `test` on the hikae-long pool; the release native job stays on hikae-long (#722). |
 | 2026-10-31 | connector-engineer, qa | Exercise cross-origin redirects alongside same-origin ones in the native Git authenticated redirect test so neither target receives Authorization (#458). |
 | 2026-10-31 | architect | Bound opf_native vet, staticcheck, and race tests to native packages and their tested CLI/registry/engine reverse dependencies (HikaruEgashira/hikaevi#6). |
 | 2026-10-31 | connector-engineer, core-engineer, qa | Verify authenticated local GitHub App/GHE clone followed by credential-free offline history walking, plus filtered/full all-branch and incremental metadata parity (#378). |

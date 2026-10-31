@@ -72,7 +72,7 @@ func TestWorkflowsUsePinnedRunnerPolicy(t *testing.T) {
 }
 
 func expectedRunnerLabels(workflow, job string) string {
-	if workflow == "test.yml" && (job == "test" || job == "opf-native") ||
+	if workflow == "test.yml" && job == "test" ||
 		workflow == "release.yml" && (job == "quality" || job == "native") {
 		return hikaeLongLabels
 	}
