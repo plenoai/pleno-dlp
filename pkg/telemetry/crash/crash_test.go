@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -158,6 +159,15 @@ func TestFingerprintStableAcrossVersionsAndLines(t *testing.T) {
 	c := Build(KindPanic, "panic: nil map", sampleStack, Meta{}, red, time.Now())
 	if c.Fingerprint == a.Fingerprint {
 		t.Fatal("different messages must not share a fingerprint")
+	}
+}
+
+func TestFingerprintSelfPathFollowsReportPackage(t *testing.T) {
+	frame := reflect.TypeOf(Report{}).PkgPath() + ".Recover.func1()"
+	stack := frame + "\n" + ModulePath + "pkg/engine.scan()\n"
+	frames := moduleFrames(stack, 5)
+	if len(frames) != 1 || frames[0] != ModulePath+"pkg/engine.scan" {
+		t.Fatalf("moduleFrames(%q) = %v", stack, frames)
 	}
 }
 

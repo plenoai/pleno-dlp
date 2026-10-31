@@ -1,7 +1,10 @@
 package feedback
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,11 +12,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/telemetry/crash"
 )
 
@@ -45,6 +50,87 @@ func TestBuildRedactsAndFingerprints(t *testing.T) {
 	if r.Fingerprint != Build("contact alice@example.com about the 10.1.2.3 host", crash.Meta{Command: "feedback"}, red, now.Add(time.Hour)).Fingerprint {
 		t.Fatal("fingerprint changed for identical redacted message")
 	}
+}
+
+func TestBuildWithMatchV2HashesRawWithoutSerializingIt(t *testing.T) {
+	raw := []byte("synthetic-match-secret-001")
+	rawV2 := []byte("synthetic-paired-secret-002")
+	result := detectors.Result{
+		DetectorType: detectors.GitHub,
+		Raw:          raw,
+		RawV2:        rawV2,
+		Redacted:     "ghp_abc...xyz",
+	}
+	report, err := BuildWithMatch("false positive in a test fixture", crash.Meta{Command: "feedback"}, &crash.Redactor{}, time.Unix(1_700_000_000, 0), result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Schema != SchemaV2 || report.Match == nil || report.Match.Detector != detectors.GitHub.String() {
+		t.Fatalf("report = %+v", report)
+	}
+	if got, want := report.Match.RawHash, hashForTest(raw); got != want {
+		t.Errorf("raw_hash = %q, want %q", got, want)
+	}
+	if got, want := report.Match.RawV2Hash, hashForTest(rawV2); got != want {
+		t.Errorf("raw_v2_hash = %q, want %q", got, want)
+	}
+	other := result
+	other.Raw = []byte("different-match-secret")
+	otherReport, err := BuildWithMatch("false positive in a test fixture", crash.Meta{Command: "feedback"}, &crash.Redactor{}, time.Unix(1_700_000_000, 0), other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Fingerprint == otherReport.Fingerprint {
+		t.Fatal("different match hashes must not collide in the local spool filename")
+	}
+	for _, secret := range [][]byte{raw, rawV2} {
+		if strings.Contains(string(b), string(secret)) {
+			t.Fatalf("serialized report contains raw match %q: %s", secret, b)
+		}
+	}
+}
+
+func TestBuildWithMatchUsesSafeRedactionForShortUnicodeAndPairedRaw(t *testing.T) {
+	cases := []struct {
+		name   string
+		raw    []byte
+		rawV2  []byte
+		unsafe string
+	}{
+		{name: "short", raw: []byte("xY9"), unsafe: "xY9"},
+		{name: "unicode", raw: []byte("秘密鍵"), unsafe: "秘密鍵"},
+		{name: "paired raw v2", raw: []byte("account-id"), rawV2: []byte("paired-secret"), unsafe: "paired-secret"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := detectors.Result{DetectorType: detectors.GitHub, Raw: tc.raw, RawV2: tc.rawV2, Redacted: tc.unsafe}
+			report, err := BuildWithMatch("fixture", crash.Meta{Command: "feedback"}, &crash.Redactor{}, time.Now(), result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := json.Marshal(report)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, raw := range [][]byte{tc.raw, tc.rawV2} {
+				if len(raw) > 0 && strings.Contains(string(b), string(raw)) {
+					t.Fatalf("report contains raw match %q: %s", raw, b)
+				}
+			}
+			if report.Match == nil || report.Match.Redacted == tc.unsafe {
+				t.Fatalf("unsafe display was retained: %+v", report.Match)
+			}
+		})
+	}
+}
+
+func hashForTest(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }
 
 func TestBuildBoundsMessage(t *testing.T) {
@@ -120,6 +206,12 @@ type relay struct {
 	status int
 }
 
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
 func (r *relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -139,7 +231,7 @@ func TestSend(t *testing.T) {
 	if err := Send(context.Background(), srv.Client(), srv.URL, "1.2.3", r); err != nil {
 		t.Fatal(err)
 	}
-	if rl.ua != "pleno-dlp/1.2.3" || rl.ct != "application/json" || rl.bodies[0].Fingerprint != "abc" {
+	if rl.ua != "pleno-dlp/1.2.3" || rl.ct != "application/json" || rl.bodies[0].Fingerprint != "abc" || rl.bodies[0].Schema != Schema {
 		t.Fatalf("relay saw ua=%q ct=%q body=%+v", rl.ua, rl.ct, rl.bodies)
 	}
 	rl.status = http.StatusInternalServerError
@@ -148,10 +240,163 @@ func TestSend(t *testing.T) {
 	}
 }
 
+func TestSendDefaultEndpointMapsFeedbackV1ToIntakeEnvelope(t *testing.T) {
+	var body []byte
+	client := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.String(); got != DefaultEndpoint {
+			t.Fatalf("request URL = %q, want %q", got, DefaultEndpoint)
+		}
+		body, _ = io.ReadAll(req.Body)
+		return &http.Response{StatusCode: http.StatusCreated, Body: io.NopCloser(strings.NewReader("{}")), Header: make(http.Header), Request: req}, nil
+	})}
+	report := Report{Schema: Schema, Version: "v0.68.0", Command: "feedback", Message: "ordinary feedback"}
+	if err := Send(context.Background(), client, DefaultEndpoint, "v0.68.0", report); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["schema"] != intakeReportSchemaV1 || got["kind"] != intakeReportKind || got["message"] != report.Message {
+		t.Fatalf("intake v1 envelope = %s", body)
+	}
+	if _, ok := got["match"]; ok {
+		t.Fatalf("ordinary feedback carried match context: %s", body)
+	}
+	if flags, ok := got["flags"].([]any); !ok || len(flags) != 0 {
+		t.Fatalf("empty flags = %#v, want empty array", got["flags"])
+	}
+}
+
+func TestSendDefaultEndpointMatchesIntakeV2Fixture(t *testing.T) {
+	var body []byte
+	client := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.URL.String(); got != DefaultEndpoint {
+			t.Fatalf("request URL = %q, want %q", got, DefaultEndpoint)
+		}
+		body, _ = io.ReadAll(req.Body)
+		return &http.Response{StatusCode: http.StatusCreated, Body: io.NopCloser(strings.NewReader("{}")), Header: make(http.Header), Request: req}, nil
+	})}
+	report := Report{
+		Schema:      SchemaV2,
+		Fingerprint: "0123456789abcdef",
+		Version:     "v0.68.0",
+		Commit:      "abc1234",
+		GOOS:        "darwin",
+		GOARCH:      "arm64",
+		GoVersion:   "go1.26.9",
+		Command:     "feedback",
+		Flags:       []string{"detector", "finding-hash", "kind", "scan-file"},
+		Message:     "The AWS detector matched a documented fixture.",
+		Match: &Match{
+			Detector: "AWS",
+			Redacted: "AKIA12...",
+			RawHash:  strings.Repeat("a", 64),
+		},
+	}
+	if err := Send(context.Background(), client, DefaultEndpoint, "v0.68.0", report); err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := os.ReadFile("client-to-intake-v2.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got, want any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(fixture, &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("client intake v2 payload = %s, want fixture %s", body, fixture)
+	}
+}
+
+func TestSendDefaultEndpointNeverSerializesRawMatch(t *testing.T) {
+	raw := []byte("synthetic-match-secret-001")
+	rawV2 := []byte("synthetic-paired-secret-002")
+	report, err := BuildWithMatch("false positive in a test fixture", crash.Meta{Version: "v0.68.0", Command: "feedback"}, &crash.Redactor{}, time.Unix(1_700_000_000, 0), detectors.Result{
+		DetectorType: detectors.GitHub,
+		Raw:          raw,
+		RawV2:        rawV2,
+		Redacted:     "ghp_abc...xyz",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body []byte
+	client := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		body, _ = io.ReadAll(req.Body)
+		return &http.Response{StatusCode: http.StatusCreated, Body: io.NopCloser(strings.NewReader("{}")), Header: make(http.Header), Request: req}, nil
+	})}
+	if err := Send(context.Background(), client, DefaultEndpoint, "v0.68.0", report); err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range [][]byte{raw, rawV2} {
+		if bytes.Contains(body, secret) {
+			t.Fatalf("intake payload serialized raw match %q: %s", secret, body)
+		}
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["schema"] != intakeReportSchemaV2 || got["kind"] != intakeFalsePositive {
+		t.Fatalf("intake payload = %s", body)
+	}
+	match := got["match"].(map[string]any)
+	if match["raw_hash"] != hashForTest(raw) || match["raw_v2_hash"] != hashForTest(rawV2) {
+		t.Fatalf("match hashes = %#v", match)
+	}
+}
+
+func TestSendDefaultEndpointRejectsSchemaMatchMismatches(t *testing.T) {
+	calls := 0
+	client := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: http.StatusCreated, Body: io.NopCloser(strings.NewReader("{}")), Header: make(http.Header), Request: req}, nil
+	})}
+	for _, report := range []Report{
+		{Schema: Schema, Match: &Match{Detector: "AWS", Redacted: "AKIA12...", RawHash: strings.Repeat("a", 64)}},
+		{Schema: SchemaV2},
+		{Schema: SchemaV2, Match: &Match{Detector: "AWS", Redacted: "AKIA12...", RawHash: "bad"}},
+		{Schema: "pleno-dlp.feedback/v99"},
+	} {
+		if err := Send(context.Background(), client, DefaultEndpoint, "v0.68.0", report); err == nil {
+			t.Fatalf("invalid report was sent: %+v", report)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("invalid reports reached intake %d times", calls)
+	}
+}
+
+func TestUsesIntakeProtocolOnlyForNormalizedDefaultURL(t *testing.T) {
+	for endpoint, want := range map[string]bool{
+		DefaultEndpoint: true,
+		"HTTPS://INTAKE.PLENOAI.COM:443/v1/pleno-dlp":         true,
+		"https://intake.plenoai.com/v1/pleno-dlp/":            false,
+		"https://intake.plenoai.com:/v1/pleno-dlp":            false,
+		"https://intake.plenoai.com/v1/pleno-dlp?":            false,
+		"https://intake.plenoai.com/v1/pleno-dlp?tenant=test": false,
+		"https://intake.plenoai.com/v1/pleno-dlp#":            false,
+		"https://feedback.plenoai.com/v1/pleno-dlp":           false,
+		"https://intake.plenoai.com/custom":                   false,
+	} {
+		if got := usesIntakeProtocol(endpoint); got != want {
+			t.Errorf("usesIntakeProtocol(%q) = %t, want %t", endpoint, got, want)
+		}
+	}
+}
+
 func TestEndpointAndSpoolDir(t *testing.T) {
 	dir := t.TempDir()
 	env := map[string]string{crash.EnvDir: dir}
 	get := envFunc(env)
+	if DefaultEndpoint != "https://intake.plenoai.com/v1/pleno-dlp" {
+		t.Fatalf("default endpoint = %q", DefaultEndpoint)
+	}
 	if ep, err := Endpoint(get); err != nil || ep != DefaultEndpoint {
 		t.Fatalf("default endpoint = %q, %v", ep, err)
 	}
