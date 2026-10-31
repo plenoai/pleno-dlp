@@ -3,6 +3,7 @@ package ci
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -68,7 +69,11 @@ func TestReleaseWorkflowRemainsTagOnlyAndProvisionsJobTools(t *testing.T) {
 		t.Error("native release job must install CMake before checking or building with it")
 	}
 
-	rubySetup := strings.Index(release, "ruby/setup-ruby@824c0e29fdfc7d689c191c27acc969d2d04b7dd8 # v1.331.0")
+	// Assert a full-SHA pin, not a specific version, so Dependabot bumps stay mergeable.
+	rubySetup := -1
+	if loc := regexp.MustCompile(`ruby/setup-ruby@[0-9a-f]{40} # v\d+\.\d+\.\d+`).FindStringIndex(release); loc != nil {
+		rubySetup = loc[0]
+	}
 	formulaValidation := strings.Index(release, "Validate Homebrew formula")
 	if rubySetup < 0 || formulaValidation < rubySetup || !strings.Contains(release[rubySetup:formulaValidation], "ruby-version: '3.4'") {
 		t.Error("Homebrew validation must provision pinned Ruby before invoking ruby")
