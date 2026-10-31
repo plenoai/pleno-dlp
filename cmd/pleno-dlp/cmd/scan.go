@@ -588,6 +588,11 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// any detector runs — covers the entire scan without per-detector
 	// refactoring. We restore on exit so unit tests in the same process
 	// aren't affected by leftover state.
+	if kind == "github" {
+		defer engine.SetFailureClassifier(func(failure engine.ScanFailure) string {
+			return githubFailureClass(failure, scanGitHubOpts.allowCorruptArchives, scanGitHubOpts.allowArchiveLimits, scanGitHubOpts.allowRepoWalkTimeouts, scanGitHubOpts.allowRepoCloneFailures)
+		})()
+	}
 	prev := verify.Install(scanOpts.verifyRPS)
 	defer verify.Restore(prev)
 
@@ -911,27 +916,44 @@ func githubPartialRepositoryStateSafe(coverage *engine.DegradedError, src source
 	return ok && partial.PartialIncrementalStateSafe()
 }
 
+const (
+	githubFailureCorruptArchive = "corrupt-archive"
+	githubFailureRepoWalkLimit  = "repo-walk-limit"
+	githubFailureRepoClone      = "repo-clone-failure"
+)
+
+func githubFailureClass(failure engine.ScanFailure, allowCorruptArchives, allowArchiveLimits, allowRepoWalkTimeouts, allowRepoCloneFailures bool) string {
+	switch {
+	case allowRepoWalkTimeouts && repositoryWalkTimeoutFailure(failure):
+		return githubFailureRepoWalkLimit
+	case allowRepoCloneFailures && repositoryCloneFailure(failure):
+		return githubFailureRepoClone
+	case failure.Kind == engine.FailureDetector:
+		return ""
+	case allowCorruptArchives && gitsource.ArchiveGapOnly(failure.Err, allowArchiveLimits):
+		return githubFailureCorruptArchive
+	}
+	return ""
+}
+
 func acceptedGitHubCoverage(coverage *engine.DegradedError, allowCorruptArchives, allowArchiveLimits, allowRepoWalkTimeouts, allowRepoCloneFailures bool) (bool, int, int, int) {
-	if coverage == nil || coverage.Total == 0 || coverage.Total != len(coverage.Failures) {
+	if coverage == nil || coverage.Total == 0 {
 		return false, 0, 0, 0
 	}
-	corruptArchives, repoWalkTimeouts, repoCloneFailures := 0, 0, 0
-	for _, failure := range coverage.Failures {
-		if allowRepoWalkTimeouts && repositoryWalkTimeoutFailure(failure) {
-			repoWalkTimeouts++
-			continue
+	classes := coverage.Classes
+	if coverage.Total == len(coverage.Failures) {
+		classes = make(map[string]int)
+		for _, failure := range coverage.Failures {
+			class := githubFailureClass(failure, allowCorruptArchives, allowArchiveLimits, allowRepoWalkTimeouts, allowRepoCloneFailures)
+			if class == "" {
+				return false, 0, 0, 0
+			}
+			classes[class]++
 		}
-		if allowRepoCloneFailures && repositoryCloneFailure(failure) {
-			repoCloneFailures++
-			continue
-		}
-		if failure.Kind == engine.FailureDetector {
-			return false, 0, 0, 0
-		}
-		if !gitsource.ArchiveGapOnly(failure.Err, allowArchiveLimits) || !allowCorruptArchives {
-			return false, 0, 0, 0
-		}
-		corruptArchives++
+	}
+	corruptArchives, repoWalkTimeouts, repoCloneFailures := classes[githubFailureCorruptArchive], classes[githubFailureRepoWalkLimit], classes[githubFailureRepoClone]
+	if corruptArchives+repoWalkTimeouts+repoCloneFailures != coverage.Total {
+		return false, 0, 0, 0
 	}
 	return true, corruptArchives, repoWalkTimeouts, repoCloneFailures
 }
