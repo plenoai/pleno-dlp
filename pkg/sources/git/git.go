@@ -359,13 +359,11 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	coverageTotal := 0
 	recordCoverage := func(commit plumbing.Hash, stage string, err error) {
 		coverageTotal++
-		if len(coverage) < 32 {
-			coverage = append(coverage, engine.ScanFailure{
-				Kind:   engine.FailureSource,
-				Source: fmt.Sprintf("%s@%s:%s", s.repoAbs, commit, stage),
-				Err:    err,
-			})
-		}
+		coverage = append(coverage, engine.ScanFailure{
+			Kind:   engine.FailureSource,
+			Source: fmt.Sprintf("%s@%s:%s", s.repoAbs, commit, stage),
+			Err:    err,
+		})
 	}
 	for _, r := range refs {
 		if err := ctx.Err(); err != nil {

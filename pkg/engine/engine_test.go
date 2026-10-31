@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"runtime"
 	"strings"
 	"sync"
@@ -1016,5 +1017,31 @@ func TestDecodedResultsOutliveWindowScratch(t *testing.T) {
 		if string(finding.Result.Raw) != bodies[i] {
 			t.Fatalf("finding %d was overwritten by a later decoded window", i)
 		}
+	}
+}
+
+func TestPartitionDegradedErrorsClassifiesFailuresBeyondExamplesCap(t *testing.T) {
+	defer SetFailureClassifier(func(failure ScanFailure) string {
+		if failure.Source == "bad" {
+			return ""
+		}
+		return "gap"
+	})()
+	failures := make([]ScanFailure, maxFailureExamples*2)
+	for i := range failures {
+		failures[i] = ScanFailure{Kind: FailureSource, Source: fmt.Sprintf("s%d", i), Err: errors.New("gap")}
+	}
+	inner := &DegradedError{Total: len(failures), Counts: map[FailureKind]int{FailureSource: len(failures)}, Failures: failures}
+	merged, residual := PartitionDegradedErrors(errors.Join(inner))
+	if residual != nil || merged == nil {
+		t.Fatalf("partition = (%v, %v)", merged, residual)
+	}
+	if len(merged.Failures) != maxFailureExamples || merged.Classes["gap"] != len(failures) {
+		t.Fatalf("examples=%d classes=%v, want %d examples and %d gaps", len(merged.Failures), merged.Classes, maxFailureExamples, len(failures))
+	}
+	failures[len(failures)-1].Source = "bad"
+	merged, _ = PartitionDegradedErrors(inner)
+	if merged.Classes["gap"] != len(failures)-1 {
+		t.Fatalf("unclassified failure counted: %v", merged.Classes)
 	}
 }

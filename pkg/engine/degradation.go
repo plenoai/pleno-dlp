@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -42,6 +43,31 @@ type DegradedError struct {
 	// Total can be larger when repeated failures were coalesced for bounded
 	// memory use.
 	Failures []ScanFailure
+	// Classes counts every failure by the installed FailureClassifier, including failures beyond the examples cap.
+	Classes map[string]int
+}
+
+// FailureClassifier labels a failure for acceptance policy; an empty label means unclassified.
+type FailureClassifier func(ScanFailure) string
+
+var failureClassifier atomic.Pointer[FailureClassifier]
+
+// SetFailureClassifier installs classify and returns a function restoring the previous classifier.
+func SetFailureClassifier(classify FailureClassifier) func() {
+	var next *FailureClassifier
+	if classify != nil {
+		next = &classify
+	}
+	prev := failureClassifier.Swap(next)
+	return func() { failureClassifier.Store(prev) }
+}
+
+func classifyFailure(classes map[string]int, failure ScanFailure) {
+	if classify := failureClassifier.Load(); classify != nil {
+		if class := (*classify)(failure); class != "" {
+			classes[class]++
+		}
+	}
 }
 
 func (e *DegradedError) Error() string {
@@ -111,6 +137,21 @@ func PartitionDegradedErrors(err error) (*DegradedError, error) {
 			merged.Total += degraded.total()
 			for kind, count := range degraded.Counts {
 				merged.Counts[kind] += count
+			}
+			if degraded.Classes != nil {
+				if merged.Classes == nil {
+					merged.Classes = make(map[string]int)
+				}
+				for class, count := range degraded.Classes {
+					merged.Classes[class] += count
+				}
+			} else if len(degraded.Failures) == degraded.total() {
+				if merged.Classes == nil {
+					merged.Classes = make(map[string]int)
+				}
+				for _, failure := range degraded.Failures {
+					classifyFailure(merged.Classes, failure)
+				}
 			}
 			remaining := maxFailureExamples - len(merged.Failures)
 			if remaining > 0 {

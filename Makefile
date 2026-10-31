@@ -9,6 +9,18 @@ OPF_NATIVE_SRC := build/opf-native
 OPF_NATIVE_CDEPS := pkg/piiengine/opfnative/cdeps
 OPF_NATIVE_LDFLAGS ?=
 
+# Include registry consumers whose tests exercise native detector initialization.
+OPF_NATIVE_PKGS := \
+	./cmd/pleno-dlp \
+	./cmd/pleno-dlp/cmd \
+	./pkg/connectors \
+	./pkg/detectors \
+	./pkg/detectors/all \
+	./pkg/detectors/openaipf \
+	./pkg/engine \
+	./pkg/piiengine/opfnative \
+	./pkg/telemetry/crash
+
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
 OPF_NATIVE_CMAKE_FLAGS := -DGGML_METAL_EMBED_LIBRARY=ON
@@ -34,9 +46,9 @@ opf-native-build: opf-native-lib
 	CGO_ENABLED=1 go build -trimpath -tags opf_native $(if $(OPF_NATIVE_LDFLAGS),-ldflags "$(OPF_NATIVE_LDFLAGS)") -o bin/pleno-dlp-opf ./cmd/pleno-dlp
 
 opf-native-test: opf-native-lib
-	CGO_ENABLED=1 go vet -tags=opf_native ./...
-	CGO_ENABLED=1 go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 -tags=opf_native ./...
-	CGO_ENABLED=1 go test -race -tags "opf_native,detector_unit" ./... -count=1 -timeout 15m
+	CGO_ENABLED=1 go vet -tags=opf_native $(OPF_NATIVE_PKGS)
+	CGO_ENABLED=1 go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 -tags=opf_native $(OPF_NATIVE_PKGS)
+	CGO_ENABLED=1 go test -race -tags="opf_native,detector_unit" $(OPF_NATIVE_PKGS) -count=1 -timeout 15m
 
 opf-native-clean:
 	rm -rf $(OPF_NATIVE_SRC) $(OPF_NATIVE_CDEPS) bin/pleno-dlp-opf

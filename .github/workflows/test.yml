@@ -92,8 +92,10 @@ jobs:
       # `test` job above.
       - run: go test -tags=detector_unit ./pkg/detectors/... -race -count=1 -timeout 15m
 
+  # opf-native fits the flash class after its package bound; keeping it off
+  # hikae-long lets it run alongside the test job instead of queuing behind it.
   opf-native:
-    runs-on: [self-hosted, linux, arm64, hikae-long]
+    runs-on: [self-hosted, linux, arm64, hikae-flash]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

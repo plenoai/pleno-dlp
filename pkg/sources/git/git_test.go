@@ -1787,3 +1787,14 @@ func TestRegistry_GitRegistered(t *testing.T) {
 		t.Fatalf("Type: %v", s.Type())
 	}
 }
+
+func TestNativeCoverageRetainsEveryGapForAcceptance(t *testing.T) {
+	p := &nativeLogParser{source: &Source{repoAbs: "acme/repo"}}
+	for i := 0; i < 40; i++ {
+		p.recordCoverage("artifact", &archivepkg.PartialError{Kind: "corrupt-archive", Entry: fmt.Sprintf("a%d.zip", i), Err: errors.New("bad")})
+	}
+	err := p.finish()
+	if !CorruptArchiveGapOnly(err) {
+		t.Fatalf("typed gaps beyond the example cap were rejected: %v", err)
+	}
+}

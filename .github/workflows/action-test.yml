@@ -16,12 +16,16 @@ on:
   pull_request:
     paths:
       - "action.yml"
+      - "scripts/select-executable-tempdir.sh"
+      - "tests/test_action_tempdir.py"
       - ".github/workflows/action-test.yml"
       - ".github/action-smoke/**"
   push:
     branches: ["main"]
     paths:
       - "action.yml"
+      - "scripts/select-executable-tempdir.sh"
+      - "tests/test_action_tempdir.py"
       - ".github/workflows/action-test.yml"
       - ".github/action-smoke/**"
 
@@ -40,6 +44,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Test executable temporary directory selection
+        run: python3 -m unittest discover -s tests -p 'test_action_tempdir.py'
 
       - name: Run pleno-dlp action against a secret-free target
         id: scan

@@ -23,9 +23,16 @@ bounded 1 MiB chunks with overlap.
 Complete clones preserve offline coverage. Large text blobs remain scannable;
 the binary artifact ceiling is not a text-size limit. Histories containing large
 blobs can therefore consume substantial clone bandwidth and temporary disk.
-Clone time is not covered by `--repo-walk-timeout`. Automatic partial cloning
-remains deferred in [#378](https://github.com/plenoai/pleno-dlp/issues/378)
-until its coverage, transfer-budget, and large-history checks pass.
+Each clone attempt logs its elapsed time and `clone_dir_file_bytes_on_disk`,
+the sum of file lengths in the temporary mirror. This is a local disk-size
+measurement, not an exact count of bytes transferred over the network; its
+separate `size_scan` duration shows the measurement overhead. If the directory
+cannot be measured completely, the byte value is reported as unavailable.
+`--repo-clone-timeout` bounds clone time independently and defaults to `0`
+(unbounded); clone time is not covered by `--repo-walk-timeout`. Automatic
+partial cloning remains deferred in
+[#378](https://github.com/plenoai/pleno-dlp/issues/378) until its coverage,
+transfer-budget, and large-history checks pass.
 
 For an existing partial clone, `pleno-dlp scan git --repo ./repo` uses the native
 offline walker when supported. It scans locally retained content without fetching
