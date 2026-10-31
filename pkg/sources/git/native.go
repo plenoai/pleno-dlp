@@ -971,9 +971,6 @@ func (p *nativeLogParser) finish() error {
 
 func (p *nativeLogParser) recordCoverage(stage string, err error) {
 	p.coverageTotal++
-	if len(p.coverage) >= 32 {
-		return
-	}
 	source := p.source.repoAbs + "@native-log:" + stage
 	if p.commit != nil {
 		source = fmt.Sprintf("%s@%s:%s", p.source.repoAbs, p.commit.hash, stage)

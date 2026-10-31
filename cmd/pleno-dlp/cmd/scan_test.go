@@ -947,6 +947,26 @@ func TestAcceptedGitHubCoverageAllowsRawDiffLimitAsWalkLimit(t *testing.T) {
 	}
 }
 
+func TestAcceptedGitHubCoverageUsesClassesWhenExamplesAreTruncated(t *testing.T) {
+	coverage := &engine.DegradedError{
+		Total:    117,
+		Counts:   map[engine.FailureKind]int{engine.FailureSource: 110, engine.FailureArchive: 7},
+		Failures: make([]engine.ScanFailure, 32),
+		Classes:  map[string]int{githubFailureCorruptArchive: 111, githubFailureRepoWalkLimit: 6},
+	}
+	if accepted, corruptArchives, repoWalkTimeouts, _ := acceptedGitHubCoverage(coverage, true, true, true, false); !accepted || corruptArchives != 111 || repoWalkTimeouts != 6 {
+		t.Fatalf("truncated coverage = (%v, %d, %d), want (true, 111, 6)", accepted, corruptArchives, repoWalkTimeouts)
+	}
+	coverage.Classes[githubFailureCorruptArchive] = 110
+	if accepted, _, _, _ := acceptedGitHubCoverage(coverage, true, true, true, false); accepted {
+		t.Fatal("truncated coverage with an unclassified failure was accepted")
+	}
+	coverage.Classes = nil
+	if accepted, _, _, _ := acceptedGitHubCoverage(coverage, true, true, true, false); accepted {
+		t.Fatal("truncated coverage without classes was accepted")
+	}
+}
+
 func TestCorruptArchiveCoverageOnlyRejectsOtherPartialKinds(t *testing.T) {
 	partial := &archivepkg.PartialError{Kind: "budget", Entry: "large.zip", Err: context.DeadlineExceeded}
 	coverage := &engine.DegradedError{

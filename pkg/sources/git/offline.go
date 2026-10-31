@@ -790,13 +790,11 @@ func (w *offlineWalk) recordSkip(hash, path string) {
 // missing and the clone cannot prove it was out of scope.
 func (w *offlineWalk) recordCoverage(commit nativeCommit, path string, err error) {
 	w.coverageTotal++
-	if len(w.coverage) < 32 {
-		w.coverage = append(w.coverage, engine.ScanFailure{
-			Kind:   engine.FailureSource,
-			Source: fmt.Sprintf("%s@%s:%s", w.source.repoAbs, commit.hash, path),
-			Err:    err,
-		})
-	}
+	w.coverage = append(w.coverage, engine.ScanFailure{
+		Kind:   engine.FailureSource,
+		Source: fmt.Sprintf("%s@%s:%s", w.source.repoAbs, commit.hash, path),
+		Err:    err,
+	})
 }
 
 // degradedErr reports the accumulated incomplete coverage.
