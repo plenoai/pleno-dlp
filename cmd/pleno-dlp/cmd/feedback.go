@@ -37,12 +37,21 @@ var feedbackOpenTTY = func() (*os.File, error) {
 }
 
 type feedbackFlags struct {
-	stdin       bool
-	yes         bool
-	kind        string
-	detector    string
-	scanFile    string
-	findingHash string
+	stdin             bool
+	yes               bool
+	kind              string
+	detector          string
+	scanFile          string
+	findingHash       string
+	piiEngine         string
+	piiEngineCmd      string
+	piiEnginePort     int
+	piiEngineLanguage string
+	piiEngineReady    time.Duration
+	piiEngineRequest  time.Duration
+	piiEngineDevice   string
+	piiModel          string
+	piiModelPath      string
 }
 
 var feedbackOpts feedbackFlags
@@ -61,6 +70,10 @@ For a false-positive report, scan one file offline and select a match by its
 SHA-256 hash from scan JSON output. Only the detector, safe redacted display,
 and raw hashes are included in schema v2. The selected fields are shown before confirmation.
 
+PII redaction uses an available or locally cached engine by default. Automatic
+selection never downloads a model or installs an engine. If no engine is
+available, feedback warns that names and other PII may remain.
+
   pleno-dlp feedback "scan of a 2 GB monorepo OOMs"
   echo "docs typo in verify-coverage.md" | pleno-dlp feedback --stdin
   # Replace HASH with the selected hash from scan JSON output.
@@ -78,38 +91,63 @@ func runFeedback(c *cobra.Command, args []string) error {
 		return errors.New("feedback: empty message (pass text or use --stdin)")
 	}
 
-	red := &crash.Redactor{Detectors: detectors.All()}
-	if home, err := os.UserHomeDir(); err == nil {
-		red.Prefixes = crash.EnvPrefixes(feedbackGetenv, home)
-	}
-	var report feedback.Report
+	var selectedMatch detectors.Result
+	hasSelectedMatch := false
 	switch feedbackOpts.kind {
 	case "feedback":
 		if feedbackOpts.detector != "" || feedbackOpts.scanFile != "" || feedbackOpts.findingHash != "" {
 			return fmt.Errorf("feedback: finding selection flags require --kind false-positive")
 		}
-		report = feedback.Build(message, crash.Meta{
-			Version: toolVersion,
-			Commit:  toolCommit,
-			Command: "feedback",
-			Flags:   feedbackFlagNames(c),
-		}, red, time.Now())
 	case "false-positive":
-		match, err := feedbackScanMatch(c.Context(), feedbackOpts.scanFile, feedbackOpts.detector, feedbackOpts.findingHash)
+		selectedMatch, err = feedbackScanMatch(c.Context(), feedbackOpts.scanFile, feedbackOpts.detector, feedbackOpts.findingHash)
 		if err != nil {
 			return err
 		}
-		report, err = feedback.BuildWithMatch(message, crash.Meta{
-			Version: toolVersion,
-			Commit:  toolCommit,
-			Command: "feedback",
-			Flags:   feedbackFlagNames(c),
-		}, red, time.Now(), match)
-		if err != nil {
-			return err
-		}
+		hasSelectedMatch = true
 	default:
 		return fmt.Errorf("feedback: invalid --kind %q (want feedback or false-positive)", feedbackOpts.kind)
+	}
+
+	selectedPII, err := feedbackPIISelector(c.Context())
+	if err != nil {
+		return err
+	}
+	if selectedPII.Stop != nil {
+		defer selectedPII.Stop()
+	}
+	if strings.EqualFold(strings.TrimSpace(feedbackOpts.piiEngine), "auto") && selectedPII.Detector == nil {
+		termsafe.Fprintf(c.ErrOrStderr(), "feedback: PII engine unavailable; names and other PII may remain in the report\n")
+	} else if selectedPII.Detector != nil {
+		termsafe.Fprintf(c.ErrOrStderr(), "feedback: local PII redaction active (%s)\n", selectedPII.Engine)
+	}
+
+	home, _ := os.UserHomeDir()
+	red := feedbackRedactor(feedbackGetenv, home)
+	message, err = redactFeedbackValue(c.Context(), red, selectedPII.Detector, message)
+	if err != nil {
+		return err
+	}
+	if hasSelectedMatch {
+		selectedMatch.Redacted, err = redactFeedbackValue(c.Context(), red, selectedPII.Detector, selectedMatch.SafeRedacted())
+		if err != nil {
+			return err
+		}
+	}
+
+	var report feedback.Report
+	meta := crash.Meta{
+		Version: toolVersion,
+		Commit:  toolCommit,
+		Command: "feedback",
+		Flags:   feedbackFlagNames(c),
+	}
+	if hasSelectedMatch {
+		report, err = feedback.BuildWithMatch(message, meta, red, time.Now(), selectedMatch)
+		if err != nil {
+			return err
+		}
+	} else {
+		report = feedback.Build(message, meta, red, time.Now())
 	}
 
 	dir, err := feedback.SpoolDir(feedbackGetenv)
@@ -224,5 +262,14 @@ func init() {
 	feedbackCmd.Flags().StringVar(&feedbackOpts.detector, "detector", "", "require the selected finding to use this detector")
 	feedbackCmd.Flags().StringVar(&feedbackOpts.scanFile, "scan-file", "", "file to scan offline for a false-positive report")
 	feedbackCmd.Flags().StringVar(&feedbackOpts.findingHash, "finding-hash", "", "64-character secret_hash or secret_hash_v2 from scan JSON output")
+	feedbackCmd.Flags().StringVar(&feedbackOpts.piiEngine, "pii-engine", "auto", "PII redaction engine: auto, off, anonymize, or openai-pf-native")
+	feedbackCmd.Flags().StringVar(&feedbackOpts.piiEngineCmd, "pii-engine-cmd", defaultAnonymizeCmd, "argv to spawn the anonymize engine when explicitly selected")
+	feedbackCmd.Flags().IntVar(&feedbackOpts.piiEnginePort, "pii-engine-port", 0, "loopback port for the anonymize engine (0 = auto-allocate)")
+	feedbackCmd.Flags().StringVar(&feedbackOpts.piiEngineLanguage, "pii-engine-language", "auto", "language hint passed to the anonymize engine: ja, en, or auto")
+	feedbackCmd.Flags().DurationVar(&feedbackOpts.piiEngineReady, "pii-engine-ready-timeout", 0, "time to wait for the PII engine to become ready (0 defaults to 60s)")
+	feedbackCmd.Flags().DurationVar(&feedbackOpts.piiEngineRequest, "pii-engine-request-timeout", 10*time.Second, "per-request timeout for anonymize; feedback rejects results returned after 2s per text field (synchronous inference may continue)")
+	feedbackCmd.Flags().StringVar(&feedbackOpts.piiEngineDevice, "pii-engine-device", "auto", "inference device for openai-pf-native: auto, cpu, cuda, or mps")
+	feedbackCmd.Flags().StringVar(&feedbackOpts.piiModel, "pii-model", "q8", "GGUF model variant for openai-pf-native: q8 or f16")
+	feedbackCmd.Flags().StringVar(&feedbackOpts.piiModelPath, "pii-model-path", "", "explicit local GGUF path for openai-pf-native")
 	Root.AddCommand(feedbackCmd)
 }

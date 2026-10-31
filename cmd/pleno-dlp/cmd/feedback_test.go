@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +14,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/telemetry/crash"
 	"github.com/plenoai/pleno-dlp/pkg/telemetry/feedback"
 )
@@ -169,6 +173,104 @@ func TestFeedbackRedactsSecrets(t *testing.T) {
 	}
 }
 
+func TestFeedbackPIIRedactionFailureDoesNotSendOrSpool(t *testing.T) {
+	srv, got := feedbackRelay(t)
+	dir := isolateFeedback(t, map[string]string{feedback.EnvEndpoint: srv.URL})
+	prev := feedbackPIISelector
+	feedbackPIISelector = func(context.Context) (feedbackPIISelection, error) {
+		return feedbackPIISelection{Detector: failingFeedbackPII{}}, nil
+	}
+	t.Cleanup(func() { feedbackPIISelector = prev })
+
+	const privateText = "Mina Example"
+	out, err := runRoot(t, "feedback", "--yes", "message for "+privateText)
+	if err == nil || !strings.Contains(err.Error(), "PII redaction failed") {
+		t.Fatalf("PII failure = %v, want closed feedback error\n%s", err, out)
+	}
+	if strings.Contains(err.Error(), privateText) || strings.Contains(out, privateText) {
+		t.Fatalf("PII failure exposed input: err=%v output=%q", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "feedback")); !os.IsNotExist(err) {
+		t.Fatalf("failed PII redaction left a spool directory: %v", err)
+	}
+	if reports := got(); len(reports) != 0 {
+		t.Fatalf("failed PII redaction reached relay: %+v", reports)
+	}
+}
+
+func TestFeedbackPIIRedactionRejectsResultAfterAcceptanceDeadline(t *testing.T) {
+	const privateText = "Mina Example"
+	detector := delayedFeedbackPII{match: privateText}
+	got, err := redactFeedbackValueWithin(context.Background(), &crash.Redactor{}, detector, "message for "+privateText, 10*time.Millisecond)
+	if got != "" || err == nil {
+		t.Fatalf("late result = %q, %v; want closed rejection", got, err)
+	}
+	if strings.Contains(got, privateText) || strings.Contains(err.Error(), privateText) {
+		t.Fatalf("late result rejection exposed input: got=%q err=%v", got, err)
+	}
+}
+
+func TestFeedbackPIIStartupFailureDoesNotSendOrSpool(t *testing.T) {
+	srv, got := feedbackRelay(t)
+	dir := isolateFeedback(t, map[string]string{feedback.EnvEndpoint: srv.URL})
+	prev := feedbackPIISelector
+	feedbackPIISelector = func(context.Context) (feedbackPIISelection, error) {
+		return feedbackPIISelection{}, errFeedbackPIIUnavailable
+	}
+	t.Cleanup(func() { feedbackPIISelector = prev })
+
+	out, err := runRoot(t, "feedback", "--pii-engine", "anonymize", "--yes", "message with private text")
+	if !errors.Is(err, errFeedbackPIIUnavailable) {
+		t.Fatalf("PII startup failure = %v, want selected-engine error\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "feedback")); !os.IsNotExist(err) {
+		t.Fatalf("failed PII startup left a spool directory: %v", err)
+	}
+	if reports := got(); len(reports) != 0 {
+		t.Fatalf("failed PII startup reached relay: %+v", reports)
+	}
+}
+
+func TestFeedbackPIIRedactsMessageAndSelectedMatchDisplay(t *testing.T) {
+	srv, got := feedbackRelay(t)
+	isolateFeedback(t, map[string]string{feedback.EnvEndpoint: srv.URL})
+	path := filepath.Join(t.TempDir(), "config.env")
+	const raw = fixtureAWSKey
+	if err := os.WriteFile(path, []byte("AWS_ACCESS_KEY_ID="+raw+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(raw))
+	hash := hex.EncodeToString(sum[:])
+	pii := &recordingFeedbackPII{needle: "Mina"}
+	prev := feedbackPIISelector
+	feedbackPIISelector = func(context.Context) (feedbackPIISelection, error) {
+		return feedbackPIISelection{Detector: pii, Engine: "anonymize"}, nil
+	}
+	t.Cleanup(func() { feedbackPIISelector = prev })
+
+	out, err := runRoot(t, "feedback", "--yes", "--kind", "false-positive", "--scan-file", path,
+		"--detector", "AWS", "--finding-hash", hash, "Mina reported a match")
+	if err != nil {
+		t.Fatalf("feedback with PII engine: %v\n%s", err, out)
+	}
+	if len(pii.seen) != 2 || !strings.Contains(pii.seen[0], "Mina") || pii.seen[1] == pii.seen[0] {
+		t.Fatalf("PII engine inputs = %#v, want message and selected match display", pii.seen)
+	}
+	if strings.Contains(pii.seen[1], raw) {
+		t.Fatalf("PII engine received raw selected secret in match display: %q", pii.seen[1])
+	}
+	reports := got()
+	if len(reports) != 1 || reports[0].Match == nil || reports[0].Schema != feedback.SchemaV2 {
+		t.Fatalf("relay got %+v", reports)
+	}
+	if !strings.Contains(reports[0].Message, "[PII]") {
+		t.Fatalf("message did not use PII redaction: %q", reports[0].Message)
+	}
+	if strings.Contains(reports[0].Match.Redacted, raw) || strings.Contains(reports[0].Message, "Mina") {
+		t.Fatalf("report retained sensitive text: %+v", reports[0])
+	}
+}
+
 func TestFeedbackFalsePositiveSelectsAndPreviewsOnlySafeFindingFields(t *testing.T) {
 	srv, got, wire := feedbackRelayWithWire(t)
 	dir := isolateFeedback(t, map[string]string{feedback.EnvEndpoint: srv.URL})
@@ -287,4 +389,37 @@ func TestFeedbackImplicitStdin(t *testing.T) {
 	if got := reports(); len(got) != 1 || got[0].Message != "from stdin" {
 		t.Fatalf("reports = %+v", got)
 	}
+}
+
+type failingFeedbackPII struct{}
+
+func (failingFeedbackPII) Keywords() []string           { return nil }
+func (failingFeedbackPII) Type() detectors.DetectorType { return detectors.PIIAnonymize }
+func (failingFeedbackPII) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	return nil, errors.New("engine failed for " + string(data))
+}
+
+type recordingFeedbackPII struct {
+	needle string
+	seen   []string
+}
+
+type delayedFeedbackPII struct{ match string }
+
+func (d delayedFeedbackPII) Keywords() []string           { return nil }
+func (d delayedFeedbackPII) Type() detectors.DetectorType { return detectors.PIIAnonymize }
+func (d delayedFeedbackPII) FromData(ctx context.Context, _ bool, _ []byte) ([]detectors.Result, error) {
+	<-ctx.Done()
+	return []detectors.Result{{DetectorType: detectors.PIIAnonymize, Raw: []byte(d.match)}}, nil
+}
+
+func (d *recordingFeedbackPII) Keywords() []string           { return nil }
+func (d *recordingFeedbackPII) Type() detectors.DetectorType { return detectors.PIIAnonymize }
+func (d *recordingFeedbackPII) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
+	text := string(data)
+	d.seen = append(d.seen, text)
+	if !strings.Contains(text, d.needle) {
+		return nil, nil
+	}
+	return []detectors.Result{{DetectorType: detectors.PIIAnonymize, Raw: []byte(d.needle)}}, nil
 }

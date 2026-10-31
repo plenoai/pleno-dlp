@@ -41,6 +41,42 @@ var modelVariants = map[string]modelVariant{
 	},
 }
 
+// CachedModelPath returns the default cache path when the selected model is
+// already present. It never creates directories or downloads model bytes.
+func CachedModelPath(variant string) (string, bool, error) {
+	if variant == "" {
+		variant = DefaultVariant
+	}
+	mv, ok := modelVariants[variant]
+	if !ok {
+		return "", false, fmt.Errorf("%w: %q (valid: q8, f16)", ErrUnknownVariant, variant)
+	}
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return "", false, fmt.Errorf("opfnative: locate cache dir: %w", err)
+	}
+	return cachedModelPath(filepath.Join(cacheDir, "pleno-dlp", "models"), variant, mv)
+}
+
+func cachedModelPath(dir, variant string, mv modelVariant) (string, bool, error) {
+	path := filepath.Join(dir, modelCacheFilename(variant, mv))
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("opfnative: stat cached model: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", false, fmt.Errorf("opfnative: cached model is not a regular file")
+	}
+	return path, true, nil
+}
+
+func modelCacheFilename(variant string, mv modelVariant) string {
+	return fmt.Sprintf("privacy-filter-%s-%s.gguf", variant, mv.sha256[:8])
+}
+
 func modelURL(v modelVariant) string {
 	return "https://huggingface.co/LocalAI-io/privacy-filter-GGUF/resolve/" + modelRevision + "/" + v.file
 }
@@ -73,16 +109,15 @@ func ResolveModelPath(ctx context.Context, variant, explicitPath string, progres
 		return "", fmt.Errorf("opfnative: locate cache dir: %w", err)
 	}
 	dir := filepath.Join(cacheDir, "pleno-dlp", "models")
+	if path, exists, err := cachedModelPath(dir, variant, mv); err != nil {
+		return "", err
+	} else if exists {
+		return path, nil
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("opfnative: create model cache dir: %w", err)
 	}
-	// The filename embeds the sha256 prefix, so a cached file's presence is
-	// sufficient — no 1.5 GB re-hash per scan startup. Integrity is enforced
-	// at download time on the bytes that land.
-	dest := filepath.Join(dir, fmt.Sprintf("privacy-filter-%s-%s.gguf", variant, mv.sha256[:8]))
-	if _, err := os.Stat(dest); err == nil {
-		return dest, nil
-	}
+	dest := filepath.Join(dir, modelCacheFilename(variant, mv))
 	if err := downloadVerified(ctx, modelURL(mv), dest, mv.sha256, progress); err != nil {
 		return "", err
 	}

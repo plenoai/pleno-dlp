@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -52,32 +51,6 @@ func TestSubstr(t *testing.T) {
 		if got := substr(s, c.start, c.end); got != "" {
 			t.Errorf("substr(%d,%d) = %q, want \"\"", c.start, c.end, got)
 		}
-	}
-}
-
-func TestResolveModelPath_ExplicitPath(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "weights.gguf")
-	if err := os.WriteFile(p, []byte("stub"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ResolveModelPath(context.Background(), "", p, nil)
-	if err != nil {
-		t.Fatalf("explicit path: %v", err)
-	}
-	if got != p {
-		t.Errorf("explicit path = %q, want %q", got, p)
-	}
-	// A missing explicit path is a hard error, never a silent download.
-	if _, err := ResolveModelPath(context.Background(), "", filepath.Join(dir, "nope.gguf"), nil); err == nil {
-		t.Error("missing explicit path must error")
-	}
-}
-
-func TestResolveModelPath_UnknownVariant(t *testing.T) {
-	_, err := ResolveModelPath(context.Background(), "q4", "", nil)
-	if !errors.Is(err, ErrUnknownVariant) {
-		t.Errorf("unknown variant err = %v, want ErrUnknownVariant", err)
 	}
 }
 

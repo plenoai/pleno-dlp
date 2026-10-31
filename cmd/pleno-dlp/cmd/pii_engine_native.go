@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -22,13 +23,17 @@ const nativeOPFBuilt = true
 // (this file exists only in the tagged build); scan.go's preflight handles
 // it against the stub's nativeOPFBuilt=false.
 func startOpenAIPFNative(ctx context.Context, _ *cobra.Command, stderr io.Writer) (func(), error) {
-	path, err := opfnative.ResolveModelPath(ctx, scanOpts.piiModel, scanOpts.piiModelPath, stderr)
+	return startOpenAIPFNativeWithSettings(ctx, scanPIIEngineSettings(nil), stderr)
+}
+
+func startOpenAIPFNativeWithSettings(ctx context.Context, settings piiEngineSettings, stderr io.Writer) (func(), error) {
+	path, err := opfnative.ResolveModelPath(ctx, settings.model, settings.modelPath, stderr)
 	if err != nil {
 		return nil, err
 	}
 	eng, err := opfnative.New(opfnative.Config{
 		ModelPath: path,
-		Device:    scanOpts.piiEngineDevice,
+		Device:    settings.device,
 	})
 	if err != nil {
 		return nil, err
@@ -43,3 +48,21 @@ func startOpenAIPFNative(ctx context.Context, _ *cobra.Command, stderr io.Writer
 		_ = eng.Close()
 	}, nil
 }
+
+func cachedOpenAIPFModelPath(settings piiEngineSettings) (string, bool, error) {
+	if settings.modelPath != "" {
+		info, err := os.Stat(settings.modelPath)
+		if err != nil {
+			return "", false, err
+		}
+		if !info.Mode().IsRegular() {
+			return "", false, fmt.Errorf("openai-pf-native model path is not a regular file")
+		}
+		return settings.modelPath, true, nil
+	}
+	return opfnative.CachedModelPath(settings.model)
+}
+
+func feedbackOpenAIPFActive() bool { return opfnative.Default() != nil }
+
+func clearOpenAIPFNative() { opfnative.SetDefault(nil) }

@@ -23,6 +23,9 @@ publishing, archives, SLSA provenance, and SBOM generation.
   selected detector's safe redacted match and SHA-256 hashes in the local
   feedback/v2 record and the built-in intake report/v2 envelope; raw values
   and source paths are not sent.
+- Feedback uses an available local PII engine by default without fetching
+  runtime assets; it warns when none is available and blocks spool/send when
+  a selected engine cannot redact the report.
 - Published the `pleno-dlp.crash/v1` crash-report schema as
   [`pkg/telemetry/crash/schema/pleno-dlp.crash.v1.json`](pkg/telemetry/crash/schema/pleno-dlp.crash.v1.json).
   The Go `crash.Report` struct and the `plenoai.com` crash relay are both

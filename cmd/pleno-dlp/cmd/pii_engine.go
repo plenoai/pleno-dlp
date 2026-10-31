@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +18,19 @@ import (
 const (
 	defaultAnonymizeCmd = "pleno-dlp pii-server --port {PORT}"
 )
+
+type piiEngineSettings struct {
+	mode           string
+	command        string
+	port           int
+	language       string
+	readyTimeout   time.Duration
+	requestTimeout time.Duration
+	device         string
+	model          string
+	modelPath      string
+	env            []string
+}
 
 // errNativeNotBuilt is returned when --pii-engine=openai-pf-native is
 // selected on a binary without the opf_native build tag. Defined here
@@ -43,17 +57,36 @@ func validPIIEngineMode(mode string) bool {
 // startPIIEngine evaluates --pii-engine, starts the selected supervisor,
 // publishes it via SetDefault, and returns a stop function.
 func startPIIEngine(ctx context.Context, cmd *cobra.Command, stderr io.Writer) (stop func(), err error) {
-	mode := strings.ToLower(strings.TrimSpace(scanOpts.piiEngine))
+	return startPIIEngineWithSettings(ctx, scanPIIEngineSettings(cmd), stderr)
+}
+
+func scanPIIEngineSettings(cmd *cobra.Command) piiEngineSettings {
+	return piiEngineSettings{
+		mode:           scanOpts.piiEngine,
+		command:        piiEngineCmdValue(cmd, scanOpts.piiEngine),
+		port:           scanOpts.piiEnginePort,
+		language:       scanOpts.piiEngineLanguage,
+		readyTimeout:   scanOpts.piiEngineReady,
+		requestTimeout: scanOpts.piiEngineRequest,
+		device:         scanOpts.piiEngineDevice,
+		model:          scanOpts.piiModel,
+		modelPath:      scanOpts.piiModelPath,
+	}
+}
+
+func startPIIEngineWithSettings(ctx context.Context, settings piiEngineSettings, stderr io.Writer) (stop func(), err error) {
+	mode := strings.ToLower(strings.TrimSpace(settings.mode))
 	switch mode {
 	case "", "off":
 		anonymize.SetDefault(nil)
+		clearOpenAIPFNative()
 		return nil, nil
 	case "anonymize":
-		return startAnonymize(ctx, cmd, stderr)
+		return startAnonymizeWithSettings(ctx, settings, stderr)
 	case "openai-pf-native":
-		return startOpenAIPFNative(ctx, cmd, stderr)
+		return startOpenAIPFNativeWithSettings(ctx, settings, stderr)
 	default:
-		return nil, fmt.Errorf("unknown --pii-engine %q (valid: off, anonymize, openai-pf-native)", scanOpts.piiEngine)
+		return nil, fmt.Errorf("unknown --pii-engine %q (valid: off, anonymize, openai-pf-native)", settings.mode)
 	}
 }
 
@@ -72,14 +105,24 @@ func piiEngineCmdValue(cmd *cobra.Command, mode string) string {
 
 // startAnonymize spawns and publishes the anonymize supervisor.
 func startAnonymize(ctx context.Context, cmd *cobra.Command, stderr io.Writer) (stop func(), err error) {
-	language := scanOpts.piiEngineLanguage
+	return startAnonymizeWithSettings(ctx, scanPIIEngineSettings(cmd), stderr)
+}
+
+func startAnonymizeWithSettings(ctx context.Context, settings piiEngineSettings, stderr io.Writer) (stop func(), err error) {
+	argv, err := splitArgv(settings.command)
+	if err != nil {
+		return nil, fmt.Errorf("parse --pii-engine-cmd: %w", err)
+	}
+	return startAnonymizeWithArgv(ctx, settings, argv, stderr)
+}
+
+func startAnonymizeWithArgv(ctx context.Context, settings piiEngineSettings, argv []string, stderr io.Writer) (stop func(), err error) {
+	language := settings.language
 	if strings.EqualFold(language, "auto") {
 		language = ""
 	}
-
-	argv, err := splitArgv(piiEngineCmdValue(cmd, "anonymize"))
-	if err != nil {
-		return nil, fmt.Errorf("parse --pii-engine-cmd: %w", err)
+	if len(argv) == 0 {
+		return nil, fmt.Errorf("--pii-engine-cmd parsed to empty argv")
 	}
 	if argv[0] == "pleno-dlp" {
 		argv[0] = resolveExecutable()
@@ -87,9 +130,10 @@ func startAnonymize(ctx context.Context, cmd *cobra.Command, stderr io.Writer) (
 
 	sup, err := anonymize.New(anonymize.Config{
 		Cmd:            argv,
-		Port:           scanOpts.piiEnginePort,
-		ReadyTimeout:   scanOpts.piiEngineReady,
-		RequestTimeout: scanOpts.piiEngineRequest,
+		Env:            settings.env,
+		Port:           settings.port,
+		ReadyTimeout:   settings.readyTimeout,
+		RequestTimeout: settings.requestTimeout,
 		Language:       language,
 		Stderr:         stderr,
 	})
@@ -100,6 +144,7 @@ func startAnonymize(ctx context.Context, cmd *cobra.Command, stderr io.Writer) (
 		_ = sup.Stop()
 		return nil, err
 	}
+	clearOpenAIPFNative()
 	anonymize.SetDefault(sup)
 	fmt.Fprintf(stderr, "pii-engine: anonymize started at %s\n", sup.BaseURL())
 

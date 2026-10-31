@@ -19,3 +19,18 @@ const nativeOPFBuilt = false
 func startOpenAIPFNative(_ context.Context, _ *cobra.Command, _ io.Writer) (func(), error) {
 	return nil, errNativeNotBuilt
 }
+
+func startOpenAIPFNativeWithSettings(_ context.Context, _ piiEngineSettings, _ io.Writer) (func(), error) {
+	return nil, errNativeNotBuilt
+}
+
+func cachedOpenAIPFModelPath(settings piiEngineSettings) (string, bool, error) {
+	if settings.modelPath != "" {
+		return "", false, errNativeNotBuilt
+	}
+	return "", false, nil
+}
+
+func feedbackOpenAIPFActive() bool { return false }
+
+func clearOpenAIPFNative() {}

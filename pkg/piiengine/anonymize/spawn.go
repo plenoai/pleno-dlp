@@ -75,3 +75,27 @@ func buildCmd(argv []string) *exec.Cmd {
 	}
 	return exec.Command(argv[0], argv[1:]...)
 }
+
+func mergeEnvironment(base, overrides []string) []string {
+	if len(overrides) == 0 {
+		return nil
+	}
+	overridden := make(map[string]struct{}, len(overrides))
+	for _, pair := range overrides {
+		if name, _, ok := strings.Cut(pair, "="); ok {
+			overridden[name] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(base)+len(overrides))
+	for _, pair := range base {
+		name, _, ok := strings.Cut(pair, "=")
+		if !ok {
+			out = append(out, pair)
+			continue
+		}
+		if _, replace := overridden[name]; !replace {
+			out = append(out, pair)
+		}
+	}
+	return append(out, overrides...)
+}

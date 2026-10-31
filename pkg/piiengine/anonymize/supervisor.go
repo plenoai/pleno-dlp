@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"sync"
@@ -78,6 +79,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 		s.mu.Unlock()
 		return fmt.Errorf("%w: empty argv", ErrSpawnFailed)
 	}
+	cmd.Env = mergeEnvironment(os.Environ(), s.cfg.Env)
 	if s.cfg.Stderr != nil {
 		cmd.Stderr = s.cfg.Stderr
 	} else {
