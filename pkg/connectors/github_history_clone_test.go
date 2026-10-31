@@ -95,13 +95,22 @@ func TestNativeGitAuthRedirect(t *testing.T) {
 	var mu sync.Mutex
 	var sourceAuth, redirectAuth, otherPathAuth string
 	var redirectRequests, otherPathRequests int
+	redirectLocation := "/redirected/repo.git/info/refs?service=git-upload-pack"
+	destination := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		redirectRequests++
+		redirectAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer destination.Close()
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
 		switch r.URL.Path {
 		case "/repo.git/info/refs":
 			sourceAuth = r.Header.Get("Authorization")
-			http.Redirect(w, r, "/redirected/repo.git/info/refs?service=git-upload-pack", http.StatusFound)
+			http.Redirect(w, r, redirectLocation, http.StatusFound)
 		case "/redirected/repo.git/info/refs":
 			redirectRequests++
 			redirectAuth = r.Header.Get("Authorization")
@@ -151,25 +160,40 @@ func TestNativeGitAuthRedirect(t *testing.T) {
 		cmd.Env = append(append([]string(nil), testEnv...), nativeGitAuthEnv(url, token)...)
 		return cmd.Run()
 	}
-	for _, tc := range []struct {
-		name string
-		args func(string) []string
-	}{
-		{name: "pull ref probe", args: nativeGitPullRefArgs},
-		{name: "mirror clone", args: func(url string) []string { return nativeGitCloneArgs(url, filepath.Join(t.TempDir(), "clone.git")) }},
+	for _, redirect := range []struct{ name, location string }{
+		{"same origin", "/redirected/repo.git/info/refs?service=git-upload-pack"},
+		{"cross origin", destination.URL + "/repo.git/info/refs?service=git-upload-pack"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if err := runGit(tc.args(cloneURL), cloneURL); err == nil {
-				t.Fatal("Git followed a redirect despite the authenticated redirect policy")
-			}
+		t.Run(redirect.name, func(t *testing.T) {
 			mu.Lock()
-			defer mu.Unlock()
-			if sourceAuth != wantAuth {
-				t.Errorf("origin Authorization = %q, want fixture credentials", sourceAuth)
+			redirectLocation = redirect.location
+			mu.Unlock()
+			for _, tc := range []struct {
+				name string
+				args func(string) []string
+			}{
+				{name: "pull ref probe", args: nativeGitPullRefArgs},
+				{name: "mirror clone", args: func(url string) []string { return nativeGitCloneArgs(url, filepath.Join(t.TempDir(), "clone.git")) }},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					mu.Lock()
+					sourceAuth, redirectAuth = "", ""
+					redirectRequests = 0
+					mu.Unlock()
+					if err := runGit(tc.args(cloneURL), cloneURL); err == nil {
+						t.Fatal("Git followed a redirect despite the authenticated redirect policy")
+					}
+					mu.Lock()
+					defer mu.Unlock()
+					if sourceAuth != wantAuth {
+						t.Errorf("origin Authorization = %q, want fixture credentials", sourceAuth)
+					}
+					if redirectRequests != 0 || redirectAuth != "" {
+						t.Errorf("redirect target received a request: count=%d authorization=%q", redirectRequests, redirectAuth)
+					}
+				})
 			}
-			if redirectRequests != 0 || redirectAuth != "" {
-				t.Errorf("redirect target received a request: count=%d authorization=%q", redirectRequests, redirectAuth)
-			}
+
 		})
 	}
 
