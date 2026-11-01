@@ -223,3 +223,49 @@ func TestReleasePublishesNativeAssetsInsideImmutableBoundary(t *testing.T) {
 		t.Error("GoReleaser must defer Homebrew publication until the release is immutable")
 	}
 }
+
+// The hikae-long test job is the workflow's critical path; static gates must
+// run in the parallel flash lint job instead of serializing ahead of the race
+// build there.
+func TestTestWorkflowRunsStaticGatesBesideRaceJob(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	data, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "test.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs := map[string]string{}
+	job := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		if match := jobLine.FindStringSubmatch(line); match != nil {
+			job = match[1]
+		}
+		if job != "" {
+			jobs[job] += line + "\n"
+		}
+	}
+	lint, race := jobs["lint"], jobs["test"]
+	if lint == "" || race == "" {
+		t.Fatal("test.yml must define separate lint and test jobs")
+	}
+	if strings.Contains(lint, "needs:") || strings.Contains(race, "needs:") {
+		t.Error("lint and test jobs must run in parallel")
+	}
+	for _, gate := range []string{
+		"gofmt -l",
+		"go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...",
+		"go vet ./...",
+		"go run golang.org/x/vuln/cmd/govulncheck@v1.1.4",
+		"go build ./...",
+	} {
+		if !strings.Contains(lint, gate) {
+			t.Errorf("lint job must run %q", gate)
+		}
+		if strings.Contains(race, gate) {
+			t.Errorf("test job must not serialize %q ahead of the race build", gate)
+		}
+	}
+	if !strings.Contains(race, "bash tests/ci/full-race.sh") {
+		t.Error("test job must run the centralized race gate")
+	}
+}

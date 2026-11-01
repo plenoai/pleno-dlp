@@ -42,6 +42,29 @@ jobs:
           path: ${{ runner.temp }}/disk-before-validation.txt
           if-no-files-found: error
           retention-days: 1
+      - run: bash tests/ci/full-race.sh
+      - name: Source-to-detector prefilter boundary
+        run: go test ./pkg/connectors -run '^TestSourceFixtureDetectorKeywordMatrix$' -race -count=1
+      - name: CLI boundary E2E
+        run: bash tests/e2e/run.sh
+      - name: Crash telemetry schema contract
+        run: go test ./pkg/telemetry/crash -count=1
+      - name: Crash relay schema contract (vendored)
+        run: node --test workers/crash-relay/crash-relay.test.js
+
+  # Static gates compile independently of the race build, so they run in a
+  # parallel flash job instead of serializing ahead of full-race.sh on the
+  # hikae-long critical path.
+  lint:
+    runs-on: [self-hosted, linux, arm64, hikae-flash]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
       - name: gofmt
         run: |
           unformatted=$(git ls-files -z -- '*.go' | xargs -0 gofmt -l)
@@ -65,15 +88,6 @@ jobs:
             exit 1
           fi
       - run: go build ./...
-      - run: bash tests/ci/full-race.sh
-      - name: Source-to-detector prefilter boundary
-        run: go test ./pkg/connectors -run '^TestSourceFixtureDetectorKeywordMatrix$' -race -count=1
-      - name: CLI boundary E2E
-        run: bash tests/e2e/run.sh
-      - name: Crash telemetry schema contract
-        run: go test ./pkg/telemetry/crash -count=1
-      - name: Crash relay schema contract (vendored)
-        run: node --test workers/crash-relay/crash-relay.test.js
 
   detector-unit:
     runs-on: [self-hosted, linux, arm64, hikae-flash]
