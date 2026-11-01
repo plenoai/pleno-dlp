@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-11-01 | architect | Split `test.yml` static gates (gofmt, staticcheck, vet, govulncheck, build) into a parallel hikae-flash `lint` job so the hikae-long `test` job carries only the race and boundary tests (plenoai/pleno-dlp run 41201387996, 607s critical path). |
 | 2026-10-31 | architect | Move the bounded `test.yml` opf-native job to hikae-flash so it no longer serializes behind `test` on the hikae-long pool; the release native job stays on hikae-long (#722). |
 | 2026-10-31 | connector-engineer, qa | Exercise cross-origin redirects alongside same-origin ones in the native Git authenticated redirect test so neither target receives Authorization (#458). |
 | 2026-10-31 | architect | Bound opf_native vet, staticcheck, and race tests to native packages and their tested CLI/registry/engine reverse dependencies (HikaruEgashira/hikaevi#6). |
