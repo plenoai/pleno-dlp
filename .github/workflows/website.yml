@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, linux, arm64, hikae-flash]
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       pages: write
       id-token: write

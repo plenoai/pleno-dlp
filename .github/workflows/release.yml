@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   quality:
-    runs-on: [self-hosted, linux, arm64, hikae-long]
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     timeout-minutes: 45
     permissions:
       contents: read
@@ -73,7 +73,7 @@ jobs:
       - run: go test -tags=detector_unit ./pkg/detectors/... -race -count=1 -timeout 15m
 
   native:
-    runs-on: [self-hosted, linux, arm64, hikae-long]
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
       attestations: write
       contents: read
@@ -178,7 +178,7 @@ jobs:
 
   draft:
     needs: [quality, native]
-    runs-on: [self-hosted, linux, arm64, hikae-flash]
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     timeout-minutes: 30
     permissions:
       attestations: write
@@ -285,7 +285,7 @@ jobs:
 
   finalize:
     needs: draft
-    runs-on: [self-hosted, linux, arm64, hikae-flash]
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     timeout-minutes: 5
     permissions:
       contents: write
@@ -344,7 +344,7 @@ jobs:
 
   homebrew:
     needs: finalize
-    runs-on: [self-hosted, linux, arm64, hikae-flash]
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     timeout-minutes: 10
     permissions:
       contents: read
