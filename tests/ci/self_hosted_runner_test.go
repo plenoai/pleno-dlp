@@ -10,9 +10,10 @@ import (
 )
 
 // Runner labels are pinned because this repository has measured capacity
-// exceptions and does not use GitHub-hosted runners.
-const hikaeFlashLabels = "[self-hosted, linux, arm64, hikae-flash]"
-const hikaeLongLabels = "[self-hosted, linux, arm64, hikae-long]"
+// exceptions and does not use GitHub-hosted runners. plenoai runs on Blacksmith;
+// the disk-heavy jobs use the 4 vCPU size.
+const smallRunnerLabel = "blacksmith-2vcpu-ubuntu-2404-arm"
+const largeRunnerLabel = "blacksmith-4vcpu-ubuntu-2404-arm"
 
 var (
 	runnerLine = regexp.MustCompile(`^(\s*)runs-on:\s*(.*)$`)
@@ -58,7 +59,7 @@ func TestWorkflowsUsePinnedRunnerPolicy(t *testing.T) {
 				continue
 			}
 			found = true
-			if hostedOS.MatchString(value) {
+			if !strings.HasPrefix(value, "blacksmith-") && hostedOS.MatchString(value) {
 				t.Errorf("%s:%d: runs-on must not select a GitHub-hosted runner: %q", name, i+1, value)
 			}
 			if !runnerMatchesPolicy(name, job, value) {
@@ -74,9 +75,9 @@ func TestWorkflowsUsePinnedRunnerPolicy(t *testing.T) {
 func expectedRunnerLabels(workflow, job string) string {
 	if workflow == "test.yml" && job == "test" ||
 		workflow == "release.yml" && (job == "quality" || job == "native") {
-		return hikaeLongLabels
+		return largeRunnerLabel
 	}
-	return hikaeFlashLabels
+	return smallRunnerLabel
 }
 
 func runnerMatchesPolicy(workflow, job, value string) bool {

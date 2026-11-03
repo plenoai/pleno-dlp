@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: [self-hosted, linux, arm64, hikae-long]
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -53,10 +53,10 @@ jobs:
         run: node --test workers/crash-relay/crash-relay.test.js
 
   # Static gates compile independently of the race build, so they run in a
-  # parallel flash job instead of serializing ahead of full-race.sh on the
-  # hikae-long critical path.
+  # parallel job instead of serializing ahead of full-race.sh on the
+  # test job's critical path.
   lint:
-    runs-on: [self-hosted, linux, arm64, hikae-flash]
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -90,7 +90,7 @@ jobs:
       - run: go build ./...
 
   detector-unit:
-    runs-on: [self-hosted, linux, arm64, hikae-flash]
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -106,10 +106,10 @@ jobs:
       # `test` job above.
       - run: go test -tags=detector_unit ./pkg/detectors/... -race -count=1 -timeout 15m
 
-  # opf-native fits the flash class after its package bound; keeping it off
-  # hikae-long lets it run alongside the test job instead of queuing behind it.
+  # opf-native fits the 2 vCPU class after its package bound; keeping it apart from
+  # the test job lets it run in parallel instead of queuing behind it.
   opf-native:
-    runs-on: [self-hosted, linux, arm64, hikae-flash]
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

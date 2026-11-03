@@ -98,7 +98,7 @@ func TestReleaseDraftMeasuresCleanFlashCapacityBeforeSerialBuilds(t *testing.T) 
 	}
 	draft := release[draftStart+1 : draftStart+1+finalizeStart]
 	for _, required := range []string{
-		"runs-on: [self-hosted, linux, arm64, hikae-flash]",
+		"runs-on: blacksmith-2vcpu-ubuntu-2404-arm",
 		"timeout-minutes: 30",
 		"go clean -cache",
 		`df -Pk "$GITHUB_WORKSPACE" /tmp`,
@@ -224,9 +224,8 @@ func TestReleasePublishesNativeAssetsInsideImmutableBoundary(t *testing.T) {
 	}
 }
 
-// The hikae-long test job is the workflow's critical path; static gates must
-// run in the parallel flash lint job instead of serializing ahead of the race
-// build there.
+// The test job is the workflow's critical path; static gates must run in the
+// parallel lint job instead of serializing ahead of the race build there.
 func TestTestWorkflowRunsStaticGatesBesideRaceJob(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
