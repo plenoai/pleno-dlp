@@ -17,6 +17,10 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Added
 
+- Coverage reports separate real gaps from archives skipped by expansion
+  policy (`skipped_by_policy`); only gaps set `status=degraded` and fail the
+  scan by default. Each failure is listed with its source and reason, and
+  `--fail-on-coverage=any` restores failing on policy skips.
 - `scan stdin --diff` parses a unified diff, scans only added lines, and
   reports each finding at the file and line it came from.
 - Published the `pleno-dlp.crash/v1` crash-report schema as

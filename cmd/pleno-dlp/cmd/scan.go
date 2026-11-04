@@ -65,6 +65,7 @@ type scanFlags struct {
 	concurrency        int
 	rulesPath          string
 	failOn             string
+	failOnCoverage     string
 	allowlistPath      string
 	includeDetectors   []string
 	excludeDetectors   []string
@@ -215,6 +216,9 @@ func init() {
 		"(default high: audit-first rollout — verified/critical and named unverified-secret findings gate CI; "+
 		"generic-entropy, JWT, PEM, and PII findings default to medium and do not; pass any to gate on every finding, "+
 		"including that lower tier, once the repo's baseline is clean; applies to all source kinds, including stdin)")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.failOnCoverage, "fail-on-coverage", coverageFailGap,
+		"coverage failures that trigger a non-zero exit: gap|any (default gap: only unread scan targets fail the scan; "+
+			"archives skipped by expansion policy are reported as skipped_by_policy and fail only with any)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file that mutes known false positives (auto-discovers .pleno-allow.json from the repo root)")
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated, case-insensitive Type names; see 'pleno-dlp detectors list'). Custom rules from --rules count as GenericHighEntropy.")
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.excludeDetectors, "exclude-detectors", nil, "skip these detectors (comma-separated, case-insensitive Type names). Applied after --include-detectors.")
@@ -515,6 +519,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 
 	threshold, err := parseFailOn(scanOpts.failOn)
 	if err != nil {
+		return err
+	}
+	if err := validateFailOnCoverage(scanOpts.failOnCoverage); err != nil {
 		return err
 	}
 
@@ -882,8 +889,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		}
 	}
 	if coverageErr != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "coverage: status=degraded failures=%d source=%d archive=%d detector=%d\n",
-			coverageErr.Total, coverageErr.Counts[engine.FailureSource], coverageErr.Counts[engine.FailureArchive], coverageErr.Counts[engine.FailureDetector])
+		writeCoverageReport(cmd.ErrOrStderr(), coverageErr)
 		if acceptCoverage {
 			if partialRepositoryState {
 				fmt.Fprintf(cmd.ErrOrStderr(), "coverage: partial-repository-state=%d checkpoint=failed-repositories-retained retry=next-incremental-run\n", coverageErr.Total)
@@ -897,7 +903,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 			if acceptedRepoCloneFailures > 0 {
 				fmt.Fprintf(cmd.ErrOrStderr(), "coverage: accepted-repo-clone-failures=%d retry=next-incremental-run\n", acceptedRepoCloneFailures)
 			}
-		} else {
+		} else if coverageErr.Gaps() > 0 || scanOpts.failOnCoverage == coverageFailAny {
 			return fmt.Errorf("scan: %w", coverageErr)
 		}
 	}
@@ -906,6 +912,51 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		return errFindingsFound
 	}
 	return nil
+}
+
+const (
+	coverageFailGap = "gap"
+	coverageFailAny = "any"
+)
+
+func validateFailOnCoverage(value string) error {
+	switch value {
+	case coverageFailGap, coverageFailAny:
+		return nil
+	}
+	return fmt.Errorf("--fail-on-coverage: unknown value %q (want gap or any)", value)
+}
+
+// writeCoverageReport prints the coverage summary followed by one entry per
+// retained failure. Gaps (scan targets not read) degrade status; archives
+// skipped by expansion policy were still read and are counted separately.
+func writeCoverageReport(w io.Writer, coverage *engine.DegradedError) {
+	gaps, policySkips := coverage.Gaps(), coverage.PolicySkips
+	status := "ok"
+	if gaps > 0 {
+		status = "degraded"
+	}
+	fmt.Fprintf(w, "coverage: status=%s failures=%d gaps=%d skipped_by_policy=%d source=%d archive=%d detector=%d\n",
+		status, coverage.Total, gaps, policySkips,
+		coverage.Counts[engine.FailureSource], coverage.Counts[engine.FailureArchive], coverage.Counts[engine.FailureDetector])
+	listedGaps, listedSkips := 0, 0
+	for _, failure := range coverage.Failures {
+		severity := "gap"
+		if failure.PolicySkip() {
+			severity = "skipped-by-policy"
+			listedSkips++
+		} else {
+			listedGaps++
+		}
+		line := fmt.Sprintf("coverage: %s kind=%s source=%q", severity, failure.Kind, failure.Source)
+		if failure.Kind == engine.FailureDetector {
+			line += " detector=" + failure.Detector.String()
+		}
+		fmt.Fprintf(w, "%s reason=%q\n", line, failure.FailureReason())
+	}
+	if omittedGaps, omittedSkips := max(gaps-listedGaps, 0), max(policySkips-listedSkips, 0); omittedGaps+omittedSkips > 0 {
+		fmt.Fprintf(w, "coverage: entries-omitted gaps=%d skipped_by_policy=%d\n", omittedGaps, omittedSkips)
+	}
 }
 
 func githubPartialRepositoryStateSafe(coverage *engine.DegradedError, src sources.Source) bool {

@@ -100,6 +100,11 @@ type Engine struct {
 	failureTotal          int
 	failureCounts         map[FailureKind]int
 	failureClasses        map[string]int
+	// failurePolicySkips counts recorded policy skips; the example counters
+	// cap retained gaps and policy skips independently.
+	failurePolicySkips  int
+	failureGapExamples  int
+	failureSkipExamples int
 }
 
 type streamMatch struct {
@@ -1264,12 +1269,14 @@ func (e *Engine) resetFailures() {
 	e.failureMu.Lock()
 	e.failures = e.failures[:0]
 	e.failureTotal = 0
+	e.failurePolicySkips, e.failureGapExamples, e.failureSkipExamples = 0, 0, 0
 	e.failureCounts = make(map[FailureKind]int)
 	e.failureClasses = make(map[string]int)
 	e.failureMu.Unlock()
 }
 
 func (e *Engine) recordFailure(failure ScanFailure) {
+	skip := failure.PolicySkip()
 	e.failureMu.Lock()
 	e.failureTotal++
 	e.failureCounts[failure.Kind]++
@@ -1277,8 +1284,14 @@ func (e *Engine) recordFailure(failure ScanFailure) {
 		e.failureClasses = make(map[string]int)
 	}
 	classifyFailure(e.failureClasses, failure)
-	if len(e.failures) < maxFailureExamples {
+	examples := &e.failureGapExamples
+	if skip {
+		e.failurePolicySkips++
+		examples = &e.failureSkipExamples
+	}
+	if *examples < maxFailureExamples {
 		e.failures = append(e.failures, failure)
+		*examples++
 	}
 	e.failureMu.Unlock()
 }
@@ -1292,15 +1305,17 @@ func (e *Engine) takeFailures() error {
 		counts[kind] = count
 	}
 	classes := e.failureClasses
+	policySkips := e.failurePolicySkips
 	e.failures = e.failures[:0]
 	e.failureTotal = 0
+	e.failurePolicySkips, e.failureGapExamples, e.failureSkipExamples = 0, 0, 0
 	e.failureCounts = nil
 	e.failureClasses = nil
 	e.failureMu.Unlock()
 	if total == 0 {
 		return nil
 	}
-	return &DegradedError{Total: total, Counts: counts, Failures: failures, Classes: classes}
+	return &DegradedError{Total: total, Counts: counts, Failures: failures, Classes: classes, PolicySkips: policySkips}
 }
 
 // scanChunk expands archive chunks and dispatches every leaf chunk.

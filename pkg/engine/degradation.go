@@ -1,11 +1,13 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
 
+	"github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
@@ -28,8 +30,100 @@ type ScanFailure struct {
 	Err      error
 }
 
+// PolicySkip reports whether the failure is an archive whose expansion the
+// scanner declined by design: a safety limit, an unsafe or unsupported entry,
+// or a corrupt container. The target was reached and its expansion declined
+// deliberately (leaves emitted before the rejection were still scanned), so
+// the failure is not reported as an unread scan target.
+// Detector failures, timeouts, whole-blob limits, and untyped source errors
+// remain coverage gaps.
+func (f ScanFailure) PolicySkip() bool {
+	return f.Kind != FailureDetector && archiveGapOnly(f.Err, archivePolicyKind)
+}
+
+// archivePolicyKind lists archive.PartialError kinds raised while expanding an
+// archive that was already reached. Whole-blob kinds (max-blob-bytes,
+// corrupt-blob) and git tree errors mean the target was not scanned at all.
+func archivePolicyKind(kind string) bool {
+	switch kind {
+	case "corrupt-archive", "corrupt-entry", "symlink", "special-file",
+		"path", "max-depth", "max-files", "max-entry-bytes", "max-input-bytes",
+		"max-headers", "central-directory-bytes", "metadata-bytes":
+		return true
+	}
+	return false
+}
+
+// ArchiveGapOnly reports whether err contains only typed archive gaps; configured limit gaps require allowLimits.
+func ArchiveGapOnly(err error, allowLimits bool) bool {
+	return archiveGapOnly(err, func(kind string) bool {
+		switch kind {
+		case "corrupt-archive", "corrupt-entry", "symlink", "special-file":
+			return true
+		case "path", "max-depth", "max-files", "max-entry-bytes", "max-input-bytes", "max-blob-bytes",
+			"max-headers", "central-directory-bytes", "metadata-bytes":
+			return allowLimits
+		}
+		return false
+	})
+}
+
+func archiveGapOnly(err error, accept func(kind string) bool) bool {
+	if err == nil {
+		return false
+	}
+	if partial, ok := err.(*archive.PartialError); ok {
+		return accept(partial.Kind)
+	}
+	if degraded, ok := err.(*DegradedError); ok {
+		if degraded.Total == 0 || degraded.Total != len(degraded.Failures) {
+			return false
+		}
+		for _, failure := range degraded.Failures {
+			if failure.Kind == FailureDetector || !archiveGapOnly(failure.Err, accept) {
+				return false
+			}
+		}
+		return true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		children := joined.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !archiveGapOnly(child, accept) {
+				return false
+			}
+		}
+		return true
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return archiveGapOnly(wrapped.Unwrap(), accept)
+	}
+	return false
+}
+
+// FailureReason returns a stable reason for a coverage report entry. Typed
+// archive failures report only their kind: archive entry names are untrusted
+// and stay redacted, so Source is the entry's only locator.
+func (f ScanFailure) FailureReason() string {
+	var partial *archive.PartialError
+	switch {
+	case errors.As(f.Err, &partial):
+		return partial.Kind
+	case errors.Is(f.Err, context.DeadlineExceeded):
+		return "deadline-exceeded"
+	case f.Err == nil:
+		return "unknown"
+	}
+	return f.Err.Error()
+}
+
 // maxFailureExamples bounds diagnostic memory independently of corpus size.
-// Total and Counts retain complete accounting after this many examples.
+// Gaps and policy skips each retain up to this many examples so a flood of
+// skipped archives cannot hide a real gap; Total, Counts, and PolicySkips
+// retain complete accounting beyond it.
 const maxFailureExamples = 32
 
 // DegradedError reports that a scan produced all available findings but could
@@ -45,6 +139,18 @@ type DegradedError struct {
 	Failures []ScanFailure
 	// Classes counts every failure by the installed FailureClassifier, including failures beyond the examples cap.
 	Classes map[string]int
+	// PolicySkips counts failures for which ScanFailure.PolicySkip holds,
+	// including failures beyond the examples cap. The remainder are gaps.
+	PolicySkips int
+}
+
+// Gaps counts failures whose scan target was not read. Only gaps degrade
+// coverage status; policy skips are reported separately.
+func (e *DegradedError) Gaps() int {
+	if e == nil {
+		return 0
+	}
+	return e.total() - e.PolicySkips
 }
 
 // FailureClassifier labels a failure for acceptance policy; an empty label means unclassified.
@@ -124,6 +230,7 @@ func (e *DegradedError) Unwrap() []error {
 // one DegradedError first.
 func PartitionDegradedErrors(err error) (*DegradedError, error) {
 	var merged *DegradedError
+	var mergedGaps, mergedSkips int
 	var residual []error
 	var visit func(error)
 	visit = func(current error) {
@@ -153,9 +260,26 @@ func PartitionDegradedErrors(err error) (*DegradedError, error) {
 					classifyFailure(merged.Classes, failure)
 				}
 			}
-			remaining := maxFailureExamples - len(merged.Failures)
-			if remaining > 0 {
-				merged.Failures = append(merged.Failures, degraded.Failures[:min(remaining, len(degraded.Failures))]...)
+			if len(degraded.Failures) == degraded.total() {
+				// Fully enumerated errors (for example built by a source) are
+				// classified here so their PolicySkips need not be pre-set.
+				for _, failure := range degraded.Failures {
+					if failure.PolicySkip() {
+						merged.PolicySkips++
+					}
+				}
+			} else {
+				merged.PolicySkips += min(max(degraded.PolicySkips, 0), degraded.total())
+			}
+			for _, failure := range degraded.Failures {
+				examples := &mergedGaps
+				if failure.PolicySkip() {
+					examples = &mergedSkips
+				}
+				if *examples < maxFailureExamples {
+					merged.Failures = append(merged.Failures, failure)
+					*examples++
+				}
 			}
 			return
 		}

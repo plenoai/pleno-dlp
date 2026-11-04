@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-11-04 | core-engineer, qa | Classify coverage failures as gaps or archive policy skips (`ScanFailure.PolicySkip`, `DegradedError.PolicySkips`); only gaps degrade status and fail by default, every retained failure is listed, and `--fail-on-coverage=gap\|any` gates exit. |
 | 2026-11-01 | architect | Split `test.yml` static gates (gofmt, staticcheck, vet, govulncheck, build) into a parallel hikae-flash `lint` job so the hikae-long `test` job carries only the race and boundary tests (plenoai/pleno-dlp run 41201387996, 607s critical path). |
 | 2026-10-31 | architect | Move the bounded `test.yml` opf-native job to hikae-flash so it no longer serializes behind `test` on the hikae-long pool; the release native job stays on hikae-long (#722). |
 | 2026-10-31 | connector-engineer, qa | Exercise cross-origin redirects alongside same-origin ones in the native Git authenticated redirect test so neither target receives Authorization (#458). |
