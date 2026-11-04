@@ -251,6 +251,37 @@ The same fields can be provided through `GITHUB_APP_ID`,
 `GITHUB_APP_PRIVATE_KEY` only when the environment can safely carry
 multi-line PEM secrets.
 
+## Coverage gaps and policy skips
+
+When a scan cannot cover everything it was asked to, it prints a coverage
+summary on stderr followed by one entry per failure:
+
+```text
+coverage: status=ok failures=2 gaps=0 skipped_by_policy=2 source=0 archive=2 detector=0
+coverage: skipped-by-policy kind=archive source="vendor/cache/x.gem" reason="symlink"
+coverage: skipped-by-policy kind=archive source="fixtures/broken.zip" reason="corrupt-archive"
+```
+
+Failures fall into two severities:
+
+- **gap** — a scan target was not read: a source or tree-diff failure, a
+  skipped repository, a blob over the artifact size limit, an archive
+  expansion timeout, or a detector error. Any gap sets `status=degraded`.
+- **skipped-by-policy** — an archive whose expansion was declined by design
+  (`corrupt-archive`, `corrupt-entry`, `symlink`, `special-file`, `path`,
+  `max-depth`, `max-files`, `max-entry-bytes`, `max-input-bytes`,
+  `max-headers`, `central-directory-bytes`, `metadata-bytes`). These are
+  counted as `skipped_by_policy` and leave `status` unchanged.
+
+`--fail-on-coverage` decides which of them make the scan exit non-zero:
+`gap` (default) fails only on gaps; `any` also fails on policy skips. Either
+way, incremental checkpoints are not advanced past an incomplete run unless a
+`scan github --allow-*` flag accepts the failures. Entries name the source
+locator and a typed reason; archive entry names stay redacted. Up to 32
+entries per severity are listed, and a trailing
+`coverage: entries-omitted gaps=N skipped_by_policy=M` line accounts for the
+rest.
+
 ## Incremental source scans
 
 `scan github --incremental --incremental-state <file>` stores the overall

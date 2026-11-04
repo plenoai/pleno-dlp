@@ -500,7 +500,7 @@ func TestScanFilesystemRequiresPath(t *testing.T) {
 	}
 }
 
-func TestScanFilesystem_CorruptArchiveReturnsCoverageError(t *testing.T) {
+func TestScanFilesystem_CorruptArchiveIsSkippedByPolicy(t *testing.T) {
 	resetCommandFlags(t)
 	path := filepath.Join(t.TempDir(), "broken.zip")
 	if err := os.WriteFile(path, []byte{'P', 'K', 3, 4}, 0o600); err != nil {
@@ -511,9 +511,31 @@ func TestScanFilesystem_CorruptArchiveReturnsCoverageError(t *testing.T) {
 	Root.SetOut(&out)
 	Root.SetErr(&stderr)
 	Root.SetArgs([]string{"scan", "filesystem", path, "--no-verify", "--quiet"})
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("policy-limited archive must not fail the default gap gate: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "coverage: status=ok failures=1 gaps=0 skipped_by_policy=1 source=0 archive=1 detector=0\n") {
+		t.Fatalf("missing policy-skip coverage status: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), `coverage: skipped-by-policy kind=archive source=`+fmt.Sprintf("%q", path)+` reason="corrupt-archive"`) {
+		t.Fatalf("missing policy-skip coverage entry: %s", stderr.String())
+	}
+}
+
+func TestScanFilesystem_CorruptArchiveFailsWithFailOnCoverageAny(t *testing.T) {
+	resetCommandFlags(t)
+	path := filepath.Join(t.TempDir(), "broken.zip")
+	if err := os.WriteFile(path, []byte{'P', 'K', 3, 4}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, stderr bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&stderr)
+	Root.SetArgs([]string{"scan", "filesystem", path, "--no-verify", "--quiet", "--fail-on-coverage", "any"})
 	err := Root.Execute()
 	if err == nil {
-		t.Fatal("incomplete archive coverage must produce a non-zero CLI result")
+		t.Fatal("--fail-on-coverage=any must fail on a policy-skipped archive")
 	}
 	var degraded *engine.DegradedError
 	if !errors.As(err, &degraded) {
@@ -541,8 +563,46 @@ func TestRunScanCommonDegradedSourcePreservesFindingsAndReturnsTypedError(t *tes
 	if out.Len() == 0 || !strings.Contains(out.String(), "secret_hash") {
 		t.Fatalf("successful-unit finding was discarded: %s", out.String())
 	}
-	if !strings.Contains(stderr.String(), "coverage: status=degraded failures=1 source=1") {
+	if !strings.Contains(stderr.String(), "coverage: status=degraded failures=1 gaps=1 skipped_by_policy=0 source=1") {
 		t.Fatalf("missing machine-readable coverage status: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), `coverage: gap kind=source source="repository-history:acme/broken" reason="clone failed"`) {
+		t.Fatalf("missing repository-level gap entry: %s", stderr.String())
+	}
+}
+
+func TestRejectsUnknownFailOnCoverage(t *testing.T) {
+	resetCommandFlags(t)
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+	Root.SetArgs([]string{"scan", "filesystem", t.TempDir(), "--no-verify", "--quiet", "--fail-on-coverage", "some"})
+	if err := Root.Execute(); err == nil || !strings.Contains(err.Error(), "--fail-on-coverage") {
+		t.Fatalf("err = %v, want --fail-on-coverage validation error", err)
+	}
+}
+
+func TestWriteCoverageReportListsEveryRetainedFailure(t *testing.T) {
+	skip := engine.ScanFailure{Kind: engine.FailureArchive, Source: "vendor/x.gem", Err: &archivepkg.PartialError{Kind: "symlink", Entry: "secret-entry"}}
+	gap := engine.ScanFailure{Kind: engine.FailureSource, Source: "repo", Err: errors.New("tree-diff: git: parse native log")}
+	detector := engine.ScanFailure{Kind: engine.FailureDetector, Source: "a.txt", Detector: detectors.AWS, Err: errors.New("boom")}
+	var buf bytes.Buffer
+	writeCoverageReport(&buf, &engine.DegradedError{
+		Total:       5,
+		Counts:      map[engine.FailureKind]int{engine.FailureArchive: 3, engine.FailureSource: 1, engine.FailureDetector: 1},
+		Failures:    []engine.ScanFailure{skip, gap, detector},
+		PolicySkips: 3,
+	})
+	want := "coverage: status=degraded failures=5 gaps=2 skipped_by_policy=3 source=1 archive=3 detector=1\n" +
+		`coverage: skipped-by-policy kind=archive source="vendor/x.gem" reason="symlink"` + "\n" +
+		`coverage: gap kind=source source="repo" reason="tree-diff: git: parse native log"` + "\n" +
+		`coverage: gap kind=detector source="a.txt" detector=AWS reason="boom"` + "\n" +
+		"coverage: entries-omitted gaps=0 skipped_by_policy=2\n"
+	if buf.String() != want {
+		t.Fatalf("report =\n%s\nwant\n%s", buf.String(), want)
+	}
+	if strings.Contains(buf.String(), "secret-entry") {
+		t.Fatal("coverage report exposed a redacted archive entry name")
 	}
 }
 
@@ -777,6 +837,7 @@ func TestRunScanCommonArchiveFailureRestoresPriorCheckpoint(t *testing.T) {
 		data: []byte{'P', 'K', 3, 4},
 		next: json.RawMessage(`"archive-emitted"`),
 	}
+	scanOpts.failOnCoverage = "any"
 	err := runScanCommon(scanGitHubCmd, failed, nil, "s3-archive-checkpoint")
 	var degraded *engine.DegradedError
 	if !errors.As(err, &degraded) || degraded.Counts[engine.FailureArchive] != 1 {
@@ -792,6 +853,41 @@ func TestRunScanCommonArchiveFailureRestoresPriorCheckpoint(t *testing.T) {
 	for _, entry := range state.Entries {
 		if entry.ResourceFingerprint != "" || string(entry.SourceState) != `"prior-complete"` {
 			t.Fatalf("archive failure advanced checkpoint = %+v, want prior complete state", entry)
+		}
+	}
+}
+
+func TestRunScanCommonPolicySkippedArchiveRetainsPriorCheckpoint(t *testing.T) {
+	resetCommandFlags(t)
+	scanOpts.noVerify, scanOpts.quiet, scanOpts.incremental = true, true, true
+	scanOpts.format, scanOpts.failOn = "json", "critical"
+	scanOpts.incrementalState = filepath.Join(t.TempDir(), "state.json")
+	scanGitHubCmd.SetContext(context.Background())
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+
+	baseline := &archiveCheckpointSource{next: json.RawMessage(`"prior-complete"`)}
+	if err := runScanCommon(scanGitHubCmd, baseline, nil, "s3-archive-checkpoint"); err != nil {
+		t.Fatalf("baseline run: %v", err)
+	}
+	failed := &archiveCheckpointSource{
+		data: []byte{'P', 'K', 3, 4},
+		next: json.RawMessage(`"archive-emitted"`),
+	}
+	if err := runScanCommon(scanGitHubCmd, failed, nil, "s3-archive-checkpoint"); err != nil {
+		t.Fatalf("policy-only coverage must pass the default gap gate: %v", err)
+	}
+	if !strings.Contains(out.String(), "coverage: status=ok failures=1 gaps=0 skipped_by_policy=1") {
+		t.Fatalf("missing policy-skip status: %s", out.String())
+	}
+	state, err := loadIncrementalState(scanOpts.incrementalState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range state.Entries {
+		if entry.ResourceFingerprint != "" || string(entry.SourceState) != `"prior-complete"` {
+			t.Fatalf("policy skip advanced checkpoint = %+v, want prior complete state", entry)
 		}
 	}
 }
