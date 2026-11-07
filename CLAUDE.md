@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-11-07 | architect | Upgrade the indirect `github.com/klauspost/compress` (via go-containerregistry, used by `pkg/sources/dockerimage` layer decompression) to v1.20.2 to fix GO-2026-6865 in its zstd decoder; govulncheck stays fail-closed with no new exception. |
 | 2026-11-01 | architect | Split `test.yml` static gates (gofmt, staticcheck, vet, govulncheck, build) into a parallel hikae-flash `lint` job so the hikae-long `test` job carries only the race and boundary tests (plenoai/pleno-dlp run 41201387996, 607s critical path). |
 | 2026-10-31 | architect | Move the bounded `test.yml` opf-native job to hikae-flash so it no longer serializes behind `test` on the hikae-long pool; the release native job stays on hikae-long (#722). |
 | 2026-10-31 | connector-engineer, qa | Exercise cross-origin redirects alongside same-origin ones in the native Git authenticated redirect test so neither target receives Authorization (#458). |
