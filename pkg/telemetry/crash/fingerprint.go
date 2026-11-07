@@ -3,6 +3,7 @@ package crash
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"reflect"
 	"regexp"
 	"strings"
 )
@@ -15,7 +16,7 @@ const fingerprintFrames = 5
 
 // selfPath frames (Recover's deferred handler) appear in every recovered
 // stack and would only dilute the crash-site signal.
-const selfPath = ModulePath + "pkg/telemetry/crash."
+var selfPath = reflect.TypeOf(Report{}).PkgPath() + "."
 
 var (
 	digitsRe   = regexp.MustCompile(`[0-9]+`)

@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -56,23 +58,38 @@ func ttyFile(t *testing.T, answer string) *os.File {
 }
 
 func feedbackRelay(t *testing.T) (*httptest.Server, func() []feedback.Report) {
+	srv, reports, _ := feedbackRelayWithWire(t)
+	return srv, reports
+}
+
+func feedbackRelayWithWire(t *testing.T) (*httptest.Server, func() []feedback.Report, func() [][]byte) {
 	t.Helper()
 	var mu sync.Mutex
 	var bodies []feedback.Report
+	var wire [][]byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		var rep feedback.Report
 		_ = json.Unmarshal(b, &rep)
 		mu.Lock()
 		bodies = append(bodies, rep)
+		wire = append(wire, append([]byte(nil), b...))
 		mu.Unlock()
 	}))
 	t.Cleanup(srv.Close)
 	return srv, func() []feedback.Report {
-		mu.Lock()
-		defer mu.Unlock()
-		return append([]feedback.Report(nil), bodies...)
-	}
+			mu.Lock()
+			defer mu.Unlock()
+			return append([]feedback.Report(nil), bodies...)
+		}, func() [][]byte {
+			mu.Lock()
+			defer mu.Unlock()
+			out := make([][]byte, len(wire))
+			for i, b := range wire {
+				out[i] = append([]byte(nil), b...)
+			}
+			return out
+		}
 }
 
 func TestFeedbackSendsAndSpools(t *testing.T) {
@@ -149,6 +166,74 @@ func TestFeedbackRedactsSecrets(t *testing.T) {
 	}
 	if strings.Contains(bodies[0].Message, "alice@") || strings.Contains(bodies[0].Message, "10.1.2.3") {
 		t.Fatalf("PII left the machine: %q", bodies[0].Message)
+	}
+}
+
+func TestFeedbackFalsePositiveSelectsAndPreviewsOnlySafeFindingFields(t *testing.T) {
+	srv, got, wire := feedbackRelayWithWire(t)
+	dir := isolateFeedback(t, map[string]string{feedback.EnvEndpoint: srv.URL})
+	firstRaw := "AKIA1234567890ABCDEF"
+	selectedRaw := "AKIA9876543210ZYXWVU"
+	sum := sha256.Sum256([]byte(selectedRaw))
+	selectedHash := hex.EncodeToString(sum[:])
+	scanPath := filepath.Join(t.TempDir(), "config.env")
+	if err := os.WriteFile(scanPath, []byte("FIRST="+firstRaw+"\nSECOND="+selectedRaw+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	swapTTY(t, ttyFile(t, "yes\n"))
+	preview, err := runRoot(t, "feedback", "--kind", "false-positive", "--scan-file", scanPath, "--detector", "AWS", "--finding-hash", selectedHash, "false positive in fixture")
+	if err != nil {
+		t.Fatalf("feedback false-positive: %v\n%s", err, preview)
+	}
+	if !strings.Contains(preview, selectedHash) || !strings.Contains(preview, "detector: AWS") {
+		t.Fatalf("confirmation omitted the selected redacted match/hash:\n%s", preview)
+	}
+	if strings.Contains(preview, firstRaw) || strings.Contains(preview, selectedRaw) || strings.Contains(preview, scanPath) {
+		t.Fatalf("confirmation included raw match or source path:\n%s", preview)
+	}
+	bodies := got()
+	if len(bodies) != 1 || bodies[0].Match == nil {
+		t.Fatalf("relay got %+v", bodies)
+	}
+	if bodies[0].Schema != feedback.SchemaV2 || bodies[0].Match.Detector != "AWS" || bodies[0].Match.RawHash != selectedHash {
+		t.Fatalf("relay got %+v", bodies[0])
+	}
+	if strings.Contains(bodies[0].Match.Redacted, firstRaw) || strings.Contains(bodies[0].Match.Redacted, selectedRaw) {
+		t.Fatalf("report match contains raw bytes: %+v", bodies[0].Match)
+	}
+	if gotWire := wire(); len(gotWire) != 1 || strings.Contains(string(gotWire[0]), firstRaw) || strings.Contains(string(gotWire[0]), selectedRaw) || strings.Contains(string(gotWire[0]), scanPath) {
+		t.Fatalf("wire payload contains raw match or source path: %q", gotWire)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "feedback", feedback.LastFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), firstRaw) || strings.Contains(string(b), selectedRaw) || strings.Contains(string(b), `"raw"`) || strings.Contains(string(b), scanPath) {
+		t.Fatalf("spool contains raw match material: %s", b)
+	}
+	spooled, _, err := feedback.ReadReport(filepath.Join(dir, "feedback", feedback.LastFile))
+	if err != nil || spooled.Schema != feedback.SchemaV2 || spooled.Match == nil || spooled.Match.RawHash != selectedHash {
+		t.Fatalf("v2 spool report = %+v, err=%v", spooled, err)
+	}
+}
+
+func TestFeedbackFalsePositiveRequiresOneSelectedMatch(t *testing.T) {
+	srv, got := feedbackRelay(t)
+	isolateFeedback(t, map[string]string{feedback.EnvEndpoint: srv.URL})
+	path := filepath.Join(t.TempDir(), "config.env")
+	raw := "AKIA1234567890ABCDEF"
+	if err := os.WriteFile(path, []byte("AWS_ACCESS_KEY_ID="+raw+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runRoot(t, "feedback", "--kind", "false-positive", "--scan-file", path, "--detector", "AWS", "reason"); err == nil {
+		t.Fatal("missing explicit finding hash was accepted")
+	}
+	sum := sha256.Sum256([]byte(raw))
+	if _, err := runRoot(t, "feedback", "--kind", "false-positive", "--scan-file", path, "--detector", "Stripe", "--finding-hash", hex.EncodeToString(sum[:]), "reason"); err == nil {
+		t.Fatal("an absent detector match was accepted")
+	}
+	if bodies := got(); len(bodies) != 0 {
+		t.Fatalf("invalid selection reached relay: %+v", bodies)
 	}
 }
 

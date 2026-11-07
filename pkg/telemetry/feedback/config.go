@@ -11,10 +11,9 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/telemetry/crash"
 )
 
-// DefaultEndpoint is the relay that receives user feedback. The crash relay
-// and the feedback relay are separate so feedback never rides an opt-in the
-// operator granted for crashes.
-const DefaultEndpoint = "https://feedback.plenoai.com/v1/pleno-dlp"
+// DefaultEndpoint is the configured intake route for feedback and false-positive reports.
+// Crash reports use their separate opt-in relay.
+const DefaultEndpoint = "https://intake.plenoai.com/v1/pleno-dlp"
 
 // EnvEndpoint overrides the feedback endpoint.
 const EnvEndpoint = "PLENO_DLP_FEEDBACK_ENDPOINT"

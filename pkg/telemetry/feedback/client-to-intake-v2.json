@@ -1,0 +1,18 @@
+{
+  "schema": "pleno-dlp.report/v2",
+  "kind": "false-positive",
+  "fingerprint": "0123456789abcdef",
+  "version": "v0.68.0",
+  "commit": "abc1234",
+  "goos": "darwin",
+  "goarch": "arm64",
+  "go_version": "go1.26.9",
+  "command": "feedback",
+  "flags": ["detector", "finding-hash", "kind", "scan-file"],
+  "message": "The AWS detector matched a documented fixture.",
+  "match": {
+    "detector": "AWS",
+    "redacted": "AKIA12...",
+    "raw_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}

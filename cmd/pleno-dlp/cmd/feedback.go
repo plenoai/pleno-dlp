@@ -16,6 +16,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/telemetry/crash"
 	"github.com/plenoai/pleno-dlp/pkg/telemetry/feedback"
+	"github.com/plenoai/pleno-dlp/pkg/termsafe"
 )
 
 // feedbackGetenv is the environment lookup for the feedback command; tests
@@ -36,8 +37,12 @@ var feedbackOpenTTY = func() (*os.File, error) {
 }
 
 type feedbackFlags struct {
-	stdin bool
-	yes   bool
+	stdin       bool
+	yes         bool
+	kind        string
+	detector    string
+	scanFile    string
+	findingHash string
 }
 
 var feedbackOpts feedbackFlags
@@ -52,8 +57,14 @@ confirm at the terminal (or pass --yes). Feedback ignores the crash opt-in
 and is locally limited to five uploads per hour. With no message argument,
 the message is read from stdin.
 
+For a false-positive report, scan one file offline and select a match by its
+SHA-256 hash from scan JSON output. Only the detector, safe redacted display,
+and raw hashes are included in schema v2. The selected fields are shown before confirmation.
+
   pleno-dlp feedback "scan of a 2 GB monorepo OOMs"
-  echo "docs typo in verify-coverage.md" | pleno-dlp feedback --stdin`,
+  echo "docs typo in verify-coverage.md" | pleno-dlp feedback --stdin
+  # Replace HASH with the selected hash from scan JSON output.
+  pleno-dlp feedback --kind false-positive --scan-file .env --detector AWS --finding-hash HASH "fixture matched as a credential"`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runFeedback,
 }
@@ -71,15 +82,35 @@ func runFeedback(c *cobra.Command, args []string) error {
 	if home, err := os.UserHomeDir(); err == nil {
 		red.Prefixes = crash.EnvPrefixes(feedbackGetenv, home)
 	}
-	var flags []string
-	c.Flags().Visit(func(f *pflag.Flag) { flags = append(flags, f.Name) })
-	sort.Strings(flags)
-	report := feedback.Build(message, crash.Meta{
-		Version: toolVersion,
-		Commit:  toolCommit,
-		Command: "feedback",
-		Flags:   flags,
-	}, red, time.Now())
+	var report feedback.Report
+	switch feedbackOpts.kind {
+	case "feedback":
+		if feedbackOpts.detector != "" || feedbackOpts.scanFile != "" || feedbackOpts.findingHash != "" {
+			return fmt.Errorf("feedback: finding selection flags require --kind false-positive")
+		}
+		report = feedback.Build(message, crash.Meta{
+			Version: toolVersion,
+			Commit:  toolCommit,
+			Command: "feedback",
+			Flags:   feedbackFlagNames(c),
+		}, red, time.Now())
+	case "false-positive":
+		match, err := feedbackScanMatch(c.Context(), feedbackOpts.scanFile, feedbackOpts.detector, feedbackOpts.findingHash)
+		if err != nil {
+			return err
+		}
+		report, err = feedback.BuildWithMatch(message, crash.Meta{
+			Version: toolVersion,
+			Commit:  toolCommit,
+			Command: "feedback",
+			Flags:   feedbackFlagNames(c),
+		}, red, time.Now(), match)
+		if err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("feedback: invalid --kind %q (want feedback or false-positive)", feedbackOpts.kind)
+	}
 
 	dir, err := feedback.SpoolDir(feedbackGetenv)
 	if err != nil {
@@ -124,6 +155,13 @@ func runFeedback(c *cobra.Command, args []string) error {
 	return nil
 }
 
+func feedbackFlagNames(c *cobra.Command) []string {
+	var flags []string
+	c.Flags().Visit(func(f *pflag.Flag) { flags = append(flags, f.Name) })
+	sort.Strings(flags)
+	return flags
+}
+
 // feedbackMessage reads stdin when requested or when no message was given.
 func feedbackMessage(c *cobra.Command, args []string) (string, error) {
 	if feedbackOpts.stdin || len(args) == 0 {
@@ -158,7 +196,15 @@ func confirmFeedback(c *cobra.Command, report feedback.Report, endpoint string) 
 	} else {
 		return false, errors.New("feedback: no terminal for confirmation; re-run with --yes to send")
 	}
-	fmt.Fprintf(c.ErrOrStderr(), "%s\n\nSend this feedback report to %s? [y/N] ", report.Message, endpoint)
+	fmt.Fprintf(c.ErrOrStderr(), "%s\n", report.Message)
+	if report.Match != nil {
+		fmt.Fprintf(c.ErrOrStderr(), "\nSelected finding:\n  detector: %s\n  redacted: %s\n  raw hash: %s\n",
+			termsafe.String(report.Match.Detector), termsafe.String(report.Match.Redacted), report.Match.RawHash)
+		if report.Match.RawV2Hash != "" {
+			fmt.Fprintf(c.ErrOrStderr(), "  raw v2 hash: %s\n", report.Match.RawV2Hash)
+		}
+	}
+	fmt.Fprintf(c.ErrOrStderr(), "\nSend this feedback report to %s? [y/N] ", endpoint)
 	line, err := bufio.NewReader(in).ReadString('\n')
 	if err != nil && line == "" {
 		return false, nil
@@ -174,5 +220,9 @@ func confirmFeedback(c *cobra.Command, report feedback.Report, endpoint string) 
 func init() {
 	feedbackCmd.Flags().BoolVar(&feedbackOpts.stdin, "stdin", false, "read the feedback message from stdin instead of arguments")
 	feedbackCmd.Flags().BoolVarP(&feedbackOpts.yes, "yes", "y", false, "skip the interactive confirmation prompt and send immediately")
+	feedbackCmd.Flags().StringVar(&feedbackOpts.kind, "kind", "feedback", "report kind: feedback or false-positive")
+	feedbackCmd.Flags().StringVar(&feedbackOpts.detector, "detector", "", "require the selected finding to use this detector")
+	feedbackCmd.Flags().StringVar(&feedbackOpts.scanFile, "scan-file", "", "file to scan offline for a false-positive report")
+	feedbackCmd.Flags().StringVar(&feedbackOpts.findingHash, "finding-hash", "", "64-character secret_hash or secret_hash_v2 from scan JSON output")
 	Root.AddCommand(feedbackCmd)
 }
