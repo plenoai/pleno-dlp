@@ -1,6 +1,6 @@
 module github.com/plenoai/pleno-dlp
 
-go 1.26.10
+go 1.26.11
 
 require (
 	cloud.google.com/go/storage v1.62.3

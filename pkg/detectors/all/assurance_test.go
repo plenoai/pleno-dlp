@@ -18,8 +18,36 @@ func TestProviderConfirmedDetectorSetIsExplicitlyAudited(t *testing.T) {
 	}
 	slices.Sort(got)
 
-	want := []string{"Apollo"}
+	want := []string{
+		"AWS", "Apollo", "Datadog", "DocuSign", "GCPServiceAccount", "HubSpot", "OpenAI",
+		"SendGrid", "SlackBotToken", "SlackWebhook", "Square", "Twilio",
+	}
+	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Fatalf("provider-confirmed detectors = %v, want explicitly audited set %v", got, want)
+	}
+}
+
+func TestVerifiersDeclareVerificationAssurance(t *testing.T) {
+	seen := map[string]bool{}
+	for _, detector := range detectors.All() {
+		if _, ok := detector.(detectors.Verifier); !ok {
+			continue
+		}
+		name := detector.Type().String()
+		_, hasPolicy := detector.(detectors.VerificationPolicy)
+		_, frozen := unauditedVerifiers[name]
+		switch {
+		case !hasPolicy && !frozen:
+			t.Errorf("%s implements Verify without MaxVerificationAssurance; --verify-min-assurance would silently skip it", name)
+		case hasPolicy && frozen:
+			t.Errorf("%s now declares MaxVerificationAssurance; remove it from unauditedVerifiers", name)
+		}
+		seen[name] = true
+	}
+	for name := range unauditedVerifiers {
+		if !seen[name] {
+			t.Errorf("unauditedVerifiers lists %s, which is not a registered Verifier", name)
+		}
 	}
 }

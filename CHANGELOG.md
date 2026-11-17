@@ -10,6 +10,10 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Fixed
 
+- `--verify-min-assurance provider-confirmed` now verifies AWS, Datadog,
+  DocuSign, GCP service account, HubSpot, OpenAI, SendGrid, Slack bot token,
+  Slack webhook, Square, and Twilio findings; previously only Apollo was
+  eligible and every other finding was reported unverified.
 - `protect`, the `git` and `cursor` agent hooks now resolve each diff
   finding to its real file path and line, so `.pleno-allow.json` `path`
   entries match and output no longer shows the `git-diff-staged` label;
