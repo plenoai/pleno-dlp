@@ -1035,6 +1035,8 @@ const (
 	PuTTYPrivateKey
 	// IPStack is a verified IP-geolocation access key (provider-confirmed via api.ipstack.com/check).
 	IPStack
+	// OpenWeather is a verified weather API key (provider-confirmed via api.openweathermap.org).
+	OpenWeather
 )
 
 // Severity classifies a finding for triage. Output formatters map this to
