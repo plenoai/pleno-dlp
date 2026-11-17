@@ -53,7 +53,7 @@ pleno-dlp sources list
 
 ## Detectors
 
-615 built-in detector types ([counting method](docs/counts.md)).
+616 built-in detector types ([counting method](docs/counts.md)).
 Table, JSON, or SARIF output; allowlists and org-specific rules via config.
 
 ```sh

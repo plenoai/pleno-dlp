@@ -8,6 +8,10 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ## [Unreleased]
 
+### Added
+
+- `IPStack` detector: ipstack access keys, verified provider-confirmed via `api.ipstack.com/check`.
+
 ### Fixed
 
 - `--verify-min-assurance provider-confirmed` now verifies AWS, Datadog,
