@@ -1033,6 +1033,8 @@ const (
 	RailsSecretKeyBase
 	JSLoginCallSecret
 	PuTTYPrivateKey
+	// IPStack is a verified IP-geolocation access key (provider-confirmed via api.ipstack.com/check).
+	IPStack
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

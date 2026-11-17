@@ -1274,6 +1274,8 @@ func (t DetectorType) String() string {
 		return "JSLoginCallSecret"
 	case PuTTYPrivateKey:
 		return "PuTTYPrivateKey"
+	case IPStack:
+		return "IPStack"
 	default:
 		return "Unknown"
 	}

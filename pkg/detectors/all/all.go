@@ -521,6 +521,7 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/etherscan"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/hyperbolic"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/inflection"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/ipstack"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/kickbox"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/lemlist"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/leptonai"
