@@ -1276,6 +1276,8 @@ func (t DetectorType) String() string {
 		return "PuTTYPrivateKey"
 	case IPStack:
 		return "IPStack"
+	case OpenWeather:
+		return "OpenWeather"
 	default:
 		return "Unknown"
 	}

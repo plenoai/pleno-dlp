@@ -4,7 +4,7 @@ This page classifies each registered detector as verifier-backed or
 unverified-by-design. The machine block is parsed by
 `pkg/detectors/verifycoverage_test.go`.
 
-Counts are pinned in the machine block. Total = 616: 614 secret
+Counts are pinned in the machine block. Total = 617: 615 secret
 detectors, `PIIAnonymize`, and `PIIOpenAIPF`. The retired regex PII
 detector constants (and the retired China-hosted providers
 `AlibabaCloud` / `TencentCloud` / `DashScope` / `ModelScope`) remain
@@ -30,7 +30,7 @@ when a detector leaves severity unset. Per-detector overrides usually
 raise it; the one lowering exception is `SalesforceRefresh` (see the
 class (b) table).
 
-## (a) Verify implemented — 549 detectors
+## (a) Verify implemented — 550 detectors
 
 Detector type satisfies `detectors.Verifier`. The detector calls the
 upstream provider and returns `(true, nil)` on success, `(false, nil)`
@@ -168,8 +168,8 @@ The `coverage-machine` block pins counts and per-detector class.
 - `class=c` → verifiable but not yet implemented (verify-gap; currently unused — every non-Verifier detector is class b)
 
 ```coverage-machine
-total=616
-a=549
+total=617
+a=550
 b=67
 type=APIKeyAssignment class=b
 type=APNs class=b

@@ -11,6 +11,7 @@ publishing, archives, SLSA provenance, and SBOM generation.
 ### Added
 
 - `IPStack` detector: ipstack access keys, verified provider-confirmed via `api.ipstack.com/check`.
+- `OpenWeather` detector: OpenWeather API keys, verified provider-confirmed via `api.openweathermap.org`.
 
 ### Fixed
 

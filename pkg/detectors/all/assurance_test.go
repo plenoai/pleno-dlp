@@ -19,7 +19,7 @@ func TestProviderConfirmedDetectorSetIsExplicitlyAudited(t *testing.T) {
 	slices.Sort(got)
 
 	want := []string{
-		"AWS", "Apollo", "Datadog", "DocuSign", "GCPServiceAccount", "HubSpot", "IPStack", "OpenAI",
+		"AWS", "Apollo", "Datadog", "DocuSign", "GCPServiceAccount", "HubSpot", "IPStack", "OpenAI", "OpenWeather",
 		"SendGrid", "SlackBotToken", "SlackWebhook", "Square", "Twilio",
 	}
 	slices.Sort(want)
