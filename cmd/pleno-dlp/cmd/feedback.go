@@ -36,8 +36,9 @@ var feedbackOpenTTY = func() (*os.File, error) {
 }
 
 type feedbackFlags struct {
-	stdin bool
-	yes   bool
+	stdin     bool
+	yes       bool
+	piiEngine string
 }
 
 var feedbackOpts feedbackFlags
@@ -49,7 +50,9 @@ var feedbackCmd = &cobra.Command{
 with the same pipeline as crash reports before it leaves the machine, every
 sent report is also saved to a local spool, and nothing is uploaded until you
 confirm at the terminal (or pass --yes). Feedback ignores the crash opt-in
-and is locally limited to five uploads per hour. With no message argument,
+and is locally limited to five uploads per hour. When a PII engine is
+available (--pii-engine auto, the default) it also removes names and other
+free-text PII, including non-ASCII identifiers. With no message argument,
 the message is read from stdin.
 
   pleno-dlp feedback "scan of a 2 GB monorepo OOMs"
@@ -67,7 +70,14 @@ func runFeedback(c *cobra.Command, args []string) error {
 		return errors.New("feedback: empty message (pass text or use --stdin)")
 	}
 
-	red := &crash.Redactor{Detectors: detectors.All()}
+	pii, stopPII, err := feedbackStartPII(c.Context(), c, c.ErrOrStderr(), feedbackOpts.piiEngine)
+	if err != nil {
+		return err
+	}
+	if stopPII != nil {
+		defer stopPII()
+	}
+	red := &crash.Redactor{Detectors: detectors.All(), PII: pii}
 	if home, err := os.UserHomeDir(); err == nil {
 		red.Prefixes = crash.EnvPrefixes(feedbackGetenv, home)
 	}
@@ -174,5 +184,7 @@ func confirmFeedback(c *cobra.Command, report feedback.Report, endpoint string) 
 func init() {
 	feedbackCmd.Flags().BoolVar(&feedbackOpts.stdin, "stdin", false, "read the feedback message from stdin instead of arguments")
 	feedbackCmd.Flags().BoolVarP(&feedbackOpts.yes, "yes", "y", false, "skip the interactive confirmation prompt and send immediately")
+	feedbackCmd.Flags().StringVar(&feedbackOpts.piiEngine, "pii-engine", "auto",
+		"PII engine for the extra redaction pass: 'auto' uses openai-pf-native in an opf_native build, else anonymize when uv is on PATH, else none; 'off', 'anonymize' or 'openai-pf-native' select one explicitly (a start failure is then fatal).")
 	Root.AddCommand(feedbackCmd)
 }

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/plenoai/pleno-dlp/pkg/telemetry/crash"
 	"github.com/plenoai/pleno-dlp/pkg/telemetry/feedback"
@@ -23,8 +26,13 @@ func isolateFeedback(t *testing.T, env map[string]string) string {
 	env[crash.EnvDir] = dir
 	prev := feedbackGetenv
 	feedbackGetenv = func(k string) string { return env[k] }
+	prevPII := feedbackStartPII
+	feedbackStartPII = func(context.Context, *cobra.Command, io.Writer, string) (func(context.Context, string) ([]crash.PIIMatch, error), func(), error) {
+		return nil, nil, nil
+	}
 	t.Cleanup(func() {
 		feedbackGetenv = prev
+		feedbackStartPII = prevPII
 		feedbackCmd.SetIn(os.Stdin)
 	})
 	return dir
@@ -201,5 +209,57 @@ func TestFeedbackImplicitStdin(t *testing.T) {
 	}
 	if got := reports(); len(got) != 1 || got[0].Message != "from stdin" {
 		t.Fatalf("reports = %+v", got)
+	}
+}
+
+func TestFeedbackPIIEngineRedactsNames(t *testing.T) {
+	srv, got := feedbackRelay(t)
+	isolateFeedback(t, map[string]string{feedback.EnvEndpoint: srv.URL})
+	var gotFlag string
+	feedbackStartPII = func(_ context.Context, _ *cobra.Command, _ io.Writer, flag string) (func(context.Context, string) ([]crash.PIIMatch, error), func(), error) {
+		gotFlag = flag
+		return func(context.Context, string) ([]crash.PIIMatch, error) {
+			return []crash.PIIMatch{{Type: "PERSON", Text: "山田太郎"}}, nil
+		}, nil, nil
+	}
+
+	if out, err := runRoot(t, "feedback", "--yes", "山田太郎 hit an OOM"); err != nil {
+		t.Fatalf("feedback: %v\n%s", err, out)
+	}
+	if gotFlag != "auto" {
+		t.Fatalf("--pii-engine default = %q, want auto", gotFlag)
+	}
+	if bodies := got(); len(bodies) != 1 || bodies[0].Message != "[PII:PERSON] hit an OOM" {
+		t.Fatalf("relay got %+v", bodies)
+	}
+}
+
+func TestFeedbackPIIEngineMode(t *testing.T) {
+	prev := feedbackLookPath
+	t.Cleanup(func() { feedbackLookPath = prev })
+	feedbackLookPath = func(string) (string, error) { return "", os.ErrNotExist }
+
+	autoWant := "off"
+	if nativeOPFBuilt {
+		autoWant = "openai-pf-native"
+	}
+	if mode, explicit, err := feedbackPIIEngineMode("auto"); err != nil || explicit || mode != autoWant {
+		t.Fatalf("auto without uv = %q, %v, %v", mode, explicit, err)
+	}
+	feedbackLookPath = func(string) (string, error) { return "/usr/bin/uv", nil }
+	if !nativeOPFBuilt {
+		autoWant = "anonymize"
+	}
+	if mode, _, err := feedbackPIIEngineMode(""); err != nil || mode != autoWant {
+		t.Fatalf("auto with uv = %q, %v", mode, err)
+	}
+	if mode, explicit, err := feedbackPIIEngineMode("Anonymize"); err != nil || !explicit || mode != "anonymize" {
+		t.Fatalf("anonymize = %q, %v, %v", mode, explicit, err)
+	}
+	if _, _, err := feedbackPIIEngineMode("opf"); err == nil {
+		t.Fatal("unknown engine accepted")
+	}
+	if pass, stop, err := startFeedbackPII(context.Background(), nil, io.Discard, "off"); pass != nil || stop != nil || err != nil {
+		t.Fatalf("off started an engine: %v", err)
 	}
 }

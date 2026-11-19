@@ -64,7 +64,21 @@ review, edit, or retry later.
 
 The message is passed through the same redaction pipeline as crash reports
 (paths, emails, IPs, URLs, tokens, and every built-in detector match) before
-it is stored or sent. The report also carries minimal build context:
+it is stored or sent. The pattern and detector passes do not recognise
+personal or company names or non-ASCII identifiers, so feedback adds a PII
+engine pass that replaces each entity with `[PII:<type>]`:
+
+| `--pii-engine` | Behaviour |
+|---|---|
+| `auto` (default) | `openai-pf-native` in an `opf_native` build, else `anonymize` when `uv` is on `PATH`, else no engine pass; a start failure is a warning |
+| `anonymize`, `openai-pf-native` | that engine; a start failure aborts before anything is saved or sent |
+| `off` | patterns and detectors only |
+
+The engine settings (`--pii-engine-cmd`, `--pii-model`, timeouts) use the
+`scan` defaults. The engine pass is capped at 10 s and the detector pass at
+2 s; on timeout or engine error the text keeps the redaction done so far.
+
+The report also carries minimal build context:
 
 | Field | Content |
 |---|---|
