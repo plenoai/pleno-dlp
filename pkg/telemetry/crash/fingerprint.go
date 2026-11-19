@@ -3,6 +3,7 @@ package crash
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"reflect"
 	"regexp"
 	"strings"
 )
@@ -14,8 +15,9 @@ const ModulePath = "github.com/plenoai/pleno-dlp/"
 const fingerprintFrames = 5
 
 // selfPath frames (Recover's deferred handler) appear in every recovered
-// stack and would only dilute the crash-site signal.
-const selfPath = ModulePath + "pkg/telemetry/crash."
+// stack and would only dilute the crash-site signal. Derived from a type in
+// this package so a rename cannot silently stop the filter from matching.
+var selfPath = reflect.TypeOf(Meta{}).PkgPath() + "."
 
 var (
 	digitsRe   = regexp.MustCompile(`[0-9]+`)
