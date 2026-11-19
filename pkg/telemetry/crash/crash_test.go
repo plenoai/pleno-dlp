@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -19,24 +21,50 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/all"
 )
 
-// helperEnv makes the test binary act as a crashing child for Supervise.
+// helperEnv makes the test binary act as a crashing CLI that runs under
+// the crash monitor; with EnvChild set it acts as the monitor itself.
 const helperEnv = "CRASH_TEST_HELPER"
 
+// helperSecret is a synthetic credential that must never reach a report.
+const helperSecret = "ghp_" + "Zx9QkLm2Vb7Np4Rt6Wy8Ac1De3Fg5Hj0KsTu"
+
 func TestMain(m *testing.M) {
-	switch os.Getenv(helperEnv) {
+	if mode := os.Getenv(helperEnv); mode != "" {
+		runHelper(mode)
+		return
+	}
+	os.Exit(m.Run())
+}
+
+func runHelper(mode string) {
+	rt := New("9.9.9", "abc", func([]string) (string, []string) { return "scan filesystem", []string{"json"} })
+	if os.Getenv(EnvChild) != "" {
+		rt.Monitor(os.Stdin, os.Args[1:])
+		os.Exit(0)
+	}
+	if err := rt.StartMonitor([]string{"pleno-dlp", "scan", "filesystem"}, os.Environ()); err != nil &&
+		!errors.Is(err, ErrNotSupervised) {
+		fmt.Fprintln(os.Stderr, "monitor:", err)
+		os.Exit(9)
+	}
+	msg := "boom for alice@example.com at 10.1.2.3 token " + helperSecret
+	switch mode {
 	case "panic":
-		panic("boom for alice@example.com at 10.1.2.3")
+		_ = rt.Recover(nil, func() error { panic(msg) })
 	case "goroutine":
 		done := make(chan struct{})
-		go func() { panic("goroutine boom") }()
+		go func() { panic(msg) }()
 		<-done
+	case "fatal":
+		var mu sync.Mutex
+		fmt.Fprintln(os.Stderr, msg)
+		mu.Unlock()
 	case "exit3":
 		fmt.Fprintln(os.Stderr, "panic: this is just output")
 		os.Exit(3)
 	case "clean":
-		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	os.Exit(0)
 }
 
 func envFunc(m map[string]string) func(string) string {
@@ -319,6 +347,7 @@ func TestReadReportRejectsForeignFiles(t *testing.T) {
 type relay struct {
 	mu     sync.Mutex
 	bodies []Report
+	bytes  [][]byte
 	ua, ct string
 	status int
 }
@@ -330,8 +359,21 @@ func (r *relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	b, _ := io.ReadAll(req.Body)
 	_ = json.Unmarshal(b, &rep)
 	r.bodies = append(r.bodies, rep)
+	r.bytes = append(r.bytes, b)
 	r.ua, r.ct = req.Header.Get("User-Agent"), req.Header.Get("Content-Type")
 	w.WriteHeader(r.status)
+}
+
+func (r *relay) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.bodies)
+}
+
+func (r *relay) raw() [][]byte {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([][]byte{}, r.bytes...)
 }
 
 func TestSend(t *testing.T) {
@@ -424,53 +466,112 @@ func TestRecoverDisabledSpoolsAndHints(t *testing.T) {
 	}
 }
 
-func TestRecoverInChildIsTransparent(t *testing.T) {
-	rt, env, _ := newTestRuntime(t, true, "")
-	env[EnvChild] = "1"
-	defer func() {
-		if v := recover(); v != "raw" {
-			t.Fatalf("child Recover swallowed panic: %v", v)
-		}
-	}()
-	_ = rt.Recover(nil, func() error { panic("raw") })
-}
-
-func TestSuperviseDisabledStartsNothing(t *testing.T) {
+func TestStartMonitorDisabledStartsNothing(t *testing.T) {
 	rt, _, _ := newTestRuntime(t, false, "")
 	rt.Executable = func() (string, error) { t.Fatal("executable resolved while disabled"); return "", nil }
-	if _, err := rt.Supervise(context.Background(), []string{"pleno-dlp"}, nil); err != ErrNotSupervised {
+	if err := rt.StartMonitor([]string{"pleno-dlp"}, nil); err != ErrNotSupervised {
 		t.Fatalf("err = %v", err)
 	}
 }
 
-func TestSuperviseReportsChildCrash(t *testing.T) {
-	for _, mode := range []string{"panic", "goroutine"} {
+// runCrashHelper runs the test binary as a CLI process in mode with crash
+// reports enabled and returns its exit code and stderr.
+func runCrashHelper(t *testing.T, mode, dir, endpoint string) (int, string) {
+	t.Helper()
+	c := exec.Command(os.Args[0], "-test.run=^$")
+	c.Env = append(os.Environ(), helperEnv+"="+mode, EnvDir+"="+dir, EnvReports+"=1", EnvEndpoint+"="+endpoint)
+	var stderr bytes.Buffer
+	c.Stderr = &stderr
+	err := c.Run()
+	code := 0
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		code = ee.ExitCode()
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	return code, stderr.String()
+}
+
+// waitReport waits for the detached monitor to spool its report.
+func waitReport(t *testing.T, dir string) Report {
+	t.Helper()
+	path := filepath.Join(dir, "crash", LastFile)
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		r, _, err := ReadReport(path)
+		if err == nil {
+			return r
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no report spooled: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestMonitorReportsCrashes(t *testing.T) {
+	for mode, want := range map[string]Kind{"panic": KindRecovered, "goroutine": KindPanic, "fatal": KindFatal} {
 		t.Run(mode, func(t *testing.T) {
 			rl := &relay{status: http.StatusOK}
 			srv := httptest.NewServer(rl)
 			defer srv.Close()
-			rt, env, stderr := newTestRuntime(t, true, srv.URL)
-			rt.HTTPClient = srv.Client()
-			childEnv := append(os.Environ(), helperEnv+"="+mode)
-			code, err := rt.Supervise(context.Background(), []string{"pleno-dlp", "scan", "filesystem"}, childEnv)
-			if err != nil || code != 2 {
-				t.Fatalf("code=%d err=%v", code, err)
+			dir := t.TempDir()
+			code, _ := runCrashHelper(t, mode, dir, srv.URL)
+			if code != 2 {
+				t.Fatalf("exit code = %d", code)
 			}
-			out := stderr.String()
-			if !strings.Contains(out, "and sent. Inspect: pleno-dlp telemetry show-last. Opt out: pleno-dlp telemetry disable.") {
-				t.Fatalf("notice missing: %q", out)
+			r := waitReport(t, dir)
+			if r.Kind != want || r.Command != "scan filesystem" || r.Version != "9.9.9" || r.Commit != "abc" {
+				t.Fatalf("report %+v", r)
 			}
-			if len(rl.bodies) != 1 || rl.bodies[0].Kind != KindPanic {
-				t.Fatalf("relay got %+v", rl.bodies)
+			if mode == "fatal" && !strings.Contains(r.Message, "unlock of unlocked mutex") {
+				t.Fatalf("fatal message = %q", r.Message)
 			}
-			got := rl.bodies[0]
-			if mode == "panic" && (strings.Contains(got.Message, "alice@") || strings.Contains(got.Message, "10.1.2.3")) {
-				t.Fatalf("PII survived: %q", got.Message)
+			if mode != "fatal" && !strings.Contains(r.Message, "boom for") {
+				t.Fatalf("panic message = %q", r.Message)
 			}
-			if _, err := os.Stat(filepath.Join(env[EnvDir], "crash", LastFile)); err != nil {
-				t.Fatal(err)
+			// The upload happens after spooling; give it a moment.
+			deadline := time.Now().Add(10 * time.Second)
+			for rl.count() == 0 && time.Now().Before(deadline) {
+				time.Sleep(20 * time.Millisecond)
+			}
+			emitted := [][]byte{}
+			files, _ := filepath.Glob(filepath.Join(dir, "crash", "*.json"))
+			for _, f := range files {
+				b, err := os.ReadFile(f)
+				if err != nil {
+					t.Fatal(err)
+				}
+				emitted = append(emitted, b)
+			}
+			emitted = append(emitted, rl.raw()...)
+			if rl.count() != 1 {
+				t.Fatalf("relay got %d reports", rl.count())
+			}
+			for _, b := range emitted {
+				for _, bad := range []string{helperSecret, "alice@example.com", "10.1.2.3"} {
+					if bytes.Contains(b, []byte(bad)) {
+						t.Fatalf("%q survived redaction: %s", bad, b)
+					}
+				}
 			}
 		})
+	}
+}
+
+func TestMonitorIgnoresNonCrashExits(t *testing.T) {
+	for mode, want := range map[string]int{"exit3": 3, "clean": 0} {
+		dir := t.TempDir()
+		code, _ := runCrashHelper(t, mode, dir, "http://127.0.0.1:1/unused")
+		if code != want {
+			t.Fatalf("%s: code=%d", mode, code)
+		}
+		// Give the monitor time to (not) act once the CLI exited.
+		time.Sleep(500 * time.Millisecond)
+		if _, err := os.Stat(filepath.Join(dir, "crash")); !os.IsNotExist(err) {
+			t.Fatalf("%s: spooled a report for a non-crash exit", mode)
+		}
 	}
 }
 
@@ -491,18 +592,5 @@ func TestHandleThrottlesRepeatedCrash(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "throttled locally") {
 		t.Fatalf("stderr = %q", stderr.String())
-	}
-}
-
-func TestSupervisePassesThroughNonCrashExits(t *testing.T) {
-	for mode, want := range map[string]int{"exit3": 3, "clean": 0} {
-		rt, env, _ := newTestRuntime(t, true, "")
-		code, err := rt.Supervise(context.Background(), []string{"pleno-dlp"}, append(os.Environ(), helperEnv+"="+mode))
-		if err != nil || code != want {
-			t.Fatalf("%s: code=%d err=%v", mode, code, err)
-		}
-		if _, err := os.Stat(filepath.Join(env[EnvDir], "crash")); !os.IsNotExist(err) {
-			t.Fatalf("%s: spooled a report for a non-crash exit", mode)
-		}
 	}
 }

@@ -26,7 +26,7 @@ type Runtime struct {
 	// func so the registry is read after init() self-registration.
 	Detectors func() []detectors.Detector
 	Exit      func(code int)
-	// Executable returns the path to re-exec in Supervise.
+	// Executable returns the path to re-exec as the crash monitor.
 	Executable func() (string, error)
 }
 

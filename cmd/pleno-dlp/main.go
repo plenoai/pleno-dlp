@@ -51,17 +51,18 @@ func main() {
 	ctx := context.Background()
 	rt := crash.New(version, commit, cmd.DescribeInvocation)
 
-	// With crash reports enabled the process becomes a thin supervisor and
-	// exits with the child's status; otherwise it runs the CLI in-process.
-	code, err := rt.Supervise(ctx, os.Args, os.Environ())
-	if err == nil {
-		os.Exit(code)
+	// As the crash monitor, only report the parent's crash output.
+	if os.Getenv(crash.EnvChild) != "" {
+		rt.Monitor(os.Stdin, os.Args[1:])
+		return
 	}
-	if !errors.Is(err, crash.ErrNotSupervised) {
-		termsafe.Fprintf(os.Stderr, "pleno-dlp: crash supervisor unavailable, running unsupervised: %v\n", err)
+	// With crash reports enabled, background-goroutine panics and runtime
+	// fatals are forwarded to a monitor via debug.SetCrashOutput.
+	if err := rt.StartMonitor(os.Args, os.Environ()); err != nil && !errors.Is(err, crash.ErrNotSupervised) {
+		termsafe.Fprintf(os.Stderr, "pleno-dlp: crash monitor unavailable: %v\n", err)
 	}
 
-	err = rt.Recover(os.Args[1:], func() error { return cmd.Execute(ctx) })
+	err := rt.Recover(os.Args[1:], func() error { return cmd.Execute(ctx) })
 	if err == nil {
 		return
 	}

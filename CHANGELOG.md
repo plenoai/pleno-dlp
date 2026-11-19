@@ -15,6 +15,7 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Fixed
 
+- Opted-in crash reporting no longer re-executes the CLI and parses its stderr; a crash monitor fed by `debug.SetCrashOutput` captures background-goroutine panics and runtime fatals and redacts them before spooling or upload.
 - `--verify-min-assurance provider-confirmed` now verifies AWS, Datadog,
   DocuSign, GCP service account, HubSpot, OpenAI, SendGrid, Slack bot token,
   Slack webhook, Square, and Twilio findings; previously only Apollo was

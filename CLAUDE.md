@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-11-19 | Claude, core-engineer | Replace the crash-telemetry re-exec supervisor and stderr parsing with an in-process `debug.SetCrashOutput` pipe to a crash monitor that redacts, spools, and (opted-in) sends background-goroutine panics and runtime fatals. |
 | 2026-11-17 | architect | Raise the minimum Go version to 1.26.11 for the net/http fix GO-2026-6859; no new govulncheck exception. |
 | 2026-11-17 | detector-engineer, qa | Declare provider-confirmed assurance for 11 authenticated verifiers and fail CI when a new Verifier omits `MaxVerificationAssurance` (existing ones frozen in `pkg/detectors/all/assurance_allowlist_test.go`). |
 | 2026-11-07 | architect | Upgrade the indirect `github.com/klauspost/compress` (via go-containerregistry, used by `pkg/sources/dockerimage` layer decompression) to v1.20.2 to fix GO-2026-6865 in its zstd decoder; govulncheck stays fail-closed with no new exception. |

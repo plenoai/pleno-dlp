@@ -6,13 +6,9 @@ import (
 )
 
 // Recover runs fn and converts a main-goroutine panic into a spooled
-// "recovered" report followed by Exit(2). Inside a supervised child it does
-// nothing, so the runtime's own dump reaches the supervisor and the crash is
-// reported exactly once.
+// "recovered" report followed by Exit(2). The crash monitor only sees
+// unrecovered crashes, so each crash is reported exactly once.
 func (rt *Runtime) Recover(args []string, fn func() error) (err error) {
-	if rt.Getenv(EnvChild) != "" {
-		return fn()
-	}
 	defer func() {
 		v := recover()
 		if v == nil {

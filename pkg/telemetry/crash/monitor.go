@@ -1,108 +1,97 @@
 package crash
 
 import (
-	"context"
 	"errors"
 	"io"
 	"os"
 	"os/exec"
 	"os/signal"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
 )
 
-// ringSize bounds how much child stderr the supervisor retains. A crash
-// header seen in the stream additionally pins the next ringSize bytes, so a
-// fatal error whose all-goroutine dump exceeds the ring keeps its head.
+// ringSize bounds how much crash output the monitor retains. A crash header
+// seen in the stream additionally pins the next ringSize bytes, so a fatal
+// error whose all-goroutine dump exceeds the ring keeps its head.
 const ringSize = 64 << 10
 
 var (
-	// ErrNotSupervised means the caller should run the CLI in-process:
-	// telemetry is disabled or this process already is the child.
+	// ErrNotSupervised means no crash monitor was started because telemetry
+	// is disabled or this process already is the monitor.
 	ErrNotSupervised = errors.New("crash: not supervised")
-	// ErrReexecFailed means the child could not be started; the caller
-	// should fall back to running in-process.
+	// ErrReexecFailed means the monitor could not be started; the caller
+	// keeps running without background-crash capture.
 	ErrReexecFailed = errors.New("crash: re-exec failed")
 )
 
 // crashHeadRe finds the runtime's crash header at a line start.
 var crashHeadRe = regexp.MustCompile(`(?m)^(panic: |fatal error: )`)
 
-// Supervise re-executes the binary as a child when crash reports are
-// enabled, tees its stderr into a ring buffer, and reports a Go runtime
-// crash after the child exits. It returns the exit code the parent must
-// exit with. When disabled it returns ErrNotSupervised without starting a
-// process, so the default path costs one config read.
-func (rt *Runtime) Supervise(ctx context.Context, argv, env []string) (int, error) {
+// StartMonitor re-executes the binary as a crash monitor when crash reports
+// are enabled and points debug.SetCrashOutput at a pipe to it, so panics on
+// any goroutine and runtime fatals reach the monitor in addition to the
+// runtime's usual stderr dump. The CLI keeps running in-process with its own
+// stdio and exit status. When disabled it returns ErrNotSupervised without
+// starting a process, so the default path costs one config read.
+func (rt *Runtime) StartMonitor(argv, env []string) error {
 	if rt.Getenv(EnvChild) != "" {
-		return 0, ErrNotSupervised
+		return ErrNotSupervised
 	}
 	cfg, err := Load(rt.Getenv)
 	if err != nil || !cfg.Enabled {
-		return 0, ErrNotSupervised
+		return ErrNotSupervised
 	}
 	exe, err := rt.Executable()
 	if err != nil {
-		return 0, errors.Join(ErrReexecFailed, err)
+		return errors.Join(ErrReexecFailed, err)
 	}
-	ring := &ringBuffer{max: ringSize}
-	child := exec.Command(exe, argv[1:]...)
-	child.Args[0] = argv[0]
-	child.Env = append(append([]string{}, env...), EnvChild+"=1")
-	child.Stdin, child.Stdout = os.Stdin, os.Stdout
-	child.Stderr = io.MultiWriter(rt.Stderr, ring)
-
-	sigs := make(chan os.Signal, 4)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigs)
-	if err := child.Start(); err != nil {
-		return 0, errors.Join(ErrReexecFailed, err)
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		return errors.Join(ErrReexecFailed, err)
 	}
-	done := make(chan struct{})
-	go func() {
-		for {
-			select {
-			case s := <-sigs:
-				_ = child.Process.Signal(s)
-			case <-ctx.Done():
-				_ = child.Process.Signal(os.Interrupt)
-				<-done
-				return
-			case <-done:
-				return
-			}
-		}
-	}()
-	waitErr := child.Wait()
-	close(done)
-
-	code := exitCode(child.ProcessState, waitErr)
-	if code == 2 {
-		if kind, msg, stack, ok := parseCrash(ring.Crash()); ok {
-			rt.handle(kind, msg, stack, argv[1:])
-		}
+	defer pw.Close() // SetCrashOutput keeps its own duplicate
+	mon := exec.Command(exe, argv[1:]...)
+	mon.Args[0] = argv[0]
+	mon.Env = append(append([]string{}, env...), EnvChild+"=1")
+	mon.Stdin = pr
+	// Only the monitor's own notices reach stderr; it never echoes the dump.
+	mon.Stderr = rt.Stderr
+	err = mon.Start()
+	pr.Close()
+	if err != nil {
+		return errors.Join(ErrReexecFailed, err)
 	}
-	return code, nil
+	if err := debug.SetCrashOutput(pw, debug.CrashOptions{}); err != nil {
+		_ = mon.Process.Kill()
+		_, _ = mon.Process.Wait()
+		return errors.Join(ErrReexecFailed, err)
+	}
+	// The monitor exits once every copy of pw is closed, i.e. when this
+	// process exits; its status is irrelevant, so it is not waited for.
+	_ = mon.Process.Release()
+	return nil
 }
 
-// exitCode maps the child's termination to a shell-style status.
-func exitCode(ps *os.ProcessState, waitErr error) int {
-	if ps == nil {
-		if waitErr != nil {
-			return 1
-		}
-		return 0
+// Monitor is the body of the monitor process: it reads the parent's crash
+// output from r until the parent exits and, when a runtime crash header is
+// present, reports it through handle (redact, spool, opted-in upload).
+// args are the parent's argv without argv[0], for command metadata.
+func (rt *Runtime) Monitor(r io.Reader, args []string) {
+	// Ctrl-C reaches the whole process group; the monitor must outlive the
+	// parent long enough to read its dump.
+	signal.Ignore(os.Interrupt, syscall.SIGTERM)
+	ring := &ringBuffer{max: ringSize}
+	_, _ = io.Copy(ring, r)
+	if kind, msg, stack, ok := parseCrash(ring.Crash()); ok {
+		rt.handle(kind, msg, stack, args)
 	}
-	if ws, ok := ps.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-		return 128 + int(ws.Signal())
-	}
-	return ps.ExitCode()
 }
 
 // parseCrash extracts the runtime crash header and the goroutine dump that
-// follows it. The last header wins so CLI output that happens to contain
+// follows it. The last header wins so output that happens to contain
 // "panic: " earlier is not mistaken for the crash.
 func parseCrash(buf string) (Kind, string, string, bool) {
 	locs := crashHeadRe.FindAllStringIndex(buf, -1)
