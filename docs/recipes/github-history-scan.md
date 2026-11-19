@@ -295,7 +295,11 @@ still flushes JSON/SARIF/table findings, then writes a machine-readable stderr
 line such as:
 
 ```text
-coverage: status=degraded failures=1 source=1 archive=0 detector=0
+coverage: status=degraded failures=1 skipped_by_policy=0 gaps=1 source=1 archive=0 detector=0 reason=source-failure
+coverage: entry severity=gap kind=source source="repository-history:<owner>/<repo>" error="..."
 ```
+
+See [Coverage gating](../output-and-gating.md#coverage-gating) for
+`--fail-on-coverage` and policy-limited archive skips.
 
 Coverage failure takes precedence over the finding-severity exit gate.

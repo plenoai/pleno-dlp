@@ -506,3 +506,9 @@ func TestSupervisePassesThroughNonCrashExits(t *testing.T) {
 		}
 	}
 }
+
+func TestSelfPathMatchesPackage(t *testing.T) {
+	if want := ModulePath + "pkg/telemetry/crash."; selfPath != want {
+		t.Fatalf("selfPath = %q, want %q", selfPath, want)
+	}
+}
