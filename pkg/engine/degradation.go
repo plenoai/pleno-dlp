@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
@@ -28,6 +29,35 @@ type ScanFailure struct {
 	Err      error
 }
 
+// CoverageSeverity separates archive content skipped by a deliberate
+// expansion policy (corrupt or over-budget archives) from real coverage gaps
+// where requested bytes or detectors could not be scanned.
+type CoverageSeverity string
+
+const (
+	SeverityPolicySkip CoverageSeverity = "policy-skip"
+	SeverityGap        CoverageSeverity = "gap"
+)
+
+// Severity classifies the failure. Anything not positively identified as a
+// policy-limited archive skip is a gap, so unknown failures fail closed.
+func (f ScanFailure) Severity() CoverageSeverity {
+	if f.Kind != FailureArchive {
+		return SeverityGap
+	}
+	var partial *archive.PartialError
+	if !errors.As(f.Err, &partial) {
+		return SeverityGap
+	}
+	switch partial.Kind {
+	case "corrupt-archive", "corrupt-entry", "symlink", "special-file",
+		"path", "max-depth", "max-files", "max-entry-bytes", "max-input-bytes", "max-blob-bytes",
+		"max-headers", "central-directory-bytes", "metadata-bytes":
+		return SeverityPolicySkip
+	}
+	return SeverityGap
+}
+
 // maxFailureExamples bounds diagnostic memory independently of corpus size.
 // Total and Counts retain complete accounting after this many examples.
 const maxFailureExamples = 32
@@ -45,6 +75,37 @@ type DegradedError struct {
 	Failures []ScanFailure
 	// Classes counts every failure by the installed FailureClassifier, including failures beyond the examples cap.
 	Classes map[string]int
+	// Severities counts every failure by ScanFailure.Severity, including
+	// failures beyond the examples cap.
+	Severities map[CoverageSeverity]int
+}
+
+// PolicySkips returns how many failures were policy-limited archive skips.
+func (e *DegradedError) PolicySkips() int {
+	if e == nil {
+		return 0
+	}
+	if e.Severities != nil {
+		return e.Severities[SeverityPolicySkip]
+	}
+	if len(e.Failures) != e.total() {
+		return 0
+	}
+	skips := 0
+	for _, failure := range e.Failures {
+		if failure.Severity() == SeverityPolicySkip {
+			skips++
+		}
+	}
+	return skips
+}
+
+// Gaps returns how many failures are real coverage gaps.
+func (e *DegradedError) Gaps() int {
+	if e == nil {
+		return 0
+	}
+	return e.total() - e.PolicySkips()
 }
 
 // FailureClassifier labels a failure for acceptance policy; an empty label means unclassified.
@@ -153,6 +214,12 @@ func PartitionDegradedErrors(err error) (*DegradedError, error) {
 					classifyFailure(merged.Classes, failure)
 				}
 			}
+			if merged.Severities == nil {
+				merged.Severities = make(map[CoverageSeverity]int)
+			}
+			skips := degraded.PolicySkips()
+			merged.Severities[SeverityPolicySkip] += skips
+			merged.Severities[SeverityGap] += degraded.total() - skips
 			remaining := maxFailureExamples - len(merged.Failures)
 			if remaining > 0 {
 				merged.Failures = append(merged.Failures, degraded.Failures[:min(remaining, len(degraded.Failures))]...)

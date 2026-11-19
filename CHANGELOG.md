@@ -10,6 +10,7 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Added
 
+- `scan --fail-on-coverage=gap|any` (default `gap`): corrupt or over-budget archives are reported as `skipped_by_policy` with `coverage: status=ok` and no longer fail the scan; real gaps report `status=degraded` with a `reason=` list and per-failure `coverage: entry` lines. Pass `any` for the previous strict behavior.
 - `IPStack` detector: ipstack access keys, verified provider-confirmed via `api.ipstack.com/check`.
 - `OpenWeather` detector: OpenWeather API keys, verified provider-confirmed via `api.openweathermap.org`.
 
