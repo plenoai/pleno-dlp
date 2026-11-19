@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-11-19 | core-engineer, qa | Classify coverage failures as gaps or archive policy skips (`ScanFailure.PolicySkip`, `DegradedError.PolicySkips`); only gaps degrade status and fail by default, every retained failure is listed, and `--fail-on-coverage=gap\|any` gates exit. |
 | 2026-11-17 | architect | Raise the minimum Go version to 1.26.11 for the net/http fix GO-2026-6859; no new govulncheck exception. |
 | 2026-11-17 | detector-engineer, qa | Declare provider-confirmed assurance for 11 authenticated verifiers and fail CI when a new Verifier omits `MaxVerificationAssurance` (existing ones frozen in `pkg/detectors/all/assurance_allowlist_test.go`). |
 | 2026-11-07 | architect | Upgrade the indirect `github.com/klauspost/compress` (via go-containerregistry, used by `pkg/sources/dockerimage` layer decompression) to v1.20.2 to fix GO-2026-6865 in its zstd decoder; govulncheck stays fail-closed with no new exception. |

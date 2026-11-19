@@ -1032,47 +1032,7 @@ func CorruptArchiveGapOnly(err error) bool {
 
 // ArchiveGapOnly reports whether err contains only typed archive gaps; configured limit gaps require allowLimits.
 func ArchiveGapOnly(err error, allowLimits bool) bool {
-	if err == nil {
-		return false
-	}
-	if partial, ok := err.(*archivepkg.PartialError); ok {
-		switch partial.Kind {
-		case "corrupt-archive", "corrupt-entry", "symlink", "special-file":
-			return true
-		case "path", "max-depth", "max-files", "max-entry-bytes", "max-input-bytes", "max-blob-bytes",
-			"max-headers", "central-directory-bytes", "metadata-bytes":
-			return allowLimits
-		default:
-			return false
-		}
-	}
-	if degraded, ok := err.(*engine.DegradedError); ok {
-		if degraded.Total == 0 || degraded.Total != len(degraded.Failures) {
-			return false
-		}
-		for _, failure := range degraded.Failures {
-			if failure.Kind == engine.FailureDetector || !ArchiveGapOnly(failure.Err, allowLimits) {
-				return false
-			}
-		}
-		return true
-	}
-	if joined, ok := err.(interface{ Unwrap() []error }); ok {
-		children := joined.Unwrap()
-		if len(children) == 0 {
-			return false
-		}
-		for _, child := range children {
-			if !ArchiveGapOnly(child, allowLimits) {
-				return false
-			}
-		}
-		return true
-	}
-	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
-		return ArchiveGapOnly(wrapped.Unwrap(), allowLimits)
-	}
-	return false
+	return engine.ArchiveGapOnly(err, allowLimits)
 }
 
 type diffSegment struct {
