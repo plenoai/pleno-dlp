@@ -510,7 +510,7 @@ func TestScanFilesystem_CorruptArchiveReturnsCoverageError(t *testing.T) {
 	var out, stderr bytes.Buffer
 	Root.SetOut(&out)
 	Root.SetErr(&stderr)
-	Root.SetArgs([]string{"scan", "filesystem", path, "--no-verify", "--quiet"})
+	Root.SetArgs([]string{"scan", "filesystem", path, "--no-verify", "--quiet", "--fail-on-coverage=any"})
 	err := Root.Execute()
 	if err == nil {
 		t.Fatal("incomplete archive coverage must produce a non-zero CLI result")
@@ -521,6 +521,65 @@ func TestScanFilesystem_CorruptArchiveReturnsCoverageError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "scan coverage incomplete") || !strings.Contains(err.Error(), "archive") {
 		t.Fatalf("CLI error must explain incomplete archive coverage: %v", err)
+	}
+}
+
+func TestScanFilesystem_CorruptArchiveIsPolicySkipByDefault(t *testing.T) {
+	resetCommandFlags(t)
+	path := filepath.Join(t.TempDir(), "broken.zip")
+	if err := os.WriteFile(path, []byte{'P', 'K', 3, 4}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, stderr bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&stderr)
+	Root.SetArgs([]string{"scan", "filesystem", path, "--no-verify", "--quiet"})
+	if err := Root.Execute(); err != nil {
+		t.Fatalf("policy-limited archive skip must not fail under --fail-on-coverage=gap: %v", err)
+	}
+	for _, want := range []string{
+		"coverage: status=ok failures=1 skipped_by_policy=1 gaps=0 source=0 archive=1 detector=0\n",
+		"coverage: entry severity=policy-skip kind=archive source=",
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr.String())
+		}
+	}
+}
+
+func TestScanRejectsInvalidFailOnCoverage(t *testing.T) {
+	resetCommandFlags(t)
+	var out bytes.Buffer
+	Root.SetOut(&out)
+	Root.SetErr(&out)
+	Root.SetArgs([]string{"scan", "filesystem", t.TempDir(), "--no-verify", "--quiet", "--fail-on-coverage=never"})
+	if err := Root.Execute(); err == nil || !strings.Contains(err.Error(), "--fail-on-coverage") {
+		t.Fatalf("error = %v, want invalid --fail-on-coverage", err)
+	}
+}
+
+func TestReportCoverageCapsEntriesPerSeverity(t *testing.T) {
+	failures := make([]engine.ScanFailure, 0, maxCoverageEntriesPerSeverity+2)
+	for i := 0; i < maxCoverageEntriesPerSeverity+2; i++ {
+		failures = append(failures, engine.ScanFailure{Kind: engine.FailureSource, Source: fmt.Sprintf("unit-%d", i), Err: errors.New("boom")})
+	}
+	coverage := &engine.DegradedError{
+		Total:    40,
+		Counts:   map[engine.FailureKind]int{engine.FailureSource: 40},
+		Failures: failures,
+	}
+	var stderr bytes.Buffer
+	reportCoverage(&stderr, coverage, false)
+	got := stderr.String()
+	if !strings.Contains(got, "coverage: status=degraded failures=40 skipped_by_policy=0 gaps=40 source=40 archive=0 detector=0 reason=source-failure\n") {
+		t.Fatalf("missing degraded status with reason:\n%s", got)
+	}
+	if n := strings.Count(got, "coverage: entry severity=gap"); n != maxCoverageEntriesPerSeverity {
+		t.Fatalf("gap entries = %d, want %d:\n%s", n, maxCoverageEntriesPerSeverity, got)
+	}
+	if !strings.Contains(got, fmt.Sprintf("coverage: entries-omitted=%d severity=gap\n", 40-maxCoverageEntriesPerSeverity)) {
+		t.Fatalf("missing entries-omitted count:\n%s", got)
 	}
 }
 
@@ -541,7 +600,7 @@ func TestRunScanCommonDegradedSourcePreservesFindingsAndReturnsTypedError(t *tes
 	if out.Len() == 0 || !strings.Contains(out.String(), "secret_hash") {
 		t.Fatalf("successful-unit finding was discarded: %s", out.String())
 	}
-	if !strings.Contains(stderr.String(), "coverage: status=degraded failures=1 source=1") {
+	if !strings.Contains(stderr.String(), "coverage: status=degraded failures=1 skipped_by_policy=0 gaps=1 source=1 archive=0 detector=0 reason=source-failure") {
 		t.Fatalf("missing machine-readable coverage status: %s", stderr.String())
 	}
 }
@@ -762,6 +821,7 @@ func TestRunScanCommonArchiveFailureRestoresPriorCheckpoint(t *testing.T) {
 	resetCommandFlags(t)
 	scanOpts.noVerify, scanOpts.quiet, scanOpts.incremental = true, true, true
 	scanOpts.format, scanOpts.failOn = "json", "critical"
+	scanOpts.failOnCoverage = "any"
 	scanOpts.incrementalState = filepath.Join(t.TempDir(), "state.json")
 	scanGitHubCmd.SetContext(context.Background())
 	var out bytes.Buffer

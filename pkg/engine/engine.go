@@ -100,6 +100,7 @@ type Engine struct {
 	failureTotal          int
 	failureCounts         map[FailureKind]int
 	failureClasses        map[string]int
+	failureSeverities     map[CoverageSeverity]int
 }
 
 type streamMatch struct {
@@ -1266,6 +1267,7 @@ func (e *Engine) resetFailures() {
 	e.failureTotal = 0
 	e.failureCounts = make(map[FailureKind]int)
 	e.failureClasses = make(map[string]int)
+	e.failureSeverities = make(map[CoverageSeverity]int)
 	e.failureMu.Unlock()
 }
 
@@ -1277,6 +1279,10 @@ func (e *Engine) recordFailure(failure ScanFailure) {
 		e.failureClasses = make(map[string]int)
 	}
 	classifyFailure(e.failureClasses, failure)
+	if e.failureSeverities == nil {
+		e.failureSeverities = make(map[CoverageSeverity]int)
+	}
+	e.failureSeverities[failure.Severity()]++
 	if len(e.failures) < maxFailureExamples {
 		e.failures = append(e.failures, failure)
 	}
@@ -1292,15 +1298,17 @@ func (e *Engine) takeFailures() error {
 		counts[kind] = count
 	}
 	classes := e.failureClasses
+	severities := e.failureSeverities
 	e.failures = e.failures[:0]
 	e.failureTotal = 0
 	e.failureCounts = nil
 	e.failureClasses = nil
+	e.failureSeverities = nil
 	e.failureMu.Unlock()
 	if total == 0 {
 		return nil
 	}
-	return &DegradedError{Total: total, Counts: counts, Failures: failures, Classes: classes}
+	return &DegradedError{Total: total, Counts: counts, Failures: failures, Classes: classes, Severities: severities}
 }
 
 // scanChunk expands archive chunks and dispatches every leaf chunk.

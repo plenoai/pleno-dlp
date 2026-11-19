@@ -251,6 +251,40 @@ The same fields can be provided through `GITHUB_APP_ID`,
 `GITHUB_APP_PRIVATE_KEY` only when the environment can safely carry
 multi-line PEM secrets.
 
+## Coverage gating
+
+When a scan cannot cover every requested byte or detector, stderr carries a
+machine-readable status line followed by one `coverage: entry` line per
+retained failure (at most 10 per severity; the remainder is reported as
+`coverage: entries-omitted=<n> severity=<severity>`):
+
+```text
+coverage: status=ok failures=1 skipped_by_policy=1 gaps=0 source=0 archive=1 detector=0
+coverage: entry severity=policy-skip kind=archive source="broken.zip" error="archive expansion failed"
+```
+
+Each failure has a severity:
+
+- `policy-skip`: an archive was corrupt, contained unsupported entries
+  (symlinks, special files, unsafe paths), or exceeded an expansion budget,
+  so its contents were deliberately not expanded. The archive bytes
+  themselves were still scanned.
+- `gap`: everything else — source, repository, or detector failures and
+  unexpected archive read errors. These are real coverage gaps.
+
+`status=ok` means every failure was a policy skip; otherwise the status is
+`degraded` with a `reason=` list (`source-failure`, `archive-failure`,
+`detector-failure`).
+
+`--fail-on-coverage` controls the coverage exit code:
+
+| Value | Exits non-zero (2) when |
+|---|---|
+| `gap` (default) | at least one coverage gap occurred |
+| `any` | any coverage failure occurred, including policy skips |
+
+Coverage failure takes precedence over the finding-severity exit gate.
+
 ## Incremental source scans
 
 `scan github --incremental --incremental-state <file>` stores the overall
