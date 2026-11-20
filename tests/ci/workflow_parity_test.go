@@ -137,9 +137,12 @@ func TestReleasePublishesNativeAssetsInsideImmutableBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := string(releaseData)
+	if strings.Contains(release, "queue:") {
+		t.Error("release.yml concurrency must not use the unsupported queue key")
+	}
 	for _, required := range []string{
 		"group: ${{ github.workflow }}-release",
-		"queue: max",
+		"cancel-in-progress: false",
 		"needs: [quality, native]",
 		"needs: draft",
 		"actions/upload-artifact@",
