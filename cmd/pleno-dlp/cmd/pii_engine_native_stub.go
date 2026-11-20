@@ -7,6 +7,8 @@ import (
 	"io"
 
 	"github.com/spf13/cobra"
+
+	"github.com/plenoai/pleno-dlp/pkg/telemetry/crash"
 )
 
 // nativeOPFBuilt reports whether this binary includes the in-process
@@ -18,4 +20,9 @@ const nativeOPFBuilt = false
 
 func startOpenAIPFNative(_ context.Context, _ *cobra.Command, _ io.Writer) (func(), error) {
 	return nil, errNativeNotBuilt
+}
+
+// nativePIIPass never finds an engine without the opf_native build tag.
+func nativePIIPass(context.Context, string) ([]crash.PIIMatch, bool, error) {
+	return nil, false, nil
 }

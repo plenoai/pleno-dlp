@@ -11,6 +11,7 @@ import (
 
 	"github.com/plenoai/pleno-dlp/pkg/piiengine/anonymize"
 	"github.com/plenoai/pleno-dlp/pkg/piiengine/opfnative"
+	"github.com/plenoai/pleno-dlp/pkg/telemetry/crash"
 )
 
 const nativeOPFBuilt = true
@@ -42,4 +43,18 @@ func startOpenAIPFNative(ctx context.Context, _ *cobra.Command, stderr io.Writer
 		opfnative.SetDefault(nil)
 		_ = eng.Close()
 	}, nil
+}
+
+// nativePIIPass analyzes text with the published native engine; ok is false
+// when none is published.
+func nativePIIPass(ctx context.Context, text string) (out []crash.PIIMatch, ok bool, err error) {
+	eng := opfnative.Default()
+	if eng == nil {
+		return nil, false, nil
+	}
+	fs, err := eng.Analyze(ctx, text)
+	for _, f := range fs {
+		out = append(out, crash.PIIMatch{Type: f.EntityType, Text: f.Text})
+	}
+	return out, true, err
 }

@@ -17,6 +17,10 @@ import (
 // the crash path.
 const detectorBudget = 2 * time.Second
 
+// piiBudget caps the optional PII-engine pass. Engines are model-backed and
+// slower than the detector pass; a timeout keeps the pattern-redacted text.
+const piiBudget = 10 * time.Second
+
 var (
 	offsetRe    = regexp.MustCompile(` \+0x[0-9a-fA-F]+`)
 	hexAddrRe   = regexp.MustCompile(`0x[0-9a-fA-F]+`)
@@ -45,6 +49,20 @@ type Redactor struct {
 	// Detectors are run without verification over the redacted text; every
 	// match is replaced with "[REDACTED:<type>]". Nil skips the pass.
 	Detectors []detectors.Detector
+	// PII optionally runs a PII engine (anonymize, openai-pf-native) over
+	// the redacted text; every returned match is replaced with
+	// "[PII:<type>]". It catches names, non-ASCII identifiers and other
+	// free-text PII the patterns miss. Nil skips the pass; an error or a
+	// timeout keeps the text as redacted so far.
+	PII func(ctx context.Context, text string) ([]PIIMatch, error)
+}
+
+// PIIMatch is one entity found by a PII engine.
+type PIIMatch struct {
+	// Type is the engine's entity label (e.g. "PERSON").
+	Type string
+	// Text is the matched substring of the text passed to the engine.
+	Text string
 }
 
 // EnvPrefixes derives the placeholder map from the process environment.
@@ -86,7 +104,45 @@ func (r *Redactor) Redact(s string) string {
 	s = unixPathRe.ReplaceAllStringFunc(s, redactUnixPath)
 	s = winPathRe.ReplaceAllString(s, "[PATH]")
 	s = tokenRe.ReplaceAllStringFunc(s, redactToken)
-	return r.scrubSecrets(s)
+	s = r.scrubSecrets(s)
+	return r.scrubPII(s)
+}
+
+// scrubPII replaces every PII-engine match. Matches are replaced by text, not
+// offset, so engines that count bytes and engines that count runes behave
+// the same. Longer matches go first so a substring cannot split them.
+func (r *Redactor) scrubPII(s string) string {
+	if r.PII == nil || s == "" {
+		return s
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), piiBudget)
+	defer cancel()
+	matches := safePII(ctx, r.PII, s)
+	sort.SliceStable(matches, func(i, j int) bool { return len(matches[i].Text) > len(matches[j].Text) })
+	for _, m := range matches {
+		if strings.TrimSpace(m.Text) == "" {
+			continue
+		}
+		typ := strings.ToUpper(strings.TrimSpace(m.Type))
+		if typ == "" {
+			typ = "UNKNOWN"
+		}
+		s = strings.ReplaceAll(s, m.Text, "[PII:"+typ+"]")
+	}
+	return s
+}
+
+func safePII(ctx context.Context, f func(context.Context, string) ([]PIIMatch, error), s string) (out []PIIMatch) {
+	defer func() {
+		if recover() != nil {
+			out = nil
+		}
+	}()
+	out, err := f(ctx, s)
+	if err != nil {
+		return nil
+	}
+	return out
 }
 
 // normalizeFrames drops per-run noise: PC offsets, hex arguments and
