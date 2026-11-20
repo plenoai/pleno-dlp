@@ -7,7 +7,6 @@ permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-release
-  queue: max
   cancel-in-progress: false
 
 jobs:
