@@ -15,6 +15,10 @@ publishing, archives, SLSA provenance, and SBOM generation.
 - `IPStack` detector: ipstack access keys, verified provider-confirmed via `api.ipstack.com/check`.
 - `OpenWeather` detector: OpenWeather API keys, verified provider-confirmed via `api.openweathermap.org`.
 
+### Changed
+
+- With crash reports enabled, pleno-dlp no longer runs the CLI in a re-executed child behind a stderr-teeing supervisor; it runs in-process and a separate crash monitor receives the Go runtime's crash output, reporting each crash exactly once.
+
 ### Fixed
 
 - `--verify-min-assurance provider-confirmed` now verifies AWS, Datadog,

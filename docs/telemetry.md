@@ -92,7 +92,7 @@ contract shared with the relay is
 | `goos`, `goarch`, `go_version` | platform and toolchain |
 | `command` | subcommand words only, e.g. `scan filesystem` |
 | `flags` | names of recognised flags only, e.g. `["format"]`; never values |
-| `kind` | `panic` / `fatal` (seen by the supervisor), `recovered` (caught in-process), or `crash` (written by `--crash-report`) |
+| `kind` | `panic` / `fatal` (seen by the crash monitor), `recovered` (caught in-process), or `crash` (written by `--crash-report`) |
 | `message` | the redacted panic or fatal-error line |
 | `stack` | the redacted goroutine dump |
 | `created_at` | UTC, truncated to the minute |
@@ -147,15 +147,19 @@ a `...[truncated]` marker.
 
 ## How crashes are captured
 
-- **Sending enabled.** pleno-dlp re-executes itself as a child with the same
-  arguments (`PLENO_DLP_CRASH_CHILD=1`), inherits stdin/stdout, tees stderr,
-  and forwards SIGINT/SIGTERM. When the child exits with status 2 and its
-  stderr carries a Go `panic:` or `fatal error:` dump, the parent builds,
-  spools, and sends a report, then exits with the child's status (or
-  128+signal). This catches panics in any goroutine and runtime fatal errors
-  such as `concurrent map writes`. If re-exec fails, pleno-dlp runs
-  in-process.
-- **Sending disabled (default).** No child process is started. A panic on
+- **Sending enabled.** pleno-dlp starts a crash monitor: it re-executes
+  itself with the same arguments and `PLENO_DLP_CRASH_CHILD=monitor`, and
+  points the Go runtime's crash output (`debug.SetCrashOutput`) at a private
+  pipe to the monitor's stdin. The CLI keeps running in the original
+  process, so stdin, stdout, stderr, signals, and exit codes are its own. A
+  panic on the main goroutine is recovered in-process and reported as
+  `recovered`; a panic in any other goroutine or a runtime fatal error such
+  as `concurrent map writes` reaches the monitor, which builds, redacts,
+  spools, and sends exactly one report and exits when the pipe closes. The
+  runtime does not copy a fatal error's header line to that pipe, so such
+  reports carry `fatal error: (message not captured)` and the stack. If
+  the monitor cannot start, pleno-dlp runs without it.
+- **Sending disabled (default).** No monitor process is started. A panic on
   the main goroutine is recovered, spooled, and re-printed, and the process
   exits 2. Panics in other goroutines and runtime fatal errors are not
   captured in this mode.
