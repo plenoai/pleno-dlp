@@ -66,6 +66,17 @@ func TestMonitorIgnoresCleanStream(t *testing.T) {
 	}
 }
 
+func TestMonitorReportsHeaderlessFatal(t *testing.T) {
+	rt, env, _ := newTestRuntime(t, true, "http://127.0.0.1:9/x")
+	out, ok := rt.Monitor(strings.NewReader(sampleStack), nil)
+	if !ok || out.Report.Kind != KindFatal || out.Report.Message != fatalNoHeader {
+		t.Fatalf("monitor outcome %+v ok=%v", out.Report, ok)
+	}
+	if _, err := os.Stat(filepath.Join(env[EnvDir], "crash", LastFile)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStartMonitorNoop(t *testing.T) {
 	rt, _, _ := newTestRuntime(t, false, "")
 	rt.Executable = func() (string, error) { t.Fatal("executable resolved while disabled"); return "", nil }
