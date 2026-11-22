@@ -21,4 +21,5 @@ updates:
         patterns:
           - "github.com/aws/aws-sdk-go-v2*"
       go-dependencies:
-        dependency-type: all
+        patterns:
+          - "*"
