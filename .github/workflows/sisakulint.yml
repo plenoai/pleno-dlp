@@ -30,7 +30,11 @@ jobs:
       # self-hosted-runner rule is suppressed.
       # Findings are reported as warnings (log + annotations) without failing
       # the job, matching the previous sisakulint-action behaviour.
+      # The job token lifts the anonymous 60 req/h GitHub API limit used by
+      # the known-vulnerable-actions and commit-sha checks.
       - name: Run sisakulint
+        env:
+          SISAKULINT_GITHUB_TOKEN: ${{ github.token }}
         run: |
           set +e
           output="$("$(go env GOPATH)/bin/sisakulint" -ignore self-hosted-runner 2>&1)"
