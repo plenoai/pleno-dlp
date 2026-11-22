@@ -20,4 +20,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: sisaku-security/sisakulint-action@8bfb3391a591a44a73b59acac86f8644112e383f  # v1.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install sisakulint
+        run: go install github.com/sisaku-security/sisakulint/cmd/sisakulint@v0.3.8
+      - name: Run sisakulint
+        # self-hosted runners are ephemeral and do not persist state between
+        # jobs, so the self-hosted-runner rule is suppressed.
+        run: sisakulint -ignore self-hosted-runner
