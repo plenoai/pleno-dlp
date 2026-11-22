@@ -22,3 +22,10 @@ updates:
           - "github.com/aws/aws-sdk-go-v2*"
       go-dependencies:
         dependency-type: all
+
+  # Ruby (bundler). The homebrew release job uses ruby/setup-ruby; there is
+  # no Gemfile yet, so this tracks the repository root.
+  - package-ecosystem: bundler
+    directory: "/"
+    schedule:
+      interval: weekly
