@@ -44,21 +44,15 @@ func (s *Source) nativeSynthEligible() bool {
 	return !s.promisorFiltered && !nativeSynthDisabled() && !s.nativeSynthCostly
 }
 
-// nativeSynthMaxCommits is the largest history the in-process renderer
-// takes by default. It wins where per-process and pipe overhead dominates
-// (croc, 2.4k commits: 0.28 s / 3.1 CPU-s against 0.32 s / 4.0 for
-// `git log -p`), but on long histories the work is blob reconstruction
-// and diffing, which git's C does with less CPU than Go while every shard
-// already runs in parallel (django, 52k commits: 2.8 s / 47 CPU-s against
-// 2.4 s / 43; #978). Unsharded histories are too small to repay its
-// helper processes. PLENO_DLP_GIT_PATCH_RENDER=inprocess overrides both.
-const nativeSynthMaxCommits = 20000
-
 // chooseNativeSynth applies the cost rule to a walk of commits rendered by
-// shards parallel workers.
+// shards parallel workers. Parallel walks render in process: the
+// newest-first stream (#1019) beats `git log -p` on CPU and wall for short
+// and long histories alike (django, 52k commits: 31.9 against 41.3 CPU-s).
+// Unsharded histories are too small to repay the renderer's helper
+// processes and keep git. PLENO_DLP_GIT_PATCH_RENDER=inprocess forces the
+// renderer; =git disables it.
 func (s *Source) chooseNativeSynth(commits, shards int) {
-	s.nativeSynthCostly = (shards <= 1 || commits > nativeSynthMaxCommits) &&
-		os.Getenv("PLENO_DLP_GIT_PATCH_RENDER") != "inprocess"
+	s.nativeSynthCostly = shards <= 1 && os.Getenv("PLENO_DLP_GIT_PATCH_RENDER") != "inprocess"
 }
 
 // nativeRawArgs turns patch-rendering log arguments into the equivalent

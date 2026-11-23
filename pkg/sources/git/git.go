@@ -239,7 +239,7 @@ type Source struct {
 	promisorSkipped  int64
 
 	// nativeSynthCostly routes a long history's patches to git log -p
-	// instead of the in-process renderer (see nativeSynthMaxCommits).
+	// instead of the in-process renderer (see chooseNativeSynth).
 	nativeSynthCostly bool
 }
 
