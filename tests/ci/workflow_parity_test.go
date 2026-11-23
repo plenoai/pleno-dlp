@@ -3,7 +3,6 @@ package ci
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -67,16 +66,6 @@ func TestReleaseWorkflowRemainsTagOnlyAndProvisionsJobTools(t *testing.T) {
 	cmakeVersion := strings.Index(release, "cmake --version")
 	if cmakeInstall < 0 || cmakeVersion < cmakeInstall || !strings.Contains(release, "sudo apt-get install -y --no-install-recommends cmake") {
 		t.Error("native release job must install CMake before checking or building with it")
-	}
-
-	// Assert a full-SHA pin, not a specific version, so Dependabot bumps stay mergeable.
-	rubySetup := -1
-	if loc := regexp.MustCompile(`ruby/setup-ruby@[0-9a-f]{40} # v\d+\.\d+\.\d+`).FindStringIndex(release); loc != nil {
-		rubySetup = loc[0]
-	}
-	formulaValidation := strings.Index(release, "Validate Homebrew formula")
-	if rubySetup < 0 || formulaValidation < rubySetup || !strings.Contains(release[rubySetup:formulaValidation], "ruby-version: '3.4'") {
-		t.Error("Homebrew validation must provision pinned Ruby before invoking ruby")
 	}
 }
 
@@ -154,24 +143,6 @@ func TestReleasePublishesNativeAssetsInsideImmutableBoundary(t *testing.T) {
 		"--field draft=false",
 		"false:true) echo \"release is already immutable\"",
 		"true:false)",
-		"needs: finalize",
-		"path: dist/homebrew/Casks/pleno-dlp.rb",
-		"path: ${{ runner.temp }}/homebrew-formula",
-		"path=Casks/pleno-dlp.rb",
-		"releases/download/v#{version}/pleno-dlp_${platform}.tar.gz",
-		"retention-days: 30",
-		"Update Homebrew formula",
-		"Gem::Version",
-		"tap formula differs for existing version",
-		"error_file=$(mktemp)",
-		"sha_args=()",
-		"sha_args=(--raw-field sha=\"$sha\")",
-		"grep -Fq \"HTTP 404\"",
-		"\"${sha_args[@]}\"",
-		"update_response=$(gh api --method PUT",
-		"updated_ref=$(jq -er",
-		"contents/$path?ref=$updated_ref",
-		"for attempt in 1 2 3 4 5",
 	} {
 		if !strings.Contains(release, required) {
 			t.Errorf("release.yml must contain %q", required)
@@ -179,12 +150,6 @@ func TestReleasePublishesNativeAssetsInsideImmutableBoundary(t *testing.T) {
 	}
 	if strings.Contains(release, "gh release upload") {
 		t.Error("release.yml must not attach assets after GoReleaser publishes")
-	}
-	if strings.Contains(release, "homebrew/Formula/") || strings.Contains(release, "path=Formula/") {
-		t.Error("release.yml must use the Homebrew cask paths emitted by homebrew_casks")
-	}
-	if strings.Contains(release, "releases/download/$TAG/pleno-dlp_${platform}.tar.gz") {
-		t.Error("release.yml must validate the version interpolation emitted by homebrew_casks")
 	}
 	if strings.Count(release, "contents: write") != 2 {
 		t.Error("only the draft and finalize jobs may write release contents")
@@ -198,10 +163,6 @@ func TestReleasePublishesNativeAssetsInsideImmutableBoundary(t *testing.T) {
 	}
 	if attestation < 0 || publication < attestation {
 		t.Error("immutable publication must follow every provenance attestation")
-	}
-	homebrew := strings.Index(release, "Update Homebrew formula")
-	if homebrew < publication {
-		t.Error("Homebrew may only update after immutable publication")
 	}
 
 	configData, err := os.ReadFile(filepath.Join(root, ".goreleaser.yaml"))
@@ -221,9 +182,6 @@ func TestReleasePublishesNativeAssetsInsideImmutableBoundary(t *testing.T) {
 	}
 	if !strings.Contains(config, "draft: true") || !strings.Contains(config, "replace_existing_draft: true") {
 		t.Error("GoReleaser must leave a replaceable draft for the final publication step")
-	}
-	if !strings.Contains(config, "skip_upload: true") {
-		t.Error("GoReleaser must defer Homebrew publication until the release is immutable")
 	}
 }
 

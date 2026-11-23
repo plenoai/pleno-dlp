@@ -1,0 +1,7 @@
+# Allows the repository-local registry used by aqua/aqua.yaml.
+registries:
+  - name: pleno
+    type: local
+    path: registry.yaml
+packages:
+  - registry: pleno

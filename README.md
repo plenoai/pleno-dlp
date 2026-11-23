@@ -24,7 +24,7 @@
 </p>
 
 ```sh
-brew install plenoai/tap/pleno-dlp   # signed release binary
+aqua g -i plenoai/pleno-dlp          # signed release binary (aqua)
 go install github.com/plenoai/pleno-dlp/cmd/pleno-dlp@latest
 
 pleno-dlp protect
@@ -33,8 +33,12 @@ pleno-dlp scan git --repo ./repo --max-depth 200
 pleno-dlp scan filesystem ./repo --format sarif > findings.sarif
 ```
 
-On operator machines, dogfood the signed release from the tap and keep
-it current with `brew upgrade pleno-dlp`; see
+Release binaries ship through [aqua](https://aquaproj.github.io/), which
+verifies the cosign-signed `checksums.txt` and the GitHub artifact
+attestation; there is no Homebrew tap. `aqua g -i` works once the
+package lands in the standard aqua registry; until then use the local
+registry under `aqua/`. Operator machines dogfood the
+pinned release in `aqua/aqua.yaml`; see
 [`docs/dogfooding.md`](docs/dogfooding.md) for why the ad-hoc mise
 `go:` pin was dropped.
 

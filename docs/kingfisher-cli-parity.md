@@ -32,7 +32,7 @@ Status values:
 | `blast-radius` / `access-map` | `blast-radius`, `scan --blast-radius` | done |
 | `view` | `view` | done |
 | `config` (emit `kingfisher.yaml` from flags) | `config init` (emits `pleno-dlp.yaml`) | done |
-| `self-update`, `--self-update`, `--no-update-check` | — | won't: binaries ship through Homebrew and GoReleaser trusted publishing with signed provenance; an in-place updater would bypass the package manager and the attestation check. `brew upgrade pleno-dlp` is the update path |
+| `self-update`, `--self-update`, `--no-update-check` | — | won't: binaries ship through the aqua registry from GoReleaser releases with a cosign-signed `checksums.txt` and GitHub artifact attestations; an in-place updater would bypass the version pin and those checks. Bumping the `plenoai/pleno-dlp` pin in `aqua.yaml` (`aqua upc`) is the update path |
 
 ## Scan flags
 
