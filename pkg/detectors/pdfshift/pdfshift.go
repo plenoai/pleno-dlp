@@ -2,7 +2,7 @@
 // alnum chars). Surface only when a `pdfshift` keyword is in the same
 // chunk to keep the broad `sk_` prefix from colliding with Stripe etc.
 // Verified via /v3/credits/usage on api.pdfshift.io with HTTP Basic
-// auth (username "api", password = key).
+// auth (username "api", password = key). pleno-dlp:allow
 package pdfshift
 
 import (

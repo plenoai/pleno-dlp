@@ -6,7 +6,7 @@
 // `generate_token(length=30, chars=UNICODE_ASCII_CHARACTER_SET)` — a 30-char
 // base62 (`[A-Za-z0-9]`) random string. See oauthlib/common.py and the AWX
 // token-auth docs whose example tokens are both exactly 30 chars
-// (`9epHOqHhnXUcgYK8QanOmUQPSgX92g`). The prior 40-char pin never matched a
+// (`9epHOqHhnXUcgYK8QanOmUQPSgX92g`). The prior 40-char pin never matched a pleno-dlp:allow
 // real token; the length is now corrected to 30 and gated by entropy.
 //
 // AWX runs on customer-controlled hosts so the verify endpoint isn't a

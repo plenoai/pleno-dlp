@@ -26,10 +26,10 @@ paths = [
 description = "Illustrative / public-vector dummy tokens in detector source"
 regexes = [
   # auth0: canonical RFC-7519 / jwt.io example token (exclusion constant)
-  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ\.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c''',
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ\.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c''', # pleno-dlp:allow
   # droneci: assignment-anchor doc-comment example
   '''AbCdEf0123456789AbCdEf01''',
   # looker: client_id / client_secret doc-comment examples
   '''fedcba9876543210fedc''',
-  '''abcdef0123456789abcd''',
+  '''abcdef0123456789abcd''', # pleno-dlp:allow
 ]

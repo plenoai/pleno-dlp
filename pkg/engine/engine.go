@@ -2043,6 +2043,9 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 // resolution.
 func (e *Engine) emitDetectorResultAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, stream bool, r detectors.Result, matchCache *streamMatchCache, base streamWindowBase, matchStart int) {
 	d := e.dets[di]
+	if dropCodeToken(d, r) {
+		return
+	}
 	var hint streamRawHint
 	if stream && base.ok && matchCache != nil && len(r.Raw) > 0 {
 		if err := matchCache.observeRawCandidate(ctx, v.Data, base.offset, r.Raw); err != nil {
@@ -2792,4 +2795,16 @@ func lowerCaseInto(dst, src []byte) []byte {
 		dst[i] = b
 	}
 	return dst
+}
+
+// dropCodeToken reports whether an unverified result's secret is a
+// source-code token (import path, selector, identifier) that a
+// context-window detector picked up next to its provider keyword (#943).
+// Verified results, password-class detectors, and detectors that are not
+// the registered built-in (custom rules, test doubles) are never dropped.
+func dropCodeToken(d detectors.Detector, r detectors.Result) bool {
+	if r.Verified || detectors.AcceptsWordSecrets(d.Type()) || !detectors.IsBuiltin(d) {
+		return false
+	}
+	return detectors.LooksLikeCodeToken(r.Raw)
 }

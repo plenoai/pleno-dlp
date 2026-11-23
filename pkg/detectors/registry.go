@@ -1,6 +1,9 @@
 package detectors
 
-import "sync"
+import (
+	"reflect"
+	"sync"
+)
 
 var (
 	mu       sync.RWMutex
@@ -1501,4 +1504,14 @@ func Registered(t DetectorType) (Detector, bool) {
 	defer mu.RUnlock()
 	d, ok := registry[t]
 	return d, ok
+}
+
+// IsBuiltin reports whether d is the detector registered for its type
+// (same concrete Go type), as opposed to a test double or a custom rule
+// that reuses the type number.
+func IsBuiltin(d Detector) bool {
+	mu.RLock()
+	reg, ok := registry[d.Type()]
+	mu.RUnlock()
+	return ok && reflect.TypeOf(reg) == reflect.TypeOf(d)
 }

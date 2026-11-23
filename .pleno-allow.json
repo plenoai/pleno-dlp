@@ -6,36 +6,6 @@
       "reason": "HardcodedPassword detector regression fixtures and docs (#863)"
     },
     {
-      "detector": "HardcodedPassword",
-      "raw": "Betterleaks",
-      "reason": "false positive (#886)"
-    },
-    {
-      "detector": "JSONConfigSecret",
-      "raw": "DigitalOcean",
-      "reason": "false positive (#886)"
-    },
-    {
-      "detector": "JSONConfigSecret",
-      "raw": "Postman",
-      "reason": "false positive (#886)"
-    },
-    {
-      "detector": "PagerDuty",
-      "raw": "-authorization-token",
-      "reason": "false positive (#886)"
-    },
-    {
-      "detector": "CloudBees",
-      "raw_regex": "^(detectors\\.CloudBees\\.String|JSONConfigSecret|pleno-[a-z-]+)$",
-      "reason": "false positive (#886)"
-    },
-    {
-      "detector": "Codeship",
-      "raw_regex": "^(required|context-required|pleno-[a-z-]+)$",
-      "reason": "false positive (#886)"
-    },
-    {
       "path": "pkg/detectors/catalog/*_gen*.go",
       "reason": "generated kingfisher catalog: imported patterns with literal anchors and reversed synthesized positives every rule must fire on (#817)"
     },
@@ -50,31 +20,6 @@
     {
       "path": "**/docs/kingfisher-parity.md",
       "reason": "generated parity table of kingfisher rule ids and detector names (#817)"
-    },
-    {
-      "detector": "JSONConfigSecret",
-      "path": "docs/verify-coverage.md",
-      "reason": "detector type names such as AgeSecretKey/KubernetesSecret quoted as keys, not credentials (#817)"
-    },
-    {
-      "detector": "JSONConfigSecret",
-      "path": "**/docs/verify-coverage.md",
-      "reason": "detector type names such as AgeSecretKey/KubernetesSecret quoted as keys, not credentials (#817)"
-    },
-    {
-      "detector": "JSONConfigSecret",
-      "path": "scripts/kingfisher-catalog.py",
-      "reason": "detector type names such as AgeSecretKey/KubernetesSecret quoted as keys, not credentials (#817)"
-    },
-    {
-      "detector": "JSONConfigSecret",
-      "path": "**/scripts/kingfisher-catalog.py",
-      "reason": "detector type names such as AgeSecretKey/KubernetesSecret quoted as keys, not credentials (#817)"
-    },
-    {
-      "detector": "JSONConfigSecret",
-      "raw_regex": "^(?:\\$?\\{\\{?[^{}\"]+\\}\\}?|<[^<>\"]+>|%\\([^)\"]+\\)s)$",
-      "reason": "whole-value template markers (blast-radius spec templates, detector fixtures); the detector ignores them from the release after #848/#889 parity, then this entry can go"
     },
     {
       "detector": "JSONConfigSecret",
@@ -117,6 +62,11 @@
     {
       "path": "**/tests/e2e/05_git_metadata_output.sh",
       "reason": "deterministic dummy GitHub token the git-metadata e2e scenario commits and expects to be found (#934)"
+    },
+    {
+      "detector": "JSONConfigSecret",
+      "path": "docs/audit-trail-schema.md",
+      "reason": "schema example record with an elided secret_hash placeholder (#943)"
     }
   ]
 }

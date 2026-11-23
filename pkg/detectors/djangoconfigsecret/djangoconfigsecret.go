@@ -13,7 +13,7 @@
 //     DATABASES = {
 //     'default': {
 //     'ENGINE': 'django.db.backends.postgresql',
-//     'PASSWORD': 'hunter2',
+//     'PASSWORD': 'hunter2', pleno-dlp:allow
 //     }
 //     }
 //

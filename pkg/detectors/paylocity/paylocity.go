@@ -23,7 +23,7 @@ var apiBase = ""
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // credRe matches the client_id / client_secret shape. Paylocity's auth docs
-// show a 32-char lowercase-hex client_id (example dfff6fdfb9a145d59389542285dfa505)
+// show a 32-char lowercase-hex client_id (example dfff6fdfb9a145d59389542285dfa505) pleno-dlp:allow
 // but do NOT document the client_secret length or charset, so we keep the
 // permissive [A-Za-z0-9]{32,64} charset/length rather than pin to hex-32 and
 // silently drop the undocumented secret half. The false-positive load is

@@ -100,8 +100,30 @@ var (
 // revoke-status table, #886) whose value is a digit-free kebab-case status
 // token. Credential-shaped keys in snake/camel case and PascalCase keys with
 // non-slug values (a ClientSecret holding a real secret) still report.
+// A PascalCase type-name key holding a prose sentence (three or more
+// words, a script's per-type rationale table) is documentation too (#943).
 func isTypeNameEnum(key, val string) bool {
-	return pascalTypeKeyRe.MatchString(key) && enumSlugRe.MatchString(val)
+	if !pascalTypeKeyRe.MatchString(key) {
+		return false
+	}
+	return enumSlugRe.MatchString(val) || len(strings.Fields(val)) >= 3
+}
+
+// endsJSONValue reports whether the text after a value's closing quote
+// ends a JSON member: a comma, a closing brace or bracket, a JSONC comment,
+// or the end of the line. A Go/JS map literal whose value continues as an expression
+// (`"secret": "a" + b`, `"secret": "a"[:n]`) is source code, not a JSON
+// credential (#919).
+func endsJSONValue(rest string) bool {
+	rest = strings.TrimLeft(rest, " \t")
+	if rest == "" {
+		return true
+	}
+	switch rest[0] {
+	case ',', '}', ']', '\n', '\r', '/', '#':
+		return true
+	}
+	return false
 }
 
 type Scanner struct{}
@@ -123,11 +145,11 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
-	for _, m := range jsonKeyValueRe().FindAllStringSubmatch(str, -1) {
-		if len(m) < 3 {
+	for _, idx := range jsonKeyValueRe().FindAllStringSubmatchIndex(str, -1) {
+		if len(idx) < 6 || !endsJSONValue(str[idx[1]:]) {
 			continue
 		}
-		key, val := m[1], m[2]
+		key, val := str[idx[2]:idx[3]], str[idx[4]:idx[5]]
 		if len(val) < 4 {
 			continue
 		}

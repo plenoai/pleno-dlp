@@ -1,7 +1,7 @@
 // Package jslogincallsecret detects a credential passed as a bare
 // positional argument to a JS/TS SDK authentication call, e.g.:
 //
-//	conn.login('user@example.com', 'salesforcepassword', function(err, res) {
+//	conn.login('user@example.com', 'salesforcepassword', function(err, res) { pleno-dlp:allow
 //
 // This is the shape leaky-repo's own web/js/salesforce.js fixture
 // actually uses (jsforce's `Connection#login(username, password,

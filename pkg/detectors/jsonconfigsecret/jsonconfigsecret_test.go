@@ -134,3 +134,28 @@ func TestFromData_TypeNameEnumIgnored(t *testing.T) {
 		t.Fatalf("expected 2 findings, got %+v", res)
 	}
 }
+
+// TestFromData_GoExpressionValueNotJSON pins #919: a Go map literal whose
+// quoted value continues as an expression is source, not a JSON member.
+func TestFromData_GoExpressionValueNotJSON(t *testing.T) {
+	for _, data := range []string{
+		`"secret": "version: 1\nscan:\n  git-" + "token: x\n",`,
+		`m := map[string]string{"api_key": "Zq8vL2mN4pR7"[:n]}`,
+		`    "AgeSecretKey": "offline age X25519 identity; no provider endpoint exists",`,
+	} {
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(data))
+		if len(res) != 0 {
+			t.Fatalf("%q: got %d findings, want 0", data, len(res))
+		}
+	}
+	for _, data := range []string{
+		`{"password": "hunter22Zz8k"}`, // pleno-dlp:allow
+		"{\n  \"password\": \"hunter22Zz8k\" // prod\n}",
+		"\"password\": \"hunter22Zz8k\"\n",
+	} {
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(data))
+		if len(res) != 1 {
+			t.Fatalf("%q: got %d findings, want 1", data, len(res))
+		}
+	}
+}

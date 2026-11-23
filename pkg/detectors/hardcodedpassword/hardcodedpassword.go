@@ -212,7 +212,7 @@ var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // looksLikeIdentifierRef reports whether an unquoted right-hand side is a
 // variable reference rather than a literal (#863): `target.Password =
 // appPassword`, `"app_password": appPassword,`. Unquoted literals in
-// .env/INI files are lexically identifiers too (`password=hunter2`), so
+// .env/INI files are lexically identifiers too (`password=hunter2`), so pleno-dlp:allow
 // only digit-free identifiers that carry a code signal are dropped: a
 // camelCase transition, a credential word in the name, or a trailing
 // statement separator.
@@ -313,6 +313,13 @@ func splitTopLevelCommas(s string) []string {
 	return append(out, s[start:])
 }
 
+// opensCompositeLiteral reports whether an unquoted capture ending at end
+// is immediately followed by `{` or `(`: the right-hand side is a type
+// or call (`seen[password] = struct{}{}`), not a literal (#943).
+func opensCompositeLiteral(str string, end int) bool {
+	return end < len(str) && (str[end] == '{' || str[end] == '(')
+}
+
 type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.HardcodedPassword }
@@ -365,7 +372,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			}
 			raw := str[m[2]:m[3]]
 			quoted := m[2] > 0 && (str[m[2]-1] == '"' || str[m[2]-1] == '\'')
-			if !quoted && looksLikeIdentifierRef(raw) {
+			if !quoted && (looksLikeIdentifierRef(raw) || opensCompositeLiteral(str, m[3])) {
 				continue
 			}
 			add(raw)
