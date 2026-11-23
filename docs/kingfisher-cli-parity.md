@@ -27,7 +27,7 @@ Status values:
 | `rules list` | `detectors list` (`--verify-status`) | done |
 | `rules check` (positive/negative examples) | detector fixture tests (`go test ./pkg/detectors/...`); custom rules validated at load | partial |
 | `rules compile-cache` / `prune-cache`, `--rule-cache*`, `--no-rule-cache`, `--prune-rule-cache` | — | won't: Go RE2 + Aho-Corasick prefilter compile at start-up in milliseconds; there is no Vectorscan database to cache |
-| `validate --rule R --secret S` | — | gap |
+| `validate --rule R --secret S` | `validate --detector D --secret -` (stdin; table/json; exit 0 only when verified) | done |
 | `revoke` | `revoke` | done |
 | `blast-radius` / `access-map` | `blast-radius`, `scan --blast-radius` | done |
 | `view` | `view` | done |
