@@ -30,6 +30,8 @@ type githubFlags struct {
 	repoWalkTimeout               time.Duration
 	repoCloneTimeout              time.Duration
 	includeCommitMetadata         bool
+	sinceCommit                   string
+	branchRootCommit              string
 	skipMergeCommits              bool
 	trufflehogCompatible          bool
 	includeGitArchives            bool
@@ -103,6 +105,9 @@ func init() {
 	scanGitHubCmd.Flags().DurationVar(&scanGitHubOpts.repoWalkTimeout, "repo-walk-timeout", 0, "maximum Git history walk time per repository (0 = unbounded; clone time is excluded)")
 	scanGitHubCmd.Flags().DurationVar(&scanGitHubOpts.repoCloneTimeout, "repo-clone-timeout", 0, "maximum clone time per repository (0 = unbounded)")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeCommitMetadata, "include-commit-metadata", false, "scan commit messages, author/committer identities, and git notes (opt-in because identities contain expected PII)")
+	scanGitHubCmd.Flags().StringVar(&scanGitHubOpts.sinceCommit, "since-commit", "", "scan only commits not reachable from this revision (exclusive ancestry boundary, e.g. a PR base SHA)")
+	scanGitHubCmd.Flags().StringVar(&scanGitHubOpts.branchRootCommit, "branch-root-commit", "", "scan this commit and its descendants only (inclusive variant of --since-commit)")
+	scanGitHubCmd.MarkFlagsMutuallyExclusive("since-commit", "branch-root-commit")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.skipMergeCommits, "skip-merge-commits", false, "omit merge-commit diffs while retaining non-merge history")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.trufflehogCompatible, "trufflehog-compatible", false, "match trufflehog's Git diff surface (omit merge/rename diffs and blank unchanged context)")
 	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeGitArchives, "include-git-archives", false, "expand and scan recognized archives in Git history within strict resource budgets")
@@ -183,6 +188,7 @@ func githubScannerFingerprintConfig(cfg connectors.Config) ([]byte, error) {
 		"api_base",
 		"include_comments", "comments_timeframe_days",
 		"include_commit_metadata", "skip_merge_commits", "trufflehog_compatible",
+		"since_commit", "branch_root_commit",
 		"include_git_archives", "include_git_binaries",
 		"git_artifact_max_bytes", "archive_max_expanded_bytes", "archive_max_files",
 		"archive_max_depth", "archive_timeout",
@@ -282,6 +288,8 @@ func scanGitHubConfig(opts githubFlags) (connectors.Config, error) {
 		"repo_walk_timeout":                opts.repoWalkTimeout.String(),
 		"repo_clone_timeout":               opts.repoCloneTimeout.String(),
 		"include_commit_metadata":          fmt.Sprintf("%t", opts.includeCommitMetadata),
+		"since_commit":                     opts.sinceCommit,
+		"branch_root_commit":               opts.branchRootCommit,
 		"skip_merge_commits":               fmt.Sprintf("%t", opts.skipMergeCommits),
 		"trufflehog_compatible":            fmt.Sprintf("%t", opts.trufflehogCompatible),
 		"include_git_archives":             fmt.Sprintf("%t", opts.includeGitArchives),

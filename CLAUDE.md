@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-11-23 | connector-engineer, core-engineer, qa | Add `--since-commit` (exclusive `rev..tip`) and `--branch-root-commit` (inclusive) to `scan git` and `scan github`; boundaries feed the existing stop-set (full ancestry on the go-git path), unresolvable revisions fail, ranged runs never advance git checkpoints, and the GitHub history policy includes the range so the next unranged run rescans fully (#815). |
 | 2026-11-19 | core-engineer, qa | Separate policy-limited archive skips from real coverage gaps: per-failure `coverage: entry` lines, `skipped_by_policy` counts, and `--fail-on-coverage=gap|any` (default gap); e2e 03 covers both modes (supersedes #744). |
 | 2026-11-17 | architect | Raise the minimum Go version to 1.26.11 for the net/http fix GO-2026-6859; no new govulncheck exception. |
 | 2026-11-17 | detector-engineer, qa | Declare provider-confirmed assurance for 11 authenticated verifiers and fail CI when a new Verifier omits `MaxVerificationAssurance` (existing ones frozen in `pkg/detectors/all/assurance_allowlist_test.go`). |

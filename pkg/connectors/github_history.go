@@ -1003,7 +1003,7 @@ func githubGitArtifactConfig(cfg Config) (gitsource.Config, error) {
 	if blob > gitsource.MaxGitArtifactBytes || expanded > gitsource.MaxArchiveExpandedBytes || files > 10000 || depth > 8 || timeout > time.Minute {
 		return gitsource.Config{}, errors.New("github: artifact limits exceed hard caps")
 	}
-	return gitsource.Config{IncludeCommitMetadata: parseBool(cfg["include_commit_metadata"]), SkipMergeCommits: parseBool(cfg["skip_merge_commits"]), TrufflehogCompatible: parseBool(cfg["trufflehog_compatible"]), IncludeGitArchives: parseBool(cfg["include_git_archives"]), IncludeGitBinaries: parseBool(cfg["include_git_binaries"]), GitArtifactMaxBytes: blob, ArchiveMaxExpandedBytes: expanded, ArchiveMaxFiles: files, ArchiveMaxDepth: depth, ArchiveTimeout: timeout}, nil
+	return gitsource.Config{IncludeCommitMetadata: parseBool(cfg["include_commit_metadata"]), SkipMergeCommits: parseBool(cfg["skip_merge_commits"]), TrufflehogCompatible: parseBool(cfg["trufflehog_compatible"]), IncludeGitArchives: parseBool(cfg["include_git_archives"]), IncludeGitBinaries: parseBool(cfg["include_git_binaries"]), GitArtifactMaxBytes: blob, ArchiveMaxExpandedBytes: expanded, ArchiveMaxFiles: files, ArchiveMaxDepth: depth, ArchiveTimeout: timeout, SinceCommit: cfg["since_commit"], BranchRootCommit: cfg["branch_root_commit"]}, nil
 }
 
 func githubRepoWalkTimeout(cfg Config) (time.Duration, error) {
