@@ -163,6 +163,23 @@ func (s *Source) nativeShardLogArgs() []string {
 	return args
 }
 
+// nativeOrdinals ranks commits oldest-first; merge resolutions used to
+// arrive after all ordinary history from one spooled diff-tree pass, so they
+// lost every cross-commit tie on arrival order and ranked among themselves
+// in rev-list order. They render as parallel work items (#978); ordinals
+// past the ordinary history keep exactly that ranking.
+func nativeOrdinals(commits, merges []string) (ordinals, mergeOrdinals map[string]int64) {
+	ordinals = make(map[string]int64, len(commits))
+	for i, c := range commits {
+		ordinals[c] = int64(i + 1)
+	}
+	mergeOrdinals = make(map[string]int64, len(merges))
+	for i, m := range merges {
+		mergeOrdinals[m] = int64(len(commits) + 1 + i)
+	}
+	return ordinals, mergeOrdinals
+}
+
 func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repository, gitBin string, commits, merges []string, shards int, cost <-chan nativeCostResult, ch chan<- *sources.Chunk) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -170,18 +187,9 @@ func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repositor
 	// Shards finish out of order, so every chunk carries its commit's
 	// oldest-first position for the cross-commit dedup to pick the
 	// introducing commit.
-	ordinals := make(map[string]int64, len(commits))
-	for i, c := range commits {
-		ordinals[c] = int64(i + 1)
-	}
-	// Merge resolutions used to arrive after all ordinary history from one
-	// spooled diff-tree pass, so they lost every cross-commit tie on arrival
-	// order and ranked among themselves in rev-list order. They now render
-	// as parallel work items (#978); ordinals past the ordinary history keep
-	// exactly that ranking.
-	mergeOrdinals := make(map[string]int64, len(merges))
-	for i, m := range merges {
-		mergeOrdinals[m] = int64(len(commits) + 1 + i)
+	ordinals, mergeOrdinals := nativeOrdinals(commits, merges)
+	if s.nativeSynthEligible() && nativeSynthStreamEnabled() {
+		return s.runNativeSynthStream(ctx, repo, gitBin, commits, merges, ordinals, mergeOrdinals, shards, ch)
 	}
 	// Commit cost is highly skewed (an import commit can dwarf thousands of
 	// one-line fixes), so equal contiguous ranges leave most workers idle
@@ -290,6 +298,13 @@ func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repositor
 		}()
 	}
 	wg.Wait()
+	return reduceShardErrors(ctx, errs)
+}
+
+// reduceShardErrors folds per-item results into the walk's result: a real
+// failure in preference to the cancellations it caused, else the merged
+// coverage gaps, else nil.
+func reduceShardErrors(ctx context.Context, errs []error) error {
 	if err := ctx.Err(); err != nil {
 		// Either the caller cancelled or a batch failed; a failed batch
 		// is reported below in preference to the cancellations it caused.

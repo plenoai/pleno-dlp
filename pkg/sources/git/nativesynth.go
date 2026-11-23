@@ -187,6 +187,7 @@ type nativeSynthLog struct {
 	patch   []byte
 	bufA    []byte
 	bufB    []byte
+	held    []*odbBuf // object-store references for the current file pair
 	// pending lists the blob responses requested but not yet read.
 	pending []string
 }
@@ -389,17 +390,16 @@ func (r *nativeSynthLog) renderPair(e *nativeRawEntry, oldMode, newMode, oldOID,
 		return err
 	}
 	var a, b []byte
+	defer r.releaseHeld()
 	if oldValid {
-		if r.bufA, err = r.readBlob(oldOID, r.bufA); err != nil {
+		if a, err = r.readBlobInto(oldOID, &r.bufA); err != nil {
 			return err
 		}
-		a = r.bufA
 	}
 	if newValid {
-		if r.bufB, err = r.readBlob(newOID, r.bufB); err != nil {
+		if b, err = r.readBlobInto(newOID, &r.bufB); err != nil {
 			return err
 		}
-		b = r.bufB
 		r.source.binaryBlobs.store(newOID, bytes.IndexByte(b, 0) >= 0)
 	}
 	labelA, labelB := "/dev/null", "/dev/null"
@@ -579,18 +579,38 @@ func (r *nativeSynthLog) drainPending() error {
 	return nil
 }
 
-// readBlob reads the next pipelined response, which must be oid.
-func (r *nativeSynthLog) readBlob(oid string, buf []byte) ([]byte, error) {
+// readBlobInto returns oid's content: zero-copy from the shared object
+// store (held until releaseHeld) or read into *buf over cat-file.
+func (r *nativeSynthLog) readBlobInto(oid string, buf *[]byte) ([]byte, error) {
 	if r.res.blobs == nil {
-		data, err := r.res.odb.readBlob(oid, nativeSynthMaxBlob, buf)
+		ref, err := r.res.odb.readBlobRef(oid, nativeSynthMaxBlob)
 		if err != nil {
 			if ctxErr := r.ctx.Err(); ctxErr != nil {
 				return nil, ctxErr
 			}
 			return nil, errNativeSynthFallback
 		}
-		return data, nil
+		r.held = append(r.held, ref)
+		return ref.data, nil
 	}
+	data, err := r.readBlob(oid, *buf)
+	if err != nil {
+		return nil, err
+	}
+	*buf = data
+	return data, nil
+}
+
+func (r *nativeSynthLog) releaseHeld() {
+	for i, ref := range r.held {
+		ref.release(r.res.odb)
+		r.held[i] = nil
+	}
+	r.held = r.held[:0]
+}
+
+// readBlob reads the next pipelined response, which must be oid.
+func (r *nativeSynthLog) readBlob(oid string, buf []byte) ([]byte, error) {
 	if len(r.pending) == 0 || r.pending[0] != oid {
 		return nil, fmt.Errorf("git: native patch render requested %s out of order", oid)
 	}
