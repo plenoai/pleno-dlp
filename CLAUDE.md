@@ -61,6 +61,7 @@ without invoking the orchestrator.
 | Date | Owners | Change |
 |---|---|---|
 | 2026-11-23 | architect | Drop pull-request CI and the required `test`/`detector-unit` checks; test locally with `scripts/race-affected.sh` (changed packages + reverse deps), and narrow the main-push race run to packages affected since the previous main tip while tag releases keep the full suite. |
+| 2026-11-23 | detector-engineer, qa | Custom rules gain offline `checksum` (luhn, iban, crc32 base62/hex/dec) and templated HTTPS `validation` with SSRF guards (literal host, post-DNS non-public IP refusal, no redirects, no proxy); documented in `docs/custom-rules.md` (#815). |
 | 2026-11-23 | core-engineer, qa | Expand xz (`ulikunitz/xz`, BSD-3) and zstd (`klauspost/compress`, window capped at 64 MiB) streams in `pkg/archive` through the shared bzip2 stream path so entry/expanded budgets and corrupt-archive coverage gaps apply; ZIP-family containers (jar/docx/xlsx/epub) already expand as zip (#810). |
 | 2026-11-23 | core-engineer, qa | Add `--alert-webhook` (repeatable; Slack/Teams/generic inferred from host), `--alert-min-severity`, and `--alert-dry-run` via `pkg/alerts`; payloads carry only redacted findings, URLs are redacted in logs, redirects are refused, and failures never change the exit code (#814). |
 | 2026-11-19 | core-engineer, qa | Separate policy-limited archive skips from real coverage gaps: per-failure `coverage: entry` lines, `skipped_by_policy` counts, and `--fail-on-coverage=gap|any` (default gap); e2e 03 covers both modes (supersedes #744). |
