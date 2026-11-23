@@ -134,16 +134,19 @@ func init() {
 func findAuthIDs(data []byte) [][]byte {
 	const width = 20
 	var out [][]byte
+	// Every candidate's second byte is 'A': IndexByte finds those with the
+	// vectorized scan, where IndexAny("MS") tested a byte set per byte
+	// (#1046). Candidates are still visited in ascending order.
 	for i := 0; i+width <= len(data); {
-		j := bytes.IndexAny(data[i:], "MS")
-		if j < 0 {
+		k := bytes.IndexByte(data[i+1:], 'A')
+		if k < 0 {
 			break
 		}
-		j += i
+		j := i + k
 		if j+width > len(data) {
 			break
 		}
-		if data[j+1] == 'A' && (j == 0 || !isWordByte(data[j-1])) && (j+width == len(data) || !isWordByte(data[j+width])) && upperAlnum(data[j+2:j+width]) {
+		if c := data[j]; (c == 'M' || c == 'S') && (j == 0 || !isWordByte(data[j-1])) && (j+width == len(data) || !isWordByte(data[j+width])) && upperAlnum(data[j+2:j+width]) {
 			out = append(out, data[j:j+width])
 			i = j + width
 			continue

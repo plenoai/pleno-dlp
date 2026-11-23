@@ -595,27 +595,12 @@ func runeStartAfter(b []byte, i int) int {
 
 // indexFoldASCIIPos is bytes.Index with ASCII case folding for a
 // lower-case literal.
-func indexFoldASCIIPos(b, lit []byte) int {
-	c0 := lit[0]
-	u0 := c0
-	if 'a' <= c0 && c0 <= 'z' {
-		u0 = c0 - 'a' + 'A'
-	}
-	last := len(b) - len(lit) + 1
-	for i := 0; i < last; i++ {
-		j := bytes.IndexByte(b[i:last], c0)
-		if u0 != c0 {
-			if k := bytes.IndexByte(b[i:last], u0); k >= 0 && (j < 0 || k < j) {
-				j = k
-			}
-		}
-		if j < 0 {
-			return -1
-		}
-		i += j
-		if equalFoldASCII(b[i+1:i+len(lit)], lit[1:]) {
-			return i
-		}
+func indexFoldASCIIPos(b, lit []byte) int { return indexFoldRare(b, lit) }
+
+// indexByteFrom is the index of the first c in b at or after i, or -1.
+func indexByteFrom(b []byte, c byte, i int) int {
+	if j := bytes.IndexByte(b[i:], c); j >= 0 {
+		return i + j
 	}
 	return -1
 }
