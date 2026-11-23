@@ -12,8 +12,23 @@
 //
 //	cidDelta (from the previous run's end), codePoint, runLength
 //
-// compressed with raw DEFLATE at best compression. Downloads are verified
-// against pinned SHA-256 digests so the output is reproducible.
+// compressed with raw DEFLATE at best compression.
+//
+// The same cid2code.txt also lists, per legacy CMap column (90ms-RKSJ, EUC,
+// GBK-EUC, B5pc, KSCms-UHC, ...), the code each CID has in that CMap, with a
+// "v" suffix on codes only the vertical (-V) CMap uses. Those columns are
+// inverted into code -> CID tables and written as <ordering>-cmaps.bin:
+//
+//	per column: nameLen, name, then the -H runs and the -V override runs,
+//	each as runCount followed by runs of
+//	keyDelta, cidZigzagDelta, runLength
+//
+// where key = codeLength<<32 | code, deltas run from the previous run's end,
+// and a run covers consecutive keys mapped to consecutive CIDs. Unicode
+// CMaps (Uni*-UCS2/UTF8/UTF16/UTF32) are not generated: their codes are the
+// text. pdfcmapnames_gen.go records which ordering holds each column.
+// Downloads are verified against pinned SHA-256 digests so the output is
+// reproducible.
 package main
 
 import (
@@ -25,6 +40,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"go/format"
 	"io"
 	"log"
 	"net/http"
@@ -66,9 +82,11 @@ var digests = map[string]string{
 
 func main() {
 	out := flag.String("out", "pkg/archive/cidmaps", "output directory")
+	namesOut := flag.String("names", "", "path of the generated column index (default <out>/../pdfcmapnames_gen.go)")
 	printDigests := flag.Bool("print-digests", false, "print upstream SHA-256 digests instead of verifying them")
 	flag.Parse()
 	client := &http.Client{Timeout: time.Minute}
+	columnOrdering := map[string]string{}
 	for _, c := range collections {
 		body := fetch(client, c.file)
 		sum := sha256.Sum256(body)
@@ -89,6 +107,27 @@ func main() {
 			log.Fatal(err)
 		}
 		log.Printf("%s: %d CIDs, %d bytes", c.ordering, len(table), len(data))
+		cmaps := parseCMaps(body)
+		if len(cmaps) == 0 {
+			continue
+		}
+		cdata := encodeCMaps(cmaps)
+		if err := os.WriteFile(filepath.Join(*out, c.ordering+"-cmaps.bin"), cdata, 0o644); err != nil {
+			log.Fatal(err)
+		}
+		for _, cm := range cmaps {
+			columnOrdering[cm.name] = c.ordering
+		}
+		log.Printf("%s: %d CMaps, %d bytes", c.ordering, len(cmaps), len(cdata))
+	}
+	if !*printDigests {
+		path := *namesOut
+		if path == "" {
+			path = filepath.Join(*out, "..", "pdfcmapnames_gen.go")
+		}
+		if err := os.WriteFile(path, namesSource(columnOrdering), 0o644); err != nil {
+			log.Fatal(err)
+		}
 	}
 	if !*printDigests {
 		lic := fetch(client, "LICENSE.md")
@@ -136,7 +175,7 @@ func rank(cp uint32) uint64 {
 // suffix marking a vertical form, and "*" for none.
 func parse(body []byte) map[uint32]uint32 {
 	table := map[uint32]uint32{}
-	var cols []int
+	var cols, fallback []int
 	sc := bufio.NewScanner(bytes.NewReader(body))
 	sc.Buffer(make([]byte, 1<<20), 1<<20)
 	for sc.Scan() {
@@ -149,6 +188,10 @@ func parse(body []byte) map[uint32]uint32 {
 			for i, h := range fields {
 				if strings.Contains(h, "UTF32") {
 					cols = append(cols, i)
+				} else if strings.Contains(h, "UCS2") {
+					// Half-width CIDs (Japan1 231-632) appear only in
+					// the UCS2-HW column; it is a fallback.
+					fallback = append(fallback, i)
 				}
 			}
 			continue
@@ -157,6 +200,23 @@ func parse(body []byte) map[uint32]uint32 {
 		if err != nil || len(cols) == 0 {
 			log.Fatalf("bad cid2code row %q", line)
 		}
+		best, found := pickCode(fields, cols, cid)
+		if !found {
+			best, found = pickCode(fields, fallback, cid)
+		}
+		if found {
+			table[uint32(cid)] = best
+		}
+	}
+	if len(cols) == 0 {
+		log.Fatal("cid2code.txt has no UTF32 column")
+	}
+	return table
+}
+
+// pickCode chooses one code point for a CID among the given columns.
+func pickCode(fields []string, cols []int, cid uint64) (uint32, bool) {
+	{
 		best, found := uint32(0), false
 		for _, i := range cols {
 			if i >= len(fields) || strings.TrimSpace(fields[i]) == "*" || strings.TrimSpace(fields[i]) == "" {
@@ -175,14 +235,8 @@ func parse(body []byte) map[uint32]uint32 {
 				}
 			}
 		}
-		if found {
-			table[uint32(cid)] = best
-		}
+		return best, found
 	}
-	if len(cols) == 0 {
-		log.Fatal("cid2code.txt has no UTF32 column")
-	}
-	return table
 }
 
 func encode(table map[uint32]uint32) []byte {
@@ -209,4 +263,154 @@ func encode(table map[uint32]uint32) []byte {
 	_, _ = w.Write(raw)
 	_ = w.Close()
 	return buf.Bytes()
+}
+
+// cmapColumn is one legacy CMap column of cid2code.txt inverted to
+// key (codeLength<<32 | code) -> CID.
+type cmapColumn struct {
+	name string
+	h, v map[uint64]uint32
+}
+
+// skipColumn reports cid2code columns that are not generated: Unicode
+// CMaps (the code is the text) and the "UTF32" source columns.
+func skipColumn(name string) bool {
+	return strings.HasPrefix(name, "Uni") || name == "CID"
+}
+
+func parseCMaps(body []byte) []*cmapColumn {
+	var cols []*cmapColumn
+	var idx []int
+	sc := bufio.NewScanner(bytes.NewReader(body))
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	for sc.Scan() {
+		line := sc.Text()
+		if line == "" || line[0] == '#' {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if fields[0] == "CID" {
+			for i, h := range fields {
+				if skipColumn(h) {
+					continue
+				}
+				cols = append(cols, &cmapColumn{name: h, h: map[uint64]uint32{}, v: map[uint64]uint32{}})
+				idx = append(idx, i)
+			}
+			continue
+		}
+		cid, err := strconv.ParseUint(fields[0], 10, 16)
+		if err != nil {
+			log.Fatalf("bad cid2code row %q", line)
+		}
+		for k, i := range idx {
+			if i >= len(fields) {
+				continue
+			}
+			cell := strings.TrimSpace(fields[i])
+			if cell == "*" || cell == "" {
+				continue
+			}
+			for _, v := range strings.Split(cell, ",") {
+				v = strings.TrimSpace(v)
+				vertical := strings.HasSuffix(v, "v")
+				hex := strings.TrimSuffix(v, "v")
+				// The single-byte columns (WP-Symbol, Roman, ...) drop the
+				// leading zero nibble ("1" is code 0x01).
+				if len(hex) == 0 || len(hex) > 8 {
+					log.Fatalf("bad code %q for CID %d", v, cid)
+				}
+				code, err := strconv.ParseUint(hex, 16, 32)
+				if err != nil {
+					log.Fatalf("bad code %q for CID %d", v, cid)
+				}
+				key := uint64((len(hex)+1)/2)<<32 | code
+				m := cols[k].h
+				if vertical {
+					m = cols[k].v
+				}
+				// A code listed under several CIDs keeps the lowest CID so
+				// the output does not depend on map iteration.
+				if _, dup := m[key]; !dup {
+					m[key] = uint32(cid)
+				}
+			}
+		}
+	}
+	out := cols[:0]
+	for _, c := range cols {
+		if len(c.h) > 0 {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func appendRuns(raw []byte, m map[uint64]uint32) []byte {
+	keys := make([]uint64, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	type run struct {
+		key uint64
+		cid uint32
+		n   uint64
+	}
+	var runs []run
+	for i := 0; i < len(keys); {
+		j := i + 1
+		for j < len(keys) && keys[j] == keys[j-1]+1 && m[keys[j]] == m[keys[j-1]]+1 {
+			j++
+		}
+		runs = append(runs, run{keys[i], m[keys[i]], uint64(j - i)})
+		i = j
+	}
+	raw = binary.AppendUvarint(raw, uint64(len(runs)))
+	var nextKey uint64
+	var nextCID int64
+	for _, r := range runs {
+		raw = binary.AppendUvarint(raw, r.key-nextKey)
+		raw = binary.AppendVarint(raw, int64(r.cid)-nextCID)
+		raw = binary.AppendUvarint(raw, r.n)
+		nextKey = r.key + r.n
+		nextCID = int64(r.cid) + int64(r.n)
+	}
+	return raw
+}
+
+func encodeCMaps(cols []*cmapColumn) []byte {
+	var raw []byte
+	for _, c := range cols {
+		raw = binary.AppendUvarint(raw, uint64(len(c.name)))
+		raw = append(raw, c.name...)
+		raw = appendRuns(raw, c.h)
+		raw = appendRuns(raw, c.v)
+	}
+	var buf bytes.Buffer
+	w, _ := flate.NewWriter(&buf, flate.BestCompression)
+	_, _ = w.Write(raw)
+	_ = w.Close()
+	return buf.Bytes()
+}
+
+func namesSource(m map[string]string) []byte {
+	names := make([]string, 0, len(m))
+	for n := range m {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var b bytes.Buffer
+	b.WriteString("// Code generated by scripts/gencidmap; DO NOT EDIT.\n\npackage archive\n\n")
+	b.WriteString("// predefinedCMapOrdering maps each generated cid2code CMap column to\n// the ordering whose <ordering>-cmaps.bin holds it.\n")
+	b.WriteString("var predefinedCMapOrdering = map[string]string{\n")
+	for _, n := range names {
+		fmt.Fprintf(&b, "\t%q: %q,\n", n, m[n])
+	}
+	b.WriteString("}\n")
+	src, err := format.Source(b.Bytes())
+	if err != nil {
+		log.Fatal(err)
+	}
+	return src
 }

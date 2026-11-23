@@ -23,6 +23,8 @@ import (
 //   - Identity-encoded CID fonts with only a CFF program (macOS Quartz
 //     output for CJK text) decode through the registered ordering named by
 //     CIDSystemInfo (Adobe-Japan1/GB1/CNS1/Korea1/KR, pdfcid.go).
+//   - CID fonts encoded with a predefined CJK CMap (90ms-RKSJ-H, GBK-EUC-H,
+//     UniJIS-UCS2-H, ...) decode code -> CID -> Unicode (pdfcmappredef.go).
 // Remaining CID fonts carry no Unicode mapping in the file; their strings
 // are dropped rather than emitted as glyph-index noise.
 
