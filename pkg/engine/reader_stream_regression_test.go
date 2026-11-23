@@ -275,14 +275,11 @@ func TestReaderDetectorStreamMatchesInMemoryRawDecodedMetadataAndDedup(t *testin
 	if len(want) != 3 {
 		t.Fatalf("in-memory findings = %#v, want one deduped duplicate, a second raw location, and one decoded result", want)
 	}
-	// Buffered decoded findings resolve to the encoded run's line (#964);
-	// streamed decoded findings still keep the chunk base line until #977.
+	// Streamed decoded findings resolve to the encoded run's line exactly as
+	// buffered ones do (#964, #977).
 	for i := range want {
-		if want[i].DecodedFrom != "" {
-			if want[i].Line != 4 {
-				t.Fatalf("in-memory decoded line = %d, want 4 (encoded run)", want[i].Line)
-			}
-			want[i].Line = 1
+		if want[i].DecodedFrom != "" && want[i].Line != 4 {
+			t.Fatalf("in-memory decoded line = %d, want 4 (encoded run)", want[i].Line)
 		}
 	}
 	if !equalStreamSnapshots(got, want) {
@@ -295,8 +292,8 @@ func TestReaderDetectorStreamMatchesInMemoryRawDecodedMetadataAndDedup(t *testin
 	for _, finding := range got {
 		linesByRaw[finding.Raw] = finding.Line
 	}
-	if linesByRaw[streamRawToken] != 2 || linesByRaw[streamRawTokenTwo] != 3 || linesByRaw[streamDecodedToken] != 1 {
-		t.Fatalf("line metadata = %#v, want raw lines 2/3 and decoded line 1", linesByRaw)
+	if linesByRaw[streamRawToken] != 2 || linesByRaw[streamRawTokenTwo] != 3 || linesByRaw[streamDecodedToken] != 4 {
+		t.Fatalf("line metadata = %#v, want raw lines 2/3 and decoded line 4", linesByRaw)
 	}
 }
 

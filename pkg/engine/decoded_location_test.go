@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"net/url"
+	"slices"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -95,5 +98,66 @@ func TestDecodedFindingHonoursInlinePragma(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("no decoded finding")
+	}
+}
+
+// Streamed (lazy, >512 KiB) chunks resolve decoded findings to the same line,
+// RawSpan, and inline pragma as the buffered path (#977).
+func TestStreamedDecodedFindingsMatchBufferedLocation(t *testing.T) {
+	secret := `apitoken = "oauth2value"`
+	encodings := map[string]string{
+		"base64":  base64.StdEncoding.EncodeToString([]byte(secret + " padding to a long run")),
+		"percent": url.PathEscape(secret),
+	}
+	filler := strings.Repeat("filler line without secrets\n", (600<<10)/28)
+	for name, enc := range encodings {
+		t.Run(name, func(t *testing.T) {
+			data := []byte(filler + "blob: " + enc + "\n" + filler + "tail " + enc + " // pleno-dlp:allow\n")
+			type loc struct {
+				line   int
+				span   [2]int
+				inline bool
+			}
+			run := func(c *sources.Chunk) []loc {
+				sink := &engineRecordingSink{}
+				eng := NewWithDetectors([]detectors.Detector{assignDet{}}, Options{Concurrency: 1, NoVerify: true}, sink)
+				if _, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{c}}); err != nil {
+					t.Fatal(err)
+				}
+				var out []loc
+				for _, f := range sink.Findings() {
+					if f.Result.ExtraData["decoded_from"] != name {
+						continue
+					}
+					if f.RawSpan == nil {
+						t.Fatalf("decoded finding without RawSpan: %+v", f.Chunk.SourceMetadata.Filesystem)
+					}
+					out = append(out, loc{f.Chunk.SourceMetadata.Filesystem.Line, *f.RawSpan, f.InlineAllowed})
+				}
+				sort.Slice(out, func(i, j int) bool { return out[i].span[0] < out[j].span[0] })
+				return out
+			}
+			want := run(memoryReaderChunk(data, "big.txt"))
+			got := run(lazyReaderChunk(data, "big.txt"))
+			if len(want) == 0 || !slices.Equal(got, want) {
+				t.Fatalf("streamed decoded locations = %+v, want %+v", got, want)
+			}
+			fillerLines := strings.Count(filler, "\n")
+			if want[0].line != fillerLines+1 || want[0].inline {
+				t.Fatalf("first decoded finding = %+v, want line %d without pragma", want[0], fillerLines+1)
+			}
+			// The base64 variant joins both runs into one window, where the
+			// detector reports the repeated value once; percent keeps the
+			// whole file, so the pragma line lands in a later window.
+			if name != "percent" {
+				return
+			}
+			if len(want) != 2 {
+				t.Fatalf("percent decoded findings = %+v, want both lines", want)
+			}
+			if last := want[len(want)-1]; last.line != 2*fillerLines+2 || !last.inline {
+				t.Fatalf("last decoded finding = %+v, want pragma line %d", last, 2*fillerLines+2)
+			}
+		})
 	}
 }

@@ -153,7 +153,7 @@ func TestWalkVariantsMatchesBuffered(t *testing.T) {
 			if len(body) == 0 && data == nil {
 				body = nil
 			}
-			got = append(got, Variant{source, body})
+			got = append(got, Variant{Source: source, Data: body})
 			return err
 		})
 		if err != nil {
