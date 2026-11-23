@@ -224,7 +224,8 @@ func TestNoBackticksInFlagUsage(t *testing.T) {
 
 // Check the rendered help as well as the declarations: pflag interprets
 // backticks even for boolean flags, where the bogus placeholder otherwise
-// makes --no-fetch look like it accepts a value. Include a scan subcommand
+// makes --no-fetch look like it accepts a value. pflag renders boolean
+// flags as --name[=true|false], so expect exactly that and nothing else. Include a scan subcommand
 // to check the persistent flag's inherited help too.
 func TestFlagUsageHelp(t *testing.T) {
 	for _, tc := range []struct {
@@ -237,7 +238,7 @@ func TestFlagUsageHelp(t *testing.T) {
 			args: []string{"pii-server", "--help"},
 			want: []string{
 				"--source string",
-				"--no-fetch   skip the 'git fetch'",
+				"--no-fetch[=true|false]   skip the 'git fetch'",
 				"A 'git+<URL>' value",
 			},
 		},
