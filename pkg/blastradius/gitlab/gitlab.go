@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/httpx"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -53,13 +54,17 @@ func (m Mapper) MapAccess(ctx context.Context, cred detectors.AccessCredential) 
 	am.Privileged = user.IsAdmin
 
 	var tok struct {
-		Scopes []string `json:"scopes"`
+		Scopes     []string `json:"scopes"`
+		LastUsedAt string   `json:"last_used_at"`
 	}
 	if _, err := httpx.GetJSON(ctx, m.Client, base+"/api/v4/personal_access_tokens/self", hdr, &tok); err != nil {
 		am.Limitations = append(am.Limitations, "token scopes: "+err.Error())
 	}
 	if tok.Scopes != nil {
 		am.Permissions = tok.Scopes
+	}
+	if ts, err := time.Parse(time.RFC3339Nano, tok.LastUsedAt); err == nil {
+		am.Activity = &detectors.AccessActivity{LastUsed: ts.UTC().Format(time.RFC3339)}
 	}
 	for _, s := range tok.Scopes {
 		if privilegedScopes[s] {

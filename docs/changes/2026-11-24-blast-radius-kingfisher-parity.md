@@ -1,0 +1,3 @@
+Owners: architect, core-engineer, connector-engineer, qa
+
+Complete kingfisher access-map provider parity (#848, #889, epic #817): add read-only Postgres (pgx), MySQL (go-sql-driver/mysql) and MongoDB (official mongo-driver v2) mappers under `pkg/blastradius/database`; extend `spec.Spec` with token exchange, GraphQL/JSON POST requests, encoded templating and `Activity`; add Algolia, Artifactory, Xray, Auth0, IBM Cloud, monday.com, Weights & Biases, PayPal, Plaid, Salesforce and a passive Microsoft Teams webhook mapper; report last use for GitLab, Fastly, HCP Terraform, Zendesk, JFrog and IBM Cloud; guard parity with `TestKingfisherProviderParity`.

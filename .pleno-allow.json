@@ -14,6 +14,16 @@
       "detector": "JSONConfigSecret",
       "raw": "context-required",
       "reason": "revoke-support status literal in cmd tests"
+    },
+    {
+      "detector": "JSONConfigSecret",
+      "raw_regex": "^(?:\\$?\\{\\{?[^{}\"]+\\}\\}?|<[^<>\"]+>|%\\([^)\"]+\\)s)$",
+      "reason": "whole-value template markers (blast-radius spec templates, detector fixtures); the detector ignores them from the release after #848/#889 parity, then this entry can go"
+    },
+    {
+      "detector": "JSONConfigSecret",
+      "raw": "{a}b-Zx81kq",
+      "reason": "jsonconfigsecret fixture asserting partial templates stay flagged"
     }
   ]
 }
