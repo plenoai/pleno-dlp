@@ -1,6 +1,8 @@
 // Package aws maps an AWS access key pair to its principal (STS
-// GetCallerIdentity) and, for IAM users, the attached, inline, and
-// group-inherited policies.
+// GetCallerIdentity), the attached, inline, and group-inherited policies of
+// an IAM user or assumed role, the effective allow/deny actions evaluated
+// from those policy documents, role-assumption paths derived from role trust
+// policies, and the key's last-used activity.
 package aws
 
 import (
@@ -44,6 +46,10 @@ type member struct {
 	PolicyName string `xml:"PolicyName"`
 	PolicyArn  string `xml:"PolicyArn"`
 	GroupName  string `xml:"GroupName"`
+	RoleName   string `xml:"RoleName"`
+	Arn        string `xml:"Arn"`
+	// AssumeRolePolicyDocument is the URL-encoded trust policy (ListRoles).
+	AssumeRolePolicyDocument string `xml:"AssumeRolePolicyDocument"`
 }
 
 // listResult collects every <member> and <IsTruncated> anywhere in an IAM
@@ -51,6 +57,7 @@ type member struct {
 type listResult struct {
 	Members     []member
 	IsTruncated bool
+	Marker      string
 }
 
 func (l *listResult) UnmarshalXML(d *xml.Decoder, _ xml.StartElement) error {
@@ -81,7 +88,7 @@ func (l *listResult) UnmarshalXML(d *xml.Decoder, _ xml.StartElement) error {
 				return err
 			}
 			mb.Text = strings.TrimSpace(mb.Text)
-			if mb.PolicyName == "" && mb.GroupName == "" {
+			if mb.PolicyName == "" && mb.GroupName == "" && mb.RoleName == "" {
 				mb.PolicyName = mb.Text
 			}
 			l.Members = append(l.Members, mb)
@@ -91,11 +98,20 @@ func (l *listResult) UnmarshalXML(d *xml.Decoder, _ xml.StartElement) error {
 				return err
 			}
 			l.IsTruncated = strings.TrimSpace(s) == "true"
+		case "Marker":
+			var s string
+			if err := d.DecodeElement(&s, &se); err != nil {
+				return err
+			}
+			l.Marker = strings.TrimSpace(s)
 		default:
 			depth++
 		}
 	}
 }
+
+// MaxRoles caps the ListRoles walk used for role-assumption paths.
+const MaxRoles = 1000
 
 func (m Mapper) MapAccess(ctx context.Context, cred detectors.AccessCredential) (*detectors.AccessMap, error) {
 	if cred.Secret == "" || cred.Secondary == "" {
@@ -114,61 +130,240 @@ func (m Mapper) MapAccess(ctx context.Context, cred detectors.AccessCredential) 
 	}
 	am := detectors.NewAccessMap("aws")
 	arn := ident.Result.Arn
+	account := ident.Result.Account
 	kind, name := principal(arn)
-	am.Identity = detectors.AccessIdentity{ID: arn, Name: name, Type: kind, Account: ident.Result.Account}
+	am.Identity = detectors.AccessIdentity{ID: arn, Name: name, Type: kind, Account: account}
+	iamURL := firstNonEmpty(m.IAMURL, "https://iam.amazonaws.com")
+	iam := func(action string, kv ...string) url.Values {
+		v := url.Values{"Action": {action}, "Version": {"2010-05-08"}}
+		for i := 0; i+1 < len(kv); i += 2 {
+			v.Set(kv[i], kv[i+1])
+		}
+		return v
+	}
+	m.lastUsed(ctx, cred, iamURL, am, iam)
 	if kind == "root" {
 		am.Privileged = true
 		am.Permissions = append(am.Permissions, "*")
-		am.Resources = append(am.Resources, detectors.AccessResource{Type: "account", Name: ident.Result.Account, Permissions: []string{"*"}})
+		am.Resources = append(am.Resources, detectors.AccessResource{Type: "account", Name: account, Permissions: []string{"*"}})
 		return am, nil
 	}
-	if kind != "user" {
-		am.Limitations = append(am.Limitations, "policy enumeration implemented for IAM users only; "+kind+" policies not resolved")
+	var ownerKey, owner string
+	switch kind {
+	case "user":
+		ownerKey, owner = "UserName", name
+	case "assumed-role":
+		ownerKey, owner = "RoleName", strings.SplitN(name, "/", 2)[0]
+	default:
+		am.Limitations = append(am.Limitations, "policy enumeration not implemented for "+kind+" principals")
 		return am, nil
 	}
-	iamURL := firstNonEmpty(m.IAMURL, "https://iam.amazonaws.com")
-	list := func(action, group string) []member {
-		v := url.Values{"Action": {action}, "Version": {"2010-05-08"}}
-		if group != "" {
-			v.Set("GroupName", group)
-		} else {
-			v.Set("UserName", name)
+	list := func(v url.Values) []member {
+		var all []member
+		for page := 0; page < 20; page++ {
+			var out listResult
+			if err := m.call(ctx, cred, "iam", iamURL, v, &out); err != nil {
+				am.Limitations = append(am.Limitations, v.Get("Action")+": "+err.Error())
+				return all
+			}
+			all = append(all, out.Members...)
+			if !out.IsTruncated {
+				return all
+			}
+			if out.Marker == "" || page == 19 {
+				am.Limitations = append(am.Limitations, v.Get("Action")+": result truncated")
+				return all
+			}
+			v.Set("Marker", out.Marker)
 		}
-		var out listResult
-		if err := m.call(ctx, cred, "iam", iamURL, v, &out); err != nil {
+		return all
+	}
+	eval := newEvaluation()
+	docsOK := true
+	addDoc := func(label, doc string) {
+		stmts, err := parsePolicy(doc)
+		if err != nil {
+			am.Limitations = append(am.Limitations, "policy "+label+": undecodable document")
+			docsOK = false
+			return
+		}
+		eval.add(stmts)
+	}
+	managedDoc := func(policyArn string) {
+		if policyArn == "" {
+			docsOK = false
+			return
+		}
+		var gp struct {
+			Version string `xml:"GetPolicyResult>Policy>DefaultVersionId"`
+		}
+		if err := m.call(ctx, cred, "iam", iamURL, iam("GetPolicy", "PolicyArn", policyArn), &gp); err != nil {
+			am.Limitations = append(am.Limitations, "GetPolicy: "+err.Error())
+			docsOK = false
+			return
+		}
+		var pv struct {
+			Document string `xml:"GetPolicyVersionResult>PolicyVersion>Document"`
+		}
+		if err := m.call(ctx, cred, "iam", iamURL, iam("GetPolicyVersion", "PolicyArn", policyArn, "VersionId", gp.Version), &pv); err != nil {
+			am.Limitations = append(am.Limitations, "GetPolicyVersion: "+err.Error())
+			docsOK = false
+			return
+		}
+		addDoc(policyArn, pv.Document)
+	}
+	inlineDoc := func(action, key, ownerName, policy string) {
+		var r struct {
+			User  string `xml:"GetUserPolicyResult>PolicyDocument"`
+			Role  string `xml:"GetRolePolicyResult>PolicyDocument"`
+			Group string `xml:"GetGroupPolicyResult>PolicyDocument"`
+		}
+		if err := m.call(ctx, cred, "iam", iamURL, iam(action, key, ownerName, "PolicyName", policy), &r); err != nil {
 			am.Limitations = append(am.Limitations, action+": "+err.Error())
-			return nil
+			docsOK = false
+			return
 		}
-		if out.IsTruncated {
-			am.Limitations = append(am.Limitations, action+": result truncated")
-		}
-		return out.Members
+		addDoc(policy, firstNonEmpty(r.User, r.Role, r.Group))
 	}
 	addPolicy := func(source, pname string) {
-		res := detectors.AccessResource{Type: "iam_policy", Name: pname, Permissions: []string{source}}
-		am.Resources = append(am.Resources, res)
+		am.Resources = append(am.Resources, detectors.AccessResource{Type: "iam_policy", Name: pname, Permissions: []string{source}})
 		am.Permissions = append(am.Permissions, "policy:"+pname)
 		if privilegedPolicies[pname] {
 			am.Privileged = true
 		}
 	}
-	for _, p := range list("ListAttachedUserPolicies", "") {
+	entity := strings.TrimSuffix(ownerKey, "Name") // User | Role
+	for _, p := range list(iam("ListAttached"+entity+"Policies", ownerKey, owner)) {
 		addPolicy("attached", p.PolicyName)
+		managedDoc(p.PolicyArn)
 	}
-	for _, p := range list("ListUserPolicies", "") {
+	for _, p := range list(iam("List"+entity+"Policies", ownerKey, owner)) {
 		addPolicy("inline", p.PolicyName)
+		inlineDoc("Get"+entity+"Policy", ownerKey, owner, p.PolicyName)
 	}
-	for _, g := range list("ListGroupsForUser", "") {
-		am.Resources = append(am.Resources, detectors.AccessResource{Type: "iam_group", Name: g.GroupName, Permissions: []string{"member"}})
-		for _, p := range list("ListAttachedGroupPolicies", g.GroupName) {
-			addPolicy("group:"+g.GroupName, p.PolicyName)
-		}
-		for _, p := range list("ListGroupPolicies", g.GroupName) {
-			addPolicy("group-inline:"+g.GroupName, p.PolicyName)
+	if kind == "user" {
+		for _, g := range list(iam("ListGroupsForUser", "UserName", owner)) {
+			am.Resources = append(am.Resources, detectors.AccessResource{Type: "iam_group", Name: g.GroupName, Permissions: []string{"member"}})
+			for _, p := range list(iam("ListAttachedGroupPolicies", "GroupName", g.GroupName)) {
+				addPolicy("group:"+g.GroupName, p.PolicyName)
+				managedDoc(p.PolicyArn)
+			}
+			for _, p := range list(iam("ListGroupPolicies", "GroupName", g.GroupName)) {
+				addPolicy("group-inline:"+g.GroupName, p.PolicyName)
+				inlineDoc("GetGroupPolicy", "GroupName", g.GroupName, p.PolicyName)
+			}
 		}
 	}
-	am.Limitations = append(am.Limitations, "policy documents not evaluated; permissions are reported as policy names")
+
+	// Effective permissions from the evaluated documents.
+	for _, a := range sortedKeys(eval.allow) {
+		am.Permissions = append(am.Permissions, "allow:"+a)
+	}
+	for _, a := range sortedKeys(eval.deny) {
+		am.Permissions = append(am.Permissions, "deny:"+a)
+	}
+	byResource := map[string]map[string]bool{}
+	for a, rs := range eval.allow {
+		for r := range rs {
+			if byResource[r] == nil {
+				byResource[r] = map[string]bool{}
+			}
+			byResource[r][a] = true
+		}
+	}
+	for _, r := range sortedKeys(byResource) {
+		am.Resources = append(am.Resources, detectors.AccessResource{Type: "aws_resource", Name: r, Permissions: sortedSet(byResource[r])})
+	}
+	if eval.privileged() {
+		am.Privileged = true
+	}
+
+	// Role-assumption paths: roles whose trust policy admits this principal
+	// (directly, or via its account when the identity policy allows
+	// sts:AssumeRole on the role), plus identity-policy AssumeRole targets.
+	assumable := map[string]string{}
+	roles := list(iam("ListRoles", "MaxItems", "1000"))
+	if len(roles) > MaxRoles {
+		roles = roles[:MaxRoles]
+		am.Limitations = append(am.Limitations, fmt.Sprintf("ListRoles: capped at %d", MaxRoles))
+	}
+	callerARN := arn
+	if kind == "assumed-role" {
+		callerARN = "arn:aws:iam::" + account + ":role/" + owner
+	}
+	for _, r := range roles {
+		if r.Arn == "" || r.Arn == callerARN {
+			continue
+		}
+		stmts, err := parsePolicy(r.AssumeRolePolicyDocument)
+		if err != nil {
+			continue
+		}
+		switch how := trusts(stmts, callerARN, account); how {
+		case "direct":
+			assumable[r.Arn] = "trust:direct"
+		case "account", "any":
+			if eval.allows("sts:AssumeRole", r.Arn) {
+				assumable[r.Arn] = "trust:" + how
+			}
+		}
+	}
+	for a, rs := range eval.allow {
+		if !glob(a, "sts:AssumeRole") {
+			continue
+		}
+		for r := range rs {
+			if strings.Contains(r, ":role/") && !strings.ContainsAny(r, "*?") {
+				if _, ok := assumable[r]; !ok {
+					assumable[r] = "identity-policy (trust unverified)"
+				}
+			}
+		}
+	}
+	for _, r := range sortedSet(boolKeys(assumable)) {
+		am.Resources = append(am.Resources, detectors.AccessResource{Type: "assumable_role", Name: r, Permissions: []string{"sts:AssumeRole", assumable[r]}})
+	}
+	if !docsOK {
+		am.Limitations = append(am.Limitations, "some policy documents could not be read; effective permissions are partial")
+	}
+	if eval.notAction {
+		am.Limitations = append(am.Limitations, "NotAction statements recorded, not expanded")
+	}
+	if eval.conditions {
+		am.Limitations = append(am.Limitations, "policy conditions not evaluated")
+	}
+	am.Limitations = append(am.Limitations, "permission boundaries, SCPs and resource policies not applied")
 	return am, nil
+}
+
+func boolKeys(m map[string]string) map[string]bool {
+	out := make(map[string]bool, len(m))
+	for k := range m {
+		out[k] = true
+	}
+	return out
+}
+
+// lastUsed records GetAccessKeyLastUsed activity. Temporary (ASIA) keys
+// have no last-used record.
+func (m Mapper) lastUsed(ctx context.Context, cred detectors.AccessCredential, iamURL string, am *detectors.AccessMap, iam func(string, ...string) url.Values) {
+	if strings.HasPrefix(cred.Secret, "ASIA") {
+		return
+	}
+	var r struct {
+		Date    string `xml:"GetAccessKeyLastUsedResult>AccessKeyLastUsed>LastUsedDate"`
+		Service string `xml:"GetAccessKeyLastUsedResult>AccessKeyLastUsed>ServiceName"`
+		Region  string `xml:"GetAccessKeyLastUsedResult>AccessKeyLastUsed>Region"`
+	}
+	if err := m.call(ctx, cred, "iam", iamURL, iam("GetAccessKeyLastUsed", "AccessKeyId", cred.Secret), &r); err != nil {
+		am.Limitations = append(am.Limitations, "GetAccessKeyLastUsed: "+err.Error())
+		return
+	}
+	if r.Date == "" {
+		am.Activity = &detectors.AccessActivity{Service: "N/A"}
+		return
+	}
+	am.Activity = &detectors.AccessActivity{LastUsed: r.Date, Service: r.Service, Region: r.Region}
 }
 
 func (m Mapper) call(ctx context.Context, cred detectors.AccessCredential, service, endpoint string, form url.Values, dst any) error {

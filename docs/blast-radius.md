@@ -38,8 +38,8 @@ pleno-dlp blast-radius aws creds.json   # {"access_key_id","secret_access_key","
 
 | Provider | Detector | Identity | Permissions | Resources |
 |---|---|---|---|---|
-| aws | `aws` | STS GetCallerIdentity | attached, inline, and group policy names (IAM users) | IAM policies and groups |
-| gcp | `gcp_service_account` | key `client_email` | sampled `testIamPermissions` | visible projects |
+| aws | `aws` | STS GetCallerIdentity; key last-used (`activity`) | policy names plus `allow:`/`deny:` actions evaluated from attached, inline, and group policy documents (IAM users and assumed roles) | IAM policies/groups, `aws_resource` (actions per resource ARN), `assumable_role` (trust path) |
+| gcp | `gcp_service_account` | key `client_email` | sampled `testIamPermissions` on projects, folders, organizations | projects, folder/organization ancestors, `impersonable_service_account` |
 | github | `github` | `GET /user` | `X-OAuth-Scopes` | organizations, repositories (role per repository) |
 | gitlab | `gitlab` | `GET /api/v4/user` | `personal_access_tokens/self` scopes | member projects (access level) |
 | slack | `slack_bot_token` | `auth.test` | `X-OAuth-Scopes` | workspace |
@@ -60,6 +60,26 @@ pleno-dlp blast-radius aws creds.json   # {"access_key_id","secret_access_key","
 | pinecone | `Pinecone` | — | — | indexes |
 | asana | `Asana` | `users/me` | — | workspaces |
 | fastly | `Fastly` | `current_user` | `/tokens/self` scopes | — |
+
+AWS evaluation is an over-approximation: statement conditions, permission
+boundaries, SCPs and resource policies are not applied, and `NotAction` is
+recorded rather than expanded (each listed in `limitations`). A map is
+privileged when the effective allow covers `*`, `iam:*`, or an escalation
+action (`iam:PassRole`, `iam:CreateAccessKey`, `iam:Put*Policy`,
+`sts:AssumeRole`, ...) on `*`. `assumable_role` entries are roles whose trust
+policy names the caller directly (`trust:direct`), or its account or `*`
+while the identity policy allows `sts:AssumeRole` on that role
+(`trust:account`/`trust:any`), plus identity-policy targets whose trust policy
+could not be read (`identity-policy (trust unverified)`).
+
+GCP follows `getAncestry` from each visible project and probes the folder and
+organization ancestors, whose bindings inherit to every descendant; it then
+probes up to 200 visible service accounts for `getAccessToken`, `signJwt`,
+`signBlob`, `implicitDelegation`, `actAs`, and key creation.
+
+`activity` (`{"last_used","service","region"}`) is present when the provider
+reports credential last use (AWS `GetAccessKeyLastUsed`; `service: "N/A"`
+means never used). It is additive within v1.
 
 The providers from openai onward are table-driven `spec.Spec` values in
 `pkg/blastradius/spec`. GitHub, GitLab and Gitea accept

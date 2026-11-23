@@ -1,0 +1,3 @@
+Owners: core-engineer, connector-engineer, qa
+
+Deepen AWS and GCP blast-radius mapping (#848, epic #817): AWS reads attached, inline, and group policy documents for IAM users and assumed roles, evaluates them into `allow:`/`deny:` actions and per-resource `aws_resource` entries, flags wildcard and escalation actions as privileged, derives `assumable_role` paths from `ListRoles` trust policies and identity-policy targets, and records `GetAccessKeyLastUsed` in the additive `activity` field; GCP paginates projects, probes folder/organization ancestors from `getAncestry`, and probes visible service accounts for impersonation (`impersonable_service_account`).

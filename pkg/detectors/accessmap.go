@@ -41,6 +41,17 @@ type AccessMap struct {
 	// permission, pagination cap, ...). An empty list does not prove the
 	// view is complete; a non-empty list proves it is not.
 	Limitations []string `json:"limitations"`
+	// Activity records when the provider last saw the credential used, for
+	// providers that expose it (AWS GetAccessKeyLastUsed, ...). Omitted when
+	// unknown; additive within v1.
+	Activity *AccessActivity `json:"activity,omitempty"`
+}
+
+// AccessActivity is the provider-reported last use of a credential.
+type AccessActivity struct {
+	LastUsed string `json:"last_used,omitempty"` // RFC 3339
+	Service  string `json:"service,omitempty"`
+	Region   string `json:"region,omitempty"`
 }
 
 // AccessIdentity describes who or what the credential authenticates as.
