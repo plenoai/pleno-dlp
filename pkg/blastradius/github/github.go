@@ -12,8 +12,9 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// MaxRepos caps the repository listing; exceeding it is recorded as a limitation.
-const MaxRepos = 100
+// MaxRepos caps the paginated repository listing; exceeding it is recorded
+// as a limitation.
+const MaxRepos = 1000
 
 // Mapper implements detectors.AccessMapper for GitHub tokens.
 type Mapper struct {
@@ -51,21 +52,21 @@ func (m Mapper) MapAccess(ctx context.Context, cred detectors.AccessCredential) 
 		}
 	}
 
-	var orgs []struct {
+	orgs, _, err := httpx.GetLinkPages[struct {
 		Login string `json:"login"`
-	}
-	if _, err := httpx.GetJSON(ctx, m.Client, base+"/user/orgs?per_page=100", hdr, &orgs); err != nil {
+	}](ctx, m.Client, base+"/user/orgs?per_page=100", hdr, MaxRepos)
+	if err != nil {
 		am.Limitations = append(am.Limitations, "organizations: "+err.Error())
 	}
 	for _, o := range orgs {
 		am.Resources = append(am.Resources, detectors.AccessResource{Type: "organization", Name: o.Login})
 	}
 
-	var repos []struct {
+	repos, truncated, err := httpx.GetLinkPages[struct {
 		FullName    string          `json:"full_name"`
 		Permissions map[string]bool `json:"permissions"`
-	}
-	if _, err := httpx.GetJSON(ctx, m.Client, fmt.Sprintf("%s/user/repos?per_page=%d", base, MaxRepos), hdr, &repos); err != nil {
+	}](ctx, m.Client, base+"/user/repos?per_page=100", hdr, MaxRepos)
+	if err != nil {
 		am.Limitations = append(am.Limitations, "repositories: "+err.Error())
 	}
 	for _, r := range repos {
@@ -80,7 +81,7 @@ func (m Mapper) MapAccess(ctx context.Context, cred detectors.AccessCredential) 
 		}
 		am.Resources = append(am.Resources, res)
 	}
-	if len(repos) >= MaxRepos {
+	if truncated {
 		am.Limitations = append(am.Limitations, fmt.Sprintf("repository listing capped at %d", MaxRepos))
 	}
 	return am, nil
