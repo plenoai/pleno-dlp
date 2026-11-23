@@ -284,11 +284,8 @@ func indexPDFObjects(data []byte) map[int]*pdfObject {
 			raw = bytes.TrimRight(raw, "\r\n")
 			o.hasStream = true
 			o.streamPos = loc[1] + s[1]
-			switch {
-			case pdfFilterFlate.Match(o.dict):
-				o.stream, _ = pdfInflate(raw)
-			case !pdfFilterAny.Match(o.dict):
-				o.stream = raw
+			if decoded, ok, _ := pdfDecodeStream(o.dict, raw); ok {
+				o.stream = decoded
 			}
 		}
 		objs[num] = o
@@ -378,39 +375,128 @@ func pdfBalanced(b []byte) []byte {
 	return b
 }
 
-// pdfFontMaps binds font resource names to ToUnicode CMaps.
-func pdfFontMaps(fontDict []byte, objs map[int]*pdfObject, cache map[int]*pdfCMap) map[string]*pdfCMap {
-	fonts := map[string]*pdfCMap{}
+// pdfFontMaps binds font resource names to decoders: the ToUnicode CMap
+// when present, else an embedded TrueType cmap (Type0) or the simple-font
+// /Encoding (pdffont.go).
+func pdfFontMaps(fontDict []byte, objs map[int]*pdfObject, cache map[int]pdfFont) map[string]pdfFont {
+	fonts := map[string]pdfFont{}
 	for _, m := range pdfDictEntry.FindAllSubmatch(fontDict, 4096) {
 		num, _ := strconv.Atoi(string(m[2]))
-		font := objs[num]
-		if font == nil {
-			continue
-		}
-		tu := pdfToUnicode.FindSubmatch(font.dict)
-		if tu == nil {
-			continue
-		}
-		cnum, _ := strconv.Atoi(string(tu[1]))
-		cm, seen := cache[cnum]
+		font, seen := cache[num]
 		if !seen {
-			if o := objs[cnum]; o != nil && o.hasStream {
-				cm = parseCMap(o.stream)
-			}
-			cache[cnum] = cm
+			font = pdfFontDecoder(objs, num)
+			cache[num] = font
 		}
-		if cm != nil {
-			fonts[string(m[1])] = cm
+		if font != nil {
+			fonts[string(m[1])] = font
 		}
 	}
 	return fonts
 }
 
-// pdfPageText decodes every page whose fonts carry ToUnicode CMaps and
-// returns the stream offsets it consumed so the generic pass skips them.
+func pdfFontDecoder(objs map[int]*pdfObject, num int) pdfFont {
+	font := objs[num]
+	if font == nil {
+		return nil
+	}
+	if tu := pdfToUnicode.FindSubmatch(font.dict); tu != nil {
+		cnum, _ := strconv.Atoi(string(tu[1]))
+		if o := objs[cnum]; o != nil && o.hasStream {
+			if cm := parseCMap(o.stream); cm != nil {
+				return cm
+			}
+		}
+	}
+	sub := pdfSubtypeKey.FindSubmatch(font.dict)
+	if sub != nil && string(sub[1]) == "Type0" {
+		if f := pdfType0Glyphs(font.dict, objs); f != nil {
+			return f
+		}
+		// CIDs without any Unicode mapping are glyph indices, not text;
+		// emitting their bytes only adds noise.
+		return pdfDropFont{}
+	}
+	return pdfSimpleEncoding(font.dict, objs)
+}
+
+const pdfMaxPageTreeDepth = 32
+const pdfMaxFormDepth = 8
+
+var (
+	pdfParentKey  = regexp.MustCompile(`/Parent\s+(\d+)\s+\d+\s+R`)
+	pdfXObjectKey = regexp.MustCompile(`/XObject\s*`)
+	pdfFormType   = regexp.MustCompile(`/Subtype\s*/Form\b`)
+)
+
+// pdfPageResources returns the page's /Resources, inherited from the
+// nearest /Pages ancestor when the page has none (§7.7.3.4).
+func pdfPageResources(page *pdfObject, objs map[int]*pdfObject) []byte {
+	d := page.dict
+	for depth := 0; depth < pdfMaxPageTreeDepth && d != nil; depth++ {
+		if res := pdfValueAfter(d, pdfResources, objs); res != nil {
+			return res
+		}
+		parent := objs[pdfRefNum(pdfParentKey.FindSubmatch(d))]
+		if parent == nil {
+			return nil
+		}
+		d = parent.dict
+	}
+	return nil
+}
+
+type pdfPageWalker struct {
+	objs    map[int]*pdfObject
+	cache   map[int]pdfFont
+	handled map[int]bool
+	out     *textBuffer
+}
+
+func (w *pdfPageWalker) fonts(res []byte) map[string]pdfFont {
+	return pdfFontMaps(pdfValueAfter(res, pdfFontRes, w.objs), w.objs, w.cache)
+}
+
+func (w *pdfPageWalker) forms(res []byte) map[string]int {
+	forms := map[string]int{}
+	for _, m := range pdfDictEntry.FindAllSubmatch(pdfValueAfter(res, pdfXObjectKey, w.objs), 4096) {
+		num, _ := strconv.Atoi(string(m[2]))
+		if o := w.objs[num]; o != nil && o.hasStream && pdfFormType.Match(o.dict) {
+			forms[string(m[1])] = num
+		}
+	}
+	return forms
+}
+
+// render decodes one content stream with its resources; Do on a form
+// XObject renders the form's stream with the form's own resources (falling
+// back to the invoking resources), once per stream.
+func (w *pdfPageWalker) render(stream, res []byte, depth int) {
+	fonts := w.fonts(res)
+	forms := w.forms(res)
+	do := func(name string) {
+		num, ok := forms[name]
+		if !ok || depth >= pdfMaxFormDepth {
+			return
+		}
+		o := w.objs[num]
+		if o.stream == nil || w.handled[o.streamPos] {
+			return
+		}
+		w.handled[o.streamPos] = true
+		formRes := pdfValueAfter(o.dict, pdfResources, w.objs)
+		if formRes == nil {
+			formRes = res
+		}
+		w.render(o.stream, formRes, depth+1)
+	}
+	pdfStringsWithFonts(stream, fonts, do, w.out)
+}
+
+// pdfPageText decodes every page whose resources bind a decodable font or a
+// form XObject and returns the stream offsets it consumed so the generic
+// pass skips them.
 func pdfPageText(objs map[int]*pdfObject, out *textBuffer) map[int]bool {
-	handled := map[int]bool{}
-	cache := map[int]*pdfCMap{}
+	w := &pdfPageWalker{objs: objs, cache: map[int]pdfFont{}, handled: map[int]bool{}, out: out}
 	nums := make([]int, 0, len(objs))
 	for n := range objs {
 		nums = append(nums, n)
@@ -421,9 +507,8 @@ func pdfPageText(objs map[int]*pdfObject, out *textBuffer) map[int]bool {
 		if !pdfTypePage.Match(page.dict) || out.overflow {
 			continue
 		}
-		res := pdfValueAfter(page.dict, pdfResources, objs)
-		fonts := pdfFontMaps(pdfValueAfter(res, pdfFontRes, objs), objs, cache)
-		if len(fonts) == 0 {
+		res := pdfPageResources(page, objs)
+		if len(w.fonts(res)) == 0 && len(w.forms(res)) == 0 {
 			continue
 		}
 		var contents []int
@@ -447,12 +532,12 @@ func pdfPageText(objs map[int]*pdfObject, out *textBuffer) map[int]bool {
 		}
 		var stream []byte
 		for _, c := range contents {
-			if o := objs[c]; o != nil && o.hasStream && o.stream != nil && !handled[o.streamPos] && len(stream)+len(o.stream) <= pdfMaxStreamBytes {
+			if o := objs[c]; o != nil && o.hasStream && o.stream != nil && !w.handled[o.streamPos] && len(stream)+len(o.stream) <= pdfMaxStreamBytes {
 				stream = append(append(stream, o.stream...), '\n')
-				handled[o.streamPos] = true
+				w.handled[o.streamPos] = true
 			}
 		}
-		pdfStringsWithFonts(stream, fonts, out)
+		w.render(stream, res, 0)
 	}
-	return handled
+	return w.handled
 }
