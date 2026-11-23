@@ -20,7 +20,6 @@ package connectors
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -325,18 +324,14 @@ func scanAzureBlob(ctx context.Context, cfg Config, emit Emit) error {
 	return nil
 }
 
-// fingerprintAzureBlob identifies the scanned resource (endpoint,
-// container, prefix) without the SAS, so rotating the SAS keeps the
-// incremental state but pointing at another container does not.
+// fingerprintAzureBlob returns "" — there is no cheap whole-container
+// fingerprint, and a scope-only hash would make --incremental skip the
+// scan even when blobs changed. The empty fingerprint opts out of the
+// skip fast-path; the per-blob ETag state still makes re-scans incremental.
+// The config is still validated so --incremental fails fast on bad input.
 func fingerprintAzureBlob(_ context.Context, cfg Config) (string, error) {
-	cli, err := newAzureBlobClient(cfg)
-	if err != nil {
+	if _, err := newAzureBlobClient(cfg); err != nil {
 		return "", err
 	}
-	h := sha256.New()
-	writeFingerprint(h, "azure-blob-v1")
-	writeFingerprint(h, cli.container.String())
-	writeFingerprint(h, cli.prefix)
-	writeFingerprint(h, cfg["max_size_bytes"])
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
+	return "", nil
 }

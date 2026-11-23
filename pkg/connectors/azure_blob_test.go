@@ -201,14 +201,12 @@ func TestAzureBlobConfigValidation(t *testing.T) {
 	}
 }
 
-func TestAzureBlobFingerprintIgnoresSAS(t *testing.T) {
-	a, err := fingerprintAzureBlob(context.Background(), Config{"container_url": "https://a.blob.core.windows.net/c", "sas_token": "sig=one"})
-	if err != nil {
-		t.Fatal(err)
+func TestAzureBlobFingerprintOptsOutOfSkipFastPath(t *testing.T) {
+	fp, err := fingerprintAzureBlob(context.Background(), Config{"container_url": "https://a.blob.core.windows.net/c", "sas_token": "sig=one"})
+	if err != nil || fp != "" {
+		t.Fatalf("want empty fingerprint (per-blob state drives incremental), got %q, %v", fp, err)
 	}
-	b, _ := fingerprintAzureBlob(context.Background(), Config{"container_url": "https://a.blob.core.windows.net/c?sig=two"})
-	c, _ := fingerprintAzureBlob(context.Background(), Config{"container_url": "https://a.blob.core.windows.net/other", "sas_token": "sig=one"})
-	if a != b || a == c {
-		t.Fatalf("fingerprint should track container, not SAS: %s %s %s", a, b, c)
+	if _, err := fingerprintAzureBlob(context.Background(), Config{"container_url": "https://a.blob.core.windows.net/c"}); err == nil {
+		t.Fatal("fingerprint should still validate config")
 	}
 }
