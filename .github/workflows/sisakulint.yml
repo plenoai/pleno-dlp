@@ -25,10 +25,7 @@ jobs:
       - name: Install sisakulint
         run: go install github.com/sisaku-security/sisakulint/cmd/sisakulint@v0.3.8
       # Runners are ephemeral and keep no state between jobs, so the
-      # self-hosted-runner rule is suppressed. The dependabot-ecosystem rule is
-      # suppressed too: its only finding is bundler, from release.yml's homebrew
-      # job using ruby/setup-ruby just for an interpreter, and the repository
-      # has no Gemfile, so Dependabot has no bundler manifest to update.
+      # self-hosted-runner rule is suppressed.
       # sisakulint's -ignore matches rule names, not message text.
       # Findings are reported as warnings (log + annotations) without failing
       # the job, matching the previous sisakulint-action behaviour.
@@ -39,7 +36,7 @@ jobs:
           SISAKULINT_GITHUB_TOKEN: ${{ github.token }}
         run: |
           set +e
-          output="$("$(go env GOPATH)/bin/sisakulint" -ignore self-hosted-runner -ignore dependabot-ecosystem 2>&1)"
+          output="$("$(go env GOPATH)/bin/sisakulint" -ignore self-hosted-runner 2>&1)"
           status=$?
           set -e
           printf '%s\n' "$output"

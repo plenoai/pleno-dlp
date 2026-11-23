@@ -1,0 +1,16 @@
+# Dogfooding pin: operator machines run the signed release binary through
+# aqua (docs/dogfooding.md). aqua verifies checksums.txt with the cosign
+# bundle and the archive's GitHub artifact attestation before installing.
+#
+# The `pleno` local registry mirrors pkgs/plenoai/pleno-dlp/registry.yaml
+# submitted to aquaproj/aqua-registry; switch to `standard` once it lands.
+checksum:
+  enabled: true
+  require_checksum: true
+registries:
+  - name: pleno
+    type: local
+    path: registry.yaml
+packages:
+  - name: plenoai/pleno-dlp@v0.70.0
+    registry: pleno
