@@ -20,7 +20,7 @@ func fixture(t *testing.T, wantAuth string, routes map[string]route) *httptest.S
 	t.Helper()
 	var s *httptest.Server
 	s = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization") + r.Header.Get("x-api-key") + r.Header.Get("Circle-Token") + r.Header.Get("Fastly-Key") + r.Header.Get("Api-Key")
+		auth := r.Header.Get("Authorization") + r.Header.Get("x-api-key") + r.Header.Get("Circle-Token") + r.Header.Get("Fastly-Key") + r.Header.Get("Api-Key") + r.Header.Get("X-Shopify-Access-Token")
 		if auth != wantAuth {
 			w.WriteHeader(401)
 			return
@@ -117,6 +117,15 @@ func TestProviders(t *testing.T) {
 		{name: "fastly", spec: Fastly, cred: detectors.AccessCredential{Secret: "f"}, auth: "f",
 			routes:   map[string]route{"/current_user": {body: `{"id":"u","login":"l","role":"user","customer_id":"c"}`}, "/tokens/self": {body: `{"scopes":["global:read"]}`}},
 			identity: "l", perms: []string{"global:read"}},
+		{name: "airtable", spec: Airtable, cred: detectors.AccessCredential{Secret: "pat"}, auth: "Bearer pat",
+			routes:   map[string]route{"/v0/meta/whoami": {body: `{"id":"usr1","email":"a@b","scopes":["data.records:read"]}`}, "/v0/meta/bases": {body: `{"bases":[{"name":"CRM","permissionLevel":"create"}]}`}},
+			identity: "a@b", priv: true, perms: []string{"data.records:read"}, res: map[string][]string{"base": {"CRM"}}},
+		{name: "zendesk email/token", spec: Zendesk, cred: detectors.AccessCredential{Secret: "t", Extra: map[string]string{"email": "a@b"}}, auth: "Basic YUBiL3Rva2VuOnQ=",
+			routes: map[string]route{"/api/v2/users/me.json": {body: `{"user":{"id":1,"email":"a@b","role":"admin"}}`}}, identity: "a@b", priv: true, perms: []string{"admin"}},
+		{name: "shopify scopes", spec: Shopify, cred: detectors.AccessCredential{Secret: "shpat"}, auth: "shpat",
+			routes: map[string]route{"/admin/oauth/access_scopes.json": {body: `{"access_scopes":[{"handle":"read_orders"},{"handle":"write_products"}]}`}}, priv: true, perms: []string{"read_orders", "write_products"}},
+		{name: "azure devops", spec: AzureDevOps, cred: detectors.AccessCredential{Secret: "p"}, auth: "Basic cGF0OnA=",
+			routes: map[string]route{"/_apis/profile/profiles/me": {body: `{"id":"g","emailAddress":"d@x"}`}}, identity: "d@x"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

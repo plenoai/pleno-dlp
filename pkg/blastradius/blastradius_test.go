@@ -317,7 +317,7 @@ func TestRegistryMapResult(t *testing.T) {
 	if err != nil || am.Identity.Name != "octo" {
 		t.Fatalf("am %+v err %v", am, err)
 	}
-	if got := blastradius.Default().Names(); !slices.Equal(got, []string{"alibaba", "anthropic", "asana", "aws", "azure", "azure-storage", "bitbucket", "buildkite", "circleci", "confluence", "digitalocean", "fastly", "gcp", "gitea", "github", "gitlab", "harness", "huggingface", "jira", "openai", "pinecone", "sendgrid", "slack", "stripe", "terraformcloud"}) {
+	if got := blastradius.Default().Names(); !slices.Equal(got, []string{"airtable", "alibaba", "anthropic", "asana", "aws", "azure", "azure-devops", "azure-storage", "bitbucket", "brevo", "buildkite", "circleci", "confluence", "digitalocean", "fastly", "gcp", "gitea", "github", "gitlab", "harness", "hubspot", "huggingface", "jira", "openai", "pinecone", "sendgrid", "shopify", "slack", "square", "stripe", "terraformcloud", "zendesk"}) {
 		t.Fatalf("names %v", got)
 	}
 }

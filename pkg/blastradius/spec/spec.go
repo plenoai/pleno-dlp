@@ -308,7 +308,7 @@ func strs(v any) []string {
 			if s := str(e); s != "" {
 				out = append(out, s)
 			} else if m, ok := e.(map[string]any); ok {
-				if s := firstPath(m, "name|scope|id"); s != "" {
+				if s := firstPath(m, "name|scope|handle|id"); s != "" {
 					out = append(out, s)
 				}
 			}

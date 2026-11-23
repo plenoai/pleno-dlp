@@ -211,6 +211,80 @@ var Fastly = Spec{
 	},
 }
 
+// Airtable maps an Airtable PAT to its user, scopes and bases.
+var Airtable = Spec{
+	Provider: "airtable", BaseURL: "https://api.airtable.com", Auth: Bearer,
+	IdentityPath: "/v0/meta/whoami", IDPath: "id", NamePath: "email|id", TypeLiteral: "user", ScopePath: "scopes",
+	PrivilegedScopes: set("schema.bases:write", "workspacesAndBases:write", "enterprise.user:write"),
+	Listings: []Listing{{Type: "base", Path: "/v0/meta/bases", ItemsPath: "bases", NamePath: "name|id",
+		PermPaths: []string{"permissionLevel"}, Privileged: anyOf("create", "owner")}},
+	Notes: []string{"base listing reads the first page only"},
+}
+
+// HubSpot maps a HubSpot private-app token to its portal.
+var HubSpot = Spec{
+	Provider: "hubspot", BaseURL: "https://api.hubapi.com", Auth: Bearer,
+	IdentityPath: "/account-info/v3/details", IDPath: "portalId", NamePath: "uiDomain|portalId", TypeLiteral: "private_app", AccountPath: "portalId",
+	Notes: []string{"private-app scopes are not exposed by a GET endpoint"},
+}
+
+// Square maps a Square access token to its merchant and locations.
+var Square = Spec{
+	Provider: "square", BaseURL: "https://connect.squareup.com",
+	Auth: func(c detectors.AccessCredential) (map[string]string, error) {
+		return map[string]string{"Authorization": "Bearer " + c.Secret, "Square-Version": "2024-07-17"}, nil
+	},
+	IdentityPath: "/v2/merchants/me", IDPath: "merchant.id", NamePath: "merchant.business_name|merchant.id", TypeLiteral: "merchant",
+	PrivilegedIdentity: func(_ any, c detectors.AccessCredential) bool { return strings.HasPrefix(c.Secret, "EAAA") },
+	Listings:           []Listing{{Type: "location", Path: "/v2/locations", ItemsPath: "locations", NamePath: "name|id"}},
+	Notes:              []string{"OAuth scopes of personal access tokens are not exposed"},
+}
+
+// Brevo maps a Brevo (Sendinblue) API key to its account.
+var Brevo = Spec{
+	Provider: "brevo", BaseURL: "https://api.brevo.com", Auth: Header("api-key", "", nil),
+	IdentityPath: "/v3/account", IDPath: "email", NamePath: "email|companyName", TypeLiteral: "account", AccountPath: "companyName",
+	Notes:              []string{"Brevo API keys carry full account access"},
+	PrivilegedIdentity: func(any, detectors.AccessCredential) bool { return true },
+}
+
+// Zendesk maps a Zendesk API token (Extra: api_endpoint, email).
+var Zendesk = Spec{
+	Provider: "zendesk", RequireEndpoint: true,
+	Auth: func(c detectors.AccessCredential) (map[string]string, error) {
+		if c.Extra["email"] == "" {
+			return Bearer(c)
+		}
+		return BasicWithExtra("email", false)(detectors.AccessCredential{Secret: c.Secret, Extra: map[string]string{"email": c.Extra["email"] + "/token"}})
+	},
+	IdentityPath: "/api/v2/users/me.json", IDPath: "user.id", NamePath: "user.email|user.name", TypeLiteral: "user", ScopePath: "user.role",
+	PrivilegedScopes: set("admin"),
+}
+
+// AzureDevOps maps an Azure DevOps PAT to its profile.
+var AzureDevOps = Spec{
+	Provider: "azure-devops", BaseURL: "https://app.vssps.visualstudio.com",
+	Auth: func(c detectors.AccessCredential) (map[string]string, error) {
+		return BasicWithExtra("user", false)(detectors.AccessCredential{Secret: c.Secret, Extra: map[string]string{"user": "pat"}})
+	},
+	IdentityPath: "/_apis/profile/profiles/me?api-version=7.1", IDPath: "id", NamePath: "emailAddress|displayName", TypeLiteral: "user",
+	Notes: []string{"organization memberships and PAT scopes are not enumerated"},
+}
+
+// Shopify maps a Shopify Admin API token (Extra: api_endpoint shop URL).
+var Shopify = Spec{
+	Provider: "shopify", RequireEndpoint: true, Auth: Header("X-Shopify-Access-Token", "", nil),
+	IdentityPath: "/admin/oauth/access_scopes.json", TypeLiteral: "app", ScopePath: "access_scopes",
+	PrivilegedIdentity: func(d any, _ detectors.AccessCredential) bool {
+		for _, s := range strs(Get(d, "access_scopes")) {
+			if strings.HasPrefix(s, "write_") {
+				return true
+			}
+		}
+		return false
+	},
+}
+
 // All lists every spec provider with the detectors it maps.
 var All = []struct {
 	Spec      Spec
@@ -233,4 +307,11 @@ var All = []struct {
 	{Pinecone, []detectors.DetectorType{detectors.Pinecone}},
 	{Asana, []detectors.DetectorType{detectors.Asana}},
 	{Fastly, []detectors.DetectorType{detectors.Fastly}},
+	{Airtable, []detectors.DetectorType{detectors.Airtable}},
+	{HubSpot, []detectors.DetectorType{detectors.HubSpot}},
+	{Square, []detectors.DetectorType{detectors.Square}},
+	{Brevo, []detectors.DetectorType{detectors.Brevo}},
+	{Zendesk, []detectors.DetectorType{detectors.Zendesk}},
+	{AzureDevOps, []detectors.DetectorType{detectors.AzureDevOps}},
+	{Shopify, []detectors.DetectorType{detectors.Shopify}},
 }
