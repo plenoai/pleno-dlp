@@ -250,7 +250,11 @@ func newPagureClient(base, token string) *pagureClient {
 }
 
 func (c *pagureClient) getJSON(ctx context.Context, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url(path), nil)
+	target, err := c.url(path)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return err
 	}
@@ -270,14 +274,8 @@ func (c *pagureClient) getJSON(ctx context.Context, path string, out any) error 
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-func (c *pagureClient) url(p string) string {
-	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
-		return p
-	}
-	if strings.HasPrefix(p, "/") {
-		return c.base + p
-	}
-	return c.base + "/" + p
+func (c *pagureClient) url(p string) (string, error) {
+	return apiURL("pagure", c.base, p)
 }
 
 func escapePathSegments(p string) string {

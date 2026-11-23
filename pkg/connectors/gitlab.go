@@ -667,7 +667,11 @@ func (c *gitlabClient) do(ctx context.Context, method, path string, body io.Read
 		if err := c.waitForBucket(ctx); err != nil {
 			return nil, err
 		}
-		req, err := http.NewRequestWithContext(ctx, method, c.url(path), body)
+		target, err := c.url(path)
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(ctx, method, target, body)
 		if err != nil {
 			return nil, err
 		}
@@ -731,14 +735,8 @@ func (c *gitlabClient) getJSON(ctx context.Context, path string, out any) (*http
 	return resp, nil
 }
 
-func (c *gitlabClient) url(p string) string {
-	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
-		return p
-	}
-	if !strings.HasPrefix(p, "/") {
-		p = "/" + p
-	}
-	return strings.TrimRight(c.base, "/") + p
+func (c *gitlabClient) url(p string) (string, error) {
+	return apiURL("gitlab", c.base, p)
 }
 
 func (c *gitlabClient) waitForBucket(ctx context.Context) error {

@@ -3,11 +3,13 @@ package connectors
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
@@ -136,5 +138,28 @@ func TestPostmanConnectorRegistered(t *testing.T) {
 func TestPostmanSourceTypeString(t *testing.T) {
 	if got := sources.SourcePostman.String(); got != "postman" {
 		t.Errorf("SourcePostman.String()=%q, want %q", got, "postman")
+	}
+}
+
+// TestScanPostman_PerWorkspaceErrorsAreCoverageGaps pins #865: provider
+// failures inside a workspace surface as DegradedError, not zero findings.
+func TestScanPostman_PerWorkspaceErrorsAreCoverageGaps(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/workspaces":
+			json.NewEncoder(w).Encode(map[string]any{"workspaces": []map[string]any{{"id": "ws-1", "name": "W"}}})
+		case "/collections":
+			json.NewEncoder(w).Encode(map[string]any{"collections": []map[string]any{{"uid": "c1", "name": "C"}}})
+		case "/collections/c1", "/environments":
+			http.Error(w, "rate limited", http.StatusForbidden)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+	err := scanPostman(context.Background(), Config{"api_key": "k", "base_url": ts.URL}, func([]byte, sources.Metadata) error { return nil })
+	var de *engine.DegradedError
+	if !errors.As(err, &de) || de.Total != 2 {
+		t.Fatalf("err = %v, want DegradedError with 2 failures", err)
 	}
 }

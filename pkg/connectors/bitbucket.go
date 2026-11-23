@@ -541,8 +541,8 @@ func (c *bitbucketClient) do(ctx context.Context, method, path string, body io.R
 		if err := c.waitForBucket(ctx); err != nil {
 			return nil, err
 		}
-		target := c.url(path)
-		if err := c.sameOrigin(target); err != nil {
+		target, err := c.url(path)
+		if err != nil {
 			return nil, err
 		}
 		req, err := http.NewRequestWithContext(ctx, method, target, body)
@@ -598,14 +598,8 @@ func (c *bitbucketClient) setAuth(req *http.Request) {
 	}
 }
 
-func (c *bitbucketClient) url(p string) string {
-	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
-		return p
-	}
-	if !strings.HasPrefix(p, "/") {
-		p = "/" + p
-	}
-	return strings.TrimRight(c.base, "/") + p
+func (c *bitbucketClient) url(p string) (string, error) {
+	return apiURL("bitbucket", c.base, p)
 }
 
 func (c *bitbucketClient) waitForBucket(ctx context.Context) error {
@@ -654,20 +648,6 @@ func bitbucketBackoff(resp *http.Response, attempt int) time.Duration {
 		d = time.Minute
 	}
 	return d
-}
-
-// sameOrigin rejects absolute URLs (pagination "next" links, snippet file
-// links) that leave the API origin, so credentials stay on it.
-func (c *bitbucketClient) sameOrigin(target string) error {
-	t, err := url.Parse(target)
-	if err != nil {
-		return fmt.Errorf("bitbucket: malformed URL")
-	}
-	b, err := url.Parse(c.base)
-	if err != nil || t.Scheme != b.Scheme || t.Host != b.Host {
-		return fmt.Errorf("bitbucket: refusing request to foreign origin %s://%s", t.Scheme, t.Host)
-	}
-	return nil
 }
 
 // scanBitbucketSnippets lists /2.0/snippets/{workspace} and emits every file
