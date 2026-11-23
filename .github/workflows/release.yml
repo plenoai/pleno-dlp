@@ -526,9 +526,22 @@ jobs:
           pattern: bindings-wheel-*
           path: dist
           merge-multiple: true
-      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          packages-dir: dist
+          python-version: '3.13'
+      # pypa/gh-action-pypi-publish ships an amd64-only container ("exec
+      # format error" on this arm64 pool), so perform the same trusted
+      # publishing exchange directly: GitHub OIDC token -> PyPI mint-token.
+      - name: Publish to PyPI via trusted publishing
+        run: |
+          python -m pip install --disable-pip-version-check twine==6.2.0
+          oidc=$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=pypi" | python -c 'import json,sys;print(json.load(sys.stdin)["value"])')
+          token=$(curl -fsS -X POST https://pypi.org/_/oidc/mint-token \
+            -H 'Content-Type: application/json' -d "{\"token\":\"$oidc\"}" \
+            | python -c 'import json,sys;print(json.load(sys.stdin)["token"])')
+          echo "::add-mask::$token"
+          TWINE_USERNAME=__token__ TWINE_PASSWORD="$token" python -m twine upload --non-interactive dist/*.whl
 
   # npm trusted publishing (OIDC, npm >= 11.5.1) with provenance; the npm
   # package must list this workflow + the `npm` environment as a trusted
