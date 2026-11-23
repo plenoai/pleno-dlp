@@ -37,8 +37,10 @@ import (
 //   - AZO blocks (method 3): ESTsoft's codec has no public specification and
 //     its reference source forbids use in other EGG implementations, so it is
 //     not ported; the member is an "unsupported-compression" gap.
-//   - split continuation volumes: each volume reaches the walker as its own
-//     chunk, so a volume that starts mid-stream is a "split-volume" gap.
+//   - split volumes that are missing: filesystem and S3 sources join sibling
+//     volumes through JoinVolumes (volumes.go), so a set only reaches the
+//     walker volume by volume when a volume is absent or the chain breaks;
+//     a volume that then starts or ends mid-stream is a "split-volume" gap.
 //   - encrypted members ("encrypted").
 
 const (
