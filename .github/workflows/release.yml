@@ -403,7 +403,7 @@ jobs:
         if: matrix.goarch == 'amd64'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu
+          sudo apt-get install -y --no-install-recommends gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu libc6-dev-amd64-cross
       - name: Install zig
         if: matrix.zig
         env:
