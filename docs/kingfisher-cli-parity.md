@@ -70,6 +70,7 @@ Status values:
 | `--turbo`, `--no-limits`, `--no-timeouts` | — | won't: disabling budgets reopens the archive-bomb and hung-remote classes fixed in #810 |
 | `--blast-radius`, `--access-map` | `--blast-radius` | done |
 | `--audit-log` | `--audit-trail` | done |
+| audit HTML report (scan metadata, validation ordering) | `--format audit-html` | done |
 | `--view-report*` | `view` | done |
 | `--tls-mode`, `--ignore-certs` | — | won't: verification always uses system trust |
 | `--user-agent-suffix` | — | gap |

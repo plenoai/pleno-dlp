@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/plenoai/pleno-dlp/pkg/alerts"
 	"github.com/plenoai/pleno-dlp/pkg/connectors"
@@ -750,6 +751,15 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	if err != nil {
 		return err
 	}
+	auditMeta, _ := sink.(output.AuditMetaSetter)
+	if auditMeta != nil {
+		auditMeta.SetAuditMeta(func(m *output.AuditMeta) {
+			m.Source = kind
+			m.VerifyMode = auditVerifyMode()
+			// Flag names only: values can carry tokens or private paths.
+			cmd.Flags().Visit(func(f *pflag.Flag) { m.Flags = append(m.Flags, f.Name) })
+		})
+	}
 
 	// chain owns Close/Flush for every sink tracked below, so wiring a
 	// new buffering sink into this chain can never again silently drop
@@ -903,6 +913,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	if err != nil {
 		var fatalErr error
 		coverageErr, fatalErr = engine.PartitionDegradedErrors(err)
+		if auditMeta != nil && coverageErr != nil {
+			auditMeta.SetAuditMeta(func(m *output.AuditMeta) { m.CoverageGaps = coverageErr.Total })
+		}
 		// Stdin truncation is not a fatal scan error: the chunk that was
 		// read (up to --max-bytes) has already been scanned and any
 		// findings already counted. Treating it as fatal would discard
@@ -920,6 +933,10 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		} else {
 			return restorePriorIncrementalState(fmt.Errorf("scan: %w", fatalErr))
 		}
+	}
+
+	if auditMeta != nil {
+		auditMeta.SetAuditMeta(func(m *output.AuditMeta) { m.Chunks, m.Bytes = stats.Chunks, stats.Bytes })
 	}
 
 	// Every buffering sink tracked into chain (git cross-commit dedup,
@@ -1345,6 +1362,19 @@ func parseFailOn(s string) (detectors.Severity, error) {
 	default:
 		return 0, fmt.Errorf("--fail-on: unknown value %q (valid: any, info, low, medium, high, critical)", s)
 	}
+}
+
+// auditVerifyMode summarises the verification policy for audit reports.
+func auditVerifyMode() string {
+	switch {
+	case scanOpts.noVerify:
+		return "disabled (--no-verify)"
+	case scanOpts.providerOnly:
+		return "enabled; only provider-confirmed findings emitted"
+	case scanOpts.onlyVerified:
+		return "enabled; only verified findings emitted"
+	}
+	return "enabled (minimum assurance " + scanOpts.verifyMinAssurance + ")"
 }
 
 // scanVerifyPolicy assembles the verification transport policy from
