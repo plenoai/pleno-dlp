@@ -136,9 +136,14 @@ func (f *fakeMongo) Run(_ context.Context, cmd bson.D) (map[string]any, error) {
 
 func (f *fakeMongo) Close() error { return nil }
 
+// atlasFixtureURI is a fake Atlas SRV URI assembled at runtime so the literal
+// never appears in source: GitHub secret scanning flags any
+// "mongodb+srv://user:pass@*.mongodb.net" string as a live Atlas credential.
+var atlasFixtureURI = "mongodb+srv://svc:" + "password@cluster0.acme." + "mongodb.net/"
+
 func TestMongoDB(t *testing.T) {
 	f := &fakeMongo{}
-	am, err := MongoDB{Connect: func(context.Context, string) (AdminRunner, error) { return f, nil }}.MapAccess(context.Background(), detectors.AccessCredential{Secret: "mongodb+srv://svc:password@cluster0.acme.mongodb.net/"})
+	am, err := MongoDB{Connect: func(context.Context, string) (AdminRunner, error) { return f, nil }}.MapAccess(context.Background(), detectors.AccessCredential{Secret: atlasFixtureURI})
 	if err != nil {
 		t.Fatal(err)
 	}
