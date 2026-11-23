@@ -82,7 +82,11 @@ func (s *Source) runNativePatchLog(ctx context.Context, repo *gogit.Repository, 
 
 func (s *Source) nativeShardCount() int {
 	n := s.concurrency
-	if cpus := runtime.NumCPU(); n > cpus {
+	// Each shard is a git process plus a parser goroutine, and the engine
+	// runs its own concurrency-sized worker pool on the same cores. Capping
+	// shards at three quarters of the CPUs leaves room for the detectors
+	// instead of oversubscribing (#995).
+	if cpus := max(1, runtime.NumCPU()*3/4); n > cpus {
 		n = cpus
 	}
 	return n
