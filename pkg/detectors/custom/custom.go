@@ -18,6 +18,11 @@
 //	    "verify_url":    "https://api.acme.example/verify",
 //	    "verify_header": "Authorization: Bearer {{ .Secret }}"
 //	  }
+//
+// Rules may also declare `checksum` (offline check-digit validation, see
+// Checksum) and `validation` (templated HTTP check with SSRF guards, see
+// Validation) in place of verify_url.
+//
 //	]
 //
 // `keywords` are required: the engine refuses to scan a chunk that doesn't
@@ -60,6 +65,12 @@ type Rule struct {
 	VerifyHdr   string   `json:"verify_header,omitempty"`
 	HelpURI     string   `json:"help_uri,omitempty"`
 	Description string   `json:"description,omitempty"`
+	// Checksum drops candidates whose embedded check digits do not match
+	// (offline; see checksum.go).
+	Checksum *Checksum `json:"checksum,omitempty"`
+	// Validation is a templated HTTP liveness check with SSRF guards (see
+	// validation.go). Mutually exclusive with verify_url.
+	Validation *Validation `json:"validation,omitempty"`
 }
 
 // Detector wraps a parsed Rule. Stateless after Compile — concurrent calls
@@ -69,6 +80,8 @@ type Detector struct {
 	re       *regexp.Regexp
 	severity detectors.Severity
 	client   *http.Client
+	checksum *checksumCheck
+	valid    *validator
 }
 
 // Detector type used by every custom rule. We don't allocate a unique
@@ -81,13 +94,17 @@ func (d *Detector) Type() detectors.DetectorType { return customDetectorType }
 func (d *Detector) Keywords() []string { return d.rule.Keywords }
 
 func (d *Detector) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	matches := d.re.FindAll(data, -1)
-	if len(matches) == 0 {
+	locs := d.re.FindAllSubmatchIndex(data, -1)
+	if len(locs) == 0 {
 		return nil, nil
 	}
-	out := make([]detectors.Result, 0, len(matches))
-	for _, m := range matches {
+	out := make([]detectors.Result, 0, len(locs))
+	for _, loc := range locs {
+		m := data[loc[0]:loc[1]]
 		secret := string(m)
+		if d.checksum != nil && !d.checksum.valid(data, loc) {
+			continue
+		}
 		if d.rule.EntropyMin > 0 && shannonEntropy(secret) < d.rule.EntropyMin {
 			continue
 		}
@@ -103,7 +120,15 @@ func (d *Detector) FromData(ctx context.Context, verify bool, data []byte) ([]de
 		if d.rule.Description != "" {
 			r.ExtraData["description"] = d.rule.Description
 		}
-		if verify && d.rule.VerifyURL != "" {
+		if d.checksum != nil {
+			r.ExtraData["checksum"] = "valid"
+		}
+		switch {
+		case verify && d.valid != nil:
+			ok, err := d.valid.validate(ctx, secret, d.groups(data, loc))
+			r.Verified = ok
+			r.VerificationErr = err
+		case verify && d.rule.VerifyURL != "":
 			ok, err := d.verify(ctx, secret)
 			r.Verified = ok
 			r.VerificationErr = err
@@ -111,6 +136,16 @@ func (d *Detector) FromData(ctx context.Context, verify bool, data []byte) ([]de
 		out = append(out, r)
 	}
 	return detectors.SafeResults(out), nil
+}
+
+func (d *Detector) groups(data []byte, loc []int) map[string]string {
+	g := map[string]string{}
+	for i, name := range d.re.SubexpNames() {
+		if name != "" && loc[2*i] >= 0 {
+			g[name] = string(data[loc[2*i]:loc[2*i+1]])
+		}
+	}
+	return g
 }
 
 func (d *Detector) verify(ctx context.Context, secret string) (bool, error) {
@@ -209,11 +244,24 @@ func Compile(rule Rule) (*Detector, error) {
 	if err != nil {
 		return nil, err
 	}
+	if rule.Validation != nil && rule.VerifyURL != "" {
+		return nil, errors.New("validation and verify_url are mutually exclusive")
+	}
+	cs, err := compileChecksum(rule.Checksum, re)
+	if err != nil {
+		return nil, err
+	}
+	val, err := compileValidation(rule.Validation, re)
+	if err != nil {
+		return nil, err
+	}
 	return &Detector{
 		rule:     rule,
 		re:       re,
 		severity: sev,
 		client:   detectors.NewVerifyHTTPClient(10 * time.Second),
+		checksum: cs,
+		valid:    val,
 	}, nil
 }
 
