@@ -142,6 +142,12 @@ func TestContractVerificationCacheInputDependentSet(t *testing.T) {
 		detectors.Polymarket:            true,
 		detectors.Ramp:                  true,
 		detectors.Tableau:               true,
+		// Paired partners resolved from the window (#950).
+		detectors.Contentful: true,
+		detectors.EndorLabs:  true,
+		detectors.Intra42:    true,
+		detectors.MaxMind:    true,
+		detectors.Sendbird:   true,
 	}
 	got := make(map[detectors.DetectorType]bool)
 	for _, d := range detectors.All() {

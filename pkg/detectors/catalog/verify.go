@@ -303,6 +303,8 @@ func expand(tmpl string, v vars) string {
 		switch filter {
 		case "url":
 			return url.QueryEscape(val)
+		case "b64":
+			return base64.StdEncoding.EncodeToString([]byte(val))
 		case "json":
 			b, _ := json.Marshal(val)
 			return string(b)

@@ -2,11 +2,13 @@ package catalog
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/tokenverify"
 )
 
 // Every imported pattern must compile under RE2 and carry a prefilter
@@ -63,6 +65,7 @@ func TestHostMatchContract(t *testing.T) {
 		t.Fatal("Typeform host missing")
 	}
 	secret := "tfp_" + "Fq8XkL2mNp4Rs7Tv9Wy3Zb6Cd1Eh5G" + "j_Ka9Lm3Np7Qr2StUv4Wx6Yz8Ab1C"
+	fakeProvider(t, respond(tokenverify.Rule{Status: http.StatusUnauthorized}))
 	res, err := h.FromData(context.Background(), true, []byte("TYPEFORM_TOKEN="+secret+"\n"))
 	if err != nil || len(res) != 1 {
 		t.Fatalf("got %v, %v; want one result", res, err)
@@ -71,7 +74,7 @@ func TestHostMatchContract(t *testing.T) {
 	if string(r.Raw) != secret || r.DetectorType != detectors.Typeform || r.Verified {
 		t.Fatalf("unexpected result %+v", r)
 	}
-	if r.ExtraData["verification"] != "not-attempted" || !strings.HasPrefix(r.ExtraData["format"], "betterleaks.typeform") {
+	if r.ExtraData["verification"] == "" || !strings.HasPrefix(r.ExtraData["format"], "betterleaks.typeform") {
 		t.Fatalf("missing catalog tags: %v", r.ExtraData)
 	}
 	if strings.Contains(r.SafeRedacted(), secret) {

@@ -348,6 +348,7 @@ def write(out, pin, rows):
     cv = collections.Counter(r[2] for r in rows if r[1] != "-")
     total, validated = len(rows), sum(1 for r in rows if r[1] != "-")
     verified = sum(1 for r in rows if r[1] != "-" and r[4] != "-")
+    pleno_only = sum(1 for r in rows if r[1] == "-" and r[4] != "-")
     lines = [
         "# kingfisher detector parity",
         "",
@@ -371,7 +372,8 @@ def write(out, pin, rows):
         "offline key check). Paired credentials are resolved from the",
         "surrounding text the way kingfisher's `depends_on` does. The test",
         "fails when a kingfisher-validated rule has no pleno-dlp verification",
-        "(issue #934).",
+        "(issue #934). \"pleno-only verified\" counts rules kingfisher detects",
+        "without validation that pleno-dlp still verifies (issue #950).",
         "",
         "Status:",
         "",
@@ -403,6 +405,7 @@ def write(out, pin, rows):
         "| | kingfisher validates | pleno-dlp verifies |",
         "|---|---|---|",
         f"| validated parity | {validated} | {verified} |",
+        f"| pleno-only verified | 0 | {pleno_only} |",
         "",
         "## Rules",
         "",
@@ -415,6 +418,7 @@ def write(out, pin, rows):
         f"context={c['context']}",
         f"validated={validated}",
         f"verified={verified}",
+        f"pleno_only_verified={pleno_only}",
     ]
     for rid, v, s, d, ver in rows:
         lines.append(f"rule={rid} validation={v} status={s} detector={d} verified={ver}")
