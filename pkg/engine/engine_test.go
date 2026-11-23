@@ -6,6 +6,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -13,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
@@ -1043,5 +1047,41 @@ func TestPartitionDegradedErrorsClassifiesFailuresBeyondExamplesCap(t *testing.T
 	merged, _ = PartitionDegradedErrors(inner)
 	if merged.Classes["gap"] != len(failures)-1 {
 		t.Fatalf("unclassified failure counted: %v", merged.Classes)
+	}
+}
+
+// TestRunWithStats_LoneSpanTerminalIsSplitVolumeGap pins #958: the ".zip"
+// terminal of a spanned set that arrives without ".z01" is not sniffed as an
+// archive, yet must surface a split-volume gap while its raw bytes are still
+// scanned.
+func TestRunWithStats_LoneSpanTerminalIsSplitVolumeGap(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "archive", "testdata", "zipspan", "span.zip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, lazy := range []bool{false, true} {
+		chunk := &sources.Chunk{SourceName: "span.zip", SourceType: sources.SourceFilesystem}
+		if lazy {
+			chunk.Open = func(context.Context) (io.ReaderAt, io.Closer, int64, error) {
+				return bytes.NewReader(body), io.NopCloser(nil), int64(len(body)), nil
+			}
+		} else {
+			chunk.Data = body
+		}
+		eng := NewWithDetectors(nil, Options{Concurrency: 1}, &engineRecordingSink{})
+		_, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{chunk}})
+		var degraded *DegradedError
+		var partial *archive.PartialError
+		if !errors.As(err, &degraded) || len(degraded.Failures) != 1 || degraded.Failures[0].Kind != FailureArchive ||
+			!errors.As(err, &partial) || partial.Kind != "split-volume" {
+			t.Fatalf("lazy=%v: error = %v, want split-volume archive gap", lazy, err)
+		}
+	}
+	// A complete single-disk zip named ".zip" is unaffected.
+	eng := NewWithDetectors(nil, Options{Concurrency: 1}, &engineRecordingSink{})
+	if _, err := eng.RunWithStats(context.Background(), &stubSource{chunks: []*sources.Chunk{{
+		Data: []byte("plain text named like a volume"), SourceName: "notes.zip", SourceType: sources.SourceFilesystem,
+	}}}); err != nil {
+		t.Fatalf("text .zip: %v", err)
 	}
 }

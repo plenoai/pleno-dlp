@@ -1,0 +1,3 @@
+Owners: core-engineer, connector-engineer, qa
+
+A volume of a multi-volume archive scanned without its siblings is now a `split-volume` coverage gap instead of `corrupt-archive` or a silent drop (#958). `walkZip` classifies an unopenable zip whose end record names disk > 0, or that starts with the `PK\x07\x08` spanning marker, as `split-volume`; `archive.OrphanVolumeGap` reports a `.zip` terminal (end record disk > 0) and binary `.z02…`/`.002…` continuations, which the engine checks for every non-archive body before scanning the raw bytes. Filesystem, S3, and GCS no longer drop such orphan volumes in their binary sniff (`archive.OrphanVolumeName`), so the gap reaches `--fail-on-coverage`.

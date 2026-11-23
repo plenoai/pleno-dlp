@@ -509,7 +509,7 @@ func openFileReaderAt(ctx context.Context, path string, maxSize int64) (io.Reade
 		return nil, nil, 0, err
 	}
 	prefix := sniff[:n]
-	if !archive.LooksLikeArchive(prefix) && isBinary(prefix) && !decoder.LooksLikeUTF16Text(prefix) {
+	if skipBinary(path, prefix) {
 		_ = f.Close()
 		return nil, nil, 0, nil
 	}
@@ -518,6 +518,14 @@ func openFileReaderAt(ctx context.Context, path string, maxSize int64) (io.Reade
 		return nil, nil, 0, err
 	}
 	return f, &fileReaderAtCloser{file: f, size: info.Size(), modTime: info.ModTime()}, info.Size(), nil
+}
+
+// skipBinary reports a binary non-archive the source does not emit. An
+// orphan volume of an unlinked multi-volume set is still emitted so the
+// engine reports the split-volume gap and scans the raw bytes (#958).
+func skipBinary(path string, prefix []byte) bool {
+	return !archive.LooksLikeArchive(prefix) && isBinary(prefix) && !decoder.LooksLikeUTF16Text(prefix) &&
+		!archive.OrphanVolumeName(filepath.Base(path))
 }
 
 // readFile sniffs before allocating the full file. Binary files are common in
@@ -550,7 +558,7 @@ func (s *Source) readFile(ctx context.Context, f *os.File, size int64) ([]byte, 
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 		return nil, err
 	}
-	if !archive.LooksLikeArchive(prefix) && isBinary(prefix) && !decoder.LooksLikeUTF16Text(prefix) {
+	if skipBinary(f.Name(), prefix) {
 		return nil, nil
 	}
 

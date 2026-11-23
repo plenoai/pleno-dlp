@@ -9,7 +9,7 @@ nothing is silently lost. Gaps surface as `coverage:` lines and count toward
 |---|---|---|
 | `encrypted` | Password-protected member or document: ZIP/EGG encryption, HWP, Word `fEncrypted`, Excel `FILEPASS`, PowerPoint `CryptSession10Container` (RC4 / CryptoAPI). pleno-dlp does not decrypt and has no plans to, because it holds no passwords. | No |
 | `unsupported-compression` | A codec without an implementation: EGG AZO (method 3; ESTsoft's reference source forbids use in other EGG implementations, so it is not ported) and unknown methods. | Yes, for an unparseable archive |
-| `split-volume` | An EGG split archive. Each volume arrives as its own chunk. The first volume yields its complete members plus the decodable prefix of the member cut at its end. Continuation volumes start mid-stream and cannot be decoded alone. | Continuation volumes: yes |
+| `split-volume` | One volume of a multi-volume archive scanned without its siblings (a sibling is missing, or the set exceeds the size budget, so it is not joined). EGG: the first volume yields its complete members plus the decodable prefix of the member cut at its end. Spanned zip: a `.z01` head (spanning marker, no end record) or a `.zip` terminal whose end record names disk > 0. Continuations (`.z02`…, `.002`…) with binary content. Sources emit such orphan volumes even though they are binary non-archives. | Continuation volumes: yes |
 | `corrupt-archive` / `corrupt-entry` | Structures that fail to parse, or declared sizes that do not match. | Yes, for an unparseable archive or stream |
 | `special-file`, `path` | Non-regular entries and unsafe paths. | No |
 | `max-entry-bytes`, `max-expanded-bytes`, `max-files`, `max-headers`, `max-depth` | Budget limits. | No |

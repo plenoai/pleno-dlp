@@ -1,10 +1,12 @@
 package archive
 
 import (
+	"archive/zip"
 	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -155,4 +157,60 @@ func keysOf(m map[string][]byte) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// TestLoneZipSpanVolumeIsSplitVolumeGap pins #958: a volume of a spanned set
+// walked without its siblings (the set was incomplete or over the volume
+// budget) is a split-volume coverage gap, not corrupt-archive.
+func TestLoneZipSpanVolumeIsSplitVolumeGap(t *testing.T) {
+	for _, n := range []string{"span.zip", "span64.zip", "span.z01", "span64.z01"} {
+		t.Run(n, func(t *testing.T) {
+			b, err := os.ReadFile(filepath.Join("testdata", "zipspan", n))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.HasSuffix(n, ".zip") {
+				// The terminal starts mid-member, so it is not sniffed as an
+				// archive; callers ask LoneZipSpanTerminal instead.
+				if LooksLikeArchive(b) {
+					t.Fatal("terminal volume unexpectedly sniffed as an archive")
+				}
+				err = OrphanVolumeGap(n, bytes.NewReader(b), int64(len(b)))
+			} else {
+				_, err = Walk(n, b, Limits{})
+			}
+			var partial *PartialError
+			if !errors.As(err, &partial) || partial.Kind != "split-volume" {
+				t.Fatalf("want split-volume gap, got %v", err)
+			}
+		})
+	}
+	// A plain truncated zip stays corrupt-archive.
+	b, _ := os.ReadFile(filepath.Join("testdata", "zipspan", "span.z01"))
+	trunc := append([]byte{}, b[4:]...) // drop the spanning marker
+	_, err := Walk("trunc.zip", trunc, Limits{})
+	var partial *PartialError
+	if !errors.As(err, &partial) || partial.Kind != "corrupt-archive" {
+		t.Fatalf("want corrupt-archive, got %v", err)
+	}
+	// A complete single-disk zip named .zip is not a gap.
+	if err := OrphanVolumeGap("x.zip", bytes.NewReader(plainZip(t)), int64(len(plainZip(t)))); err != nil {
+		t.Fatalf("plain zip: %v", err)
+	}
+	b, _ = os.ReadFile(filepath.Join("testdata", "zipspan", "span.zip"))
+	if err := OrphanVolumeGap("span.bin", bytes.NewReader(b), int64(len(b))); err != nil {
+		t.Fatalf("non-.zip name: %v", err)
+	}
+}
+
+func plainZip(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	f, _ := w.Create("a.txt")
+	_, _ = f.Write([]byte("hello"))
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
 }
