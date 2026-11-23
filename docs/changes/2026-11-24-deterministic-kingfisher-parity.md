@@ -1,0 +1,3 @@
+Owners: detector-engineer, qa
+
+`scripts/kingfisher-parity.py` now regenerates `docs/kingfisher-parity.md` byte-for-byte from a pinned snapshot of kingfisher's rules (`scripts/testdata/kingfisher-rules.json`, pin `98b67a0`; re-pin with `--kingfisher <clone>`) instead of a live clone, recomputes CRC32 suffixes for GitHub/npm 30+6 fixture tokens so #949's checksum rejection no longer demotes `github-pat` and `npm` rows to partial, and gains `--check`. The drift in #962 was a stale committed doc (generation was already run-to-run stable; ten rows had gained native verifiers since). `TestKingfisherParityRegenerates` runs `--check`, so hand edits and stale rows fail the test (#962).

@@ -1,6 +1,7 @@
 package detectors_test
 
 import (
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -156,5 +157,24 @@ func TestKingfisherValidatedRulesAreVerified(t *testing.T) {
 	want := "| validated parity | " + strconv.Itoa(validated) + " | " + strconv.Itoa(verified) + " |"
 	if !strings.Contains(doc, want) {
 		t.Errorf("summary missing %q", want)
+	}
+}
+
+// TestKingfisherParityRegenerates fails when docs/kingfisher-parity.md is
+// not byte-identical to a fresh run of scripts/kingfisher-parity.py over
+// the pinned kingfisher snapshot (scripts/testdata/kingfisher-rules.json),
+// so rows cannot be hand-edited or go stale as detectors change (#962).
+func TestKingfisherParityRegenerates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("regenerates the parity doc with a full fixture scan")
+	}
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not installed")
+	}
+	cmd := exec.Command(python, "scripts/kingfisher-parity.py", "--check")
+	cmd.Dir = repoRoot(t)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("scripts/kingfisher-parity.py --check: %v\n%s", err, out)
 	}
 }

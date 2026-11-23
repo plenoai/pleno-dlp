@@ -2,17 +2,26 @@
 """Regenerate docs/kingfisher-parity.md: a machine-checked diff of the
 credential types mongodb/kingfisher detects against pleno-dlp detectors.
 
-Usage: scripts/kingfisher-parity.py <kingfisher-clone> [--out docs/kingfisher-parity.md]
+Usage:
+  scripts/kingfisher-parity.py             regenerate from the pinned snapshot
+  scripts/kingfisher-parity.py --check     exit 1 if the committed doc is stale
+  scripts/kingfisher-parity.py --kingfisher <clone>
+                                           re-pin: refresh the snapshot from a
+                                           kingfisher clone, then regenerate
 
-Method (no network, deterministic for a given kingfisher pin and pleno-dlp tree):
-  1. Read kingfisher's generated rule bundle
+Method (no network, byte-for-byte deterministic for a given snapshot and
+pleno-dlp tree; TestKingfisherParityRegenerates runs --check, so the doc
+cannot be hand-edited, issue #962):
+  1. Read kingfisher's rules from scripts/testdata/kingfisher-rules.json,
+     a pinned snapshot parsed from kingfisher's generated rule bundle
      (crates/kingfisher-rules/generated/builtin-rules.gz): the imported
      Betterleaks catalog, the selected Google Veles detectors, and the
      first-party kingfisher rules, each with its validation type.
   2. Synthesize positive fixtures from every rule's regex (six seeded
      variants: minimal, lowercase-preferring, and randomized ones whose
      high-entropy draws survive kingfisher's own entropy filter) plus the rule's
-     keywords, and scan them with `pleno-dlp scan filesystem --no-verify`.
+     keywords, recompute CRC32 checksum suffixes of GitHub/npm-style
+     30+6 tokens (pleno-dlp rejects a bad checksum, #949), and scan them with `pleno-dlp scan filesystem --no-verify`.
   3. Classify each rule:
        covered  - a provider-specific pleno-dlp detector fires on a fixture
                   (generic catch-alls do not count, except for kingfisher's
@@ -39,9 +48,11 @@ import re
 import subprocess
 import sys
 import tempfile
+import zlib
 from re import _constants as C  # noqa: N812
 from re import _parser as sp
 
+SNAPSHOT = "scripts/testdata/kingfisher-rules.json"
 GENERIC = {"GenericHighEntropy", "APIKeyAssignment", "HardcodedPassword", "BasicAuth"}
 # kingfisher rule-id prefix (after the namespace) -> pleno-dlp detector,
 # for providers whose names differ or that the token heuristic misses.
@@ -232,6 +243,24 @@ class Gen:
         return None
 
 
+B62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+CHECKSUM_TOKEN = re.compile(r"\b(gh[pousr]|npm)_([A-Za-z0-9]{30})[A-Za-z0-9]{6}(?![A-Za-z0-9])")
+
+
+def crc32_base62(s):
+    """Mirror of detectors.CRC32Base62."""
+    v, out = zlib.crc32(s.encode()), ""
+    for _ in range(6):
+        out, v = B62[v % 62] + out, v // 62
+    return out
+
+
+def fix_checksums(s):
+    """Give checksum-suffixed token shapes a valid CRC32 suffix: the
+    providers only issue such tokens, and pleno-dlp rejects the rest."""
+    return CHECKSUM_TOKEN.sub(lambda m: f"{m[1]}_{m[2]}{crc32_base62(m[2])}", s)
+
+
 # File-name suffixes satisfying kingfisher's path-constrained rules.
 PATH_SUFFIX = [("php", ".php"), ("tf|hcl", ".tf"), ("ya?ml", ".yaml"), ("nuget", ".nuget.config"),
                ("bitwarden", "/bitwarden-cli/data.json"), ("_history", "_history")]
@@ -254,16 +283,19 @@ def scan(repo, rules, tags=None):
                 s = g.sample(r["pattern"])
                 if s is None:
                     continue
+                s = fix_checksums(s)
                 name = r["id"].replace("/", "_") + "@" + str(variant) + path_suffix(r["path"])
                 os.makedirs(os.path.dirname(os.path.join(d, name)), exist_ok=True)
                 with open(os.path.join(d, name), "w") as f:
                     f.write("# " + " ".join(r["kw"][:3]) + "\n" + s + "\n")
-        out = subprocess.run(
+        proc = subprocess.run(
             ["go", "run"] + (["-tags", tags] if tags else []) +
             ["./cmd/pleno-dlp", "scan", "filesystem", d, "--no-verify", "--format", "jsonl"],
-            cwd=repo, capture_output=True, text=True, check=False).stdout
+            cwd=repo, capture_output=True, text=True, check=False)
+    if proc.returncode != 0 and not proc.stdout.strip():
+        sys.exit(f"pleno-dlp scan failed ({proc.returncode}): {proc.stderr[-2000:]}")
     hits = collections.defaultdict(set)
-    for line in out.splitlines():
+    for line in proc.stdout.splitlines():
         if line.startswith("{"):
             f = json.loads(line)
             part = next(p for p in f["path"].split(os.sep) if "@" in p)
@@ -304,18 +336,29 @@ def provider(rule_id, names):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("kingfisher")
+    ap.add_argument("--kingfisher", help="kingfisher clone to re-pin the snapshot from")
     ap.add_argument("--out", default="docs/kingfisher-parity.md")
+    ap.add_argument("--check", action="store_true", help="fail if --out differs from a fresh generation")
     args = ap.parse_args()
-    repo = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip()
-    pin = subprocess.run(["git", "-C", args.kingfisher, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    snap_path = os.path.join(repo, SNAPSHOT)
+    if args.kingfisher:
+        if args.check:
+            sys.exit("--check regenerates from the committed snapshot; drop --kingfisher")
+        pin = subprocess.run(["git", "-C", args.kingfisher, "rev-parse", "--short=7", "HEAD"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        with open(snap_path, "w") as f:
+            json.dump({"kingfisher": pin, "rules": load_rules(args.kingfisher)}, f, indent=1, sort_keys=True)
+            f.write("\n")
+    with open(snap_path) as f:
+        snap = json.load(f)
+    pin, rules = snap["kingfisher"], snap["rules"]
     listed = json.loads(subprocess.run(["go", "run", "./cmd/pleno-dlp", "detectors", "list", "--format", "json"],
                                        cwd=repo, capture_output=True, text=True, check=True).stdout)
     names = {re.sub("[^a-z0-9]", "", d["type"].lower()): d["type"] for d in listed}
     verifies = {d["type"] for d in listed if d.get("verifies")}
     checks = json.loads(subprocess.run(["go", "run", "./scripts/kingfisher-checks"],
                                        cwd=repo, capture_output=True, text=True, check=True).stdout)
-    rules = load_rules(args.kingfisher)
     hits = scan(repo, rules)
     rows = []
     for r in rules:
@@ -338,12 +381,20 @@ def main():
         else:
             ver = "-"
         rows.append((r["id"], r["validation"], status, det, ver))
-    write(args.out, pin, rows)
+    text = render(pin, rows)
+    out = os.path.join(repo, args.out) if not os.path.isabs(args.out) else args.out
+    if args.check:
+        with open(out) as f:
+            if f.read() != text:
+                sys.exit(f"{args.out} is stale or hand-edited; run scripts/kingfisher-parity.py and commit the result")
+        return
+    with open(out, "w") as f:
+        f.write(text)
     c = collections.Counter(row[2] for row in rows)
     print(f"{len(rows)} rules: {dict(c)}", file=sys.stderr)
 
 
-def write(out, pin, rows):
+def render(pin, rows):
     c = collections.Counter(r[2] for r in rows)
     cv = collections.Counter(r[2] for r in rows if r[1] != "-")
     total, validated = len(rows), sum(1 for r in rows if r[1] != "-")
@@ -355,8 +406,8 @@ def write(out, pin, rows):
         "Machine-checked diff of the credential types",
         f"[mongodb/kingfisher](https://github.com/mongodb/kingfisher) (pin `{pin}`) detects",
         "against pleno-dlp detectors. Regenerate with",
-        "`scripts/kingfisher-parity.py <kingfisher-clone>`; the method is in the",
-        "script header. `pkg/detectors/kingfisherparity_test.go` fails when a",
+        "`scripts/kingfisher-parity.py` (re-pin with `--kingfisher <clone>`); the",
+        "method is in the script header. Do not hand-edit: `--check` fails on drift. `pkg/detectors/kingfisherparity_test.go` fails when a",
         "detector named below is no longer registered or the summary drifts",
         "from the machine block. Epic #817.",
         "",
@@ -423,8 +474,7 @@ def write(out, pin, rows):
     for rid, v, s, d, ver in rows:
         lines.append(f"rule={rid} validation={v} status={s} detector={d} verified={ver}")
     lines += ["```", ""]
-    with open(out, "w") as f:
-        f.write("\n".join(lines))
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":
