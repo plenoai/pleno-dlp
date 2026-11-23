@@ -60,6 +60,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-11-23 | core-engineer, connector-engineer, qa | Add `detectors.AccessMapper` and the `pleno-dlp.access-map/v1` schema; `scan --blast-radius` attaches identity/permission/resource maps to verified AWS, GCP service-account, GitHub, GitLab, and Slack findings, and `pleno-dlp blast-radius <provider>` maps one credential (#808). |
 | 2026-11-23 | connector-engineer, qa | Add the shared `pkg/connectors/remote_git.go` clone-and-walk helper (ForgeMeta provenance, per-repo git checkpoints in `forgeIncrementalState.Repos`) and `--history`/`--clone-url` for Gitea-family forges; tokens reach HTTP(S) remotes only (#811). |
 | 2026-11-23 | connector-engineer, qa | Add `pkg/sources/git.CloneRemote` (HTTPS-only credentials, no URL userinfo, token-redacted errors) and `scan git --git-url` so remote repositories are scanned with the full local git walker (#811). |
 | 2026-11-23 | architect | Drop pull-request CI and the required `test`/`detector-unit` checks; test locally with `scripts/race-affected.sh` (changed packages + reverse deps), and narrow the main-push race run to packages affected since the previous main tip while tag releases keep the full suite. |
