@@ -126,7 +126,7 @@ func walkDecoded(ctx context.Context, input io.ReaderAt, size int64, source stri
 	v := &variantFile{}
 	defer func() { err = errors.Join(err, v.close()) }()
 	if source == "base64" || source == "hex" {
-		err = decodeStreamRuns(ctx, input, size, source == "base64", v, scratch[:64*1024])
+		err = decodeStreamRuns(ctx, input, size, source == "base64", v, scratch[:64*1024], nil)
 	} else {
 		var eligible bool
 		source, eligible, err = streamEncoding(input, size, source, scratch)
@@ -134,7 +134,7 @@ func walkDecoded(ctx context.Context, input io.ReaderAt, size int64, source stri
 			return err
 		}
 		writer := bufio.NewWriterSize(v, 32*1024)
-		err = transformStream(input, size, source, writer)
+		err = transformStream(input, size, source, writer, nil)
 		if err == nil {
 			err = writer.Flush()
 		}
@@ -184,9 +184,14 @@ func streamEncoding(input io.ReaderAt, size int64, source string, buf []byte) (s
 	}
 }
 
-func transformStream(input io.ReaderAt, size int64, source string, out *bufio.Writer) error {
+// transformStream decodes one whole-input transform. seg, when non-nil,
+// receives the decoded/source range of every step so StreamSourceSpans can
+// replay the decoder without spooling; returning false stops the walk.
+func transformStream(input io.ReaderAt, size int64, source string, out *bufio.Writer, seg func(segment64) bool) error {
 	r := bufio.NewReaderSize(io.NewSectionReader(input, 0, size), 32*1024)
+	var src, dec int64
 	for {
+		wrote := 0
 		need := 1
 		if source == "utf16le" || source == "utf16be" {
 			need = 2
@@ -209,7 +214,7 @@ func transformStream(input io.ReaderAt, size int64, source string, out *bufio.Wr
 			} else if c == '+' {
 				c = ' '
 			}
-			err = out.WriteByte(c)
+			err, wrote = out.WriteByte(c), 1
 		case "unicode-escape":
 			c := p[0]
 			q, _ := r.Peek(6)
@@ -223,12 +228,12 @@ func transformStream(input io.ReaderAt, size int64, source string, out *bufio.Wr
 							value, need = utf16.DecodeRune(rune(hi), rune(lo)), 12
 						}
 					}
-					_, err = out.WriteRune(value)
+					wrote, err = out.WriteRune(value)
 				} else {
-					err = out.WriteByte(q[0])
+					err, wrote = out.WriteByte(q[0]), 1
 				}
 			} else {
-				err = out.WriteByte(c)
+				err, wrote = out.WriteByte(c), 1
 			}
 		default:
 			unit := func(b []byte) uint16 {
@@ -247,12 +252,16 @@ func transformStream(input io.ReaderAt, size int64, source string, out *bufio.Wr
 				}
 			}
 			if value != '\uFEFF' {
-				_, err = out.WriteRune(value)
+				wrote, err = out.WriteRune(value)
 			}
 		}
 		if err != nil {
 			return err
 		}
+		if seg != nil && wrote > 0 && !seg(segment64{dec, dec + int64(wrote), src, src + int64(need)}) {
+			return nil
+		}
+		src, dec = src+int64(need), dec+int64(wrote)
 		if _, err := r.Discard(need); err != nil {
 			return err
 		}
@@ -269,8 +278,12 @@ var streamRunBytes = func() (table [2][256]bool) {
 	return
 }()
 
-func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bool, output *variantFile, scan []byte) error {
+// decodeStreamRuns spools accepted base64/hex runs to output. With a nil
+// output it only measures runs and reports each accepted one to seg (used by
+// StreamSourceSpans); seg returning false stops the walk.
+func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bool, output io.Writer, scan []byte, seg func(segment64) bool) error {
 	var decode []byte
+	var dec int64
 	var out *bufio.Writer
 	hasOutput := false
 	start := int64(-1)
@@ -339,6 +352,19 @@ func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bo
 			}
 			return err
 		}
+		if printableCounts(counter.n, counter.bad) && output == nil {
+			if hasOutput {
+				dec++
+			}
+			hasOutput = true
+			s := segment64{dec, dec + counter.n, start, end}
+			dec += counter.n
+			start = -1
+			if seg != nil && !seg(s) {
+				return errStopWalk
+			}
+			return nil
+		}
 		if printableCounts(counter.n, counter.bad) {
 			if out == nil {
 				out = bufio.NewWriterSize(output, len(decode))
@@ -405,6 +431,8 @@ func decodeStreamRuns(ctx context.Context, input io.ReaderAt, size int64, b64 bo
 }
 
 var errNonPrintable = errors.New("decoder: non-printable run")
+
+var errStopWalk = errors.New("decoder: stop walk")
 
 type printCounter struct{ n, bad, badBudget int64 }
 

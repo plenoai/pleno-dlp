@@ -53,6 +53,11 @@ type Finding struct {
 	// stream window. It is used only after raw observation has been enabled;
 	// the authoritative reader remains the fallback for every other finding.
 	rawHint streamRawHint
+	// decodedAt is the decoded-variant offset of Result.Raw for a streamed
+	// decoded finding (decodedOK), mapped back to the encoded source span at
+	// batch flush (#977).
+	decodedAt int64
+	decodedOK bool
 }
 
 type Sink interface {
@@ -141,6 +146,10 @@ type streamWindowBase struct {
 	offset   int64
 	newlines int
 	ok       bool
+	// decodedAt/decodedOK carry a decoded window finding's variant offset
+	// to the stream batch (#977).
+	decodedAt int64
+	decodedOK bool
 }
 
 type streamMatchCache struct {
@@ -748,6 +757,11 @@ record:
 }
 
 type streamFindingBatch struct {
+	// source, variant, and variantSize describe the WalkVariants visit this
+	// batch belongs to; decoded findings resolve against them (#977).
+	source         string
+	variant        io.ReaderAt
+	variantSize    int64
 	findings       []Finding
 	resolveFailed  bool
 	observationErr error
@@ -766,11 +780,15 @@ func (b *streamFindingBatch) flush(ctx context.Context, e *Engine, c *sources.Ch
 	}
 	observationErr := b.observationErr
 	b.observationErr = nil
+	mapped := b.resolveDecoded(ctx, e, c, cache)
 	var resolveErr error
 	if !b.resolveFailed {
 		raws := make([][]byte, 0, len(b.findings))
 		hints := make([]streamRawHint, 0, len(b.findings))
-		for _, pending := range b.findings {
+		for i, pending := range b.findings {
+			if mapped[i] {
+				continue
+			}
 			raws = append(raws, pending.Result.Raw)
 			hints = append(hints, pending.rawHint)
 		}
@@ -789,6 +807,10 @@ func (b *streamFindingBatch) flush(ctx context.Context, e *Engine, c *sources.Ch
 	for i := range b.findings {
 		pending := &b.findings[i]
 		raw := pending.Result.Raw
+		if mapped[i] {
+			e.sink.Emit(*pending)
+			continue
+		}
 		if match, ok := cache.lookup(raw); ok && match.found {
 			if hasSourceLine(pending.Chunk) {
 				base := sourceLine(pending.Chunk)
@@ -1651,7 +1673,7 @@ func (e *Engine) scanChunkLeafReader(ctx context.Context, c *sources.Chunk, arch
 	windowBuf := make([]byte, maxWindowSize)
 	matchCache := newStreamMatchCache(reader, size)
 	err := decoder.WalkVariants(ctx, reader, size, func(source string, variant io.ReaderAt, variantSize int64) error {
-		batch := &streamFindingBatch{}
+		batch := &streamFindingBatch{source: source, variant: variant, variantSize: variantSize}
 		matchCache.pending = batch
 		defer func() {
 			matchCache.pending = nil
@@ -1846,6 +1868,7 @@ func (e *Engine) scanVariantWindows(ctx context.Context, c *sources.Chunk, v dec
 		}
 		window := v
 		window.Data = data[start:end]
+		window.Offset = v.Offset + start
 		e.dispatch(ctx, c, window, archivePath, lowerPtr)
 		if end == len(data) {
 			break
@@ -2010,12 +2033,18 @@ func (e *Engine) runDetectorWindow(ctx context.Context, c *sources.Chunk, v deco
 	}
 	for _, r := range results {
 		span := [2]int{-1, -1}
+		rb := base
+		if stream && v.Source != "" && len(r.Raw) > 0 {
+			if idx := windowMatchIndex(ctx, d, data, r.Raw); idx >= 0 {
+				rb.decodedAt, rb.decodedOK = base.offset+int64(winStart+idx), true
+			}
+		}
 		if ds, ok := decodedSourceSpan(ctx, d, c, v, stream, winStart, data, r.Raw); ok {
 			span = ds
 		} else if start := chunkMatchStart(ctx, d, c, v, stream, winStart, data, r.Raw); start >= 0 {
 			span = [2]int{start, start + len(r.Raw)}
 		}
-		e.emitDetectorResultAt(ctx, c, v, archivePath, di, stream, r, matchCache, base, span)
+		e.emitDetectorResultAt(ctx, c, v, archivePath, di, stream, r, matchCache, rb, span)
 	}
 }
 
@@ -2073,7 +2102,7 @@ func decodedSourceSpan(ctx context.Context, d detectors.Detector, c *sources.Chu
 	if idx < 0 {
 		return [2]int{}, false
 	}
-	start := winStart + idx
+	start := v.Offset + winStart + idx
 	s, e, ok := decoder.SourceSpan(v.Source, c.Data, start, start+len(raw))
 	if !ok || e > len(c.Data) {
 		return [2]int{}, false
@@ -2165,6 +2194,8 @@ func (e *Engine) emitDetectorResultAt(ctx context.Context, c *sources.Chunk, v d
 			VerifierBacked: e.isVerifier[di],
 			InlineAllowed:  inline,
 			rawHint:        hint,
+			decodedAt:      base.decodedAt,
+			decodedOK:      base.decodedOK,
 		})
 		return
 	}

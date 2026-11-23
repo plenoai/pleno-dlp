@@ -20,6 +20,10 @@ const printableThreshold = 0.8
 type Variant struct {
 	Source string
 	Data   []byte
+	// Offset is the position of Data inside the whole variant when a caller
+	// scans the variant in windows; decoded findings add it before mapping
+	// back to the source with SourceSpan (#977).
+	Offset int
 }
 
 // Variants returns the original chunk followed by decoded forms worth rescanning.
