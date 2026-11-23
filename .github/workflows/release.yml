@@ -357,7 +357,8 @@ jobs:
 
   # Embeddable API bindings (docs/library.md, docs/adr/0001-language-bindings.md).
   # c-shared needs cgo, so each target links with a C toolchain for its arch.
-  # macOS/Windows are out of scope until the runner policy admits those hosts.
+  # macOS and Windows cross-link with zig cc on the arm64 Linux pool; darwin
+  # links against the symbol stubs in scripts/darwin-stubs (ADR 0001, #853).
   bindings-lib:
     needs: quality
     strategy:
@@ -368,14 +369,21 @@ jobs:
           - { target: linux-arm64, goarch: arm64, cc: gcc, objdump: objdump, wheel: manylinux-auto-aarch64, test: true }
           # Cross build with the GNU x86-64 toolchain on the arm64 runner pool.
           - { target: linux-amd64, goarch: amd64, cc: x86_64-linux-gnu-gcc, objdump: x86_64-linux-gnu-objdump, wheel: manylinux-auto-x86_64, test: false }
+          # zig cross builds; the macOS floor matches Go 1.26's minimum (11).
+          - { target: darwin-arm64, goos: darwin, goarch: arm64, zig: aarch64-macos.11.0, wheel: macosx_11_0_arm64, test: false }
+          - { target: darwin-amd64, goos: darwin, goarch: amd64, zig: x86_64-macos.11.0, wheel: macosx_11_0_x86_64, test: false }
+          - { target: windows-amd64, goos: windows, goarch: amd64, zig: x86_64-windows-gnu, wheel: win_amd64, test: false }
+          - { target: windows-arm64, goos: windows, goarch: arm64, zig: aarch64-windows-gnu, wheel: win_arm64, test: false }
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     timeout-minutes: 30
     permissions:
       contents: read
     env:
       TAG: ${{ github.ref_name }}
+      GOOS: ${{ matrix.goos || 'linux' }}
       GOARCH: ${{ matrix.goarch }}
-      CC: ${{ matrix.cc }}
+      CC: ${{ matrix.cc || 'gcc' }}
+      ZIG_TARGET: ${{ matrix.zig }}
       OBJDUMP: ${{ matrix.objdump }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -396,6 +404,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu
+      - name: Install zig
+        if: matrix.zig
+        env:
+          ZIG_VERSION: 0.15.2
+          ZIG_SHA256: 958ed7d1e00d0ea76590d27666efbf7a932281b3d7ba0c6b01b0ff26498f667f
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/zig.tar.xz" "https://ziglang.org/download/$ZIG_VERSION/zig-aarch64-linux-$ZIG_VERSION.tar.xz"
+          echo "$ZIG_SHA256  $RUNNER_TEMP/zig.tar.xz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/zig"
+          tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C "$RUNNER_TEMP/zig" --strip-components=1
+          echo "$RUNNER_TEMP/zig" >>"$GITHUB_PATH"
       - run: scripts/bindings.sh version "$TAG"
       - run: scripts/bindings.sh lib "$RUNNER_TEMP/lib"
       - run: python -m pip install --disable-pip-version-check setuptools==80.9.0 wheel==0.45.1 pytest==8.4.2
@@ -404,7 +423,7 @@ jobs:
           WHEEL_PLATFORM: ${{ matrix.wheel }}
           RUN_TESTS: ${{ matrix.test }}
         run: |
-          lib=$(ls "$RUNNER_TEMP"/lib/libpleno_dlp.*)
+          lib=$(ls "$RUNNER_TEMP"/lib/*pleno_dlp.*)
           scripts/bindings.sh wheel "$lib" "$WHEEL_PLATFORM" "$RUNNER_TEMP/dist"
           if [ "$RUN_TESTS" = true ]; then
             python -m pip install --disable-pip-version-check "$RUNNER_TEMP"/dist/*.whl
@@ -477,7 +496,7 @@ jobs:
           scripts/bindings.sh version "$TAG"
           for d in "$RUNNER_TEMP"/libs/bindings-lib-*; do
             target=${d##*/bindings-lib-}
-            scripts/bindings.sh stage-node "$(ls "$d"/libpleno_dlp.*)" "$target"
+            scripts/bindings.sh stage-node "$(ls "$d"/*pleno_dlp.*)" "$target"
           done
       - name: Test and publish
         working-directory: bindings/node

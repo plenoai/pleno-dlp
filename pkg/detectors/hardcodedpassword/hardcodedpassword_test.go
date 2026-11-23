@@ -67,6 +67,11 @@ func TestFromData_Suppressed(t *testing.T) {
 		{"credential-descriptor label value", `Password: "github_access_token",`},
 		{"credential-descriptor label value bare", `Password: token,`},
 		{"swapped-field username placeholder", `password = "username"`},
+		// #863: identifier right-hand sides and tuple assignments.
+		{"map literal identifier value", `	"app_password": appPassword,`},
+		{"field assigned identifier", `target.Password = appPassword`},
+		{"tuple literal belongs to username", `target.Username, target.Password = "oauth2", token`},
+		{"identifier with credential word", `password = dbSecret`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -93,6 +98,9 @@ func TestFromData_RealSecretsStillFire(t *testing.T) {
   default = "Aa1234321Bb"
 }`, "Aa1234321Bb"},
 		{"docker-compose env", "DB_PASSWORD=P@ssw0rdXz99\n", "P@ssw0rdXz99"},
+		{"unquoted ini identifier-shaped literal", "password=hunter2\n", "hunter2"},
+		{"unquoted lowercase word literal", "password=correcthorse\n", "correcthorse"},
+		{"tuple literal positionally matched", `user, password = "admin", "Tr0ub4dor&3"`, "Tr0ub4dor&3"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

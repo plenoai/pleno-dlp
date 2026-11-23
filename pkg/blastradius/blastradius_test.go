@@ -253,7 +253,7 @@ func TestRegistryMapResult(t *testing.T) {
 	if err != nil || am.Identity.Name != "octo" {
 		t.Fatalf("am %+v err %v", am, err)
 	}
-	if got := blastradius.Default().Names(); !slices.Equal(got, []string{"aws", "gcp", "github", "gitlab", "slack"}) {
+	if got := blastradius.Default().Names(); !slices.Equal(got, []string{"anthropic", "asana", "aws", "bitbucket", "buildkite", "circleci", "confluence", "digitalocean", "fastly", "gcp", "gitea", "github", "gitlab", "harness", "huggingface", "jira", "openai", "pinecone", "sendgrid", "slack", "stripe", "terraformcloud"}) {
 		t.Fatalf("names %v", got)
 	}
 }

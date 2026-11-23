@@ -7,7 +7,7 @@
   "repository": { "type": "git", "url": "git+https://github.com/plenoai/pleno-dlp.git", "directory": "bindings/node" },
   "keywords": ["secrets", "dlp", "secret-scanner", "security"],
   "engines": { "node": ">=20" },
-  "os": ["linux", "darwin"],
+  "os": ["linux", "darwin", "win32"],
   "cpu": ["x64", "arm64"],
   "main": "index.cjs",
   "types": "index.d.ts",

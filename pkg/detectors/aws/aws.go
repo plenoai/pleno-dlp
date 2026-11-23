@@ -5,7 +5,10 @@
 // upstream call succeeds (driftwood-style "what does this credential
 // actually unlock"):
 //
-//   - aws_account_id   12-digit AWS account number from sts:GetCallerIdentity
+//   - aws_account_id   12-digit AWS account number (decoded offline from the
+//     key ID, then confirmed by sts:GetCallerIdentity)
+//   - verification_skipped  "canary_account" when the account is on the
+//     canary skip list (STS is never called)
 //   - aws_arn          full caller ARN, e.g. arn:aws:iam::123456789012:user/Alice
 //   - aws_user_id      AWS-internal principal id (AIDA…/AROA…)
 //   - aws_principal_kind  user | root | assumed-role | federated-user | other
@@ -103,6 +106,15 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		id := string(data[m[0]:m[1]])
 		secret, ok := nearestSecret(m[0], data, secretMatches)
 		extra := map[string]string{"access_key_id": id}
+		account, hasAccount := AccountFromKeyID(id)
+		if hasAccount {
+			extra["aws_account_id"] = account
+		}
+		canary := hasAccount && IsSkippedAccount(account)
+		if canary {
+			// Never call STS: it would trip the canary's alert.
+			extra["verification_skipped"] = "canary_account"
+		}
 		res := detectors.Result{
 			DetectorType: detectors.AWS,
 			Raw:          []byte(id),
@@ -111,7 +123,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		}
 		if ok {
 			res.RawV2 = []byte(secret)
-			if verify {
+			if verify && !canary {
 				verified, meta, err := verifyWithMetadata(ctx, id, secret)
 				res.Verified = verified
 				res.VerificationErr = err
@@ -170,6 +182,9 @@ func (Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	id, sk, ok := splitPair(secret)
 	if !ok {
 		return false, fmt.Errorf("aws: expected id:secret pair")
+	}
+	if acct, ok := AccountFromKeyID(id); ok && IsSkippedAccount(acct) {
+		return false, nil
 	}
 	v, _, err := verifyWithMetadata(ctx, id, sk)
 	return v, err
