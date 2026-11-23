@@ -116,7 +116,7 @@ type Engine struct {
 	verificationAssurance []detectors.VerificationAssurance
 	wantsFull             []bool
 	prefilter             *ahocorasick.Matcher
-	detectorIdxByPattern  [][]int
+	detectorIdxByPattern  [][]patternDetector
 	lowerBufPool          sync.Pool
 	sink                  Sink
 	verificationCache     *verificationCache
@@ -1223,8 +1223,17 @@ func (e *Engine) buildPrefilter() {
 	}
 	patternIDByKeyword := make(map[string]int, len(e.dets))
 	patterns := make([][]byte, 0, len(e.dets))
-	detectorIdxByPattern := make([][]int, 0, len(e.dets))
+	detectorIdxByPattern := make([][]patternDetector, 0, len(e.dets))
 	for di, d := range e.dets {
+		own := make(map[string]bool, len(d.Keywords()))
+		for _, kw := range d.Keywords() {
+			if kw != "" {
+				own[strings.ToLower(kw)] = true
+			}
+		}
+		// A detector without keywords of its own only ever ran through
+		// its format keywords; keep running its FromData there.
+		noOwn := len(own) == 0
 		for _, kw := range detectors.KeywordsWithFormats(d) {
 			if kw == "" {
 				continue
@@ -1237,7 +1246,7 @@ func (e *Engine) buildPrefilter() {
 				patterns = append(patterns, []byte(lk))
 				detectorIdxByPattern = append(detectorIdxByPattern, nil)
 			}
-			detectorIdxByPattern[id] = append(detectorIdxByPattern[id], di)
+			detectorIdxByPattern[id] = append(detectorIdxByPattern[id], patternDetector{di: di, own: noOwn || own[lk]})
 		}
 	}
 	if len(patterns) == 0 {
@@ -1914,7 +1923,8 @@ func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Var
 	var dets map[int][]vicinitySpan
 	var detectorOrder []int
 	e.prefilter.VisitHits(lower, func(h ahocorasick.Hit) {
-		for _, di := range e.detectorIdxByPattern[h.PatternID] {
+		for _, pd := range e.detectorIdxByPattern[h.PatternID] {
+			di := pd.di
 			// FullChunkDetector opt-ins are handled once per chunk
 			// by runFullChunkDetectors. Skip them here so they don't
 			// also fire per window — the regex would emit duplicate
@@ -1946,8 +1956,11 @@ func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Var
 				if end > spans[len(spans)-1].end {
 					spans[len(spans)-1].end = end
 				}
+				if pd.own {
+					spans[len(spans)-1].own = true
+				}
 			} else {
-				dets[di] = append(spans, vicinitySpan{start, end})
+				dets[di] = append(spans, vicinitySpan{start, end, pd.own})
 			}
 		}
 	})
@@ -1960,12 +1973,27 @@ func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Var
 			return
 		}
 		for _, sp := range spans {
-			e.runDetectorWindow(ctx, c, v, archivePath, di, sp.start, v.Data[sp.start:sp.end], stream, matchCache, base)
+			e.runDetectorWindow(ctx, c, v, archivePath, di, sp.start, v.Data[sp.start:sp.end], stream, matchCache, base, !sp.own)
 		}
 	}
 }
 
-type vicinitySpan struct{ start, end int }
+// vicinitySpan is a merged keyword-hit window. own reports whether any
+// hit inside it was one of the detector's own keywords; windows reached
+// only through a registered format keyword run the formats alone and
+// skip the detector's FromData (#986).
+type vicinitySpan struct {
+	start, end int
+	own        bool
+}
+
+// patternDetector maps an Aho-Corasick pattern to a detector and records
+// whether the pattern is one of that detector's own keywords (as opposed
+// to a keyword of a format registered for its type).
+type patternDetector struct {
+	di  int
+	own bool
+}
 
 // runDetectorOn executes a single detector's FromData against a slice
 // of variant bytes and forwards every result through the engine's
@@ -1981,14 +2009,18 @@ func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.
 }
 
 func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte, stream bool, matchCache *streamMatchCache, base streamWindowBase) {
-	e.runDetectorWindow(ctx, c, v, archivePath, di, 0, data, stream, matchCache, base)
+	e.runDetectorWindow(ctx, c, v, archivePath, di, 0, data, stream, matchCache, base, false)
 }
 
 // runDetectorWindow runs detector di over data, which starts at byte winStart
 // of v.Data. The window offset lets buffered raw-variant findings resolve
 // Raw inside the window the detector actually matched instead of at its
 // earliest occurrence in the chunk (#874).
-func (e *Engine) runDetectorWindow(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, winStart int, data []byte, stream bool, matchCache *streamMatchCache, base streamWindowBase) {
+//
+// formatsOnly skips the detector's own FromData and runs only the
+// formats registered for its type: the window was reached solely through
+// a format keyword, so the detector's own keywords are absent (#986).
+func (e *Engine) runDetectorWindow(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, winStart int, data []byte, stream bool, matchCache *streamMatchCache, base streamWindowBase, formatsOnly bool) {
 	d := e.dets[di]
 	// Verification defaults to unconditional-true: the bool is the
 	// trufflehog Detector contract, not normally a configurable option.
@@ -2000,7 +2032,11 @@ func (e *Engine) runDetectorWindow(ctx context.Context, c *sources.Chunk, v deco
 	if e.detStats != nil {
 		started = time.Now()
 	}
-	results, err := e.fromData(ctx, d, di, data)
+	var results []detectors.Result
+	var err error
+	if !formatsOnly {
+		results, err = e.fromData(ctx, d, di, data)
+	}
 	if err == nil {
 		// Supplementary detection-only formats registered for this type
 		// (detectors.RegisterFormats) run on the same bytes; candidates

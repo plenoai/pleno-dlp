@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"sync/atomic"
 	"testing"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -101,5 +102,43 @@ func TestEngineVerifiesFormatsWithHooks(t *testing.T) {
 	}
 	if got := scanWith(t, Options{MinimumVerificationAssurance: detectors.AssuranceProviderConfirmed}, data); len(got) != 1 || got[0].Verified || calls != 0 {
 		t.Fatalf("assurance gate: calls=%d %+v", calls, got)
+	}
+}
+
+const formatOnlyProbeType = detectors.DetectorType(1<<29 + 2)
+
+type formatOnlyProbe struct{ calls *atomic.Int64 }
+
+func (formatOnlyProbe) Type() detectors.DetectorType { return formatOnlyProbeType }
+func (formatOnlyProbe) Keywords() []string           { return []string{"nativekw"} }
+func (p formatOnlyProbe) FromData(context.Context, bool, []byte) ([]detectors.Result, error) {
+	p.calls.Add(1)
+	return nil, nil
+}
+
+// A window reached only through a format keyword runs the format but not
+// the detector's own FromData; a window with the detector's own keyword
+// still runs it (#986).
+func TestEngineSkipsFromDataForFormatOnlyWindows(t *testing.T) {
+	detectors.RegisterFormats(formatOnlyProbeType, &detectors.Format{
+		ID: "test.format-only", Keywords: []string{"fmtonly_"}, Pattern: `\b(fmtonly_[A-Za-z0-9]{16})\b`,
+	})
+	calls := &atomic.Int64{}
+	d := formatOnlyProbe{calls: calls}
+	got, err := ScanBytesWithDetectors(context.Background(), []detectors.Detector{d}, []byte("x = fmtonly_Q7cK2mZp9LsW4tRb\n"), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ExtraData["format"] != "test.format-only" {
+		t.Fatalf("format finding missing: %+v", got)
+	}
+	if n := calls.Load(); n != 0 {
+		t.Fatalf("FromData ran %d times on a format-only window", n)
+	}
+	if _, err := ScanBytesWithDetectors(context.Background(), []detectors.Detector{d}, []byte("nativekw fmtonly_Q7cK2mZp9LsW4tRb\n"), Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("FromData ran %d times with its own keyword present, want 1", n)
 	}
 }
