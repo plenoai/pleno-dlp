@@ -90,16 +90,18 @@ func scanRedash(ctx context.Context, cfg Config, emit Emit) error {
 		return err
 	}
 
+	var gaps coverageGaps
 	for _, qid := range queryIDs {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		result, err := cli.getQueryResult(ctx, qid)
 		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if isContextErr(err) {
 				return err
 			}
 			redashWarn("query %d: %v", qid, err)
+			gaps.fail(fmt.Sprintf("redash/query/%d", qid), err)
 			continue
 		}
 		for i, row := range result.Data.Rows {
@@ -117,15 +119,14 @@ func scanRedash(ctx context.Context, cfg Config, emit Emit) error {
 					Link:      fmt.Sprintf("%s/queries/%d", host, qid),
 				},
 			}
+			// Sink errors (and cancellation) must stop the scan rather than
+			// be dropped row by row.
 			if err := emitSIEMIncremental(redashRowKey(qid, rowJSON), rowJSON, result.RetrievedAt, state, meta, emit); err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return err
-				}
-				continue
+				return err
 			}
 		}
 	}
-	return nil
+	return gaps.err()
 }
 
 func fingerprintRedash(ctx context.Context, cfg Config) (string, error) {
@@ -156,8 +157,9 @@ func fingerprintRedash(ctx context.Context, cfg Config) (string, error) {
 	for _, qid := range queryIDs {
 		result, err := cli.getQueryResult(ctx, qid)
 		if err != nil {
-			redashWarn("query %d: %v", qid, err)
-			continue
+			// An unreadable query must not yield a stable fingerprint, or an
+			// unchanged-source skip would hide the gap.
+			return "", fmt.Errorf("redash: query %d: %w", qid, err)
 		}
 		if err := fingerprintRedashRows(h, qid, result); err != nil {
 			return "", err

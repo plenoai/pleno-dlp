@@ -111,6 +111,7 @@ func scanGitLab(ctx context.Context, cfg Config, emit Emit) error {
 	if previousState == nil {
 		previousState = &gitlabIncrementalState{Version: 1, Projects: map[string]gitlabProjectIncrementalState{}}
 	}
+	var gaps coverageGaps
 	for _, p := range projects {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -120,18 +121,20 @@ func scanGitLab(ctx context.Context, cfg Config, emit Emit) error {
 			projectKey = strconv.FormatInt(p.ID, 10)
 		}
 		prevProject, hasPrevProject := previousState.Projects[projectKey]
-		nextProject, err := scanGitLabProjectIncremental(ctx, cli, p, group, prevProject, hasPrevProject, maxBytes, concurrency, emit)
+		nextProject, err := scanGitLabProjectIncremental(ctx, cli, p, group, prevProject, hasPrevProject, maxBytes, concurrency, &gaps, emit)
 		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if isContextErr(err) {
 				return err
 			}
+			gaps.fail("gitlab/"+projectKey, err)
 			continue
 		}
 		if parseBool(cfg["include_comments"]) {
 			if err := scanGitLabMergeRequestCommentsIncremental(ctx, cli, p, group, prevProject, hasPrevProject, &nextProject, emit); err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				if isContextErr(err) {
 					return err
 				}
+				gaps.fail("gitlab/"+projectKey+"/comments", err)
 				continue
 			}
 		}
@@ -167,7 +170,7 @@ func scanGitLab(ctx context.Context, cfg Config, emit Emit) error {
 		return fmt.Errorf("gitlab: encode incremental source state: %w", err)
 	}
 	cfg[configKeyIncrementalNextState] = string(data)
-	return nil
+	return gaps.err()
 }
 
 func verifyGitLab(ctx context.Context, cfg Config, secret string) (bool, error) {
@@ -543,7 +546,7 @@ func gitlabNoteKey(kind string, mrIID int64, discussionID string, noteID int64) 
 	return fmt.Sprintf("%s:!%d:%d", kind, mrIID, noteID)
 }
 
-func scanGitLabProjectIncremental(ctx context.Context, cli *gitlabClient, proj gitlabProjectRef, group string, prev gitlabProjectIncrementalState, hasPrev bool, maxBytes int64, concurrency int, emit Emit) (gitlabProjectIncrementalState, error) {
+func scanGitLabProjectIncremental(ctx context.Context, cli *gitlabClient, proj gitlabProjectRef, group string, prev gitlabProjectIncrementalState, hasPrev bool, maxBytes int64, concurrency int, gaps *coverageGaps, emit Emit) (gitlabProjectIncrementalState, error) {
 	if proj.DefaultBranch == "" {
 		path := fmt.Sprintf("/projects/%d", proj.ID)
 		if _, err := cli.getJSON(ctx, path, &proj); err != nil {
@@ -588,35 +591,56 @@ func scanGitLabProjectIncremental(ctx context.Context, cli *gitlabClient, proj g
 		}
 		g.Go(func() error {
 			defer func() { <-sem }()
-			return emitGitLabBlob(gctx, cli, proj, group, entry, maxBytes, emit)
+			return emitGitLabBlob(gctx, cli, proj, group, entry, maxBytes, gaps, emit)
 		})
 	}
 	if err := g.Wait(); err != nil {
 		return gitlabProjectIncrementalState{}, err
 	}
+	// Blobs that failed to fetch stay out of the checkpoint so the next
+	// incremental run retries them.
+	for path := range nextProject.Blobs {
+		if gaps.has(gitlabBlobSource(proj, path)) {
+			delete(nextProject.Blobs, path)
+		}
+	}
 	return nextProject, nil
 }
 
-func emitGitLabBlob(ctx context.Context, cli *gitlabClient, proj gitlabProjectRef, group string, entry gitlabTreeEntry, maxBytes int64, emit Emit) error {
+func gitlabBlobSource(proj gitlabProjectRef, path string) string {
+	return fmt.Sprintf("gitlab/%d@%s:%s", proj.ID, proj.DefaultBranch, path)
+}
+
+// emitGitLabBlob fetches and emits one blob. Provider failures are recorded
+// on gaps; only cancellation and sink errors return. Oversize blobs are a
+// deliberate --max-bytes policy skip, not a gap.
+func emitGitLabBlob(ctx context.Context, cli *gitlabClient, proj gitlabProjectRef, group string, entry gitlabTreeEntry, maxBytes int64, gaps *coverageGaps, emit Emit) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	src := gitlabBlobSource(proj, entry.Path)
 	path := fmt.Sprintf("/projects/%d/repository/files/%s/raw?ref=%s",
 		proj.ID, url.PathEscape(entry.Path), url.QueryEscape(proj.DefaultBranch))
 	resp, err := cli.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if isContextErr(err) {
 			return err
 		}
+		gaps.fail(src, err)
 		return nil
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		gaps.fail(src, fmt.Errorf("gitlab: fetch blob: HTTP %d", resp.StatusCode))
 		return nil
 	}
 	limited := io.LimitReader(resp.Body, maxBytes+1)
 	data, err := io.ReadAll(limited)
 	if err != nil {
+		if isContextErr(err) {
+			return err
+		}
+		gaps.fail(src, fmt.Errorf("gitlab: read blob: %w", err))
 		return nil
 	}
 	if int64(len(data)) > maxBytes {
