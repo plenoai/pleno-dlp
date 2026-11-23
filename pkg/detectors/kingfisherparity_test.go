@@ -29,7 +29,7 @@ func TestKingfisherParityDoc(t *testing.T) {
 	header := map[string]int{}
 	got := map[string]int{}
 	rows := 0
-	rowRe := regexp.MustCompile(`^rule=(\S+) validation=(\S+) status=(covered|partial|missing) detector=(\S+)$`)
+	rowRe := regexp.MustCompile(`^rule=(\S+) validation=(\S+) status=(covered|partial|missing|context) detector=(\S+)$`)
 	seen := map[string]bool{}
 	for _, line := range strings.Split(strings.TrimSpace(block[1]), "\n") {
 		if k, v, ok := strings.Cut(line, "="); ok && k != "rule" {
@@ -52,7 +52,7 @@ func TestKingfisherParityDoc(t *testing.T) {
 		switch {
 		case m[3] == "missing" && m[4] != "-":
 			t.Errorf("rule %s: missing rows must not name a detector (got %s)", m[1], m[4])
-		case m[3] != "missing" && m[4] == "-":
+		case m[3] != "missing" && m[3] != "context" && m[4] == "-":
 			t.Errorf("rule %s: %s rows must name a detector", m[1], m[3])
 		case m[4] != "-":
 			for _, name := range strings.Split(m[4], ",") {
@@ -65,14 +65,14 @@ func TestKingfisherParityDoc(t *testing.T) {
 	if header["total"] != rows {
 		t.Errorf("total=%d but %d rows", header["total"], rows)
 	}
-	for _, s := range []string{"covered", "partial", "missing"} {
+	for _, s := range []string{"covered", "partial", "missing", "context"} {
 		if header[s] != got[s] {
 			t.Errorf("%s=%d but %d rows", s, header[s], got[s])
 		}
 	}
-	summary := regexp.MustCompile(`\| all rules \| (\d+) \| (\d+) \| (\d+) \| (\d+) \|`).FindStringSubmatch(doc)
+	summary := regexp.MustCompile(`\| all rules \| (\d+) \| (\d+) \| (\d+) \| (\d+) \| (\d+) \|`).FindStringSubmatch(doc)
 	if summary == nil || summary[1] != strconv.Itoa(got["covered"]) || summary[2] != strconv.Itoa(got["partial"]) ||
-		summary[3] != strconv.Itoa(got["missing"]) || summary[4] != strconv.Itoa(rows) {
+		summary[3] != strconv.Itoa(got["missing"]) || summary[4] != strconv.Itoa(got["context"]) || summary[5] != strconv.Itoa(rows) {
 		t.Errorf("summary table %v disagrees with the machine block", summary)
 	}
 }

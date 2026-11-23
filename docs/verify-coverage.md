@@ -4,12 +4,13 @@ This page classifies each registered detector as verifier-backed or
 unverified-by-design. The machine block is parsed by
 `pkg/detectors/verifycoverage_test.go`.
 
-Counts are pinned in the machine block. Total = 667: 665 secret
+Counts are pinned in the machine block. Total = 723: 721 secret
 detectors, `PIIAnonymize`, and `PIIOpenAIPF`. The retired regex PII
 detector constants (and the retired China-hosted providers
-`AlibabaCloud` / `TencentCloud` / `DashScope` / `ModelScope`) remain
-reserved for wire compatibility, but are not listed because they are
-no longer registered. See
+`TencentCloud` / `DashScope` / `ModelScope`) remain reserved for wire
+compatibility, but are not listed because they are no longer
+registered. `AlibabaCloud` lost its China-hosted verifier and returns
+as a detection-only kingfisher catalog host (class c). See
 [`docs/counts.md`](counts.md) for the repo-wide definition this total
 feeds (README and website) and the drift test that enforces it.
 
@@ -54,7 +55,7 @@ patterns). The extracted tenant is combined with the matched
 AzureAD/AzureApp verifiers cannot yet distinguish a rejected credential
 from an unreachable token endpoint.
 
-## (b) Unverified-by-design — 67 detectors
+## (b) Unverified-by-design — 76 detectors
 
 These detectors deliberately do not implement `Verify`. The rationale
 is one of:
@@ -159,18 +160,91 @@ is one of:
 | Wiz                     | secret   | tenant-specific host (`api.<tenant>.app.wiz.io`) not in chunk |
 | Zoho                    | secret   | region-specific accounts host (`accounts.zoho.<tld>`) not in chunk |
 
+## (c) Verify gap and kingfisher catalog hosts
+
+`pkg/detectors/catalog` registers detection-only host types for
+kingfisher rules no native provider detector covers
+(`scripts/kingfisher-catalog.py`, #900). Class (c) hosts have an
+upstream verify path (kingfisher's validator, or the provider API) that
+is not implemented yet (#898); class (b) hosts cannot be verified by
+design. Supplementary formats attached to existing provider types
+(`detectors.RegisterFormats`) are never verified and carry
+`ExtraData["verification"]="not-attempted"`.
+
+<!-- BEGIN kingfisher catalog hosts -->
+| DetectorType | Class | Rationale |
+|---|---|---|
+| AWSCodeCatalyst | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `Http` validator (#898) |
+| AWSCodeCommit | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `Http` validator (#898) |
+| Adafruit | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| AgeSecretKey | b | offline age X25519 identity; no provider endpoint exists (kingfisher catalog host, detection-only) |
+| AlibabaCloud | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `Betterleaks` validator (#898) |
+| Asaas | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `Betterleaks` validator (#898) |
+| Authress | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `Betterleaks` validator (#898) |
+| AzureAppConfiguration | b | HMAC-SHA256 request signing against the store endpoint in the connection string (kingfisher catalog host, detection-only) |
+| AzureServiceBus | b | SAS signing against the namespace in the connection string; no read-only bearer probe (kingfisher catalog host, detection-only) |
+| Beamer | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Bittrex | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Canva | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `Betterleaks` validator (#898) |
+| Clojars | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Contentful | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Coveralls | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| CurlAuth | b | credential belongs to the arbitrary host on the same curl command line (kingfisher catalog host, detection-only) |
+| DefinedNetworking | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Devin | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `Betterleaks` validator (#898) |
+| DockerSwarm | b | self-hosted swarm manager, host not in chunk (kingfisher catalog host, detection-only) |
+| Duffel | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| EBay | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `Betterleaks` validator (#898) |
+| EndorLabs | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Facebook | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Finicity | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Finnhub | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Flickr | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Freemius | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| FreshBooks | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `Betterleaks` validator (#898) |
+| Greptile | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Infracost | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Intra42 | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| KuCoin | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| KubernetesSecret | b | self-hosted cluster, API server not in chunk (kingfisher catalog host, detection-only) |
+| LinkedIn | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Lob | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Mattermost | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| MaxMind | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| MicrosoftTeamsWebhook | b | the only probe posts a message (destructive); no read-only endpoint (kingfisher catalog host, detection-only) |
+| NYTimes | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| OpenShift | b | self-hosted cluster, API server not in chunk (kingfisher catalog host, detection-only) |
+| Packagist | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `Http` validator (#898) |
+| Polymarket | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `Betterleaks, Ethereum` validator (#898) |
+| PrivateAI | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| RainforestPay | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `Betterleaks` validator (#898) |
+| Ramp | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `Betterleaks` validator (#898) |
+| RapidAPI | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| ReadMe | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Scalingo | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Sendbird | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| SettleMint | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Sidekiq | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Tableau | b | token is paired with a token name and a self-hosted/site-specific server (kingfisher catalog host, detection-only) |
+| Twitter | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Typeform | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Yandex | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| ZAI | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `Betterleaks` validator (#898) |
+<!-- END kingfisher catalog hosts -->
+
 ## Machine-readable block
 
 The `coverage-machine` block pins counts and per-detector class.
 
 - `class=a` → Verify implemented (detector satisfies `detectors.Verifier`)
 - `class=b` → Unverified-by-design (no Verify, deliberate)
-- `class=c` → verifiable but not yet implemented (verify-gap; currently unused — every non-Verifier detector is class b)
+- `class=c` → verifiable but not yet implemented (verify-gap)
 
 ```coverage-machine
-total=667
+total=723
 a=600
-b=67
+b=76
+c=47
 type=APIKeyAssignment class=b
 type=APNs class=b
 type=AWSS3PresignedURL class=b
@@ -238,6 +312,64 @@ type=UnixCryptHash class=b
 type=UpstashRedis class=b
 type=Wiz class=b
 type=Zoho class=b
+# BEGIN kingfisher catalog hosts
+type=AWSCodeCatalyst class=c
+type=AWSCodeCommit class=c
+type=Adafruit class=c
+type=AgeSecretKey class=b
+type=AlibabaCloud class=c
+type=Asaas class=c
+type=Authress class=c
+type=AzureAppConfiguration class=b
+type=AzureServiceBus class=b
+type=Beamer class=c
+type=Bittrex class=c
+type=Canva class=c
+type=Clojars class=c
+type=Contentful class=c
+type=Coveralls class=c
+type=CurlAuth class=b
+type=DefinedNetworking class=c
+type=Devin class=c
+type=DockerSwarm class=b
+type=Duffel class=c
+type=EBay class=c
+type=EndorLabs class=c
+type=Facebook class=c
+type=Finicity class=c
+type=Finnhub class=c
+type=Flickr class=c
+type=Freemius class=c
+type=FreshBooks class=c
+type=Greptile class=c
+type=Infracost class=c
+type=Intra42 class=c
+type=KuCoin class=c
+type=KubernetesSecret class=b
+type=LinkedIn class=c
+type=Lob class=c
+type=Mattermost class=c
+type=MaxMind class=c
+type=MicrosoftTeamsWebhook class=b
+type=NYTimes class=c
+type=OpenShift class=b
+type=Packagist class=c
+type=Polymarket class=c
+type=PrivateAI class=c
+type=RainforestPay class=c
+type=Ramp class=c
+type=RapidAPI class=c
+type=ReadMe class=c
+type=Scalingo class=c
+type=Sendbird class=c
+type=SettleMint class=c
+type=Sidekiq class=c
+type=Tableau class=b
+type=Twitter class=c
+type=Typeform class=c
+type=Yandex class=c
+type=ZAI class=c
+# END kingfisher catalog hosts
 ```
 
 `class=a` is the open-set complement of the list above. Adding a new

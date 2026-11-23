@@ -9,8 +9,9 @@ Method (no network, deterministic for a given kingfisher pin and pleno-dlp tree)
      (crates/kingfisher-rules/generated/builtin-rules.gz): the imported
      Betterleaks catalog, the selected Google Veles detectors, and the
      first-party kingfisher rules, each with its validation type.
-  2. Synthesize positive fixtures from every rule's regex (three seeded
-     variants: minimal, lowercase-preferring, randomized) plus the rule's
+  2. Synthesize positive fixtures from every rule's regex (six seeded
+     variants: minimal, lowercase-preferring, and randomized ones whose
+     high-entropy draws survive kingfisher's own entropy filter) plus the rule's
      keywords, and scan them with `pleno-dlp scan filesystem --no-verify`.
   3. Classify each rule:
        covered  - a provider-specific pleno-dlp detector fires on a fixture
@@ -18,7 +19,10 @@ Method (no network, deterministic for a given kingfisher pin and pleno-dlp tree)
                   own generic / connection-string rules);
        partial  - no fixture fired, but pleno-dlp has a detector for the
                   provider (format, context, or checksum difference);
-       missing  - no pleno-dlp detector for the credential type.
+       missing  - no pleno-dlp detector for the credential type;
+       context  - kingfisher hides the rule (visible: false): an identifier,
+                  host, or URL that only feeds another rule's validation and
+                  is never reported, so it is not a detection gap.
 pkg/detectors/kingfisherparity_test.go checks the committed machine block
 against the live registry.
 """
@@ -73,6 +77,13 @@ STOP = set(
     "management deploy config level sdk server encryption signing identifier prod production".split()
 )
 ALNUM = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+# (seed, lowercase-preferring, randomized from the first draw). The
+# randomized variants matter: kingfisher's Betterleaks filters reject
+# low-entropy candidates (min entropy 3.5), so a minimal fixture such as
+# "xoxb-0000000000-0000000000" is not a token kingfisher would report
+# either, and pleno-dlp's entropy gates reject it for the same reason.
+VARIANTS = [(7, False, False), (1, True, False), (99, False, False),
+            (5, False, True), (13, False, True), (21, True, True)]
 
 
 def load_rules(clone):
@@ -82,7 +93,7 @@ def load_rules(clone):
     while i < len(lines):
         line = lines[i]
         if line.startswith("- name: "):
-            cur = {"id": "", "validation": "-", "pattern": "", "kw": []}
+            cur = {"id": "", "validation": "-", "pattern": "", "kw": [], "visible": True, "path": ""}
             rules.append(cur)
             section = None
         elif cur is not None and re.match(r"^\S", line):
@@ -94,6 +105,14 @@ def load_rules(clone):
                 section = key
                 if key == "id":
                     cur["id"] = val
+                elif key == "path":
+                    if val.startswith("'"):
+                        val = val[1:-1].replace("''", "'")
+                    elif val.startswith('"'):
+                        val = json.loads(val)
+                    cur["path"] = val
+                elif key == "visible":
+                    cur["visible"] = val.strip().lower() != "false"
                 elif key == "pattern":
                     if val in ("|", "|-", ">", ">-"):
                         buf = []
@@ -132,8 +151,12 @@ def py_pattern(p):
 
 
 class Gen:
-    def __init__(self, seed, lower):
+    def __init__(self, seed, lower, always_rnd=False):
         self.rng, self.lower, self.rnd = random.Random(seed), lower, False
+        self.always_rnd = always_rnd
+        # After half the draws fail, fillers ('.', [\s\S]) emit a space so
+        # a word boundary between a keyword and the secret can hold.
+        self.spacey = False
 
     def chars(self, items, neg):
         s = set()
@@ -147,7 +170,7 @@ class Gen:
                           C.CATEGORY_SPACE: " ", C.CATEGORY_NOT_SPACE: ALNUM,
                           C.CATEGORY_NOT_DIGIT: "abcXYZ", C.CATEGORY_NOT_WORD: " "}.get(av, ""))
         if neg:
-            return [c for c in ALNUM if c not in s] or ["Q"]
+            return [c for c in ALNUM if c not in s] or [c for c in " ;\n" if c not in s] or ["Q"]
         return sorted(s)
 
     def gen(self, tree):
@@ -158,7 +181,7 @@ class Gen:
             elif op == C.NOT_LITERAL:
                 out.append("a" if chr(av) != "a" else "b")
             elif op == C.ANY:
-                out.append("x")
+                out.append(" " if self.spacey else self.rng.choice(ALNUM) if self.always_rnd else "x")
             elif op == C.IN:
                 neg = bool(av) and av[0][0] == C.NEGATE
                 cs = self.chars(av[1:] if neg else av, neg)
@@ -167,12 +190,17 @@ class Gen:
                     cs = [c for c in cs if not (c.isupper() and c.lower() in cs)]
                     al = [c for c in al if not (c.isupper() and c.lower() in al)]
                 pool = al if al and len(al) >= len(cs) // 3 else cs
+                if self.spacey and " " in cs:
+                    pool = [" "]
                 out.append(self.rng.choice(pool) if pool else "a")
             elif op in (C.MAX_REPEAT, C.MIN_REPEAT, C.POSSESSIVE_REPEAT):
                 lo, hi, sub = av
                 if hi == C.MAXREPEAT:
                     hi = lo + 12
-                n = self.rng.randint(lo, min(hi, lo + 4)) if self.rnd else lo
+                if self.always_rnd:  # longer draws: higher entropy
+                    n = self.rng.randint(min(hi, lo + 8), min(hi, lo + 24))
+                else:
+                    n = self.rng.randint(lo, min(hi, lo + 4)) if self.rnd else lo
                 out.extend(self.gen(sub) for _ in range(n))
             elif op == C.SUBPATTERN:
                 out.append(self.gen(av[-1]))
@@ -193,33 +221,62 @@ class Gen:
         except (re.error, Exception):  # noqa: BLE001 - unsupported syntax: no fixture
             return None
         for k in range(400):
-            self.rnd = k > 0
+            self.rnd = self.always_rnd or k > 0
+            self.spacey = k >= 200
             s = self.gen(tree)
             if rx.search(s):
                 return s
         return None
 
 
-def scan(repo, rules):
+# File-name suffixes satisfying kingfisher's path-constrained rules.
+PATH_SUFFIX = [("php", ".php"), ("tf|hcl", ".tf"), ("ya?ml", ".yaml"), ("nuget", ".nuget.config"),
+               ("bitwarden", "/bitwarden-cli/data.json"), ("_history", "_history")]
+
+
+def path_suffix(path_re):
+    if not path_re:
+        return ".txt"
+    for key, suffix in PATH_SUFFIX:
+        if key in path_re:
+            return suffix
+    sys.exit(f"no fixture file name for path constraint {path_re!r}; extend PATH_SUFFIX")
+
+
+def scan(repo, rules, tags=None):
     with tempfile.TemporaryDirectory() as d:
-        for variant, (seed, lower) in enumerate([(7, False), (1, True), (99, False)]):
-            g = Gen(seed, lower)
+        for variant, (seed, lower, rnd) in enumerate(VARIANTS):
+            g = Gen(seed, lower, rnd)
             for r in rules:
                 s = g.sample(r["pattern"])
                 if s is None:
                     continue
-                name = r["id"].replace("/", "_") + "@" + str(variant) + ".txt"
+                name = r["id"].replace("/", "_") + "@" + str(variant) + path_suffix(r["path"])
+                os.makedirs(os.path.dirname(os.path.join(d, name)), exist_ok=True)
                 with open(os.path.join(d, name), "w") as f:
                     f.write("# " + " ".join(r["kw"][:3]) + "\n" + s + "\n")
         out = subprocess.run(
-            ["go", "run", "./cmd/pleno-dlp", "scan", "filesystem", d, "--no-verify", "--format", "jsonl"],
+            ["go", "run"] + (["-tags", tags] if tags else []) +
+            ["./cmd/pleno-dlp", "scan", "filesystem", d, "--no-verify", "--format", "jsonl"],
             cwd=repo, capture_output=True, text=True, check=False).stdout
     hits = collections.defaultdict(set)
     for line in out.splitlines():
         if line.startswith("{"):
             f = json.loads(line)
-            hits[os.path.basename(f["path"]).split("@")[0]].add(f["detector"])
+            part = next(p for p in f["path"].split(os.sep) if "@" in p)
+            hits[part.split("@")[0]].add(f["detector"])
     return hits
+
+
+def generic_rule(rule_id):
+    """kingfisher's own generic rules, which generic detectors may cover."""
+    short = rule_id.split(".", 1)[1]
+    return short.startswith("connection-string") or short == "generic-api-key"
+
+
+def specific_hits(rule_id, hits):
+    h = hits.get(rule_id.replace("/", "_"), set())
+    return h if generic_rule(rule_id) else h - GENERIC
 
 
 def provider(rule_id, names):
@@ -256,15 +313,18 @@ def main():
     hits = scan(repo, rules)
     rows = []
     for r in rules:
-        short = r["id"].split(".", 1)[1]
         prov = provider(r["id"], names)
-        h = hits.get(r["id"].replace("/", "_"), set())
-        if not (short.startswith("connection-string") or short == "generic-api-key"):
-            h = h - GENERIC
+        h = specific_hits(r["id"], hits)
+        if not generic_rule(r["id"]):
             if prov in GENERIC:
                 prov = None
-        status = "covered" if h else ("partial" if prov else "missing")
+        if not r["visible"]:
+            status = "context"
+        else:
+            status = "covered" if h else ("partial" if prov else "missing")
         det = ",".join(sorted(h)) if h else (prov or "-")
+        if status == "context" and not h:
+            det = "-"
         rows.append((r["id"], r["validation"], status, det))
     write(args.out, pin, rows)
     c = collections.Counter(s for _, _, s, _ in rows)
@@ -299,13 +359,24 @@ def write(out, pin, rows):
         "  fired: a format variant, a stricter context or checksum rule, or a",
         "  fixture artefact. Each is a candidate for a format extension.",
         "- **missing** — no pleno-dlp detector for the credential type.",
+        "- **context** — kingfisher hides the rule (`visible: false`): an",
+        "  identifier, host, or URL that only feeds another rule's validation",
+        "  and is never reported. Not a detection gap; pleno-dlp's paired",
+        "  verifiers extract such context themselves.",
+        "",
+        "Rules pleno-dlp's native detectors miss are imported as detection-only",
+        "formats by `scripts/kingfisher-catalog.py` (`pkg/detectors/catalog`).",
+        "`betterleaks.generic-api-key` stays partial by design: importing",
+        "Betterleaks' catch-all assignment rule adds hundreds of English-word",
+        "findings on this repository alone, and `GenericHighEntropy` owns the",
+        "generic class with stricter false-positive gates.",
         "",
         "## Summary",
         "",
-        "| | covered | partial | missing | total |",
-        "|---|---|---|---|---|",
-        f"| all rules | {c['covered']} | {c['partial']} | {c['missing']} | {total} |",
-        f"| with kingfisher validation | {cv['covered']} | {cv['partial']} | {cv['missing']} | {validated} |",
+        "| | covered | partial | missing | context | total |",
+        "|---|---|---|---|---|---|",
+        f"| all rules | {c['covered']} | {c['partial']} | {c['missing']} | {c['context']} | {total} |",
+        f"| with kingfisher validation | {cv['covered']} | {cv['partial']} | {cv['missing']} | {cv['context']} | {validated} |",
         "",
         "## Rules",
         "",
@@ -315,6 +386,7 @@ def write(out, pin, rows):
         f"covered={c['covered']}",
         f"partial={c['partial']}",
         f"missing={c['missing']}",
+        f"context={c['context']}",
     ]
     for rid, v, s, d in rows:
         lines.append(f"rule={rid} validation={v} status={s} detector={d}")

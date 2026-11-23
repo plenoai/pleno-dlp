@@ -40,7 +40,8 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	out := make([]detectors.Result, 0, len(matches))
 	for _, m := range matches {
 		token := string(m)
-		extra := map[string]string{}
+		// Offline signal: a bad CRC32 suffix means npm never issued it.
+		extra := map[string]string{"checksum": detectors.TokenChecksum(token[len("npm_"):])}
 		res := detectors.Result{
 			DetectorType: detectors.NPM,
 			Raw:          []byte(token),

@@ -552,3 +552,14 @@ func TestHasPrivilegedScope(t *testing.T) {
 		t.Errorf("admin:org should be privileged")
 	}
 }
+
+func TestClassicChecksumAnnotation(t *testing.T) {
+	body := "Zq8Lm3XcVb7Nn2Kk5Jh4Gf6Dd9Ss1A"
+	valid := "ghp_" + body + detectors.CRC32Base62(body)
+	for tok, want := range map[string]string{valid: "valid", dummyClassic: "invalid"} {
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(" "+tok))
+		if len(res) != 1 || res[0].ExtraData["checksum"] != want {
+			t.Fatalf("%s: got %+v, want checksum=%s", tok[:8], res, want)
+		}
+	}
+}

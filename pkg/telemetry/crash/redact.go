@@ -229,7 +229,7 @@ func (r *Redactor) scrubSecrets(s string) string {
 		if ctx.Err() != nil {
 			break
 		}
-		if !keywordHit(lower, d.Keywords()) {
+		if !keywordHit(lower, detectors.KeywordsWithFormats(d)) {
 			continue
 		}
 		results := safeFromData(ctx, d, data)
@@ -267,5 +267,5 @@ func safeFromData(ctx context.Context, d detectors.Detector, data []byte) (out [
 		}
 	}()
 	out, _ = d.FromData(ctx, false, data)
-	return out
+	return detectors.AppendFormatResults(d.Type(), "", data, out)
 }
