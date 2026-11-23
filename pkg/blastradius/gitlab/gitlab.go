@@ -12,8 +12,8 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// MaxProjects caps the project listing.
-const MaxProjects = 100
+// MaxProjects caps the paginated project listing.
+const MaxProjects = 1000
 
 // Mapper implements detectors.AccessMapper for GitLab tokens.
 type Mapper struct {
@@ -67,7 +67,7 @@ func (m Mapper) MapAccess(ctx context.Context, cred detectors.AccessCredential) 
 		}
 	}
 
-	var projects []struct {
+	type project struct {
 		PathWithNamespace string `json:"path_with_namespace"`
 		Permissions       struct {
 			ProjectAccess *struct {
@@ -78,7 +78,8 @@ func (m Mapper) MapAccess(ctx context.Context, cred detectors.AccessCredential) 
 			} `json:"group_access"`
 		} `json:"permissions"`
 	}
-	if _, err := httpx.GetJSON(ctx, m.Client, fmt.Sprintf("%s/api/v4/projects?membership=true&per_page=%d", base, MaxProjects), hdr, &projects); err != nil {
+	projects, truncated, err := httpx.GetLinkPages[project](ctx, m.Client, base+"/api/v4/projects?membership=true&per_page=100", hdr, MaxProjects)
+	if err != nil {
 		am.Limitations = append(am.Limitations, "projects: "+err.Error())
 	}
 	for _, p := range projects {
@@ -98,7 +99,7 @@ func (m Mapper) MapAccess(ctx context.Context, cred detectors.AccessCredential) 
 		}
 		am.Resources = append(am.Resources, res)
 	}
-	if len(projects) >= MaxProjects {
+	if truncated {
 		am.Limitations = append(am.Limitations, fmt.Sprintf("project listing capped at %d", MaxProjects))
 	}
 	return am, nil

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -68,3 +70,51 @@ type StatusError struct {
 }
 
 func (e *StatusError) Error() string { return fmt.Sprintf("%s: HTTP %d", e.URL, e.Code) }
+
+// NextLink extracts the rel="next" target from an RFC 8288 Link header.
+func NextLink(h http.Header) string {
+	for _, part := range strings.Split(h.Get("Link"), ",") {
+		seg := strings.Split(part, ";")
+		if len(seg) < 2 {
+			continue
+		}
+		for _, p := range seg[1:] {
+			if strings.ReplaceAll(strings.TrimSpace(p), " ", "") == `rel="next"` {
+				return strings.Trim(strings.TrimSpace(seg[0]), "<>")
+			}
+		}
+	}
+	return ""
+}
+
+// SameOrigin reports whether next shares scheme and host with base, so a
+// provider-supplied pagination link never redirects credentials elsewhere.
+func SameOrigin(base, next string) bool {
+	b, err1 := url.Parse(base)
+	n, err2 := url.Parse(next)
+	return err1 == nil && err2 == nil && b.Scheme == n.Scheme && strings.EqualFold(b.Host, n.Host)
+}
+
+// GetLinkPages follows Link rel="next" pagination from first, decoding each
+// page's JSON array into items until maxItems is reached. truncated reports
+// that more items exist beyond the cap.
+func GetLinkPages[T any](ctx context.Context, c *http.Client, first string, hdr map[string]string, maxItems int) (items []T, truncated bool, err error) {
+	next := first
+	for next != "" {
+		var page []T
+		h, err := GetJSON(ctx, c, next, hdr, &page)
+		if err != nil {
+			return items, false, err
+		}
+		items = append(items, page...)
+		n := NextLink(h)
+		if len(items) >= maxItems {
+			return items[:maxItems], n != "" || len(items) > maxItems, nil
+		}
+		if n != "" && !SameOrigin(first, n) {
+			return items, true, nil
+		}
+		next = n
+	}
+	return items, false, nil
+}
