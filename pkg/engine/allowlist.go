@@ -11,10 +11,31 @@ import (
 	"sync"
 )
 
-// Allowlist describes accepted findings.
+// Allowlist is the single suppression policy applied after dedup and the
+// placeholder filter. It unifies four sources of accepted findings so every
+// caller gets one counter, one audit path, and one ordering (issue #812):
+//
+//   - Entries: user-curated rules from .pleno-allow.json, --skip-regex, and
+//     --skip-word;
+//   - baseline fingerprints loaded with --baseline (see baseline.go);
+//   - inline pragmas (`pleno-dlp:allow`) detected by the engine and carried
+//     on Finding.InlineAllowed, honored when HonorInline is set.
 type Allowlist struct {
 	Entries []AllowlistEntry `json:"entries"`
+	// HonorInline suppresses findings the engine marked InlineAllowed.
+	// The CLI enables it unless --no-inline-allow is given.
+	HonorInline bool `json:"-"`
+
+	fingerprints map[string]struct{}
 }
+
+// Suppression reasons recorded in Finding.SuppressedBy and the per-reason
+// counters.
+const (
+	SuppressedByAllowlist = "allowlist"
+	SuppressedByBaseline  = "baseline"
+	SuppressedByInline    = "inline-allow"
+)
 
 // AllowlistEntry is one suppression rule.
 type AllowlistEntry struct {
@@ -23,6 +44,11 @@ type AllowlistEntry struct {
 	Raw      string `json:"raw,omitempty"`
 	RawRegex string `json:"raw_regex,omitempty"`
 	Path     string `json:"path,omitempty"`
+	// RawContains matches when Raw contains the value, case-insensitively
+	// (the --skip-word form).
+	RawContains string `json:"raw_contains,omitempty"`
+	// Fingerprint matches Fingerprint(f) exactly.
+	Fingerprint string `json:"fingerprint,omitempty"`
 
 	rawRegexCompiled *regexp.Regexp `json:"-"`
 }
@@ -40,20 +66,54 @@ func LoadAllowlist(r io.Reader) (*Allowlist, error) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("allowlist: invalid json: %w", err)
 	}
-	for i := range raw.Entries {
-		e := &raw.Entries[i]
-		if e.Detector == "" && e.Raw == "" && e.RawRegex == "" && e.Path == "" {
-			return nil, fmt.Errorf("allowlist entry %d: at least one of detector / raw / raw_regex / path is required", i)
+	entries := raw.Entries
+	raw.Entries = nil
+	if err := raw.Add(entries...); err != nil {
+		return nil, err
+	}
+	return &raw, nil
+}
+
+// Add validates and appends entries. Entries that carry only a fingerprint
+// are indexed so a large baseline stays O(1) per finding.
+func (a *Allowlist) Add(entries ...AllowlistEntry) error {
+	for i, e := range entries {
+		if e.Detector == "" && e.Raw == "" && e.RawRegex == "" && e.Path == "" && e.RawContains == "" && e.Fingerprint == "" {
+			return fmt.Errorf("allowlist entry %d: at least one of detector / raw / raw_regex / raw_contains / path / fingerprint is required", len(a.Entries)+i)
 		}
 		if e.RawRegex != "" {
 			rx, err := regexp.Compile(e.RawRegex)
 			if err != nil {
-				return nil, fmt.Errorf("allowlist entry %d: invalid raw_regex %q: %w", i, e.RawRegex, err)
+				return fmt.Errorf("allowlist entry %d: invalid raw_regex %q: %w", len(a.Entries)+i, e.RawRegex, err)
 			}
 			e.rawRegexCompiled = rx
 		}
+		if e.Fingerprint != "" && e.Detector == "" && e.Raw == "" && e.RawRegex == "" && e.Path == "" && e.RawContains == "" {
+			if a.fingerprints == nil {
+				a.fingerprints = map[string]struct{}{}
+			}
+			a.fingerprints[e.Fingerprint] = struct{}{}
+			continue
+		}
+		a.Entries = append(a.Entries, e)
 	}
-	return &raw, nil
+	return nil
+}
+
+// AddFingerprints indexes baseline fingerprints.
+func (a *Allowlist) AddFingerprints(fps ...string) {
+	if a.fingerprints == nil {
+		a.fingerprints = make(map[string]struct{}, len(fps))
+	}
+	for _, fp := range fps {
+		if fp != "" {
+			a.fingerprints[fp] = struct{}{}
+		}
+	}
+}
+
+func (a *Allowlist) active() bool {
+	return a != nil && (len(a.Entries) > 0 || len(a.fingerprints) > 0 || a.HonorInline)
 }
 
 // LoadAllowlistFile opens path and delegates to LoadAllowlist.
@@ -66,14 +126,43 @@ func LoadAllowlistFile(path string) (*Allowlist, error) {
 	return LoadAllowlist(f)
 }
 
+// Match reports whether any configured rule suppresses f.
 func (a *Allowlist) Match(f Finding) bool {
+	return a.MatchReason(f) != ""
+}
+
+// MatchReason returns the suppression reason for f, or "" when f is kept.
+// Inline pragmas win over baseline fingerprints, which win over entries, so
+// the recorded reason names the most specific mechanism.
+func (a *Allowlist) MatchReason(f Finding) string {
 	if a == nil {
-		return false
+		return ""
+	}
+	if a.HonorInline && f.InlineAllowed {
+		return SuppressedByInline
+	}
+	var fp string
+	if len(a.fingerprints) > 0 {
+		fp = Fingerprint(f)
+		if _, ok := a.fingerprints[fp]; ok {
+			return SuppressedByBaseline
+		}
 	}
 	det := f.Detector.String()
 	raw := string(f.Result.Raw)
 	path := findingPath(f)
 	for _, e := range a.Entries {
+		if e.Fingerprint != "" {
+			if fp == "" {
+				fp = Fingerprint(f)
+			}
+			if e.Fingerprint != fp {
+				continue
+			}
+		}
+		if e.RawContains != "" && !strings.Contains(strings.ToLower(raw), strings.ToLower(e.RawContains)) {
+			continue
+		}
 		if e.Detector != "" && !strings.EqualFold(e.Detector, det) {
 			continue
 		}
@@ -88,9 +177,9 @@ func (a *Allowlist) Match(f Finding) bool {
 				continue
 			}
 		}
-		return true
+		return SuppressedByAllowlist
 	}
-	return false
+	return ""
 }
 
 // allowlistSink suppresses matched findings before they reach the inner sink.
@@ -100,6 +189,7 @@ type allowlistSink struct {
 	audit     Sink
 	mu        sync.Mutex
 	suppCount int64
+	byReason  map[string]int64
 }
 
 // NewAllowlist wraps inner and passes through when no rules are configured.
@@ -109,25 +199,28 @@ func NewAllowlist(allowlist *Allowlist, inner Sink) Sink {
 
 // NewAllowlistWithAudit is the audit-capable constructor: when audit is
 // non-nil, every finding the allowlist matches is also forwarded to
-// audit with SuppressedBy set to "allowlist" instead of only tallying
-// it, the same mechanism placeholderSink uses for --show-suppressed
-// (issue #290). No CLI flag wires audit through for the allowlist yet —
-// this constructor exists purely as the extension point issue #290
-// asks for; NewAllowlist's default (audit=nil) behaviour is unchanged.
+// audit with SuppressedBy set to the matching reason (allowlist,
+// baseline, inline-allow) instead of only tallying it, the same mechanism
+// placeholderSink uses for --show-suppressed (issues #290, #812). The CLI
+// passes its --show-suppressed sink here; NewAllowlist keeps audit=nil.
 func NewAllowlistWithAudit(allowlist *Allowlist, inner Sink, audit Sink) Sink {
-	if allowlist == nil || len(allowlist.Entries) == 0 {
+	if !allowlist.active() {
 		return inner
 	}
 	return &allowlistSink{inner: inner, allowlist: allowlist, audit: audit}
 }
 
 func (a *allowlistSink) Emit(f Finding) {
-	if a.allowlist.Match(f) {
+	if reason := a.allowlist.MatchReason(f); reason != "" {
 		a.mu.Lock()
 		a.suppCount++
+		if a.byReason == nil {
+			a.byReason = map[string]int64{}
+		}
+		a.byReason[reason]++
 		a.mu.Unlock()
 		if a.audit != nil {
-			f.SuppressedBy = "allowlist"
+			f.SuppressedBy = reason
 			a.audit.Emit(f)
 		}
 		return
@@ -143,12 +236,32 @@ func (a *allowlistSink) SuppressedCount() int64 {
 	return a.suppCount
 }
 
+// SuppressedByReason returns per-reason suppression counts for an allowlist
+// sink, or nil for any other sink.
+func SuppressedByReason(s Sink) map[string]int64 {
+	a, ok := s.(*allowlistSink)
+	if !ok {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make(map[string]int64, len(a.byReason))
+	for k, v := range a.byReason {
+		out[k] = v
+	}
+	return out
+}
+
 func SuppressedCounter(s Sink) int64 {
 	if a, ok := s.(*allowlistSink); ok {
 		return a.SuppressedCount()
 	}
 	return -1
 }
+
+// FindingPath returns the path-like location used for allowlist path rules
+// and fingerprints.
+func FindingPath(f Finding) string { return findingPath(f) }
 
 // findingPath returns the path-like field used for path matching.
 func findingPath(f Finding) string {

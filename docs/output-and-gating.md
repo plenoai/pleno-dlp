@@ -19,6 +19,11 @@ SHA-256 over the matched raw secret bytes. Pair-style detectors that
 carry a second secret half also emit `secret_hash_v2`. The raw secret
 value is not printed.
 
+Each JSON record also carries `fingerprint` and `path`. `fingerprint`
+is the stable, secret-free key used by `pleno-dlp baseline` and
+`--baseline`; SARIF exposes the same value as
+`partialFingerprints["baseline/v1"]`. See [baseline.md](baseline.md).
+
 `jsonl` emits the same record as `json`, one compact object per line, so a
 truncated stream stays parseable. `html` buffers redacted findings and
 writes one page with inline CSS/JS and no network references (a

@@ -71,6 +71,10 @@ type scanFlags struct {
 	alertMinSeverity   string
 	alertDryRun        bool
 	allowlistPath      string
+	baselinePath       string
+	noInlineAllow      bool
+	skipRegex          []string
+	skipWord           []string
 	includeDetectors   []string
 	excludeDetectors   []string
 	quiet              bool
@@ -234,6 +238,7 @@ func init() {
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.alertDryRun, "alert-dry-run", false,
 		"print each alert payload to stderr instead of POSTing it")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file that mutes known false positives (auto-discovers .pleno-allow.json from the repo root)")
+	registerSuppressionFlags(scanCmd.PersistentFlags())
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated, case-insensitive Type names; see 'pleno-dlp detectors list'). Custom rules from --rules count as GenericHighEntropy.")
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.excludeDetectors, "exclude-detectors", nil, "skip these detectors (comma-separated, case-insensitive Type names). Applied after --include-detectors.")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.quiet, "quiet", false, "suppress the end-of-scan summary line on stderr (use in scripted callers parsing stderr)")
@@ -588,7 +593,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		return fmt.Errorf("invalid --fail-on-coverage %q: want gap or any", scanOpts.failOnCoverage)
 	}
 
-	allowlist, err := loadAllowlistMaybe(scanOpts.allowlistPath)
+	allowlist, err := loadSuppressionPolicy()
 	if err != nil {
 		return err
 	}
@@ -777,7 +782,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	if scanOpts.blastRadiusOnly {
 		topSink = chain.Track(&blastRadiusFilterSink{inner: topSink})
 	}
-	allowed := chain.Track(engine.NewAllowlist(allowlist, topSink))
+	allowed := chain.Track(engine.NewAllowlistWithAudit(allowlist, topSink, suppressedAudit))
 	placeheld := chain.Track(engine.NewPlaceholderFilter(allowed, suppressedAudit))
 	deduped := chain.Track(engine.NewDedup(placeheld))
 	// Git-mode cross-commit dedup: collapse the same secret+file across many
@@ -789,9 +794,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	}
 	defer func() { _ = chain.Close() }()
 	defer func() {
-		if n := engine.SuppressedCounter(allowed); n > 0 {
-			fmt.Fprintf(cmd.ErrOrStderr(), "allowlist: suppressed %d finding(s)\n", n)
-		}
+		reportSuppressions(cmd.ErrOrStderr(), allowed)
 		if n := engine.PlaceholderSuppressedCounter(placeheld); n > 0 {
 			fmt.Fprintf(cmd.ErrOrStderr(), "placeholder: suppressed %d finding(s)\n", n)
 		}
@@ -1497,8 +1500,17 @@ func scannerFingerprint(kind string, cfg []byte) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("incremental: hash allowlist: %w", err)
 	}
+	baselineHash, err := fileContentHash(scanOpts.baselinePath)
+	if err != nil {
+		return "", fmt.Errorf("incremental: hash baseline: %w", err)
+	}
 	payload := map[string]any{
 		"version":                 1,
+		"baseline_path":           scanOpts.baselinePath,
+		"baseline_hash":           baselineHash,
+		"no_inline_allow":         scanOpts.noInlineAllow,
+		"skip_regex":              scanOpts.skipRegex,
+		"skip_word":               scanOpts.skipWord,
 		"tool_version":            toolVersion,
 		"kind":                    kind,
 		"source_config":           json.RawMessage(cfg),
