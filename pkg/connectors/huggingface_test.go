@@ -110,16 +110,16 @@ func TestHuggingFaceScanEmitsChunksFromClone(t *testing.T) {
 	if got := parseRepoTypes("model,unknown,dataset"); len(got) != 2 {
 		t.Fatalf("parseRepoTypes with unknown = %v, want 2 elements", got)
 	}
-	if got := parseRepoTypes(""); len(got) != 3 {
-		t.Fatalf("parseRepoTypes empty = %v, want default 3", got)
+	if got := parseRepoTypes(""); len(got) != 4 {
+		t.Fatalf("parseRepoTypes empty = %v, want default 4", got)
 	}
 
 	// Unit test: verify hfCloneURL construction.
-	u := hfCloneURL("https://huggingface.co", "myorg", "myorg/mymodel")
+	u := hfCloneURL("https://huggingface.co", "model", "myorg", "myorg/mymodel")
 	if u != "https://huggingface.co/myorg/mymodel.git" {
 		t.Fatalf("hfCloneURL = %q, want https://huggingface.co/myorg/mymodel.git", u)
 	}
-	u2 := hfCloneURL("https://huggingface.co", "myorg", "mymodel")
+	u2 := hfCloneURL("https://huggingface.co", "model", "myorg", "mymodel")
 	if u2 != "https://huggingface.co/myorg/mymodel.git" {
 		t.Fatalf("hfCloneURL bare name = %q, want .../myorg/mymodel.git", u2)
 	}
@@ -313,8 +313,9 @@ func TestHuggingFaceParseRepoTypes(t *testing.T) {
 		{"dataset,space", []string{"dataset", "space"}},
 		{"MODEL,Dataset", []string{"model", "dataset"}},
 		{"model,UNKNOWN", []string{"model"}},
-		{"", []string{"model", "dataset", "space"}},
-		{"JUNK", []string{"model", "dataset", "space"}},
+		{"", []string{"model", "dataset", "space", "bucket"}},
+		{"JUNK", []string{"model", "dataset", "space", "bucket"}},
+		{"bucket", []string{"bucket"}},
 	}
 	for _, tc := range cases {
 		got := parseRepoTypes(tc.in)
@@ -329,7 +330,7 @@ func TestHuggingFaceScanValidationErrors(t *testing.T) {
 	ctx := context.Background()
 	noop := func([]byte, sources.Metadata) error { return nil }
 
-	// Neither org nor repo.
+	// None of org/user/repo/bucket.
 	if err := scanHuggingFace(ctx, Config{}, noop); err == nil {
 		t.Error("expected error for missing org/repo")
 	}
