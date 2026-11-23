@@ -20,9 +20,11 @@ import (
 //     BSD-3-Clause), uniXXXX/uXXXX names, and common ligatures;
 //   - Type0 fonts with an embedded TrueType program (FontFile2) map CIDs to
 //     glyph ids (CIDToGIDMap) and invert the program's Unicode cmap.
-// CID fonts with only a CFF program and no ToUnicode (macOS Quartz output
-// for CJK text, ordering Adobe-Japan1 etc.) carry no Unicode mapping in the
-// file; their strings are dropped rather than emitted as glyph-index noise.
+//   - Identity-encoded CID fonts with only a CFF program (macOS Quartz
+//     output for CJK text) decode through the registered ordering named by
+//     CIDSystemInfo (Adobe-Japan1/GB1/CNS1/Korea1/KR, pdfcid.go).
+// Remaining CID fonts carry no Unicode mapping in the file; their strings
+// are dropped rather than emitted as glyph-index noise.
 
 type pdfFont interface {
 	decode(b []byte) []byte
@@ -246,14 +248,7 @@ func pdfType0Glyphs(fontDict []byte, objs map[int]*pdfObject) pdfFont {
 	if !bytes.Contains(fontDict, []byte("/Identity-H")) && !bytes.Contains(fontDict, []byte("/Identity-V")) {
 		return nil
 	}
-	desc := pdfValueAfter(fontDict, pdfDescendants, objs)
-	if arr := pdfBalanced(bytes.TrimLeft(desc, " \t\r\n")); len(arr) > 0 && arr[0] == '[' {
-		if m := pdfRefAll.FindSubmatch(arr); m != nil {
-			if o := objs[pdfRefNum(m)]; o != nil {
-				desc = o.dict
-			}
-		}
-	}
+	desc := pdfDescendantDict(fontDict, objs)
 	fd := objs[pdfRefNum(pdfDescriptor.FindSubmatch(desc))]
 	if fd == nil {
 		return nil
@@ -278,6 +273,19 @@ func pdfType0Glyphs(fontDict []byte, objs map[int]*pdfObject) pdfFont {
 		}
 	}
 	return f
+}
+
+// pdfDescendantDict returns the Type0 font's descendant CIDFont dictionary.
+func pdfDescendantDict(fontDict []byte, objs map[int]*pdfObject) []byte {
+	desc := pdfValueAfter(fontDict, pdfDescendants, objs)
+	if arr := pdfBalanced(bytes.TrimLeft(desc, " \t\r\n")); len(arr) > 0 && arr[0] == '[' {
+		if m := pdfRefAll.FindSubmatch(arr); m != nil {
+			if o := objs[pdfRefNum(m)]; o != nil {
+				desc = o.dict
+			}
+		}
+	}
+	return desc
 }
 
 // trueTypeGlyphUnicode inverts the (3,1)/(0,x) format 4 or (3,10) format 12

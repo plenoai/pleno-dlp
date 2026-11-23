@@ -15,7 +15,7 @@ import (
 // testdata/quartz.pdf is macOS Quartz PDFContext output (cupsfilter of a
 // text file): Latin text in a subset TrueType font with /MacRomanEncoding
 // and no ToUnicode, Japanese text in a CFF CIDFontType0 (Adobe-Japan1,
-// Identity-H) with no ToUnicode.
+// Identity-H) with no ToUnicode, decoded through the Adobe-Japan1 table.
 func TestExtractPDFQuartzRealWorld(t *testing.T) {
 	data, err := os.ReadFile("testdata/quartz.pdf")
 	if err != nil {
@@ -26,7 +26,7 @@ func TestExtractPDFQuartzRealWorld(t *testing.T) {
 		t.Fatalf("Walk: %v", err)
 	}
 	text := entries["q.pdf#text"]
-	requireEntry(t, entries, "q.pdf#text", "quartz token FIXTURE-QUARTZ-TOKEN", "FIXTURE-QUARTZ-CID")
+	requireEntry(t, entries, "q.pdf#text", "quartz token FIXTURE-QUARTZ-TOKEN", "日本語トークン", "FIXTURE-QUARTZ-CID")
 	// Page text (before the document info strings) must hold no CID
 	// glyph-index bytes and no embedded font or ICC program bytes.
 	page, _, _ := strings.Cut(text, "Adobe Japan1")

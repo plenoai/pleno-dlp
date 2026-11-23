@@ -412,6 +412,9 @@ func pdfFontDecoder(objs map[int]*pdfObject, num int) pdfFont {
 		if f := pdfType0Glyphs(font.dict, objs); f != nil {
 			return f
 		}
+		if f := pdfType0Ordering(font.dict, objs); f != nil {
+			return f
+		}
 		// CIDs without any Unicode mapping are glyph indices, not text;
 		// emitting their bytes only adds noise.
 		return pdfDropFont{}
