@@ -98,7 +98,7 @@ func TestKingfisherValidatedRulesAreVerified(t *testing.T) {
 	}
 	rowRe := regexp.MustCompile(`^rule=(\S+) validation=(\S+) status=\S+ detector=(\S+) verified=(\S+)$`)
 	header := map[string]int{}
-	validated, verified := 0, 0
+	validated, verified, plenoOnly := 0, 0, 0
 	inDoc := map[string]string{}
 	for _, line := range strings.Split(strings.TrimSpace(block[1]), "\n") {
 		m := rowRe.FindStringSubmatch(line)
@@ -119,6 +119,8 @@ func TestKingfisherValidatedRulesAreVerified(t *testing.T) {
 			} else {
 				verified++
 			}
+		} else if ver != "-" {
+			plenoOnly++
 		}
 		switch kind := catalog.CheckKind(rule); {
 		case kind != "":
@@ -144,6 +146,12 @@ func TestKingfisherValidatedRulesAreVerified(t *testing.T) {
 	}
 	if header["validated"] != validated || header["verified"] != verified {
 		t.Errorf("machine header validated=%d verified=%d, rows say %d/%d", header["validated"], header["verified"], validated, verified)
+	}
+	if header["pleno_only_verified"] != plenoOnly {
+		t.Errorf("machine header pleno_only_verified=%d, rows say %d", header["pleno_only_verified"], plenoOnly)
+	}
+	if w := "| pleno-only verified | 0 | " + strconv.Itoa(plenoOnly) + " |"; !strings.Contains(doc, w) {
+		t.Errorf("summary missing %q", w)
 	}
 	want := "| validated parity | " + strconv.Itoa(validated) + " | " + strconv.Itoa(verified) + " |"
 	if !strings.Contains(doc, want) {

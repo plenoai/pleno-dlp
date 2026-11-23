@@ -27,6 +27,9 @@ func TestProviderConfirmedDetectorSetIsExplicitlyAudited(t *testing.T) {
 		// identity, account-scoped resource, or issued-token responses only.
 		"AWSCodeCatalyst", "AWSCodeCommit", "AlibabaCloud", "Asaas", "Authress", "AzureAppConfiguration",
 		"AzureServiceBus", "Devin", "FreshBooks", "Packagist", "Polymarket", "RainforestPay", "Tableau", "ZAI",
+		// pleno-only catalog checks (#950): identity, account resource, or issued token.
+		"Adafruit", "Contentful", "DefinedNetworking", "EndorLabs", "Facebook", "Intra42", "Lob", "MaxMind",
+		"ReadMe", "Scalingo", "Sendbird", "Typeform", "Yandex",
 	}
 	slices.Sort(want)
 	if !slices.Equal(got, want) {

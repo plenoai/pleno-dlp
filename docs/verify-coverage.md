@@ -32,7 +32,7 @@ when a detector leaves severity unset. Per-detector overrides usually
 raise it; the one lowering exception is `SalesforceRefresh` (see the
 class (b) table).
 
-## (a) Verify implemented — 617 detectors
+## (a) Verify implemented — 638 detectors
 
 Detector type satisfies `detectors.Verifier`. The detector calls the
 upstream provider and returns `(true, nil)` on success, `(false, nil)`
@@ -56,7 +56,7 @@ patterns). The extracted tenant is combined with the matched
 AzureAD/AzureApp verifiers cannot yet distinguish a rejected credential
 from an unreachable token endpoint.
 
-## (b) Unverified-by-design — 73 detectors
+## (b) Unverified-by-design — 76 detectors
 
 These detectors deliberately do not implement `Verify`. The rationale
 is one of:
@@ -190,45 +190,24 @@ signatures; heuristic for the offline secp256k1 key check.
 <!-- BEGIN kingfisher catalog hosts -->
 | DetectorType | Class | Rationale |
 |---|---|---|
-| Adafruit | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
 | AgeSecretKey | b | offline age X25519 identity; no provider endpoint exists (kingfisher catalog host, detection-only) |
-| Beamer | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Bittrex | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Clojars | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Contentful | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Coveralls | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Bittrex | b | exchange shut down in 2023; no live API remains (kingfisher catalog host, detection-only) |
+| Clojars | c | kingfisher catalog host, detection-only in kingfisher too; deploy tokens authenticate only with the account username in Basic auth; no reliable username context pattern yet (#950 follow-up) |
+| Coveralls | c | kingfisher catalog host, detection-only in kingfisher too; no documented identity endpoint for personal API tokens; repo-scoped endpoints need an owner/repo partner (#950 follow-up) |
 | CurlAuth | b | credential belongs to the arbitrary host on the same curl command line (kingfisher catalog host, detection-only) |
-| DefinedNetworking | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
 | DockerSwarm | b | self-hosted swarm manager, host not in chunk (kingfisher catalog host, detection-only) |
-| Duffel | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| EndorLabs | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Facebook | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Finicity | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Finnhub | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Flickr | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Freemius | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Greptile | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Infracost | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Intra42 | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| KuCoin | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| Finicity | c | kingfisher catalog host, detection-only in kingfisher too; needs App-Key plus partner ID alongside the secret; three-part pairing not yet modelled (#950 follow-up) |
+| Freemius | c | kingfisher catalog host, detection-only in kingfisher too; requests are HMAC-signed with developer ID and public key partners (#950 follow-up) |
+| Greptile | c | kingfisher catalog host, detection-only in kingfisher too; no account endpoint; API calls need a GitHub token and repository partner (#950 follow-up) |
+| KuCoin | c | kingfisher catalog host, detection-only in kingfisher too; HMAC-signed requests need the API passphrase as a third partner (#950 follow-up) |
 | KubernetesSecret | b | self-hosted cluster, API server not in chunk (kingfisher catalog host, detection-only) |
-| LinkedIn | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Lob | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Mattermost | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| MaxMind | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| LinkedIn | c | kingfisher catalog host, detection-only in kingfisher too; client_credentials is disabled for most apps, so a probe cannot separate a bad secret from an unauthorized app (#950 follow-up) |
+| Mattermost | b | self-hosted server URL; a host derived from scanned text cannot be allowlisted (kingfisher catalog host, detection-only) |
 | MicrosoftTeamsWebhook | b | the only probe posts a message (destructive); no read-only endpoint (kingfisher catalog host, detection-only) |
-| NYTimes | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
 | OpenShift | b | self-hosted cluster, API server not in chunk (kingfisher catalog host, detection-only) |
-| PrivateAI | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| RapidAPI | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| ReadMe | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Scalingo | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Sendbird | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| SettleMint | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Sidekiq | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Twitter | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Typeform | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
-| Yandex | c | kingfisher catalog host, detection-only; upstream verify path: kingfisher `none in kingfisher; provider API` validator (#898) |
+| PrivateAI | c | kingfisher catalog host, detection-only in kingfisher too; no documented account or metrics endpoint for API keys (#950 follow-up) |
+| RapidAPI | b | key is only accepted by each subscribed API's own host; no account endpoint to probe (kingfisher catalog host, detection-only) |
+| SettleMint | c | kingfisher catalog host, detection-only in kingfisher too; tokens authenticate against a per-deployment platform URL not present in the token (#950 follow-up) |
 <!-- END kingfisher catalog hosts -->
 
 ## Machine-readable block
@@ -241,9 +220,9 @@ The `coverage-machine` block pins counts and per-detector class.
 
 ```coverage-machine
 total=723
-a=617
-b=73
-c=33
+a=638
+b=76
+c=9
 type=APIKeyAssignment class=b
 type=APNs class=b
 type=AWSS3PresignedURL class=b
@@ -312,45 +291,24 @@ type=UpstashRedis class=b
 type=Wiz class=b
 type=Zoho class=b
 # BEGIN kingfisher catalog hosts
-type=Adafruit class=c
 type=AgeSecretKey class=b
-type=Beamer class=c
-type=Bittrex class=c
+type=Bittrex class=b
 type=Clojars class=c
-type=Contentful class=c
 type=Coveralls class=c
 type=CurlAuth class=b
-type=DefinedNetworking class=c
 type=DockerSwarm class=b
-type=Duffel class=c
-type=EndorLabs class=c
-type=Facebook class=c
 type=Finicity class=c
-type=Finnhub class=c
-type=Flickr class=c
 type=Freemius class=c
 type=Greptile class=c
-type=Infracost class=c
-type=Intra42 class=c
 type=KuCoin class=c
 type=KubernetesSecret class=b
 type=LinkedIn class=c
-type=Lob class=c
-type=Mattermost class=c
-type=MaxMind class=c
+type=Mattermost class=b
 type=MicrosoftTeamsWebhook class=b
-type=NYTimes class=c
 type=OpenShift class=b
 type=PrivateAI class=c
-type=RapidAPI class=c
-type=ReadMe class=c
-type=Scalingo class=c
-type=Sendbird class=c
+type=RapidAPI class=b
 type=SettleMint class=c
-type=Sidekiq class=c
-type=Twitter class=c
-type=Typeform class=c
-type=Yandex class=c
 # END kingfisher catalog hosts
 ```
 

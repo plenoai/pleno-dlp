@@ -115,10 +115,13 @@ func secretSeen(r *http.Request, body, secret string) bool {
 			}
 		}
 	}
+	if b, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(r.Header.Get("Authorization"), "Basic ")); err == nil && string(b) == secret {
+		return true
+	}
 	if _, p, ok := r.BasicAuth(); ok && p == secret {
 		return true
 	}
-	if u, _, ok := r.BasicAuth(); ok && u == secret {
+	if u, pw, ok := r.BasicAuth(); ok && (u == secret || u+":"+pw == secret || u+pw == secret) {
 		return true
 	}
 	return false
@@ -621,5 +624,79 @@ func TestPublicIPGuard(t *testing.T) {
 		if publicIP(net.ParseIP(ip)) != want {
 			t.Errorf("%s: want public=%v", ip, want)
 		}
+	}
+}
+
+func hostDetector(t *testing.T, ty detectors.DetectorType) detectors.Detector {
+	t.Helper()
+	for _, h := range Hosts() {
+		if h.Type() == ty {
+			return h.detector()
+		}
+	}
+	t.Fatalf("%s host missing", ty)
+	return nil
+}
+
+// pleno-only checks (issue #950): partners resolve from the window, and a
+// partner-derived host stays on the provider's domain.
+func TestPlenoOnlyPartnerChecks(t *testing.T) {
+	cp := fakeProvider(t, func(w http.ResponseWriter, _ *http.Request, _ string) {
+		_, _ = io.WriteString(w, `{"users":[],"sys":{"type":"Space"},"token":"t"}`)
+	})
+	app := "0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9"
+	tok := "9f3a71c2e8b54d06a1f7c3e92b8d4605fa1e7c39"
+	res, err := hostDetector(t, detectors.Sendbird).FromData(context.Background(), true,
+		[]byte("SENDBIRD_APP_ID="+app+"\nSENDBIRD_ACCESS_TOKEN="+tok+"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified := false
+	for _, r := range res {
+		if string(r.Raw) == tok && r.Verified {
+			verified = true
+		}
+	}
+	req, _ := cp.get()
+	if !verified || req == nil || req.Host != "api-"+app+".sendbird.com" || req.Header.Get("Api-Token") != tok {
+		t.Fatalf("sendbird: verified=%v req=%v", verified, req)
+	}
+	ok, err := checks["betterleaks.sendbird-access-token"].http.do(context.Background(), "sb",
+		vars{"secret": tok, "app": "x.attacker.example/"})
+	if ok || err == nil {
+		t.Fatalf("sendbird off-domain app id: got (%v, %v), want refusal", ok, err)
+	}
+
+	space := "abcdef012345"
+	ctok := "Xq9_rT4mLp2wZk7vB1nC8yH3jD6fG0sA5eU-iO7kM2t"
+	res, err = hostDetector(t, detectors.Contentful).FromData(context.Background(), true,
+		[]byte("CONTENTFUL_SPACE_ID="+space+"\nCONTENTFUL_ACCESS_TOKEN="+ctok+"\n"))
+	if err != nil || len(res) == 0 || !res[0].Verified {
+		t.Fatalf("contentful: %+v %v", res, err)
+	}
+	if req, _ := cp.get(); req.URL.Path != "/spaces/"+space {
+		t.Fatalf("contentful path %s", req.URL.Path)
+	}
+}
+
+func TestPlenoOnlyHostVerifyByPrefix(t *testing.T) {
+	cp := fakeProvider(t, func(w http.ResponseWriter, _ *http.Request, _ string) {
+		_, _ = io.WriteString(w, `{"clouds":[]}`)
+	})
+	y := hostDetector(t, detectors.Yandex).(detectors.Verifier)
+	if ok, err := y.Verify(context.Background(), "AQVNabc"); !ok || err != nil {
+		t.Fatalf("yandex api key: (%v, %v)", ok, err)
+	}
+	if r, _ := cp.get(); r.Header.Get("Authorization") != "Api-Key AQVNabc" {
+		t.Fatalf("yandex api key header %q", r.Header.Get("Authorization"))
+	}
+	if ok, err := y.Verify(context.Background(), "t1.abc"); !ok || err != nil {
+		t.Fatalf("yandex iam token: (%v, %v)", ok, err)
+	}
+	if r, _ := cp.get(); r.Header.Get("Authorization") != "Bearer t1.abc" {
+		t.Fatalf("yandex iam header %q", r.Header.Get("Authorization"))
+	}
+	if _, err := y.Verify(context.Background(), "YCunknown"); err == nil {
+		t.Fatal("static access key without a check must be indeterminate")
 	}
 }

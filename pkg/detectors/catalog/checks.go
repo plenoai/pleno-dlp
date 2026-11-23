@@ -106,6 +106,11 @@ const (
 	pPackagistKey      = `(packagist_ack_[0-9a-f]{28,32})`
 	pAppConfigEndpoint = `(?i)Endpoint=(https://[a-z0-9-]+\.azconfig\.io);Id=`
 	pAppConfigID       = `(?i)\.azconfig\.io;Id=([^;\s'"]{4,80});Secret=`
+	pContentfulSpace   = `(?i)(?:space[_. -]*id|spaces/)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,|)[\x60'"\s=]{0,5}([a-z0-9]{12})\b`
+	pEndorKey          = `(?i)(?:endor(?:labs)?[_. -]*(?:api[_. -]*)?key)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}(endr\+[A-Za-z0-9-]{16})`
+	pIntra42UID        = `\b(u-s4t2(?:ud|af)-[a-f0-9]{64})\b`
+	pMaxMindAccount    = `(?i)(?:maxmind[_. -]*)?(?:account[_. -]*id|user[_. -]*id)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9]{4,10})\b`
+	pSendbirdApp       = `(?i)(?:sendbird[_. -]*app(?:lication)?[_. -]*id)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12})`
 	pBitwardenID       = `"user_([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})_token_apiKeyClientSecret"`
 )
 
@@ -327,6 +332,56 @@ var checks = map[string]*check{
 		"{repo}/packages.json", map[string]string{"Accept": "application/json", "Authorization": "Basic {basic:'token':secret}"},
 		st(200, "{")).hosts("repo.packagist.com")},
 
+	// pleno-only: catalog hosts kingfisher detects but does not validate
+	// (issue #950). Endpoints are fixed provider hosts or partner-derived
+	// hosts pinned by an allowlist.
+	"betterleaks.adafruit-api-key": hc(pc, get("https://io.adafruit.com/api/v2/user",
+		map[string]string{"X-AIO-Key": "{secret}", "Accept": "application/json"}, st(200, `"username"`))),
+	"betterleaks.beamer-api-token": hc(rc, post("https://api.getbeamer.com/v0/ping", "", "",
+		map[string]string{"Beamer-Api-Key": "{secret}"}, st(200))),
+	"betterleaks.contentful-delivery-api-token": {partners: p("space", pContentfulSpace), assurance: pc, http: get(
+		"https://cdn.contentful.com/spaces/{space|url}", map[string]string{"Authorization": "Bearer {secret}"},
+		st(200, `"sys"`)).invalid(st(401), st(404))},
+	"betterleaks.defined-networking-api-token": hc(pc, bearer("https://api.defined.net/v1/hosts?pageSize=1", st(200, `"data"`))),
+	"betterleaks.duffel-api-token": hc(rc, get("https://api.duffel.com/air/airlines?limit=1",
+		map[string]string{"Authorization": "Bearer {secret}", "Duffel-Version": "v2", "Accept": "application/json"}, st(200, `"data"`))),
+	"betterleaks.endorlabs-api-secret": {partners: p("key", pEndorKey), assurance: pc, http: post(
+		"https://api.endorlabs.com/v1/auth/api-key", "application/json", `{"key":{key|json},"secret":{secret|json}}`,
+		map[string]string{"Accept": "application/json"}, st(200, `"token"`)).invalid(st(400), st(401), st(403))},
+	"betterleaks.facebook-access-token": hc(pc, get("https://graph.facebook.com/v19.0/app?access_token={secret|url}", nil,
+		st(200, `"id"`)).invalid(st(400), st(401), st(403))),
+	"betterleaks.facebook-page-access-token": {assurance: pc, prefix: "EAA", http: get("https://graph.facebook.com/v19.0/me?access_token={secret|url}", nil,
+		st(200, `"id"`)).invalid(st(400), st(401), st(403))},
+	"betterleaks.finnhub-access-token": hc(rc, get("https://finnhub.io/api/v1/quote?symbol=AAPL",
+		map[string]string{"X-Finnhub-Token": "{secret}"}, st(200))),
+	"betterleaks.flickr-access-token": hc(rc, get("https://api.flickr.com/services/rest/?method=flickr.test.echo&format=json&nojsoncallback=1&api_key={secret|url}", nil,
+		st(200, `"stat":"ok"`)).invalid(st(0, `"stat":"fail"`), st(401), st(403))),
+	"betterleaks.infracost-api-token": hc(rc, post("https://pricing.api.infracost.io/graphql", "application/json", `{"query":"{__typename}"}`,
+		map[string]string{"X-Api-Key": "{secret}"}, st(200, `"data"`))),
+	"betterleaks.intra42-client-secret": {partners: p("client", pIntra42UID), assurance: pc, http: post(
+		"https://api.intra.42.fr/oauth/token", form, "grant_type=client_credentials&client_id={client|url}&client_secret={secret|url}",
+		map[string]string{"Accept": "application/json"}, st(200, `"access_token"`)).invalid(st(400), st(401))},
+	"betterleaks.lob-api-key": hc(pc, get("https://api.lob.com/v1/addresses?limit=1",
+		map[string]string{"Authorization": "Basic {basic:secret:''}"}, st(200, `"data"`))),
+	"betterleaks.maxmind-license-key": {partners: p("account", pMaxMindAccount), assurance: pc, http: get(
+		"https://geoip.maxmind.com/geoip/v2.1/country/me", map[string]string{"Authorization": "Basic {basic:account:secret}"},
+		st(200), st(402)).invalid(st(401))},
+	"betterleaks.nytimes-access-token": hc(rc, get("https://api.nytimes.com/svc/topstories/v2/home.json?api-key={secret|url}", nil, st(200))),
+	"betterleaks.readme-api-token": hc(pc, get("https://dash.readme.com/api/v1",
+		map[string]string{"Authorization": "Basic {basic:secret:''}", "Accept": "application/json"}, st(200, `"name"`))),
+	"betterleaks.scalingo-api-token": hc(pc, post("https://auth.scalingo.com/v1/tokens/exchange", "", "",
+		map[string]string{"Authorization": "Basic {basic:'':secret}", "Accept": "application/json"}, st(200, `"token"`))),
+	"betterleaks.sendbird-access-token": {partners: p("app", pSendbirdApp), assurance: pc, http: get(
+		"https://api-{app}.sendbird.com/v3/users?limit=1", map[string]string{"Api-Token": "{secret}", "Accept": "application/json"},
+		st(200, `"users"`)).invalid(st(400), st(401), st(403)).hosts("sendbird.com")},
+	"betterleaks.sidekiq-secret":        hc(rc, sidekiq()),
+	"betterleaks.sidekiq-sensitive-url": hc(rc, sidekiq()),
+	"betterleaks.twitter-bearer-token":  hc(rc, bearer("https://api.twitter.com/2/tweets?ids=20", st(200, `"data"`))),
+	"betterleaks.typeform-api-token":    hc(pc, bearer("https://api.typeform.com/me", st(200, `"alias"`))),
+	"betterleaks.yandex-api-key": {assurance: pc, prefix: "AQVN", http: get("https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds",
+		map[string]string{"Authorization": "Api-Key {secret}"}, st(200))},
+	"betterleaks.yandex-access-token": {assurance: pc, prefix: "t1.", http: bearer("https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds")},
+
 	// Signed requests and multi-step schemes (signed.go).
 	"betterleaks.alibaba-secret-key":                        {partners: p("id", pAlibabaID), assurance: pc, fn: alibaba},
 	"betterleaks.alibaba-sts-access-key-secret":             {partners: p("id", pAlibabaSTSID, "token", pAlibabaSTSTok), assurance: pc, fn: alibaba},
@@ -345,6 +400,11 @@ var checks = map[string]*check{
 func devcycle() *httpCheck {
 	return post("https://bucketing-api.devcycle.com/v1/variables", "application/json",
 		`{"user_id":"pleno-dlp-validation-user"}`, map[string]string{"Authorization": "Bearer {secret}"}, st(200)).invalid(st(401))
+}
+
+// sidekiq probes the licensed gem server; the secret is "user:pass".
+func sidekiq() *httpCheck {
+	return get("https://gems.contribsys.com/", map[string]string{"Authorization": "Basic {secret|b64}"}, st(200)).invalid(st(401), st(403))
 }
 
 func onfido(region string) *httpCheck {
