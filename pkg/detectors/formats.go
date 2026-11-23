@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"regexp"
+	"regexp/syntax"
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // Format is a supplementary, detection-only credential format attached to
@@ -49,11 +51,26 @@ type Format struct {
 	// AssuranceFunc, when set, supplies Assurance at verification time
 	// (for formats routed to a provider verifier registered later).
 	AssuranceFunc func() VerificationAssurance
+	// Prefilter, when set, is a cheap necessary condition for Pattern to
+	// match: it must return true for every input the pattern matches. It
+	// lets formats whose keywords cannot narrow the input (an imported
+	// rule keyed on ".") skip the regexp on almost every window.
+	Prefilter func(data []byte) bool
 
 	once   sync.Once
 	re     *regexp.Regexp
 	pathRe *regexp.Regexp
 	err    error
+	// lead is the literal every match starts with (ASCII-lowercased when
+	// leadFold), and anchored is ^(?:Pattern). Together they let findAll
+	// try the regexp only at lead occurrences instead of every offset.
+	lead     []byte
+	leadFold bool
+	anchored *regexp.Regexp
+	// lowerKeywords caches strings.ToLower of each non-empty keyword;
+	// keywordsASCII reports that all of them are ASCII.
+	lowerKeywords [][]byte
+	keywordsASCII bool
 }
 
 // Compile compiles the pattern (and path constraint) once and reports a
@@ -64,8 +81,155 @@ func (f *Format) Compile() (*regexp.Regexp, error) {
 		if f.err == nil && f.Path != "" {
 			f.pathRe, f.err = regexp.Compile(f.Path)
 		}
+		f.lowerKeywords = make([][]byte, 0, len(f.Keywords))
+		f.keywordsASCII = true
+		for _, kw := range f.Keywords {
+			if kw != "" {
+				f.lowerKeywords = append(f.lowerKeywords, []byte(strings.ToLower(kw)))
+			}
+			for i := 0; i < len(kw); i++ {
+				if kw[i] >= utf8.RuneSelf {
+					f.keywordsASCII = false
+				}
+			}
+		}
+		if f.err == nil {
+			f.lead, f.leadFold = leadingLiteral(f.Pattern)
+			if f.lead != nil {
+				f.anchored, _ = regexp.Compile(`^(?:` + f.Pattern + `)`)
+			}
+		}
 	})
 	return f.re, f.err
+}
+
+// minLeadLen is the shortest leading literal worth indexing.
+const minLeadLen = 3
+
+// leadingLiteral returns the ASCII literal every match of pattern begins
+// with, lowercased when the literal is case-insensitive. Imported
+// Betterleaks rules all start with (?i)(?:<provider>), which Go's regexp
+// cannot prefix-accelerate, so each was an NFA pass over the whole window.
+func leadingLiteral(pattern string) ([]byte, bool) {
+	re, err := syntax.Parse(pattern, syntax.Perl)
+	if err != nil {
+		return nil, false
+	}
+	first := re
+	if re.Op == syntax.OpConcat && len(re.Sub) > 0 {
+		first = re.Sub[0]
+	}
+	if first.Op != syntax.OpLiteral || len(first.Rune) < minLeadLen {
+		return nil, false
+	}
+	fold := first.Flags&syntax.FoldCase != 0
+	lead := make([]byte, len(first.Rune))
+	for i, r := range first.Rune {
+		if r >= utf8.RuneSelf {
+			return nil, false
+		}
+		if fold && 'A' <= r && r <= 'Z' {
+			r += 'a' - 'A'
+		}
+		lead[i] = byte(r)
+	}
+	return lead, fold
+}
+
+// unicodeFoldsOfASCII are the UTF-8 encodings of the only non-ASCII runes
+// that case-fold to ASCII letters (U+017F ſ -> s, U+212A Kelvin -> k). A
+// window containing either may match a folded literal that an ASCII
+// search would miss, so it takes the plain regexp path.
+var unicodeFoldsOfASCII = [][]byte{[]byte("\u017f"), []byte("\u212a")}
+
+// findAll returns exactly re.FindAllSubmatchIndex(data, -1). When every
+// match must start with a literal lead, it runs the anchored regexp only at
+// lead occurrences: the leftmost match necessarily starts at the first
+// occurrence where the anchored match succeeds, and leftmost-first
+// semantics from a fixed start are identical anchored or not. lower lazily
+// holds data lowercased in ASCII only (same length as data).
+func (f *Format) findAll(data []byte, lower *asciiScratch) [][]int {
+	if f.anchored == nil {
+		return f.re.FindAllSubmatchIndex(data, -1)
+	}
+	hay := data
+	if f.leadFold {
+		for _, u := range unicodeFoldsOfASCII {
+			if bytes.Contains(data, u) {
+				return f.re.FindAllSubmatchIndex(data, -1)
+			}
+		}
+		hay = lower.get(data)
+	}
+	var out [][]int
+	for pos := 0; pos <= len(data); {
+		i := bytes.Index(hay[pos:], f.lead)
+		if i < 0 {
+			break
+		}
+		k := pos + i
+		m := f.anchored.FindSubmatchIndex(data[k:])
+		if m == nil {
+			pos = k + 1
+			continue
+		}
+		for j := range m {
+			if m[j] >= 0 {
+				m[j] += k
+			}
+		}
+		out = append(out, m)
+		if m[1] > k {
+			pos = m[1]
+		} else {
+			pos = k + 1
+		}
+	}
+	return out
+}
+
+// asciiScratch lazily lowercases one window in ASCII into a pooled buffer;
+// a fresh allocation per format-bearing detector per window (and its
+// zeroing) was the largest single cost of MatchFormatsAt.
+type asciiScratch struct {
+	buf  *[]byte
+	view []byte
+	done bool
+}
+
+var asciiScratchPool = sync.Pool{New: func() any { b := make([]byte, 0, 16<<10); return &b }}
+
+// asciiScratchKeepMax bounds the buffers returned to the pool.
+const asciiScratchKeepMax = 1 << 20
+
+func (s *asciiScratch) get(data []byte) []byte {
+	if s.done {
+		return s.view
+	}
+	if s.buf == nil {
+		s.buf = asciiScratchPool.Get().(*[]byte)
+	}
+	dst := (*s.buf)[:0]
+	if cap(dst) < len(data) {
+		dst = make([]byte, 0, len(data))
+	}
+	dst = dst[:len(data)]
+	for i, c := range data {
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		dst[i] = c
+	}
+	*s.buf = dst
+	s.view, s.done = dst, true
+	return dst
+}
+
+func (s *asciiScratch) release() {
+	if s.buf != nil && cap(*s.buf) <= asciiScratchKeepMax {
+		asciiScratchPool.Put(s.buf)
+	}
+	*s = asciiScratch{}
 }
 
 var (
@@ -151,23 +315,33 @@ func MatchFormatsAt(t DetectorType, fs []*Format, path string, data []byte, resu
 		seen[string(r.Raw)] = true
 	}
 	lower := []byte(nil)
+	var asciiLower asciiScratch
+	defer asciiLower.release()
 	for _, f := range fs {
+		if _, err := f.Compile(); err != nil {
+			continue
+		}
 		if len(f.Keywords) > 0 {
-			if lower == nil {
-				lower = bytes.ToLower(data)
+			var hay []byte
+			if f.keywordsASCII {
+				hay = keywordHaystack(data, &asciiLower)
+			} else {
+				if lower == nil {
+					lower = bytes.ToLower(data)
+				}
+				hay = lower
 			}
-			if !anyKeyword(lower, f.Keywords) {
+			if !anyLowerKeyword(hay, f.lowerKeywords) {
 				continue
 			}
-		}
-		re, err := f.Compile()
-		if err != nil {
-			continue
 		}
 		if f.pathRe != nil && (path == "" || !f.pathRe.MatchString(path)) {
 			continue
 		}
-		for _, m := range re.FindAllSubmatchIndex(data, -1) {
+		if f.Prefilter != nil && !f.Prefilter(data) {
+			continue
+		}
+		for _, m := range f.findAll(data, &asciiLower) {
 			secret := formatSecret(m, f.Group)
 			if secret == nil {
 				continue
@@ -197,9 +371,28 @@ func MatchFormatsAt(t DetectorType, fs []*Format, path string, data []byte, resu
 	return SafeResults(results)
 }
 
-func anyKeyword(lower []byte, kws []string) bool {
+// unicodeLowersToASCII are the UTF-8 encodings of the only runes outside
+// ASCII that unicode.ToLower maps into ASCII (U+0130 -> i, U+212A -> k).
+var unicodeLowersToASCII = [][]byte{[]byte("\u0130"), []byte("\u212a")}
+
+// keywordHaystack returns a lowercase view of data in which a lowercase
+// keyword occurs exactly when it occurs in bytes.ToLower(data). Without the
+// two runes above, ASCII-only lowering is equivalent for that purpose and
+// avoids a Unicode re-encode of every window for every format-bearing
+// detector (it was half of MatchFormatsAt's cost). The ASCII copy is shared
+// with the leading-literal matcher through asciiLower.
+func keywordHaystack(data []byte, lower *asciiScratch) []byte {
+	for _, u := range unicodeLowersToASCII {
+		if bytes.Contains(data, u) {
+			return bytes.ToLower(data)
+		}
+	}
+	return lower.get(data)
+}
+
+func anyLowerKeyword(lower []byte, kws [][]byte) bool {
 	for _, kw := range kws {
-		if kw != "" && bytes.Contains(lower, []byte(strings.ToLower(kw))) {
+		if bytes.Contains(lower, kw) {
 			return true
 		}
 	}

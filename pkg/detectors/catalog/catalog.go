@@ -156,6 +156,7 @@ func build() {
 	for _, r := range append(append([]rule(nil), rules...), extraRules...) {
 		ruleType[r.ID] = r.Type
 		f := r.format()
+		f.Prefilter = prefilters[r.ID]
 		// Path-constrained rules need the source path, which only the
 		// engine's format hook supplies, so they stay extensions even on
 		// host types.

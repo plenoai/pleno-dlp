@@ -2,6 +2,7 @@
 package expo
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"regexp"
@@ -41,6 +42,9 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Expo }
 func (Scanner) Keywords() []string { return []string{"expo", "eas"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
+	if !mayHaveKeyword(data) {
+		return nil, nil
+	}
 	hits := tokenRe().FindAllSubmatchIndex(data, -1)
 	if len(hits) == 0 {
 		return nil, nil
@@ -116,4 +120,36 @@ func redact(t string) string {
 
 func init() {
 	detectors.Register(Scanner{})
+}
+
+// mayHaveKeyword is a necessary condition for keywordRe: every alternative
+// starts with "expo" or "eas" (case-insensitive) followed by '_', '-', '.',
+// ' ' or '\t'. The short "eas" keyword hits most prose ("please",
+// "release"), so this byte scan spares two regexp passes over nearly every
+// window. Input containing U+017F (which case-folds to 's') takes the
+// regexp path unconditionally.
+func mayHaveKeyword(data []byte) bool {
+	if bytes.Contains(data, []byte("\u017f")) {
+		return true
+	}
+	for i := 0; i+3 < len(data); i++ {
+		c := data[i] | 0x20
+		if c != 'e' {
+			continue
+		}
+		n := 0
+		switch {
+		case i+4 < len(data) && data[i+1]|0x20 == 'x' && data[i+2]|0x20 == 'p' && data[i+3]|0x20 == 'o':
+			n = 4
+		case data[i+1]|0x20 == 'a' && data[i+2]|0x20 == 's':
+			n = 3
+		default:
+			continue
+		}
+		switch data[i+n] {
+		case '_', '-', '.', ' ', '\t':
+			return true
+		}
+	}
+	return false
 }

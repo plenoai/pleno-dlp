@@ -88,19 +88,26 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if !bytes.Contains(data, []byte("://")) {
 		return nil, nil
 	}
-	str := string(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
-	for start := 0; start < len(str); {
-		line := str[start:]
-		if end := strings.IndexByte(line, '\n'); end >= 0 {
-			line = line[:end]
-			start += end + 1
-		} else {
-			start = len(str)
+	// This detector sees every chunk (WantsFullChunk), so only lines that
+	// can match lineRe — those containing "://" — reach the regexp, and
+	// lines are scanned in place rather than through string copies.
+	sep := []byte("://")
+	for start := 0; start < len(data); {
+		i := bytes.Index(data[start:], sep)
+		if i < 0 {
+			break
 		}
-		scanLine([]byte(line), seen, &out)
+		at := start + i
+		lineStart := bytes.LastIndexByte(data[:at], '\n') + 1
+		lineEnd := len(data)
+		if end := bytes.IndexByte(data[at:], '\n'); end >= 0 {
+			lineEnd = at + end
+		}
+		scanLine(data[lineStart:lineEnd], seen, &out)
+		start = lineEnd + 1
 	}
 
 	return detectors.SafeResults(out), nil
@@ -119,11 +126,11 @@ func (s Scanner) FromReader(ctx context.Context, _ bool, r io.ReaderAt, size int
 }
 
 func scanLine(line []byte, seen map[string]struct{}, out *[]detectors.Result) {
-	m := lineRe().FindStringSubmatch(string(line))
+	m := lineRe().FindSubmatch(line)
 	if len(m) < 2 {
 		return
 	}
-	appendMatch(m[1], seen, out)
+	appendMatch(string(m[1]), seen, out)
 }
 
 func scanMatch(match [][]byte, seen map[string]struct{}, out *[]detectors.Result) {
