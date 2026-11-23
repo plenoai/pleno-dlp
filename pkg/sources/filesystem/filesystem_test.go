@@ -598,3 +598,28 @@ func encodeUTF16(s string, little, bom bool) []byte {
 	}
 	return data
 }
+
+// TestChunks_EmitsStructuredBinaryForExtraction keeps SQLite/PDF/pyc and
+// other extractor-backed binaries from being dropped by binary sniffing.
+func TestChunks_EmitsStructuredBinaryForExtraction(t *testing.T) {
+	data, err := os.ReadFile("../../archive/testdata/extract.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isBinary(data[:512]) {
+		t.Fatal("fixture must be binary")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "app.db"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Paths: []string{dir}})
+	got, err := drain(t, s, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Chunks: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("SQLite database skipped as binary: chunks=%d", len(got))
+	}
+}

@@ -1,0 +1,353 @@
+package archive
+
+import (
+	"bufio"
+	"bytes"
+	"compress/flate"
+	"compress/zlib"
+	"encoding/binary"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"sort"
+	"strconv"
+	"strings"
+	"unicode/utf16"
+
+	"github.com/richardlehane/mscfb"
+)
+
+// Additional container formats: Electron ASAR, OLE2 compound files (with
+// HWP 5.x section decompression and paragraph-text extraction), and ALZip
+// EGG (scanned raw, matching the reference implementation).
+
+var (
+	oleMagic  = []byte{0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1}
+	eggMagic  = []byte("EGGA")
+	asarMagic = []byte{4, 0, 0, 0}
+)
+
+const (
+	maxAsarHeaderBytes = 16 << 20
+	maxAsarTreeDepth   = 64
+)
+
+func looksLikeAsar(prefix []byte) bool {
+	return len(prefix) >= 25 && bytes.HasPrefix(prefix, asarMagic) && bytes.HasPrefix(prefix[16:], []byte(`{"files":`))
+}
+
+type asarNode struct {
+	Files  map[string]*asarNode `json:"files"`
+	Offset string               `json:"offset"`
+	Size   int64                `json:"size"`
+	Unpack bool                 `json:"unpacked"`
+	Link   string               `json:"link"`
+}
+
+type asarMember struct {
+	name         string
+	offset, size int64
+}
+
+func (s *walkState) walkAsar(name string, data *spool, depth int) error {
+	var head [16]byte
+	if _, err := data.readerAt().ReadAt(head[:], 0); err != nil {
+		return &PartialError{Kind: "corrupt-archive", Entry: name, Err: err}
+	}
+	pickleSize := int64(binary.LittleEndian.Uint32(head[4:8]))
+	jsonLen := int64(binary.LittleEndian.Uint32(head[12:16]))
+	if jsonLen > maxAsarHeaderBytes || 16+jsonLen > data.size || 8+pickleSize > data.size || jsonLen+8 > pickleSize {
+		return &PartialError{Kind: "corrupt-archive", Entry: name, Err: errors.New("invalid ASAR header size")}
+	}
+	header := make([]byte, jsonLen)
+	if _, err := data.readerAt().ReadAt(header, 16); err != nil {
+		return &PartialError{Kind: "corrupt-archive", Entry: name, Err: err}
+	}
+	var root asarNode
+	if err := json.Unmarshal(header, &root); err != nil {
+		return &PartialError{Kind: "corrupt-archive", Entry: name, Err: err}
+	}
+	base := 8 + pickleSize
+	var members []asarMember
+	type frame struct {
+		prefix string
+		node   *asarNode
+		depth  int
+	}
+	stack := []frame{{node: &root}}
+	for len(stack) > 0 {
+		f := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if f.depth > maxAsarTreeDepth {
+			s.partial("max-depth", name+"!"+f.prefix, errors.New("ASAR directory nesting too deep"))
+			continue
+		}
+		keys := make([]string, 0, len(f.node.Files))
+		for k := range f.node.Files {
+			keys = append(keys, k)
+		}
+		sort.Sort(sort.Reverse(sort.StringSlice(keys)))
+		for _, k := range keys {
+			child := f.node.Files[k]
+			if child == nil {
+				continue
+			}
+			p := k
+			if f.prefix != "" {
+				p = f.prefix + "/" + k
+			}
+			if child.Files != nil {
+				stack = append(stack, frame{prefix: p, node: child, depth: f.depth + 1})
+				continue
+			}
+			if s.headers >= maxArchiveHeaders {
+				s.stop("max-headers", name, fmt.Errorf("ASAR entry count exceeds %d", maxArchiveHeaders))
+				return nil
+			}
+			s.headers++
+			switch {
+			case child.Link != "":
+				s.partial("symlink", p, errors.New("symlink entries are not scanned"))
+				continue
+			case child.Unpack:
+				s.partial("asar-unpacked", p, errors.New("member is stored outside the archive (.asar.unpacked)"))
+				continue
+			}
+			off, err := strconv.ParseInt(child.Offset, 10, 64)
+			if err != nil || off < 0 || child.Size < 0 || base+off+child.Size > data.size || base+off+child.Size < base {
+				s.partial("corrupt-entry", p, errors.New("ASAR member out of range"))
+				continue
+			}
+			members = append(members, asarMember{name: p, offset: base + off, size: child.Size})
+		}
+	}
+	for _, m := range members {
+		if s.terminal {
+			return nil
+		}
+		if err := s.ctx.Err(); err != nil {
+			return err
+		}
+		clean, ok := safeEntryName(m.name)
+		if !ok {
+			s.partial("path", m.name, errors.New("unsafe archive path rejected"))
+			continue
+		}
+		if s.files >= s.limits.MaxFiles {
+			s.stop("max-files", m.name, fmt.Errorf("file count exceeds %d", s.limits.MaxFiles))
+			return nil
+		}
+		if err := s.walkMember(name+"!"+clean, m.name, io.NewSectionReader(data.readerAt(), m.offset, m.size), m.size, depth); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// walkMember spools one member under the expansion budget and recurses.
+func (s *walkState) walkMember(entryName, label string, input io.Reader, declared int64, depth int) error {
+	value, accepted, err := s.expandedSpool(label, input, declared)
+	if err != nil || !accepted {
+		return err
+	}
+	walkErr := s.walk(entryName, value, depth+1)
+	if cleanupErr := value.close(); cleanupErr != nil {
+		s.partial("cleanup", entryName, cleanupErr)
+	}
+	return walkErr
+}
+
+const (
+	hwpSignature      = "HWP Document File"
+	hwpFlagCompressed = 1 << 0
+	hwpFlagEncrypted  = 1 << 1
+	hwpTagParaText    = 67
+)
+
+type oleStream struct {
+	path string
+	file *mscfb.File
+}
+
+func (s *walkState) walkOLE(name string, data *spool, depth int) (err error) {
+	defer func() {
+		// mscfb is defensive but untrusted sector chains must never crash a scan.
+		if r := recover(); r != nil {
+			err = &PartialError{Kind: "corrupt-archive", Entry: name, Err: fmt.Errorf("OLE2 parser panic: %v", r)}
+		}
+	}()
+	doc, err := mscfb.New(data.readerAt())
+	if err != nil {
+		return &PartialError{Kind: "corrupt-archive", Entry: name, Err: err}
+	}
+	var streams []oleStream
+	var fileHeader *mscfb.File
+	for {
+		f, nextErr := doc.Next()
+		if nextErr == io.EOF {
+			break
+		}
+		if nextErr != nil {
+			s.partial("corrupt-archive", name, nextErr)
+			break
+		}
+		if f.FileInfo().IsDir() || f.Size <= 0 {
+			continue
+		}
+		if s.headers >= maxArchiveHeaders {
+			s.stop("max-headers", name, fmt.Errorf("OLE2 stream count exceeds %d", maxArchiveHeaders))
+			return nil
+		}
+		s.headers++
+		p := strings.Join(append(append([]string{}, f.Path...), f.Name), "/")
+		if p == "FileHeader" {
+			fileHeader = f
+		}
+		streams = append(streams, oleStream{path: p, file: f})
+	}
+	hwp, compressed := false, false
+	if fileHeader != nil {
+		head := make([]byte, 40)
+		if n, _ := fileHeader.ReadAt(head, 0); n == len(head) && bytes.HasPrefix(head, []byte(hwpSignature)) {
+			hwp = true
+			flags := binary.LittleEndian.Uint32(head[36:40])
+			compressed = flags&hwpFlagCompressed != 0
+			if flags&hwpFlagEncrypted != 0 {
+				s.partial("encrypted", name, errors.New("password-protected HWP document"))
+				return nil
+			}
+		}
+	}
+	for _, st := range streams {
+		if s.terminal {
+			return nil
+		}
+		if err := s.ctx.Err(); err != nil {
+			return err
+		}
+		clean := sanitizeOLEPath(st.path)
+		entryName := name + "!" + clean
+		if s.files >= s.limits.MaxFiles {
+			s.stop("max-files", st.path, fmt.Errorf("file count exceeds %d", s.limits.MaxFiles))
+			return nil
+		}
+		var input io.Reader = io.NewSectionReader(st.file, 0, st.file.Size)
+		declared := st.file.Size
+		if hwp && compressed && hwpCompressedStream(st.path) {
+			input, declared = hwpInflater(input), -1
+		}
+		if hwp && strings.HasPrefix(st.path, "BodyText/Section") {
+			if err := s.walkHWPSection(entryName, st.path, input, declared); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := s.walkMember(entryName, st.path, input, declared, depth); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sanitizeOLEPath(p string) string {
+	parts := strings.Split(p, "/")
+	for i, part := range parts {
+		parts[i] = sanitizeComponent(part)
+	}
+	return strings.Join(parts, "/")
+}
+
+// hwpCompressedStream reports whether an HWP stream is deflated when the
+// FileHeader compression flag is set (DocInfo, BodyText, BinData, scripts).
+func hwpCompressedStream(p string) bool {
+	switch {
+	case p == "FileHeader", strings.HasPrefix(p, "\x05"), strings.HasPrefix(p, "PrvImage"), strings.HasPrefix(p, "PrvText"):
+		return false
+	}
+	return true
+}
+
+// hwpInflater decodes raw deflate, or zlib when the stream carries a header.
+func hwpInflater(r io.Reader) io.Reader {
+	br := bufio.NewReader(r)
+	if h, err := br.Peek(2); err == nil && h[0]&0x0f == 8 && (uint16(h[0])<<8|uint16(h[1]))%31 == 0 {
+		if zr, err := zlib.NewReader(br); err == nil {
+			return zr
+		}
+	}
+	return flate.NewReader(br)
+}
+
+// walkHWPSection spools a (decompressed) BodyText section under the budget,
+// then emits its paragraph text as UTF-8; the raw record stream is UTF-16
+// interleaved with binary record headers and is not useful to detectors.
+func (s *walkState) walkHWPSection(entryName, label string, input io.Reader, declared int64) error {
+	value, accepted, err := s.expandedSpool(label, input, declared)
+	if err != nil || !accepted {
+		return err
+	}
+	defer func() {
+		if cleanupErr := value.close(); cleanupErr != nil {
+			s.partial("cleanup", entryName, cleanupErr)
+		}
+	}()
+	body, ok := s.readForExtract(entryName, value)
+	if !ok {
+		return nil
+	}
+	out := &textBuffer{limit: s.extractLimit()}
+	if err := extractHWPText(body, out); err != nil {
+		s.partial("corrupt-entry", entryName, err)
+	}
+	if out.overflow {
+		s.rejectBudget("max-expanded-bytes", entryName, fmt.Errorf("HWP text %w", errExtractLimit))
+	}
+	return s.emitDerived(entryName+extractedTextSuffix, out.buf.Bytes())
+}
+
+// extractHWPText decodes HWPTAG_PARA_TEXT records. Control characters that
+// occupy eight WCHARs (inline and extended controls) are skipped whole.
+func extractHWPText(data []byte, out *textBuffer) error {
+	for len(data) >= 4 {
+		h := binary.LittleEndian.Uint32(data)
+		data = data[4:]
+		tag := h & 0x3ff
+		size := int(h >> 20)
+		if size == 0xfff {
+			if len(data) < 4 {
+				return errors.New("truncated HWP record size")
+			}
+			size = int(binary.LittleEndian.Uint32(data))
+			data = data[4:]
+		}
+		if size < 0 || size > len(data) {
+			return errors.New("HWP record out of range")
+		}
+		rec := data[:size]
+		data = data[size:]
+		if tag != hwpTagParaText {
+			continue
+		}
+		var units []uint16
+		for i := 0; i+1 < len(rec); i += 2 {
+			c := binary.LittleEndian.Uint16(rec[i:])
+			switch {
+			case c == 10 || c == 13:
+				units = append(units, '\n')
+			case c == 0 || (c >= 24 && c <= 31):
+			case c < 32:
+				i += 14 // eight-WCHAR control: skip the remaining seven
+			default:
+				units = append(units, c)
+			}
+		}
+		if len(units) == 0 {
+			continue
+		}
+		if !out.writeString(strings.TrimRight(string(utf16.Decode(units)), "\n")) || !out.writeByte('\n') {
+			return nil
+		}
+	}
+	return nil
+}

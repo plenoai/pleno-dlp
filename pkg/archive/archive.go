@@ -1,4 +1,6 @@
-// Package archive expands zip, tar, gzip, bzip2, xz, and zstd payloads into leaf entries.
+// Package archive expands zip, tar, gzip, bzip2, xz, zstd, ASAR, and OLE2/HWP
+// payloads into leaf entries, and extracts scannable text from SQLite
+// databases, PDF documents, Python bytecode, and Office XML parts.
 package archive
 
 import (
@@ -102,7 +104,8 @@ func (l *Limits) withDefaults() {
 
 func LooksLikeArchive(data []byte) bool {
 	switch detect(data) {
-	case kindZip, kindTar, kindGzip, kindBzip2, kindXz, kindZstd:
+	case kindZip, kindTar, kindGzip, kindBzip2, kindXz, kindZstd,
+		kindAsar, kindOLE, kindEgg, kindSQLite, kindPDF, kindPyc:
 		return true
 	}
 	return false
@@ -290,8 +293,26 @@ func (s *walkState) walk(name string, data *spool, depth int) error {
 		return s.walkXz(name, data, depth)
 	case kindZstd:
 		return s.walkZstd(name, data, depth)
+	case kindAsar:
+		return s.walkAsar(name, data, depth)
+	case kindOLE:
+		return s.walkOLE(name, data, depth)
+	case kindSQLite:
+		return s.walkExtracted(name, data, "sqlite", extractSQLite)
+	case kindPDF:
+		return s.walkExtracted(name, data, "pdf", extractPDF)
+	case kindPyc:
+		return s.walkExtracted(name, data, "pyc", extractPyc)
 	default:
-		return s.emitEntry(name, data)
+		// EGG (kindEgg) is emitted raw, as in the reference implementation;
+		// LooksLikeArchive admits it so binary sniffing does not drop it.
+		if err := s.emitEntry(name, data); err != nil {
+			return err
+		}
+		if officeXMLPart(name) && !s.terminal {
+			return s.emitOfficeText(name, data)
+		}
+		return nil
 	}
 }
 
@@ -749,6 +770,12 @@ const (
 	kindBzip2
 	kindXz
 	kindZstd
+	kindAsar
+	kindOLE
+	kindEgg
+	kindSQLite
+	kindPDF
+	kindPyc
 )
 
 // detect inspects magic bytes to classify the chunk. Returns kindNone for
@@ -769,6 +796,18 @@ func detect(data []byte) kind {
 		return kindXz
 	case len(data) >= 4 && bytes.HasPrefix(data, []byte{0x28, 0xb5, 0x2f, 0xfd}):
 		return kindZstd
+	case bytes.HasPrefix(data, oleMagic):
+		return kindOLE
+	case bytes.HasPrefix(data, eggMagic):
+		return kindEgg
+	case bytes.HasPrefix(data, sqliteMagic):
+		return kindSQLite
+	case bytes.HasPrefix(data, pdfMagic):
+		return kindPDF
+	case looksLikeAsar(data):
+		return kindAsar
+	case looksLikePyc(data):
+		return kindPyc
 	}
 	return kindNone
 }

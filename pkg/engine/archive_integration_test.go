@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -267,3 +268,32 @@ func TestArchiveCoverageFailureRedactsS3KeyAndEntry(t *testing.T) {
 // _ keeps the import set consistent if a downstream refactor stops
 // using sources directly in this file.
 var _ = sources.SourceFilesystem
+
+// TestArchiveIntegration_FindsSecretInSQLiteRow drives a binary SQLite
+// database through the engine: the archive gate admits it and the content
+// extractor surfaces the row value to detectors.
+func TestArchiveIntegration_FindsSecretInSQLiteRow(t *testing.T) {
+	data, err := os.ReadFile("../archive/testdata/extract.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	needle := "FIXTURE-SQLITE-VALUE-0001"
+	sink := &recordingSink{}
+	eng := NewWithDetectors([]detectors.Detector{keywordNeedleDetector{fakeDetector{needle: needle}}}, Options{Concurrency: 1}, sink)
+	if err := eng.Run(context.Background(), fakeSource{data: data}); err != nil {
+		t.Fatalf("engine.Run: %v", err)
+	}
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.findings) != 1 {
+		t.Fatalf("expected 1 finding in SQLite rows; got %d", len(sink.findings))
+	}
+	if got := sink.findings[0].Result.ExtraData["archive_path"]; !strings.HasSuffix(got, "#text") {
+		t.Errorf("archive_path = %q; want derived #text entry", got)
+	}
+}
+
+// keywordNeedleDetector prefilters on the needle itself instead of "AKIA".
+type keywordNeedleDetector struct{ fakeDetector }
+
+func (d keywordNeedleDetector) Keywords() []string { return []string{d.needle} }
