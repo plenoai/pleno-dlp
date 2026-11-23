@@ -1225,6 +1225,13 @@ func (e *Engine) buildPrefilter() {
 	patterns := make([][]byte, 0, len(e.dets))
 	detectorIdxByPattern := make([][]patternDetector, 0, len(e.dets))
 	for di, d := range e.dets {
+		// dispatchAt never runs a FullChunkDetector from a keyword hit
+		// (runFullChunkDetectors runs it once per variant), so its
+		// keywords only add hits to visit. The PII detectors' "0".."9",
+		// "-", "@" made that a hit on nearly every byte (#1015).
+		if e.wantsFull[di] {
+			continue
+		}
 		own := make(map[string]bool, len(d.Keywords()))
 		for _, kw := range d.Keywords() {
 			if kw != "" {
@@ -1249,7 +1256,7 @@ func (e *Engine) buildPrefilter() {
 			detectorIdxByPattern[id] = append(detectorIdxByPattern[id], patternDetector{di: di, own: noOwn || own[lk]})
 		}
 	}
-	if len(patterns) == 0 {
+	if len(patterns) == 0 && !slices.Contains(e.wantsFull, true) {
 		return
 	}
 	e.prefilter = ahocorasick.New(patterns)
