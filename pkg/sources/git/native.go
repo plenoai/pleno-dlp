@@ -554,6 +554,13 @@ func (s *Source) parseNativeMergeResults(ctx context.Context, repo *gogit.Reposi
 		defer blobs.close()
 	}
 	parser := nativeLogParser{ctx: ctx, source: s, repo: repo, gitBin: gitBin, ch: ch, blobs: blobs, scan: scan, ordinals: ordinals}
+	return parser.parseCombined(reader)
+}
+
+// parseCombined consumes diff-tree/show --cc output. A nested parser has its
+// commit preset and reads a patch rendered with an empty --format.
+func (parser *nativeLogParser) parseCombined(reader *bufio.Reader) error {
+	ctx := parser.ctx
 	for {
 		line, err := reader.ReadSlice('\n')
 		if errors.Is(err, bufio.ErrBufferFull) && parser.commit != nil && parser.inHunk {
@@ -1624,14 +1631,18 @@ func (p *nativeLogParser) handleBinaryPatch() error {
 		p.file.binary = true
 		return nil
 	}
-	if p.commit.parentCount > 1 {
-		// `git show --diff-merges=off` renders no patch for a merge, so
-		// the forced text diff of a merge resolution is always empty;
-		// skip the process (a fork in the middle of the scan).
+	err = p.emitForcedTextPatch(p.file.path)
+	if err != nil && p.commit.parentCount > 1 && p.ctx.Err() == nil {
+		// Older git lacks --attr-source; report the gap instead of failing
+		// the whole history walk.
+		p.recordCoverage("merge-forced-text", err)
 		return nil
 	}
-	return p.emitForcedTextPatch(p.file.path)
+	return err
 }
+
+// emptyTreeHash is git's well-known empty tree (SHA-1 object format).
+const emptyTreeHash = "4b825dc642cb6eb9a060e54bf8d69288fbbd4904"
 
 func (p *nativeLogParser) emitNativeArtifact(path string) error {
 	if path == "" || p.commit == nil || !p.source.pathAllowed(path) {
@@ -1723,8 +1734,18 @@ func (p *nativeLogParser) emitNativeArtifact(path string) error {
 }
 
 func (p *nativeLogParser) emitForcedTextPatch(path string) error {
-	args := []string{
-		"-c", "diff.suppressBlankEmpty=false",
+	// A merge resolution only renders as a dense combined diff (#994);
+	// --diff-merges=off would print nothing for it. Combined diffs ignore
+	// --text, so attributes are read from the empty tree instead (git >=
+	// 2.40) and the global attributes file is disabled.
+	merge := p.commit.parentCount > 1
+	diffMerges := "--diff-merges=off"
+	args := []string{"-c", "diff.suppressBlankEmpty=false"}
+	if merge {
+		diffMerges = "--cc"
+		args = append(args, "-c", "core.attributesFile="+os.DevNull, "--attr-source="+emptyTreeHash)
+	}
+	args = append(args,
 		"-C", p.source.repoAbs,
 		"show",
 		"--format=",
@@ -1740,14 +1761,14 @@ func (p *nativeLogParser) emitForcedTextPatch(path string) error {
 		"--inter-hunk-context=0",
 		"--ignore-submodules=all",
 		"--diff-algorithm=myers",
-		"--diff-merges=off",
+		diffMerges,
 		"--unified=3",
 		"--src-prefix=a/",
 		"--dst-prefix=b/",
 		p.commit.hash,
 		"--",
 		path,
-	}
+	)
 	cmd := exec.CommandContext(p.ctx, p.gitBin, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1761,7 +1782,12 @@ func (p *nativeLogParser) emitForcedTextPatch(path string) error {
 		return fmt.Errorf("start forced text diff: %w", err)
 	}
 	parser := nativeLogParser{ctx: p.ctx, source: p.source, repo: p.repo, gitBin: p.gitBin, ch: p.ch, commit: p.commit, blobs: p.blobs, scan: p.scan, ordinals: p.ordinals, replicas: p.replicas, nested: true}
-	parseErr := parser.parse(stdout)
+	var parseErr error
+	if merge {
+		parseErr = parser.parseCombined(bufio.NewReaderSize(stdout, 256<<10))
+	} else {
+		parseErr = parser.parse(stdout)
+	}
 	if parseErr != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	}
