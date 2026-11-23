@@ -19,8 +19,8 @@ import (
 )
 
 // Additional container formats: Electron ASAR, OLE2 compound files (with
-// HWP 5.x section decompression and paragraph-text extraction), and ALZip
-// EGG (scanned raw, matching the reference implementation).
+// HWP 5.x section decompression and paragraph-text extraction). ALZip EGG
+// members are extracted in egg.go.
 
 var (
 	oleMagic  = []byte{0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1}

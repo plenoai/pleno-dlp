@@ -403,11 +403,11 @@ func TestWalkCorruptOLEIsCoverageGap(t *testing.T) {
 	}
 }
 
-func TestEggIsScannedRaw(t *testing.T) {
+func TestCorruptEggFallsBackToRaw(t *testing.T) {
 	data := append([]byte("EGGA\x00\x01"), []byte(" stored FIXTURE-EGG ")...)
 	entries, err := walkEntries(t, "a.egg", data, Limits{})
-	if err != nil {
-		t.Fatalf("Walk: %v", err)
+	if !partialKinds(err)["corrupt-archive"] {
+		t.Fatalf("want corrupt-archive gap, got %v", err)
 	}
 	requireEntry(t, entries, "a.egg", "FIXTURE-EGG")
 }

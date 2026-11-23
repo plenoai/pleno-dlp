@@ -1,5 +1,5 @@
-// Package archive expands zip, tar, gzip, bzip2, xz, zstd, ASAR, and OLE2/HWP
-// payloads into leaf entries, and extracts scannable text from SQLite
+// Package archive expands zip, tar, gzip, bzip2, xz, zstd, ASAR, OLE2/HWP, and
+// ALZip EGG payloads into leaf entries, and extracts scannable text from SQLite
 // databases, PDF documents, Python bytecode, and Office XML parts.
 package archive
 
@@ -303,9 +303,9 @@ func (s *walkState) walk(name string, data *spool, depth int) error {
 		return s.walkExtracted(name, data, "pdf", extractPDF)
 	case kindPyc:
 		return s.walkExtracted(name, data, "pyc", extractPyc)
+	case kindEgg:
+		return s.walkEgg(name, data, depth)
 	default:
-		// EGG (kindEgg) is emitted raw, as in the reference implementation;
-		// LooksLikeArchive admits it so binary sniffing does not drop it.
 		if err := s.emitEntry(name, data); err != nil {
 			return err
 		}
