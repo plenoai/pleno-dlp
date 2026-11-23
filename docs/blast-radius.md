@@ -34,13 +34,25 @@ pleno-dlp blast-radius aws creds.json   # {"access_key_id","secret_access_key","
 
 `access-map` is an alias of `blast-radius`.
 
+HTML reports (the equivalent of kingfisher `--view-report`):
+
+```sh
+pleno-dlp blast-radius github token.txt --html map.html
+pleno-dlp scan filesystem . --blast-radius --format jsonl > scan.jsonl
+pleno-dlp blast-radius report scan.jsonl --html report.html   # stdout when --html is omitted
+```
+
+The page needs nothing else to render, sets a `default-src 'none'` CSP, puts privileged
+credentials first, and escapes every value. Finding labels use the redacted
+value, and access maps carry no raw secrets.
+
 ## Providers
 
 | Provider | Detector | Identity | Permissions | Resources |
 |---|---|---|---|---|
 | aws | `aws` | STS GetCallerIdentity; key last-used (`activity`) | policy names plus `allow:`/`deny:` actions evaluated from attached, inline, and group policy documents (IAM users and assumed roles) | IAM policies/groups, `aws_resource` (actions per resource ARN), `assumable_role` (trust path) |
 | gcp | `gcp_service_account` | key `client_email` | sampled `testIamPermissions` on projects, folders, organizations | projects, folder/organization ancestors, `impersonable_service_account` |
-| github | `github` | `GET /user` | `X-OAuth-Scopes` | organizations, repositories (role per repository) |
+| github | `github` | `GET /user`; `github_pat_` → `fine_grained_pat`, `ghu_` → `app_user_token`, `ghs_` → `app_installation` (`/installation/repositories`) | `X-OAuth-Scopes`; App installation permissions (`contents:write`, ...) | organizations, repositories (role per repository), `app_installation`, `installation_repository` |
 | gitlab | `gitlab` | `GET /api/v4/user` | `personal_access_tokens/self` scopes | member projects (access level) |
 | slack | `slack_bot_token` | `auth.test` | `X-OAuth-Scopes` | workspace |
 | azure | `AzureAD`, `AzureApp` | Entra client-credentials token; `servicePrincipals(appId=)` | Graph app roles (`graph:`), ARM role assignments (`rbac:`) | directory roles/groups, subscriptions (roles) |

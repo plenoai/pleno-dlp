@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -87,5 +88,39 @@ func TestBlastRadiusMapSink(t *testing.T) {
 	}
 	if e := sinkCap.findings[2].Result.ExtraData["blast_radius_error"]; !strings.Contains(e, "401") {
 		t.Fatalf("error extra %q", e)
+	}
+}
+
+func TestBlastRadiusHTMLAndReport(t *testing.T) {
+	withGitHubRegistry(t)
+	blastRadiusHTML = "-"
+	t.Cleanup(func() { blastRadiusHTML = "" })
+	c := &cobra.Command{}
+	c.SetContext(context.Background())
+	c.SetIn(strings.NewReader("ghp_live\n"))
+	var out bytes.Buffer
+	c.SetOut(&out)
+	if err := runBlastRadius(c, []string{"github"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "<title>Access Map Report</title>") || !strings.Contains(out.String(), "octo") || strings.Contains(out.String(), "ghp_live") {
+		t.Fatalf("html: %s", out.String())
+	}
+
+	am := detectors.NewAccessMap("github")
+	am.Identity.Name = "octo"
+	enc, _ := json.Marshal(am)
+	line, _ := json.Marshal(map[string]any{"detector": "GitHub", "redacted": "ghp...", "extra_data": map[string]string{blastradius.ExtraDataKey: string(enc)}})
+	p := t.TempDir() + "/scan.jsonl"
+	if err := os.WriteFile(p, line, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	blastRadiusReportCmd.SetOut(&out)
+	if err := blastRadiusReportCmd.RunE(blastRadiusReportCmd, []string{p}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "1 credential(s)") || !strings.Contains(out.String(), "GitHub ghp...") {
+		t.Fatalf("report: %s", out.String())
 	}
 }

@@ -375,3 +375,40 @@ func TestKingfisherProviderParity(t *testing.T) {
 		t.Fatalf("kingfisher providers without a pleno-dlp mapper: %v", missing)
 	}
 }
+
+func TestGitHubAppTokens(t *testing.T) {
+	s := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		switch {
+		case auth == "Bearer ghu_x" && r.URL.Path == "/user":
+			_, _ = w.Write([]byte(`{"login":"octo","id":7,"type":"User"}`))
+		case auth == "Bearer ghu_x" && r.URL.Path == "/user/installations":
+			_, _ = w.Write([]byte(`{"installations":[{"id":9,"app_slug":"ci-bot","account":{"login":"acme"},"permissions":{"contents":"write","metadata":"read"}}]}`))
+		case auth == "Bearer ghu_x" && r.URL.Path == "/user/installations/9/repositories":
+			_, _ = w.Write([]byte(`{"repositories":[{"full_name":"acme/app"}]}`))
+		case auth == "Bearer ghs_x" && r.URL.Path == "/installation/repositories":
+			w.Header().Set("GitHub-Authentication-Token-Expiration", "2026-11-24 10:00:00 UTC")
+			_, _ = w.Write([]byte(`{"total_count":2,"repositories":[{"full_name":"acme/app"}]}`))
+		case auth == "Bearer github_pat_x" && r.URL.Path == "/user":
+			_, _ = w.Write([]byte(`{"login":"octo","id":7}`))
+		case r.URL.Path == "/user/orgs" || r.URL.Path == "/user/repos":
+			_, _ = w.Write([]byte(`[]`))
+		default:
+			w.WriteHeader(403)
+		}
+	})
+	m := github.Mapper{BaseURL: s.URL}
+	am, err := m.MapAccess(context.Background(), detectors.AccessCredential{Secret: "ghu_x"})
+	if err != nil || am.Identity.Type != "app_user_token" || !am.Privileged || len(am.Resources) != 2 || !slices.Equal(am.Resources[0].Permissions, []string{"contents:write", "metadata:read"}) {
+		t.Fatalf("ghu: %+v %v", am, err)
+	}
+	am, err = m.MapAccess(context.Background(), detectors.AccessCredential{Secret: "ghs_x"})
+	if err != nil || am.Identity.Type != "app_installation" || am.Identity.Account != "acme" || len(am.Resources) != 1 || !strings.Contains(strings.Join(am.Limitations, "|"), "capped at 1 of 2") {
+		t.Fatalf("ghs: %+v %v", am, err)
+	}
+	assertSchema(t, am)
+	am, err = m.MapAccess(context.Background(), detectors.AccessCredential{Secret: "github_pat_x"})
+	if err != nil || am.Identity.Type != "fine_grained_pat" || !strings.Contains(strings.Join(am.Limitations, "|"), "fine-grained") {
+		t.Fatalf("pat: %+v %v", am, err)
+	}
+}
