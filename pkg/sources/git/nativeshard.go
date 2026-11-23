@@ -222,11 +222,12 @@ func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repositor
 	// Each worker's renderer helpers start in the same burst (see above).
 	synthRes := make([]*nativeSynthRes, shards)
 	if s.nativeSynthEligible() {
+		odb := s.objectDB(ctx, gitBin)
 		for w := range synthRes {
 			started.Add(1)
 			go func() {
 				defer started.Done()
-				synthRes[w], _ = startNativeSynthRes(ctx, gitBin, s.repoAbs)
+				synthRes[w], _ = startNativeSynthRes(ctx, gitBin, s.repoAbs, odb)
 			}()
 		}
 	}

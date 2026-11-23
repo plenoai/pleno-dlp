@@ -65,29 +65,66 @@ func nativeRawArgs(patchArgs []string) []string {
 
 // nativeSynthRes are the long-lived helper processes one renderer uses.
 type nativeSynthRes struct {
-	blobs *catFileBatch
+	blobs *catFileBatch // nil when odb reads blobs in process
+	odb   *objectDB
 	attrs *checkAttrBatch
 }
 
-func startNativeSynthRes(ctx context.Context, gitBin, repoAbs string) (*nativeSynthRes, error) {
-	blobs, err := startCatFileBatchArgs(ctx, gitBin, repoAbs, "--batch-command", "--buffer")
-	if err != nil {
-		return nil, err
+func startNativeSynthRes(ctx context.Context, gitBin, repoAbs string, odb *objectDB) (*nativeSynthRes, error) {
+	res := &nativeSynthRes{odb: odb}
+	if odb == nil {
+		blobs, err := startCatFileBatchArgs(ctx, gitBin, repoAbs, "--batch-command", "--buffer")
+		if err != nil {
+			return nil, err
+		}
+		res.blobs = blobs
 	}
 	attrs, err := startCheckAttrBatch(ctx, gitBin, repoAbs)
 	if err != nil {
-		_ = blobs.close()
+		res.close()
 		return nil, err
 	}
-	return &nativeSynthRes{blobs: blobs, attrs: attrs}, nil
+	res.attrs = attrs
+	return res, nil
 }
 
 func (r *nativeSynthRes) close() {
 	if r == nil {
 		return
 	}
-	_ = r.blobs.close()
-	_ = r.attrs.close()
+	if r.blobs != nil {
+		_ = r.blobs.close()
+	}
+	if r.attrs != nil {
+		_ = r.attrs.close()
+	}
+}
+
+// nativeObjectDBCache bounds the walk's shared delta-base cache.
+const nativeObjectDBCache = 512 << 20
+
+// objectDB opens the walk's in-process object reader once; nil means blobs
+// are read through git cat-file instead.
+func (s *Source) objectDB(ctx context.Context, gitBin string) *objectDB {
+	s.odbOnce.Do(func() {
+		if os.Getenv("PLENO_DLP_GIT_OBJECT_READER") == "git" {
+			return
+		}
+		out, err := exec.CommandContext(ctx, gitBin, "-C", s.repoAbs, "rev-parse", "--path-format=absolute", "--git-path", "objects").Output()
+		if err != nil {
+			return
+		}
+		cacheBytes := int64(nativeObjectDBCache)
+		if v, err := strconv.ParseInt(os.Getenv("PLENO_DLP_ODB_CACHE_MB"), 10, 64); err == nil {
+			cacheBytes = v << 20
+		}
+		db, err := openObjectDB(strings.TrimSpace(string(out)), cacheBytes)
+		if err != nil {
+			return
+		}
+		s.odb = db
+	})
+	return s.odb
 }
 
 // diffAttrCache memoizes the "diff" attribute by path across the shards of
@@ -476,6 +513,9 @@ func (r *nativeSynthLog) prefetch(window []nativeRawEntry) error {
 			r.source.diffAttrs.put(p, values[i])
 		}
 	}
+	if r.res.blobs == nil {
+		return nil
+	}
 	if r.res.blobs.broken != nil {
 		return r.res.blobs.broken
 	}
@@ -524,6 +564,16 @@ func (r *nativeSynthLog) drainPending() error {
 
 // readBlob reads the next pipelined response, which must be oid.
 func (r *nativeSynthLog) readBlob(oid string, buf []byte) ([]byte, error) {
+	if r.res.blobs == nil {
+		data, err := r.res.odb.readBlob(oid, nativeSynthMaxBlob, buf)
+		if err != nil {
+			if ctxErr := r.ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
+			return nil, errNativeSynthFallback
+		}
+		return data, nil
+	}
 	if len(r.pending) == 0 || r.pending[0] != oid {
 		return nil, fmt.Errorf("git: native patch render requested %s out of order", oid)
 	}
@@ -765,7 +815,7 @@ func (s *Source) startNativeRender(ctx context.Context, gitBin string, proc *nat
 	render := &nativeRender{done: make(chan struct{})}
 	if res == nil {
 		var err error
-		res, err = startNativeSynthRes(ctx, gitBin, s.repoAbs)
+		res, err = startNativeSynthRes(ctx, gitBin, s.repoAbs, s.objectDB(ctx, gitBin))
 		if err != nil {
 			return nil, err
 		}

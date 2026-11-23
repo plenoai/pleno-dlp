@@ -17,7 +17,7 @@ import (
 func renderNativeSynth(t testing.TB, s *Source, args []string, stdin string) []byte {
 	t.Helper()
 	ctx := context.Background()
-	res, err := startNativeSynthRes(ctx, "git", s.repoAbs)
+	res, err := startNativeSynthRes(ctx, "git", s.repoAbs, s.objectDB(ctx, "git"))
 	if err != nil {
 		t.Fatal(err)
 	}

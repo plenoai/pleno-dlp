@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -197,6 +198,9 @@ type Source struct {
 	// diffAttrs memoizes the "diff" attribute by path for the in-process
 	// patch renderer (#983).
 	diffAttrs *diffAttrCache
+	// odb is the walk's in-process pack reader (#983); opened once.
+	odbOnce sync.Once
+	odb     *objectDB
 	// attrFree is the walk's attribute-free git directory for merge
 	// forced-text rendering (#998); created on first use.
 	attrFree *attrFreeDir
@@ -348,6 +352,8 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	s.diffAttrs = &diffAttrCache{}
 	s.attrFree = &attrFreeDir{}
 	defer s.attrFree.cleanup()
+	s.odbOnce, s.odb = sync.Once{}, nil
+	defer func() { s.odb.close() }()
 	s.diffReplicas = newDiffReplicaRegistry(s.collapseIdenticalDiffs && !s.trufflehogCompatible && !s.includeGitArchives && !s.includeGitBinaries)
 	starts, err := s.resolveStarts(repo)
 	if err != nil {
