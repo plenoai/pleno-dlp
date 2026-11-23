@@ -1,7 +1,9 @@
 // GitLab connector. Single-file Lambda-handler shape: auth, fetch, emit.
 //
 // Surface: group or single-project default-branch blobs, plus optional merge
-// request notes and discussion notes.
+// request notes and discussion notes, optional full Git history (clone of
+// http_url_to_repo as the "oauth2" user, via the shared scanRemoteGitRepo
+// walker), and optional project + personal snippets.
 //
 // Auth: PAT (`glpat-...`) sent as `PRIVATE-TOKEN: <token>`, OAuth /
 // other tokens sent as `Authorization: Bearer <token>`. The header is
@@ -38,6 +40,8 @@ const (
 	gitlabDefaultAPIBase      = "https://gitlab.com/api/v4"
 	gitlabDefaultMaxBlobBytes = int64(5 * 1024 * 1024)
 	gitlabRequestTimeout      = 60 * time.Second
+	// gitlabCloneUsername is the HTTPS clone user GitLab expects with a token.
+	gitlabCloneUsername = "oauth2"
 )
 
 func init() {
@@ -57,6 +61,8 @@ func init() {
 //   - max_blob_bytes per-blob size cap
 //   - concurrency per-project blob fanout
 //   - include_comments scan merge request notes and discussion notes
+//   - history     clone each project and walk every branch and tag
+//   - include_snippets scan project snippets and the token owner's snippets
 func scanGitLab(ctx context.Context, cfg Config, emit Emit) error {
 	token := cfg["token"]
 	if token == "" {
@@ -129,7 +135,32 @@ func scanGitLab(ctx context.Context, cfg Config, emit Emit) error {
 				continue
 			}
 		}
+		if parseBool(cfg["history"]) {
+			target := remoteGitRepo{Key: projectKey, CloneURL: p.HTTPURLToRepo}
+			if strings.HasPrefix(target.CloneURL, "https://") || strings.HasPrefix(target.CloneURL, "http://") {
+				target.Username = gitlabCloneUsername
+				target.Password = token
+			}
+			history, err := scanRemoteGitRepo(ctx, "gitlab", target, prevProject.History, emit)
+			if err != nil {
+				return err
+			}
+			nextProject.History = history
+		}
+		if parseBool(cfg["include_snippets"]) {
+			nextProject.Snippets = map[string]gitlabNoteIncrementalState{}
+			path := fmt.Sprintf("/projects/%d/snippets?per_page=100", p.ID)
+			if err := scanGitLabSnippets(ctx, cli, path, p, group, prevProject.Snippets, nextProject.Snippets, emit); err != nil {
+				return err
+			}
+		}
 		nextState.Projects[projectKey] = nextProject
+	}
+	if parseBool(cfg["include_snippets"]) {
+		nextState.Snippets = map[string]gitlabNoteIncrementalState{}
+		if err := scanGitLabSnippets(ctx, cli, "/snippets?per_page=100", gitlabProjectRef{}, group, previousState.Snippets, nextState.Snippets, emit); err != nil {
+			return err
+		}
 	}
 	data, err := json.Marshal(nextState)
 	if err != nil {
@@ -175,6 +206,13 @@ func fingerprintGitLab(ctx context.Context, cfg Config) (string, error) {
 	apiBase := cfg.Get("api_base", gitlabDefaultAPIBase)
 	if err := requireSecureEndpoint("gitlab", apiBase); err != nil {
 		return "", err
+	}
+	// Default-branch blobs and MR notes have a cheap metadata fingerprint;
+	// other refs and snippets do not, and hashing only the former would let
+	// --incremental skip new commits on other branches or edited snippets.
+	// Opt out of the skip fast-path; per-project state stays incremental.
+	if parseBool(cfg["history"]) || parseBool(cfg["include_snippets"]) {
+		return "", nil
 	}
 	cli := newGitLabClient(apiBase, token)
 	projects, err := gitlabListProjects(ctx, cli, group, project)
@@ -307,6 +345,16 @@ type gitlabProjectRef struct {
 	Name          string `json:"name"`
 	PathWithNS    string `json:"path_with_namespace"`
 	DefaultBranch string `json:"default_branch"`
+	HTTPURLToRepo string `json:"http_url_to_repo"`
+}
+
+type gitlabSnippet struct {
+	ID        int64  `json:"id"`
+	Title     string `json:"title"`
+	FileName  string `json:"file_name"`
+	UpdatedAt string `json:"updated_at"`
+	WebURL    string `json:"web_url"`
+	ProjectID int64  `json:"project_id"`
 }
 
 type gitlabTreeEntry struct {
@@ -337,12 +385,17 @@ type gitlabDiscussion struct {
 type gitlabIncrementalState struct {
 	Version  int                                      `json:"version"`
 	Projects map[string]gitlabProjectIncrementalState `json:"projects"`
+	// Snippets checkpoints the token owner's personal snippets (/snippets).
+	Snippets map[string]gitlabNoteIncrementalState `json:"snippets,omitempty"`
 }
 
 type gitlabProjectIncrementalState struct {
 	DefaultBranch string                                `json:"default_branch,omitempty"`
 	Blobs         map[string]gitlabBlobIncrementalState `json:"blobs,omitempty"`
 	MRNotes       map[string]gitlabNoteIncrementalState `json:"mr_notes,omitempty"`
+	Snippets      map[string]gitlabNoteIncrementalState `json:"snippets,omitempty"`
+	// History is the git source's per-ref state for the cloned repository.
+	History json.RawMessage `json:"history,omitempty"`
 }
 
 type gitlabBlobIncrementalState struct {
@@ -749,4 +802,67 @@ func gitlabBackoff(resp *http.Response, attempt int) time.Duration {
 		d = time.Minute
 	}
 	return d
+}
+
+// scanGitLabSnippets lists snippets at path (Link-header pagination) and
+// emits each one's raw content, skipping snippets whose updated_at is
+// unchanged since the previous run. proj is zero for personal snippets.
+func scanGitLabSnippets(ctx context.Context, cli *gitlabClient, path string, proj gitlabProjectRef, group string, prev, next map[string]gitlabNoteIncrementalState, emit Emit) error {
+	for path != "" {
+		var page []gitlabSnippet
+		resp, err := cli.getJSON(ctx, path, &page)
+		if err != nil {
+			return fmt.Errorf("gitlab: list snippets: %w", err)
+		}
+		for _, sn := range page {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			key := strconv.FormatInt(sn.ID, 10)
+			current := gitlabNoteIncrementalState{UpdatedAt: sn.UpdatedAt}
+			if sn.UpdatedAt != "" && prev[key] == current {
+				next[key] = current
+				continue
+			}
+			rawPath := fmt.Sprintf("/snippets/%d/raw", sn.ID)
+			if proj.ID != 0 {
+				rawPath = fmt.Sprintf("/projects/%d/snippets/%d/raw", proj.ID, sn.ID)
+			}
+			data, err := gitlabFetchRaw(ctx, cli, rawPath, gitlabDefaultMaxBlobBytes)
+			if err != nil {
+				return err
+			}
+			body := sn.Title + "\n" + string(data)
+			if err := emit([]byte(body), sources.Metadata{GitLab: &sources.GitLabMeta{
+				ProjectID: proj.ID,
+				Path:      fmt.Sprintf("snippet:%d:%s", sn.ID, sn.FileName),
+				Group:     group,
+				Project:   proj.PathWithNS,
+			}}); err != nil {
+				return err
+			}
+			next[key] = current
+		}
+		path = parseLinkHeader(resp.Header.Get("Link"))
+	}
+	return nil
+}
+
+func gitlabFetchRaw(ctx context.Context, cli *gitlabClient, path string, maxBytes int64) ([]byte, error) {
+	resp, err := cli.do(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("gitlab: GET %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("gitlab: GET %s -> %s", path, resp.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("gitlab: read %s: %w", path, err)
+	}
+	if int64(len(data)) > maxBytes {
+		data = data[:maxBytes]
+	}
+	return data, nil
 }

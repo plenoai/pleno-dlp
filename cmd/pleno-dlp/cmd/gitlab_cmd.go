@@ -16,6 +16,8 @@ type gitlabFlags struct {
 	token           string
 	apiBase         string
 	includeComments bool
+	history         bool
+	includeSnippets bool
 }
 
 var (
@@ -45,6 +47,8 @@ func init() {
 	scanGitLabCmd.Flags().StringVar(&scanGitLabOpts.token, "token", "", "GitLab PAT or OAuth token (falls back to the GITLAB_TOKEN env var)")
 	scanGitLabCmd.Flags().StringVar(&scanGitLabOpts.apiBase, "api-base", "", "GitLab API base URL (default https://gitlab.com/api/v4; override for self-hosted)")
 	scanGitLabCmd.Flags().BoolVar(&scanGitLabOpts.includeComments, "include-comments", false, "also scan merge request notes and discussion notes")
+	scanGitLabCmd.Flags().BoolVar(&scanGitLabOpts.history, "history", false, "also clone each project and scan its full Git history (all branches and tags)")
+	scanGitLabCmd.Flags().BoolVar(&scanGitLabOpts.includeSnippets, "include-snippets", false, "also scan project snippets and the token owner's personal snippets")
 	scanCmd.AddCommand(scanGitLabCmd)
 
 	verifyGitLabCmd.Flags().StringVar(&verifyGitLabOpts.token, "token", "", "GitLab PAT or OAuth token (falls back to the GITLAB_TOKEN env var)")
@@ -66,6 +70,8 @@ func runScanGitLab(cmd *cobra.Command, _ []string) error {
 		"project":          scanGitLabOpts.project,
 		"api_base":         scanGitLabOpts.apiBase,
 		"include_comments": fmt.Sprintf("%t", scanGitLabOpts.includeComments),
+		"history":          fmt.Sprintf("%t", scanGitLabOpts.history),
+		"include_snippets": fmt.Sprintf("%t", scanGitLabOpts.includeSnippets),
 	})
 }
 
