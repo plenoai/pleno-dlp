@@ -39,7 +39,7 @@ Status values:
 | kingfisher | pleno-dlp | Status |
 |---|---|---|
 | `--format pretty/json/jsonl/sarif/html` | `--format table/json/jsonl/sarif/html` | done |
-| `--format bson` / `toon` | — | gap |
+| `--format bson` / `toon` | same | done |
 | `--output/-o` | shell redirection; `view -o` | partial |
 | `--confidence` / `--min-confidence` | `--fail-on` severity tiers | partial (severity, not confidence) |
 | `--only-valid` | `--only-verified`, `--only-provider-confirmed` | done |
