@@ -152,4 +152,7 @@ registry tokens. One-time registry setup:
   `plenoai`, repository `pleno-dlp`, workflow `release.yml`, environment
   `pypi`.
 - **npm:** add a trusted publisher for `pleno-dlp`: repository
-  `plenoai/pleno-dlp`, workflow `release.yml`, environment `npm`.
+  `plenoai/pleno-dlp`, workflow `release.yml`, environment `npm`. Leave
+  direct publishing disabled: CI runs `npm stage publish`, and a maintainer
+  approves each version with 2FA (`npm stage list pleno-dlp`, then
+  `npm stage approve <stage-id>`, or the npmjs.com UI) before it is public.
