@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-11-23 | connector-engineer, qa | Add the shared `pkg/connectors/remote_git.go` clone-and-walk helper (ForgeMeta provenance, per-repo git checkpoints in `forgeIncrementalState.Repos`) and `--history`/`--clone-url` for Gitea-family forges; tokens reach HTTP(S) remotes only (#811). |
 | 2026-11-23 | connector-engineer, qa | Add `pkg/sources/git.CloneRemote` (HTTPS-only credentials, no URL userinfo, token-redacted errors) and `scan git --git-url` so remote repositories are scanned with the full local git walker (#811). |
 | 2026-11-19 | core-engineer, qa | Separate policy-limited archive skips from real coverage gaps: per-failure `coverage: entry` lines, `skipped_by_policy` counts, and `--fail-on-coverage=gap|any` (default gap); e2e 03 covers both modes (supersedes #744). |
 | 2026-11-17 | architect | Raise the minimum Go version to 1.26.11 for the net/http fix GO-2026-6859; no new govulncheck exception. |
