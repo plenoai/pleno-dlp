@@ -2839,7 +2839,17 @@ func TestGitScanProcsFor(t *testing.T) {
 		}
 	}
 	if got := gitScanProcsFor(gitLargePackBytes - 1)(30); got != gitScanProcs(30) {
-		t.Errorf("small gitScanProcsFor(30) = %d, want %d", got, gitScanProcs(30))
+		t.Errorf("mid gitScanProcsFor(30) = %d, want %d", got, gitScanProcs(30))
+	}
+	if got := gitScanProcsFor(gitSmallPackBytes)(30); got != gitScanProcs(30) {
+		t.Errorf("mid gitScanProcsFor(30) at the small bound = %d, want %d", got, gitScanProcs(30))
+	}
+	for cpus, want := range map[int]int{1: 4, 12: 4, 15: 5, 30: 10} {
+		for _, packs := range []int64{0, gitSmallPackBytes - 1} {
+			if got := gitScanProcsFor(packs)(cpus); got != want {
+				t.Errorf("small gitScanProcsFor(%d bytes)(%d) = %d, want %d", packs, cpus, got, want)
+			}
+		}
 	}
 }
 

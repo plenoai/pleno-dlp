@@ -1935,17 +1935,34 @@ func gitScanProcs(cpus int) int { return max(4, cpus*2/3) }
 // madvise on fresh spans were ~40% of samples on rails). Measured on a
 // 30-CPU host (CPU-s incl. git children / wall s, #1038): django
 // 26.6/1.9 -> 25.2/2.2 and rails 33.4/2.7 -> 31.3/2.9 against kingfisher's
-// 22.2/2.8 and 26.0/4.3. Small histories such as croc keep gitScanProcs:
-// their walk is startup-bound and fewer Ps cost the wall lead.
+// 22.2/2.8 and 26.0/4.3. Mid-sized histories keep gitScanProcs and small
+// ones use gitSmallScanProcs.
 func gitLargeScanProcs(cpus int) int { return max(4, cpus/2) }
 
 // gitLargePackBytes is the packed-object size from which a repository
 // uses gitLargeScanProcs (croc packs 13 MiB, django 279 MiB, rails 320 MiB).
 const gitLargePackBytes = 64 << 20
 
+// gitSmallScanProcs is the scheduler width for a history whose packs stay
+// below gitSmallPackBytes: a third of the CPUs, at least 4. Once the
+// in-process renderer fed patches to the parser in place and stopped
+// forking check-attr (#1041, #1042), croc's walk finished early enough
+// that the extra Ps of gitScanProcs mostly spun. Measured on a 30-CPU host
+// (hyperfine median, CPU-s incl. git children / wall s, #1035): croc
+// 1.83/0.19 at 20 Ps and 1.58/0.24 at 10 Ps against kingfisher's
+// 1.11/0.28; 8 Ps saved a little more CPU but left almost no wall lead.
+func gitSmallScanProcs(cpus int) int { return max(4, cpus/3) }
+
+// gitSmallPackBytes is the packed-object size below which a repository
+// uses gitSmallScanProcs.
+const gitSmallPackBytes = 32 << 20
+
 func gitScanProcsFor(packBytes int64) func(cpus int) int {
-	if packBytes >= gitLargePackBytes {
+	switch {
+	case packBytes >= gitLargePackBytes:
 		return gitLargeScanProcs
+	case packBytes < gitSmallPackBytes:
+		return gitSmallScanProcs
 	}
 	return gitScanProcs
 }

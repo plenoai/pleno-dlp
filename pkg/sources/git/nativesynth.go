@@ -29,7 +29,8 @@ import (
 
 // nativeSynthMaxBlob bounds the blob size rendered in process; larger blobs
 // make their commit fall back to git (which applies core.bigFileThreshold).
-const nativeSynthMaxBlob = 64 << 20
+// A variable so tests can force mid-commit fallbacks.
+var nativeSynthMaxBlob int64 = 64 << 20
 
 // nativeSynthBinaryProbe mirrors git's FIRST_FEW_BYTES binary probe.
 const nativeSynthBinaryProbe = 8000
@@ -81,7 +82,8 @@ type nativeSynthRes struct {
 	attrs *checkAttrBatch
 }
 
-func startNativeSynthRes(ctx context.Context, gitBin, repoAbs string, odb *objectDB) (*nativeSynthRes, error) {
+func (s *Source) startNativeSynthRes(ctx context.Context, gitBin string, odb *objectDB) (*nativeSynthRes, error) {
+	repoAbs := s.repoAbs
 	res := &nativeSynthRes{odb: odb}
 	if odb == nil {
 		blobs, err := startCatFileBatchArgs(ctx, gitBin, repoAbs, "--batch-command", "--buffer")
@@ -89,6 +91,10 @@ func startNativeSynthRes(ctx context.Context, gitBin, repoAbs string, odb *objec
 			return nil, err
 		}
 		res.blobs = blobs
+	}
+	if s.noDiffAttributes(ctx, gitBin) {
+		// attrs stays nil: every path's diff attribute is unspecified.
+		return res, nil
 	}
 	attrs, err := startCheckAttrBatch(ctx, gitBin, repoAbs)
 	if err != nil {
@@ -141,9 +147,13 @@ func (s *Source) objectDB(ctx context.Context, gitBin string) *objectDB {
 // diffAttrCache memoizes the "diff" attribute by path across the shards of
 // one walk; attributes depend only on the path for the whole walk.
 type diffAttrCache struct {
-	mu      sync.Mutex
-	m       map[string]string
-	drivers map[string]int // driver name -> configured binary (-1 unset, 0, 1)
+	// probeOnce/none record whether the walk has no attribute source at
+	// all (see noDiffAttributes).
+	probeOnce sync.Once
+	none      bool
+	mu        sync.Mutex
+	m         map[string]string
+	drivers   map[string]int // driver name -> configured binary (-1 unset, 0, 1)
 }
 
 func (c *diffAttrCache) get(path string) (string, bool) {
@@ -164,6 +174,13 @@ func (c *diffAttrCache) put(path, v string) {
 	}
 }
 
+// nativeSynthSink receives the rendered patch stream: a buffered pipe to a
+// parser on another goroutine, or a nativeLineFeed driving one in place.
+type nativeSynthSink interface {
+	io.Writer
+	Flush() error
+}
+
 // nativeSynthLog renders one raw `git log` stream into patch text.
 type nativeSynthLog struct {
 	ctx       context.Context
@@ -172,7 +189,7 @@ type nativeSynthLog struct {
 	patchArgs []string
 	pathspec  string // the "--\n<paths>" stdin tail of a path-split item
 	res       *nativeSynthRes
-	out       *bufio.Writer
+	out       nativeSynthSink
 	xd        xdiffer
 
 	commit  string
@@ -279,57 +296,112 @@ func (r *nativeSynthLog) finishCommit() error {
 		_, err := r.out.Write(r.head)
 		return err
 	}
-	r.patch = append(r.patch[:0], '\n')
-	err := r.renderEntries()
+	if err := r.precheck(); err != nil {
+		if errors.Is(err, errNativeSynthFallback) {
+			return r.renderWithGit(-1)
+		}
+		return err
+	}
+	// Each file pair is handed to the sink as soon as it is rendered, so
+	// a commit's patch is never buffered whole (#1041, #1035): a commit
+	// adding a vendored tree used to grow every worker's buffer to the
+	// size of its entire patch. Only an unreadable blob can still force a
+	// fallback after output started; git then re-renders the commit and
+	// the sections already sent are skipped.
+	r.head = append(r.head, '\n')
+	if _, err := r.out.Write(r.head); err != nil {
+		return err
+	}
+	sent, err := r.renderEntries()
 	if errors.Is(err, errNativeSynthFallback) {
 		if err := r.drainPending(); err != nil {
 			return err
 		}
-		return r.renderWithGit()
+		return r.renderWithGit(sent)
 	}
-	if err != nil {
-		return err
-	}
-	if _, err := r.out.Write(r.head); err != nil {
-		return err
-	}
-	_, err = r.out.Write(r.patch)
 	return err
+}
+
+// precheck resolves every condition that sends the whole commit to git
+// before any of it is rendered: gitlinks, renames/copies, and diff drivers
+// with a configured binary setting.
+func (r *nativeSynthLog) precheck() error {
+	if err := r.prefetchAttrs(r.entries); err != nil {
+		return err
+	}
+	for i := range r.entries {
+		e := &r.entries[i]
+		if e.oldMode == "160000" || e.newMode == "160000" {
+			return errNativeSynthFallback
+		}
+		switch e.status {
+		case 'A', 'M', 'D', 'T':
+		default:
+			return errNativeSynthFallback
+		}
+		if e.oldOID == e.newOID {
+			continue
+		}
+		if _, err := r.diffAttr(e.path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // nativeSynthWindow bounds how many raw entries are prefetched per
 // pipelined request (pipe buffers stay far below 64 KiB of requests).
 const nativeSynthWindow = 256
 
-func (r *nativeSynthLog) renderEntries() error {
+// renderEntries renders and sends every file pair, returning how many
+// "diff --git" sections were sent.
+func (r *nativeSynthLog) renderEntries() (int, error) {
+	sent := 0
+	pair := func(e *nativeRawEntry, oldMode, newMode, oldOID, newOID string) error {
+		r.patch = r.patch[:0]
+		if err := r.renderPair(e, oldMode, newMode, oldOID, newOID); err != nil {
+			return err
+		}
+		if _, err := r.out.Write(r.patch); err != nil {
+			return err
+		}
+		sent++
+		r.shrinkPatch()
+		return nil
+	}
 	for i := range r.entries {
 		if i%nativeSynthWindow == 0 {
-			if err := r.prefetch(r.entries[i:min(i+nativeSynthWindow, len(r.entries))]); err != nil {
-				return err
+			if err := r.prefetchBlobs(r.entries[i:min(i+nativeSynthWindow, len(r.entries))]); err != nil {
+				return sent, err
 			}
 		}
 		e := &r.entries[i]
-		if e.oldMode == "160000" || e.newMode == "160000" {
-			return errNativeSynthFallback
-		}
 		switch e.status {
-		case 'A', 'M', 'D':
-			if err := r.renderPair(e, e.oldMode, e.newMode, e.oldOID, e.newOID); err != nil {
-				return err
-			}
 		case 'T':
 			// git splits a type change into a deletion and an addition.
-			if err := r.renderPair(e, e.oldMode, "000000", e.oldOID, nativeZeroOID); err != nil {
-				return err
+			if err := pair(e, e.oldMode, "000000", e.oldOID, nativeZeroOID); err != nil {
+				return sent, err
 			}
-			if err := r.renderPair(e, "000000", e.newMode, nativeZeroOID, e.newOID); err != nil {
-				return err
+			if err := pair(e, "000000", e.newMode, nativeZeroOID, e.newOID); err != nil {
+				return sent, err
 			}
 		default:
-			return errNativeSynthFallback
+			if err := pair(e, e.oldMode, e.newMode, e.oldOID, e.newOID); err != nil {
+				return sent, err
+			}
 		}
 	}
-	return nil
+	return sent, nil
+}
+
+// nativeSynthPatchKeep bounds the render buffer a worker keeps between
+// files; a larger one (a single huge file diff) is released to the GC.
+const nativeSynthPatchKeep = 1 << 20
+
+func (r *nativeSynthLog) shrinkPatch() {
+	if cap(r.patch) > nativeSynthPatchKeep {
+		r.patch = nil
+	}
 }
 
 func nativeQuotedName(prefix, token string) string {
@@ -447,6 +519,9 @@ func nativeProbeBinary(data []byte) bool {
 func (r *nativeSynthLog) diffAttr(path string) (string, error) {
 	cache := r.source.diffAttrs
 	v, ok := cache.get(path)
+	if !ok && r.res.attrs == nil {
+		return "", nil
+	}
 	if !ok {
 		var err error
 		v, err = r.res.attrs.lookup(r.ctx, path)
@@ -504,26 +579,36 @@ func (r *nativeSynthLog) driverBinary(name string) (int, error) {
 	return v, nil
 }
 
-// prefetch resolves the window's uncached attributes and reads its blobs
-// with one pipelined request each, instead of a pipe round trip per object.
-func (r *nativeSynthLog) prefetch(window []nativeRawEntry) error {
+// prefetchAttrs resolves the uncached attributes of entries with
+// pipelined lookups instead of a pipe round trip per path.
+func (r *nativeSynthLog) prefetchAttrs(entries []nativeRawEntry) error {
+	if r.res.attrs == nil {
+		return nil
+	}
 	var paths []string
 	seen := map[string]bool{}
-	for _, e := range window {
+	for _, e := range entries {
 		if _, ok := r.source.diffAttrs.get(e.path); !ok && !seen[e.path] {
 			seen[e.path] = true
 			paths = append(paths, e.path)
 		}
 	}
-	if len(paths) > 0 {
-		values, err := r.res.attrs.lookupMany(r.ctx, paths)
-		if err != nil {
-			return err
-		}
-		for i, p := range paths {
-			r.source.diffAttrs.put(p, values[i])
-		}
+	if len(paths) == 0 {
+		return nil
 	}
+	values, err := r.res.attrs.lookupMany(r.ctx, paths)
+	if err != nil {
+		return err
+	}
+	for i, p := range paths {
+		r.source.diffAttrs.put(p, values[i])
+	}
+	return nil
+}
+
+// prefetchBlobs requests the window's blobs with one pipelined cat-file
+// request.
+func (r *nativeSynthLog) prefetchBlobs(window []nativeRawEntry) error {
 	if r.res.blobs == nil {
 		return nil
 	}
@@ -623,9 +708,10 @@ func (r *nativeSynthLog) readBlob(oid string, buf []byte) ([]byte, error) {
 	return nil, errNativeSynthFallback
 }
 
-// renderWithGit replaces the commit's synthesized output with git's own
-// rendering of exactly that commit.
-func (r *nativeSynthLog) renderWithGit() error {
+// renderWithGit renders exactly this commit with git. skip < 0 sends all of
+// git's output; otherwise the header and the first skip "diff --git"
+// sections, already sent from the in-process rendering, are dropped.
+func (r *nativeSynthLog) renderWithGit(skip int) error {
 	args := make([]string, 0, len(r.patchArgs)+1)
 	for _, a := range r.patchArgs {
 		switch {
@@ -644,10 +730,23 @@ func (r *nativeSynthLog) renderWithGit() error {
 	var stderr limitedWriter
 	stderr.limit = nativeStderrLimit
 	cmd.Stderr = &stderr
-	cmd.Stdout = r.out
-	if err := cmd.Run(); err != nil {
+	var skipper *nativeSectionSkipper
+	if skip >= 0 {
+		skipper = &nativeSectionSkipper{out: r.out, skip: skip}
+		cmd.Stdout = skipper
+	} else {
+		cmd.Stdout = r.out
+	}
+	err := cmd.Run()
+	if err == nil && skipper != nil {
+		err = skipper.flush()
+	}
+	if err != nil {
 		if ctxErr := r.ctx.Err(); ctxErr != nil {
 			return ctxErr
+		}
+		if feed, ok := r.out.(*nativeLineFeed); ok && feed.err != nil {
+			return feed.err
 		}
 		return fmt.Errorf("git: native log fallback for %s: %w: %s", r.commit, err, strings.TrimSpace(stderr.String()))
 	}
@@ -831,7 +930,7 @@ func (s *Source) startNativeRender(ctx context.Context, gitBin string, proc *nat
 	render := &nativeRender{done: make(chan struct{})}
 	if res == nil {
 		var err error
-		res, err = startNativeSynthRes(ctx, gitBin, s.repoAbs, s.objectDB(ctx, gitBin))
+		res, err = s.startNativeSynthRes(ctx, gitBin, s.objectDB(ctx, gitBin))
 		if err != nil {
 			return nil, err
 		}

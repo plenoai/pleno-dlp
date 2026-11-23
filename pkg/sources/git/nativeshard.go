@@ -237,7 +237,7 @@ func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repositor
 			started.Add(1)
 			go func() {
 				defer started.Done()
-				synthRes[w], _ = startNativeSynthRes(ctx, gitBin, s.repoAbs, odb)
+				synthRes[w], _ = s.startNativeSynthRes(ctx, gitBin, odb)
 			}()
 		}
 	}
