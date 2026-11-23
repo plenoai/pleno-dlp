@@ -71,6 +71,8 @@ type scanFlags struct {
 	alertMinSeverity   string
 	alertDryRun        bool
 	alertFormat        string
+	skipAWSAccounts    []string
+	skipAWSAccountFile string
 	allowlistPath      string
 	baselinePath       string
 	noInlineAllow      bool
@@ -238,6 +240,10 @@ func init() {
 		"minimum severity included in alerts: info|low|medium|high|critical")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.alertDryRun, "alert-dry-run", false,
 		"print each alert payload to stderr instead of POSTing it")
+	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.skipAWSAccounts, "skip-aws-account", nil,
+		"12-digit AWS account ID(s) whose keys are never verified (canary tokens); repeatable, comma-separated. Known Thinkst canary accounts are always skipped")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.skipAWSAccountFile, "skip-aws-account-file", "",
+		"file of AWS account IDs to skip verifying, one per line (blank lines and # comments allowed)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.alertFormat, "alert-format", "auto",
 		"alert payload shape for every --alert-webhook: auto (infer from host)|slack|teams|discord|mattermost|googlechat|generic")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file that mutes known false positives (auto-discovers .pleno-allow.json from the repo root)")
@@ -578,6 +584,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 
 	threshold, err := parseFailOn(scanOpts.failOn)
 	if err != nil {
+		return err
+	}
+	if err := applySkipAWSAccounts(scanOpts.skipAWSAccounts, scanOpts.skipAWSAccountFile); err != nil {
 		return err
 	}
 	alertFormat, err := alerts.ParseFormat(scanOpts.alertFormat)
@@ -1530,6 +1539,8 @@ func scannerFingerprint(kind string, cfg []byte) (string, error) {
 		"verify_min_assurance":    scanOpts.verifyMinAssurance,
 		"drop_indeterminate":      scanOpts.dropIndeterminate,
 		"verify_rps":              scanOpts.verifyRPS,
+		"skip_aws_accounts":       scanOpts.skipAWSAccounts,
+		"skip_aws_account_file":   scanOpts.skipAWSAccountFile,
 		"rules_path":              scanOpts.rulesPath,
 		"rules_hash":              rulesHash,
 		"fail_on":                 scanOpts.failOn,

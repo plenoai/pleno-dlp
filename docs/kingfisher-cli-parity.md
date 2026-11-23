@@ -47,7 +47,7 @@ Status values:
 | `--validation-rps` | `--verify-rps` (per host) | done |
 | `--validation-rps-rule`, `--validation-retries`, `--validation-timeout` | — | gap |
 | `--max-validation-response-length`, `--full-validation-response` | — | won't: pleno-dlp never stores provider response bodies (redaction policy, `docs/redaction.md`) |
-| `--skip-aws-account`, `--skip-aws-account-file` | — | gap |
+| `--skip-aws-account`, `--skip-aws-account-file` | same; built-in Thinkst canary list; account decoded offline into `aws_account_id` | done |
 | `--allow-internal-ips`, `--enable-rule-internal-ips` | verifiers refuse non-public IPs; custom-rule `validation` has SSRF guards | done (stricter, not overridable) |
 | `--skip-regex`, `--skip-word` | same | done |
 | `--no-inline-ignore`, `--extra-ignore-comments` | `--no-inline-allow`; pragma `pleno-dlp:allow` | done (custom comment tokens: gap) |
