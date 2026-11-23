@@ -93,6 +93,8 @@ func tableLocationOf(f engine.Finding) string {
 		return "s3://" + md.S3.Bucket + "/" + md.S3.Key
 	case md.GCS != nil:
 		return "gs://" + md.GCS.Bucket + "/" + md.GCS.Object
+	case md.AzureBlob != nil:
+		return md.AzureBlob.Locator()
 	case md.Slack != nil:
 		return md.Slack.Channel + "@" + md.Slack.Timestamp
 	case md.Stdin != nil:
