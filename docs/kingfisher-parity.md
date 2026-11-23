@@ -53,7 +53,7 @@ generic class with stricter false-positive gates.
 | | kingfisher validates | pleno-dlp verifies |
 |---|---|---|
 | validated parity | 266 | 266 |
-| pleno-only verified | 0 | 147 |
+| pleno-only verified | 0 | 157 |
 
 ## Rules
 
@@ -66,7 +66,7 @@ missing=0
 context=47
 validated=266
 verified=266
-pleno_only_verified=147
+pleno_only_verified=157
 rule=betterleaks.1password-secret-key validation=- status=covered detector=OnePasswordServiceAccount verified=native
 rule=betterleaks.1password-service-account-token validation=Betterleaks status=covered detector=OnePasswordServiceAccount verified=native
 rule=betterleaks.abuseipdb-api-key.1 validation=Betterleaks status=covered detector=AbuseIPDB verified=native
@@ -313,7 +313,7 @@ rule=betterleaks.lichess-personal-access-token validation=Betterleaks status=cov
 rule=betterleaks.lighton-paradigm-api-key validation=Betterleaks status=covered detector=LightOn verified=native
 rule=betterleaks.linear-api-key validation=Betterleaks status=covered detector=Linear verified=native
 rule=betterleaks.linear-client-secret validation=- status=covered detector=Linear verified=native
-rule=betterleaks.linkedin-client-id validation=- status=covered detector=LinkedIn verified=-
+rule=betterleaks.linkedin-client-id validation=- status=covered detector=LinkedIn verified=native
 rule=betterleaks.linkedin-client-secret validation=- status=covered detector=LinkedIn verified=http
 rule=betterleaks.llama-cloud-api-key.1 validation=Betterleaks status=covered detector=LlamaCloud verified=native
 rule=betterleaks.lob-api-key validation=- status=covered detector=Lob verified=http
