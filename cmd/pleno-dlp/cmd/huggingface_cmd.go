@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -12,7 +13,9 @@ import (
 // huggingfaceFlags collects the subset of HuggingFace Config that surfaces as
 // CLI flags.
 type huggingfaceFlags struct {
-	org       string
+	org       []string
+	user      []string
+	bucket    []string
 	repo      string
 	token     string
 	apiBase   string
@@ -26,11 +29,12 @@ var (
 
 var scanHuggingFaceCmd = &cobra.Command{
 	Use:   "huggingface",
-	Short: "Scan a HuggingFace organisation or single repo (full commit history)",
-	Long: "Scan a HuggingFace organisation or single repo. Reads --token, falling back to the\n" +
-		"HF_TOKEN env var. --org and --repo are mutually exclusive; one is required.\n" +
-		"Each repo is cloned and every commit is scanned. Use --repo-types to limit to\n" +
-		"model, dataset, and/or space repositories (default: all three).",
+	Short: "Scan HuggingFace users, organisations, repos, and storage buckets",
+	Long: "Scan HuggingFace users, organisations, a single repo, and storage buckets. Reads\n" +
+		"--token, falling back to the HF_TOKEN env var. --org/--user and --repo are mutually\n" +
+		"exclusive. Each model/dataset/space repo is cloned and every commit is scanned;\n" +
+		"bucket objects are listed and downloaded. Use --repo-types to limit owner\n" +
+		"enumeration to model, dataset, space, and/or bucket (default: all four).",
 	Args: cobra.NoArgs,
 	RunE: runScanHuggingFace,
 }
@@ -43,11 +47,13 @@ var verifyHuggingFaceCmd = &cobra.Command{
 }
 
 func init() {
-	scanHuggingFaceCmd.Flags().StringVar(&scanHuggingFaceOpts.org, "org", "", "HuggingFace organisation (author) to scan (mutually exclusive with --repo)")
+	scanHuggingFaceCmd.Flags().StringSliceVar(&scanHuggingFaceOpts.org, "org", nil, "HuggingFace organisation(s) to scan; repeatable or comma-separated (mutually exclusive with --repo)")
+	scanHuggingFaceCmd.Flags().StringSliceVar(&scanHuggingFaceOpts.user, "user", nil, "HuggingFace user(s) to scan; repeatable or comma-separated (mutually exclusive with --repo)")
+	scanHuggingFaceCmd.Flags().StringSliceVar(&scanHuggingFaceOpts.bucket, "bucket", nil, "HuggingFace storage bucket(s): owner/name[/prefix], hf://buckets/..., or bucket URL; repeatable")
 	scanHuggingFaceCmd.Flags().StringVar(&scanHuggingFaceOpts.repo, "repo", "", "single HuggingFace repo in owner/name form (mutually exclusive with --org)")
 	scanHuggingFaceCmd.Flags().StringVar(&scanHuggingFaceOpts.token, "token", "", "HuggingFace user-access token (falls back to the HF_TOKEN env var)")
 	scanHuggingFaceCmd.Flags().StringVar(&scanHuggingFaceOpts.apiBase, "api-base", "", "HuggingFace API base URL (default https://huggingface.co)")
-	scanHuggingFaceCmd.Flags().StringVar(&scanHuggingFaceOpts.repoTypes, "repo-types", "", "comma-separated repo types to scan: model,dataset,space (default: all)")
+	scanHuggingFaceCmd.Flags().StringVar(&scanHuggingFaceOpts.repoTypes, "repo-types", "", "comma-separated types to enumerate for --org/--user: model,dataset,space,bucket (default: all)")
 	scanCmd.AddCommand(scanHuggingFaceCmd)
 
 	verifyHuggingFaceCmd.Flags().StringVar(&verifyHuggingFaceOpts.token, "token", "", "HuggingFace user-access token (falls back to the HF_TOKEN env var)")
@@ -56,12 +62,15 @@ func init() {
 }
 
 func runScanHuggingFace(cmd *cobra.Command, _ []string) error {
-	if scanHuggingFaceOpts.org == "" && scanHuggingFaceOpts.repo == "" {
-		return errors.New("huggingface: one of --org or --repo is required")
+	o := scanHuggingFaceOpts
+	if len(o.org) == 0 && len(o.user) == 0 && o.repo == "" && len(o.bucket) == 0 {
+		return errors.New("huggingface: one of --org, --user, --repo, or --bucket is required")
 	}
 	token := resolveHFToken(scanHuggingFaceOpts.token)
 	cfg := connectors.Config{
-		"org":        scanHuggingFaceOpts.org,
+		"org":        strings.Join(o.org, ","),
+		"user":       strings.Join(o.user, ","),
+		"bucket":     strings.Join(o.bucket, ","),
 		"repo":       scanHuggingFaceOpts.repo,
 		"api_base":   scanHuggingFaceOpts.apiBase,
 		"repo_types": scanHuggingFaceOpts.repoTypes,

@@ -14,10 +14,17 @@
 //
 // Config keys:
 //   - token       (optional for public repos) HuggingFace user-access token
-//   - org         organisation (author) name to enumerate
-//   - repo        single repo in "owner/name" form (mutually exclusive with org)
+//   - org         comma-separated organisation (author) names to enumerate
+//   - user        comma-separated user (author) names to enumerate
+//   - repo        single repo in "owner/name" form (mutually exclusive with org/user)
+//   - bucket      comma-separated storage buckets: owner/name, owner/name/prefix,
+//                 hf://buckets/owner/name[/prefix], or a huggingface.co bucket URL
 //   - api_base    override https://huggingface.co (for proxies / mirrors)
-//   - repo_types  comma-separated subset of "model,dataset,space" (default: all)
+//   - repo_types  comma-separated subset of "model,dataset,space,bucket" (default: all)
+//
+// Buckets (Hugging Face storage buckets) have no git history: objects are
+// listed via GET /api/buckets/{id}/tree/{prefix}?recursive=true (Link
+// pagination, same-origin only) and downloaded from /buckets/{id}/resolve/.
 
 package connectors
 
@@ -39,6 +46,7 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 	gitsource "github.com/plenoai/pleno-dlp/pkg/sources/git"
 )
@@ -47,7 +55,7 @@ const (
 	hfDefaultAPIBase   = "https://huggingface.co"
 	hfRequestTimeout   = 60 * time.Second
 	hfPageSize         = 100
-	hfDefaultRepoTypes = "model,dataset,space"
+	hfDefaultRepoTypes = "model,dataset,space,bucket"
 )
 
 func init() {
@@ -61,13 +69,14 @@ func init() {
 
 func scanHuggingFace(ctx context.Context, cfg Config, emit Emit) error {
 	token := cfg["token"]
-	org := cfg["org"]
+	owners := append(splitList(cfg["org"]), splitList(cfg["user"])...)
 	repo := cfg["repo"]
-	if org == "" && repo == "" {
-		return errors.New("huggingface: either org or repo must be set")
+	buckets := splitList(cfg["bucket"])
+	if len(owners) == 0 && repo == "" && len(buckets) == 0 {
+		return errors.New("huggingface: one of org, user, repo, or bucket must be set")
 	}
-	if org != "" && repo != "" {
-		return errors.New("huggingface: org and repo are mutually exclusive")
+	if len(owners) > 0 && repo != "" {
+		return errors.New("huggingface: org/user and repo are mutually exclusive")
 	}
 	apiBase := cfg.Get("api_base", hfDefaultAPIBase)
 	if err := requireSecureEndpoint("huggingface", apiBase); err != nil {
@@ -75,9 +84,47 @@ func scanHuggingFace(ctx context.Context, cfg Config, emit Emit) error {
 	}
 
 	cli := newHFClient(apiBase, token)
-	repos, err := hfListRepos(ctx, cli, org, repo, cfg.Get("repo_types", hfDefaultRepoTypes))
-	if err != nil {
-		return err
+	types := parseRepoTypes(cfg.Get("repo_types", hfDefaultRepoTypes))
+
+	// Per-repo, per-bucket and per-object failures are coverage gaps,
+	// never silent zero findings (#865).
+	var failures []engine.ScanFailure
+	fail := func(source string, err error) {
+		failures = append(failures, engine.ScanFailure{Kind: engine.FailureSource, Source: source, Err: err})
+	}
+
+	var repos []hfRepoRef
+	if repo != "" {
+		r, err := hfResolveSingleRepo(ctx, cli, repo, types)
+		if err != nil {
+			return err
+		}
+		repos = r
+	}
+	for _, owner := range owners {
+		for _, rt := range types {
+			if rt == "bucket" {
+				ids, err := hfListBuckets(ctx, cli, owner)
+				if err != nil {
+					if isCtxErr(err) {
+						return err
+					}
+					fail("huggingface:buckets/"+owner, err)
+					continue
+				}
+				buckets = append(buckets, ids...)
+				continue
+			}
+			rs, err := hfEnumerateByType(ctx, cli, owner, rt)
+			if err != nil {
+				if isCtxErr(err) {
+					return err
+				}
+				fail("huggingface:"+rt+"s/"+owner, err)
+				continue
+			}
+			repos = append(repos, rs...)
+		}
 	}
 
 	for _, r := range repos {
@@ -85,14 +132,50 @@ func scanHuggingFace(ctx context.Context, cfg Config, emit Emit) error {
 			return err
 		}
 		if err := scanHFRepo(ctx, cfg, cli, r, emit); err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if isCtxErr(err) {
 				return err
 			}
-			// Per-repo failures are tolerated — continue with remaining repos.
-			continue
+			fail("huggingface:"+r.Type+"/"+r.ID, err)
 		}
 	}
+	seen := map[string]bool{}
+	for _, raw := range buckets {
+		target, err := parseHFBucket(raw)
+		if err != nil {
+			fail("huggingface:bucket/"+raw, err)
+			continue
+		}
+		key := target.ID + "\x00" + target.Prefix
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if err := scanHFBucket(ctx, cli, target, emit, fail); err != nil {
+			return err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(failures) > 0 {
+		return &engine.DegradedError{Total: len(failures), Counts: map[engine.FailureKind]int{engine.FailureSource: len(failures)}, Failures: failures}
+	}
 	return nil
+}
+
+func isCtxErr(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// splitList splits a comma-separated config value, trimming blanks.
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // scanHFRepo clones one repo and walks its full commit history.
@@ -199,17 +282,17 @@ func verifyHuggingFace(ctx context.Context, cfg Config, secret string) (bool, er
 // fingerprintHuggingFace returns a stable digest of the repos that would be
 // scanned, based on their IDs and sha fields.
 func fingerprintHuggingFace(ctx context.Context, cfg Config) (string, error) {
-	org := cfg["org"]
+	owners := append(splitList(cfg["org"]), splitList(cfg["user"])...)
 	repo := cfg["repo"]
-	if org == "" && repo == "" {
-		return "", errors.New("huggingface: either org or repo must be set")
+	if len(owners) == 0 && repo == "" {
+		return "", errors.New("huggingface: one of org, user, or repo must be set")
 	}
 	apiBase := cfg.Get("api_base", hfDefaultAPIBase)
 	if err := requireSecureEndpoint("huggingface", apiBase); err != nil {
 		return "", err
 	}
 	cli := newHFClient(apiBase, cfg["token"])
-	repos, err := hfListRepos(ctx, cli, org, repo, cfg.Get("repo_types", hfDefaultRepoTypes))
+	repos, err := hfListRepos(ctx, cli, owners, repo, parseRepoTypes(cfg.Get("repo_types", hfDefaultRepoTypes)))
 	if err != nil {
 		return "", err
 	}
@@ -220,12 +303,21 @@ func fingerprintHuggingFace(ctx context.Context, cfg Config) (string, error) {
 	h := sha256.New()
 	writeFingerprint(h, "huggingface-v1")
 	writeFingerprint(h, apiBase)
-	writeFingerprint(h, org)
+	writeFingerprint(h, strings.Join(owners, ","))
 	writeFingerprint(h, repo)
 	writeFingerprint(h, cfg.Get("repo_types", hfDefaultRepoTypes))
 	for _, r := range repos {
 		writeFingerprint(h, r.ID)
 		writeFingerprint(h, r.SHA)
+	}
+	// Buckets have no commit SHA: fingerprint every object's identity so a
+	// changed object forces a rescan.
+	buckets, err := hfFingerprintBuckets(ctx, cli, owners, repo, cfg)
+	if err != nil {
+		return "", err
+	}
+	for _, b := range buckets {
+		writeFingerprint(h, b)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
@@ -239,34 +331,36 @@ type hfRepoRef struct {
 	Type   string `json:"-"` // filled in by hfListRepos
 }
 
-// hfListRepos enumerates repos by type(s) for the given org, or resolves a
-// single named repo.
-func hfListRepos(ctx context.Context, cli *hfClient, org, singleRepo, repoTypes string) ([]hfRepoRef, error) {
+// hfListRepos enumerates git-backed repos (buckets excluded) for the
+// owners, or resolves a single named repo.
+func hfListRepos(ctx context.Context, cli *hfClient, owners []string, singleRepo string, types []string) ([]hfRepoRef, error) {
 	if singleRepo != "" {
-		return hfResolveSingleRepo(ctx, cli, singleRepo, repoTypes)
+		return hfResolveSingleRepo(ctx, cli, singleRepo, types)
 	}
-
-	types := parseRepoTypes(repoTypes)
 	var all []hfRepoRef
-	for _, rt := range types {
-		repos, err := hfEnumerateByType(ctx, cli, org, rt)
-		if err != nil {
-			return nil, err
+	for _, owner := range owners {
+		for _, rt := range types {
+			if rt == "bucket" {
+				continue
+			}
+			repos, err := hfEnumerateByType(ctx, cli, owner, rt)
+			if err != nil {
+				return nil, err
+			}
+			all = append(all, repos...)
 		}
-		all = append(all, repos...)
 	}
 	return all, nil
 }
 
 // hfResolveSingleRepo tries to look up a named repo across the enabled types.
 // The API does not have a unified "get repo" endpoint, so we probe each type.
-func hfResolveSingleRepo(ctx context.Context, cli *hfClient, singleRepo, repoTypes string) ([]hfRepoRef, error) {
+func hfResolveSingleRepo(ctx context.Context, cli *hfClient, singleRepo string, types []string) ([]hfRepoRef, error) {
 	parts := strings.SplitN(singleRepo, "/", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return nil, fmt.Errorf("huggingface: repo must be in owner/name form, got %q", singleRepo)
 	}
 	owner, name := parts[0], parts[1]
-	types := parseRepoTypes(repoTypes)
 	apiEndpoints := map[string]string{
 		"model":   "/api/models/" + owner + "/" + name,
 		"dataset": "/api/datasets/" + owner + "/" + name,
@@ -329,7 +423,7 @@ func hfEnumerateByType(ctx context.Context, cli *hfClient, org, repoType string)
 // parseRepoTypes splits a comma-separated repo_types string into a slice,
 // trimming spaces and dropping unknowns.
 func parseRepoTypes(s string) []string {
-	valid := map[string]bool{"model": true, "dataset": true, "space": true}
+	valid := map[string]bool{"model": true, "dataset": true, "space": true, "bucket": true}
 	parts := strings.Split(s, ",")
 	var out []string
 	for _, p := range parts {
@@ -339,7 +433,7 @@ func parseRepoTypes(s string) []string {
 		}
 	}
 	if len(out) == 0 {
-		return []string{"model", "dataset", "space"}
+		return []string{"model", "dataset", "space", "bucket"}
 	}
 	return out
 }
@@ -357,7 +451,7 @@ func hfBuildCloneURL(cfg Config, repo hfRepoRef) string {
 		u = strings.ReplaceAll(u, "{repo}", name)
 		return u
 	}
-	return hfCloneURL(cfg.Get("api_base", hfDefaultAPIBase), repo.Author, repo.ID)
+	return hfCloneURL(cfg.Get("api_base", hfDefaultAPIBase), repo.Type, repo.Author, repo.ID)
 }
 
 // hfCloneURL builds the smart-HTTP clone URL for a HuggingFace repo.
@@ -365,12 +459,18 @@ func hfBuildCloneURL(cfg Config, repo hfRepoRef) string {
 // For datasets: https://huggingface.co/datasets/{owner}/{name}.git
 // For spaces:   https://huggingface.co/spaces/{owner}/{name}.git
 // The repoID from the API is typically "owner/name"; we take the last segment.
-func hfCloneURL(apiBase, owner, repoID string) string {
+func hfCloneURL(apiBase, repoType, owner, repoID string) string {
 	name := repoID
 	if idx := strings.LastIndex(name, "/"); idx >= 0 {
 		name = name[idx+1:]
 	}
 	base := strings.TrimRight(apiBase, "/")
+	switch repoType {
+	case "dataset":
+		base += "/datasets"
+	case "space":
+		base += "/spaces"
+	}
 	return fmt.Sprintf("%s/%s/%s.git", base, owner, name)
 }
 

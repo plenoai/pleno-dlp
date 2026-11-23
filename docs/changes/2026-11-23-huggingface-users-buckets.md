@@ -1,0 +1,3 @@
+Owners: connector-engineer, qa
+
+`scan huggingface` gains `--user` and repeatable `--org`, plus `--bucket` (owner/name[/prefix], `hf://buckets/...`, or bucket URL) and a `bucket` repo type enumerated per owner via `/api/buckets/{owner}`. Bucket objects are listed through Link-paginated `/api/buckets/{id}/tree` (same-origin and same-path next links only, 10k-page cap) and downloaded from `/buckets/{id}/resolve/` with a 64 MiB per-object cap; bucket object identities feed the resource fingerprint. Dataset and space clones now use the `/datasets/` and `/spaces/` URL prefixes (previously cloned the model path), and per-repo, per-bucket, and per-object failures surface as `engine.DegradedError` coverage gaps instead of being silently skipped (#870).

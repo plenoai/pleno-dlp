@@ -20,7 +20,7 @@ Status values:
 | `scan <path>` / `scan filesystem` | `scan filesystem` | done |
 | `scan --git-url` | `scan git --git-url` | done |
 | `scan github` / `gitlab` / `gitea` / `bitbucket` / `azure` | `scan github` / `gitlab` / `gitea` (+ forgejo, codeberg, gogs, ...) / `bitbucket` / `azure-devops` | done |
-| `scan huggingface` | `scan huggingface` | done (models); buckets, datasets, spaces, users: gap #817 |
+| `scan huggingface` | `scan huggingface` | done (models, datasets, spaces, buckets, users, orgs) |
 | `scan slack` / `teams` / `jira` / `confluence` / `postman` | same names | done |
 | `scan gcs` / `s3` / `azure-blob` / `docker-image` | same names | done |
 | `scan <provider> --list-only` (`ListRepositories`) | `sources` introspection only | gap |
@@ -86,7 +86,7 @@ Status values:
 | GitLab `--group`, `--user`, `--include-subgroups`, `--include-snippets` | `--group`, `--project`, `--include-snippets` | done (`--user`: gap) |
 | Bitbucket `--workspace`, `--project`, `--user`, `--include-snippets` | `--workspace`, `--repo`, snippets | done |
 | Azure `--organization`, `--project`, `--all-projects` | `scan azure-devops` | done |
-| Hugging Face `--model`, `--dataset`, `--space`, `--bucket`, `--user`, `--organization` | `--org`, `--repo`, `--repo-types` | partial (buckets: gap) |
+| Hugging Face `--model`, `--dataset`, `--space`, `--bucket`, `--user`, `--organization` | `--org`, `--user`, `--bucket`, `--repo`, `--repo-types` | done |
 | Slack query, files | `--channel` messages | partial (files and search query: gap) |
 | Teams `--teams-query` | `scan teams` | done |
 | Jira `--jql`, `--max-results`, `--include-comments`, `--include-changelog` | `--jql`, `--project` | partial (comments/changelog: gap) |
