@@ -151,7 +151,7 @@ func init() {
 	Root.AddCommand(configCmd)
 	configCmd.AddCommand(configInitCmd)
 	scanCmd.PersistentFlags().StringVar(&scanConfigPath, "config", "",
-		"load scan flag defaults from a pleno-dlp.yaml (see `pleno-dlp config init`; falls back to PLENO_DLP_CONFIG). CLI flags win; list flags are additive")
+		"load scan flag defaults from a pleno-dlp.yaml (see pleno-dlp config init; falls back to PLENO_DLP_CONFIG). CLI flags win; list flags are additive")
 	scanCmd.PersistentPreRunE = scanConfigPreRun
 }
 
