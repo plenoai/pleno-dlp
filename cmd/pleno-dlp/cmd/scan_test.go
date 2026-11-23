@@ -2832,6 +2832,78 @@ func TestGitScanProcs(t *testing.T) {
 	}
 }
 
+func TestGitScanProcsFor(t *testing.T) {
+	for cpus, want := range map[int]int{1: 4, 6: 4, 9: 4, 10: 5, 30: 15} {
+		if got := gitScanProcsFor(gitLargePackBytes)(cpus); got != want {
+			t.Errorf("large gitScanProcsFor(%d) = %d, want %d", cpus, got, want)
+		}
+	}
+	if got := gitScanProcsFor(gitLargePackBytes - 1)(30); got != gitScanProcs(30) {
+		t.Errorf("small gitScanProcsFor(30) = %d, want %d", got, gitScanProcs(30))
+	}
+}
+
+func TestGitPackBytes(t *testing.T) {
+	writePack := func(t *testing.T, gitDir string, sizes ...int) {
+		t.Helper()
+		dir := filepath.Join(gitDir, "objects", "pack")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for i, n := range sizes {
+			base := filepath.Join(dir, fmt.Sprintf("pack-%d", i))
+			if err := os.WriteFile(base+".pack", make([]byte, n), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			// Index files are not pack data.
+			if err := os.WriteFile(base+".idx", make([]byte, 1000), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	t.Run("worktree", func(t *testing.T) {
+		repo := t.TempDir()
+		writePack(t, filepath.Join(repo, ".git"), 10, 20)
+		if got := gitPackBytes(repo); got != 30 {
+			t.Fatalf("gitPackBytes = %d, want 30", got)
+		}
+	})
+	t.Run("bare", func(t *testing.T) {
+		repo := t.TempDir()
+		writePack(t, repo, 7)
+		if got := gitPackBytes(repo); got != 7 {
+			t.Fatalf("gitPackBytes = %d, want 7", got)
+		}
+	})
+	t.Run("linked worktree", func(t *testing.T) {
+		root := t.TempDir()
+		common := filepath.Join(root, "main", ".git")
+		writePack(t, common, 5)
+		wtGit := filepath.Join(common, "worktrees", "wt")
+		if err := os.MkdirAll(wtGit, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(wtGit, "commondir"), []byte("../..\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		wt := filepath.Join(root, "wt")
+		if err := os.MkdirAll(wt, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: "+wtGit+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := gitPackBytes(wt); got != 5 {
+			t.Fatalf("gitPackBytes = %d, want 5", got)
+		}
+	})
+	t.Run("missing", func(t *testing.T) {
+		if got := gitPackBytes(t.TempDir()); got != 0 {
+			t.Fatalf("gitPackBytes = %d, want 0", got)
+		}
+	})
+}
+
 func TestFilesystemScanProcs(t *testing.T) {
 	for cpus, want := range map[int]int{1: 4, 4: 4, 12: 4, 15: 5, 30: 10} {
 		if got := filesystemScanProcs(cpus); got != want {

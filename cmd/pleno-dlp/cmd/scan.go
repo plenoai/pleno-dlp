@@ -433,7 +433,6 @@ func runScanStdin(cmd *cobra.Command, _ []string) error {
 }
 
 func runScanGit(cmd *cobra.Command, _ []string) error {
-	capScanProcs(gitScanProcs)
 	src := sources.New(sources.SourceGit)
 	if src == nil {
 		return fmt.Errorf("git source is not registered (missing pkg/sources/all import?)")
@@ -472,6 +471,7 @@ func runScanGit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	defer cleanup()
+	capScanProcs(gitScanProcsFor(gitPackBytes(repoPath)))
 	cfg, err := json.Marshal(map[string]any{
 		"repo":                    repoPath,
 		"branch":                  gitOpts.branch,
@@ -1927,6 +1927,70 @@ func Execute(ctx context.Context) (err error) {
 // lower. Half the CPUs saved more CPU but cost croc its wall lead over
 // kingfisher (#1018).
 func gitScanProcs(cpus int) int { return max(4, cpus*2/3) }
+
+// gitLargeScanProcs is the scheduler width for a history whose packs reach
+// gitLargePackBytes: half the CPUs, at least 4. Long walks keep every
+// worker busy for seconds, so the extra Ps of gitScanProcs mostly add idle
+// spinning (findRunnable netpoll, osyield on the scheduler lock, and
+// madvise on fresh spans were ~40% of samples on rails). Measured on a
+// 30-CPU host (CPU-s incl. git children / wall s, #1038): django
+// 26.6/1.9 -> 25.2/2.2 and rails 33.4/2.7 -> 31.3/2.9 against kingfisher's
+// 22.2/2.8 and 26.0/4.3. Small histories such as croc keep gitScanProcs:
+// their walk is startup-bound and fewer Ps cost the wall lead.
+func gitLargeScanProcs(cpus int) int { return max(4, cpus/2) }
+
+// gitLargePackBytes is the packed-object size from which a repository
+// uses gitLargeScanProcs (croc packs 13 MiB, django 279 MiB, rails 320 MiB).
+const gitLargePackBytes = 64 << 20
+
+func gitScanProcsFor(packBytes int64) func(cpus int) int {
+	if packBytes >= gitLargePackBytes {
+		return gitLargeScanProcs
+	}
+	return gitScanProcs
+}
+
+// gitPackBytes sums the pack files of the repository at repo (a worktree
+// with a .git directory, a linked worktree or submodule whose .git file
+// names its git directory, or a bare repository). It returns 0 when the
+// object directory cannot be found, which keeps the default width.
+func gitPackBytes(repo string) int64 {
+	gitDir := filepath.Join(repo, ".git")
+	if data, err := os.ReadFile(gitDir); err == nil {
+		line, _, _ := strings.Cut(string(data), "\n")
+		target, ok := strings.CutPrefix(strings.TrimSpace(line), "gitdir:")
+		if !ok {
+			return 0
+		}
+		gitDir = strings.TrimSpace(target)
+		if !filepath.IsAbs(gitDir) {
+			gitDir = filepath.Join(repo, gitDir)
+		}
+	} else if fi, err := os.Stat(gitDir); err != nil || !fi.IsDir() {
+		gitDir = repo
+	}
+	if common, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
+		dir := strings.TrimSpace(string(common))
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(gitDir, dir)
+		}
+		gitDir = dir
+	}
+	packs, err := os.ReadDir(filepath.Join(gitDir, "objects", "pack"))
+	if err != nil {
+		return 0
+	}
+	var total int64
+	for _, e := range packs {
+		if !strings.HasSuffix(e.Name(), ".pack") {
+			continue
+		}
+		if info, err := e.Info(); err == nil && info.Mode().IsRegular() {
+			total += info.Size()
+		}
+	}
+	return total
+}
 
 // filesystemScanProcs is the Go scheduler width for a filesystem scan: a
 // third of the CPUs, at least 4. File open/stat/close serialize in the
