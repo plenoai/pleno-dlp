@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -194,6 +195,12 @@ type Source struct {
 	diffReplicas *diffReplicaRegistry
 	// binaryBlobs memoizes binary classification by blob id for one walk.
 	binaryBlobs *binaryBlobCache
+	// diffAttrs memoizes the "diff" attribute by path for the in-process
+	// patch renderer (#983).
+	diffAttrs *diffAttrCache
+	// odb is the walk's in-process pack reader (#983); opened once.
+	odbOnce sync.Once
+	odb     *objectDB
 	// attrFree is the walk's attribute-free git directory for merge
 	// forced-text rendering (#998); created on first use.
 	attrFree *attrFreeDir
@@ -230,6 +237,10 @@ type Source struct {
 	// promisorSkipped counts those boundary omissions.
 	promisorFiltered bool
 	promisorSkipped  int64
+
+	// nativeSynthCostly routes a long history's patches to git log -p
+	// instead of the in-process renderer (see nativeSynthMaxCommits).
+	nativeSynthCostly bool
 }
 
 type incrementalState struct {
@@ -342,8 +353,11 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	s.promisorFiltered = s.repoPromisorFiltered(repo)
 	s.promisorSkipped = 0
 	s.binaryBlobs = &binaryBlobCache{}
+	s.diffAttrs = &diffAttrCache{}
 	s.attrFree = &attrFreeDir{}
 	defer s.attrFree.cleanup()
+	s.odbOnce, s.odb = sync.Once{}, nil
+	defer func() { s.odb.close() }()
 	s.diffReplicas = newDiffReplicaRegistry(s.collapseIdenticalDiffs && !s.trufflehogCompatible && !s.includeGitArchives && !s.includeGitBinaries)
 	starts, err := s.resolveStarts(repo)
 	if err != nil {

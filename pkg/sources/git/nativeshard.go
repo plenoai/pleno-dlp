@@ -55,6 +55,7 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 // or a fatal error; mergeErr reports a merge-resolution failure (wantMerges)
 // when the history result is not fatal.
 func (s *Source) runNativePatchLog(ctx context.Context, repo *gogit.Repository, gitBin string, starts, stops []plumbing.Hash, wantMerges bool, ch chan<- *sources.Chunk) (historyErr, mergeErr error) {
+	s.chooseNativeSynth(0, 1)
 	shards := s.nativeShardCount()
 	if shards > 1 {
 		costCtx, cancelCost := context.WithCancel(ctx)
@@ -70,6 +71,7 @@ func (s *Source) runNativePatchLog(ctx context.Context, repo *gogit.Repository, 
 		if n := len(commits) / nativeShardMinCommits; n < shards {
 			shards = n
 		}
+		s.chooseNativeSynth(len(commits), shards)
 		if shards > 1 {
 			if !wantMerges {
 				merges = nil
@@ -215,11 +217,28 @@ func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repositor
 				if i >= len(batches) || i >= nativeEagerStartMax {
 					return
 				}
-				procs[i] = startNativeLog(ctx, gitBin, itemArgs(batches[i]), batches[i].stdin())
+				procs[i] = s.startItemLog(ctx, gitBin, batches[i], itemArgs(batches[i]))
 			}
 		}()
 	}
+	// Each worker's renderer helpers start in the same burst (see above).
+	synthRes := make([]*nativeSynthRes, shards)
+	if s.nativeSynthEligible() {
+		odb := s.objectDB(ctx, gitBin)
+		for w := range synthRes {
+			started.Add(1)
+			go func() {
+				defer started.Done()
+				synthRes[w], _ = startNativeSynthRes(ctx, gitBin, s.repoAbs, odb)
+			}()
+		}
+	}
 	started.Wait()
+	defer func() {
+		for _, r := range synthRes {
+			r.close()
+		}
+	}()
 	defer func() {
 		for _, p := range procs {
 			p.abandon()
@@ -232,6 +251,7 @@ func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repositor
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			res := synthRes[w]
 			// One cat-file batch per worker serves all of its items, so
 			// binary classification does not fork per item.
 			blobs := &catFileHolder{}
@@ -243,7 +263,7 @@ func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repositor
 				}
 				proc := procs[i]
 				if proc == nil {
-					proc = startNativeLog(ctx, gitBin, itemArgs(batches[i]), batches[i].stdin())
+					proc = s.startItemLog(ctx, gitBin, batches[i], itemArgs(batches[i]))
 				}
 				procs[i] = nil
 				var scan func(*sources.Chunk)
@@ -256,7 +276,7 @@ func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repositor
 				if batches[i].merge {
 					err = s.consumeNativeMerge(ctx, repo, gitBin, proc, ch, scan, mergeOrdinals, blobs)
 				} else {
-					err = s.consumeNativeLog(ctx, repo, gitBin, proc, nil, ch, scan, ordinals, blobs)
+					err = s.consumeNativeLog(ctx, repo, gitBin, proc, nil, ch, scan, ordinals, blobs, res)
 				}
 				if batch != nil {
 					batch.flush()
@@ -329,6 +349,27 @@ type nativeLogProc struct {
 	stdout io.ReadCloser
 	stderr *limitedWriter
 	err    error
+	// synth marks a raw-only `git log` whose patches the in-process
+	// renderer produces (#983); patchArgs and pathspec describe the
+	// equivalent patch invocation for per-commit git fallbacks.
+	synth     bool
+	patchArgs []string
+	pathspec  string
+}
+
+// startPatchLog starts the history rendering for patch-mode log args: a
+// raw-only walk rendered in process when eligible, else `git log -p`.
+func (s *Source) startPatchLog(ctx context.Context, gitBin string, args []string, stdin string) *nativeLogProc {
+	if !s.nativeSynthEligible() {
+		return startNativeLog(ctx, gitBin, args, stdin)
+	}
+	p := startNativeLog(ctx, gitBin, nativeRawArgs(args), stdin)
+	p.synth = true
+	p.patchArgs = args
+	if i := strings.Index(stdin, "--\n"); i >= 0 && (i == 0 || stdin[i-1] == '\n') {
+		p.pathspec = stdin[i:]
+	}
+	return p
 }
 
 func startNativeLog(ctx context.Context, gitBin string, args []string, stdin string) *nativeLogProc {
@@ -349,6 +390,15 @@ func startNativeLog(ctx context.Context, gitBin string, args []string, stdin str
 	return p
 }
 
+// startItemLog starts one work item: merges keep git's combined-diff
+// rendering, ordinary history goes through startPatchLog.
+func (s *Source) startItemLog(ctx context.Context, gitBin string, it nativeWorkItem, args []string) *nativeLogProc {
+	if it.merge {
+		return startNativeLog(ctx, gitBin, args, it.stdin())
+	}
+	return s.startPatchLog(ctx, gitBin, args, it.stdin())
+}
+
 // abandon kills and reaps a process no worker consumed. Nil-safe.
 func (p *nativeLogProc) abandon() {
 	if p == nil || p.err != nil {
@@ -365,16 +415,31 @@ func (p *nativeLogProc) abandon() {
 func (s *Source) runNativeLogProcess(ctx context.Context, repo *gogit.Repository, gitBin string, args []string, stdin string, mergeInput io.Writer, ch chan<- *sources.Chunk, scan func(*sources.Chunk), ordinals map[string]int64) error {
 	blobs := &catFileHolder{}
 	defer blobs.close()
-	return s.consumeNativeLog(ctx, repo, gitBin, startNativeLog(ctx, gitBin, args, stdin), mergeInput, ch, scan, ordinals, blobs)
+	return s.consumeNativeLog(ctx, repo, gitBin, s.startPatchLog(ctx, gitBin, args, stdin), mergeInput, ch, scan, ordinals, blobs, nil)
 }
 
 // consumeNativeLog parses a started native `git log` and waits for it. blobs
-// is the caller's cat-file holder for binary classification.
-func (s *Source) consumeNativeLog(ctx context.Context, repo *gogit.Repository, gitBin string, proc *nativeLogProc, mergeInput io.Writer, ch chan<- *sources.Chunk, scan func(*sources.Chunk), ordinals map[string]int64, blobs *catFileHolder) error {
+// is the caller's cat-file holder for binary classification; res, when
+// non-nil, are the caller's renderer helpers for a synth proc.
+func (s *Source) consumeNativeLog(ctx context.Context, repo *gogit.Repository, gitBin string, proc *nativeLogProc, mergeInput io.Writer, ch chan<- *sources.Chunk, scan func(*sources.Chunk), ordinals map[string]int64, blobs *catFileHolder, res *nativeSynthRes) error {
 	if proc.err != nil {
 		return proc.err
 	}
-	cmd, stdout, stderr := proc.cmd, proc.stdout, proc.stderr
+	cmd, stderr := proc.cmd, proc.stderr
+	var stdout io.Reader = proc.stdout
+	var render *nativeRender
+	if proc.synth {
+		var err error
+		render, err = s.startNativeRender(ctx, gitBin, proc, res)
+		if err != nil {
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			_ = cmd.Wait()
+			return err
+		}
+		stdout = render.out
+	}
 	parser := nativeLogParser{
 		ctx:        ctx,
 		source:     s,
@@ -394,6 +459,9 @@ func (s *Source) consumeNativeLog(ctx context.Context, repo *gogit.Repository, g
 	parseOnlyCoverage := errors.As(parseErr, &parseCoverage)
 	if parseErr != nil && !parseOnlyCoverage && cmd.Process != nil {
 		_ = cmd.Process.Kill()
+	}
+	if render != nil {
+		render.stop()
 	}
 	waitErr := cmd.Wait()
 	if err := ctx.Err(); err != nil {
