@@ -91,7 +91,7 @@ func assertBoundaryKeyword(t *testing.T, sourceName, detectorName string, chunks
 func TestSourceFixtureDetectorKeywordMatrix(t *testing.T) {
 	const aws = "aws_access_key_id=AKIA7M4Q2W9R6T3Y8U1I"
 	const slack = "slack_token=" + "xoxb" + "-1234567890-1234567890123-a1B2c3D4e5F6g7H8i9J0k1L2"
-	const github = "token=ghp_Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3h2"
+	var github = "token=ghp_Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5" + detectors.CRC32Base62("Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5")
 
 	t.Run("git", func(t *testing.T) {
 		repo := boundaryRepo(t, "leak.txt", aws)

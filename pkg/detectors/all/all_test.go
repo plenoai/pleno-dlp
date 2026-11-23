@@ -132,6 +132,16 @@ func TestContractVerificationCacheInputDependentSet(t *testing.T) {
 		detectors.Supabase:        true,
 		detectors.Weaviate:        true,
 		detectors.Zendesk:         true,
+		// kingfisher catalog hosts whose checks pair a partner credential
+		// resolved from the surrounding text (#934).
+		detectors.AlibabaCloud:          true,
+		detectors.AzureAppConfiguration: true,
+		detectors.Canva:                 true,
+		detectors.EBay:                  true,
+		detectors.Packagist:             true,
+		detectors.Polymarket:            true,
+		detectors.Ramp:                  true,
+		detectors.Tableau:               true,
 	}
 	got := make(map[detectors.DetectorType]bool)
 	for _, d := range detectors.All() {

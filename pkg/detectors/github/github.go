@@ -136,8 +136,13 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 			"github_token_type": tokenType(token),
 		}
 		if strings.HasPrefix(token, "ghp_") {
-			// Offline signal: a bad CRC32 suffix means GitHub never issued it.
-			extra["checksum"] = detectors.TokenChecksum(token[len("ghp_"):])
+			// A bad CRC32 suffix means GitHub never issued the token (an
+			// example, a placeholder, or a truncated copy): reject it
+			// offline instead of reporting or verifying it (#934).
+			if detectors.TokenChecksum(token[len("ghp_"):]) == "invalid" {
+				continue
+			}
+			extra["checksum"] = "valid"
 		}
 		res := detectors.Result{
 			DetectorType: detectors.GitHub,

@@ -28,7 +28,7 @@ func TestClassify(t *testing.T) {
 		{502, "", false, true},
 		{418, "", false, true},
 	} {
-		got, err := classify("X", tc.status, []byte(tc.body), valid, invalid)
+		got, err := Classify("X", tc.status, []byte(tc.body), valid, invalid)
 		if got != tc.want || (err != nil) != tc.wantErr {
 			t.Errorf("%d %q: got %v, %v", tc.status, tc.body, got, err)
 		}

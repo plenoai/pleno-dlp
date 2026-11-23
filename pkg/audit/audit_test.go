@@ -3,6 +3,7 @@ package audit
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"strings"
 	"sync"
 	"testing"
@@ -16,7 +17,7 @@ func TestNew_RedactsSecret(t *testing.T) {
 		name   string
 		secret string
 	}{
-		{name: "github_pat", secret: "ghp_0123456789abcdefghijklmnopqrstuvwxyz"},
+		{name: "github_pat", secret: "ghp_0123456789abcdefghijklmnopqrst" + detectors.CRC32Base62("0123456789abcdefghijklmnopqrst")},
 		{name: "empty", secret: ""},
 		{name: "short", secret: "ab"},
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/all"
+	"github.com/plenoai/pleno-dlp/pkg/detectors/catalog"
 )
 
 // TestKingfisherParityDoc keeps docs/kingfisher-parity.md consistent with
@@ -29,7 +30,7 @@ func TestKingfisherParityDoc(t *testing.T) {
 	header := map[string]int{}
 	got := map[string]int{}
 	rows := 0
-	rowRe := regexp.MustCompile(`^rule=(\S+) validation=(\S+) status=(covered|partial|missing|context) detector=(\S+)$`)
+	rowRe := regexp.MustCompile(`^rule=(\S+) validation=(\S+) status=(covered|partial|missing|context) detector=(\S+) verified=(\S+)$`)
 	seen := map[string]bool{}
 	for _, line := range strings.Split(strings.TrimSpace(block[1]), "\n") {
 		if k, v, ok := strings.Cut(line, "="); ok && k != "rule" {
@@ -74,5 +75,78 @@ func TestKingfisherParityDoc(t *testing.T) {
 	if summary == nil || summary[1] != strconv.Itoa(got["covered"]) || summary[2] != strconv.Itoa(got["partial"]) ||
 		summary[3] != strconv.Itoa(got["missing"]) || summary[4] != strconv.Itoa(got["context"]) || summary[5] != strconv.Itoa(rows) {
 		t.Errorf("summary table %v disagrees with the machine block", summary)
+	}
+}
+
+// TestKingfisherValidatedRulesAreVerified is the verification-parity gate
+// (issue #934): every rule kingfisher validates must be verified by
+// pleno-dlp, either by the credited detector's own Verify ("native") or
+// by a pkg/detectors/catalog check whose kind the doc records. The doc's
+// verified column must agree with the live registry and catalog in both
+// directions.
+func TestKingfisherValidatedRulesAreVerified(t *testing.T) {
+	doc := readFile(t, filepath.Join(repoRoot(t), "docs", "kingfisher-parity.md"))
+	block := regexp.MustCompile("(?s)```parity-machine\n(.*?)```").FindStringSubmatch(doc)
+	if block == nil {
+		t.Fatal("parity-machine block not found")
+	}
+	verifies := map[string]bool{}
+	for _, d := range detectors.All() {
+		if _, ok := d.(detectors.Verifier); ok {
+			verifies[d.Type().String()] = true
+		}
+	}
+	rowRe := regexp.MustCompile(`^rule=(\S+) validation=(\S+) status=\S+ detector=(\S+) verified=(\S+)$`)
+	header := map[string]int{}
+	validated, verified := 0, 0
+	inDoc := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(block[1]), "\n") {
+		m := rowRe.FindStringSubmatch(line)
+		if m == nil {
+			if k, v, ok := strings.Cut(line, "="); ok {
+				if n, err := strconv.Atoi(v); err == nil {
+					header[k] = n
+				}
+			}
+			continue
+		}
+		rule, validation, det, ver := m[1], m[2], m[3], m[4]
+		inDoc[rule] = ver
+		if validation != "-" {
+			validated++
+			if ver == "-" {
+				t.Errorf("%s: kingfisher validates it (%s) but pleno-dlp does not verify it", rule, validation)
+			} else {
+				verified++
+			}
+		}
+		switch kind := catalog.CheckKind(rule); {
+		case kind != "":
+			if ver != kind {
+				t.Errorf("%s: doc says verified=%s, catalog check is %s; rerun scripts/kingfisher-parity.py", rule, ver, kind)
+			}
+		case ver == "native":
+			ok := false
+			for _, name := range strings.Split(det, ",") {
+				ok = ok || verifies[name]
+			}
+			if !ok {
+				t.Errorf("%s: verified=native but no credited detector (%s) implements Verify", rule, det)
+			}
+		case ver != "-":
+			t.Errorf("%s: verified=%s but the catalog has no check for it", rule, ver)
+		}
+	}
+	for _, id := range catalog.VerifiedRules() {
+		if _, ok := inDoc[id]; !ok {
+			t.Errorf("catalog check %s is not a kingfisher rule in the parity doc", id)
+		}
+	}
+	if header["validated"] != validated || header["verified"] != verified {
+		t.Errorf("machine header validated=%d verified=%d, rows say %d/%d", header["validated"], header["verified"], validated, verified)
+	}
+	want := "| validated parity | " + strconv.Itoa(validated) + " | " + strconv.Itoa(verified) + " |"
+	if !strings.Contains(doc, want) {
+		t.Errorf("summary missing %q", want)
 	}
 }

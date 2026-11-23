@@ -278,10 +278,13 @@ func (s *Scanner) Verify(ctx context.Context, secret string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("%s verify: read response", name)
 	}
-	return classify(name, resp.StatusCode, payload, v.Valid, v.Invalid)
+	return Classify(name, resp.StatusCode, payload, v.Valid, v.Invalid)
 }
 
-func classify(name string, status int, body []byte, valid, invalid []Rule) (bool, error) {
+// Classify maps a response onto the Verifier contract: a Valid rule is
+// (true, nil); 429/5xx is a transient error; an Invalid rule is
+// (false, nil); anything else is an ambiguous error.
+func Classify(name string, status int, body []byte, valid, invalid []Rule) (bool, error) {
 	for _, r := range valid {
 		if r.match(status, body) {
 			return true, nil

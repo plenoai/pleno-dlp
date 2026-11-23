@@ -7,7 +7,7 @@ mkdir -p "$repo"
 git -C "$repo" init -q
 git -C "$repo" config user.name 'E2E Test'
 git -C "$repo" config user.email 'e2e@example.invalid'
-printf '%s\n' 'token=ghp_Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3h2' > "$repo/leak.txt"
+printf '%s\n' 'token=github_pat_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_abcdefghijklmnopqrs' > "$repo/leak.txt"
 git -C "$repo" add leak.txt
 GIT_AUTHOR_DATE='2026-01-01T00:00:00Z' GIT_COMMITTER_DATE='2026-01-01T00:00:00Z' \
   git -C "$repo" -c core.hooksPath=/dev/null commit -q -m 'add deterministic fixture'

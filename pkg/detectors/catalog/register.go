@@ -10,7 +10,7 @@ import "github.com/plenoai/pleno-dlp/pkg/detectors"
 func init() {
 	build()
 	for _, h := range hostScanners {
-		detectors.Register(h)
+		detectors.Register(h.detector())
 	}
 	for t, fs := range extensions {
 		detectors.RegisterFormats(t, fs...)

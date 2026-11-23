@@ -40,8 +40,13 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	out := make([]detectors.Result, 0, len(matches))
 	for _, m := range matches {
 		token := string(m)
-		// Offline signal: a bad CRC32 suffix means npm never issued it.
-		extra := map[string]string{"checksum": detectors.TokenChecksum(token[len("npm_"):])}
+		// A bad CRC32 suffix means npm never issued the token: reject it
+		// offline instead of reporting or verifying it (#934).
+		sum := detectors.TokenChecksum(token[len("npm_"):])
+		if sum == "invalid" {
+			continue
+		}
+		extra := map[string]string{"checksum": sum}
 		res := detectors.Result{
 			DetectorType: detectors.NPM,
 			Raw:          []byte(token),

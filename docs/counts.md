@@ -28,7 +28,7 @@ Sub-split: of that total, the ones satisfying `detectors.Verifier`
 Run `scripts/sync-detector-counts.sh` to rewrite every quoted count
 from the registry after adding, removing, or reclassifying a detector.
 
-**Current value:** 723 total (600 verified, 123 unverified-by-design).
+**Current value:** 723 total (617 verified, 106 unverified-by-design).
 
 **Where it's quoted:** README.md ("N built-in detector types"),
 website/index.html (meta description, og:description, hero line, and the
