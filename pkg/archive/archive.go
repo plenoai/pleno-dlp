@@ -786,6 +786,11 @@ func detect(data []byte) kind {
 		return kindZip
 	case len(data) >= 4 && bytes.HasPrefix(data, []byte{0x50, 0x4b, 0x05, 0x06}):
 		return kindZip
+	case len(data) >= 8 && (bytes.HasPrefix(data, []byte{0x50, 0x4b, 0x07, 0x08}) || bytes.HasPrefix(data, []byte{0x50, 0x4b, 0x30, 0x30})) &&
+		bytes.HasPrefix(data[4:], []byte{0x50, 0x4b, 0x03, 0x04}):
+		// Spanned-archive marker ("PK\x07\x08", or "PK00" for a set that
+		// fit on one disk) ahead of the first local header.
+		return kindZip
 	case len(data) >= 2 && bytes.HasPrefix(data, []byte{0x1f, 0x8b}):
 		return kindGzip
 	case len(data) > 262 && bytes.Equal(data[257:262], []byte("ustar")):

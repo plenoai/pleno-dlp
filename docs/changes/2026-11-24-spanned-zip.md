@@ -1,0 +1,3 @@
+Owners: core-engineer, connector-engineer, qa
+
+Classic spanned/split PKZIP sets (`<base>.z01` … `<base>.zip`, WinZip and Info-ZIP `zip -s`, including ZIP64) are joined with a disk-number-aware reader (`archive.VolumeZipSpan`, `pkg/archive/zipspan.go`): volumes are concatenated verbatim and a rewritten central directory with absolute offsets plus a fresh end record is appended, the end record's disk number must match the volume count, and every entry's disk/offset is bounds-checked. Filesystem, S3, and GCS group the sets (the unnumbered `.zip` is the last volume; a `.zip` without a `.z01` sibling is still scanned alone), and the zip detector accepts the `PK\x07\x08`/`PK00` spanning marker (#945).

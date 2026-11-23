@@ -26,8 +26,12 @@ import (
 //     as written by 7-Zip, HJSplit, or split(1) with numeric suffixes. The
 //     volumes are concatenated verbatim.
 //
-// Spanned PKZIP sets (".z01" ... ".zip") record per-disk offsets in the
-// central directory and need a disk-aware reader; they stay out of scope.
+//   - VolumeZipSpan: spanned/split PKZIP sets "<base>.z01", "<base>.z02",
+//     ..., "<base>.zip" (WinZip, Info-ZIP "zip -s"). The central directory
+//     records per-disk offsets, so the set is joined by joinZipSpan
+//     (zipspan.go), which rewrites the directory to absolute offsets. The
+//     ".zip" member is the last volume; it is reported with Index 0 and
+//     Terminal() names it.
 
 // VolumeScheme names a multi-volume naming and joining convention.
 type VolumeScheme int
@@ -36,6 +40,7 @@ const (
 	VolumeNone VolumeScheme = iota
 	VolumeEgg
 	VolumeBytes
+	VolumeZipSpan
 )
 
 // MaxVolumes bounds how many sibling volumes one logical archive may span.
@@ -43,6 +48,8 @@ const MaxVolumes = 999
 
 var (
 	eggVolumeName   = regexp.MustCompile(`(?i)^(.+)\.vol([1-9][0-9]{0,2})\.egg$`)
+	zipSpanName     = regexp.MustCompile(`(?i)^(.+)\.(z)([0-9]{2,3})$`)
+	zipSpanLastName = regexp.MustCompile(`(?i)^(.+)\.(z)ip$`)
 	bytesVolumeName = regexp.MustCompile(`(?i)^(.+\.(?:zip|jar|tar|tgz|gz|bz2|tbz2|xz|txz|zst|egg))\.([0-9]{3})$`)
 )
 
@@ -50,9 +57,9 @@ var (
 type VolumeID struct {
 	Scheme VolumeScheme
 	Base   string // name without the volume suffix; shared by all siblings
-	Index  int    // 1-based volume number
+	Index  int    // 1-based volume number; 0 for a VolumeZipSpan ".zip"
 	width  int    // digit width of a VolumeBytes suffix (".001" -> 3)
-	suffix string // original-case suffix spelling for VolumeEgg (".egg")
+	suffix string // original-case suffix spelling (VolumeEgg ".vol", VolumeZipSpan "z")
 }
 
 // ParseVolumeName reports whether name (a base name or a full path/key)
@@ -70,7 +77,31 @@ func ParseVolumeName(name string) (VolumeID, bool) {
 		}
 		return VolumeID{Scheme: VolumeBytes, Base: m[1], Index: n, width: len(m[2])}, true
 	}
+	if m := zipSpanName.FindStringSubmatch(name); m != nil {
+		n, _ := strconv.Atoi(m[3])
+		if n < 1 {
+			return VolumeID{}, false
+		}
+		return VolumeID{Scheme: VolumeZipSpan, Base: m[1], Index: n, suffix: m[2]}, true
+	}
+	// Every ".zip" may be the last volume of a spanned set; sources probe
+	// for "<base>.z01" and scan it as an ordinary zip when there is none.
+	if m := zipSpanLastName.FindStringSubmatch(name); m != nil {
+		return VolumeID{Scheme: VolumeZipSpan, Base: m[1], Index: 0, suffix: m[2]}, true
+	}
 	return VolumeID{}, false
+}
+
+// Terminal names the last volume of a set whose final volume is not
+// numbered (VolumeZipSpan ".zip"); ok is false for other schemes.
+func (id VolumeID) Terminal() (name string, ok bool) {
+	if id.Scheme != VolumeZipSpan {
+		return "", false
+	}
+	if id.suffix == "Z" {
+		return id.Base + ".ZIP", true
+	}
+	return id.Base + ".zip", true
 }
 
 // Sibling returns the name of volume index of the same set, preserving the
@@ -85,6 +116,8 @@ func (id VolumeID) Sibling(index int) string {
 		return fmt.Sprintf("%s%s%d%s", id.Base, id.suffix, index, ext)
 	case VolumeBytes:
 		return fmt.Sprintf("%s.%0*d", id.Base, id.width, index)
+	case VolumeZipSpan:
+		return fmt.Sprintf("%s.%s%02d", id.Base, id.suffix, index)
 	}
 	return ""
 }
@@ -100,7 +133,7 @@ type Volume struct {
 var ErrVolumeChain = errors.New("volumes do not form one archive")
 
 // JoinVolumes returns one logical reader over vols, which must be volumes
-// 1..n of the same set in order. The total logical size may not exceed
+// 1..n of the same set in order (for VolumeZipSpan the ".zip" last). The total logical size may not exceed
 // maxTotal. For VolumeEgg it returns the longest prefix of vols whose split
 // ids link (at least the first volume); count reports how many volumes were
 // joined so callers can scan the remainder separately.
@@ -142,6 +175,13 @@ func JoinVolumes(scheme VolumeScheme, vols []Volume, maxTotal int64) (r io.Reade
 				break
 			}
 		}
+	case VolumeZipSpan:
+		zp, err := joinZipSpan(vols, maxTotal)
+		if err != nil {
+			return nil, 0, 0, fmt.Errorf("%w: %v", ErrVolumeChain, err)
+		}
+		parts = zp
+		count = len(vols)
 	default:
 		return nil, 0, 0, fmt.Errorf("%w: unknown scheme", ErrVolumeChain)
 	}
@@ -154,7 +194,10 @@ func JoinVolumes(scheme VolumeScheme, vols []Volume, maxTotal int64) (r io.Reade
 			return nil, 0, 0, fmt.Errorf("%w: joined size exceeds %d bytes", ErrVolumeChain, maxTotal)
 		}
 	}
-	return m, m.size, len(parts), nil
+	if count == 0 {
+		count = len(parts)
+	}
+	return m, m.size, count, nil
 }
 
 // eggVolumeHeader parses an EGG volume's header and archive extras,

@@ -109,3 +109,55 @@ func TestChunks_JoinsSplitVolumes(t *testing.T) {
 		t.Fatalf("incremental rescan emitted %d chunks", len(chunks))
 	}
 }
+
+func TestChunks_JoinsSpannedZip(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"span.z01", "span.zip"} {
+		b, err := os.ReadFile(filepath.Join("..", "..", "archive", "testdata", "zipspan", n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, n), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A plain zip with no ".z01" sibling is still scanned as itself.
+	_ = os.WriteFile(filepath.Join(dir, "plain.zip"), zipFixture(t, "FIXTURE-PLAIN"), 0o600)
+
+	s := &Source{}
+	mustInit(t, s, Config{Paths: []string{dir}})
+	chunks, err := drain(t, s, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	found := false
+	for _, c := range chunks {
+		name := filepath.Base(c.SourceMetadata.Filesystem.Path)
+		names = append(names, name)
+		if name != "span.z01" {
+			continue
+		}
+		r, closer, size, err := c.Open(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := make([]byte, size)
+		_, err = r.ReadAt(got, 0)
+		_ = closer.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries, err := archive.Walk(name, got, archive.Limits{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			found = found || string(e.Data) == "FIXTURE-SPAN-SECRET\n"
+		}
+	}
+	sort.Strings(names)
+	if len(names) != 2 || names[0] != "plain.zip" || names[1] != "span.z01" || !found {
+		t.Fatalf("chunks %q found=%v", names, found)
+	}
+}
