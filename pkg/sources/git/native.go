@@ -851,11 +851,14 @@ type nativeHunk struct {
 }
 
 type nativeLogParser struct {
-	ctx    context.Context
-	source *Source
-	repo   *gogit.Repository
-	gitBin string
-	ch     chan<- *sources.Chunk
+	// pendingMergeText holds attribute-binary text paths of the current
+	// merge, rendered together by flushMergeText (#1000).
+	pendingMergeText []string
+	ctx              context.Context
+	source           *Source
+	repo             *gogit.Repository
+	gitBin           string
+	ch               chan<- *sources.Chunk
 
 	commit        *nativeCommit
 	file          nativeFilePatch
@@ -983,6 +986,9 @@ func (p *nativeLogParser) parse(r io.Reader) error {
 
 func (p *nativeLogParser) finish() error {
 	if err := p.flushFile(); err != nil {
+		return err
+	}
+	if err := p.flushMergeText(); err != nil {
 		return err
 	}
 	if p.coverageTotal == 0 {
@@ -1134,6 +1140,9 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 	}
 	if line[0] == nativeRecordSeparator {
 		if err := p.flushFile(); err != nil {
+			return err
+		}
+		if err := p.flushMergeText(); err != nil {
 			return err
 		}
 		commit, err := parseNativeCommit(line)
@@ -1631,8 +1640,26 @@ func (p *nativeLogParser) handleBinaryPatch() error {
 		p.file.binary = true
 		return nil
 	}
-	err = p.emitForcedTextPatch(p.file.path)
-	if err != nil && p.commit.parentCount > 1 && p.ctx.Err() == nil {
+	if p.commit.parentCount > 1 {
+		// Each process start forks the whole scanning heap; render every
+		// forced-text path of this merge in one git call at the commit
+		// boundary instead (#1000).
+		p.pendingMergeText = append(p.pendingMergeText, p.file.path)
+		return nil
+	}
+	return p.emitForcedTextPatch(p.file.path)
+}
+
+// flushMergeText renders the merge's pending forced-text paths with one
+// git process.
+func (p *nativeLogParser) flushMergeText() error {
+	if len(p.pendingMergeText) == 0 {
+		return nil
+	}
+	paths := p.pendingMergeText
+	p.pendingMergeText = nil
+	err := p.emitForcedTextPatch(paths...)
+	if err != nil && p.ctx.Err() == nil {
 		// Older git lacks --attr-source; report the gap instead of failing
 		// the whole history walk.
 		p.recordCoverage("merge-forced-text", err)
@@ -1733,7 +1760,7 @@ func (p *nativeLogParser) emitNativeArtifact(path string) error {
 	return nil
 }
 
-func (p *nativeLogParser) emitForcedTextPatch(path string) error {
+func (p *nativeLogParser) emitForcedTextPatch(paths ...string) error {
 	// A merge resolution only renders as a dense combined diff (#994);
 	// --diff-merges=off would print nothing for it. Combined diffs ignore
 	// --text, so attributes are read from the empty tree instead (git >=
@@ -1767,8 +1794,8 @@ func (p *nativeLogParser) emitForcedTextPatch(path string) error {
 		"--dst-prefix=b/",
 		p.commit.hash,
 		"--",
-		path,
 	)
+	args = append(args, paths...)
 	cmd := exec.CommandContext(p.ctx, p.gitBin, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
