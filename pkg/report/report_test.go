@@ -14,7 +14,7 @@ const gSecret = "Sec" + "ret"
 
 func TestImportFormatsAndDedup(t *testing.T) {
 	h := HashSecret(secret)
-	pleno := `[{"detector":"GitHub","verdict":"verified","severity":"critical","redacted":"ghp_ab...","secret_` + "hash" + `:"` + h + `","source":{"type":"filesystem","metadata":{"path":"a/b.txt","line":3}}}]`
+	pleno := `[{"detector":"GitHub","verdict":"verified","severity":"critical","redacted":"ghp_ab...","secret_` + "hash" + `":"` + h + `","source":{"type":"filesystem","metadata":{"path":"a/b.txt","line":3}}}]`
 	gitleaks := `[{"RuleID":"github-pat","File":"a/b.txt","StartLine":3,"` + gSecret + `":"` + secret + `","Match":"token=` + secret + `","Line":"token=` + secret + `"}]`
 	truffle := `{"DetectorName":"Github","Verified":false,"Raw":"` + secret + `","Redacted":"","SourceMetadata":{"Data":{"Filesystem":{"file":"a/b.txt","line":3}}}}
 {"DetectorName":"Slack","Raw":"xoxb-1","SourceMetadata":{"Data":{"Filesystem":{"file":"c.txt","line":1}}}}`
