@@ -13,3 +13,5 @@ if [ "${#pkgs[@]}" -eq 0 ]; then
 fi
 echo "race-affected: ${#pkgs[@]} package(s) since $base" >&2
 go test -race -count=1 -timeout 10m "$@" "${pkgs[@]}"
+# Same static gate as test.yml/release.yml so a local pass predicts the tag release.
+go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 "${pkgs[@]}"

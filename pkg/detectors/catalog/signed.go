@@ -186,13 +186,13 @@ func cloudflareToken(ctx context.Context, v vars) (bool, error) {
 	if strings.HasPrefix(v["secret"], "cfat_") {
 		acct := v["account"]
 		if acct == "" {
-			return false, errors.New("Cloudflare verify: account token needs a nearby account id")
+			return false, errors.New("cloudflare verify: account token needs a nearby account id")
 		}
 		path = "/client/v4/accounts/" + url.PathEscape(acct) + "/tokens/verify"
 	}
 	req, err := newReq(ctx, http.MethodGet, "https://api.cloudflare.com"+path, "")
 	if err != nil {
-		return false, errors.New("Cloudflare verify: build request")
+		return false, errors.New("cloudflare verify: build request")
 	}
 	req.Header.Set("Authorization", "Bearer "+v["secret"])
 	return do("Cloudflare", req,
@@ -207,7 +207,7 @@ func exoscale(ctx context.Context, v vars) (bool, error) {
 	sig := base64.StdEncoding.EncodeToString(hmacSum(sha256.New, []byte(v["secretkey"]), []byte(msg)))
 	req, err := newReq(ctx, http.MethodGet, "https://api-ch-gva-2.exoscale.com/v2/zone", "")
 	if err != nil {
-		return false, errors.New("Exoscale verify: build request")
+		return false, errors.New("exoscale verify: build request")
 	}
 	req.Header.Set("Authorization", "EXO2-HMAC-SHA256 credential="+v["secret"]+",expires="+exp+",signature="+sig)
 	return do("Exoscale", req, []tokenverify.Rule{st(200)}, []tokenverify.Rule{st(401), st(403)})
@@ -219,14 +219,14 @@ func polymarket(ctx context.Context, v vars) (bool, error) {
 	key, err := base64.URLEncoding.DecodeString(secret)
 	if err != nil {
 		if key, err = base64.StdEncoding.DecodeString(secret); err != nil {
-			return false, errors.New("Polymarket verify: API secret is not base64")
+			return false, errors.New("polymarket verify: API secret is not base64")
 		}
 	}
 	ts := strconv.FormatInt(now().Unix(), 10)
 	sig := base64.URLEncoding.EncodeToString(hmacSum(sha256.New, key, []byte(ts+"GET/data/orders")))
 	req, err := newReq(ctx, http.MethodGet, "https://clob.polymarket.com/data/orders", "")
 	if err != nil {
-		return false, errors.New("Polymarket verify: build request")
+		return false, errors.New("polymarket verify: build request")
 	}
 	req.Header.Set("POLY_BUILDER_API_KEY", v["secret"])
 	req.Header.Set("POLY_BUILDER_PASSPHRASE", v["passphrase"])
@@ -303,14 +303,14 @@ func packagistHMAC(ctx context.Context, v vars) (bool, error) {
 	ts := strconv.FormatInt(now().Unix(), 10)
 	nonce := make([]byte, 16)
 	if _, err := rand.Read(nonce); err != nil {
-		return false, errors.New("Packagist verify: nonce")
+		return false, errors.New("packagist verify: nonce")
 	}
 	cnonce := hex.EncodeToString(nonce)
 	params := "cnonce=" + url.QueryEscape(cnonce) + "&key=" + url.QueryEscape(v["key"]) + "&timestamp=" + url.QueryEscape(ts)
 	sig := base64.StdEncoding.EncodeToString(hmacSum(sha256.New, []byte(v["secret"]), []byte("GET\npackagist.com\n/api/packages/\n"+params)))
 	req, err := newReq(ctx, http.MethodGet, "https://packagist.com/api/packages/", "")
 	if err != nil {
-		return false, errors.New("Packagist verify: build request")
+		return false, errors.New("packagist verify: build request")
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "PACKAGIST-HMAC-SHA256 Key="+v["key"]+", Timestamp="+ts+", Cnonce="+cnonce+", Signature="+sig)
@@ -332,7 +332,7 @@ func workato(ctx context.Context, v vars) (bool, error) {
 	}
 	req, err := newReq(ctx, http.MethodGet, host+"/api/users/me", "")
 	if err != nil {
-		return false, errors.New("Workato verify: build request")
+		return false, errors.New("workato verify: build request")
 	}
 	req.Header.Set("Authorization", "Bearer "+v["secret"])
 	return do("Workato", req, []tokenverify.Rule{st(200)}, []tokenverify.Rule{st(401), st(403)})
