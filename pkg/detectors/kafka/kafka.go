@@ -3,13 +3,13 @@
 // directive or as separate `sasl.username` / `sasl.password` properties.
 //
 //	sasl.username=alice
-//	sasl.password=p4ss
+//	sasl.password=p4ss pleno-dlp:allow
 //	bootstrap.servers=kafka.example.com:9093
 //
 // or:
 //
 //	sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule \
-//	  required username="alice" password="p4ss";
+//	  required username="alice" password="p4ss"; pleno-dlp:allow
 //
 // We capture the password as Raw and the (username, bootstrap) pair into
 // ExtraData. RawV2 holds the username so reviewers can rotate the right
@@ -29,7 +29,7 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-// Property-style: `sasl.password=…`. Value runs to whitespace, quote, or
+// Property-style: `sasl.password=…`. Value runs to whitespace, quote, or pleno-dlp:allow
 // line end.
 var propPasswordRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)sasl\.password\s*=\s*["']?([^\s"'<>;]+)`) })
 var propUsernameRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)sasl\.username\s*=\s*["']?([^\s"'<>;]+)`) })

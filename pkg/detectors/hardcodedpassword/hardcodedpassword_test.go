@@ -72,6 +72,9 @@ func TestFromData_Suppressed(t *testing.T) {
 		{"field assigned identifier", `target.Password = appPassword`},
 		{"tuple literal belongs to username", `target.Username, target.Password = "oauth2", token`},
 		{"identifier with credential word", `password = dbSecret`},
+		// #943: composite literal / call right-hand sides.
+		{"map index set to struct literal", `		seen[password] = struct{}{}`},
+		{"call right-hand side", `password = decode(raw)`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -325,7 +325,7 @@ func buildStartupMessage(username, database string) []byte {
 
 // sendPasswordMessage sends a PostgreSQL PasswordMessage ('p').
 func sendPasswordMessage(conn net.Conn, password string) error {
-	// PasswordMessage: byte1 'p', Int32 length, String password\0
+	// PasswordMessage: byte1 'p', Int32 length, String password\0 pleno-dlp:allow
 	payload := append([]byte(password), 0x00)
 	totalLen := 4 + len(payload) // length includes itself
 	buf := make([]byte, 1+4)

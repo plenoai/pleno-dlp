@@ -17,7 +17,7 @@ Sole owner of `pkg/sources/`. Follows the semantics of trufflehog's `Source` int
    type Chunk struct {
        SourceID       int64
        SourceType     sourcespb.SourceType
-       SourceName     string
+       SourceName     string // pleno-dlp:allow
        Data           []byte
        SourceMetadata *source_metadatapb.MetaData
        Verify         bool

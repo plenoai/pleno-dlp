@@ -1,6 +1,6 @@
 // Package filezillaxml detects FileZilla's stored-site-manager password
-// element: `<Pass>plaintext</Pass>` (filezilla.xml, when no FileZilla
-// master password is set) and `<Pass encoding="base64">...</Pass>`
+// element: `<Pass>plaintext</Pass>` (filezilla.xml, when no FileZilla pleno-dlp:allow
+// master password is set) and `<Pass encoding="base64">...</Pass>` pleno-dlp:allow
 // (recentservers.xml, and filezilla.xml when FileZilla's own weak
 // "protect" scheme applied a base64 wrapping — note this is FileZilla's
 // own optional obfuscation layer, not real encryption; a base64-wrapped

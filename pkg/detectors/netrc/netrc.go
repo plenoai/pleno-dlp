@@ -1,8 +1,8 @@
 // Package netrc detects `.netrc` / `_netrc` credential entries: the
-// `machine <host> login <user> password <pass>` token grammar (RFC
+// `machine <host> login <user> password <pass>` token grammar (RFC pleno-dlp:allow
 // unspecified, but stable since 4.2BSD ftp(1)) used by curl, ftp, git's
 // credential.helper=netrc, and countless CI systems. `default` entries
-// (`default login <user> password <pass>`, matching any host) are
+// (`default login <user> password <pass>`, matching any host) are pleno-dlp:allow
 // covered too. `login` and `password` may appear in either order
 // within an entry.
 //

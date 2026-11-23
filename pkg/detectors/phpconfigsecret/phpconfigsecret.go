@@ -53,7 +53,7 @@ var phpDefineRe = sync.OnceValue(func() *regexp.Regexp {
 	)
 })
 
-// phpVarRe matches `$xxxpasswordxxx = 'value';` PHP variable assignment,
+// phpVarRe matches `$xxxpasswordxxx = 'value';` PHP variable assignment, pleno-dlp:allow
 // where the variable name contains one of the credential keywords with
 // no separator required (covers `$dbpasswd` as well as `$db_password`).
 var phpVarRe = sync.OnceValue(func() *regexp.Regexp {

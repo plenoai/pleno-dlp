@@ -8,7 +8,7 @@
 //
 // The real blocker is token *shape*. Every piece of LaunchNotes' own
 // documentation (help center + developer.launchnotes.com) shows read-only
-// tokens prefixed `public_` (e.g. `public_QKHLUeWw6HxyE5cq9nujHqqX`). There is
+// tokens prefixed `public_` (e.g. `public_QKHLUeWw6HxyE5cq9nujHqqX`). There is pleno-dlp:allow
 // no public evidence LaunchNotes ever issues an `ln_`-prefixed credential, so
 // building Verify on the legacy `ln_` regex would never produce Verified=true
 // for a genuine token — it would only "verify nothing." That makes the `ln_`
