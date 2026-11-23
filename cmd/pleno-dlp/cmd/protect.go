@@ -64,6 +64,7 @@ func init() {
 	protectCmd.Flags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
 	protectCmd.Flags().StringVar(&scanOpts.failOn, "fail-on", "high", "minimum severity that triggers exit 1: any|info|low|medium|high|critical (default high: audit-first — see 'scan --help')")
 	protectCmd.Flags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file (.pleno-allow.json auto-discovered when unset)")
+	registerSuppressionFlags(protectCmd.Flags())
 	protectCmd.Flags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated; see 'pleno-dlp detectors list')")
 	protectCmd.Flags().StringSliceVar(&scanOpts.excludeDetectors, "exclude-detectors", nil, "skip these detectors (comma-separated)")
 	protectCmd.Flags().BoolVar(&scanOpts.quiet, "quiet", false, "suppress the end-of-scan summary line on stderr")
