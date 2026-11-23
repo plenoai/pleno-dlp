@@ -1,6 +1,7 @@
 package detectors_test
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -170,6 +171,10 @@ func TestKingfisherParityRegenerates(t *testing.T) {
 	}
 	python, err := exec.LookPath("python3")
 	if err != nil {
+		if os.Getenv("CI") != "" {
+			// CI must run the drift check; a silent skip would let the doc rot.
+			t.Fatal("python3 not installed on CI; the kingfisher parity drift check cannot run")
+		}
 		t.Skip("python3 not installed")
 	}
 	cmd := exec.Command(python, "scripts/kingfisher-parity.py", "--check")
