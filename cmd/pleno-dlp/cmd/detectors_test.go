@@ -120,6 +120,7 @@ func TestDetectorsList_RevokeSupport(t *testing.T) {
 		"Resend":            "context-required",
 		"Notion":            "context-required",
 		"GCPServiceAccount": "context-required",
+		"TwilioAPIKey":      "context-required",
 	}
 	got := map[string]string{}
 	for _, r := range rows {

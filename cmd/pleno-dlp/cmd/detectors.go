@@ -114,6 +114,7 @@ var revokeContextRequired = map[detectors.DetectorType]struct{}{
 	detectors.Resend:            {},
 	detectors.Notion:            {},
 	detectors.GCPServiceAccount: {},
+	detectors.TwilioAPIKey:      {},
 }
 
 // annotateRevokeSupport fills RevokeStatus from implementation plus allowlist.

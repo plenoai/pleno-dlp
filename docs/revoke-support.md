@@ -109,6 +109,7 @@ already-revoked secret returns `Revoked=true` with a non-nil
 | `Resend`            | `DELETE /api-keys/{uuid}` with a full-access key                   | `pkg/detectors/resend` (Scanner.Revoke)                       | context-required   |
 | `Notion`            | OAuth introspect → `POST /v1/oauth/revoke` → introspect            | `pkg/detectors/notion` (Scanner.Revoke)                       | context-required   |
 | `GCPServiceAccount` | IAM `DELETE .../serviceAccounts/{email}/keys/{key_id}` (self-auth) | `pkg/detectors/gcp` (Scanner.Revoke)                          | context-required   |
+| `TwilioAPIKey`      | `DELETE /2010-04-01/Accounts/{AC}/Keys/{SK}.json` as the owning account | `pkg/detectors/twilioapikey` (Scanner.Revoke)            | context-required   |
 
 Status semantics:
 
@@ -196,7 +197,7 @@ The `ProviderID` field carries the key's prefix plus the first four
 characters of the body so audit logs correlate revocations without
 storing the live secret.
 
-### Admin-context providers (Anthropic, OpenAI, Resend, Notion)
+### Admin-context providers (Anthropic, OpenAI, Resend, Notion, Twilio)
 
 These providers revoke by key id or issuing app, never by the raw
 value, so the operator supplies context through environment variables.
@@ -210,6 +211,7 @@ as unconfirmed (`Revoked=false` plus a diagnostic).
 | `OpenAI` | `PLENO_DLP_REVOKE_OPENAI_ADMIN_KEY`, `PLENO_DLP_REVOKE_OPENAI_API_KEY_ID`, plus `PLENO_DLP_REVOKE_OPENAI_PROJECT_ID` for project keys (`sk-admin-` keys use the admin-key endpoint) |
 | `Resend` | `PLENO_DLP_REVOKE_RESEND_ADMIN_API_KEY` (full access), `PLENO_DLP_REVOKE_RESEND_API_KEY_ID` (UUID) |
 | `Notion` | `PLENO_DLP_REVOKE_NOTION_CLIENT_ID`, `PLENO_DLP_REVOKE_NOTION_CLIENT_SECRET` of the issuing public integration; internal integration tokens need manual owner action |
+| `TwilioAPIKey` | `PLENO_DLP_REVOKE_TWILIO_ACCOUNT_SID` (`AC…`), `PLENO_DLP_REVOKE_TWILIO_AUTH_TOKEN` of the account owning the `SK…` key. HTTP 404 cannot distinguish an already-deleted key from one owned by another account, so it is reported as unconfirmed. The `Twilio` detector's Account SID + Auth Token pair cannot be revoked by API (rotate the secondary token in the Console) |
 
 ### Hugging Face and Vercel
 
@@ -232,9 +234,9 @@ short-lived tokens already issued.
 
 ### Not yet covered
 
-RubyGems has no detector and no automatic revocation API. Twilio's
-detector emits an Account SID and Auth Token, which the API cannot
-revoke. Both are tracked as follow-ups (#854, #855).
+RubyGems has no detector and no automatic revocation API (#855).
+Twilio Auth Tokens (the `Twilio` detector) cannot be revoked by API;
+Twilio API keys are covered by `TwilioAPIKey` above.
 
 ### AWS access key (context-required)
 
