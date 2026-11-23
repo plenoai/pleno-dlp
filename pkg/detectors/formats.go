@@ -69,6 +69,8 @@ type Format struct {
 	anchored *regexp.Regexp
 	// pre is the exact necessary-condition prefilter for Pattern (#984).
 	pre *prefilter
+	// anc narrows unanchored searches to candidate spans (#1034).
+	anc *anchor
 	// lowerKeywords caches strings.ToLower of each non-empty keyword;
 	// keywordsASCII reports that all of them are ASCII.
 	lowerKeywords [][]byte
@@ -82,6 +84,7 @@ func (f *Format) Compile() (*regexp.Regexp, error) {
 		f.re, f.err = regexp.Compile(f.Pattern)
 		if f.err == nil {
 			f.pre = buildPrefilter(f.Pattern)
+			f.anc = buildAnchor(f.Pattern)
 		}
 		if f.err == nil && f.Path != "" {
 			f.pathRe, f.err = regexp.Compile(f.Path)
@@ -158,7 +161,7 @@ func (f *Format) findAll(data []byte, lower *asciiScratch) [][]int {
 		return nil
 	}
 	if f.anchored == nil {
-		return f.re.FindAllSubmatchIndex(data, -1)
+		return findAllSubmatchIndexNarrow(f.re, f.anc, data, -1)
 	}
 	hay := data
 	if f.leadFold {

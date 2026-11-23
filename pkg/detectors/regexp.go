@@ -26,6 +26,7 @@ import (
 type Regexp struct {
 	*regexp.Regexp
 	pre *prefilter
+	anc *anchor // candidate-span narrowing (#1034)
 }
 
 // MustCompile is regexp.MustCompile plus the prefilter.
@@ -48,7 +49,7 @@ func WrapRegexp(re *regexp.Regexp) *Regexp {
 }
 
 func newRegexp(re *regexp.Regexp, expr string) *Regexp {
-	return &Regexp{Regexp: re, pre: buildPrefilter(expr)}
+	return &Regexp{Regexp: re, pre: buildPrefilter(expr), anc: buildAnchor(expr)}
 }
 
 // Std returns the underlying standard-library regexp.
@@ -57,125 +58,180 @@ func (r *Regexp) Std() *regexp.Regexp { return r.Regexp }
 // mayMatch reports false only when b cannot contain a match.
 func (r *Regexp) mayMatch(b []byte) bool { return r.pre == nil || r.pre.mayMatch(b) }
 
-func (r *Regexp) mayMatchString(s string) bool {
-	return r.pre == nil || r.pre.mayMatch(stringBytes(s))
+func (r *Regexp) Match(b []byte) bool {
+	if !r.mayMatch(b) {
+		return false
+	}
+	if r.anc == nil {
+		return r.Regexp.Match(b)
+	}
+	return r.firstIndex(b, r.Regexp.FindIndex) != nil
 }
 
-func (r *Regexp) Match(b []byte) bool { return r.mayMatch(b) && r.Regexp.Match(b) }
-func (r *Regexp) MatchString(s string) bool {
-	return r.mayMatchString(s) && r.Regexp.MatchString(s)
+func (r *Regexp) MatchString(s string) bool { return r.Match(stringBytes(s)) }
+
+// allIndex runs find over r's candidate spans of b (or b whole) and
+// returns match indices relative to b, at most n of them (n < 0: all).
+func (r *Regexp) allIndex(b []byte, n int, find func([]byte, int) [][]int) [][]int {
+	if n == 0 || !r.mayMatch(b) {
+		return nil
+	}
+	return narrowAll(r.anc, b, n, find)
+}
+
+// firstIndex is the leftmost match's indices via find, a FindIndex-like
+// method, over r's candidate spans.
+func (r *Regexp) firstIndex(b []byte, find func([]byte) []int) []int {
+	ms := r.allIndex(b, 1, func(sub []byte, _ int) [][]int {
+		if m := find(sub); m != nil {
+			return [][]int{m}
+		}
+		return nil
+	})
+	if len(ms) == 0 {
+		return nil
+	}
+	return ms[0]
+}
+
+func sliceMatch(b []byte, m []int) []byte { return b[m[0]:m[1]:m[1]] }
+
+func sliceSubmatch(b []byte, m []int) [][]byte {
+	out := make([][]byte, len(m)/2)
+	for j := range out {
+		if m[2*j] >= 0 {
+			out[j] = b[m[2*j]:m[2*j+1]:m[2*j+1]]
+		}
+	}
+	return out
+}
+
+func stringSubmatch(s string, m []int) []string {
+	out := make([]string, len(m)/2)
+	for j := range out {
+		if m[2*j] >= 0 {
+			out[j] = s[m[2*j]:m[2*j+1]]
+		}
+	}
+	return out
 }
 
 func (r *Regexp) Find(b []byte) []byte {
-	if !r.mayMatch(b) {
-		return nil
+	if m := r.FindIndex(b); m != nil {
+		return sliceMatch(b, m)
 	}
-	return r.Regexp.Find(b)
+	return nil
 }
 
 func (r *Regexp) FindIndex(b []byte) []int {
 	if !r.mayMatch(b) {
 		return nil
 	}
-	return r.Regexp.FindIndex(b)
+	if r.anc == nil {
+		return r.Regexp.FindIndex(b)
+	}
+	return r.firstIndex(b, r.Regexp.FindIndex)
 }
 
 func (r *Regexp) FindSubmatch(b []byte) [][]byte {
-	if !r.mayMatch(b) {
-		return nil
+	if m := r.FindSubmatchIndex(b); m != nil {
+		return sliceSubmatch(b, m)
 	}
-	return r.Regexp.FindSubmatch(b)
+	return nil
 }
 
 func (r *Regexp) FindSubmatchIndex(b []byte) []int {
 	if !r.mayMatch(b) {
 		return nil
 	}
-	return r.Regexp.FindSubmatchIndex(b)
+	if r.anc == nil {
+		return r.Regexp.FindSubmatchIndex(b)
+	}
+	return r.firstIndex(b, r.Regexp.FindSubmatchIndex)
 }
 
 func (r *Regexp) FindAll(b []byte, n int) [][]byte {
-	if !r.mayMatch(b) {
+	ms := r.FindAllIndex(b, n)
+	if ms == nil {
 		return nil
 	}
-	return r.Regexp.FindAll(b, n)
+	out := make([][]byte, len(ms))
+	for i, m := range ms {
+		out[i] = sliceMatch(b, m)
+	}
+	return out
 }
 
 func (r *Regexp) FindAllIndex(b []byte, n int) [][]int {
-	if !r.mayMatch(b) {
-		return nil
-	}
-	return r.Regexp.FindAllIndex(b, n)
+	return r.allIndex(b, n, r.Regexp.FindAllIndex)
 }
 
 func (r *Regexp) FindAllSubmatch(b []byte, n int) [][][]byte {
-	if !r.mayMatch(b) {
+	ms := r.FindAllSubmatchIndex(b, n)
+	if ms == nil {
 		return nil
 	}
-	return r.Regexp.FindAllSubmatch(b, n)
+	out := make([][][]byte, len(ms))
+	for i, m := range ms {
+		out[i] = sliceSubmatch(b, m)
+	}
+	return out
 }
 
 func (r *Regexp) FindAllSubmatchIndex(b []byte, n int) [][]int {
-	if !r.mayMatch(b) {
-		return nil
-	}
-	return r.Regexp.FindAllSubmatchIndex(b, n)
+	return r.allIndex(b, n, r.Regexp.FindAllSubmatchIndex)
 }
 
 func (r *Regexp) FindString(s string) string {
-	if !r.mayMatchString(s) {
-		return ""
+	if m := r.FindStringIndex(s); m != nil {
+		return s[m[0]:m[1]]
 	}
-	return r.Regexp.FindString(s)
+	return ""
 }
 
-func (r *Regexp) FindStringIndex(s string) []int {
-	if !r.mayMatchString(s) {
-		return nil
-	}
-	return r.Regexp.FindStringIndex(s)
-}
+func (r *Regexp) FindStringIndex(s string) []int { return r.FindIndex(stringBytes(s)) }
 
 func (r *Regexp) FindStringSubmatch(s string) []string {
-	if !r.mayMatchString(s) {
-		return nil
+	if m := r.FindStringSubmatchIndex(s); m != nil {
+		return stringSubmatch(s, m)
 	}
-	return r.Regexp.FindStringSubmatch(s)
+	return nil
 }
 
 func (r *Regexp) FindStringSubmatchIndex(s string) []int {
-	if !r.mayMatchString(s) {
-		return nil
-	}
-	return r.Regexp.FindStringSubmatchIndex(s)
+	return r.FindSubmatchIndex(stringBytes(s))
 }
 
 func (r *Regexp) FindAllString(s string, n int) []string {
-	if !r.mayMatchString(s) {
+	ms := r.FindAllStringIndex(s, n)
+	if ms == nil {
 		return nil
 	}
-	return r.Regexp.FindAllString(s, n)
+	out := make([]string, len(ms))
+	for i, m := range ms {
+		out[i] = s[m[0]:m[1]]
+	}
+	return out
 }
 
 func (r *Regexp) FindAllStringIndex(s string, n int) [][]int {
-	if !r.mayMatchString(s) {
-		return nil
-	}
-	return r.Regexp.FindAllStringIndex(s, n)
+	return r.FindAllIndex(stringBytes(s), n)
 }
 
 func (r *Regexp) FindAllStringSubmatch(s string, n int) [][]string {
-	if !r.mayMatchString(s) {
+	ms := r.FindAllStringSubmatchIndex(s, n)
+	if ms == nil {
 		return nil
 	}
-	return r.Regexp.FindAllStringSubmatch(s, n)
+	out := make([][]string, len(ms))
+	for i, m := range ms {
+		out[i] = stringSubmatch(s, m)
+	}
+	return out
 }
 
 func (r *Regexp) FindAllStringSubmatchIndex(s string, n int) [][]int {
-	if !r.mayMatchString(s) {
-		return nil
-	}
-	return r.Regexp.FindAllStringSubmatchIndex(s, n)
+	return r.FindAllSubmatchIndex(stringBytes(s), n)
 }
 
 // prefilter is a conjunction of necessary conditions.
