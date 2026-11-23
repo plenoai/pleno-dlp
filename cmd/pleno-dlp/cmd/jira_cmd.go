@@ -17,6 +17,9 @@ type jiraFlags struct {
 	project string
 	jql     string
 	apiBase string
+
+	includeChangelog bool
+	maxResults       int
 }
 
 var (
@@ -47,6 +50,8 @@ func init() {
 	scanJiraCmd.Flags().StringVar(&scanJiraOpts.token, "token", "", "Jira API token or PAT (falls back to the JIRA_TOKEN env var)")
 	scanJiraCmd.Flags().StringVar(&scanJiraOpts.project, "project", "", "Jira project key to scan (e.g. PROJ)")
 	scanJiraCmd.Flags().StringVar(&scanJiraOpts.jql, "jql", "", "raw JQL query (overrides --project)")
+	scanJiraCmd.Flags().IntVar(&scanJiraOpts.maxResults, "max-results", 0, "cap on issues scanned (0 = all)")
+	scanJiraCmd.Flags().BoolVar(&scanJiraOpts.includeChangelog, "include-changelog", false, "also scan each issue's change history (superseded descriptions and edited fields)")
 	scanJiraCmd.Flags().StringVar(&scanJiraOpts.apiBase, "api-base", "", "Jira API base URL (default https://<site>.atlassian.net; override for Data Center)")
 	scanCmd.AddCommand(scanJiraCmd)
 
@@ -70,11 +75,13 @@ func runScanJira(cmd *cobra.Command, _ []string) error {
 		return errors.New("jira: --site or --api-base is required")
 	}
 	return runScanSaaS(cmd, "jira", connectors.Config{
-		"token":    token,
-		"email":    resolveJiraEmail(scanJiraOpts.email),
-		"project":  scanJiraOpts.project,
-		"jql":      scanJiraOpts.jql,
-		"api_base": apiBase,
+		"token":             token,
+		"email":             resolveJiraEmail(scanJiraOpts.email),
+		"project":           scanJiraOpts.project,
+		"jql":               scanJiraOpts.jql,
+		"include_changelog": fmt.Sprintf("%t", scanJiraOpts.includeChangelog),
+		"max_results":       fmt.Sprintf("%d", max(scanJiraOpts.maxResults, 0)),
+		"api_base":          apiBase,
 	})
 }
 

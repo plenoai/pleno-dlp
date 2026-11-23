@@ -87,9 +87,9 @@ Status values:
 | Bitbucket `--workspace`, `--project`, `--user`, `--include-snippets` | `--workspace`, `--repo`, snippets | done |
 | Azure `--organization`, `--project`, `--all-projects` | `scan azure-devops` | done |
 | Hugging Face `--model`, `--dataset`, `--space`, `--bucket`, `--user`, `--organization` | `--org`, `--user`, `--bucket`, `--repo`, `--repo-types` | done |
-| Slack query, files | `--channel` messages | partial (files and search query: gap) |
+| Slack query, files | `--channel` messages + attached files, `--query` (search.messages + search.files), `--max-results` | done |
 | Teams `--teams-query` | `scan teams` | done |
-| Jira `--jql`, `--max-results`, `--include-comments`, `--include-changelog` | `--jql`, `--project` | partial (comments/changelog: gap) |
+| Jira `--jql`, `--max-results`, `--include-comments`, `--include-changelog` | `--jql`, `--project`, `--max-results`, comments (always, fully paged), `--include-changelog` | done |
 | Confluence `--cql` | `scan confluence` | done |
 | Postman workspaces/collections/environments/mocks | `scan postman` | done |
 | S3 `--role-arn`, `--profile`, `--prefix`; GCS `--service-account`; Azure Blob container | `scan s3/gcs/azure-blob` | done |

@@ -70,6 +70,10 @@ var slackWarn = func(format string, args ...any) {
 // scanSlack is the Lambda handler. cfg keys:
 //   - token       (required) `xoxb-` or `xoxp-` token
 //   - channel     single channel ID (omit to list all)
+//   - query       Slack search query; scans search.messages and search.files
+//     matches instead of walking channels (user token with search:read;
+//     mutually exclusive with channel)
+//   - max_results cap on message matches and on file matches in query mode
 //   - api_base    override host root, e.g. https://slack.com (a trailing /api is tolerated)
 //   - concurrency thread-reply fanout
 func scanSlack(ctx context.Context, cfg Config, emit Emit) error {
@@ -88,10 +92,22 @@ func scanSlack(ctx context.Context, cfg Config, emit Emit) error {
 		}
 	}
 
-	cli := newSlackClient(apiBase, token)
-	channels, err := slackResolveChannels(ctx, cli, cfg["channel"])
+	query := cfg["query"]
+	if query != "" && cfg["channel"] != "" {
+		return errors.New("slack: query and channel are mutually exclusive")
+	}
+	maxResults, err := slackMaxResults(cfg)
 	if err != nil {
 		return err
+	}
+
+	cli := newSlackClient(apiBase, token)
+	var channels []slackChannelInfo
+	if query == "" {
+		channels, err = slackResolveChannels(ctx, cli, cfg["channel"])
+		if err != nil {
+			return err
+		}
 	}
 	previousState, err := loadSlackIncrementalState(cfg[configKeyIncrementalPreviousState])
 	if err != nil {
@@ -102,6 +118,14 @@ func scanSlack(ctx context.Context, cfg Config, emit Emit) error {
 		previousState = &slackIncrementalState{Version: 1, Messages: map[string]slackMessageIncrementalState{}, Files: map[string]slackFileIncrementalState{}}
 	}
 	scanState := slackScanState{previous: previousState, next: nextState}
+	if query != "" {
+		if err := scanSlackSearch(ctx, cli, query, maxResults, &scanState, emit); err != nil {
+			if isCtxErr(err) {
+				return err
+			}
+			scanState.fail("slack/search", err)
+		}
+	}
 	for _, ch := range channels {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -152,20 +176,44 @@ func fingerprintSlack(ctx context.Context, cfg Config) (string, error) {
 		return "", err
 	}
 	cli := newSlackClient(apiBase, token)
-	channels, err := slackResolveChannels(ctx, cli, cfg["channel"])
-	if err != nil {
-		return "", err
-	}
 	h := sha256.New()
 	writeFingerprint(h, "slack-v1")
 	writeFingerprint(h, apiBase)
 	writeFingerprint(h, cfg["channel"])
+	if query := cfg["query"]; query != "" {
+		maxResults, err := slackMaxResults(cfg)
+		if err != nil {
+			return "", err
+		}
+		writeFingerprint(h, "query="+query)
+		writeFingerprint(h, fmt.Sprintf("max=%d", maxResults))
+		if err := fingerprintSlackSearch(ctx, h, cli, query, maxResults); err != nil {
+			return "", err
+		}
+		return hex.EncodeToString(h.Sum(nil)), nil
+	}
+	channels, err := slackResolveChannels(ctx, cli, cfg["channel"])
+	if err != nil {
+		return "", err
+	}
 	for _, ch := range channels {
 		if err := fingerprintSlackChannel(ctx, h, cli, ch); err != nil {
 			return "", err
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func slackMaxResults(cfg Config) (int, error) {
+	raw := cfg["max_results"]
+	if raw == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("slack: max_results must be a non-negative integer, got %q", raw)
+	}
+	return n, nil
 }
 
 func fingerprintSlackChannel(ctx context.Context, h hash.Hash, cli *slackClient, chInfo slackChannelInfo) error {
