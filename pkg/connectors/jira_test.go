@@ -49,7 +49,7 @@ func TestJiraIncrementalScanEmitsOnlyChangedObjects(t *testing.T) {
 		t.Fatalf("first scanJira: %v", err)
 	}
 	sort.Strings(first)
-	if got, want := strings.Join(first, ","), "keep comment,old description"; got != want {
+	if got, want := strings.Join(first, ","), "keep comment,old description,summary"; got != want {
 		t.Fatalf("first emitted %q, want %q", got, want)
 	}
 	previous := cfg[configKeyIncrementalNextState]
