@@ -47,8 +47,11 @@ way) plus repository, commit, file, and line; without a hash, detector and
 redacted display are used. Raw secrets from third-party reports are
 hashed and redacted at import and never served; raw-bearing fields
 (gitleaks `Match`/`Line`, SARIF `region.snippet`, trufflehog `ExtraData`)
-are not read. SARIF `message.text` is shown as-is, so producers that
-embed secrets in messages are not redacted. `--addr` must be a loopback
+are not read. SARIF `message.text` passes through an offline
+`engine.ScanBytes` pass (no verification, no network) and every detected
+secret is replaced by its Raw-safe display; if that scan fails the
+message is withheld. Secrets no built-in detector recognizes remain
+visible. `--addr` must be a loopback
 address, and requests with non-loopback `Host` headers are refused to
 block DNS rebinding.
 
