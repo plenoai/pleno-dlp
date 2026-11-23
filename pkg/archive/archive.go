@@ -149,6 +149,34 @@ func WalkStreamContext(ctx context.Context, rootName string, input io.Reader, si
 	return walkStreamContext(ctx, rootName, input, size, limits, visit, spoolOptions{threshold: archiveSpillThreshold})
 }
 
+// WalkStreamWithRawFallback walks input like WalkStreamContext under walkCtx
+// (which may carry an expansion deadline), and when the walk fails or stops
+// early it hands raw a fresh reader over the same spooled outer body, so
+// callers can scan the container bytes as a plain leaf while still reporting
+// the returned coverage error (#970). The spool honours limits.MaxInputBytes;
+// raw runs only while ctx is live. A raw failure is joined to the walk error.
+func WalkStreamWithRawFallback(ctx, walkCtx context.Context, rootName string, input io.Reader, size int64, limits Limits, visit func(StreamEntry) error, raw func(io.Reader) error) error {
+	if input == nil || visit == nil || raw == nil {
+		return errors.New("archive: nil input or callback")
+	}
+	limits.withDefaults()
+	if rootName == "" {
+		rootName = "<archive>"
+	}
+	opts := spoolOptions{threshold: archiveSpillThreshold}
+	err := withSpool(ctx, input, size, limits.MaxInputBytes, opts, func(root *spool) error {
+		walkErr := walkRoot(walkCtx, rootName, root, limits, visit, opts)
+		if walkErr == nil || ctx.Err() != nil {
+			return walkErr
+		}
+		if rawErr := raw(root.reader()); rawErr != nil {
+			return errors.Join(walkErr, rawErr)
+		}
+		return walkErr
+	})
+	return normalizeWalkError(rootName, err)
+}
+
 // WithSpoolContext consumes and validates exactly size bytes before invoking
 // fn with a reader at byte zero. Values over limit fail without invoking fn;
 // values above SpillThreshold are file-backed and cleaned on every path.

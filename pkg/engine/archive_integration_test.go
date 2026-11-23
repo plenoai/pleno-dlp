@@ -165,6 +165,10 @@ func (r *budgetReader) Read(p []byte) (int, error) {
 	return 0, io.EOF
 }
 
+// ReadAt lets the reader stand in for a replayable source body; the archive
+// walker consumes it sequentially through a SectionReader.
+func (r *budgetReader) ReadAt(p []byte, _ int64) (int, error) { return r.Read(p) }
+
 func TestScanArchiveReaderStopsAfterBudgetContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

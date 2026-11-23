@@ -33,6 +33,7 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/daemon"
 
+	"github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
@@ -377,7 +378,10 @@ func (s *Source) emitLayer(ctx context.Context, layer v1.Layer, layerDigestStr, 
 		if err != nil {
 			continue
 		}
-		if isBinary(data) {
+		// Archives (and orphan split volumes) are binary but must reach the
+		// engine, which expands them or reports the gap and scans the raw
+		// bytes (#970).
+		if isBinary(data) && !archive.LooksLikeArchive(data) && !archive.OrphanVolumeName(filepath.Base(hdr.Name)) {
 			continue
 		}
 

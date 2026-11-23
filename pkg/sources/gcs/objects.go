@@ -111,6 +111,11 @@ func (s *Source) emitObject(ctx context.Context, bkt bucketAPI, o objectInfo, ch
 	prefix := data[:min(len(data), binarySniffLen)]
 	if archive.LooksLikeArchive(prefix) {
 		if int64(len(data)) > s.archiveLimit() {
+			// Too large to expand, but already in memory within the object
+			// limit: scan the raw bytes and keep the coverage gap (#970).
+			if err := s.emitChunk(ctx, o, data, ch); err != nil {
+				return err
+			}
 			return errArchiveObjectTooLarge
 		}
 		return s.emitChunk(ctx, o, data, ch)

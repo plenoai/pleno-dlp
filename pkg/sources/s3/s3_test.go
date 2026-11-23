@@ -630,8 +630,10 @@ func TestChunksRejectsOversizedArchiveWithRetryableCoverage(t *testing.T) {
 	source := testSource(client, 1, defaultMaxObjectSize)
 	source.progress = &progress
 	chunks, err := collect(t, source)
-	if len(chunks) != 0 {
-		t.Fatalf("chunks = %d, want none beyond archive memory cap", len(chunks))
+	// #970: too large to expand, but the raw bytes are still streamed as
+	// leaf windows while the coverage gap stays.
+	if len(chunks) != 1 || !bytes.Equal(chunks[0].Data, data) {
+		t.Fatalf("chunks = %d, want the raw archive bytes as one window", len(chunks))
 	}
 	if !errors.Is(err, errArchiveObjectTooLarge) {
 		t.Fatalf("error = %v, want archive size coverage error", err)

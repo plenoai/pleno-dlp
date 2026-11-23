@@ -1629,9 +1629,14 @@ func (p *nativeLogParser) emitNativeArtifact(path string) error {
 		if isArchive {
 			archiveCtx, cancel := context.WithTimeout(p.ctx, p.source.archiveTimeout)
 			defer cancel()
-			return archivepkg.WalkStreamContext(archiveCtx, path, reader, size, p.source.archiveLimits, func(entry archivepkg.StreamEntry) error {
+			return archivepkg.WalkStreamWithRawFallback(p.ctx, archiveCtx, path, reader, size, p.source.archiveLimits, func(entry archivepkg.StreamEntry) error {
 				return streamBlob(archiveCtx, entry.Reader, entry.Size, func(segment diffSegment) error {
 					return p.emitSegments(entry.Path, []diffSegment{segment})
+				})
+			}, func(raw io.Reader) error {
+				// Unparseable or partial archive: scan the blob bytes too (#970).
+				return streamBlob(p.ctx, raw, size, func(segment diffSegment) error {
+					return p.emitSegments(path, []diffSegment{segment})
 				})
 			})
 		}

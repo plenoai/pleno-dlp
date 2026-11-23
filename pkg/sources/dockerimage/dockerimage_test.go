@@ -361,3 +361,24 @@ func TestIncrementalState_empty(t *testing.T) {
 		t.Fatalf("IncrementalState should be nil before Chunks, got %s", raw)
 	}
 }
+
+// TestChunks_archiveInLayerReachesEngine pins #970: archive-shaped files are
+// binary but must still be emitted so the engine expands them, or reports the
+// gap and scans the raw bytes, instead of the binary filter dropping them.
+func TestChunks_archiveInLayerReachesEngine(t *testing.T) {
+	img := buildTestImage(t, map[string]string{
+		"/opt/broken.zip": "PK\x03\x04\x00\x00 truncated " + "AKIA" + "QYLPMN5HHHFPZAM2",
+		"/opt/backup.z01": "PK\x07\x08PK\x03\x04\x00 spanned head " + "AKIA" + "QYLPMN5HHHFPZAM2",
+		"/bin/binary":     "\x7fELF\x00\x00binary content",
+	})
+	s := &Source{name: "test", sourceID: 1, cfg: Config{Image: "t:latest", MaxLayerSize: defaultMaxLayerSize}}
+	files := chunkFiles(collectChunks(t, s, img, "sha256:abc"))
+	for _, want := range []string{"/opt/broken.zip", "/opt/backup.z01"} {
+		if !files[want] {
+			t.Errorf("%s not emitted; got %v", want, files)
+		}
+	}
+	if files["/bin/binary"] {
+		t.Errorf("non-archive binary was emitted")
+	}
+}
