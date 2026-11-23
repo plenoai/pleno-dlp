@@ -16,6 +16,8 @@ type forgeScanFlags struct {
 	account   string
 	username  string
 	projectID string
+	history   bool
+	cloneURL  string
 }
 
 var forgeScanOpts = map[string]*forgeScanFlags{}
@@ -69,6 +71,11 @@ func addForgeFlags(cmd *cobra.Command, opts *forgeScanFlags, spec forgeCommandSp
 		cmd.Flags().StringVar(&opts.account, "account", "", "Codebase account name")
 		cmd.Flags().StringVar(&opts.username, "username", "", "Codebase username")
 	}
+	switch spec.name {
+	case "forgejo", "gitea", "gogs", "gitbucket", "codeberg":
+		cmd.Flags().BoolVar(&opts.history, "history", false, "also clone the repository and scan its full Git history (all branches and tags)")
+		cmd.Flags().StringVar(&opts.cloneURL, "clone-url", "", "smart-HTTP clone URL for --history (default derived from --api-base)")
+	}
 	if spec.name == "onedev" {
 		cmd.Flags().StringVar(&opts.projectID, "project-id", "", "OneDev numeric project id; defaults to --repo when numeric")
 	}
@@ -89,6 +96,10 @@ func runScanForge(cmd *cobra.Command, provider, envToken string, opts *forgeScan
 		"account":    opts.account,
 		"username":   opts.username,
 		"project_id": opts.projectID,
+		"clone_url":  opts.cloneURL,
+	}
+	if opts.history {
+		cfg["history"] = "true"
 	}
 	return runScanSaaS(cmd, provider, cfg)
 }
