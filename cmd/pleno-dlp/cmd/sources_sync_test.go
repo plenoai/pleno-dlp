@@ -25,7 +25,6 @@ import (
 var plannedSources = map[string]bool{
 	"elasticsearch": true,
 	"jenkins":       true,
-	"postman":       true,
 }
 
 func TestSourceCatalogMatchesCLIWiring(t *testing.T) {
@@ -66,8 +65,8 @@ func TestImplementedSourceCount(t *testing.T) {
 		t.Errorf("CLI-wired source count = %d, but docs/counts.md prints %d "+
 			"— update the doc's `Current value` line or the registry so they agree", implemented, want)
 	}
-	if len(plannedSources) != 3 {
-		t.Errorf("plannedSources has %d entries, want 3 (update this planning list if this changed intentionally)", len(plannedSources))
+	if len(plannedSources) != 2 {
+		t.Errorf("plannedSources has %d entries, want 2 (update this planning list if this changed intentionally)", len(plannedSources))
 	}
 }
 
