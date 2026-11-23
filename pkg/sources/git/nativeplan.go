@@ -94,13 +94,15 @@ func contiguousWorkItems(commits []string, shards int) []nativeWorkItem {
 // a commit heavier than one item's share is split by path across items (#985).
 // Any failure of the cost pass falls back to contiguous batches: the plan
 // changes only scheduling, never which (commit, path) patches are rendered.
-func (s *Source) nativeWorkPlan(ctx context.Context, gitBin string, commits []string, shards int) []nativeWorkItem {
-	if s.trufflehogCompatible || len(commits) > nativeCostPlanMaxCommits {
-		// Trufflehog mode detects renames, which a path-limited render
-		// would turn into additions; keep whole commits there.
+//
+// cost delivers the cost pass result started by startNativeCostPass; nil
+// means no cost pass ran.
+func (s *Source) nativeWorkPlan(commits []string, shards int, cost <-chan nativeCostResult) []nativeWorkItem {
+	if cost == nil || len(commits) > nativeCostPlanMaxCommits {
 		return contiguousWorkItems(commits, shards)
 	}
-	files, err := s.nativeChangedPaths(ctx, gitBin, commits)
+	res := <-cost
+	files, err := res.files, res.err
 	if err != nil {
 		return contiguousWorkItems(commits, shards)
 	}
@@ -163,15 +165,39 @@ func splittablePaths(paths []string) bool {
 	return true
 }
 
-// nativeChangedPaths lists, per commit, the non-deleted paths the shard
-// render will diff (the same filters as nativeShardLogArgs, without
-// patches). Duplicate paths (a type change) are kept once.
-func (s *Source) nativeChangedPaths(ctx context.Context, gitBin string, commits []string) (map[string][]string, error) {
-	args := []string{"-C", s.repoAbs, "log", "--root", "--no-walk=unsorted", "--stdin", "--raw", "-r", "-z",
+type nativeCostResult struct {
+	files map[string][]string
+	err   error
+}
+
+// startNativeCostPass starts the cost pass over the same revision input as
+// the rev-list, concurrently with it, so short histories do not pay for it
+// serially. It walks a superset of the selection (no depth or date filter);
+// extra commits are ignored. The caller cancels it via ctx when the history
+// turns out too long for a cost plan. Trufflehog mode returns nil: it
+// detects renames, which a path-limited render would turn into additions.
+func (s *Source) startNativeCostPass(ctx context.Context, gitBin, revisions string) <-chan nativeCostResult {
+	if s.trufflehogCompatible {
+		return nil
+	}
+	out := make(chan nativeCostResult, 1)
+	go func() {
+		files, err := s.nativeChangedPaths(ctx, gitBin, revisions)
+		out <- nativeCostResult{files, err}
+	}()
+	return out
+}
+
+// nativeChangedPaths lists, per commit reachable from revisions, the
+// non-deleted paths the shard render will diff (the same filters as
+// nativeShardLogArgs, without patches). Duplicate paths (a type change) are
+// kept once.
+func (s *Source) nativeChangedPaths(ctx context.Context, gitBin, revisions string) (map[string][]string, error) {
+	args := []string{"-C", s.repoAbs, "log", "--root", "--full-history", "--stdin", "--raw", "-r", "-z",
 		"--no-renames", "--diff-filter=d", "--diff-merges=off", "--ignore-submodules=all",
-		"--no-abbrev", "--no-show-signature", "--format=%x01%H"}
+		"--no-abbrev", "--no-show-signature", "--format=%x01%H", "--"}
 	cmd := exec.CommandContext(ctx, gitBin, args...)
-	cmd.Stdin = strings.NewReader(strings.Join(commits, "\n") + "\n")
+	cmd.Stdin = strings.NewReader(revisions)
 	cmd.Env = nativeGitEnv()
 	var stderr limitedWriter
 	stderr.limit = nativeStderrLimit
