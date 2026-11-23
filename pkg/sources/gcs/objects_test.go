@@ -160,8 +160,9 @@ func TestChunksArchiveOverBudgetIsCoverageGap(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Over-budget sets are not joined; each volume is scanned on its own
-	// (the zip tail is binary and skipped).
-	if _, ok := got["a.zip.001"]; !ok || len(got) != 1 || len(got["a.zip.001"]) != 20 {
+	// (the binary zip tail is still emitted so the engine reports its
+	// split-volume gap, #958).
+	if _, ok := got["a.zip.001"]; !ok || len(got) != 2 || len(got["a.zip.001"]) != 20 || len(got["a.zip.002"]) != len(big)-20 {
 		t.Fatalf("chunks %d", len(got))
 	}
 }
@@ -195,5 +196,23 @@ func TestChunksJoinsSpannedZip(t *testing.T) {
 	entries, err := archive.Walk("span.z01", got["bk/span.z01"], archive.Limits{})
 	if err != nil || len(entries) != 2 || string(entries[1].Data) != "FIXTURE-SPAN-SECRET\n" {
 		t.Fatalf("walk: %d %v", len(entries), err)
+	}
+}
+
+// TestChunksEmitsOrphanSpanTerminal pins #958: a spanned ".zip" terminal
+// without its ".z01" sibling is binary and not sniffed as an archive, yet
+// is still emitted so the engine reports the split-volume gap.
+func TestChunksEmitsOrphanSpanTerminal(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "archive", "testdata", "zipspan", "span.zip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &fakeBucket{order: []string{"bk/span.zip"}, bodies: map[string][]byte{"bk/span.zip": data}}
+	got, err := drain(t, newTestSource(t, b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got["bk/span.zip"] == nil {
+		t.Fatalf("orphan terminal not emitted: %d chunks", len(got))
 	}
 }

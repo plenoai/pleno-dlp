@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"unicode/utf8"
 )
 
 // Spanned PKZIP sets ("<base>.z01", "<base>.z02", ..., "<base>.zip") store
@@ -21,6 +22,7 @@ import (
 
 const (
 	zipEOCDSig        = 0x06054b50
+	zipSpanMarker     = 0x08074b50 // "PK\x07\x08" ahead of the first local header of a spanned set
 	zip64EOCDSig      = 0x06064b50
 	zip64LocatorSig   = 0x07064b50
 	zipCentralSig     = 0x02014b50
@@ -265,4 +267,94 @@ func appendZipEnd(b []byte, entries, cdSize, cdOffset uint64) []byte {
 	b = le.AppendUint32(b, uint32(cdOffset))
 	b = le.AppendUint16(b, 0)
 	return b
+}
+
+// zipOpenError classifies a zip that failed to open. One volume of a
+// spanned/split set walked without its siblings is a split-volume gap, not
+// corruption: a terminal ".zip" whose end record names disk > 0, or a head
+// ".z01" that starts with the spanning marker and has no end record.
+func zipOpenError(name string, data *spool, err error) error {
+	if end, endErr := readZipEnd(data.readerAt(), data.size); endErr == nil {
+		if end.disk != 0 || end.cdDisk != 0 {
+			return &PartialError{Kind: "split-volume", Entry: name, Err: fmt.Errorf("zip volume %d of a spanned set was scanned without its sibling volumes: %w", end.disk+1, err)}
+		}
+	} else if head := make([]byte, 4); data.size >= 4 {
+		if _, rerr := data.readerAt().ReadAt(head, 0); rerr == nil && binary.LittleEndian.Uint32(head) == zipSpanMarker {
+			return &PartialError{Kind: "split-volume", Entry: name, Err: fmt.Errorf("first volume of a spanned zip set was scanned without its sibling volumes: %w", err)}
+		}
+	}
+	return &PartialError{Kind: "corrupt-archive", Entry: name, Err: err}
+}
+
+// OrphanVolumeName reports whether name is a volume that, scanned on its
+// own, cannot be expanded from its first bytes: any spanned-zip volume
+// (".z02".., or the ".zip" terminal, whose head is mid-member data) or a
+// byte-split continuation (".002"..). Sources that drop binary non-archives
+// still emit such files so the engine can report the gap and scan the raw
+// bytes; a linked set never reaches this path because it is joined first.
+func OrphanVolumeName(name string) bool {
+	id, ok := ParseVolumeName(name)
+	if !ok {
+		return false
+	}
+	switch id.Scheme {
+	case VolumeZipSpan:
+		return id.Index != 1
+	case VolumeBytes:
+		return id.Index >= 2
+	}
+	return false
+}
+
+// OrphanVolumeGap returns a split-volume PartialError for a body named by
+// OrphanVolumeName that arrived without its sibling volumes (#958):
+//
+//   - a ".zip" whose end record names disk > 0 (the terminal of a spanned
+//     set); a complete single-disk ".zip" is not a gap;
+//   - a ".z02".. or ".002".. continuation whose content is binary, since a
+//     text file that merely carries such a suffix is scanned as text.
+//
+// Callers route bodies that LooksLikeArchive to the walker instead and
+// always scan the raw bytes of an orphan. It returns nil otherwise.
+func OrphanVolumeGap(name string, r io.ReaderAt, size int64) error {
+	id, ok := ParseVolumeName(name)
+	if !ok || size <= 0 {
+		return nil
+	}
+	switch {
+	case id.Scheme == VolumeZipSpan && id.Index == 0:
+		if size < zipEOCDLen {
+			return nil
+		}
+		end, err := readZipEnd(r, size)
+		if err != nil || (end.disk == 0 && end.cdDisk == 0) {
+			return nil
+		}
+		return &PartialError{Kind: "split-volume", Entry: name, Err: fmt.Errorf("zip volume %d (last) of a spanned set was scanned without its sibling volumes", end.disk+1)}
+	case (id.Scheme == VolumeZipSpan && id.Index >= 2) || (id.Scheme == VolumeBytes && id.Index >= 2):
+		head := make([]byte, min(size, 512))
+		n, err := r.ReadAt(head, 0)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil
+		}
+		if !looksBinary(head[:n]) {
+			return nil
+		}
+		return &PartialError{Kind: "split-volume", Entry: name, Err: fmt.Errorf("volume %d of a multi-volume archive was scanned without its sibling volumes", id.Index)}
+	}
+	return nil
+}
+
+// looksBinary reports a NUL byte or invalid UTF-8 (ignoring a rune cut at
+// the end of the sample).
+func looksBinary(p []byte) bool {
+	if bytes.IndexByte(p, 0) >= 0 {
+		return true
+	}
+	for cut := 0; cut < 4 && cut <= len(p); cut++ {
+		if utf8.Valid(p[:len(p)-cut]) {
+			return false
+		}
+	}
+	return true
 }

@@ -1370,6 +1370,9 @@ func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
 		e.scanArchive(ctx, c, 5*time.Second)
 		return
 	}
+	if !e.opts.NoArchiveExtraction {
+		e.recordLoneSpanVolume(c, bytes.NewReader(c.Data), int64(len(c.Data)))
+	}
 	e.scanChunkLeaf(ctx, c, "")
 }
 
@@ -1419,7 +1422,24 @@ func (e *Engine) scanOpenedChunk(ctx context.Context, c *sources.Chunk) {
 		e.scanArchiveReader(ctx, c, io.NewSectionReader(reader, 0, size), size, 5*time.Second)
 		return
 	}
+	if !e.opts.NoArchiveExtraction {
+		e.recordLoneSpanVolume(c, reader, size)
+	}
 	e.scanChunkLeafReader(ctx, c, "", reader, size)
+}
+
+// recordLoneSpanVolume reports a multi-volume continuation (a spanned-zip
+// ".zip" terminal, ".z02"..., or ".002"...) that arrived without its sibling
+// volumes as a split-volume coverage gap. Its head is mid-member data, so it
+// is not routed to the archive walker; the raw bytes are still scanned as a
+// leaf (#958).
+func (e *Engine) recordLoneSpanVolume(c *sources.Chunk, r io.ReaderAt, size int64) {
+	if err := archive.OrphanVolumeGap(archiveRootName(c), r, size); err != nil {
+		e.recordFailure(ScanFailure{
+			Kind: FailureArchive, Source: archiveFailureSource(c),
+			Err: &redactedArchiveCoverageError{cause: err},
+		})
+	}
 }
 
 func readerLooksLikeArchive(reader io.ReaderAt, size int64) (bool, error) {

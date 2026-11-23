@@ -115,7 +115,9 @@ func (s *Source) emitObject(ctx context.Context, bkt bucketAPI, o objectInfo, ch
 		}
 		return s.emitChunk(ctx, o, data, ch)
 	}
-	if isBinary(prefix) {
+	// An orphan volume of an unlinked multi-volume set still reaches the
+	// engine, which reports the split-volume gap and scans the raw bytes.
+	if isBinary(prefix) && !archive.OrphanVolumeName(o.Name) {
 		return nil
 	}
 	return s.emitChunk(ctx, o, data, ch)

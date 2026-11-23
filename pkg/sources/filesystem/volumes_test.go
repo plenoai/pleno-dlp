@@ -38,7 +38,8 @@ func TestChunks_JoinsSplitVolumes(t *testing.T) {
 		}
 	}
 	// other.zip.002 is missing: the remaining volumes are scanned alone
-	// (other.zip.003 starts mid-stream and is dropped by the binary sniff).
+	// (other.zip.003 starts mid-stream; it is still emitted so the engine
+	// reports its split-volume gap and scans the raw bytes, #958).
 	broken := zipFixture(t, "FIXTURE-BROKEN")
 	_ = os.WriteFile(filepath.Join(dir, "other.zip.001"), broken[:len(broken)/2], 0o600)
 	_ = os.WriteFile(filepath.Join(dir, "other.zip.003"), broken[len(broken)/2:], 0o600)
@@ -79,7 +80,7 @@ func TestChunks_JoinsSplitVolumes(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	want := []string{"data.zip.001", "other.zip.001"}
+	want := []string{"data.zip.001", "other.zip.001", "other.zip.003"}
 	if len(names) != len(want) {
 		t.Fatalf("chunks %q, want %q", names, want)
 	}
@@ -159,5 +160,26 @@ func TestChunks_JoinsSpannedZip(t *testing.T) {
 	sort.Strings(names)
 	if len(names) != 2 || names[0] != "plain.zip" || names[1] != "span.z01" || !found {
 		t.Fatalf("chunks %q found=%v", names, found)
+	}
+}
+
+// TestChunks_EmitsOrphanSpanTerminal pins #958 for the filesystem source.
+func TestChunks_EmitsOrphanSpanTerminal(t *testing.T) {
+	dir := t.TempDir()
+	b, err := os.ReadFile(filepath.Join("..", "..", "archive", "testdata", "zipspan", "span.zip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "span.zip"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := &Source{}
+	mustInit(t, s, Config{Paths: []string{dir}})
+	chunks, err := drain(t, s, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 || filepath.Base(chunks[0].SourceMetadata.Filesystem.Path) != "span.zip" {
+		t.Fatalf("orphan terminal not emitted: %d chunks", len(chunks))
 	}
 }

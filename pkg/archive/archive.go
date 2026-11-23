@@ -206,7 +206,7 @@ func walkRoot(ctx context.Context, rootName string, root *spool, limits Limits, 
 		return &PartialError{Kind: "corrupt-archive", Entry: rootName, Err: err}
 	}
 	if kind == kindNone {
-		return nil
+		return OrphanVolumeGap(rootName, root.readerAt(), root.size)
 	}
 	state := &walkState{ctx: ctx, limits: limits, visit: visit, spool: opts}
 	err = state.walk(rootName, root, 0)
@@ -408,12 +408,12 @@ func (s *walkState) walkZip(name string, data *spool, depth int) error {
 			s.stop(headerLimit.kind, name, headerLimit)
 			return nil
 		}
-		return &PartialError{Kind: "corrupt-archive", Entry: name, Err: err}
+		return zipOpenError(name, data, err)
 	}
 	s.headers += count
 	r, err := zip.NewReader(data.readerAt(), data.size)
 	if err != nil {
-		return &PartialError{Kind: "corrupt-archive", Entry: name, Err: err}
+		return zipOpenError(name, data, err)
 	}
 	if len(r.File) != count {
 		return &PartialError{Kind: "corrupt-archive", Entry: name, Err: fmt.Errorf("central directory count changed from %d to %d", count, len(r.File))}

@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 
@@ -70,5 +72,31 @@ func TestChunksJoinsSplitVolumes(t *testing.T) {
 	}
 	if got := len(client.calls()) - before; got != 0 {
 		t.Fatalf("unchanged volumes re-downloaded %d objects", got)
+	}
+}
+
+// TestChunksEmitsOrphanSpanTerminal pins #958 for S3.
+func TestChunksEmitsOrphanSpanTerminal(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "archive", "testdata", "zipspan", "span.zip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeS3Client{objects: []types.Object{object("bk/span.zip", int64(len(body)))}, get: func(context.Context, string) (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(body)), nil
+	}}
+	s := testSource(client, 1, defaultMaxObjectSize)
+	ch := make(chan *sources.Chunk, 8)
+	if err := s.Chunks(t.Context(), ch); err != nil {
+		t.Fatal(err)
+	}
+	close(ch)
+	var n int
+	for c := range ch {
+		if c.SourceMetadata.S3.Key == "bk/span.zip" {
+			n++
+		}
+	}
+	if n == 0 {
+		t.Fatal("orphan terminal not emitted")
 	}
 }

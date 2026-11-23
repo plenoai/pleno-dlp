@@ -534,7 +534,9 @@ func (s *Source) emitObject(ctx context.Context, client s3API, key string, sizeH
 		// unchanged archive while preserving complete-report retry semantics.
 		return objectOutcome{bytes: int64(len(data)), checkpoint: true}, nil
 	}
-	if isBinary(prefix) {
+	// An orphan volume of an unlinked multi-volume set still reaches the
+	// engine, which reports the split-volume gap and scans the raw bytes.
+	if isBinary(prefix) && !archive.OrphanVolumeName(key) {
 		return objectOutcome{binary: true, checkpoint: true}, nil
 	}
 	total, err := s.emitTextObject(ctx, key, out, prefix, limited, atEOF, ch)
