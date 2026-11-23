@@ -20,6 +20,9 @@ import (
 // shared scan pipeline. cfg is built by the caller from the cmd's flags;
 // connectors validate the keys they need internally.
 func runScanSaaS(cmd *cobra.Command, name string, cfg connectors.Config) error {
+	if scanOpts.listOnly {
+		return runListOnly(cmd, name, cfg)
+	}
 	src, err := connectors.AsSource(name, cfg)
 	if err != nil {
 		return err
