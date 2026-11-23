@@ -110,3 +110,8 @@ func tableLocationOf(f engine.Finding) string {
 	}
 	return f.Chunk.SourceType.String()
 }
+
+// LocationOf renders a finding's human-readable source location (the same
+// string the table formatter prints). Exported for secondary sinks such as
+// pkg/alerts that must describe a finding without its secret.
+func LocationOf(f engine.Finding) string { return tableLocationOf(f) }

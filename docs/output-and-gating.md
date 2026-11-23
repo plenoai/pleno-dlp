@@ -1,6 +1,7 @@
 # Output and gating
 
-`pleno-dlp` can emit human-readable tables, JSON, or SARIF, and can fail
+`pleno-dlp` can emit human-readable tables, JSON, JSON Lines, SARIF, or a
+self-contained HTML report, and can fail
 the process when findings reach a chosen severity threshold.
 
 ## Output formats
@@ -9,6 +10,8 @@ the process when findings reach a chosen severity threshold.
 pleno-dlp scan filesystem ./repo --format table
 pleno-dlp scan filesystem ./repo --format json
 pleno-dlp scan filesystem ./repo --format sarif
+pleno-dlp scan filesystem ./repo --format jsonl   # one JSON object per line
+pleno-dlp scan filesystem ./repo --format html > report.html
 ```
 
 JSON output includes a stable `secret_hash` field computed as
@@ -20,6 +23,34 @@ Each JSON record also carries `fingerprint` and `path`. `fingerprint`
 is the stable, secret-free key used by `pleno-dlp baseline` and
 `--baseline`; SARIF exposes the same value as
 `partialFingerprints["baseline/v1"]`. See [baseline.md](baseline.md).
+
+`jsonl` emits the same record as `json`, one compact object per line, so a
+truncated stream stays parseable. `html` buffers redacted findings and
+writes one page with inline CSS/JS and no network references (a
+restrictive CSP blocks any fetch); duplicate findings are merged.
+
+### Local report viewer
+
+`pleno-dlp view` imports one or more reports, deduplicates findings across
+them, and serves the merged HTML page on loopback:
+
+```sh
+pleno-dlp view findings.json gitleaks.json trufflehog.jsonl results.sarif
+pleno-dlp view findings.json --addr 127.0.0.1:8080
+pleno-dlp view findings.json gitleaks.json -o merged.html
+```
+
+Inputs are auto-detected: pleno-dlp `json`/`jsonl`, SARIF 2.1.0 (any
+producer), gitleaks JSON, and trufflehog JSON/JSONL. Findings dedup by
+`secret_hash` (gitleaks `Secret` and trufflehog `Raw` are hashed the same
+way) plus repository, commit, file, and line; without a hash, detector and
+redacted display are used. Raw secrets from third-party reports are
+hashed and redacted at import and never served; raw-bearing fields
+(gitleaks `Match`/`Line`, SARIF `region.snippet`, trufflehog `ExtraData`)
+are not read. SARIF `message.text` is shown as-is, so producers that
+embed secrets in messages are not redacted. `--addr` must be a loopback
+address, and requests with non-loopback `Host` headers are refused to
+block DNS rebinding.
 
 SARIF output is GitHub Code Scanning compatible:
 
@@ -114,6 +145,8 @@ fail closed without changing default scan behavior.
 | Surface | Field |
 |---|---|
 | `--format json` | `verdict` (`"verified"` \| `"unverified"` \| `"indeterminate"`), `verification_assurance`, `severity`, plus legacy `verified` bool and `verification_error` |
+| `--format jsonl` | same fields as `json`, one object per line |
+| `--format html` | Verdict column and filter |
 | `--format sarif` | `properties.verdict`, `properties.verification_assurance`, `properties.severity`, plus legacy `properties.verified` |
 | `--format table` | `VERDICT` column: `✓` verified, `✗` unverified, `?` indeterminate |
 
