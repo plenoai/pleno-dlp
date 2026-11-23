@@ -1,0 +1,3 @@
+Owners: connector-engineer, qa
+
+Sharded native git history now renders merge-conflict resolutions (`diff-tree --cc`) as parallel work items in the shard queue instead of one spooled diff-tree pass parsed after all ordinary history; merge chunks carry ordinals past the ordinary history, which preserves the previous dedup ranking exactly. The forced text diff is skipped for merge commits because `git show --diff-merges=off` never renders a merge patch, removing mid-scan forks. Finding sets on croc, rails and django are identical; rails git history drops from 3.52 s to 2.78 s and django from 2.60 s to 2.32 s (part of #978).

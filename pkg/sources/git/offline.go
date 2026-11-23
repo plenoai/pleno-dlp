@@ -1344,7 +1344,7 @@ func (s *Source) offlineMergePatchBatch(ctx context.Context, repo *gogit.Reposit
 		return fmt.Errorf("git: rewind offline merge spool: %w", err)
 	}
 	defer output.Close()
-	parseErr := s.parseNativeMergeResults(ctx, repo, gitBin, output, ch)
+	parseErr := s.parseNativeMergeResults(ctx, repo, gitBin, output, ch, nil, nil, nil)
 	if parseErr != nil {
 		var degraded *engine.DegradedError
 		if errors.As(parseErr, &degraded) {

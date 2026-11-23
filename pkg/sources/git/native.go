@@ -147,12 +147,33 @@ func nativeGitEnv() []string {
 // emitted chunk would duplicate findings and could advance the checkpoint
 // across a partially covered walk.
 func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBin string, starts, stops []plumbing.Hash, ch chan<- *sources.Chunk) error {
+	parseErr, mergeErr := s.runNativePatchLog(ctx, repo, gitBin, starts, stops, !s.omitMergeDiffs(), ch)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if parseErr != nil && !isCoverageOnly(parseErr) {
+		return parseErr
+	}
+	var metadataErr error
+	if s.includeCommitMetadata {
+		metadataErr = s.chunksNativeMetadata(ctx, gitBin, starts, stops, ch)
+	}
+	return errors.Join(parseErr, mergeErr, metadataErr)
+}
+
+// runNativeSingleStream renders the whole selection through one git-log
+// process; merge resolutions (wantMerges) come from a diff-tree pass fed by
+// the parser and spooled until the history stream ends.
+//
+// It returns the history error (nil, coverage-only, or fatal) and, only when
+// the history error is not fatal, the merge pass error.
+func (s *Source) runNativeSingleStream(ctx context.Context, repo *gogit.Repository, gitBin string, starts, stops []plumbing.Hash, wantMerges bool, ch chan<- *sources.Chunk) (error, error) {
 	var mergePass *nativeMergePass
 	var err error
-	if !s.omitMergeDiffs() {
+	if wantMerges {
 		mergePass, err = s.startNativeMergeResults(ctx, gitBin)
 		if err != nil {
-			return err
+			return err, nil
 		}
 	}
 	var mergeInput io.Writer
@@ -160,7 +181,7 @@ func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBi
 		mergeInput = &lockedWriter{w: mergePass.stdin}
 	}
 
-	parseErr := s.runNativePatchLog(ctx, repo, gitBin, starts, stops, mergeInput, ch)
+	parseErr := s.runNativeLogProcess(ctx, repo, gitBin, s.nativeLogArgs(), nativeRevisionInput(starts, stops), mergeInput, ch, nil, nil)
 	var mergeCloseErr error
 	if mergePass != nil {
 		mergeCloseErr = mergePass.closeInput()
@@ -169,27 +190,23 @@ func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBi
 		if mergePass != nil {
 			mergePass.abort()
 		}
-		return err
+		return err, nil
 	}
 	if parseErr != nil && !isCoverageOnly(parseErr) {
 		if mergePass != nil {
 			mergePass.abort()
 		}
-		return parseErr
+		return parseErr, nil
 	}
 	if mergeCloseErr != nil {
 		mergePass.abort()
-		return errors.Join(parseErr, fmt.Errorf("git: close native merge input: %w", mergeCloseErr))
+		return errors.Join(parseErr, fmt.Errorf("git: close native merge input: %w", mergeCloseErr)), nil
 	}
 	var mergeErr error
 	if mergePass != nil {
 		mergeErr = mergePass.finish(ctx, s, repo, gitBin, ch)
 	}
-	var metadataErr error
-	if s.includeCommitMetadata {
-		metadataErr = s.chunksNativeMetadata(ctx, gitBin, starts, stops, ch)
-	}
-	return errors.Join(parseErr, mergeErr, metadataErr)
+	return parseErr, mergeErr
 }
 
 func (s *Source) chunksNativeMetadata(ctx context.Context, gitBin string, starts, stops []plumbing.Hash, ch chan<- *sources.Chunk) error {
@@ -408,23 +425,10 @@ func (s *Source) nativeLogArgs() []string {
 	return append(args, "--stdin", "--")
 }
 
-// nativeMergePass computes combined patches while the main patch stream is
-// being parsed. Its stdout is spooled to a private temporary file so merge
-// resolution chunks remain ordered after all ordinary-history chunks.
-type nativeMergePass struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	output *os.File
-	stderr limitedWriter
-	closed bool
-}
-
-// startNativeMergeResults covers content introduced by merge conflict
-// resolution without asking git-log to render every merge patch. The main
-// patch parser streams selected merge IDs into diff-tree, so tree comparison
-// overlaps the ordinary patch walk and never traverses history a second time.
-func (s *Source) startNativeMergeResults(ctx context.Context, gitBin string) (*nativeMergePass, error) {
-	args := []string{
+// nativeMergeArgs renders dense combined patches for the merge commits read
+// from stdin.
+func (s *Source) nativeMergeArgs() []string {
+	return []string{
 		"-C", s.repoAbs,
 		"diff-tree",
 		"--stdin",
@@ -451,8 +455,25 @@ func (s *Source) startNativeMergeResults(ctx context.Context, gitBin string) (*n
 		"--format=" + nativePrettyFormat,
 		"--",
 	}
+}
 
-	cmd := exec.CommandContext(ctx, gitBin, args...)
+// nativeMergePass computes combined patches while the main patch stream is
+// being parsed. Its stdout is spooled to a private temporary file so merge
+// resolution chunks remain ordered after all ordinary-history chunks.
+type nativeMergePass struct {
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	output *os.File
+	stderr limitedWriter
+	closed bool
+}
+
+// startNativeMergeResults covers content introduced by merge conflict
+// resolution without asking git-log to render every merge patch. The main
+// patch parser streams selected merge IDs into diff-tree, so tree comparison
+// overlaps the ordinary patch walk and never traverses history a second time.
+func (s *Source) startNativeMergeResults(ctx context.Context, gitBin string) (*nativeMergePass, error) {
+	cmd := exec.CommandContext(ctx, gitBin, s.nativeMergeArgs()...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("git: native merge raw stdin: %w", err)
@@ -516,7 +537,7 @@ func (p *nativeMergePass) finish(ctx context.Context, source *Source, repo *gogi
 		p.cleanup()
 		return fmt.Errorf("git: rewind native merge spool: %w", err)
 	}
-	parseErr := source.parseNativeMergeResults(ctx, repo, gitBin, p.output, ch)
+	parseErr := source.parseNativeMergeResults(ctx, repo, gitBin, p.output, ch, nil, nil, nil)
 	p.cleanup()
 	if parseErr != nil {
 		return fmt.Errorf("git: parse native merge patch: %w", parseErr)
@@ -524,10 +545,15 @@ func (p *nativeMergePass) finish(ctx context.Context, source *Source, repo *gogi
 	return nil
 }
 
-func (s *Source) parseNativeMergeResults(ctx context.Context, repo *gogit.Repository, gitBin string, r io.Reader, ch chan<- *sources.Chunk) error {
+// parseNativeMergeResults parses diff-tree --cc output. scan and ordinals
+// are as for nativeLogParser; blobs, when nil, is a private holder.
+func (s *Source) parseNativeMergeResults(ctx context.Context, repo *gogit.Repository, gitBin string, r io.Reader, ch chan<- *sources.Chunk, scan func(*sources.Chunk), ordinals map[string]int64, blobs *catFileHolder) error {
 	reader := bufio.NewReaderSize(r, 256<<10)
-	parser := nativeLogParser{ctx: ctx, source: s, repo: repo, gitBin: gitBin, ch: ch, blobs: &catFileHolder{}}
-	defer parser.blobs.close()
+	if blobs == nil {
+		blobs = &catFileHolder{}
+		defer blobs.close()
+	}
+	parser := nativeLogParser{ctx: ctx, source: s, repo: repo, gitBin: gitBin, ch: ch, blobs: blobs, scan: scan, ordinals: ordinals}
 	for {
 		line, err := reader.ReadSlice('\n')
 		if errors.Is(err, bufio.ErrBufferFull) && parser.commit != nil && parser.inHunk {
@@ -1596,6 +1622,12 @@ func (p *nativeLogParser) handleBinaryPatch() error {
 	}
 	if binary {
 		p.file.binary = true
+		return nil
+	}
+	if p.commit.parentCount > 1 {
+		// `git show --diff-merges=off` renders no patch for a merge, so
+		// the forced text diff of a merge resolution is always empty;
+		// skip the process (a fork in the middle of the scan).
 		return nil
 	}
 	return p.emitForcedTextPatch(p.file.path)
