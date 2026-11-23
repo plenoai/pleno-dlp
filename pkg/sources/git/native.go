@@ -184,8 +184,10 @@ func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBi
 		gitBin:     gitBin,
 		ch:         ch,
 		mergeInput: mergeInput,
+		blobs:      &catFileHolder{},
 	}
 	parseErr := parser.parse(stdout)
+	parser.blobs.close()
 	var mergeCloseErr error
 	if mergePass != nil {
 		mergeCloseErr = mergePass.closeInput()
@@ -334,7 +336,7 @@ func (s *Source) parseNativeMetadata(ctx context.Context, input io.Reader, noteR
 		if _, err := hex.DecodeString(hash); err != nil {
 			return fmt.Errorf("malformed native metadata commit hash: %w", err)
 		}
-		authored, err := time.Parse(time.RFC3339, string(fields[5]))
+		authored, err := parseGitISODate(string(fields[5]))
 		if err != nil {
 			return fmt.Errorf("malformed native metadata authored date: %w", err)
 		}
@@ -567,7 +569,8 @@ func (p *nativeMergePass) finish(ctx context.Context, source *Source, repo *gogi
 
 func (s *Source) parseNativeMergeResults(ctx context.Context, repo *gogit.Repository, gitBin string, r io.Reader, ch chan<- *sources.Chunk) error {
 	reader := bufio.NewReaderSize(r, 256<<10)
-	parser := nativeLogParser{ctx: ctx, source: s, repo: repo, gitBin: gitBin, ch: ch}
+	parser := nativeLogParser{ctx: ctx, source: s, repo: repo, gitBin: gitBin, ch: ch, blobs: &catFileHolder{}}
+	defer parser.blobs.close()
 	for {
 		line, err := reader.ReadSlice('\n')
 		if errors.Is(err, bufio.ErrBufferFull) && parser.commit != nil && parser.inHunk {
@@ -872,6 +875,18 @@ type nativeLogParser struct {
 	mergeInput    io.Writer
 	coverage      []engine.ScanFailure
 	coverageTotal int
+	// blobs holds the lazily started cat-file batch process shared with
+	// nested forced-text parsers; the top-level owner closes it.
+	blobs *catFileHolder
+}
+
+type catFileHolder struct{ batch *catFileBatch }
+
+func (h *catFileHolder) close() {
+	if h != nil && h.batch != nil {
+		_ = h.batch.close()
+		h.batch = nil
+	}
 }
 
 func (p *nativeLogParser) walkError(err error) error {
@@ -1390,6 +1405,28 @@ func (p *nativeLogParser) currentFileBinary() (binary bool, err error) {
 
 func (p *nativeLogParser) currentFileBinaryNative() (bool, error) {
 	object := p.commit.hash + ":" + p.file.path
+	if p.blobs != nil && !strings.Contains(object, "\n") {
+		if p.blobs.batch == nil {
+			batch, err := startCatFileBatch(p.ctx, p.gitBin, p.source.repoAbs)
+			if err != nil {
+				return false, err
+			}
+			p.blobs.batch = batch
+		}
+		binary, err := p.blobs.batch.blobContainsNUL(p.ctx, object)
+		if err == nil {
+			return binary, nil
+		}
+		if ctxErr := p.ctx.Err(); ctxErr != nil {
+			return false, ctxErr
+		}
+		if p.blobs.batch.broken == nil {
+			return false, fmt.Errorf("git: native binary classification for %s: %w", p.file.path, err)
+		}
+		// The batch pipe lost framing; drop it and fall back to a
+		// one-shot process so the classification still completes.
+		p.blobs.close()
+	}
 	cmd := exec.CommandContext(p.ctx, p.gitBin, "-C", p.source.repoAbs, "cat-file", "blob", object)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1641,7 +1678,7 @@ func (p *nativeLogParser) emitForcedTextPatch(path string) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start forced text diff: %w", err)
 	}
-	parser := nativeLogParser{ctx: p.ctx, source: p.source, repo: p.repo, gitBin: p.gitBin, ch: p.ch, commit: p.commit}
+	parser := nativeLogParser{ctx: p.ctx, source: p.source, repo: p.repo, gitBin: p.gitBin, ch: p.ch, commit: p.commit, blobs: p.blobs}
 	parseErr := parser.parse(stdout)
 	if parseErr != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
@@ -1711,7 +1748,7 @@ func parseNativeCommit(line []byte) (nativeCommit, error) {
 			return nativeCommit{}, fmt.Errorf("malformed native parent hash %q: %w", parent, err)
 		}
 	}
-	authored, err := time.Parse(time.RFC3339, string(fields[4]))
+	authored, err := parseGitISODate(string(fields[4]))
 	if err != nil {
 		return nativeCommit{}, fmt.Errorf("malformed native authored date %q: %w", fields[4], err)
 	}
