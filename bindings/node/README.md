@@ -1,11 +1,11 @@
-# @plenoai/pleno-dlp
+# pleno-dlp
 
 Node.js bindings for [pleno-dlp](https://github.com/plenoai/pleno-dlp), a
 secret and PII scanner. Scan buffers and files, verify a secret with its
 provider, and revoke leaked credentials.
 
 ```js
-import { scanPaths } from '@plenoai/pleno-dlp';
+import { scanPaths } from 'pleno-dlp';
 
 for (const f of scanPaths('src')) {
   console.log(f.detector, f.path, f.line, f.redacted);
