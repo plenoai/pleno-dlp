@@ -73,6 +73,7 @@ type scanFlags struct {
 	alertFormat        string
 	alertOn            string
 	extractionDepth    int
+	listOnly           bool
 	verifyRPSDetector  []string
 	verifyRetries      int
 	verifyTimeout      time.Duration
@@ -243,6 +244,8 @@ func init() {
 		fmt.Sprintf("extra verification attempts on network errors, 429, and 5xx (0-%d; replayable requests only)", verify.MaxRetries))
 	scanCmd.PersistentFlags().DurationVar(&scanOpts.verifyTimeout, "verify-timeout", 0,
 		"per-attempt verification HTTP timeout, e.g. 10s (0 = detector defaults)")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.listOnly, "list-only", false,
+		"print the repositories the scan would cover (github, gitlab) and exit without scanning")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.failOn, "fail-on", "high", "minimum severity that triggers exit 1: any|info|low|medium|high|critical "+
@@ -533,6 +536,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if scanOpts.listOnly {
+		return fmt.Errorf("--list-only is not supported for scan %s (supported: github, gitlab)", kind)
+	}
 	if scanOpts.extractionDepth < 1 || scanOpts.extractionDepth > engine.MaxArchiveMaxDepth {
 		return fmt.Errorf("--extraction-depth: must be between 1 and %d (got %d)", engine.MaxArchiveMaxDepth, scanOpts.extractionDepth)
 	}

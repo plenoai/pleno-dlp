@@ -170,6 +170,9 @@ func runScanGitHub(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	if scanOpts.listOnly {
+		return runListOnly(cmd, "github", cfg)
+	}
 	mergeMode := "dense-resolution"
 	if scanGitHubOpts.skipMergeCommits {
 		mergeMode = "off"
