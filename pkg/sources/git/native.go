@@ -1768,12 +1768,21 @@ func (p *nativeLogParser) emitForcedTextPatch(paths ...string) error {
 	merge := p.commit.parentCount > 1
 	diffMerges := "--diff-merges=off"
 	args := []string{"-c", "diff.suppressBlankEmpty=false"}
+	location := []string{"-C", p.source.repoAbs}
 	if merge {
 		diffMerges = "--cc"
 		args = append(args, "-c", "core.attributesFile="+os.DevNull, "--attr-source="+emptyTreeHash)
+		// $GIT_DIR/info/attributes outranks --attr-source, so render from
+		// a private git directory that shares the objects but has no
+		// info/attributes (#998).
+		gitDir, err := p.source.attrFreeGitDir(p.ctx, p.gitBin)
+		if err != nil {
+			return err
+		}
+		location = []string{"--git-dir=" + gitDir}
 	}
+	args = append(args, location...)
 	args = append(args,
-		"-C", p.source.repoAbs,
 		"show",
 		"--format=",
 		"--patch",
