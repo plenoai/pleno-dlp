@@ -394,12 +394,9 @@ func newHFClient(base, token string) *hfClient {
 }
 
 func (c *hfClient) do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
-	u := path
-	if !strings.HasPrefix(path, "http://") && !strings.HasPrefix(path, "https://") {
-		if !strings.HasPrefix(path, "/") {
-			path = "/" + path
-		}
-		u = c.base + path
+	u, err := apiURL("huggingface", c.base, path)
+	if err != nil {
+		return nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {

@@ -5,6 +5,7 @@ package huggingface
 import (
 	"context"
 	"encoding/json"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,7 +34,7 @@ func TestRevoke_ReportAccepted(t *testing.T) {
 		w.WriteHeader(http.StatusAccepted)
 	})
 	res, err := Scanner{}.Revoke(context.Background(), tok)
-	if err != nil || !res.Revoked || res.Err == nil {
+	if err != nil || res.Revoked || res.Status() != detectors.RevokeAccepted || res.Err == nil {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	if strings.Contains(res.ProviderID, "hf_") || !strings.HasPrefix(res.ProviderID, "sha256:") {

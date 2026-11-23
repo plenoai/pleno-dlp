@@ -16,8 +16,8 @@ class PlenoDLPError extends Error {
 
 function libraryPath() {
   if (process.env.PLENO_DLP_LIBRARY) return process.env.PLENO_DLP_LIBRARY;
-  const ext = process.platform === 'darwin' ? 'dylib' : 'so';
-  return path.join(__dirname, 'lib', `${process.platform}-${process.arch}`, `libpleno_dlp.${ext}`);
+  const file = { darwin: 'libpleno_dlp.dylib', win32: 'pleno_dlp.dll' }[process.platform] || 'libpleno_dlp.so';
+  return path.join(__dirname, 'lib', `${process.platform}-${process.arch}`, file);
 }
 
 let native;

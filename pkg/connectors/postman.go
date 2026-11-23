@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
@@ -62,79 +63,111 @@ func scanPostman(ctx context.Context, cfg Config, emit Emit) error {
 		return fmt.Errorf("postman: list workspaces: %w", err)
 	}
 
+	// Per-workspace, per-collection and per-environment failures (auth,
+	// rate limit, malformed body) are coverage gaps, never silent zero
+	// findings (#865).
+	var failures []engine.ScanFailure
+	fail := func(source string, err error) {
+		failures = append(failures, engine.ScanFailure{Kind: engine.FailureSource, Source: source, Err: err})
+	}
 	for _, ws := range workspaces {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := postmanEmitWorkspace(ctx, cli, ws, emit); err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return err
-			}
+		if err := postmanEmitWorkspace(ctx, cli, ws, emit, fail); err != nil {
+			return err
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(failures) > 0 {
+		return &engine.DegradedError{Total: len(failures), Counts: map[engine.FailureKind]int{engine.FailureSource: len(failures)}, Failures: failures}
 	}
 	return nil
 }
 
-func postmanEmitWorkspace(ctx context.Context, cli *postmanClient, ws postmanWorkspace, emit Emit) error {
+// postmanEmitWorkspace emits one workspace's collections and environments.
+// Provider errors go to fail; only cancellation and sink errors return.
+func postmanEmitWorkspace(ctx context.Context, cli *postmanClient, ws postmanWorkspace, emit Emit, fail func(string, error)) error {
+	src := "postman/" + ws.ID
 	colls, err := cli.listCollections(ctx, ws.ID)
-	if err == nil {
-		for _, coll := range colls {
-			if err := ctx.Err(); err != nil {
-				return err
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		fail(src+"/collections", err)
+	}
+	for _, coll := range colls {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		full, err := cli.getCollection(ctx, coll.UID)
+		if err == nil && full == nil {
+			err = errors.New("empty collection body")
+		}
+		var data []byte
+		if err == nil {
+			data, err = json.Marshal(full)
+		}
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
 			}
-			full, err := cli.getCollection(ctx, coll.UID)
-			if err != nil || full == nil {
-				continue
-			}
-			data, err := json.Marshal(full)
-			if err != nil {
-				continue
-			}
-			meta := sources.Metadata{
-				SIEM: &sources.SIEMMeta{
-					Provider: "postman",
-					Host:     cli.baseURL,
-					Index:    ws.Name + "/" + coll.Name,
-					EventID:  coll.UID,
-					Link:     "https://www.postman.com/collection/" + coll.UID,
-				},
-			}
-			if emitErr := emit(data, meta); emitErr != nil {
-				if errors.Is(emitErr, context.Canceled) || errors.Is(emitErr, context.DeadlineExceeded) {
-					return emitErr
-				}
-			}
+			fail(src+"/collection/"+coll.UID, err)
+			continue
+		}
+		meta := sources.Metadata{
+			SIEM: &sources.SIEMMeta{
+				Provider: "postman",
+				Host:     cli.baseURL,
+				Index:    ws.Name + "/" + coll.Name,
+				EventID:  coll.UID,
+				Link:     "https://www.postman.com/collection/" + coll.UID,
+			},
+		}
+		if err := emit(data, meta); err != nil {
+			return err
 		}
 	}
 
 	envs, err := cli.listEnvironments(ctx, ws.ID)
-	if err == nil {
-		for _, env := range envs {
-			if err := ctx.Err(); err != nil {
-				return err
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		fail(src+"/environments", err)
+	}
+	for _, env := range envs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		full, err := cli.getEnvironment(ctx, env.UID)
+		if err == nil && full == nil {
+			err = errors.New("empty environment body")
+		}
+		var data []byte
+		if err == nil {
+			data, err = json.Marshal(full)
+		}
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
 			}
-			full, err := cli.getEnvironment(ctx, env.UID)
-			if err != nil || full == nil {
-				continue
-			}
-			data, err := json.Marshal(full)
-			if err != nil {
-				continue
-			}
-			meta := sources.Metadata{
-				SIEM: &sources.SIEMMeta{
-					Provider: "postman",
-					Host:     cli.baseURL,
-					Index:    ws.Name + "/env/" + env.Name,
-					EventID:  env.UID,
-					Link:     "https://www.postman.com/environment/" + env.UID,
-				},
-			}
-			if emitErr := emit(data, meta); emitErr != nil {
-				if errors.Is(emitErr, context.Canceled) || errors.Is(emitErr, context.DeadlineExceeded) {
-					return emitErr
-				}
-			}
+			fail(src+"/environment/"+env.UID, err)
+			continue
+		}
+		meta := sources.Metadata{
+			SIEM: &sources.SIEMMeta{
+				Provider: "postman",
+				Host:     cli.baseURL,
+				Index:    ws.Name + "/env/" + env.Name,
+				EventID:  env.UID,
+				Link:     "https://www.postman.com/environment/" + env.UID,
+			},
+		}
+		if err := emit(data, meta); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -1,4 +1,5 @@
-// Package output renders findings in table, JSON, JSON Lines, SARIF, or self-contained HTML form.
+// Package output renders findings in table, JSON, JSON Lines, SARIF,
+// self-contained HTML, BSON, or TOON form.
 package output
 
 import (
@@ -22,6 +23,10 @@ func NewSink(format string, w io.Writer, version string) (Sink, error) {
 		return newJSONLSink(w), nil
 	case "html":
 		return newHTMLSink(w, version), nil
+	case "bson":
+		return newBSONSink(w), nil
+	case "toon":
+		return newTOONSink(w, version), nil
 	case "table":
 		return newTableSink(w), nil
 	default:
@@ -30,7 +35,7 @@ func NewSink(format string, w io.Writer, version string) (Sink, error) {
 }
 
 // Formats lists every format NewSink accepts.
-var Formats = []string{"json", "jsonl", "sarif", "html", "table"}
+var Formats = []string{"json", "jsonl", "sarif", "html", "table", "bson", "toon"}
 
 // FormatsHelp is Formats joined for flag help and errors.
-const FormatsHelp = "json, jsonl, sarif, html, table"
+const FormatsHelp = "json, jsonl, sarif, html, table, bson, toon"

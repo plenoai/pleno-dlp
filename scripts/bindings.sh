@@ -1,28 +1,70 @@
 #!/usr/bin/env bash
 # Build and package the pleno-dlp language bindings (docs/library.md).
 #
-#   scripts/bindings.sh lib <out-dir>            build libpleno_dlp for the host
+#   scripts/bindings.sh lib <out-dir>            build libpleno_dlp for $GOOS/$GOARCH
+#                                                (ZIG_TARGET=<triple> cross-links with zig cc)
+#   scripts/bindings.sh darwin-stubs <dylib>     regenerate scripts/darwin-stubs from a native build
 #   scripts/bindings.sh wheel <lib> <plat> <dist> build a py3-none-<plat> wheel
 #                                                (plat manylinux-auto-<arch> derives the glibc floor)
 #   scripts/bindings.sh stage-node <lib> <goos-goarch>  copy a lib into bindings/node
 #   scripts/bindings.sh version <tag>            stamp both packages with a release version
+#   scripts/bindings.sh smoke <wheel-dir> <lib-dir> <goos-goarch>
+#                                                install the wheel and stage the npm lib on the
+#                                                target host, then run both binding test suites
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 
 libname() {
   case "$(cd "$root" && go env GOOS)" in
     darwin) echo libpleno_dlp.dylib ;;
+    windows) echo pleno_dlp.dll ;;
     *) echo libpleno_dlp.so ;;
   esac
+}
+
+stubs="$root/scripts/darwin-stubs"
+
+# tbd <out> <install-name> [symbol...]: write a text-based dylib stub that
+# exports only the named symbols. The stubs let zig link darwin c-shared
+# libraries on Linux without the macOS SDK; a symbol a future Go release adds
+# fails the link instead of producing a broken library.
+tbd() {
+  local out=$1 name=$2
+  shift 2
+  mkdir -p "$(dirname "$out")"
+  {
+    printf -- '--- !tapi-tbd\ntbd-version: 4\ntargets: [ x86_64-macos, arm64-macos ]\n'
+    printf "install-name: '%s'\n" "$name"
+    if [ $# -gt 0 ]; then
+      printf 'exports:\n  - targets: [ x86_64-macos, arm64-macos ]\n    symbols: [ %s ]\n' "$(printf '%s\n' "$@" | sort | paste -sd, - | sed 's/,/, /g')"
+    fi
+    echo '...'
+  } >"$out"
 }
 
 case "${1:-}" in
   lib)
     out=${2:?out dir}
     mkdir -p "$out"
+    if [ -n "${ZIG_TARGET:-}" ]; then
+      CC="zig cc -target $ZIG_TARGET"
+      [[ "$ZIG_TARGET" == *macos* ]] && CC="$CC -F$stubs/System/Library/Frameworks -L$stubs/usr/lib"
+      export CC
+    fi
     (cd "$root" && CGO_ENABLED=1 go build -trimpath -buildvcs=false -ldflags='-s -w' \
       -buildmode=c-shared -o "$out/$(libname)" ./cmd/libpleno-dlp)
-    rm -f "$out/libpleno_dlp.h"
+    rm -f "$out"/*.h "$out"/*.lib "$out"/*.a
+    ;;
+  darwin-stubs)
+    lib=${2:?dylib built natively on macOS}
+    fw=/System/Library/Frameworks
+    undef() { nm -m -u "$lib" | sed -n "s/.* external \\(_[A-Za-z0-9_]*\\) (from $1)$/\\1/p"; }
+    # shellcheck disable=SC2046
+    tbd "$stubs$fw/CoreFoundation.framework/CoreFoundation.tbd" "$fw/CoreFoundation.framework/Versions/A/CoreFoundation" $(undef CoreFoundation)
+    # shellcheck disable=SC2046
+    tbd "$stubs$fw/Security.framework/Security.tbd" "$fw/Security.framework/Versions/A/Security" $(undef Security)
+    # shellcheck disable=SC2046
+    tbd "$stubs/usr/lib/libresolv.tbd" /usr/lib/libresolv.9.dylib $(undef libresolv)
     ;;
   wheel)
     lib=${2:?lib path} plat=${3:?platform tag} dist=${4:?dist dir}
@@ -44,8 +86,9 @@ case "${1:-}" in
     ;;
   stage-node)
     lib=${2:?lib path} target=${3:?goos-goarch}
-    # Node names x86-64 "x64"; Go names it "amd64".
-    dir="$root/bindings/node/lib/${target/amd64/x64}"
+    # Node names x86-64 "x64" and Windows "win32"; Go says "amd64"/"windows".
+    target=${target/amd64/x64}
+    dir="$root/bindings/node/lib/${target/windows/win32}"
     mkdir -p "$dir"
     cp "$lib" "$dir/"
     ;;
@@ -57,8 +100,18 @@ case "${1:-}" in
       >"$root/bindings/python/pleno_dlp/_version.py"
     (cd "$root/bindings/node" && npm version --no-git-tag-version --allow-same-version "$v" >/dev/null)
     ;;
+  smoke)
+    # Runs on the target OS (release.yml bindings-smoke-windows-*): proves a
+    # cross-linked library loads and scans in a real host process before any
+    # registry publish (#879).
+    wheels=${2:?wheel dir} libs=${3:?lib dir} target=${4:?goos-goarch}
+    python -m pip install --disable-pip-version-check pytest==8.4.2 "$wheels"/*.whl
+    (cd "${RUNNER_TEMP:-${TMPDIR:-/tmp}}" && python -m pytest -q "$root/bindings/python/tests")
+    "$0" stage-node "$(ls "$libs"/*pleno_dlp.*)" "$target"
+    (cd "$root/bindings/node" && npm ci --no-audit --no-fund && npm test)
+    ;;
   *)
-    sed -n '2,9p' "$0" >&2
+    sed -n '2,14p' "$0" >&2
     exit 2
     ;;
 esac

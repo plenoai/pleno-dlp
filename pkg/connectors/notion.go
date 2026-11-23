@@ -638,7 +638,11 @@ func (c *notionClient) do(ctx context.Context, method, path string, body []byte)
 		if body != nil {
 			bodyReader = bytes.NewReader(body)
 		}
-		req, err := http.NewRequestWithContext(ctx, method, c.url(path), bodyReader)
+		target, err := c.url(path)
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(ctx, method, target, bodyReader)
 		if err != nil {
 			return nil, err
 		}
@@ -705,14 +709,8 @@ func (c *notionClient) postJSON(ctx context.Context, path string, body []byte, o
 	return nil
 }
 
-func (c *notionClient) url(p string) string {
-	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
-		return p
-	}
-	if !strings.HasPrefix(p, "/") {
-		p = "/" + p
-	}
-	return strings.TrimRight(c.base, "/") + p
+func (c *notionClient) url(p string) (string, error) {
+	return apiURL("notion", c.base, p)
 }
 
 func notionRetryAfter(resp *http.Response) time.Duration {

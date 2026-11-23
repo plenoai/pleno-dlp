@@ -24,6 +24,7 @@ import (
 	"hash"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -550,7 +551,11 @@ func (c *slackClient) do(ctx context.Context, method, path string, body io.Reade
 		if err := c.waitForBucket(ctx); err != nil {
 			return nil, err
 		}
-		req, err := http.NewRequestWithContext(ctx, method, c.url(path), body)
+		target, err := c.url(path)
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(ctx, method, target, body)
 		if err != nil {
 			return nil, err
 		}
@@ -604,6 +609,9 @@ func (c *slackClient) getJSON(ctx context.Context, path string, out any) error {
 }
 
 func (c *slackClient) download(ctx context.Context, url string) ([]byte, error) {
+	if err := c.downloadAllowed(url); err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -620,14 +628,25 @@ func (c *slackClient) download(ctx context.Context, url string) ([]byte, error) 
 	return io.ReadAll(io.LimitReader(resp.Body, slackMaxDownloadSize))
 }
 
-func (c *slackClient) url(p string) string {
-	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
-		return p
+// downloadAllowed keeps the bearer token on Slack: url_private_download
+// must be the API origin or an https *.slack.com file host (#865).
+func (c *slackClient) downloadAllowed(target string) error {
+	if sameOriginURL("slack", c.base, target) == nil {
+		return nil
 	}
-	if !strings.HasPrefix(p, "/") {
-		p = "/" + p
+	u, err := neturl.Parse(target)
+	if err != nil {
+		return errors.New("slack: malformed download URL")
 	}
-	return strings.TrimRight(c.base, "/") + p
+	host := strings.ToLower(u.Hostname())
+	if u.Scheme == "https" && u.Port() == "" && (host == "slack.com" || strings.HasSuffix(host, ".slack.com")) {
+		return nil
+	}
+	return fmt.Errorf("slack: refusing credentialed download from foreign origin %s://%s", u.Scheme, u.Host)
+}
+
+func (c *slackClient) url(p string) (string, error) {
+	return apiURL("slack", c.base, p)
 }
 
 func (c *slackClient) waitForBucket(ctx context.Context) error {

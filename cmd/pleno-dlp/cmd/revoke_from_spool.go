@@ -111,6 +111,7 @@ func runRevokeFromSpool(cmd *cobra.Command, path string, auditW *audit.Writer) e
 			Detector:       detectorType.String(),
 			RedactedSecret: redacted,
 			Revoked:        res.Revoked,
+			Outcome:        string(res.Status()),
 			ProviderID:     res.ProviderID,
 		}
 		if !res.RevokedAt.IsZero() {
@@ -132,6 +133,7 @@ func runRevokeFromSpool(cmd *cobra.Command, path string, auditW *audit.Writer) e
 			Secret:     string(secret),
 			Redacted:   redacted,
 			Revoked:    res.Revoked,
+			Outcome:    res.Status(),
 			RevokedAt:  res.RevokedAt,
 			ProviderID: res.ProviderID,
 			Err:        attemptErr,

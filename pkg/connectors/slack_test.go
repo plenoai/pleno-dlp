@@ -95,7 +95,10 @@ func TestSlackClientURLNoDoubleAPI(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c := newSlackClient(tc.base, "xoxb-test")
-			got := c.url("/api/auth.test")
+			got, err := c.url("/api/auth.test")
+			if err != nil {
+				t.Fatal(err)
+			}
 			const want = "https://slack.com/api/auth.test"
 			if got != want {
 				t.Fatalf("url(/api/auth.test) = %q, want %q", got, want)

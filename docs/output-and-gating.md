@@ -12,6 +12,8 @@ pleno-dlp scan filesystem ./repo --format json
 pleno-dlp scan filesystem ./repo --format sarif
 pleno-dlp scan filesystem ./repo --format jsonl   # one JSON object per line
 pleno-dlp scan filesystem ./repo --format html > report.html
+pleno-dlp scan filesystem ./repo --format bson > findings.bson
+pleno-dlp scan filesystem ./repo --format toon    # compact, for LLM agents
 ```
 
 JSON output includes a stable `secret_hash` field computed as
@@ -28,6 +30,13 @@ is the stable, secret-free key used by `pleno-dlp baseline` and
 truncated stream stays parseable. `html` buffers redacted findings and
 writes one page with inline CSS/JS and no network references (a
 restrictive CSP blocks any fetch); duplicate findings are merged.
+
+`bson` writes the `json` record as one BSON document per finding,
+concatenated, which `mongoimport`/`mongorestore` and `bsondump` read
+directly. `toon` writes a `pleno-dlp.toon.v1` header and one tabular
+`findings[N]{detector,severity,verdict,redacted,location,fingerprint}`
+array, which costs agents far fewer tokens than JSON; cells that contain
+delimiters or look like literals are JSON-quoted.
 
 ### Local report viewer
 
@@ -47,8 +56,11 @@ way) plus repository, commit, file, and line; without a hash, detector and
 redacted display are used. Raw secrets from third-party reports are
 hashed and redacted at import and never served; raw-bearing fields
 (gitleaks `Match`/`Line`, SARIF `region.snippet`, trufflehog `ExtraData`)
-are not read. SARIF `message.text` is shown as-is, so producers that
-embed secrets in messages are not redacted. `--addr` must be a loopback
+are not read. SARIF `message.text` passes through an offline
+`engine.ScanBytes` pass (no verification, no network) and every detected
+secret is replaced by its Raw-safe display; if that scan fails the
+message is withheld. Secrets no built-in detector recognizes remain
+visible. `--addr` must be a loopback
 address, and requests with non-loopback `Host` headers are refused to
 block DNS rebinding.
 

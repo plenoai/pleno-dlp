@@ -38,14 +38,66 @@ pleno-dlp blast-radius aws creds.json   # {"access_key_id","secret_access_key","
 
 | Provider | Detector | Identity | Permissions | Resources |
 |---|---|---|---|---|
-| aws | `aws` | STS GetCallerIdentity | attached, inline, and group policy names (IAM users) | IAM policies and groups |
-| gcp | `gcp_service_account` | key `client_email` | sampled `testIamPermissions` | visible projects |
+| aws | `aws` | STS GetCallerIdentity; key last-used (`activity`) | policy names plus `allow:`/`deny:` actions evaluated from attached, inline, and group policy documents (IAM users and assumed roles) | IAM policies/groups, `aws_resource` (actions per resource ARN), `assumable_role` (trust path) |
+| gcp | `gcp_service_account` | key `client_email` | sampled `testIamPermissions` on projects, folders, organizations | projects, folder/organization ancestors, `impersonable_service_account` |
 | github | `github` | `GET /user` | `X-OAuth-Scopes` | organizations, repositories (role per repository) |
 | gitlab | `gitlab` | `GET /api/v4/user` | `personal_access_tokens/self` scopes | member projects (access level) |
 | slack | `slack_bot_token` | `auth.test` | `X-OAuth-Scopes` | workspace |
+| azure | `AzureAD`, `AzureApp` | Entra client-credentials token; `servicePrincipals(appId=)` | Graph app roles (`graph:`), ARM role assignments (`rbac:`) | directory roles/groups, subscriptions (roles) |
+| azure-storage | `AzureStorageKey` | account name | `storage:*` (shared key = full access) | blob containers |
+| alibaba | — (standalone) | STS `GetCallerIdentity` | RAM user policy names | RAM policies |
+| openai | `OpenAI` | `GET /v1/me` | — | organizations (role), projects (admin keys) |
+| anthropic | `Anthropic` | — (admin keys flagged privileged) | — | models, workspaces (admin keys) |
+| huggingface | `HuggingFace` | `GET /api/whoami-v2` | token role | organizations (role) |
+| buildkite | `Buildkite` | `GET /v2/user` | `/v2/access-token` scopes | organizations |
+| harness | `Harness` | `currentUser` | — (admin flag) | accounts |
+| gitea | `Gitea` | `GET /api/v1/user` | — (`is_admin`) | organizations, repositories (role) |
+| bitbucket | `BitbucketCloud` | `GET /2.0/user` | `X-OAuth-Scopes` | workspaces, repositories (permission) |
+| digitalocean | `DigitalOcean` | `GET /v2/account` | — | projects, droplets |
+| sendgrid | `SendGrid` | `/v3/user/username` | `/v3/scopes` | — |
+| stripe | `Stripe` | `GET /v1/account` | — (`sk_live_` privileged) | — |
+| circleci | `CircleCI` | `GET /api/v2/me` | — | collaborations |
+| terraformcloud | `TerraformCloud` | `account/details` | — | organizations (can-update/destroy) |
+| jira | `Jira`, `Atlassian` | `myself` | `mypermissions` | projects |
+| confluence | `Confluence` | `user/current` | — | spaces |
+| pinecone | `Pinecone` | — | — | indexes |
+| asana | `Asana` | `users/me` | — | workspaces |
+| fastly | `Fastly` | `current_user` | `/tokens/self` scopes | — |
 
-GitHub and GitLab accept `{"token","api_endpoint"}` for Enterprise and
-self-managed instances.
+AWS evaluation is an over-approximation: statement conditions, permission
+boundaries, SCPs and resource policies are not applied, and `NotAction` is
+recorded rather than expanded (each listed in `limitations`). A map is
+privileged when the effective allow covers `*`, `iam:*`, or an escalation
+action (`iam:PassRole`, `iam:CreateAccessKey`, `iam:Put*Policy`,
+`sts:AssumeRole`, ...) on `*`. `assumable_role` entries are roles whose trust
+policy names the caller directly (`trust:direct`), or its account or `*`
+while the identity policy allows `sts:AssumeRole` on that role
+(`trust:account`/`trust:any`), plus identity-policy targets whose trust policy
+could not be read (`identity-policy (trust unverified)`).
+
+GCP follows `getAncestry` from each visible project and probes the folder and
+organization ancestors, whose bindings inherit to every descendant; it then
+probes up to 200 visible service accounts for `getAccessToken`, `signJwt`,
+`signBlob`, `implicitDelegation`, `actAs`, and key creation.
+
+`activity` (`{"last_used","service","region"}`) is present when the provider
+reports credential last use (AWS `GetAccessKeyLastUsed`; `service: "N/A"`
+means never used). It is additive within v1.
+
+The providers from openai onward are table-driven `spec.Spec` values in
+`pkg/blastradius/spec`. GitHub, GitLab and Gitea accept
+`{"token","api_endpoint"}` for self-hosted instances; Gitea, Jira and
+Confluence require `api_endpoint` (an `https` URL). Jira/Confluence take
+`email` for basic auth, and Bitbucket app passwords take `username`.
+
+Every listing follows provider pagination (Link header, `next` URL field,
+page or offset parameters) up to 1000 items per resource type; reaching the
+cap is recorded in `limitations`. Pagination links that leave the API origin
+are never followed, so credentials are not sent cross-origin.
+
+A registry memoizes mappings per credential for one scan run (keyed by a
+SHA-256 of the credential, never the raw value) and runs at most
+`blastradius.DefaultConcurrency` (4) mappings at once.
 
 ## Schema `pleno-dlp.access-map/v1`
 
@@ -57,7 +109,7 @@ self-managed instances.
   "permissions": ["repo"],
   "resources": [{"type": "repository", "name": "acme/app", "permissions": ["push", "pull"]}],
   "privileged": true,
-  "limitations": ["repository listing capped at 100"]
+  "limitations": ["repository listing capped at 1000"]
 }
 ```
 
@@ -69,5 +121,7 @@ it is complete.
 
 A provider implements `detectors.AccessMapper` (beside `detectors.Verifier`)
 under `pkg/blastradius/<provider>/` and is registered in
-`blastradius.Default()`. Tests must use `httptest` servers; no test may reach a
+`blastradius.Default()`. Providers that fit "identity endpoint plus
+paginated listings" should be a `spec.Spec` entry in
+`pkg/blastradius/spec/providers.go` instead of a new package. Tests must use `httptest` servers; no test may reach a
 live provider.

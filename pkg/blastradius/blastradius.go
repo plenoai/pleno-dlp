@@ -6,16 +6,21 @@ package blastradius
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
+	"github.com/plenoai/pleno-dlp/pkg/blastradius/alibaba"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/aws"
+	"github.com/plenoai/pleno-dlp/pkg/blastradius/azure"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/gcp"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/github"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/gitlab"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/slack"
+	"github.com/plenoai/pleno-dlp/pkg/blastradius/spec"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
@@ -31,27 +36,56 @@ type Provider struct {
 	Detectors []detectors.DetectorType
 }
 
+// DefaultConcurrency bounds simultaneous MapResult calls per registry so a
+// large scan with many verified findings does not fan out unbounded
+// provider requests.
+const DefaultConcurrency = 4
+
 // Registry is the built-in provider set. Tests replace mappers with
-// httptest-backed instances via NewRegistry.
+// httptest-backed instances via NewRegistry. A Registry memoizes MapResult
+// per credential for its lifetime (one scan run), so duplicate findings of
+// the same secret are mapped once.
 type Registry struct {
 	byName     map[string]Provider
 	byDetector map[detectors.DetectorType]Provider
+
+	sem   chan struct{}
+	mu    sync.Mutex
+	cache map[[32]byte]*cacheEntry
+}
+
+type cacheEntry struct {
+	done chan struct{}
+	am   *detectors.AccessMap
+	err  error
 }
 
 // Default returns the registry wired to production endpoints.
 func Default() *Registry {
-	return NewRegistry(
-		Provider{Name: "aws", Mapper: aws.Mapper{}, Detectors: []detectors.DetectorType{detectors.AWS}},
-		Provider{Name: "gcp", Mapper: gcp.Mapper{}, Detectors: []detectors.DetectorType{detectors.GCPServiceAccount}},
-		Provider{Name: "github", Mapper: github.Mapper{}, Detectors: []detectors.DetectorType{detectors.GitHub}},
-		Provider{Name: "gitlab", Mapper: gitlab.Mapper{}, Detectors: []detectors.DetectorType{detectors.GitLab}},
-		Provider{Name: "slack", Mapper: slack.Mapper{}, Detectors: []detectors.DetectorType{detectors.SlackBotToken}},
-	)
+	ps := []Provider{
+		{Name: "aws", Mapper: aws.Mapper{}, Detectors: []detectors.DetectorType{detectors.AWS}},
+		{Name: "gcp", Mapper: gcp.Mapper{}, Detectors: []detectors.DetectorType{detectors.GCPServiceAccount}},
+		{Name: "github", Mapper: github.Mapper{}, Detectors: []detectors.DetectorType{detectors.GitHub}},
+		{Name: "gitlab", Mapper: gitlab.Mapper{}, Detectors: []detectors.DetectorType{detectors.GitLab}},
+		{Name: "slack", Mapper: slack.Mapper{}, Detectors: []detectors.DetectorType{detectors.SlackBotToken}},
+		{Name: "azure", Mapper: azure.ServicePrincipalMapper{}, Detectors: []detectors.DetectorType{detectors.AzureAD, detectors.AzureApp}},
+		{Name: "azure-storage", Mapper: azure.StorageKeyMapper{}, Detectors: []detectors.DetectorType{detectors.AzureStorageKey}},
+		{Name: "alibaba", Mapper: alibaba.Mapper{}, Detectors: []detectors.DetectorType{detectors.AlibabaCloud}},
+	}
+	for _, s := range spec.All {
+		ps = append(ps, Provider{Name: s.Spec.Provider, Mapper: spec.Mapper{Spec: s.Spec}, Detectors: s.Detectors})
+	}
+	return NewRegistry(ps...)
 }
 
 // NewRegistry builds a registry from explicit providers.
 func NewRegistry(ps ...Provider) *Registry {
-	r := &Registry{byName: map[string]Provider{}, byDetector: map[detectors.DetectorType]Provider{}}
+	r := &Registry{
+		byName:     map[string]Provider{},
+		byDetector: map[detectors.DetectorType]Provider{},
+		sem:        make(chan struct{}, DefaultConcurrency),
+		cache:      map[[32]byte]*cacheEntry{},
+	}
 	for _, p := range ps {
 		r.byName[p.Name] = p
 		for _, d := range p.Detectors {
@@ -90,8 +124,21 @@ func CredentialFromResult(res detectors.Result) detectors.AccessCredential {
 		return detectors.AccessCredential{Secret: string(res.Raw), Secondary: string(res.RawV2)}
 	case detectors.GCPServiceAccount:
 		return detectors.AccessCredential{Secret: string(res.RawV2)}
+	case detectors.AlibabaCloud:
+		return detectors.AccessCredential{Secret: string(res.Raw), Secondary: string(res.RawV2)}
 	}
-	return detectors.AccessCredential{Secret: string(res.Raw)}
+	c := detectors.AccessCredential{Secret: string(res.Raw)}
+	// Context the detector extracted beside the secret (Entra tenant/client
+	// ids, storage account name, self-hosted endpoint).
+	for _, k := range []string{"tenant_id", "client_id", "account", "api_endpoint"} {
+		if v := res.ExtraData[k]; v != "" {
+			if c.Extra == nil {
+				c.Extra = map[string]string{}
+			}
+			c.Extra[k] = v
+		}
+	}
+	return c
 }
 
 // MapResult maps a verified detector result. It returns (nil, nil) when the
@@ -104,7 +151,67 @@ func (r *Registry) MapResult(ctx context.Context, res detectors.Result) (*detect
 	if !ok {
 		return nil, nil
 	}
-	return p.Mapper.MapAccess(ctx, CredentialFromResult(res))
+	return r.mapCached(ctx, p, CredentialFromResult(res))
+}
+
+// SetConcurrency changes the MapResult concurrency bound (minimum 1). Call it
+// before mapping starts.
+func (r *Registry) SetConcurrency(n int) {
+	if n < 1 {
+		n = 1
+	}
+	r.sem = make(chan struct{}, n)
+}
+
+func cacheKey(provider string, c detectors.AccessCredential) [32]byte {
+	h := sha256.New()
+	keys := make([]string, 0, len(c.Extra))
+	for k := range c.Extra {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	fmt.Fprintf(h, "%d:%s%d:%s%d:%s", len(provider), provider, len(c.Secret), c.Secret, len(c.Secondary), c.Secondary)
+	for _, k := range keys {
+		fmt.Fprintf(h, "%d:%s%d:%s", len(k), k, len(c.Extra[k]), c.Extra[k])
+	}
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out
+}
+
+// mapCached deduplicates concurrent and repeated mappings of one credential
+// and bounds in-flight provider calls. Only the hash of the credential is
+// retained as the key. Errors caused by the caller's context are not cached.
+func (r *Registry) mapCached(ctx context.Context, p Provider, cred detectors.AccessCredential) (*detectors.AccessMap, error) {
+	key := cacheKey(p.Name, cred)
+	r.mu.Lock()
+	if e, ok := r.cache[key]; ok {
+		r.mu.Unlock()
+		select {
+		case <-e.done:
+			return e.am, e.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	e := &cacheEntry{done: make(chan struct{})}
+	r.cache[key] = e
+	r.mu.Unlock()
+
+	select {
+	case r.sem <- struct{}{}:
+		e.am, e.err = p.Mapper.MapAccess(ctx, cred)
+		<-r.sem
+	case <-ctx.Done():
+		e.err = ctx.Err()
+	}
+	if e.err != nil && ctx.Err() != nil {
+		r.mu.Lock()
+		delete(r.cache, key)
+		r.mu.Unlock()
+	}
+	close(e.done)
+	return e.am, e.err
 }
 
 // ParseCredentialFile decodes a standalone credential artifact. A JSON object
@@ -140,10 +247,10 @@ func ParseCredentialFile(provider string, data []byte) (detectors.AccessCredenti
 		}
 		return c, nil
 	}
-	if provider == "aws" {
+	if provider == "aws" || provider == "alibaba" {
 		id, sk, ok := strings.Cut(trimmed, ":")
 		if !ok {
-			return detectors.AccessCredential{}, fmt.Errorf("aws credential must be JSON or access_key_id:secret_access_key")
+			return detectors.AccessCredential{}, fmt.Errorf("%s credential must be JSON or access_key_id:secret_access_key", provider)
 		}
 		return detectors.AccessCredential{Secret: id, Secondary: sk}, nil
 	}

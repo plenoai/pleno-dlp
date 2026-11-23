@@ -9,7 +9,7 @@ const dlp = require('..');
 // Split so the repository's own pre-commit scan does not flag the fixture.
 const HOOK = ['https://hooks.slack.com/services', 'T024BE7LD', 'B024BE7LD', 'abcdefghijklmnopqrstuvwx'].join('/');
 
-test('version', () => assert.strictEqual(dlp.apiVersion(), '1.0.0'));
+test('version', () => assert.strictEqual(dlp.apiVersion(), '1.1.0'));
 
 test('scanBytes redacts by default', () => {
   const [f, ...rest] = dlp.scanBytes(`hook=${HOOK}`);

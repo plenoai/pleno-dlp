@@ -33,11 +33,16 @@ var blastRadiusCmd = &cobra.Command{
 	Long: "Authenticate to the provider with the given credential and report the identity it\n" +
 		"resolves to, its permissions, and the resources it can reach as JSON\n" +
 		"(schema " + "pleno-dlp.access-map/v1" + ").\n\n" +
-		"Providers: aws, gcp, github, gitlab, slack.\n" +
+		"Providers: " + strings.Join(blastradius.Default().Names(), ", ") + ".\n" +
 		"The credential is read from credential_file, or stdin when omitted or '-'.\n" +
 		"  aws:    JSON {\"access_key_id\",\"secret_access_key\",\"session_token\"?} or id:secret\n" +
 		"  gcp:    service-account JSON key file\n" +
-		"  others: bare token, or JSON {\"token\",\"api_endpoint\"?}\n\n" +
+		"  alibaba: JSON {\"access_key_id\",\"secret_access_key\"} or id:secret\n" +
+		"  azure:  JSON {\"token\": client secret, \"tenant_id\", \"client_id\"}\n" +
+		"  azure-storage: JSON {\"token\": account key, \"account\"}\n" +
+		"  others: bare token, or JSON {\"token\",\"api_endpoint\"?,\"email\"?,\"username\"?}\n" +
+		"          (gitea, jira, confluence require api_endpoint; jira/confluence take email,\n" +
+		"          bitbucket app passwords take username)\n\n" +
 		"This performs authenticated network requests. Only run it against accounts you\n" +
 		"are authorized to inspect.",
 	Args: cobra.RangeArgs(1, 2),
@@ -47,7 +52,7 @@ var blastRadiusCmd = &cobra.Command{
 func init() {
 	Root.AddCommand(blastRadiusCmd)
 	scanCmd.PersistentFlags().BoolVar(&scanBlastRadius, "blast-radius", false,
-		"for verified findings from supported detectors (aws, gcp service account, github, gitlab, slack), "+
+		"for verified findings from supported detectors (see pleno-dlp blast-radius --help for providers), "+
 			"make additional authenticated requests to map identity, permissions, and resources; "+
 			"the JSON result is attached as extra_data."+blastradius.ExtraDataKey+" and a privileged map sets blast_radius=true. "+
 			"Implies network access; ignored with --no-verify.")

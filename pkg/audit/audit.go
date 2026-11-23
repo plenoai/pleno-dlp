@@ -91,6 +91,10 @@ type Record struct {
 	// Revoked is the provider's confirmation that the credential is now
 	// dead. False for a --dry-run preview or a failed/declined attempt.
 	Revoked bool `json:"revoked"`
+	// Outcome is the tri-state result: confirmed, accepted (provider
+	// queued the request without confirming invalidation), or failed.
+	// Empty for dry-run previews.
+	Outcome string `json:"outcome,omitempty"`
 	// RevokedAt is when the provider confirmed revocation (RFC3339,
 	// UTC). Empty when Revoked is false or the provider did not report
 	// a completion time.
@@ -147,6 +151,7 @@ type Attempt struct {
 	Secret     string
 	Redacted   string
 	Revoked    bool
+	Outcome    detectors.RevokeOutcome
 	RevokedAt  time.Time
 	ProviderID string
 	DryRun     bool
@@ -175,6 +180,7 @@ func New(a Attempt) Record {
 		SecretHash:    hash,
 		Redacted:      detectors.SafeRedacted(a.Redacted, []byte(a.Secret), nil),
 		Revoked:       a.Revoked,
+		Outcome:       string(a.Outcome),
 		ProviderID:    a.ProviderID,
 		DryRun:        a.DryRun,
 		TargetLink:    a.TargetLink,

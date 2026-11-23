@@ -204,6 +204,113 @@ func looksLikeCodeReference(v string) bool {
 	return true
 }
 
+// identRe matches a bare source-code identifier.
+var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// looksLikeIdentifierRef reports whether an unquoted right-hand side is a
+// variable reference rather than a literal (#863): `target.Password =
+// appPassword`, `"app_password": appPassword,`. Unquoted literals in
+// .env/INI files are lexically identifiers too (`password=hunter2`), so
+// only digit-free identifiers that carry a code signal are dropped: a
+// camelCase transition, a credential word in the name, or a trailing
+// statement separator.
+func looksLikeIdentifierRef(raw string) bool {
+	v := strings.TrimSpace(raw)
+	trailing := strings.TrimRight(v, trailingSeparators) != v
+	v = strings.TrimRight(v, trailingSeparators)
+	if !identRe.MatchString(v) || strings.ContainsAny(v, "0123456789") {
+		return false
+	}
+	if trailing {
+		return true
+	}
+	for i := 1; i < len(v); i++ {
+		if v[i-1] >= 'a' && v[i-1] <= 'z' && v[i] >= 'A' && v[i] <= 'Z' {
+			return true
+		}
+	}
+	lower := strings.ToLower(v)
+	for _, w := range []string{"password", "passwd", "pwd", "pass", "secret", "token", "cred"} {
+		if strings.Contains(lower, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// multiAssignTarget resolves a tuple assignment such as
+// `target.Username, target.Password = "oauth2", token` (#863). It reports
+// multi=false when the line holding valueStart is not a tuple assignment.
+// Otherwise it returns the right-hand literal positionally matched to the
+// password-named left-hand element, or "" when that element is not a
+// quoted literal (identifier, call, or missing).
+func multiAssignTarget(str string, valueStart int) (string, bool) {
+	lineStart := strings.LastIndexByte(str[:valueStart], '\n') + 1
+	lineEnd := strings.IndexByte(str[valueStart:], '\n')
+	if lineEnd < 0 {
+		lineEnd = len(str)
+	} else {
+		lineEnd += valueStart
+	}
+	line := str[lineStart:lineEnd]
+	eq := strings.IndexByte(line, '=')
+	if eq < 0 || lineStart+eq >= valueStart {
+		return "", false
+	}
+	lhs := strings.TrimSuffix(strings.TrimSpace(line[:eq]), ":")
+	if !strings.Contains(lhs, ",") || strings.ContainsAny(lhs, "\"'") {
+		return "", false
+	}
+	names := strings.Split(lhs, ",")
+	target := -1
+	for i, n := range names {
+		ln := strings.ToLower(n)
+		if strings.Contains(ln, "password") || strings.Contains(ln, "passwd") || strings.Contains(ln, "pwd") {
+			target = i
+		}
+	}
+	if target < 0 {
+		return "", true
+	}
+	values := splitTopLevelCommas(line[eq+1:])
+	if target >= len(values) {
+		return "", true
+	}
+	v := strings.TrimSpace(values[target])
+	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
+		return v[1 : len(v)-1], true
+	}
+	return "", true
+}
+
+// splitTopLevelCommas splits s on commas outside quotes and brackets.
+func splitTopLevelCommas(s string) []string {
+	var out []string
+	depth, start := 0, 0
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == '\\' {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'' || c == '`':
+			quote = c
+		case c == '(' || c == '[' || c == '{':
+			depth++
+		case c == ')' || c == ']' || c == '}':
+			depth--
+		case c == ',' && depth == 0:
+			out = append(out, s[start:i])
+			start = i + 1
+		}
+	}
+	return append(out, s[start:])
+}
+
 type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.HardcodedPassword }
@@ -244,11 +351,22 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	}
 
 	for _, re := range []*regexp.Regexp{assignEqRe(), yamlValueRe()} {
-		for _, m := range re.FindAllStringSubmatch(str, -1) {
-			if len(m) < 2 {
+		for _, m := range re.FindAllStringSubmatchIndex(str, -1) {
+			if len(m) < 4 || m[2] < 0 {
 				continue
 			}
-			add(m[1])
+			if v, multi := multiAssignTarget(str, m[2]); multi {
+				if v != "" {
+					add(v)
+				}
+				continue
+			}
+			raw := str[m[2]:m[3]]
+			quoted := m[2] > 0 && (str[m[2]-1] == '"' || str[m[2]-1] == '\'')
+			if !quoted && looksLikeIdentifierRef(raw) {
+				continue
+			}
+			add(raw)
 		}
 	}
 

@@ -9,13 +9,16 @@ webhook after the scan completes, when at least one finding meets
 | `--alert-webhook URL` | none, repeatable | HTTPS only (plain HTTP is allowed for loopback). |
 | `--alert-min-severity` | `medium` | `info`, `low`, `medium`, `high`, `critical`. |
 | `--alert-dry-run` | off | Print each payload to stderr instead of POSTing it. |
+| `--alert-format` | `auto` | Force one shape for every webhook: `slack`, `teams`, `discord`, `mattermost`, `googlechat`, `generic`. Mattermost has no fixed host, so it needs this flag. |
 
-The payload shape follows the host:
+With `--alert-format auto`, the payload shape follows the host:
 
 | Host | Payload |
 |---|---|
 | `slack.com`, `*.slack.com` | Slack `{"text": …}` |
 | `*.office.com`, `webhook.office.*`, `*.logic.azure.com` | Teams Adaptive Card message |
+| `discord.com`, `discordapp.com` | Discord `embeds` with a severity color |
+| `chat.googleapis.com` | Google Chat `cardsV2` card |
 | anything else | generic JSON (`tool`, `version`, `source`, `min_severity`, `total`, `by_severity`, `findings[]`) |
 
 Security properties:

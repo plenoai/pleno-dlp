@@ -8,7 +8,8 @@
 // Secret/Match, trufflehog Raw/RawV2) hash it for dedup and pass it
 // through detectors.SafeRedacted before the value leaves the importer;
 // raw-bearing fields (gitleaks Match/Line, SARIF snippets, trufflehog
-// ExtraData) are never read into the normalized shape.
+// ExtraData) are never read into the normalized shape. Free-text fields
+// (SARIF message.text) are masked with an offline engine.ScanBytes pass.
 package report
 
 import (

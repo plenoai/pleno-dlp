@@ -372,12 +372,9 @@ func newConfluenceClient(base, email, token string) *confluenceClient {
 }
 
 func (c *confluenceClient) do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
-	url := path
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		if !strings.HasPrefix(url, "/") {
-			url = "/" + url
-		}
-		url = c.base + url
+	url, err := apiURL("confluence", c.base, path)
+	if err != nil {
+		return nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {

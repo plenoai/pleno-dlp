@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -91,4 +92,35 @@ func requireSecureEndpoint(provider, raw string) error {
 		return fmt.Errorf("%s: endpoint must be an HTTP(S) URL: %q", provider, raw)
 	}
 	return fmt.Errorf("%s: authenticated endpoint must use HTTPS (HTTP is allowed only for loopback): %q", provider, raw)
+}
+
+// apiURL joins p onto base. An absolute p (pagination "next" link, object
+// URL returned by the API) must share base's scheme and host: connectors
+// attach their credential to every request built here, so a foreign-origin
+// link from a malicious or misconfigured server would otherwise receive
+// the token (#865).
+func apiURL(provider, base, p string) (string, error) {
+	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
+		if err := sameOriginURL(provider, base, p); err != nil {
+			return "", err
+		}
+		return p, nil
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return strings.TrimRight(base, "/") + p, nil
+}
+
+// sameOriginURL reports an error unless target has base's scheme and host.
+func sameOriginURL(provider, base, target string) error {
+	t, err := url.Parse(target)
+	if err != nil {
+		return fmt.Errorf("%s: malformed URL", provider)
+	}
+	b, err := url.Parse(base)
+	if err != nil || !strings.EqualFold(t.Scheme, b.Scheme) || !strings.EqualFold(t.Host, b.Host) {
+		return fmt.Errorf("%s: refusing credentialed request to foreign origin %s://%s", provider, t.Scheme, t.Host)
+	}
+	return nil
 }

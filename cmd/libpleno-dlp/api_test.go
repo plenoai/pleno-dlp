@@ -44,7 +44,7 @@ func TestEnvelope(t *testing.T) {
 	if e := parse(t, revoke("GitHub", "x", `{"dry_run":true}`)); e.Error != nil {
 		t.Fatalf("dry run: %+v", e.Error)
 	}
-	if e := parse(t, version()); string(e.OK) != `"1.0.0"` {
+	if e := parse(t, version()); string(e.OK) != `"1.1.0"` {
 		t.Fatalf("version %s", e.OK)
 	}
 	if e := parse(t, listDetectors()); e.Error != nil || len(e.OK) < 1000 {

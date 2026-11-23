@@ -3,6 +3,7 @@ package report
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 )
 
 // MaxReportBytes bounds one imported report so a hostile or mistaken input
@@ -304,7 +306,7 @@ func importSARIF(data []byte, label string) ([]Finding, error) {
 				Detector: res.RuleID,
 				Severity: firstNonEmpty(strings.ToLower(str(res.Properties, "severity")), severityForLevel(res.Level)),
 				Verdict:  str(res.Properties, "verdict"),
-				Redacted: res.Message.Text,
+				Redacted: maskSecrets(res.Message.Text),
 				Reports:  []string{label},
 			}
 			if len(res.Locations) > 0 {
@@ -316,6 +318,38 @@ func importSARIF(data []byte, label string) ([]Finding, error) {
 		}
 	}
 	return out, nil
+}
+
+// maskSecrets replaces every secret the offline detector registry finds in
+// third-party free text (SARIF message.text) with its Raw-safe display.
+// Producers such as gitleaks embed the matched secret in the message, and
+// the viewer renders it verbatim (#846). engine.ScanBytes never verifies,
+// so importing a report makes no network calls. On scan failure the text
+// is withheld entirely rather than rendered unmasked.
+func maskSecrets(text string) string {
+	if text == "" {
+		return ""
+	}
+	results, err := engine.ScanBytes(context.Background(), []byte(text), engine.Options{})
+	if err != nil {
+		return "[message withheld: redaction scan failed]"
+	}
+	type span struct{ raw, display string }
+	var spans []span
+	for _, r := range results {
+		display := r.SafeRedacted()
+		for _, raw := range [][]byte{r.Raw, r.RawV2} {
+			if len(raw) > 0 {
+				spans = append(spans, span{string(raw), display})
+			}
+		}
+	}
+	// Longest first so a composite RawV2 is masked before its Raw part.
+	sort.SliceStable(spans, func(i, j int) bool { return len(spans[i].raw) > len(spans[j].raw) })
+	for _, sp := range spans {
+		text = strings.ReplaceAll(text, sp.raw, sp.display)
+	}
+	return text
 }
 
 func severityForLevel(level string) string {
