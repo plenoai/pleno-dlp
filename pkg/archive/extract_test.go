@@ -426,7 +426,7 @@ func TestExtractorOutputHonorsExpansionBudget(t *testing.T) {
 // FuzzWalkStructured asserts the extractors never panic or exceed budgets on
 // hostile input derived from every supported structured format.
 func FuzzWalkStructured(f *testing.F) {
-	for _, path := range []string{"testdata/extract.sqlite", "testdata/extract.pyc"} {
+	for _, path := range []string{"testdata/extract.sqlite", "testdata/extract.pyc", "testdata/tounicode.pdf"} {
 		if data, err := os.ReadFile(path); err == nil {
 			f.Add(data)
 		}
