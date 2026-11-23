@@ -23,3 +23,9 @@ updates:
       go-dependencies:
         patterns:
           - "*"
+
+  # Node binding package (setup-node in test.yml / release.yml).
+  - package-ecosystem: npm
+    directory: "/bindings/node"
+    schedule:
+      interval: weekly
