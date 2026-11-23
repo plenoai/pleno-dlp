@@ -16,8 +16,11 @@ nothing is silently lost. Gaps surface as `coverage:` lines and count toward
 
 Known extraction limits that are not reported as gaps:
 
-- PDF CID fonts with only a CFF program and no `/ToUnicode` (for example,
-  macOS Quartz output for CJK text, ordering Adobe-Japan1) have no Unicode
-  mapping inside the file. Their strings are dropped rather than emitted as
-  glyph indices.
+- PDF Type0 fonts without `/ToUnicode` decode through the Adobe character
+  collection tables when the CIDs are identified: an Identity encoding with a
+  registered Adobe `/CIDSystemInfo`, a predefined CJK CMap name, or an
+  embedded CMap stream (including one that `/UseCMap`s a predefined CMap and
+  adds local `cidchar`/`cidrange` overrides). Fonts in a non-Adobe
+  collection have no Unicode mapping inside the file; their strings are
+  dropped rather than emitted as glyph indices.
 - PDF image filters (DCT, JPX, CCITTFax, JBIG2) and `Crypt` streams are not text and are skipped.
