@@ -6,6 +6,7 @@
 package plivo
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"regexp"
@@ -33,7 +34,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.Plivo }
 func (Scanner) Keywords() []string { return []string{"MA", "SA", "plivo"} }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
-	idHits := authIDRe().FindAllSubmatch(data, -1)
+	idHits := findAuthIDs(data)
 	if len(idHits) == 0 {
 		return nil, nil
 	}
@@ -44,7 +45,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	out := make([]detectors.Result, 0)
 	seen := map[string]struct{}{}
 	for _, idm := range idHits {
-		authID := string(idm[1])
+		authID := string(idm)
 		if _, dup := seen[authID]; dup {
 			continue
 		}
@@ -124,4 +125,44 @@ func redact(t string) string {
 
 func init() {
 	detectors.Register(Scanner{})
+}
+
+// findAuthIDs returns exactly the group-1 matches of authIDRe
+// (\b((?:MA|SA)[A-Z0-9]{18})\b, leftmost non-overlapping). The keywords
+// "MA"/"SA" hit almost every chunk case-insensitively, and the regexp has
+// no literal prefix, so the NFA pass over every window was the costliest
+// detector in full-history scans; a fixed-width byte scan is equivalent.
+func findAuthIDs(data []byte) [][]byte {
+	const width = 20
+	var out [][]byte
+	for i := 0; i+width <= len(data); {
+		j := bytes.IndexAny(data[i:], "MS")
+		if j < 0 {
+			break
+		}
+		j += i
+		if j+width > len(data) {
+			break
+		}
+		if data[j+1] == 'A' && (j == 0 || !isWordByte(data[j-1])) && (j+width == len(data) || !isWordByte(data[j+width])) && upperAlnum(data[j+2:j+width]) {
+			out = append(out, data[j:j+width])
+			i = j + width
+			continue
+		}
+		i = j + 1
+	}
+	return out
+}
+
+func isWordByte(c byte) bool {
+	return c == '_' || '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
+}
+
+func upperAlnum(b []byte) bool {
+	for _, c := range b {
+		if !('0' <= c && c <= '9' || 'A' <= c && c <= 'Z') {
+			return false
+		}
+	}
+	return true
 }
