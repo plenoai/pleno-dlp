@@ -60,6 +60,7 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/bitly"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/bravesearch"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/cartesia"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/catalog"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/checkoutcom"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/cloudsmith"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/configcat"

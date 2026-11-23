@@ -1093,6 +1093,66 @@ const (
 	Xendit
 	Zuplo
 	GCNotify
+
+	// kingfisher catalog hosts (#900): detection-only types for kingfisher
+	// rules with no native provider detector. Generated append-only.
+	// BEGIN kingfisher catalog hosts (scripts/kingfisher-catalog.py)
+	AWSCodeCatalyst
+	AWSCodeCommit
+	Adafruit
+	AgeSecretKey
+	Asaas
+	Authress
+	AzureAppConfiguration
+	AzureServiceBus
+	Beamer
+	Bittrex
+	Canva
+	Clojars
+	Contentful
+	Coveralls
+	CurlAuth
+	DefinedNetworking
+	Devin
+	DockerSwarm
+	Duffel
+	EBay
+	EndorLabs
+	Facebook
+	Finicity
+	Finnhub
+	Flickr
+	Freemius
+	FreshBooks
+	Greptile
+	Infracost
+	Intra42
+	KuCoin
+	KubernetesSecret
+	LinkedIn
+	Lob
+	Mattermost
+	MaxMind
+	MicrosoftTeamsWebhook
+	NYTimes
+	OpenShift
+	Packagist
+	Polymarket
+	PrivateAI
+	RainforestPay
+	Ramp
+	RapidAPI
+	ReadMe
+	Scalingo
+	Sendbird
+	SettleMint
+	Sidekiq
+	Tableau
+	Twitter
+	Typeform
+	Yandex
+	ZAI
+	// END kingfisher catalog hosts
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

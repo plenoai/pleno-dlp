@@ -135,6 +135,10 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		extra := map[string]string{
 			"github_token_type": tokenType(token),
 		}
+		if strings.HasPrefix(token, "ghp_") {
+			// Offline signal: a bad CRC32 suffix means GitHub never issued it.
+			extra["checksum"] = detectors.TokenChecksum(token[len("ghp_"):])
+		}
 		res := detectors.Result{
 			DetectorType: detectors.GitHub,
 			Raw:          []byte(token),

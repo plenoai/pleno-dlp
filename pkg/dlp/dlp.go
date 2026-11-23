@@ -160,7 +160,7 @@ func Detectors() []Detector {
 	for name, d := range idx {
 		_, v := d.(detectors.Verifier)
 		_, r := d.(detectors.Revoker)
-		out = append(out, Detector{Name: name, Keywords: append([]string{}, d.Keywords()...), CanVerify: v, CanRevoke: r})
+		out = append(out, Detector{Name: name, Keywords: append([]string{}, detectors.KeywordsWithFormats(d)...), CanVerify: v, CanRevoke: r})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out

@@ -1189,7 +1189,7 @@ func (e *Engine) buildPrefilter() {
 	patterns := make([][]byte, 0, len(e.dets))
 	detectorIdxByPattern := make([][]int, 0, len(e.dets))
 	for di, d := range e.dets {
-		for _, kw := range d.Keywords() {
+		for _, kw := range detectors.KeywordsWithFormats(d) {
 			if kw == "" {
 				continue
 			}
@@ -1907,6 +1907,16 @@ func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decode
 	// round-trip, keeping the scan fully offline instead of only
 	// filtering verified findings out afterward at the sink layer.
 	results, err := e.fromData(ctx, d, di, data)
+	if err == nil {
+		// Supplementary detection-only formats registered for this type
+		// (detectors.RegisterFormats) run on the same bytes; candidates
+		// the detector already reported are skipped.
+		path := archivePath
+		if path == "" {
+			path = findingPath(Finding{Chunk: c})
+		}
+		results = detectors.AppendFormatResults(d.Type(), path, data, results)
+	}
 	if err != nil {
 		// Cancellation of the scan context is the expected shutdown path,
 		// not degraded coverage. A detector's own deadline error while the

@@ -4,6 +4,7 @@ package npm
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
@@ -205,6 +206,17 @@ func TestTFAMode(t *testing.T) {
 		got := tfaMode([]byte(in))
 		if got != want {
 			t.Errorf("tfaMode(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestChecksumAnnotation(t *testing.T) {
+	body := "Zq8Lm3XcVb7Nn2Kk5Jh4Gf6Dd9Ss1A"
+	valid := "npm_" + body + detectors.CRC32Base62(body)
+	for tok, want := range map[string]string{valid: "valid", dummyTok: "invalid"} {
+		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
+		if len(res) != 1 || res[0].ExtraData["checksum"] != want {
+			t.Fatalf("%s: got %+v, want checksum=%s", tok[:8], res, want)
 		}
 	}
 }

@@ -56,18 +56,24 @@ func TestPublishedCountsMatchSource(t *testing.T) {
 
 	// docs/verify-coverage.md
 	coverage := readFile(t, filepath.Join(root, "docs", "verify-coverage.md"))
+	// Class (c) verify gaps are listed explicitly; (b) is the remainder of
+	// the non-Verifier detectors.
+	gaps := len(regexp.MustCompile(`(?m)^type=\S+ class=c$`).FindAllString(coverage, -1))
+	byDesign := unverified - gaps
 	checkInt(t, "docs/verify-coverage.md", `"Total = N" prose`, coverage,
 		regexp.MustCompile(`Total = (\d+):`), total)
 	checkInt(t, "docs/verify-coverage.md", `"(a) Verify implemented — N detectors" heading`, coverage,
 		regexp.MustCompile(`## \(a\) Verify implemented — (\d+) detectors`), verified)
 	checkInt(t, "docs/verify-coverage.md", `"(b) Unverified-by-design — N detectors" heading`, coverage,
-		regexp.MustCompile(`## \(b\) Unverified-by-design — (\d+) detectors`), unverified)
+		regexp.MustCompile(`## \(b\) Unverified-by-design — (\d+) detectors`), byDesign)
 	checkInt(t, "docs/verify-coverage.md", "machine block total=", coverage,
 		regexp.MustCompile(`(?m)^total=(\d+)$`), total)
 	checkInt(t, "docs/verify-coverage.md", "machine block a=", coverage,
 		regexp.MustCompile(`(?m)^a=(\d+)$`), verified)
 	checkInt(t, "docs/verify-coverage.md", "machine block b=", coverage,
-		regexp.MustCompile(`(?m)^b=(\d+)$`), unverified)
+		regexp.MustCompile(`(?m)^b=(\d+)$`), byDesign)
+	checkInt(t, "docs/verify-coverage.md", "machine block c=", coverage,
+		regexp.MustCompile(`(?m)^c=(\d+)$`), gaps)
 
 	// README.md
 	readme := readFile(t, filepath.Join(root, "README.md"))

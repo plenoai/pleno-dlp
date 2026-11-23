@@ -97,7 +97,7 @@ func buildDetectorRecords() []detectorRecord {
 		_, hasRevoke := d.(detectors.Revoker)
 		out = append(out, detectorRecord{
 			Type:     d.Type().String(),
-			Keywords: d.Keywords(),
+			Keywords: detectors.KeywordsWithFormats(d),
 			Verifies: hasVerify,
 			Revokes:  hasRevoke,
 		})
