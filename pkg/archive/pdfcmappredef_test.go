@@ -120,3 +120,57 @@ func FuzzPredefinedCMapDecode(f *testing.F) {
 }
 
 func utf8Valid(b []byte) bool { return strings.ToValidUTF8(string(b), "�") == string(b) }
+
+// TestExtractPDFEmbeddedUseCMap pins #959: an embedded CMap stream that
+// inherits 90ms-RKSJ-H (dictionary /UseCMap and the usecmap operator) with a
+// local cidchar override decodes without /ToUnicode, as does a standalone
+// embedded CMap whose ordering comes from the descendant font.
+func TestExtractPDFEmbeddedUseCMap(t *testing.T) {
+	sjis := encodeWith(t, japanese.ShiftJIS, "秘密トークン")
+	// CID 843 is "A" in Adobe-Japan1-6? Use the base table to resolve <41>
+	// and override <FF> -> CID of "鍵" taken from 90ms-RKSJ-H.
+	base := loadPredefCMap("90ms-RKSJ-H")
+	key, _ := japanese.ShiftJIS.NewEncoder().Bytes([]byte("鍵"))
+	cidKey := base.cids[uint64(2)<<32|uint64(key[0])<<8|uint64(key[1])]
+	if cidKey == 0 {
+		t.Fatal("no CID for 鍵 in 90ms-RKSJ-H")
+	}
+	override := fmt.Sprintf("1 begincidchar <FF> %d endcidchar", cidKey)
+	var b strings.Builder
+	b.WriteString("%PDF-1.7\n")
+	b.WriteString(pdfObj(3, "<< /Type /Page /Resources << /Font << /F0 10 0 R /F1 11 0 R /F2 12 0 R >> >> /Contents 4 0 R >>", ""))
+	b.WriteString(pdfObj(4, "", fmt.Sprintf("BT /F0 9 Tf <%sFF> Tj /F1 9 Tf <%sFF> Tj /F2 9 Tf <0102> Tj ET\n", sjis, sjis)))
+	b.WriteString(pdfObj(10, "<< /Type /Font /Subtype /Type0 /BaseFont /X /Encoding 20 0 R /DescendantFonts [99 0 R] >>", ""))
+	b.WriteString(pdfObj(11, "<< /Type /Font /Subtype /Type0 /BaseFont /X /Encoding 21 0 R /DescendantFonts [99 0 R] >>", ""))
+	b.WriteString(pdfObj(12, "<< /Type /Font /Subtype /Type0 /BaseFont /X /Encoding 22 0 R /DescendantFonts [98 0 R] >>", ""))
+	b.WriteString(pdfObj(20, "<< /Type /CMap /CMapName /Custom-H /UseCMap /90ms-RKSJ-H >>", "begincmap\n1 begincodespacerange <FF> <FF> endcodespacerange\n"+override+"\nendcmap\n"))
+	b.WriteString(pdfObj(21, "<< /Type /CMap /CMapName /Custom2-H >>", "/90ms-RKSJ-H usecmap\nbegincmap\n"+override+"\nendcmap\n"))
+	b.WriteString(pdfObj(22, "<< /Type /CMap /CMapName /Custom3-H >>", fmt.Sprintf("begincmap\n1 begincodespacerange <00> <FF> endcodespacerange\n1 begincidrange <01> <02> %d endcidrange\nendcmap\n", cidKey)))
+	b.WriteString(pdfObj(98, "<< /Type /Font /Subtype /CIDFontType0 /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> >>", ""))
+	b.WriteString(pdfObj(99, "<< /Type /Font /Subtype /CIDFontType0 >>", ""))
+	b.WriteString("%%EOF\n")
+	entries, err := walkEntries(t, "t.pdf", []byte(b.String()), Limits{})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	got := strings.Join(strings.Fields(entries["t.pdf#text"]), "")
+	if strings.Count(got, "秘密トークン鍵") != 2 || !strings.Contains(got, "鍵") {
+		t.Fatalf("decoded %q", got)
+	}
+	// The shared predefined table is not mutated by overrides.
+	if _, ok := loadPredefCMap("90ms-RKSJ-H").cids[uint64(1)<<32|0xFF]; ok {
+		t.Fatal("override leaked into the cached predefined table")
+	}
+}
+
+func FuzzEmbeddedCMap(f *testing.F) {
+	f.Add([]byte("<< /UseCMap /90ms-RKSJ-H >>"), []byte("1 begincodespacerange <00> <FF> endcodespacerange 1 begincidrange <01> <FF> 100 endcidrange"), []byte{0x82, 0xa0, 0x01})
+	f.Add([]byte("<< >>"), []byte("/GBK-EUC-H usecmap 1 begincidchar <FFFF> 65535 endcidchar"), []byte{0xff, 0xff})
+	f.Fuzz(func(t *testing.T, dict, body, text []byte) {
+		objs := map[int]*pdfObject{1: {dict: dict, stream: body, hasStream: true}}
+		cm, _ := pdfEmbeddedCMap(objs, 1, 0)
+		if cm != nil {
+			_ = (&pdfPredefFont{cmap: cm, table: map[uint16]rune{}}).decode(text)
+		}
+	})
+}

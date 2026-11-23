@@ -1,0 +1,3 @@
+Owners: core-engineer, qa
+
+Type0 PDF fonts whose `/Encoding` is an embedded CMap stream now decode without `/ToUnicode` (#959). `pkg/archive/pdfcmapembed.go` parses the stream's `codespacerange`/`cidchar`/`cidrange` on top of a `/UseCMap` base (stream-dictionary name or reference, or the `usecmap` operator; local definitions win, the shared predefined tables from #957 are copied, never mutated), and maps CIDs through the base CMap's ordering, the CMap's own Adobe `/CIDSystemInfo`, or the descendant font's. Parsing is bounded by the existing CMap byte cap, a 2^17-entry table cap, and a 4-level `/UseCMap` reference depth; `FuzzEmbeddedCMap` covers the parser.
