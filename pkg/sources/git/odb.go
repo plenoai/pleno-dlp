@@ -108,6 +108,18 @@ func openObjectDB(objectsDir string, cacheBytes int64) (*objectDB, error) {
 	return db, nil
 }
 
+// view returns a reader over db's packs with a private cache of
+// cacheBytes, so a reader with another access pattern (the raw history
+// generator walks trees far ahead of the renderers) cannot evict the
+// renderers' delta bases. The view must not be closed; db owns the packs.
+func (db *objectDB) view(cacheBytes int64) *objectDB {
+	v := &objectDB{packs: db.packs}
+	v.cache = newODBCache(v, cacheBytes)
+	v.zr.New = func() any { return &odbInflater{} }
+	v.work.New = func() any { return &odbWork{} }
+	return v
+}
+
 func openODBPack(idxPath, packPath string) (*odbPack, error) {
 	idx, unIdx, err := mmapFile(idxPath)
 	if err != nil {
@@ -201,8 +213,14 @@ func (db *objectDB) readBlobRef(oid string, limit int64) (*odbBuf, error) {
 	if _, err := hex.Decode(id[:], []byte(oid)); err != nil {
 		return nil, errODBMiss
 	}
+	return db.readRef(id[:], odbObjBlob, limit)
+}
+
+// readRef returns the object id (20 raw bytes) of type want zero-copy, like
+// readBlobRef.
+func (db *objectDB) readRef(id []byte, want int, limit int64) (*odbBuf, error) {
 	for pi, p := range db.packs {
-		off, ok := p.find(id[:])
+		off, ok := p.find(id)
 		if !ok {
 			continue
 		}
@@ -210,7 +228,7 @@ func (db *objectDB) readBlobRef(oid string, limit int64) (*odbBuf, error) {
 		if err != nil {
 			return nil, err
 		}
-		if typ != odbObjBlob {
+		if typ != want {
 			ref.release(db)
 			return nil, errODBMiss
 		}

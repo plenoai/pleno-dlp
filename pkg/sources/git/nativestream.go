@@ -69,10 +69,20 @@ func (s *Source) runNativeSynthStream(ctx context.Context, repo *gogit.Repositor
 		inputs[k] = in.String()
 	}
 	odb := s.objectDB(ctx, gitBin)
+	inProcess := odb != nil && s.nativeTreeDiffEligible(ctx, gitBin)
 	// Fork every helper before the heap grows (see runNativePatchShards).
-	raws := make([]*nativeLogProc, segs)
+	raws := make([]*nativeRawSource, segs)
 	for k := range raws {
-		raws[k] = startNativeLog(ctx, gitBin, nativeRawArgs(args), inputs[k])
+		if inProcess {
+			lo, hi := len(commits)-(k+1)*len(commits)/segs, len(commits)-k*len(commits)/segs
+			seg := make([]string, 0, hi-lo)
+			for i := hi - 1; i >= lo; i-- {
+				seg = append(seg, commits[i])
+			}
+			raws[k] = startNativeRawGen(ctx, odb, gitBin, s.repoAbs, seg)
+		} else {
+			raws[k] = gitRawSource(startNativeLog(ctx, gitBin, nativeRawArgs(args), inputs[k]))
+		}
 	}
 	mergeItems := mergeWorkItems(merges, workers)
 	mergeArgs := s.nativeMergeArgs()
@@ -105,7 +115,8 @@ func (s *Source) runNativeSynthStream(ctx context.Context, repo *gogit.Repositor
 	}()
 	abandonRaws := func() {
 		for _, p := range raws {
-			p.abandon()
+			p.kill()
+			_ = p.wait()
 		}
 	}
 	for _, p := range raws {
@@ -175,13 +186,12 @@ func (s *Source) runNativeSynthStream(ctx context.Context, repo *gogit.Repositor
 	wg.Wait()
 	derr := <-dealErr
 	var waitErr error
-	var waitProc *nativeLogProc
 	for _, p := range raws {
-		if derr != nil && p.cmd.Process != nil {
-			_ = p.cmd.Process.Kill()
+		if derr != nil {
+			p.kill()
 		}
-		if err := p.cmd.Wait(); err != nil && waitErr == nil {
-			waitErr, waitProc = err, p
+		if err := p.wait(); err != nil && waitErr == nil {
+			waitErr = err
 		}
 	}
 	if err := reduceShardErrors(ctx, errs); err != nil && !isCoverageOnly(err) {
@@ -197,10 +207,7 @@ func (s *Source) runNativeSynthStream(ctx context.Context, repo *gogit.Repositor
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
-		if detail := strings.TrimSpace(waitProc.stderr.String()); detail != "" {
-			return fmt.Errorf("git: native raw log: %w: %s", waitErr, detail)
-		}
-		return fmt.Errorf("git: native raw log: %w", waitErr)
+		return waitErr
 	}
 	return reduceShardErrors(ctx, errs)
 }
@@ -213,7 +220,7 @@ const nativeStreamMaxSegments = 8
 
 // dealNativeRaws deals the segments in order: the first streams, the rest
 // are read into memory concurrently so their git processes never stall.
-func dealNativeRaws(ctx context.Context, raws []*nativeLogProc, out chan<- []byte) error {
+func dealNativeRaws(ctx context.Context, raws []*nativeRawSource, out chan<- []byte) error {
 	type buffered struct {
 		data []byte
 		err  error
@@ -234,9 +241,7 @@ func dealNativeRaws(ctx context.Context, raws []*nativeLogProc, out chan<- []byt
 	if err := dealNativeRaw(ctx, raws[0].stdout, out); err != nil {
 		_, _ = io.Copy(io.Discard, raws[0].stdout)
 		for _, p := range raws[1:] {
-			if p.cmd.Process != nil {
-				_ = p.cmd.Process.Kill()
-			}
+			p.kill()
 		}
 		drain(1)
 		return err
@@ -249,15 +254,52 @@ func dealNativeRaws(ctx context.Context, raws []*nativeLogProc, out chan<- []byt
 		}
 		if err != nil {
 			for _, p := range raws[k+1:] {
-				if p.cmd.Process != nil {
-					_ = p.cmd.Process.Kill()
-				}
+				p.kill()
 			}
 			drain(k + 1)
 			return err
 		}
 	}
 	return nil
+}
+
+// nativeRawSource is one segment of raw history records: a `git log --raw`
+// process or the in-process generator (#1033).
+type nativeRawSource struct {
+	stdout io.Reader
+	err    error // start failure
+	kill   func()
+	wait   func() error
+}
+
+func gitRawSource(p *nativeLogProc) *nativeRawSource {
+	src := &nativeRawSource{stdout: p.stdout, err: p.err}
+	if p.err != nil {
+		src.kill = func() {}
+		src.wait = func() error { return nil }
+		return src
+	}
+	src.kill = func() {
+		if p.cmd.Process != nil {
+			_ = p.cmd.Process.Kill()
+		}
+	}
+	var waited bool
+	src.wait = func() error {
+		if waited {
+			return nil
+		}
+		waited = true
+		err := p.cmd.Wait()
+		if err == nil {
+			return nil
+		}
+		if detail := strings.TrimSpace(p.stderr.String()); detail != "" {
+			return fmt.Errorf("git: native raw log: %w: %s", err, detail)
+		}
+		return fmt.Errorf("git: native raw log: %w", err)
+	}
+	return src
 }
 
 // dealNativeRaw splits a raw log stream into batches of whole commit
@@ -334,21 +376,7 @@ func (b *batchReader) Read(p []byte) (int, error) {
 // consumeNativeStream renders the raw records read from raw in process and
 // parses the result, like consumeNativeLog does for one shard.
 func (s *Source) consumeNativeStream(ctx context.Context, repo *gogit.Repository, gitBin string, patchArgs []string, raw io.Reader, ch chan<- *sources.Chunk, scan func(*sources.Chunk), ordinals map[string]int64, blobs *catFileHolder, res *nativeSynthRes) error {
-	pr, pw := io.Pipe()
-	synth := &nativeSynthLog{
-		ctx:       ctx,
-		source:    s,
-		gitBin:    gitBin,
-		patchArgs: patchArgs,
-		res:       res,
-		out:       bufio.NewWriterSize(pw, 256<<10),
-	}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_ = pw.CloseWithError(synth.run(raw))
-	}()
-	parser := nativeLogParser{
+	parser := &nativeLogParser{
 		ctx:      ctx,
 		source:   s,
 		repo:     repo,
@@ -358,9 +386,18 @@ func (s *Source) consumeNativeStream(ctx context.Context, repo *gogit.Repository
 		scan:     scan,
 		ordinals: ordinals,
 	}
-	parseErr := parser.parse(pr)
-	_ = pr.CloseWithError(errNativeRenderStopped)
-	<-done
+	synth := &nativeSynthLog{
+		ctx:       ctx,
+		source:    s,
+		gitBin:    gitBin,
+		patchArgs: patchArgs,
+		res:       res,
+		direct:    parser,
+	}
+	parseErr := synth.run(raw)
+	if parseErr == nil {
+		parseErr = parser.finish()
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}

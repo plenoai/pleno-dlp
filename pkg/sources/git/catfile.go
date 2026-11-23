@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"io"
 	"os/exec"
 	"strconv"
@@ -164,19 +165,36 @@ func parseNativeIndexNewOID(line []byte) string {
 const binaryBlobCacheLimit = 1 << 20
 
 // binaryBlobCache memoizes NUL classification by blob id across the
-// parallel shards of one walk.
+// parallel shards of one walk. Every rendered blob is stored, so the map is
+// striped by id: one global mutex serialized all renderers (#1033).
 type binaryBlobCache struct {
-	mu sync.Mutex
-	m  map[string]bool
+	stripes [cacheStripes]binaryBlobStripe
 }
+
+type binaryBlobStripe struct {
+	mu sync.RWMutex
+	m  map[string]bool
+	_  [32]byte // keep neighbouring stripes off one cache line
+}
+
+// cacheStripes splits the walk-wide caches; each stripe holds an equal
+// share of the entry limit.
+const cacheStripes = 64
+
+func cacheStripe(key string) int {
+	return int(maphash.String(cacheStripeSeed, key) % cacheStripes)
+}
+
+var cacheStripeSeed = maphash.MakeSeed()
 
 func (c *binaryBlobCache) lookup(oid string) (bool, bool) {
 	if c == nil {
 		return false, false
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	v, ok := c.m[oid]
+	s := &c.stripes[cacheStripe(oid)]
+	s.mu.RLock()
+	v, ok := s.m[oid]
+	s.mu.RUnlock()
 	return v, ok
 }
 
@@ -184,12 +202,13 @@ func (c *binaryBlobCache) store(oid string, binary bool) {
 	if c == nil {
 		return
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.m == nil {
-		c.m = make(map[string]bool)
+	s := &c.stripes[cacheStripe(oid)]
+	s.mu.Lock()
+	if s.m == nil {
+		s.m = make(map[string]bool)
 	}
-	if len(c.m) < binaryBlobCacheLimit {
-		c.m[oid] = binary
+	if len(s.m) < binaryBlobCacheLimit/cacheStripes {
+		s.m[oid] = binary
 	}
+	s.mu.Unlock()
 }

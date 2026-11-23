@@ -141,27 +141,35 @@ func (s *Source) objectDB(ctx context.Context, gitBin string) *objectDB {
 // diffAttrCache memoizes the "diff" attribute by path across the shards of
 // one walk; attributes depend only on the path for the whole walk.
 type diffAttrCache struct {
+	stripes [cacheStripes]diffAttrStripe
 	mu      sync.Mutex
-	m       map[string]string
 	drivers map[string]int // driver name -> configured binary (-1 unset, 0, 1)
 }
 
+type diffAttrStripe struct {
+	mu sync.RWMutex
+	m  map[string]string
+	_  [32]byte
+}
+
 func (c *diffAttrCache) get(path string) (string, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	v, ok := c.m[path]
+	s := &c.stripes[cacheStripe(path)]
+	s.mu.RLock()
+	v, ok := s.m[path]
+	s.mu.RUnlock()
 	return v, ok
 }
 
 func (c *diffAttrCache) put(path, v string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.m == nil {
-		c.m = make(map[string]string)
+	s := &c.stripes[cacheStripe(path)]
+	s.mu.Lock()
+	if s.m == nil {
+		s.m = make(map[string]string)
 	}
-	if len(c.m) < binaryBlobCacheLimit {
-		c.m[path] = v
+	if len(s.m) < binaryBlobCacheLimit/cacheStripes {
+		s.m[path] = v
 	}
+	s.mu.Unlock()
 }
 
 // nativeSynthLog renders one raw `git log` stream into patch text.
@@ -173,7 +181,10 @@ type nativeSynthLog struct {
 	pathspec  string // the "--\n<paths>" stdin tail of a path-split item
 	res       *nativeSynthRes
 	out       *bufio.Writer
-	xd        xdiffer
+	// direct, when set, consumes rendered output on this goroutine in
+	// place of out, so the patch text never crosses a pipe.
+	direct *nativeLogParser
+	xd     xdiffer
 
 	commit  string
 	head    []byte // commit header and raw lines, verbatim
@@ -233,6 +244,9 @@ func (r *nativeSynthLog) run(raw io.Reader) error {
 	if err := r.finishCommit(); err != nil {
 		return err
 	}
+	if r.direct != nil {
+		return nil
+	}
 	return r.out.Flush()
 }
 
@@ -276,8 +290,7 @@ func (r *nativeSynthLog) finishCommit() error {
 		r.commit = ""
 	}()
 	if len(r.entries) == 0 {
-		_, err := r.out.Write(r.head)
-		return err
+		return r.emit(r.head)
 	}
 	r.patch = append(r.patch[:0], '\n')
 	err := r.renderEntries()
@@ -290,10 +303,17 @@ func (r *nativeSynthLog) finishCommit() error {
 	if err != nil {
 		return err
 	}
-	if _, err := r.out.Write(r.head); err != nil {
+	if err := r.emit(r.head); err != nil {
 		return err
 	}
-	_, err = r.out.Write(r.patch)
+	return r.emit(r.patch)
+}
+
+func (r *nativeSynthLog) emit(b []byte) error {
+	if r.direct != nil {
+		return r.direct.feed(b)
+	}
+	_, err := r.out.Write(b)
 	return err
 }
 
@@ -644,12 +664,41 @@ func (r *nativeSynthLog) renderWithGit() error {
 	var stderr limitedWriter
 	stderr.limit = nativeStderrLimit
 	cmd.Stderr = &stderr
+	if r.direct != nil {
+		return r.renderWithGitDirect(cmd, &stderr)
+	}
 	cmd.Stdout = r.out
 	if err := cmd.Run(); err != nil {
 		if ctxErr := r.ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
 		return fmt.Errorf("git: native log fallback for %s: %w: %s", r.commit, err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// renderWithGitDirect parses git's rendering of the commit as it streams.
+func (r *nativeSynthLog) renderWithGitDirect(cmd *exec.Cmd, stderr *limitedWriter) error {
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("git: native log fallback for %s: %w", r.commit, err)
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("git: native log fallback for %s: %w", r.commit, err)
+	}
+	parseErr := r.direct.parseStream(stdout)
+	if parseErr != nil {
+		_, _ = io.Copy(io.Discard, stdout)
+	}
+	waitErr := cmd.Wait()
+	if parseErr != nil {
+		return parseErr
+	}
+	if waitErr != nil {
+		if ctxErr := r.ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return fmt.Errorf("git: native log fallback for %s: %w: %s", r.commit, waitErr, strings.TrimSpace(stderr.String()))
 	}
 	return nil
 }
