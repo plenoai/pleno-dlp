@@ -6,7 +6,9 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -14,6 +16,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
@@ -380,5 +383,117 @@ func TestChunks_archiveInLayerReachesEngine(t *testing.T) {
 	}
 	if files["/bin/binary"] {
 		t.Errorf("non-archive binary was emitted")
+	}
+}
+
+// rawTarLayer builds an uncompressed tar of files and truncates it to cut
+// bytes before returning it as a layer.
+func rawTarLayer(t *testing.T, cut func([]byte) []byte, files ...[2]string) v1.Layer {
+	t.Helper()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, f := range files {
+		if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: f[0], Size: int64(len(f[1])), Mode: 0644}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(f[1])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data := cut(buf.Bytes())
+	layer, err := tarball.LayerFromOpener(func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(data)), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return layer
+}
+
+func runChunks(t *testing.T, s *Source, img v1.Image) ([]*sources.Chunk, error) {
+	t.Helper()
+	ch := make(chan *sources.Chunk, 64)
+	errc := make(chan error, 1)
+	go func() {
+		defer close(ch)
+		errc <- s.chunksFromImage(context.Background(), img, "test-image:latest", "sha256:abc", ch)
+	}()
+	var chunks []*sources.Chunk
+	for c := range ch {
+		chunks = append(chunks, c)
+	}
+	return chunks, <-errc
+}
+
+func assertLayerGap(t *testing.T, s *Source, img v1.Image, err error, wantSubstr string) {
+	t.Helper()
+	var de *engine.DegradedError
+	if !errors.As(err, &de) || de.Total != 1 || de.Counts[engine.FailureSource] != 1 {
+		t.Fatalf("err = %v, want one source DegradedError", err)
+	}
+	if !strings.Contains(de.Failures[0].Err.Error(), wantSubstr) {
+		t.Errorf("failure %v, want %q", de.Failures[0].Err, wantSubstr)
+	}
+	layers, _ := img.Layers()
+	diffID, _ := layers[0].DiffID()
+	if s.nextState.Layers[diffID.String()] {
+		t.Error("partially read layer recorded as scanned in incremental state")
+	}
+}
+
+// TestChunks_truncatedLayerHeaderReportsGap (#975): a tar cut inside the
+// second header reports a gap, keeps the layer unscanned, and raw-scans
+// the remainder.
+func TestChunks_truncatedLayerHeaderReportsGap(t *testing.T) {
+	secret := "AKIA" + "QYLPMN5HHHFPZAM2"
+	layer := rawTarLayer(t, func(b []byte) []byte {
+		// first entry: 512 header + 512 body; cut 300 bytes into header 2.
+		return b[:1024+300]
+	}, [2]string{"/a.txt", "hello"}, [2]string{"/etc/" + secret + ".env", "x"})
+	img, err := mutate.AppendLayers(empty.Image, layer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Source{name: "test", sourceID: 1, cfg: Config{Image: "t", MaxLayerSize: defaultMaxLayerSize}}
+	chunks, err := runChunks(t, s, img)
+	assertLayerGap(t, s, img, err, "corrupt-archive")
+	var raw []byte
+	for _, c := range chunks {
+		if c.SourceMetadata.DockerImage.File == rawRemainderFile {
+			raw = c.Data
+		}
+	}
+	if !bytes.Contains(raw, []byte(secret)) {
+		t.Errorf("raw remainder chunk missing truncated header bytes: %q", raw)
+	}
+	if !chunkFiles(chunks)["/a.txt"] {
+		t.Error("entry before the corruption not emitted")
+	}
+}
+
+// TestChunks_truncatedLayerBodyReportsGap (#975): a tar cut inside an entry
+// body emits the partial body and reports a gap.
+func TestChunks_truncatedLayerBodyReportsGap(t *testing.T) {
+	secret := "AKIA" + "QYLPMN5HHHFPZAM2"
+	body := secret + strings.Repeat("z", 400)
+	layer := rawTarLayer(t, func(b []byte) []byte { return b[:512+100] }, [2]string{"/big.txt", body})
+	img, err := mutate.AppendLayers(empty.Image, layer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Source{name: "test", sourceID: 1, cfg: Config{Image: "t", MaxLayerSize: defaultMaxLayerSize}}
+	chunks, err := runChunks(t, s, img)
+	assertLayerGap(t, s, img, err, "corrupt-entry /big.txt")
+	found := false
+	for _, c := range chunks {
+		if c.SourceMetadata.DockerImage.File == "/big.txt" && bytes.Contains(c.Data, []byte(secret)) {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("partial body not emitted")
 	}
 }

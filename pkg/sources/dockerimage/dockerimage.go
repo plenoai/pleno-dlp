@@ -34,6 +34,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/daemon"
 
 	"github.com/plenoai/pleno-dlp/pkg/archive"
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
@@ -147,6 +148,7 @@ func (s *Source) chunksFromImage(ctx context.Context, img v1.Image, ref, digest 
 		return fmt.Errorf("docker-image: get layers: %w", err)
 	}
 	s.nextState = &incrementalState{Version: 1, Layers: map[string]bool{}}
+	var coverage []engine.ScanFailure
 	for _, layer := range layers {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -156,12 +158,31 @@ func (s *Source) chunksFromImage(ctx context.Context, img v1.Image, ref, digest 
 			return fmt.Errorf("docker-image: layer diffid: %w", err)
 		}
 		layerDigestStr := diffID.String()
-		s.nextState.Layers[layerDigestStr] = true
 		if s.layerScanned(layerDigestStr) {
+			s.nextState.Layers[layerDigestStr] = true
 			continue
 		}
-		if err := s.emitLayer(ctx, layer, layerDigestStr, ref, digest, ch); err != nil {
+		gap, err := s.emitLayer(ctx, layer, layerDigestStr, ref, digest, ch)
+		if err != nil {
 			return err
+		}
+		if gap != nil {
+			// A layer read only partially stays out of the incremental
+			// state so the next run rescans it (#975).
+			coverage = append(coverage, engine.ScanFailure{
+				Kind:   engine.FailureSource,
+				Source: ref + "@" + layerDigestStr,
+				Err:    gap,
+			})
+			continue
+		}
+		s.nextState.Layers[layerDigestStr] = true
+	}
+	if len(coverage) > 0 {
+		return &engine.DegradedError{
+			Total:    len(coverage),
+			Counts:   map[engine.FailureKind]int{engine.FailureSource: len(coverage)},
+			Failures: coverage,
 		}
 	}
 	return nil
@@ -342,27 +363,84 @@ func (s *Source) emitConfig(ctx context.Context, img v1.Image, ref, digest strin
 	})
 }
 
+// rawRemainderFile names the chunk that carries the unparsed bytes of a
+// corrupt or truncated layer tar.
+const rawRemainderFile = "(corrupt layer remainder)"
+
+// maxRawCapture bounds how many already-consumed bytes (padding, skipped
+// entry bodies, the failing header) are retained for the raw fallback.
+const maxRawCapture = 1 << 20
+
+// boundedCapture records at most limit bytes written since the last reset.
+type boundedCapture struct {
+	buf   []byte
+	limit int
+}
+
+func (b *boundedCapture) Write(p []byte) (int, error) {
+	if room := b.limit - len(b.buf); room > 0 {
+		b.buf = append(b.buf, p[:min(room, len(p))]...)
+	}
+	return len(p), nil
+}
+
+func (b *boundedCapture) reset() { b.buf = b.buf[:0] }
+
 // emitLayer streams files from one OCI layer (a compressed tar) and emits
-// text files as individual chunks.
-func (s *Source) emitLayer(ctx context.Context, layer v1.Layer, layerDigestStr, ref, imageDigest string, ch chan<- *sources.Chunk) error {
+// text files as individual chunks. A corrupt or truncated tar does not stop
+// silently: the unparsed remainder is emitted as one raw chunk (consistent
+// with the #970 archive fallback) and returned as gap so the caller records
+// a coverage failure and keeps the layer out of the incremental state
+// (#975). err is reserved for fatal errors (cancellation).
+func (s *Source) emitLayer(ctx context.Context, layer v1.Layer, layerDigestStr, ref, imageDigest string, ch chan<- *sources.Chunk) (gap error, err error) {
 	rc, err := layer.Uncompressed()
 	if err != nil {
-		return fmt.Errorf("docker-image: open layer %s: %w", layerDigestStr, err)
+		return fmt.Errorf("docker-image: open layer %s: %w", layerDigestStr, err), nil
 	}
 	defer rc.Close()
 
-	tr := tar.NewReader(io.LimitReader(rc, s.cfg.MaxLayerSize))
+	newChunk := func(file string, data []byte) *sources.Chunk {
+		return &sources.Chunk{
+			SourceID:   s.sourceID,
+			SourceType: sources.SourceDockerImage,
+			SourceName: s.name,
+			Data:       data,
+			SourceMetadata: sources.Metadata{
+				DockerImage: &sources.DockerImageMeta{
+					Image:  ref,
+					Digest: imageDigest,
+					Layer:  layerDigestStr,
+					File:   file,
+				},
+			},
+		}
+	}
+
+	limited := io.LimitReader(rc, s.cfg.MaxLayerSize)
+	capture := &boundedCapture{limit: maxRawCapture}
+	tr := tar.NewReader(io.TeeReader(limited, capture))
 	for {
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
-		hdr, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			break
+		capture.reset()
+		hdr, nerr := tr.Next()
+		if errors.Is(nerr, io.EOF) {
+			return nil, nil
 		}
-		if err != nil {
-			// Corrupt entry — skip the rest of this layer.
-			break
+		if nerr != nil {
+			rest, rerr := io.ReadAll(io.LimitReader(limited, s.cfg.MaxLayerSize))
+			raw := append(append([]byte{}, capture.buf...), rest...)
+			if len(raw) > 0 {
+				if err := sendChunk(ctx, ch, newChunk(rawRemainderFile, raw)); err != nil {
+					return nil, err
+				}
+			}
+			gap := fmt.Errorf("docker-image: layer %s: corrupt-archive: %w", layerDigestStr, nerr)
+			if rerr != nil {
+				gap = fmt.Errorf("%w (remainder read: %v)", gap, rerr)
+			}
+			return gap, nil
 		}
 		if hdr.Typeflag != tar.TypeReg {
 			continue
@@ -374,9 +452,15 @@ func (s *Source) emitLayer(ctx context.Context, layer v1.Layer, layerDigestStr, 
 			continue
 		}
 
-		data, err := io.ReadAll(io.LimitReader(tr, s.cfg.MaxLayerSize))
-		if err != nil {
-			continue
+		data, rerr := io.ReadAll(io.LimitReader(tr, s.cfg.MaxLayerSize))
+		if rerr != nil {
+			// Truncated entry body: scan what was read, then report the gap.
+			if len(data) > 0 {
+				if err := sendChunk(ctx, ch, newChunk(hdr.Name, data)); err != nil {
+					return nil, err
+				}
+			}
+			return fmt.Errorf("docker-image: layer %s: corrupt-entry %s: %w", layerDigestStr, hdr.Name, rerr), nil
 		}
 		// Archives (and orphan split volumes) are binary but must reach the
 		// engine, which expands them or reports the gap and scans the raw
@@ -384,26 +468,10 @@ func (s *Source) emitLayer(ctx context.Context, layer v1.Layer, layerDigestStr, 
 		if isBinary(data) && !archive.LooksLikeArchive(data) && !archive.OrphanVolumeName(filepath.Base(hdr.Name)) {
 			continue
 		}
-
-		chunk := &sources.Chunk{
-			SourceID:   s.sourceID,
-			SourceType: sources.SourceDockerImage,
-			SourceName: s.name,
-			Data:       data,
-			SourceMetadata: sources.Metadata{
-				DockerImage: &sources.DockerImageMeta{
-					Image:  ref,
-					Digest: imageDigest,
-					Layer:  layerDigestStr,
-					File:   hdr.Name,
-				},
-			},
-		}
-		if err := sendChunk(ctx, ch, chunk); err != nil {
-			return err
+		if err := sendChunk(ctx, ch, newChunk(hdr.Name, data)); err != nil {
+			return nil, err
 		}
 	}
-	return nil
 }
 
 func (s *Source) pathAllowed(p string) bool {
