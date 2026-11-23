@@ -194,6 +194,9 @@ type Source struct {
 	diffReplicas *diffReplicaRegistry
 	// binaryBlobs memoizes binary classification by blob id for one walk.
 	binaryBlobs *binaryBlobCache
+	// diffAttrs memoizes the "diff" attribute by path for the in-process
+	// patch renderer (#983).
+	diffAttrs *diffAttrCache
 	// attrFree is the walk's attribute-free git directory for merge
 	// forced-text rendering (#998); created on first use.
 	attrFree *attrFreeDir
@@ -342,6 +345,7 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	s.promisorFiltered = s.repoPromisorFiltered(repo)
 	s.promisorSkipped = 0
 	s.binaryBlobs = &binaryBlobCache{}
+	s.diffAttrs = &diffAttrCache{}
 	s.attrFree = &attrFreeDir{}
 	defer s.attrFree.cleanup()
 	s.diffReplicas = newDiffReplicaRegistry(s.collapseIdenticalDiffs && !s.trufflehogCompatible && !s.includeGitArchives && !s.includeGitBinaries)
