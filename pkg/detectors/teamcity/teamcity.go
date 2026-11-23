@@ -12,7 +12,6 @@ package teamcity
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -35,7 +34,9 @@ var (
 	rejectCodes = []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound}
 )
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_.-]{20,}|[A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_.-]{20,}|[A-Za-z0-9]{40,80})\b`)
+})
 
 var contextKeywords = []string{
 	"teamcity",

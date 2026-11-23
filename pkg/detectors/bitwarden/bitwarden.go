@@ -22,7 +22,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -40,8 +39,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // `0.` version + UUID + `.` + base64 access-key id + `:` + base64
 // access-key secret. The version `0.` plus the colon separator is the
 // distinctive shape; UUID + base64 segments confirm.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(0\.[a-f0-9-]{36}\.[A-Za-z0-9+/=_-]{20,}:[A-Za-z0-9+/=_-]{20,})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(0\.[a-f0-9-]{36}\.[A-Za-z0-9+/=_-]{20,}:[A-Za-z0-9+/=_-]{20,})\b`)
 })
 
 var contextKeywords = []string{"bitwarden", "bws", "bws_access", "secretsmanager"}

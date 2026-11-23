@@ -28,7 +28,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -44,8 +43,8 @@ import (
 // exactly four colons with a numeric-or-`*` second field). The password
 // field itself only excludes the field separator and newlines — pgpass
 // passwords may contain punctuation the other fields cannot.
-var pgpassLineRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var pgpassLineRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?m)^[ \t]*([A-Za-z0-9_.\-\*]{1,255}):([0-9]{1,5}|\*):([A-Za-z0-9_.\-\*]{1,63}):([A-Za-z0-9_.\-\*]{1,63}):([^:\r\n]{1,255})[ \t]*$`,
 	)
 })

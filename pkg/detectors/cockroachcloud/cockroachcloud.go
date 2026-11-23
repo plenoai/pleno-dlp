@@ -8,7 +8,6 @@ package cockroachcloud
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -21,7 +20,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `ccdb_` literal + 32-80 base62 (Cockroach mints variable-length tokens
 // depending on scope).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(ccdb_[A-Za-z0-9]{32,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(ccdb_[A-Za-z0-9]{32,80})\b`) })
 
 type Scanner struct{}
 

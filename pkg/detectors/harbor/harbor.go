@@ -7,7 +7,6 @@ package harbor
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,7 +26,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // requires lowercase+uppercase+digit, so a real secret is high-variety.
 // Pin the documented length 32 (was the over-broad {16,64}) and gate on
 // entropy to drop low-information 32-char runs.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // minEntropy rejects low-entropy 32-char alnum runs that clear the regex
 // but are not random secrets. Harbor secrets are 32 base62 chars with
@@ -39,8 +38,8 @@ const minEntropy = 3.5
 // shows up in English prose and in goharbor.io documentation prose — both
 // adjacent to ≥ 16-char alnum runs. Require a Harbor-credential anchor
 // instead.
-var keywordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)` +
+var keywordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)` +
 		`(?:` +
 		`\bharbor[_\-](?:api|token|key|secret|user|password|cli|robot)` +
 		`|\bgoharbor\b` +

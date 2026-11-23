@@ -18,7 +18,6 @@ package clickhousecloud
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -31,8 +30,8 @@ var apiBase = "https://api.clickhouse.cloud"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
-	idRe     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
-	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40,80})\b`) })
+	idRe     = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
+	secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{40,80})\b`) })
 )
 
 // minEntropy is a conservative floor (alphanumeric/base64url charset, not hex).
@@ -45,8 +44,8 @@ const minEntropy = 3.0
 // Keywords() as the cheap prefilter; this regex demands the vendor keyword sit
 // next to a credential-assignment word inside the (now tightened) window, which
 // kills "clickhouse.cloud" appearing in unrelated prose/URLs far from a token.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)clickhouse[._-](cloud|api)([._-](key|secret|token|id))?|chc_`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)clickhouse[._-](cloud|api)([._-](key|secret|token|id))?|chc_`)
 })
 
 type Scanner struct{}

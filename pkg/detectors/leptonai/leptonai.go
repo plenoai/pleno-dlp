@@ -19,7 +19,6 @@ package leptonai
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -33,14 +32,14 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // No prefix and no documented length, so the regex stays a bare alnum run
 // (>=32) and the keyword gate + entropy floor carry the false-positive load.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,})\b`) })
 
 // armRe is the assignment-style Lepton reference that must appear within the
 // proximity window. A bare "lepton" substring (package names, comments, the
 // dashboard URL) is too weak; "lepton_api_token" / "lepton-token" /
 // "leptonkey" / "lepton_secret" is the shape a real token assignment or
 // config key takes. The bare keyword stays in Keywords() as the prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)lepton[_-]?(api[_-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)lepton[_-]?(api[_-]?)?(token|key|secret)`) })
 
 // minEntropy is a conservative floor. No source documents the charset, so we
 // avoid an aggressive (3.5) cut that would over-cull hex-shaped tokens

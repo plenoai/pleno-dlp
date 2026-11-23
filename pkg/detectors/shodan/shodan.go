@@ -17,7 +17,6 @@ package shodan
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -32,14 +31,16 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // 32-char alphanumeric, per the documented Shodan key format (see package doc).
 // The length is pinned from an authoritative source; the shape is too generic
 // on its own to surface, so the arm regex + entropy floor carry the precision.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // armRe is the assignment-style Shodan reference that must appear within the
 // proximity window. A bare "shodan" substring (the CLI name, dependency names,
 // doc URLs, comments) is too weak; `shodan_api_key` / `shodan-token` /
 // `shodanapikey` / `shodan secret` is the shape a real key assignment or
 // config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)shodan[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)shodan[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-information 32-char runs that clear the alnum regex
 // but are not random keys (padded identifiers, repeated-char strings). 3.5 is

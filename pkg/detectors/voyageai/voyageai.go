@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +21,7 @@ var apiBase = "https://api.voyageai.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Production keys are typically 35 chars total.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pa-[A-Za-z0-9_-]{24,})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(pa-[A-Za-z0-9_-]{24,})\b`) })
 
 var contextKeywords = []string{"voyage", "voyageai", "voyage_api", "voyage_key"}
 

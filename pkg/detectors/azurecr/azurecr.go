@@ -34,7 +34,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -44,8 +43,8 @@ import (
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{10,400}\.[A-Za-z0-9_\-]{10,800}\.[A-Za-z0-9_\-]{10,400})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{10,400}\.[A-Za-z0-9_\-]{10,800}\.[A-Za-z0-9_\-]{10,400})\b`)
 })
 
 var contextKeywords = []string{"azurecr", ".azurecr.io", "acr_token", "acr_refresh", "acr_access", "acr_password"}
@@ -53,7 +52,7 @@ var contextKeywords = []string{"azurecr", ".azurecr.io", "acr_token", "acr_refre
 // azurecrHostRe matches a `<name>.azurecr.io` host inside the decoded JWT
 // payload. Anchored on the literal ACR domain so an unrelated string can't
 // satisfy it.
-var azurecrHostRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[a-z0-9][a-z0-9\-]{0,49}\.azurecr\.io`) })
+var azurecrHostRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`[a-z0-9][a-z0-9\-]{0,49}\.azurecr\.io`) })
 
 // azureADHosts are negative lookalikes: a JWT whose decoded payload points at
 // these endpoints is an Azure AD / Graph token, not an ACR token, and is

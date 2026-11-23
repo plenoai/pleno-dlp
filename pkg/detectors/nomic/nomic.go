@@ -6,7 +6,6 @@ package nomic
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ var apiBase = "https://api-atlas.nomic.ai"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // nk- prefix + >=40 base64url chars — matches the documented Nomic shape.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(nk-[A-Za-z0-9_-]{40,})`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(nk-[A-Za-z0-9_-]{40,})`) })
 
 type Scanner struct{}
 

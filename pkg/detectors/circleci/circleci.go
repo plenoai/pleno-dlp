@@ -6,7 +6,6 @@ package circleci
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,9 +19,9 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	// `CCIPRJ_` + 43 base64url-ish chars (project-scoped token).
-	projectRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(CCIPRJ_[A-Za-z0-9_-]{43})\b`) })
+	projectRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(CCIPRJ_[A-Za-z0-9_-]{43})\b`) })
 	// 40-char lowercase hex (legacy personal API token shape).
-	hexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40})\b`) })
+	hexRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{40})\b`) })
 )
 
 var contextKeywords = []string{"circleci", "circle_token", "circleci_token"}

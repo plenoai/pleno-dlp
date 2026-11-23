@@ -9,7 +9,6 @@ package scoutapm
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -31,8 +30,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // FP load is carried by the arm-regex keyword gate + entropy floor, not the
 // length. The API key (X-SCOUT-API header / `key` query arg) has no documented
 // format at all, so it keeps a wide base64url range.
-var agentKeyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{16,30})\b`) })
-var apiKeyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40,128})\b`) })
+var agentKeyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{16,30})\b`) })
+var apiKeyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{40,128})\b`) })
 
 // minEntropy rejects degenerate runs that clear the length regex but are not
 // real keys — e.g. the all-zeros (`00000000000000000000`, entropy 0.0) and
@@ -50,8 +49,8 @@ const minEntropy = 3.0
 // `scout_apm_agent_key`, `scoutapm_api_key`, `scout-apm-token`, etc. The
 // optional `apm`/`agent`/`api` segments are what distinguish an assignment from
 // the bare vendor word.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)scout[_-]?(apm)?[_-]?(agent[_-]?)?(api[_-]?)?(key|token|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)scout[_-]?(apm)?[_-]?(agent[_-]?)?(api[_-]?)?(key|token|secret)`)
 })
 
 type Scanner struct{}

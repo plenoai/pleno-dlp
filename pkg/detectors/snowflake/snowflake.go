@@ -15,15 +15,14 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var jwtRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+var jwtRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
 })
 
 type Scanner struct{}

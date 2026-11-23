@@ -7,7 +7,6 @@ package mailjet
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ var apiBase = "https://api.mailjet.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var hexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+var hexRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
 
 var contextKeywords = []string{"mailjet"}
 

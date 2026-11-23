@@ -8,7 +8,6 @@ package together
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,7 @@ var apiBase = "https://api.together.xyz"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 64 lowercase hex chars.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{64})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{64})\b`) })
 
 var contextKeywords = []string{"together", "together_api_key", "togetherai"}
 

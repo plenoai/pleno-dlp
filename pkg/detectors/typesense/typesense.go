@@ -19,7 +19,6 @@ package typesense
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -34,14 +33,16 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Typesense keys are documented as exactly 32 alphanumeric characters
 // with no distinguishing prefix, so the length is pinned and the keyword
 // gate plus entropy floor carry the false-positive load.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // armRe is the assignment-style Typesense reference that must appear
 // within the proximity window. A bare "typesense" substring (docs links,
 // package names, host names like `<cluster>.typesense.net`) is too weak;
 // `typesense_api_key` / `typesense-key` / `typesensesecret` is the shape a
 // real key assignment or config entry takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)typesense[_\-]?(api[_\-]?)?(key|token|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)typesense[_\-]?(api[_\-]?)?(key|token|secret)`)
+})
 
 // minEntropy rejects low-entropy 32-char runs that clear the alnum regex
 // but are not random keys. 3.5 is the documented threshold for no-prefix

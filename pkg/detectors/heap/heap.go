@@ -3,7 +3,6 @@ package heap
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -15,7 +14,7 @@ var apiBase = "https://heapanalytics.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(heap_[A-Za-z0-9]{32,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(heap_[A-Za-z0-9]{32,80})\b`) })
 
 var contextKeywords = []string{"heap", "heapanalytics", "heap_api", "heap_token"}
 

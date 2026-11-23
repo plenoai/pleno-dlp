@@ -12,7 +12,6 @@ package posthog
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -24,7 +23,7 @@ var apiBase = "https://app.posthog.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // phx_ + 40+ base62 chars. Production personal keys are 43 chars total.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(phx_[A-Za-z0-9]{40,})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(phx_[A-Za-z0-9]{40,})\b`) })
 
 type Scanner struct{}
 

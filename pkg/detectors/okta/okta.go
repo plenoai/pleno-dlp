@@ -16,7 +16,6 @@ package okta
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -32,7 +31,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Okta tokens start with "00" then 40 URL-safe base64-ish chars (alphanum,
 // underscore, hyphen). The shape is documented and stable.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(00[A-Za-z0-9_-]{40})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(00[A-Za-z0-9_-]{40})\b`) })
 
 type Scanner struct{}
 

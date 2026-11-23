@@ -29,7 +29,6 @@ package upstashredis
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -38,16 +37,16 @@ import (
 
 // Canonical assignment form — highest confidence. The token immediately
 // follows `UPSTASH_REDIS_REST_TOKEN` after `=`, `:`, whitespace, or quotes.
-var primaryRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)UPSTASH_REDIS_REST_TOKEN["']?\s*[=:]\s*["']?([A-Za-z0-9]{50,128})`)
+var primaryRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)UPSTASH_REDIS_REST_TOKEN["']?\s*[=:]\s*["']?([A-Za-z0-9]{50,128})`)
 })
 
 // Loose token shape used for the secondary path. Gated heavily by
 // entropy, diversity, and tight-vicinity context below.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{50,128})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{50,128})\b`) })
 
 // Database host capture, e.g. us1-test-12345.upstash.io.
-var hostRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z0-9-]+\.upstash\.io)\b`) })
+var hostRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-z0-9-]+\.upstash\.io)\b`) })
 
 // minTokenEntropy rejects long but low-information runs (repeated patterns,
 // dictionary/path-like blobs). Real Upstash REST tokens are high-entropy

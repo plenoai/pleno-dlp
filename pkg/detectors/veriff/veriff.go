@@ -7,7 +7,6 @@ package veriff
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,10 +18,10 @@ var apiBase = "https://stationapi.veriff.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var idRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+var idRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
 })
-var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{64})\b`) })
+var secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{64})\b`) })
 
 var contextKeywords = []string{"veriff"}
 

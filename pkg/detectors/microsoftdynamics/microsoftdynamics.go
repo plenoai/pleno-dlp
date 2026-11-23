@@ -8,7 +8,6 @@ package microsoftdynamics
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,8 +22,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Dynamics access tokens are AAD-issued JWTs (3 dot-separated base64url
 // segments). We anchor on the JWT shape rather than free alnum to keep
 // false positives bounded.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,})\b`)
 })
 
 var contextKeywords = []string{"dynamics", "crm.dynamics.com", "dataverse"}

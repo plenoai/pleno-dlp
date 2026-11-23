@@ -7,7 +7,6 @@ package nvidiangc
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = "https://api.ngc.nvidia.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // NVIDIA NGC tokens are documented as `nvapi-<base64url>{40+}`.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(nvapi-[A-Za-z0-9_-]{40,200})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(nvapi-[A-Za-z0-9_-]{40,200})\b`) })
 
 var contextKeywords = []string{"nvidia", "ngc", "nvapi", "nvcr"}
 

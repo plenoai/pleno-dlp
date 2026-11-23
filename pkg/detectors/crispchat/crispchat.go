@@ -19,7 +19,6 @@ package crispchat
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -29,7 +28,7 @@ import (
 // Crisp plugin keys are documented as fixed-length lowercase-hex tokens
 // (64 chars in practice). Narrowing to lowercase-hex of >=40 excludes the
 // mixed-case base64 used by SRI integrity attributes and webpack chunk names.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40,128})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{40,128})\b`) })
 
 // minEntropy rejects low-entropy runs (repeated chars, dictionary-ish or
 // structured-but-non-random hex) that clear the length floor but are not keys.

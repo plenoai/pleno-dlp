@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +15,7 @@ var apiBase = "https://api.hackerone.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{20,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{20,80})\b`) })
 
 var contextKeywords = []string{"hackerone", "h1_"}
 

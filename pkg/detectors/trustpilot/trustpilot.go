@@ -8,7 +8,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = "https://api.trustpilot.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,128})\b`) })
 
 // armRe is the assignment-style Trustpilot reference that must appear within
 // the proximity window. A bare "trustpilot" substring (widget script-src URLs,
@@ -34,7 +33,9 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // no upstream trufflehog detector exists), so the {32,128} alnum range is left
 // unchanged and the entropy floor is held conservative at 3.0 to protect
 // recall — no length is pinned and no charset is narrowed on a guess.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)trustpilot[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)trustpilot[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-entropy 32-128 char runs that clear the alnum regex
 // but are not random tokens. Held at 3.0 (conservative) because the true

@@ -6,7 +6,6 @@ package schematic
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Schematic API keys are documented as `api_<32-char base62>` (no
 // environment-mode prefix in the literal — environment is keyed in the dashboard).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(api_[A-Za-z0-9]{30,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(api_[A-Za-z0-9]{30,80})\b`) })
 
 var contextKeywords = []string{"schematic", "schematichq", "schematic_api"}
 

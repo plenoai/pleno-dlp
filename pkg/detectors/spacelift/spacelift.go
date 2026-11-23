@@ -7,7 +7,6 @@ package spacelift
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +23,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Spacelift API key/secret tokens are documented as `s_<32+ base62>`. The
 // `s_` prefix is short — keyword gate adds safety.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(s_[A-Za-z0-9]{32,120})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(s_[A-Za-z0-9]{32,120})\b`) })
 
 var contextKeywords = []string{"spacelift", "spacelift_api"}
 

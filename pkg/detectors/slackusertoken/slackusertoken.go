@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -21,7 +20,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // xoxp-<workspace>-<user>-<num>-<secret>. Trailing run is base62-ish; require
 // at least 24 chars to avoid latching on truncated samples.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(xoxp-\d+-\d+-\d+-[A-Za-z0-9]{24,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(xoxp-\d+-\d+-\d+-[A-Za-z0-9]{24,})\b`) })
 
 type Scanner struct{}
 

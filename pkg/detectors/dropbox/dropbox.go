@@ -10,7 +10,6 @@ package dropbox
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,8 +22,8 @@ var apiBase = "https://api.dropboxapi.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
-	shortRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sl\.[A-Za-z0-9_-]{130,})\b`) })
-	legacyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{64})\b`) })
+	shortRe  = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(sl\.[A-Za-z0-9_-]{130,})\b`) })
+	legacyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{64})\b`) })
 )
 
 var contextKeywords = []string{"dropbox", "dropbox_token", "dbx"}

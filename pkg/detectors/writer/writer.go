@@ -13,7 +13,6 @@ package writer
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +24,7 @@ var apiBase = "https://api.writer.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,128})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,128})\b`) })
 
 // minEntropy rejects low-information 40-128 char runs that clear the bare
 // alnum regex but are not key-grade randomness (repeated-character padding,
@@ -40,8 +39,8 @@ const minEntropy = 3.0
 // `WriteCloser`, `receive_pack writer` etc.) and pairs with any
 // adjacent 40-char alnum run — git SHAs, base64 chunks. Require a
 // Writer.com credential anchor.
-var keywordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)` +
+var keywordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)` +
 		`(?:` +
 		`\bwriter[_\-](?:api|token|key|secret)` +
 		`|\bwriter\.com\b` +

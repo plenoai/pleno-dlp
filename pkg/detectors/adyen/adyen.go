@@ -18,7 +18,6 @@ package adyen
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -43,8 +42,8 @@ var (
 // Adyen keys typically start with AQE (live) or AQF (test) and are long
 // base64url-ish strings (64+ chars). Tighten on the AQ prefix to avoid
 // generic base64 noise.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(AQE[A-Za-z0-9+/=]{40,200}|AQF[A-Za-z0-9+/=]{40,200})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(AQE[A-Za-z0-9+/=]{40,200}|AQF[A-Za-z0-9+/=]{40,200})\b`)
 })
 
 var contextKeywords = []string{"adyen", "adyen_api_key", "adyen_key"}

@@ -9,7 +9,6 @@ package openrouter
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -21,7 +20,7 @@ var apiBase = "https://openrouter.ai"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `sk-or-v1-` then 64 hex chars (the documented payload length).
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk-or-v1-[a-f0-9]{64})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(sk-or-v1-[a-f0-9]{64})\b`) })
 
 type Scanner struct{}
 

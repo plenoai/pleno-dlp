@@ -5,7 +5,6 @@ package brevo
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -16,7 +15,7 @@ var apiBase = "https://api.brevo.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(xkeysib-[a-f0-9]{64}-[A-Za-z0-9]{16})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(xkeysib-[a-f0-9]{64}-[A-Za-z0-9]{16})\b`) })
 
 type Scanner struct{}
 

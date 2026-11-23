@@ -3,7 +3,6 @@ package inflection
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Inflection key prefix/length/charset. Pinning a length would risk silently
 // destroying recall, so the shape stays open and the keyword gate + entropy
 // floor do the disambiguation.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,})\b`) })
 
 // minEntropy is a conservative floor because the documented charset is
 // unknown; 3.0 rejects obvious low-information runs without culling plausible
@@ -28,7 +27,9 @@ const minEntropy = 3.0
 
 // contextRe is the windowed assignment-anchor gate; the bare keyword stays in
 // Keywords() as the engine prefilter.
-var contextRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)inflection[_-]?(api[_-]?)?(token|key|secret)`) })
+var contextRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)inflection[_-]?(api[_-]?)?(token|key|secret)`)
+})
 
 type Scanner struct{}
 

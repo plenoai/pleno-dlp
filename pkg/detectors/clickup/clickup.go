@@ -10,7 +10,6 @@ package clickup
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +25,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // segment are distinctive enough that we don't require a co-occurring
 // keyword; the suffix shape (32 uppercase A-Z0-9) is too narrow for
 // accidental collisions.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pk_[0-9]{6,8}_[A-Z0-9]{32})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(pk_[0-9]{6,8}_[A-Z0-9]{32})\b`) })
 
 var contextKeywords = []string{"clickup", "click_up", "click-up"}
 

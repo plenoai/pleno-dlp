@@ -6,14 +6,13 @@ package requestbin
 
 import (
 	"context"
-	"regexp"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`https?://[A-Za-z0-9]+\.(?:m\.pipedream\.net|requestbin\.com|requestbin\.net)/[A-Za-z0-9]{8,}`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`https?://[A-Za-z0-9]+\.(?:m\.pipedream\.net|requestbin\.com|requestbin\.net)/[A-Za-z0-9]{8,}`)
 })
 
 type Scanner struct{}

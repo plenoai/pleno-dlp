@@ -8,7 +8,6 @@ package meilisearch
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_\-]{32,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_\-]{32,})\b`) })
 
 var contextKeywords = []string{"meilisearch", "meili_master", "meili-master", "meili_api"}
 

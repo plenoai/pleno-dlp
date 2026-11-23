@@ -9,7 +9,6 @@ package idnow
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,11 +20,13 @@ var apiBase = "https://gateway.idnow.de"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // armRe requires an assignment-style context so a stray "idnow" mention in
 // prose no longer arms the detector; the bare keyword stays the engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)idnow[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)idnow[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-information 32-64 char runs that clear the regex. Held
 // at 3.0 because the charset is undocumented; a higher floor risks real keys.

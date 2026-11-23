@@ -6,7 +6,6 @@ package monsterapi
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -18,7 +17,7 @@ var apiBase = "https://api.monsterapi.ai"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style MonsterAPI reference that must appear within a
 // tight window of the candidate. No authoritative source pins the token
@@ -26,7 +25,9 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // placeholder), so the regex length stays as-is and recall is preserved by
 // gate-tightening rather than format-narrowing. The bare keywords below remain
 // the engine prefilter via Keywords().
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)monster[_\-]?api[_\-]?(token|key|secret)?`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)monster[_\-]?api[_\-]?(token|key|secret)?`)
+})
 
 type Scanner struct{}
 

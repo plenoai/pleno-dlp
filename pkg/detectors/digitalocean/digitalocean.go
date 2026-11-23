@@ -11,7 +11,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,7 +25,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // dop_v1_ prefix + 64 hex chars. The provider-specific prefix means the regex
 // is precise enough that we don't need a co-occurring keyword.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dop_v1_[a-f0-9]{64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(dop_v1_[a-f0-9]{64})\b`) })
 
 type Scanner struct{}
 

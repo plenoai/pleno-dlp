@@ -7,7 +7,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = "https://chrome.browserless.io"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Browserless tokens are 32-64 alnum/dash chars; anchored on `browserless`.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9-]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9-]{32,64})\b`) })
 
 var contextKeywords = []string{"browserless"}
 

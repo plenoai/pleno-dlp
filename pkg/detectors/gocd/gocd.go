@@ -14,13 +14,12 @@ package gocd
 
 import (
 	"context"
-	"regexp"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,64})\b`) })
 
 // hexDigestRe matches a pure-hex run of exactly 40 (git SHA-1) or 64
 // (SHA-256/blake2b) chars. GoCD tokens are mixed-case base62, so any
@@ -29,14 +28,14 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // those regardless of proximity to the `gocd` keyword, killing the
 // dominant FP class (changelog/lockfile/SBOM lines that pin a build
 // image by digest next to a `gocd` mention).
-var hexDigestRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`) })
+var hexDigestRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`) })
 
 // strongKeywordRe is an explicit GoCD credential anchor
 // (`gocd_token`, `gocd_api`, `gocd_key`, `gocd_secret`, `gocd_server`,
 // or `gocd:` / `gocd=`). These are intentional config/secret markers,
 // so we allow a moderate proximity window around them.
-var strongKeywordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)` +
+var strongKeywordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)` +
 		`(?:` +
 		`\bgocd[_\-](?:api|token|key|secret|server)` +
 		`|\bgocd[ \t]*[:=]` +
@@ -50,7 +49,7 @@ var strongKeywordRe = sync.OnceValue(func() *regexp.Regexp {
 // `mQGNBGB5V8gBDACfWWMs+...GOcDR...`). We only let a weak mention gate a
 // token when it is *immediately* adjacent, not anywhere in a wide
 // window.
-var weakKeywordRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)(?:\bgocd\b|\bgo\.cd\b)`) })
+var weakKeywordRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)(?:\bgocd\b|\bgo\.cd\b)`) })
 
 const (
 	// strongRadius bounds an explicit credential anchor to its token.

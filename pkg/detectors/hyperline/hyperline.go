@@ -8,7 +8,6 @@ package hyperline
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,11 +20,13 @@ var apiBase = "https://api.hyperline.co"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // The >=16 tail is a recall-safe lower bound, not a documented exact length.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:prod|test)_[A-Za-z0-9]{16,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b((?:prod|test)_[A-Za-z0-9]{16,})\b`) })
 
 // armRe requires an assignment-style reference in the proximity window; a bare
 // "hyperline" substring is too weak a gate.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)hyperline[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)hyperline[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy culls low-entropy prefixed runs; 3.0 is conservative so base62
 // tokens clear it without trimming real keys.

@@ -8,7 +8,6 @@ package amplitude
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,7 @@ var apiBase = "https://amplitude.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 32-char lowercase hex matches both Amplitude API keys and secret keys.
-var hexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+var hexRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
 
 var contextKeywords = []string{"amplitude", "amplitude_api", "amplitude_key", "amplitude_secret"}
 

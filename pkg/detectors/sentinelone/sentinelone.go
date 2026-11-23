@@ -8,7 +8,6 @@ package sentinelone
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{80,256})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{80,256})\b`) })
 
 // armRe is the assignment-style SentinelOne reference that must appear within
 // the proximity window. SentinelOne does not publicly document the API token's
@@ -32,8 +31,8 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // 80-256 alphanumeric run; `sentinelone[_-]?(api[_-]?)?(token|key|secret)` is
 // the shape a real credential assignment or config key takes. The bare
 // keyword is kept in Keywords() as the cheap engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)sentinelone[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)sentinelone[_\-]?(api[_\-]?)?(token|key|secret)`)
 })
 
 // minEntropy rejects low-entropy 80-256 char runs that clear the alnum regex

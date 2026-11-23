@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,8 +21,8 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var ckRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(ck_[a-f0-9]{40})\b`) })
-var csRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(cs_[a-f0-9]{40})\b`) })
+var ckRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(ck_[a-f0-9]{40})\b`) })
+var csRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(cs_[a-f0-9]{40})\b`) })
 
 type Scanner struct{}
 

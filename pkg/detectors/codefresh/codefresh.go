@@ -6,7 +6,6 @@ package codefresh
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Codefresh user tokens are JWT-shaped 3-segment dot-separated, but legacy
 // API keys can be a 40+ char alphanumeric. Match the broader shape and gate
 // on the keyword.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9._-]{40,200})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9._-]{40,200})\b`) })
 
 var contextKeywords = []string{"codefresh", "codefresh_token", "cf_api_key"}
 

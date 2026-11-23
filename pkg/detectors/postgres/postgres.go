@@ -37,7 +37,6 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
 
@@ -46,8 +45,8 @@ import (
 
 // Both `postgres://` and `postgresql://` schemes are accepted. Userinfo is
 // required (`:` and `@`).
-var uriRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(postgres(?:ql)?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
+var uriRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(postgres(?:ql)?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
 })
 
 // passwordDenylist holds case-insensitive literal placeholder/sentinel values
@@ -80,8 +79,8 @@ var passwordDenylist = map[string]struct{}{
 // template placeholder rather than a literal value: `${DB_PASS}`, `{{password}}`,
 // `%(password)s`, or `<password>`. Such spans denote config templates where no
 // literal secret is present.
-var templateMarkerRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^(?:\$\{[^}]*\}|\{\{[^}]*\}\}|%\([^)]*\)s|<[^>]*>)$`)
+var templateMarkerRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`^(?:\$\{[^}]*\}|\{\{[^}]*\}\}|%\([^)]*\)s|<[^>]*>)$`)
 })
 
 // skipVerifyHosts lists hosts that the Verify probe must never contact.

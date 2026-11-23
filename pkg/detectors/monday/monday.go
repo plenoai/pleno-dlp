@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,8 +26,8 @@ var apiBase = "https://api.monday.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // JWT shape — eyJ + base64url... .eyJ + base64url... .signature.
-var jwtRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+var jwtRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
 })
 
 var contextKeywords = []string{"monday.com", "monday_api", "monday_token", "mondaycom"}

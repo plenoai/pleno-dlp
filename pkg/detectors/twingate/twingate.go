@@ -8,7 +8,6 @@ package twingate
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +21,7 @@ var apiBase = ""
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Twingate API tokens: tk_<32-base64url> or tkt_<...>.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(tkt?_[A-Za-z0-9_-]{20,200})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(tkt?_[A-Za-z0-9_-]{20,200})\b`) })
 
 type Scanner struct{}
 

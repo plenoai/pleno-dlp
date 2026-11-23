@@ -24,7 +24,6 @@ package aws
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -39,11 +38,13 @@ import (
 // AKIA[0-9A-Z]{16} is the canonical access-key-id shape. ASIA covers temporary
 // credentials but is intentionally out of scope for the MVP.
 var (
-	idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`AKIA[0-9A-Z]{16}\b`) })
+	idRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`AKIA[0-9A-Z]{16}\b`) })
 	// Secret access key: 40 chars from the base64-ish set. The boundary `\b`
 	// would treat `+` and `/` as boundaries, so we anchor with a negative
 	// lookbehind-equivalent via byte class on the surrounding chars manually.
-	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[^A-Za-z0-9+/]([A-Za-z0-9+/]{40})[^A-Za-z0-9+/]`) })
+	secretRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`[^A-Za-z0-9+/]([A-Za-z0-9+/]{40})[^A-Za-z0-9+/]`)
+	})
 )
 
 const accessKeyIDLen = len("AKIA") + 16
@@ -54,8 +55,8 @@ const accessKeyIDLen = len("AKIA") + 16
 //
 // AWS reserves enough special-cases (root, federated-user/, assumed-role/<role>/<session>)
 // that we extract the resource segment and let principalKind switch over it.
-var arnRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^arn:(aws|aws-cn|aws-us-gov):([^:]+)::?(\d+)?:(.+)$`)
+var arnRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`^arn:(aws|aws-cn|aws-us-gov):([^:]+)::?(\d+)?:(.+)$`)
 })
 
 // stsRegion is the region used for the verification call. us-east-1 is a safe

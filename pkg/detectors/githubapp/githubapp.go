@@ -11,7 +11,6 @@ package githubapp
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -23,7 +22,7 @@ var apiBase = "https://api.github.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // ghs_ + 36 base62 chars — same suffix shape as ghp_, distinct prefix.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(ghs_[A-Za-z0-9]{36})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(ghs_[A-Za-z0-9]{36})\b`) })
 
 type Scanner struct{}
 

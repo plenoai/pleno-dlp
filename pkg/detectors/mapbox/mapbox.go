@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -29,8 +28,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // sk.<base64url-segment>.<base64url-payload>.<base64url-sig>. The leading
 // `sk.` distinguishes from `pk.` (public). Each segment is base64url.
-var keyRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(sk\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b`)
+var keyRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(sk\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b`)
 })
 
 type Scanner struct{}

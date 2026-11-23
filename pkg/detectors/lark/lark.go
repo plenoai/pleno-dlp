@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,13 +21,13 @@ var apiBase = "https://open.larksuite.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var appIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(cli_[a-f0-9]{16})\b`) })
+var appIDRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(cli_[a-f0-9]{16})\b`) })
 
 // app_secret is a 32-char alphanumeric string with no prefix. Length and
 // charset are authoritative from the upstream trufflehog larksuiteapikey
 // detector (`[a-z0-9A-Z]{32}`):
 // https://github.com/trufflesecurity/trufflehog/blob/main/pkg/detectors/larksuiteapikey/larksuiteapikey.go
-var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
+var secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // minSecretEntropy rejects 32-char runs that clear the regex but lack
 // key-grade randomness (e.g. an MD5 hex digest or a repetitive build id near
@@ -41,8 +40,8 @@ const minSecretEntropy = 3.5
 // bare strings.Contains(window,"lark"|"feishu"|"cli_") which matched any
 // document merely mentioning Lark within 256 bytes. The bare keyword stays in
 // Keywords() as the cheap prefilter.
-var contextRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(lark|feishu)[_-]?(app[_-]?)?(id|secret|token|key)|cli_[a-f0-9]{16}`)
+var contextRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(lark|feishu)[_-]?(app[_-]?)?(id|secret|token|key)|cli_[a-f0-9]{16}`)
 })
 
 type Scanner struct{}

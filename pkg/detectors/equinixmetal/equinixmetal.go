@@ -6,7 +6,6 @@ package equinixmetal
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ var apiBase = "https://api.equinix.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Equinix Metal API tokens are 32-char alnum.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // minEntropy gates out low-information 32-char runs (repeated chars, padded
 // identifiers) that clear the length floor but are not tokens. 3.0 is chosen
@@ -32,8 +31,8 @@ const minEntropy = 3.0
 // token. A bare `equinix` substring (e.g. a docs URL or marketing copy) no
 // longer arms a token — only anchored credential shapes do. `equinix` is kept
 // in Keywords() as a cheap prefilter, but the proximity gate is stricter.
-var anchorRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`metal_api|packet_api|metal_token|equinix[_\-]?(?:api|token|metal)`)
+var anchorRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`metal_api|packet_api|metal_token|equinix[_\-]?(?:api|token|metal)`)
 })
 
 type Scanner struct{}

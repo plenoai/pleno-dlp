@@ -9,7 +9,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +25,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Source: https://pushover.net/api — "Application tokens are case-sensitive,
 // 30 characters long, and may contain the character set [A-Za-z0-9]."
 // (User/group keys share the same 30-char [A-Za-z0-9] shape.)
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{30})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{30})\b`) })
 
 // armRe is the assignment-style Pushover reference that must appear within the
 // proximity window. A bare "pushover" substring (URLs, package names, prose) is
@@ -36,8 +35,8 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // qualifier, and an assignment delimiter (`=` or `:`) so a token merely sitting
 // near the word "pushover" in prose no longer arms. Covers the
 // vendor[_-]?(api[_-]?)?(token|key|secret) shape and the config-key forms.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)pushover([_\-]?(app|api[_\-]?(token|key|secret)|token|key|secret))?\s*[:=]`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)pushover([_\-]?(app|api[_\-]?(token|key|secret)|token|key|secret))?\s*[:=]`)
 })
 
 // minEntropy rejects low-information 30-char alphanumeric runs that clear the

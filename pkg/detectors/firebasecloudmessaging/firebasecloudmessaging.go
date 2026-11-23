@@ -8,7 +8,6 @@ package firebasecloudmessaging
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,8 +22,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // FCM legacy server keys: `AAAA<base64url>:APA91b<base64url>` — the prefix
 // `AAAA` is followed by base64url chars and a colon-separated `APA91b`
 // identifier. We capture the entire token shape.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(AAAA[A-Za-z0-9_-]{7}:APA91b[A-Za-z0-9_-]{134,200})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(AAAA[A-Za-z0-9_-]{7}:APA91b[A-Za-z0-9_-]{134,200})\b`)
 })
 
 var contextKeywords = []string{"fcm", "firebase", "firebase_server_key", "firebase_messaging"}

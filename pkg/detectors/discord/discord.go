@@ -10,7 +10,6 @@ package discord
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -23,8 +22,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `<24+>.<6+>.<27+>` base64url segments. We allow a wider lower bound on the
 // last segment because Discord rotated to longer HMACs in late 2023.
-var keyRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([A-Za-z0-9_-]{24,28}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,})\b`)
+var keyRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([A-Za-z0-9_-]{24,28}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,})\b`)
 })
 
 type Scanner struct{}

@@ -15,7 +15,6 @@ package june
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -29,15 +28,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Unpinned alnum run. {16,} is a generic short-noise floor, not a
 // documented june key length — the format is unknown (see package doc).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{16,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{16,})\b`) })
 
 // armRe is the assignment-style June reference that must appear within the
 // proximity window. A bare "june.so" substring (script-src CDN URLs, doc
 // links) is too weak a gate against a generic alphanumeric run;
 // june[_-]?(write[_-]?)?(api[_-]?)?(token|key|secret) is the shape a real
 // write-key assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)june[_\-]?(write[_\-]?)?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)june[_\-]?(write[_\-]?)?(api[_\-]?)?(token|key|secret)`)
 })
 
 // minEntropy rejects low-information runs (repeated chars, padded

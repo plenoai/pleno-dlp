@@ -5,7 +5,6 @@ package netlify
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -18,7 +17,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // nfp_ + 40 alphanumeric. Netlify's PAT format is documented and stable
 // (https://docs.netlify.com/api/get-started/#authentication).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(nfp_[A-Za-z0-9]{40})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(nfp_[A-Za-z0-9]{40})\b`) })
 
 type Scanner struct{}
 

@@ -5,7 +5,6 @@ package freshmarketer
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // No authoritative source pins the exact length or charset for a
 // freshmarketer key, so the length window is left wide and recall is
 // protected by the entropy floor + arm regex rather than a guessed length.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{16,40})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{16,40})\b`) })
 
 // 3.0 is conservative: no documented charset/length lets us claim a higher
 // floor without risking recall.
@@ -29,8 +28,8 @@ const minEntropy = 3.0
 // armRe is the assignment-style freshmarketer reference that must appear within
 // the radius window for a candidate to arm. Replaces a bare
 // strings.Contains(window, "freshmarketer") that armed on any prose mention.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)fresh[_\-]?marketer[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)fresh[_\-]?marketer[_\-]?(api[_\-]?)?(token|key|secret)`)
 })
 
 type Scanner struct{}

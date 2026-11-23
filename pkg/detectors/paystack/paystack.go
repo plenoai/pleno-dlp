@@ -8,7 +8,6 @@ package paystack
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,7 @@ var apiBase = "https://api.paystack.co"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Paystack secret keys: sk_(live|test)_ + 40-50 alnum chars.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk_(live|test)_[A-Za-z0-9]{40,50})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(sk_(live|test)_[A-Za-z0-9]{40,50})\b`) })
 
 type Scanner struct{}
 

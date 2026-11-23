@@ -6,7 +6,6 @@ package abnormalsec
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +21,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // documents a prefix or an exact length, so we keep the original 32-64
 // alnum range rather than pin a length we cannot cite — over-pinning would
 // silently destroy recall.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // minEntropy is a conservative floor. A bare `[A-Za-z0-9]{32,64}` run with no
 // documented prefix collides with commit SHAs, base32/hex blobs, and padded
@@ -34,8 +33,8 @@ const minEntropy = 3.0
 // tight proximity window. A bare "abnormal" substring is too weak a gate; the
 // assignment shapes abnormal[_-]?(api[_-]?)?(token|key|secret) and the
 // product host words are what a real credential reference looks like.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)abnormal(security|platform)?[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)abnormal(security|platform)?[_\-]?(api[_\-]?)?(token|key|secret)`)
 })
 
 type Scanner struct{}

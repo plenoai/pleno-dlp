@@ -9,7 +9,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sync"
 	"time"
 
@@ -22,7 +21,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // AIza<35 chars> is the documented format. The character class is the
 // base64url-without-padding alphabet.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(AIza[A-Za-z0-9_-]{35})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(AIza[A-Za-z0-9_-]{35})\b`) })
 
 type Scanner struct{}
 

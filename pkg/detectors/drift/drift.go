@@ -13,7 +13,6 @@ package drift
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -31,14 +30,14 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // We narrow to this JWT shape because the prior `[A-Za-z0-9_-]{32,80}`
 // collided with virtually every base64-encoded blob (commit-shaped
 // hashes, npm sha512 fragments, base32 UUIDs, JWT-mid-segments).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{20,200}\.[A-Za-z0-9_\-]{10,300}\.[A-Za-z0-9_\-]{10,300})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{20,200}\.[A-Za-z0-9_\-]{10,300}\.[A-Za-z0-9_\-]{10,300})\b`)
 })
 
 // keywordRe requires an explicit separator so words like `drifted`,
 // `drifting`, `adrift` no longer qualify. Case-insensitive.
-var keywordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)` +
+var keywordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)` +
 		`(?:` +
 		`drift[_\-]api(?:[_\-]token)?` +
 		`|drift[_\-]token` +

@@ -7,7 +7,6 @@ package lemlist
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,8 +18,8 @@ var apiBase = "https://api.lemlist.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var emailRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b`)
+var emailRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b`)
 })
 
 // tokenRe matches the lemlist API key shape: a 32-char lowercase hex string.
@@ -28,13 +27,15 @@ var emailRe = sync.OnceValue(func() *regexp.Regexp {
 // (github.com/trufflesecurity/trufflehog pkg/detectors/lemlist:
 // `\b([a-f0-9]{32})\b`). The previous bare `[A-Za-z0-9]{32,128}` was far too
 // broad and matched any long alphanumeric run near the keyword.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
 
 // armRe is the assignment-style lemlist reference that must appear within the
 // proximity window. A bare "lemlist" substring (doc links, the api.lemlist.com
 // host, marketing copy) is too weak a gate; `lemlist[_-]?(api[_-]?)?(token|
 // key|secret)` is the shape a real credential assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)lemlist[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)lemlist[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-information 32-char hex runs that clear the regex but
 // are not random tokens (e.g. all-zero padding, repeated nibbles). Hex caps

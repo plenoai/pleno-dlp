@@ -3,7 +3,6 @@ package harness
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -14,8 +13,8 @@ var apiBase = "https://app.harness.io"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(pat\.[A-Za-z0-9_-]{8,40}\.[A-Za-z0-9_-]{8,40}\.[A-Za-z0-9]{16,64})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(pat\.[A-Za-z0-9_-]{8,40}\.[A-Za-z0-9_-]{8,40}\.[A-Za-z0-9]{16,64})\b`)
 })
 
 type Scanner struct{}

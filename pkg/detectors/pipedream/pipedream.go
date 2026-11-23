@@ -6,7 +6,6 @@ package pipedream
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Pipedream user-API tokens are 64 hex chars; we accept the [32, 80] range
 // to cover newer JWT-prefixed shapes too.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Fa-f0-9]{32,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Fa-f0-9]{32,80})\b`) })
 
 var contextKeywords = []string{"pipedream"}
 

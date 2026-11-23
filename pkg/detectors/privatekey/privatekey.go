@@ -38,7 +38,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,14 +49,14 @@ import (
 // Match the begin marker, the body, and the end marker in one go. Use [\s\S]
 // (any char including newline) since Go regexp's `.` excludes \n by default.
 // The optional ` BLOCK` suffix covers PGP armor: `-----BEGIN PGP PRIVATE KEY BLOCK-----`.
-var blockRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----`)
+var blockRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----`)
 })
 
 // Used to pull the algorithm token out of the BEGIN line as a fallback when
 // the PEM body fails to parse (corrupted block, truncated paste).
-var algRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----`)
+var algRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |PGP |DSA |ED25519 |ENCRYPTED |)?PRIVATE KEY(?: BLOCK)?-----`)
 })
 
 // Scanner is the privatekey detector. The struct carries a CT client and

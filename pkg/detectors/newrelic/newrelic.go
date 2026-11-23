@@ -11,7 +11,6 @@ package newrelic
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -23,9 +22,9 @@ var apiBase = "https://api.newrelic.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
-	licenseRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(NRRA-[a-zA-Z0-9-]{42})\b`) })
-	ingestRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(NRAK-[A-Z0-9]{27})\b`) })
-	insertRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(NRII-[A-Za-z0-9-]{32})\b`) })
+	licenseRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(NRRA-[a-zA-Z0-9-]{42})\b`) })
+	ingestRe  = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(NRAK-[A-Z0-9]{27})\b`) })
+	insertRe  = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(NRII-[A-Za-z0-9-]{32})\b`) })
 )
 
 type Scanner struct{}

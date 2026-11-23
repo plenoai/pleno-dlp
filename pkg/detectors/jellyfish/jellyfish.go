@@ -7,7 +7,6 @@ package jellyfish
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,13 +18,15 @@ var apiBase = "https://api.jellyfish.co"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style Jellyfish reference that must appear within
 // the proximity window: a bare "jellyfish" substring is too weak a gate
 // against a generic 40-80 alphanumeric run. The bare keyword stays in
 // Keywords() as the engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)jellyfish[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)jellyfish[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy is a conservative floor: with no authoritative charset
 // documented the token could be hex-ish or low-variety, and a higher floor

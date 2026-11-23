@@ -16,7 +16,6 @@ package vimeo
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -31,7 +30,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // tokenRe is intentionally generic: Vimeo's token length/charset is
 // undocumented (see package doc), so pinning a length would silently destroy
 // recall. Disambiguation is done by the entropy floor and the arm regex.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,128})\b`) })
 
 // minEntropy rejects low-information 32-128 char alnum runs (padded
 // placeholders, repeated/structured strings) that clear the regex but are not
@@ -44,8 +43,8 @@ const minEntropy = 3.0
 // vimeo[_-]?(api[_-]?)?(token|key|secret|client) is what a real credential
 // declaration or config key looks like. The bare "vimeo" keyword stays in
 // Keywords() as the cheap engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)vimeo[_\-]?(api[_\-]?)?(token|key|secret|client)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)vimeo[_\-]?(api[_\-]?)?(token|key|secret|client)`)
 })
 
 type Scanner struct{}

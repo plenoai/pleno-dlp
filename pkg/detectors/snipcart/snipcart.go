@@ -11,7 +11,6 @@ package snipcart
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -26,13 +25,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Exactly 75 chars of [0-9A-Za-z_], per the upstream trufflehog detector
 // (`\b([0-9A-Za-z_]{75})\b`). No prefix to anchor on, so the keyword arm
 // regex + entropy floor carry the false-positive load.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([0-9A-Za-z_]{75})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([0-9A-Za-z_]{75})\b`) })
 
 // armRe is the assignment-style Snipcart reference that must appear within the
 // proximity window. A bare "snipcart" substring is too weak; the shape a real
 // secret-key assignment or config key takes is `snipcart_api_key` /
 // `snipcart-secret` / "snipcart token".
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)snipcart[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)snipcart[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-entropy 75-char runs that clear the charset regex
 // but are not random keys.

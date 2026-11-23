@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,8 +22,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Heroku doesn't require UUID v4, so we accept any hex UUID and lean on the
 // keyword gate for precision.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
 })
 
 var contextKeywords = []string{"heroku", "heroku_api_key"}

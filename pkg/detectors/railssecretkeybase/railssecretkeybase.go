@@ -25,7 +25,6 @@ package railssecretkeybase
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -34,8 +33,8 @@ import (
 
 // lineRe matches a `secret_key_base:` YAML line and captures the
 // (possibly quoted) value token.
-var lineRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var lineRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?im)^[ \t]*secret_key_base:[ \t]+(\S+)[ \t]*$`,
 	)
 })

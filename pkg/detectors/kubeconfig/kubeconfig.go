@@ -50,7 +50,6 @@ import (
 	"encoding/pem"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -62,9 +61,9 @@ import (
 // client.authentication.k8s.io group appears in exec-credential plugin
 // stanzas embedded in real kubeconfigs.
 var (
-	kindRe       = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?im)^\s*kind\s*:\s*Config\s*$`) })
-	apiVersionRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?im)^\s*apiVersion\s*:\s*["']?(v1|client\.authentication\.k8s\.io/[^\s"']+)["']?\s*$`)
+	kindRe       = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?im)^\s*kind\s*:\s*Config\s*$`) })
+	apiVersionRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`(?im)^\s*apiVersion\s*:\s*["']?(v1|client\.authentication\.k8s\.io/[^\s"']+)["']?\s*$`)
 	})
 )
 
@@ -72,27 +71,29 @@ var (
 // field only counts when it falls within usersVicinity bytes AFTER one
 // of these markers — the inline vicinity check that ties the credential
 // to a users block rather than an unrelated object.
-var usersBlockRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?im)^\s*-?\s*users?\s*:\s*$`) })
+var usersBlockRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?im)^\s*-?\s*users?\s*:\s*$`) })
 
 const usersVicinity = 200
 
 // One result per credential field. We anchor on YAML line shape (key
 // indented under `user:`) and require a non-empty value.
 var (
-	clientCertRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?m)^\s*client-certificate-data\s*:\s*([A-Za-z0-9+/=]{40,})\s*$`)
+	clientCertRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`(?m)^\s*client-certificate-data\s*:\s*([A-Za-z0-9+/=]{40,})\s*$`)
 	})
-	clientKeyRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?m)^\s*client-key-data\s*:\s*([A-Za-z0-9+/=]{40,})\s*$`)
+	clientKeyRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`(?m)^\s*client-key-data\s*:\s*([A-Za-z0-9+/=]{40,})\s*$`)
 	})
-	tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^\s*token\s*:\s*([A-Za-z0-9._\-+/=]{20,})\s*$`) })
-	nameRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[\s-]*name\s*:\s*([^\s]+)\s*$`) })
+	tokenRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`(?m)^\s*token\s*:\s*([A-Za-z0-9._\-+/=]{20,})\s*$`)
+	})
+	nameRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?m)^[\s-]*name\s*:\s*([^\s]+)\s*$`) })
 )
 
 // serverRe extracts the cluster server URL from a kubeconfig YAML.
 // The server: field sits under a `clusters:` block and always carries
 // an https:// (or occasionally http://) URL.
-var serverRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^\s*server\s*:\s*(https?://[^\s]+)`) })
+var serverRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?m)^\s*server\s*:\s*(https?://[^\s]+)`) })
 
 // verifyTimeout caps the time spent probing a single cluster endpoint.
 const verifyTimeout = 5 * time.Second
@@ -238,7 +239,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 	// is true only for the bearer-token field, where placeholder/entropy
 	// collisions are realistic; base64 cert/key data always clears entropy
 	// and we keep its guard to the vicinity + placeholder checks.
-	scan := func(re *regexp.Regexp, fieldName string, checkToken bool) {
+	scan := func(re *detectors.Regexp, fieldName string, checkToken bool) {
 		for _, m := range re.FindAllStringSubmatchIndex(str, -1) {
 			value := str[m[2]:m[3]]
 			if !inUsersVicinity(m[0]) {

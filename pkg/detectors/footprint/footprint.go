@@ -8,7 +8,6 @@ package footprint
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = "https://api.onefootprint.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk_(?:test|live)_[A-Za-z0-9]{32,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(sk_(?:test|live)_[A-Za-z0-9]{32,80})\b`) })
 
 var contextKeywords = []string{"footprint", "onefootprint"}
 

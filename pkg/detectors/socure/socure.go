@@ -22,7 +22,6 @@ package socure
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -37,15 +36,17 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // tokenRe anchors on the documented UUID v4 structure (8-4-4-4-12 hex, version
 // nibble 4, variant nibble [89ab]). Source: help.socure.com RiskOS
 // authentication docs. The structure is the discriminator, so no entropy gate.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})\b`)
 })
 
 // armRe is the assignment-style Socure reference that must appear within the
 // proximity window. A bare "socure" substring is too weak; "socure_api_key" /
 // "socure-token" / "socurekey" is the shape a real key assignment or config
 // key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)socure[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)socure[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 type Scanner struct{}
 

@@ -37,7 +37,6 @@ package phpconfigsecret
 import (
 	"bytes"
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -47,8 +46,8 @@ import (
 // phpDefineRe matches `define('KEY', 'value')` / `define("KEY", "value")`
 // with optional whitespace around the parens/comma, as PHP-CS-Fixer and
 // generatewp.com-style generators both produce.
-var phpDefineRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var phpDefineRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?i)define\s*\(\s*['"]([A-Za-z0-9_]+)['"]\s*,\s*(?:'([^']*)'|"([^"]*)")\s*\)`,
 	)
 })
@@ -56,8 +55,8 @@ var phpDefineRe = sync.OnceValue(func() *regexp.Regexp {
 // phpVarRe matches `$xxxpasswordxxx = 'value';` PHP variable assignment, pleno-dlp:allow
 // where the variable name contains one of the credential keywords with
 // no separator required (covers `$dbpasswd` as well as `$db_password`).
-var phpVarRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var phpVarRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?i)\$([a-z0-9_]*(?:password|passwd|pwd|secret)[a-z0-9_]*)\s*=\s*(?:'([^']*)'|"([^"]*)")`,
 	)
 })

@@ -8,7 +8,6 @@ package turso
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +21,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Turso platform tokens are 3-part dotted JWTs but the API also accepts opaque
 // 40+ char strings; cover both shapes.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9._-]{40,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9._-]{40,})\b`) })
 
 var contextKeywords = []string{"turso"}
 

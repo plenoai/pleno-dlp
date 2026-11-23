@@ -7,7 +7,6 @@ package notion
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -18,7 +17,7 @@ var apiBase = "https://api.notion.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(secret_[A-Za-z0-9]{43})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(secret_[A-Za-z0-9]{43})\b`) })
 
 // Pinned to the latest stable Notion API version. Updating this is a
 // coordinated change because old tokens may behave differently across

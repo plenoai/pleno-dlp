@@ -1,7 +1,6 @@
 package detectors
 
 import (
-	"regexp"
 	"strings"
 )
 
@@ -23,7 +22,7 @@ func NearKeywords(lower string, start, end, radius int, keywords []string) bool 
 	return false
 }
 
-func NearPattern(lower string, start, end, radius int, armRe *regexp.Regexp) bool {
+func NearPattern(lower string, start, end, radius int, armRe *Regexp) bool {
 	from := start - radius
 	if from < 0 {
 		from = 0

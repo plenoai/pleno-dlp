@@ -7,7 +7,6 @@ package ortto
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = "https://api.ap3api.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Ortto/Autopilot personal access keys: `pak_` + 32-64 alnum chars.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pak_[A-Za-z0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(pak_[A-Za-z0-9]{32,64})\b`) })
 
 type Scanner struct{}
 

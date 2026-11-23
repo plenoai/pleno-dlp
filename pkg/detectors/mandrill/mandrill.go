@@ -6,7 +6,6 @@ package mandrill
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Mandrill API keys are 22-char URL-safe alphanumeric (sometimes 32-char
 // historic). Match 22..36 to cover both shapes.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{22,36})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{22,36})\b`) })
 
 var contextKeywords = []string{"mandrill", "mandrill_key", "mandrill_api"}
 

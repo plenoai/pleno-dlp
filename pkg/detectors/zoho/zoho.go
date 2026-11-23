@@ -3,22 +3,23 @@ package zoho
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b1000\.([A-Za-z0-9]{32,})\.([A-Za-z0-9]{32,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b1000\.([A-Za-z0-9]{32,})\.([A-Za-z0-9]{32,})\b`)
+})
 
 var contextKeywords = []string{"zoho", "zoho_refresh", "zoho_token", "zoho_oauth"}
 
 const minSegmentEntropy = 3.5
 
 var (
-	allDecimalRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9]+$`) })
-	allHexRe     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-f]+$`) })
+	allDecimalRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^[0-9]+$`) })
+	allHexRe     = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^[0-9a-f]+$`) })
 )
 
 func plausibleSegment(seg string) bool {

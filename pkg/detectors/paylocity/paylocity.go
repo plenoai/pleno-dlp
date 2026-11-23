@@ -9,7 +9,6 @@ package paylocity
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -28,14 +27,14 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // permissive [A-Za-z0-9]{32,64} charset/length rather than pin to hex-32 and
 // silently drop the undocumented secret half. The false-positive load is
 // instead carried by the assignment-anchor arm regex + entropy floor below.
-var credRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var credRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // armRe is the assignment-style Paylocity reference that must appear within the
 // proximity window. A bare "paylocity" substring (dependency names, doc URLs,
 // comments) is too weak; a `paylocity[_-]?(client[_-]?)?(id|secret|key|token)`
 // reference is the shape a real credential assignment / config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)paylocity[_\-]?(client[_\-]?)?(id|secret|key|token)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)paylocity[_\-]?(client[_\-]?)?(id|secret|key|token)`)
 })
 
 // minEntropy rejects low-variety 32-64 char runs that clear the alnum regex but

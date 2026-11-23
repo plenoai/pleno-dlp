@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 const maxVerifyResponseBytes = 64 << 10
 
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk-ant-api03-[A-Za-z0-9_-]{93}AA)\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(sk-ant-api03-[A-Za-z0-9_-]{93}AA)\b`) })
 
 type Scanner struct{}
 

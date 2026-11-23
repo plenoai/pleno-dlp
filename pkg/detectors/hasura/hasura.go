@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -32,7 +31,7 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{64})\b`) })
 
 // armRe is the assignment-style Hasura admin-secret reference that must appear
 // within the proximity window. A bare "hasura" substring is too weak; the
@@ -40,8 +39,8 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // HASURA_GRAPHQL_ADMIN_SECRET / hasura-admin-secret / x-hasura-admin-secret.
 // The `(graphql[_-]?)?(admin[_-]?)?secret` tail keeps the bare keyword in
 // Keywords() as the prefilter while arming on the assignment context only.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)hasura[_\-]?(graphql[_\-]?)?(admin[_\-]?)?secret`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)hasura[_\-]?(graphql[_\-]?)?(admin[_\-]?)?secret`)
 })
 
 // minEntropy rejects low-entropy 64-char runs that clear the alnum regex but

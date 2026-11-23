@@ -20,7 +20,6 @@ package looker
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -38,8 +37,8 @@ import (
 //	client_id=abcdef0123456789abcd
 //	client_secret: "fedcba9876543210fedc"
 //	api3_client_id => abcdef0123456789abcd
-var fieldRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(?:api3[_-]?)?client[_-]?(id|secret)["'\s:=>(){}\[\]-]{0,4}([A-Za-z0-9]{20})\b`)
+var fieldRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(?:api3[_-]?)?client[_-]?(id|secret)["'\s:=>(){}\[\]-]{0,4}([A-Za-z0-9]{20})\b`)
 })
 
 // minEntropy: 20-char base62 strings have an entropy ceiling near 6.0
@@ -61,8 +60,8 @@ var contextKeywords = []string{
 	"api3", "looker_sdk", "lookersdk", "/api/4.0", "/api/3.1", "looker",
 }
 
-var pureHexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-fA-F]{20}$`) })
-var pureDecimalRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9]{20}$`) })
+var pureHexRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^[0-9a-fA-F]{20}$`) })
+var pureDecimalRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^[0-9]{20}$`) })
 
 type Scanner struct{}
 

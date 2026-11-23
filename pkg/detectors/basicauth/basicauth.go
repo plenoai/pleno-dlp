@@ -36,7 +36,6 @@ package basicauth
 import (
 	"context"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -45,8 +44,8 @@ import (
 
 // Match generic http(s) URLs (and ftp/ftps) with userinfo. The `:`
 // inside userinfo and `@` terminator are mandatory.
-var uriRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b((?:https?|ftps?)://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
+var uriRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b((?:https?|ftps?)://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
 })
 
 // minPasswordEntropy drops low-entropy documentation fillers (e.g. "bar",

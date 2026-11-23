@@ -8,7 +8,6 @@ package vectra
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +21,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Vectra API tokens are 40 hex chars (UUID-without-dashes shape +
 // extension); we accept the 32-64 hex range to cover legacy and current.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32,64})\b`) })
 
 var contextKeywords = []string{"vectra", "vectra.ai", "vectra-ai"}
 

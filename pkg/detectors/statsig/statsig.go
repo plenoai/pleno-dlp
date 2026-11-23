@@ -7,7 +7,6 @@ package statsig
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ var apiBase = "https://statsigapi.net"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:console|secret)-[A-Za-z0-9]{40,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b((?:console|secret)-[A-Za-z0-9]{40,})\b`) })
 
 var contextKeywords = []string{"statsig"}
 

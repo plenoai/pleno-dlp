@@ -7,7 +7,6 @@ package travisci
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,14 +19,14 @@ var apiBase = "https://api.travis-ci.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Travis tokens are 22 chars of base64-url-ish alnum.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_\-]{22})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_\-]{22})\b`) })
 
 // keywordRe is the anchored Travis CI marker. A .travis.yml is filled
 // with the word `travis` (file name, sample comments, env-var prefix
 // like `TRAVIS_BUILD_ID`), so the bare keyword pairs every 22-char
 // env-var name into a fake token. Require a Travis-API anchor.
-var keywordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)` +
+var keywordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)` +
 		`(?:` +
 		`\btravis[_\-](?:api|token|access[_\-]?token|key|secret)` +
 		`|\bapi\.travis-ci\.(?:com|org)\b` +

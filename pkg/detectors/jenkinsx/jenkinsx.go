@@ -18,7 +18,6 @@ package jenkinsx
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -34,14 +33,14 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // not pin an exact length or anchor a prefix — that would silently destroy
 // recall. The body stays a broad 40-80 char alnum run; the keyword gate and
 // entropy floor below reject the noise this otherwise admits.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style Jenkins X reference that must appear within the
 // proximity window. A bare "jenkinsx"/"jx" substring (script URLs, package
 // names, comments) is too weak; a `jenkinsx_token` / `jx-api-key` shape is what
 // a real token assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(jenkins[_\-]?x|jx)[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(jenkins[_\-]?x|jx)[_\-]?(api[_\-]?)?(token|key|secret)`)
 })
 
 // minEntropy rejects low-entropy 40-80 char runs that clear the alnum regex but

@@ -6,7 +6,6 @@ package ngrok
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // ngrok tokens look like `<24 base62>_<27 base62>` totalling 52 chars,
 // always starting with `2` (the version digit). We accept 40..80 and
 // require an internal `_` to disambiguate from random base62 runs.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(2[A-Za-z0-9]{20,40}_[A-Za-z0-9]{20,40})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(2[A-Za-z0-9]{20,40}_[A-Za-z0-9]{20,40})\b`) })
 
 var contextKeywords = []string{"ngrok"}
 

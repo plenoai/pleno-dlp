@@ -6,7 +6,6 @@ package portkey
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,13 +18,13 @@ var apiBase = "https://api.portkey.ai"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Portkey API keys are 32-64 base64url chars, anchored on `portkey`.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9+/_=-]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9+/_=-]{32,64})\b`) })
 
 // keywordRe is the anchored Portkey.ai marker. The bare `portkey`
 // substring matches inside other words (`ExportKey`, `importKey`),
 // so word-bounded `\bportkey\b` plus credential anchors are required.
-var keywordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)` +
+var keywordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)` +
 		`(?:` +
 		`\bportkey[_\-](?:api|token|key|secret)` +
 		`|\bportkey\.ai\b` +

@@ -19,7 +19,6 @@ package confluence
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -29,7 +28,7 @@ import (
 // Atlassian Cloud API tokens: fixed `ATATT3xFfGF0` prefix + base64url body.
 // The bitbucketcloud detector anchors the sibling `ATCTT3xFfGF0` shape the
 // same way (60-200 trailing chars).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(ATATT3xFfGF0[A-Za-z0-9_=+/-]{60,200})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(ATATT3xFfGF0[A-Za-z0-9_=+/-]{60,200})\b`) })
 
 // minTokenEntropy drops low-entropy lookalikes (repeated/padded runs) that
 // survive the prefix regex.

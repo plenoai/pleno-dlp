@@ -3,7 +3,6 @@ package hubspot
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -16,7 +15,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // An optional region tag like "na1-" may precede the 36-char body; the alphabet
 // stays permissive so non-na1 regions still match.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pat-(?:na1-)?[a-z0-9-]{36})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(pat-(?:na1-)?[a-z0-9-]{36})\b`) })
 
 type Scanner struct{}
 

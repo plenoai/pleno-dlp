@@ -9,7 +9,6 @@ package sumologic
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -25,12 +24,12 @@ var (
 	// Access IDs are 14 chars with a documented `su` prefix
 	// (upstream trufflehog: `su[A-Za-z0-9]{12}`). The prefix is the
 	// distinguishing anchor, so no entropy floor is needed on the ID.
-	idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(su[A-Za-z0-9]{12})\b`) })
+	idRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(su[A-Za-z0-9]{12})\b`) })
 	// Access keys are 64 base62 chars with no prefix
 	// (upstream trufflehog: `[A-Za-z0-9]{64}`). A bare fixed-length
 	// alnum run is FP-prone, so the candidate must additionally clear an
 	// entropy floor (keyMinEntropy) before it is accepted as a key.
-	keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`) })
+	keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{64})\b`) })
 )
 
 // keyMinEntropy rejects low-information 64-char runs that clear the
@@ -43,8 +42,8 @@ const keyMinEntropy = 3.5
 // radius matched unrelated prose and script-src URLs; the arm regex requires
 // the credential-assignment shape Sumo Logic configs actually use while the
 // bare keyword stays in Keywords() as the cheap engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)sumo[_-]?(logic)?[_-]?(access[_-]?)?(id|key|token|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)sumo[_-]?(logic)?[_-]?(access[_-]?)?(id|key|token|secret)`)
 })
 
 type Scanner struct{}

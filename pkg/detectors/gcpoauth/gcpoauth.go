@@ -9,7 +9,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +24,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // base64url-without-padding. We accept 80..200 to absorb minor format drift.
 // The leading `1//0` segment is the version + key prefix; we don't anchor the
 // `0` because Google has rotated this byte historically.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(1//0[A-Za-z0-9_-]{80,200})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(1//0[A-Za-z0-9_-]{80,200})\b`) })
 
 type Scanner struct{}
 

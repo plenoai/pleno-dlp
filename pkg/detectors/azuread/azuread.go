@@ -54,7 +54,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -105,11 +104,13 @@ var tenantUUIDKeywords = []string{
 // every random 40-char base64 string. Shape-level filler exclusion (mono-class
 // runs, slug-like separator density, low entropy) is enforced in plausibleSecret
 // rather than in the regex, where it would be unreadable and hard to test.
-var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9~._-]{2,}~[A-Za-z0-9~._-]{30,})\b`) })
+var secretRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([A-Za-z0-9~._-]{2,}~[A-Za-z0-9~._-]{30,})\b`)
+})
 
 // Application (client) id: lowercase hex UUID.
-var appIDRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+var appIDRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
 })
 
 var contextKeywords = []string{"azure", "azuread", "client_secret", "client_id", "appid", "tenant", "entra"}
@@ -257,8 +258,8 @@ func verifyOAuth2(ctx context.Context, tenantID, clientID, clientSecret string) 
 }
 
 // uuidRe validates that a string is a standard 8-4-4-4-12 hex UUID.
-var uuidRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+var uuidRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 })
 
 // extractTenantID attempts to locate the Azure tenant_id in the chunk data.

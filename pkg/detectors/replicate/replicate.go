@@ -8,7 +8,6 @@ package replicate
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -20,7 +19,7 @@ var apiBase = "https://api.replicate.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `r8_` followed by 37+ base62 chars.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(r8_[A-Za-z0-9]{37,})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(r8_[A-Za-z0-9]{37,})\b`) })
 
 type Scanner struct{}
 

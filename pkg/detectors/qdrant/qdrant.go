@@ -8,7 +8,6 @@ package qdrant
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +21,7 @@ var apiBase = ""
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Qdrant Cloud API keys are documented as 40+ char base64url.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40,256})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{40,256})\b`) })
 
 var contextKeywords = []string{"qdrant", "qdrant_api", "qdrant_token", "qdrant_cloud"}
 

@@ -3,7 +3,6 @@ package honeycomb
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -18,9 +17,9 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 var (
 	// Modern ingest key: hcaik_ plus 58 base62 chars; the prefix is unique
 	// enough to skip keyword gating.
-	modernRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(hcaik_[A-Za-z0-9]{58})\b`) })
+	modernRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(hcaik_[A-Za-z0-9]{58})\b`) })
 	// Legacy 32-hex needs keyword gating.
-	legacyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+	legacyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
 )
 
 var contextKeywords = []string{"honeycomb", "honeycomb_api_key", "hny_api_key"}

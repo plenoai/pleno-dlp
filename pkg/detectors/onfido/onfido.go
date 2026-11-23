@@ -7,7 +7,6 @@ package onfido
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,8 +19,8 @@ var apiBase = "https://api.onfido.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Onfido tokens: api_(live|sandbox)_(us|eu|ca)_ + 40 alnum.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(api_(?:live|sandbox)_(?:us|eu|ca)_[A-Za-z0-9_-]{32,80})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(api_(?:live|sandbox)_(?:us|eu|ca)_[A-Za-z0-9_-]{32,80})\b`)
 })
 
 type Scanner struct{}

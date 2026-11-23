@@ -10,7 +10,6 @@ package deel
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -28,14 +27,14 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // We keep the broad 40+ alnum match and lean on a tightened proximity gate plus
 // a conservative entropy floor instead. See research record in the FP-hardening
 // campaign notes.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,})\b`) })
 
 // armRe is the assignment-style Deel reference that must appear within the
 // proximity window. A bare "deel" / "letsdeel" substring is too weak;
 // "deel_api_token" / "deel-key" / "letsdeel_secret" is the shape a real
 // token assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(?:lets)?deel[_\-]?(?:api[_\-]?)?(?:token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(?:lets)?deel[_\-]?(?:api[_\-]?)?(?:token|key|secret)`)
 })
 
 // minEntropy rejects low-entropy 40+ alnum runs that clear the regex but are not

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strconv"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ var apiBase = "https://gitlab.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(glpat-[A-Za-z0-9_-]{20})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(glpat-[A-Za-z0-9_-]{20})\b`) })
 
 type Scanner struct{}
 

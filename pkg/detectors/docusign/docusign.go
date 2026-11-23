@@ -8,7 +8,6 @@ package docusign
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,8 +21,8 @@ var apiBase = ""
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // DocuSign tokens are JWTs — three base64url segments joined by `.`.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
 })
 
 var contextKeywords = []string{"docusign", "docusign_api", "docusign_token", "docusign_jwt"}

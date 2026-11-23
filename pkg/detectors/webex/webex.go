@@ -20,7 +20,6 @@ package webex
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -34,12 +33,12 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // No public prefix exists to anchor on, so the keyword arm regex plus
 // the entropy floor carry the false-positive load.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{64})\b`) })
 
 // armRe covers WEBEX_TOKEN, webex-access-token, webexApiKey,
 // ciscospark_token, and similar assignment-style references.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(?:webex|ciscospark)[_\-]?(?:access[_\-]?)?(?:api[_\-]?)?(?:token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(?:webex|ciscospark)[_\-]?(?:access[_\-]?)?(?:api[_\-]?)?(?:token|key|secret)`)
 })
 
 const minEntropy = 3.0

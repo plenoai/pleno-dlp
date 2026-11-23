@@ -6,7 +6,6 @@ package nebius
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Nebius keys are issued as JWT-like strings starting with "AAAA" (the
 // b64url-encoded `{"alg":"...` header). Length is provider-controlled —
 // require >= 64 alnum/`._-` characters after the prefix.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(AAAA[A-Za-z0-9_\-\.]{60,})`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(AAAA[A-Za-z0-9_\-\.]{60,})`) })
 
 var contextKeywords = []string{"nebius"}
 

@@ -6,7 +6,6 @@ package langsmith
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -18,8 +17,8 @@ var apiBase = "https://api.smith.langchain.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(lsv2_(?:pt|sk)_[a-f0-9]{32,64}_[a-f0-9]{8,16})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(lsv2_(?:pt|sk)_[a-f0-9]{32,64}_[a-f0-9]{8,16})\b`)
 })
 
 type Scanner struct{}

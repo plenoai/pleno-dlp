@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,11 +23,11 @@ var (
 	verifyRejectCodes = []int{http.StatusUnauthorized, http.StatusForbidden}
 )
 
-var jwtRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,})\b`)
+var jwtRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,})\b`)
 })
 
-var projectRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bhttps?://([a-z0-9-]{20})\.supabase\.co\b`) })
+var projectRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\bhttps?://([a-z0-9-]{20})\.supabase\.co\b`) })
 
 var contextKeywords = []string{"supabase", "supabase_url", "supabase_anon", "supabase_service_role", "service_role"}
 

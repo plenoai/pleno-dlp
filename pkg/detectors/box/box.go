@@ -7,7 +7,6 @@ package box
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +23,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // (pkg/detectors/box: `\b([0-9a-zA-Z]{32})\b`). The length is pinned to the
 // documented 32 rather than a {32,64} range; widening it past the
 // authoritative shape only invents recall the format does not support.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // minEntropy rejects 32-char low-information runs (padded hex, repeated
 // patterns) that clear the alnum regex but lack key-grade randomness. 3.5 is
@@ -35,8 +34,8 @@ const minEntropy = 3.5
 // bare strings.Contains over the keyword list, which fired on any prose
 // mention of "box.com". The arm regex requires a box token/key/secret
 // assignment-style identifier near the candidate.
-var contextRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)box[_-]?(developer[_-]?)?(api[_-]?)?(access[_-]?)?(token|key|secret)`)
+var contextRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)box[_-]?(developer[_-]?)?(api[_-]?)?(access[_-]?)?(token|key|secret)`)
 })
 
 type Scanner struct{}

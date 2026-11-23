@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -26,15 +25,15 @@ var apiBase = "https://api.pagerduty.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{20})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{20})\b`) })
 
 // keywordRe is the anchored PagerDuty marker. The bare keyword
 // `pagerduty` is unique enough on its own but the prefilter may admit
 // chunks where `pagerduty` occurs only as a substring of an unrelated
 // English word; require word-bounded `\bpagerduty\b` plus credential
 // anchors to be sure.
-var keywordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)` +
+var keywordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)` +
 		`(?:` +
 		`\bpagerduty\b` +
 		`|\bpd_api_key\b` +

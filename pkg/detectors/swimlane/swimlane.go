@@ -15,7 +15,6 @@ package swimlane
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,7 +26,7 @@ var apiBase = "https://app.swimlane.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style Swimlane reference that must appear within the
 // proximity window. No authoritative source documents the PAT length/charset
@@ -37,7 +36,9 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // substring (doc links, the app.swimlane.com host, package names) is too weak a
 // gate against a generic 40-80 alphanumeric run; the shape a real credential
 // assignment or config key takes is `swimlane[_-]?(api[_-]?)?(token|key|secret)`.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)swimlane[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)swimlane[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy is a conservative floor: no source pins the charset, so 3.0 (well
 // below the 3.5 used for documented high-variety tokens) only rejects clearly

@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -31,7 +30,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Secret. So the {32,64} bound is NOT authoritatively pinned — it is left
 // as-is to preserve recall. Disambiguation is done by the arm regex +
 // entropy gate, not by length.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // armRe is the assignment-style Mandiant reference that must appear within
 // the proximity window. A bare "mandiant" / "fireeye" substring (doc links,
@@ -40,8 +39,8 @@ var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b
 // `(mandiant|fireeye)[_-]?(api[_-]?)?(key|token|secret|id)` shape is what a
 // real credential assignment or config key takes. The bare keywords stay in
 // Keywords() as the engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(mandiant|fireeye)[_\-]?(api[_\-]?)?(key|token|secret|id)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(mandiant|fireeye)[_\-]?(api[_\-]?)?(key|token|secret|id)`)
 })
 
 // minEntropy rejects low-information 32-64 char runs (padded placeholders,

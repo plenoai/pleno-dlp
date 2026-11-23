@@ -24,7 +24,6 @@ package beeceptor
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -40,14 +39,16 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // (https://beeceptor.com/docs/api-overview/); we keep a >=32 lower bound rather
 // than pinning 40 because the hex branch of the key-format playbook treats hex
 // length-pinning as recall-hostile.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-fA-F0-9]{32,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-fA-F0-9]{32,})\b`) })
 
 // armRe is the assignment-style Beeceptor reference that must appear within the
 // proximity window. A bare "beeceptor" substring (mock-server URLs, package
 // names, prose) is too weak to gate a generic hex run; the
 // `beeceptor[_-]?(api[_-]?)?(token|key|secret)` shape is what a real credential
 // assignment or config key looks like.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)beeceptor[_-]?(api[_-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)beeceptor[_-]?(api[_-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-information hex runs (repeated/structured digits,
 // padded identifiers) that clear the regex but lack key-grade randomness. Hex

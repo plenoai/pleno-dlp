@@ -9,7 +9,6 @@ package fauna
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -21,7 +20,7 @@ var apiBase = "https://db.fauna.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // fnA[dk] + base64url body. Fauna keys are mostly base64url and 40+ chars.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(fnA[dk][A-Za-z0-9_-]{30,200})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(fnA[dk][A-Za-z0-9_-]{30,200})\b`) })
 
 type Scanner struct{}
 

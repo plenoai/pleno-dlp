@@ -7,7 +7,6 @@ package auditboard
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ var apiBase = "https://app.auditboard.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // armRe is the assignment-style AuditBoard reference that must appear within
 // the proximity window. A bare "auditboard" substring (the app.auditboard.com
@@ -30,7 +29,9 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // detector; the developer portal is behind an auth wall; the public Analytics
 // API docs document only that it is a "Bearer" token), so the length stays
 // unpinned and the gate-tightening is recall-safe.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)auditboard[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)auditboard[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-entropy 32-64 char runs that clear the alnum regex but
 // are not random tokens (padded placeholders, repeated characters). Held at a

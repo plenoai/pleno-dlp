@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -30,8 +29,8 @@ import (
 // because we only care about credential-bearing URIs. Password capture
 // stops at `@`; the surrounding URL is captured as a separate group for
 // RawV2.
-var uriRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(rediss?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
+var uriRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(rediss?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
 })
 
 type Scanner struct{}

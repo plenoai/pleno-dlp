@@ -6,7 +6,6 @@ package pinecone
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -18,7 +17,7 @@ var apiBase = "https://api.pinecone.io"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // pcsk_ + 60+ base62 chars (observed sample: pcsk_<60+>).
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pcsk_[A-Za-z0-9_]{40,})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(pcsk_[A-Za-z0-9_]{40,})\b`) })
 
 type Scanner struct{}
 

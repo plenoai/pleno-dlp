@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -31,8 +30,8 @@ import (
 )
 
 // `mongodb+srv://` requires escaping the `+` in regex.
-var uriRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(mongodb(?:\+srv)?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
+var uriRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(mongodb(?:\+srv)?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
 })
 
 // placeholderPasswords are documentation/template/quickstart values that

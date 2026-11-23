@@ -21,7 +21,6 @@ package tektonhub
 
 import (
 	"context"
-	"regexp"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -32,15 +31,15 @@ import (
 // `tekton` no longer qualify. The keyword and the value must sit within the
 // same assignment expression (the `\s{0,4}` between separator characters keeps
 // them within ~40 bytes of each other).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?i)(?:tekton_hub_token|tekton_hub_api_token|tekton_token|hub_token|authorization)["']?\s{0,4}[:=]\s{0,4}["']?(?:bearer\s{0,4})?([A-Za-z0-9]{40,80})\b`,
 	)
 })
 
 // hexOnlyRe rejects pure-hex strings (image-digest / SHA shaped) which are the
 // dominant false positive in Tekton YAML.
-var hexOnlyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-fA-F]+$`) })
+var hexOnlyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^[0-9a-fA-F]+$`) })
 
 const minEntropy = 3.5
 

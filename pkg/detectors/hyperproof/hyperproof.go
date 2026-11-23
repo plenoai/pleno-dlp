@@ -8,7 +8,6 @@ package hyperproof
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,12 +19,12 @@ var apiBase = "https://api.hyperproof.app"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // armRe requires an assignment-style reference in the proximity window; a bare
 // "hyperproof" substring is too weak a gate against a generic 32-64 alnum run.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)hyperproof[_\-]?(api[_\-]?)?(client[_\-]?)?(token|key|secret|id)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)hyperproof[_\-]?(api[_\-]?)?(client[_\-]?)?(token|key|secret|id)`)
 })
 
 // minEntropy rejects low-information 32-64 char runs that clear the alnum

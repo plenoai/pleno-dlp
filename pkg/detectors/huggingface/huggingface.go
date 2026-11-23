@@ -3,7 +3,6 @@ package huggingface
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -14,7 +13,7 @@ var apiBase = "https://huggingface.co"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(hf_[A-Za-z0-9]{34})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(hf_[A-Za-z0-9]{34})\b`) })
 
 type Scanner struct{}
 

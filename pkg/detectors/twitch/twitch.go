@@ -17,7 +17,6 @@ package twitch
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -39,7 +38,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 //
 // Source: trufflehog pkg/detectors/twitch/twitch.go (`[0-9a-z]{30}`);
 // twitchdev/twitch-cli#4 (exactly-30 validation).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([0-9a-z]{30})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([0-9a-z]{30})\b`) })
 
 // minEntropy rejects low-information 30-char lowercase runs that clear the
 // charset+length regex but lack secret-grade randomness. Base36 entropy caps
@@ -54,8 +53,8 @@ const minEntropy = 3.5
 // generic 30-char lowercase run; this is the shape a real client_secret
 // assignment or config key takes. The bare `twitch` keyword is kept in
 // Keywords() as the cheap prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)twitch[_\-.]?(client[_\-]?)?(api[_\-]?)?(token|key|secret|client[_\-]?secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)twitch[_\-.]?(client[_\-]?)?(api[_\-]?)?(token|key|secret|client[_\-]?secret)`)
 })
 
 type Scanner struct{}

@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -35,15 +34,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // 32-64 alnum. No authoritative prefix/length to anchor on, so the keyword
 // gate plus the entropy floor carry the false-positive load. Length range
 // left as-is because no source documents a fixed length.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // armRe is the assignment-style Lakera reference that must appear within the
 // proximity window. A bare "lakera" substring (script URLs, package names,
 // prose) is too weak; `lakera[_-]?(api[_-]?)?(token|key|secret)` is the shape
 // a real key assignment or config entry takes (e.g. LAKERA_API_KEY,
 // LAKERA_GUARD_API_KEY, lakera-api-token).
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)lakera[_\-]?(guard[_\-]?)?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)lakera[_\-]?(guard[_\-]?)?(api[_\-]?)?(token|key|secret)`)
 })
 
 // minEntropy is a conservative floor. No documented charset/length means we

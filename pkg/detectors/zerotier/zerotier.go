@@ -15,7 +15,6 @@ package zerotier
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -30,13 +29,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // tokenRe matches the documented 32-character token. Charset stays broad-alnum
 // (rather than strict hex) so mixed-case fixtures and any non-lowercase
 // provider variants still detect; the entropy floor culls low-variety runs.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // armRe is the assignment-style ZeroTier reference that must appear within the
 // nearKeyword window for a candidate to arm. Replaces the prior bare
 // strings.Contains("zerotier") gate, which fired on any chunk merely mentioning
 // the word near a generic 32-char run.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)zerotier[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)zerotier[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy is a conservative, hex-appropriate Shannon floor. A 32-char hex
 // token entropy bottoms out around 4.0 bits/char, so 3.0 preserves recall while

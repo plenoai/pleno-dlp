@@ -8,7 +8,6 @@ package livekit
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +28,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Source: github.com/livekit/protocol utils/guid/id.go (APIKeyPrefix="API",
 // Size=12) and livekit/livekit cmd/server/commands.go (generateKeys:
 // apiKey := guid.New(utils.APIKeyPrefix)).
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(API[A-Za-z0-9]{12})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(API[A-Za-z0-9]{12})\b`) })
 
 // API secret is `utils.RandomSecret()` = base62 of 32 random bytes. base62 of a
 // 32-byte buffer is NOT a fixed 43 chars: empirically (jxskiss/base62
@@ -41,7 +40,7 @@ var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b
 // Source: github.com/livekit/protocol utils/secret.go (RandomSecret: 32-byte
 // crypto/rand buffer, base62.EncodeToString) + server >=32-char minimum
 // (livekit/livekit issue #2582).
-var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{43,45})\b`) })
+var secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{43,45})\b`) })
 
 // minSecretEntropy rejects 43-45-char alnum runs that clear secretRe but are
 // not random 256-bit secrets (structured identifiers, padded names). 43+ random
@@ -56,7 +55,9 @@ const minSecretEntropy = 3.5
 // docs) is too weak a gate for a fixed-length alnum secret; the shape a real
 // credential assignment / config key takes is `livekit[_-]?(api[_-]?)(key|
 // secret|token)`.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)livekit[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)livekit[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 type Scanner struct{}
 

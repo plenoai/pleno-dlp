@@ -11,7 +11,6 @@ package activecampaign
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +22,7 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{60,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{60,80})\b`) })
 
 // armRe is the assignment-style ActiveCampaign reference that must appear
 // within the proximity window. No authoritative source pins the API key
@@ -34,8 +33,8 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // the `activecampaign…(api…)?(token|key|secret)` shape is what a real
 // credential assignment or config key takes. The bare keyword stays in
 // Keywords() as the engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(activecampaign|active_campaign|ac)[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(activecampaign|active_campaign|ac)[_\-]?(api[_\-]?)?(token|key|secret)`)
 })
 
 // minEntropy rejects low-information 60-80 char runs that clear the alnum

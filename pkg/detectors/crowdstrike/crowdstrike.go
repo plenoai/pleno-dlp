@@ -9,7 +9,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,11 +21,11 @@ var apiBase = "https://api.crowdstrike.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
-	clientIDRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)(?:client[_\.\-]?id|falcon[_\.\-]?client[_\.\-]?id)\s*[:=]\s*["']?([a-f0-9]{32})["']?`)
+	clientIDRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`(?i)(?:client[_\.\-]?id|falcon[_\.\-]?client[_\.\-]?id)\s*[:=]\s*["']?([a-f0-9]{32})["']?`)
 	})
-	clientSecretRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)(?:client[_\.\-]?secret|falcon[_\.\-]?client[_\.\-]?secret)\s*[:=]\s*["']?([A-Za-z0-9]{40})["']?`)
+	clientSecretRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`(?i)(?:client[_\.\-]?secret|falcon[_\.\-]?client[_\.\-]?secret)\s*[:=]\s*["']?([A-Za-z0-9]{40})["']?`)
 	})
 )
 

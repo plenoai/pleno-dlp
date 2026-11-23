@@ -5,7 +5,6 @@ package launchdarkly
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,8 +18,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `api-` or `sdk-` + UUID. The hyphenated UUID anchored to the prefix is
 // distinctive enough to skip a keyword gate.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b((?:api|sdk)-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b((?:api|sdk)-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
 })
 
 type Scanner struct{}

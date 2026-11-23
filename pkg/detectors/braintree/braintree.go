@@ -9,7 +9,6 @@ package braintree
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,8 +22,8 @@ var apiBaseSandbox = "https://api.sandbox.braintreegateway.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // access_token$<env>$<merchant>$<32-hex>
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(access_token\$(production|sandbox)\$([a-z0-9]{16,})\$([a-f0-9]{32}))\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(access_token\$(production|sandbox)\$([a-z0-9]{16,})\$([a-f0-9]{32}))\b`)
 })
 
 type Scanner struct{}

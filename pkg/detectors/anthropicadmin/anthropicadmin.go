@@ -11,7 +11,6 @@ package anthropicadmin
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -24,7 +23,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // sk-ant-admin- + 20+ base62/_-/.. The pkg/detectors/anthropic package
 // owns sk-ant- generally; we own only the admin- subset.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk-ant-admin-[A-Za-z0-9_-]{20,})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(sk-ant-admin-[A-Za-z0-9_-]{20,})\b`) })
 
 type Scanner struct{}
 

@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -15,8 +14,8 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var webhookRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\bhttps://hooks\.slack(?:-gov)?\.com/services/[A-Z0-9]{8,13}/[A-Z0-9]{8,13}/[A-Za-z0-9]{24}\b`)
+var webhookRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\bhttps://hooks\.slack(?:-gov)?\.com/services/[A-Z0-9]{8,13}/[A-Z0-9]{8,13}/[A-Za-z0-9]{24}\b`)
 })
 
 var slackWebhookVerifyBase string

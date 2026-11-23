@@ -22,7 +22,6 @@ package awx
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -35,7 +34,7 @@ var apiBase = ""
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 30 base62 chars — the oauthlib generate_token default that AWX/Tower uses.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{30})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{30})\b`) })
 
 // minEntropy rejects low-information 30-char runs (padded hex, repeated
 // fragments, structured identifiers) that clear the bare regex but lack the
@@ -47,8 +46,8 @@ const minEntropy = 3.5
 // strings.Contains over radius 256 matched any incidental "awx_api" substring
 // far from the token; this arm regex requires an AWX/Tower token/key/secret
 // assignment shape, and the bare keywords stay in Keywords() as the prefilter.
-var contextRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(awx|tower|ansible[_-]?(tower|automation))[_-]?(api[_-]?)?(token|key|secret|oauth)`)
+var contextRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(awx|tower|ansible[_-]?(tower|automation))[_-]?(api[_-]?)?(token|key|secret|oauth)`)
 })
 
 type Scanner struct{}

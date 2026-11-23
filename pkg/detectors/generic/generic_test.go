@@ -5,7 +5,6 @@ package generic
 import (
 	"bytes"
 	"context"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -104,7 +103,7 @@ func shapeLengthFixture(lengths []int) []byte {
 
 func assertSecretShapeMatchesRegexp(t *testing.T, data []byte) {
 	t.Helper()
-	want := regexp.MustCompile(`[A-Za-z0-9+/_\-]{20,128}`).FindAllIndex(data, -1)
+	want := detectors.MustCompile(`[A-Za-z0-9+/_\-]{20,128}`).FindAllIndex(data, -1)
 	got := secretShapeMatches(data)
 	if len(got) != len(want) {
 		t.Fatalf("match count = %d, want %d", len(got), len(want))

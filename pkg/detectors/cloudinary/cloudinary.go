@@ -9,7 +9,6 @@ package cloudinary
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +20,8 @@ var apiBase = "https://api.cloudinary.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var urlRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`cloudinary://([0-9]{6,18}):([A-Za-z0-9_\-]{20,80})@([A-Za-z0-9_\-]{2,64})`)
+var urlRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`cloudinary://([0-9]{6,18}):([A-Za-z0-9_\-]{20,80})@([A-Za-z0-9_\-]{2,64})`)
 })
 
 type Scanner struct{}

@@ -54,7 +54,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -66,10 +65,12 @@ import (
 // Legacy v1 secret: 30+ char run with at least one of `.`, `_`, or `-` so
 // pure alphanumeric runs (which collide with countless other token shapes)
 // are filtered out. We never match a tilde here — those belong to azuread.
-var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9][A-Za-z0-9._-]{28,40}[A-Za-z0-9])\b`) })
+var secretRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([A-Za-z0-9][A-Za-z0-9._-]{28,40}[A-Za-z0-9])\b`)
+})
 
-var appIDRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+var appIDRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
 })
 
 // Co-occurrence keywords are deliberately tight. The regex shape is so
@@ -95,7 +96,7 @@ var sriPrefixes = []string{"sha256-", "sha384-", "sha512-", "md5-"}
 // paths and kebab/resource slugs (`com.microsoft.azure.identity…`,
 // `my-azure-app-prod-eastus-2024-deploy01`) are chopped into short segments
 // and have no long run.
-var denseRunRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[A-Za-z0-9]+`) })
+var denseRunRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`[A-Za-z0-9]+`) })
 
 // minDenseRun is the shortest unbroken alnum run a real v1 secret must
 // contain. Resource-name and FQ-symbol slugs never reach this.
@@ -298,8 +299,8 @@ func verifyOAuth2(ctx context.Context, tenantID, clientID, clientSecret string) 
 }
 
 // uuidRe validates that a string is a standard 8-4-4-4-12 hex UUID.
-var uuidRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+var uuidRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 })
 
 // extractTenantID attempts to locate the Azure tenant_id in the chunk data.

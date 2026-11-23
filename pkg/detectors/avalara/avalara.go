@@ -10,7 +10,6 @@ package avalara
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,15 +21,15 @@ var apiBase = "https://rest.avatax.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var accountRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([0-9]{7,12})\b`) })
-var licenseRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24,32})\b`) })
+var accountRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([0-9]{7,12})\b`) })
+var licenseRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{24,32})\b`) })
 
 // armRe is the assignment-anchor gate: a `avalara`/`avatax` reference
 // adjoining an account-id / license / key / secret token. It replaces a bare
 // strings.Contains(window,"avalara") which armed on any prose mention of the
 // vendor. The bare keywords stay in Keywords() as the engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)ava(lara|tax)[_\-]?(account([_\-]?id)?|license([_\-]?key)?|api[_\-]?(token|key)|token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)ava(lara|tax)[_\-]?(account([_\-]?id)?|license([_\-]?key)?|api[_\-]?(token|key)|token|key|secret)`)
 })
 
 // minLicenseEntropy is a conservative Shannon floor. Avalara's auth docs show

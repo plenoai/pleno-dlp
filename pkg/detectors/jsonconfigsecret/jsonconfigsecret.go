@@ -33,7 +33,6 @@ package jsonconfigsecret
 import (
 	"bytes"
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -45,8 +44,8 @@ import (
 // vocabulary words as a substring (case-insensitive), covering
 // camelCase (userPassword), snake_case (db_password), and
 // SCREAMING_SNAKE (HEROKU_API_KEY) key styles alike.
-var jsonKeyValueRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var jsonKeyValueRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?i)"((?:[A-Za-z0-9_]*(?:password|passwd|pwd|passphrase|secret|api_key|apikey)[A-Za-z0-9_]*)|pass)"\s*:\s*"([^"]{0,500})"`,
 	)
 })
@@ -83,7 +82,7 @@ var placeholders = map[string]struct{}{
 // templateValueRe matches values that are entirely a template marker
 // ({secret}, {{ .Token }}, ${API_KEY}, <password>, %(pw)s) rather than a
 // literal secret.
-var templateValueRe = regexp.MustCompile(`^(?:\$?\{\{?[^{}"]+\}\}?|<[^<>"]+>|%\([^)"]+\)s)$`)
+var templateValueRe = detectors.MustCompile(`^(?:\$?\{\{?[^{}"]+\}\}?|<[^<>"]+>|%\([^)"]+\)s)$`)
 
 func isPlaceholder(v string) bool {
 	_, ok := placeholders[strings.ToLower(v)]
@@ -91,8 +90,8 @@ func isPlaceholder(v string) bool {
 }
 
 var (
-	pascalTypeKeyRe = regexp.MustCompile(`^[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*$`)
-	enumSlugRe      = regexp.MustCompile(`^[a-z]+(?:-[a-z]+)+$`)
+	pascalTypeKeyRe = detectors.MustCompile(`^[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*$`)
+	enumSlugRe      = detectors.MustCompile(`^[a-z]+(?:-[a-z]+)+$`)
 )
 
 // isTypeNameEnum reports a Go/TS map literal keyed by a PascalCase type

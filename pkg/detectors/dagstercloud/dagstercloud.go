@@ -6,7 +6,6 @@ package dagstercloud
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -18,7 +17,7 @@ var apiBase = "https://dagster.cloud"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dgc_[A-Za-z0-9_\-]{30,128})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(dgc_[A-Za-z0-9_\-]{30,128})\b`) })
 
 type Scanner struct{}
 

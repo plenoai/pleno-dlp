@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"regexp"
 )
 
 // ForEachReaderPrefixedSubmatch seeks a literal marker before each regexp
@@ -14,7 +13,7 @@ import (
 // inputs on the cheap bytes.Index path; regexp still decides the complete
 // match and remains the grammar authority. captures selects the submatch
 // indexes to copy (0 is the complete match).
-func ForEachReaderPrefixedSubmatch(ctx context.Context, input io.ReaderAt, size int64, re *regexp.Regexp, prefix []byte, captures []int, visit func([][]byte) error) error {
+func ForEachReaderPrefixedSubmatch(ctx context.Context, input io.ReaderAt, size int64, re *Regexp, prefix []byte, captures []int, visit func([][]byte) error) error {
 	return forEachReaderSubmatch(ctx, input, size, re, prefix, captures, visit)
 }
 
@@ -26,10 +25,10 @@ func ForEachReaderPrefixedSubmatch(ctx context.Context, input io.ReaderAt, size 
 // The helper is useful for full-chunk detectors whose grammar has a cheap
 // required separator (for example, exactly four colons in a pgpass row or
 // "://" in a stored Git URL).
-func ForEachReaderLineSubmatch(ctx context.Context, input io.ReaderAt, size int64, re *regexp.Regexp, needle []byte, minOccurrences, maxOccurrences int, captures []int, visit func([][]byte) error) error {
-	var reFactory func() *regexp.Regexp
+func ForEachReaderLineSubmatch(ctx context.Context, input io.ReaderAt, size int64, re *Regexp, needle []byte, minOccurrences, maxOccurrences int, captures []int, visit func([][]byte) error) error {
+	var reFactory func() *Regexp
 	if re != nil {
-		reFactory = func() *regexp.Regexp { return re }
+		reFactory = func() *Regexp { return re }
 	}
 	return forEachReaderLineSubmatch(ctx, input, size, reFactory, needle, minOccurrences, maxOccurrences, captures, visit)
 }
@@ -39,11 +38,11 @@ func ForEachReaderLineSubmatch(ctx context.Context, input io.ReaderAt, size int6
 // the first line passes the cheap occurrence gate. A nil factory or a nil
 // regexp returned by the factory is rejected with the same error used by the
 // eager helper.
-func ForEachReaderLineSubmatchFunc(ctx context.Context, input io.ReaderAt, size int64, reFactory func() *regexp.Regexp, needle []byte, minOccurrences, maxOccurrences int, captures []int, visit func([][]byte) error) error {
+func ForEachReaderLineSubmatchFunc(ctx context.Context, input io.ReaderAt, size int64, reFactory func() *Regexp, needle []byte, minOccurrences, maxOccurrences int, captures []int, visit func([][]byte) error) error {
 	return forEachReaderLineSubmatch(ctx, input, size, reFactory, needle, minOccurrences, maxOccurrences, captures, visit)
 }
 
-func forEachReaderLineSubmatch(ctx context.Context, input io.ReaderAt, size int64, reFactory func() *regexp.Regexp, needle []byte, minOccurrences, maxOccurrences int, captures []int, visit func([][]byte) error) error {
+func forEachReaderLineSubmatch(ctx context.Context, input io.ReaderAt, size int64, reFactory func() *Regexp, needle []byte, minOccurrences, maxOccurrences int, captures []int, visit func([][]byte) error) error {
 	if len(needle) == 0 || minOccurrences < 1 || maxOccurrences < 0 || (maxOccurrences > 0 && maxOccurrences < minOccurrences) {
 		return fmt.Errorf("detectors: invalid line match requirement")
 	}
@@ -53,8 +52,8 @@ func forEachReaderLineSubmatch(ctx context.Context, input io.ReaderAt, size int6
 	if input == nil || reFactory == nil || visit == nil || size < 0 {
 		return fmt.Errorf("detectors: invalid reader match arguments")
 	}
-	var resolvedRe *regexp.Regexp
-	resolveRegexp := func() (*regexp.Regexp, error) {
+	var resolvedRe *Regexp
+	resolveRegexp := func() (*Regexp, error) {
 		if resolvedRe == nil {
 			resolvedRe = reFactory()
 		}
@@ -142,7 +141,7 @@ func forEachReaderLineSubmatch(ctx context.Context, input io.ReaderAt, size int6
 	return finishReaderMatch(ctx, wrapped, size)
 }
 
-func forEachReaderSubmatch(ctx context.Context, input io.ReaderAt, size int64, re *regexp.Regexp, prefix []byte, captures []int, visit func([][]byte) error) error {
+func forEachReaderSubmatch(ctx context.Context, input io.ReaderAt, size int64, re *Regexp, prefix []byte, captures []int, visit func([][]byte) error) error {
 	if input == nil || re == nil || visit == nil || size < 0 {
 		return fmt.Errorf("detectors: invalid reader match arguments")
 	}
@@ -176,7 +175,7 @@ func forEachReaderSubmatch(ctx context.Context, input io.ReaderAt, size int64, r
 	return finishReaderMatch(ctx, wrapped, size)
 }
 
-func visitReaderSubmatch(ctx context.Context, input *contextReaderAt, offset, length int64, re *regexp.Regexp, captures []int, visit func([][]byte) error) (int64, bool, error) {
+func visitReaderSubmatch(ctx context.Context, input *contextReaderAt, offset, length int64, re *Regexp, captures []int, visit func([][]byte) error) (int64, bool, error) {
 	section := io.NewSectionReader(input, offset, length)
 	indices := re.FindReaderSubmatchIndex(bufio.NewReaderSize(section, 32<<10))
 	if indices == nil {

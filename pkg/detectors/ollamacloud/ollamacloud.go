@@ -6,7 +6,6 @@ package ollamacloud
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Ollama Cloud keys are 40-80 alnum / base64url chars (no documented
 // fixed prefix as of 2026); we anchor on length + the `ollama` keyword.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_\-]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_\-]{40,80})\b`) })
 
 var contextKeywords = []string{"ollama", "ollama.com", "ollamacloud"}
 

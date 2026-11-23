@@ -18,7 +18,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -33,7 +32,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // gcp service-account JSON keys are multiline. Anchor on the unique pair:
 // "type": "service_account" + a private_key block. We expand from there to the
 // enclosing JSON object via brace counting.
-var typeRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`"type"\s*:\s*"service_account"`) })
+var typeRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`"type"\s*:\s*"service_account"`) })
 
 type Scanner struct{}
 

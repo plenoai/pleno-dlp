@@ -7,7 +7,6 @@ package qualys
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,11 +18,11 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var userRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)qualys[_\-]user(?:name)?\s*[:=]\s*"?([A-Za-z0-9_\-]{4,64})"?`)
+var userRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)qualys[_\-]user(?:name)?\s*[:=]\s*"?([A-Za-z0-9_\-]{4,64})"?`)
 })
-var passRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)qualys[_\-]pass(?:word)?\s*[:=]\s*"?([A-Za-z0-9_\-!@#$%^&*]{8,64})"?`)
+var passRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)qualys[_\-]pass(?:word)?\s*[:=]\s*"?([A-Za-z0-9_\-!@#$%^&*]{8,64})"?`)
 })
 
 type Scanner struct{}

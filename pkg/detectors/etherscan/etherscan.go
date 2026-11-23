@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +23,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 const maxVerifyResponseBytes = 64 << 10
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Z0-9]{34})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Z0-9]{34})\b`) })
 
 var contextKeywords = []string{"etherscan"}
 

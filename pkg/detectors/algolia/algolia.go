@@ -10,7 +10,6 @@ package algolia
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -26,9 +25,9 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	// 32 lowercase hex.
-	keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+	keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
 	// Algolia application ids are documented as 10 uppercase alphanumerics.
-	appIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Z0-9]{10})\b`) })
+	appIDRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Z0-9]{10})\b`) })
 )
 
 var contextKeywords = []string{"algolia", "algolia_api_key", "algolia_admin_key"}

@@ -11,7 +11,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -26,8 +25,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Zoom client_id is 22 base64url chars; client_secret is 32 base64url chars.
 // Both sit alongside the `zoom` keyword in source.
 var (
-	idRe     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{22})\b`) })
-	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{32})\b`) })
+	idRe     = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{22})\b`) })
+	secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{32})\b`) })
 )
 
 var contextKeywords = []string{"zoom", "zoom_client_id", "zoom_client_secret", "zoom_oauth"}

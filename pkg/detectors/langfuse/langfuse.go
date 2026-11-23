@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,8 +21,8 @@ var apiBase = "https://cloud.langfuse.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Langfuse keys: pk-lf-<uuid> and sk-lf-<uuid>.
-var pubRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pk-lf-[a-f0-9-]{30,40})\b`) })
-var secRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk-lf-[a-f0-9-]{30,40})\b`) })
+var pubRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(pk-lf-[a-f0-9-]{30,40})\b`) })
+var secRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(sk-lf-[a-f0-9-]{30,40})\b`) })
 
 type Scanner struct{}
 

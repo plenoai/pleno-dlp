@@ -7,7 +7,6 @@ package trulioo
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,7 +26,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // shape is therefore a loose, non-authoritative bound retained for recall; the
 // disambiguation comes from the arm-regex keyword gate plus a conservative
 // entropy floor, NOT from a pinned length we cannot cite.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // minEntropy is the conservative floor for the recall-safe fallback: it culls
 // repetitive / structured 32-64 char runs without over-culling real
@@ -41,8 +40,8 @@ const minEntropy = 3.0
 // match must look like a credential assignment (trulioo_api_key, trulioo-token,
 // globaldatacompany_secret, etc.). The bare keyword stays in Keywords() as the
 // engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(trulioo|globaldatacompany)[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(trulioo|globaldatacompany)[_\-]?(api[_\-]?)?(token|key|secret)`)
 })
 
 type Scanner struct{}

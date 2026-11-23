@@ -6,7 +6,6 @@ package couchbasecapella
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Capella API tokens are documented as 40+ char base64url. Generic shape —
 // keyword gate required.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40,200})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{40,200})\b`) })
 
 var contextKeywords = []string{"couchbase", "capella", "couchbase_capella"}
 

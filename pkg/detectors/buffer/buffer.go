@@ -7,7 +7,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -35,7 +34,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // (the existing `{40,50}` window is the shipped contract) and instead apply
 // recall-safe gate-tightening: a conservative entropy floor + a tighter
 // proximity radius.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,50})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,50})\b`) })
 
 // minEntropy is the conservative recall-safe floor mandated for the
 // inconclusive-format case. The candidate charset is alnum (no authoritative
@@ -49,8 +48,8 @@ const minEntropy = 3.0
 // `buffer` is ubiquitous in source code; paired with a 40-char alnum
 // token shape it matches every git SHA-1 in a repo. The regex demands a
 // Buffer-app anchor so unrelated buffers in code don't pull the trigger.
-var keywordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)` +
+var keywordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)` +
 		`(?:` +
 		`\bbufferapp\b` +
 		`|\bbuffer\.com\b` +

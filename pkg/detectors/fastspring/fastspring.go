@@ -17,7 +17,6 @@ package fastspring
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -33,7 +32,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // FastSpring source documents the credential length or charset. A bare
 // alphanumeric run of this shape is generic, so the arm regex and entropy floor
 // carry the false-positive load.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{16,32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{16,32})\b`) })
 
 // armRe is the assignment-style FastSpring reference that must appear within
 // the proximity window. A bare "fastspring" substring (doc links, the
@@ -41,8 +40,8 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // generic 16-32 alphanumeric run;
 // `fastspring[_-]?(api[_-]?)?(user|pass|token|key|secret|credential)` is the
 // shape a real credential assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)fastspring[_\-]?(api[_\-]?)?(user(name)?|pass(word)?|token|key|secret|credential)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)fastspring[_\-]?(api[_\-]?)?(user(name)?|pass(word)?|token|key|secret|credential)`)
 })
 
 // minEntropy rejects low-information 16-32 char runs that clear the alnum regex

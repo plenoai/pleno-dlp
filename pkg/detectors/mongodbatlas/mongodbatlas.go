@@ -18,7 +18,6 @@ package mongodbatlas
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -35,9 +34,9 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // co-occurring "mongodb" / "atlas" / "MONGODB_ATLAS_" keyword in the
 // surrounding 256-byte window.
 var (
-	pubRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z]{8})\b`) })
-	privRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+	pubRe  = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-z]{8})\b`) })
+	privRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
 	})
 )
 

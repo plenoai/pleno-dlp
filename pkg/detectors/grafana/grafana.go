@@ -9,7 +9,6 @@ package grafana
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +25,7 @@ var (
 	rejectCodes = []int{http.StatusUnauthorized, http.StatusForbidden}
 )
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(glsa_[A-Za-z0-9]{32}_[a-f0-9]{8})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(glsa_[A-Za-z0-9]{32}_[a-f0-9]{8})\b`) })
 
 type Scanner struct{}
 

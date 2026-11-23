@@ -17,7 +17,6 @@ package arduinocloud
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +28,7 @@ var apiBase = "https://api2.arduino.cc"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,80})\b`) })
 
 // armRe is the assignment-style Arduino credential reference that must appear
 // within the proximity window. A bare "arduino" substring is far too weak a
@@ -38,8 +37,8 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // matches `arduino[_-]?(api[_-]?)?(client[_-]?)?(secret|token|key|id)` — the
 // shape a real ARDUINO_API_CLIENT_SECRET / ARDUINO_CLIENT_SECRET assignment or
 // config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)arduino[_-]?(api[_-]?)?(client[_-]?)?(secret|token|key|id)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)arduino[_-]?(api[_-]?)?(client[_-]?)?(secret|token|key|id)`)
 })
 
 // minEntropy rejects low-information 32-80 char runs that clear the alnum regex

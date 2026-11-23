@@ -13,7 +13,6 @@ package greenhouse
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -30,7 +29,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // (not a fixed {32}) preserves recall for any longer hex-encoded variant
 // while the hex charset already rejects the mixed-case alphanumeric noise
 // the previous bare [A-Za-z0-9] pattern admitted.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32,})\b`) })
 
 // armRe is the assignment-style Greenhouse/Harvest reference that must
 // appear within the proximity window. A bare "greenhouse"/"harvest"
@@ -41,8 +40,8 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // the bare `GREENHOUSE_API` env-var form (no token/key/secret suffix) is
 // itself a credible anchor and must arm, so the suffix is optional after
 // `api`.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(greenhouse|harvest)[_\-]?(api([_\-]?(token|key|secret))?|token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(greenhouse|harvest)[_\-]?(api([_\-]?(token|key|secret))?|token|key|secret)`)
 })
 
 // minEntropy rejects low-entropy 32+ hex runs that clear the hex regex but

@@ -21,25 +21,24 @@ package magento
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-z0-9]{32})\b`) })
 
 // hasNonHexLetter reports whether the token contains at least one letter
 // in [g-z]. MD5/SHA hex digests live entirely in [a-f0-9]; a real
 // admin/integration token uses the full [a-z0-9] alphabet and in
 // practice contains such a letter. This rejects hash lookalikes.
-var hasNonHexLetter = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[g-z]`) })
+var hasNonHexLetter = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`[g-z]`) })
 
 // credentialContext matches a term that signals an actual credential
 // assignment near the token, on top of the mandatory `magento` keyword.
-var credentialContext = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)token|access|api[_-]?key|bearer|integration|secret`)
+var credentialContext = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)token|access|api[_-]?key|bearer|integration|secret`)
 })
 
 // minEntropy is the bits/char floor for a 32-char alnum token. Pure

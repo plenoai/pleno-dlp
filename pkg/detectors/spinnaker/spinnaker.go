@@ -13,7 +13,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -23,19 +22,21 @@ import (
 // tokenRe matches the two shapes Spinnaker bearer credentials take: a JWT
 // (eyJ-prefixed) or an opaque 40-80 char base62 string. Both branches are
 // intentionally broad; the FP-bounding work is done post-match in isToken.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_.-]{20,}|[A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_.-]{20,}|[A-Za-z0-9]{40,80})\b`)
+})
 
 // pureHexRe matches a string that is *only* hex digits — 40-char git SHA-1,
 // 64-char sha256 image digests, md5 sums. These are the dominant base62-branch
 // false positives and carry no Spinnaker credential semantics.
-var pureHexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-fA-F]+$`) })
+var pureHexRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^[0-9a-fA-F]+$`) })
 
 // keywordRe is the anchored Spinnaker credential marker. A bare `spinnaker.io`
 // URL reference is deliberately NOT an anchor: URL references co-occur with
 // image digests (`spinnaker.io/clouddriver@sha256:...`), not secrets. Require
 // an assignment-style credential context instead.
-var keywordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)` +
+var keywordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)` +
 		`(?:` +
 		`\bspinnaker[_\-](?:api|token|key|secret|auth)\b` +
 		`|\bgate\.spinnaker\b` +

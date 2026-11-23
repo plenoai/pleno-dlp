@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -129,13 +128,13 @@ var baseVerifier = func(t detectors.DetectorType) (detectors.Verifier, detectors
 	return v, a, true
 }
 
-var compiled sync.Map // pattern -> *regexp.Regexp
+var compiled sync.Map // pattern -> *detectors.Regexp
 
-func partnerRe(p string) *regexp.Regexp {
+func partnerRe(p string) *detectors.Regexp {
 	if re, ok := compiled.Load(p); ok {
-		return re.(*regexp.Regexp)
+		return re.(*detectors.Regexp)
 	}
-	re := regexp.MustCompile(p)
+	re := detectors.MustCompile(p)
 	compiled.Store(p, re)
 	return re
 }
@@ -286,7 +285,7 @@ func hostAllowed(host string, suffixes []string) bool {
 	return false
 }
 
-var placeholderRe = regexp.MustCompile(`\{([a-z0-9_:'|.-]+)\}`)
+var placeholderRe = detectors.MustCompile(`\{([a-z0-9_:'|.-]+)\}`)
 
 func expand(tmpl string, v vars) string {
 	return placeholderRe.ReplaceAllStringFunc(tmpl, func(m string) string {

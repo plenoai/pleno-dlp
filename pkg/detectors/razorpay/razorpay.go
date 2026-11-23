@@ -20,7 +20,6 @@ package razorpay
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -40,10 +39,10 @@ var (
 	// `rzp_<env>_xxxx` placeholders without an exact length and this repo's
 	// existing fixture carries a 16-char tail, so pinning {14} would
 	// over-cull real keys. We keep {14,} to preserve recall.
-	keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(rzp_(?:test|live)_[A-Za-z0-9]{14,})\b`) })
+	keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(rzp_(?:test|live)_[A-Za-z0-9]{14,})\b`) })
 	// Secret has no prefix; pinned to the documented 24 base62 chars
 	// (trufflehog upstream) rather than the previous {20,40} range.
-	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24})\b`) })
+	secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{24})\b`) })
 )
 
 // armRe is the assignment-style razorpay reference that must appear within the
@@ -55,8 +54,8 @@ var (
 // the common "# razorpay\nKEY=..." layout, while still rejecting a stray
 // "razorpay" mention sitting far from any assignment word. The bare "razorpay"
 // keyword is still returned from Keywords() as the engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)razorpay(?:[_\-]?api)?[_\-\s="':]{0,8}(?:key|secret|token|id)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)razorpay(?:[_\-]?api)?[_\-\s="':]{0,8}(?:key|secret|token|id)`)
 })
 
 // minSecretEntropy rejects low-entropy 24-char runs that clear the base62

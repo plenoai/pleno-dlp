@@ -15,7 +15,6 @@ package arizeai
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,14 +26,16 @@ var apiBase = "https://app.arize.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style Arize reference that must appear within the
 // proximity window. A bare "arize" substring is too weak a gate against a
 // generic 40-80 alphanumeric run; `arize[_-]?(api[_-]?)?(token|key|secret)` is
 // the shape a real credential assignment or config key takes. The bare "arize"
 // keyword stays in Keywords() as the engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)arize[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)arize[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy is a conservative floor: Arize does not document the key's
 // prefix, length, or charset (see package note), so we cannot pin a length

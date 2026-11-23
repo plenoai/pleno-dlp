@@ -25,3 +25,15 @@ func KeywordHaystackForTest(data []byte) []byte {
 	var lower asciiScratch
 	return append([]byte(nil), keywordHaystack(data, &lower)...)
 }
+
+// PrefilterForTest builds the #984 prefilter for expr; ok is false when
+// the pattern yields no condition.
+func PrefilterForTest(expr string) (mayMatch func([]byte) bool, ok bool) {
+	p := buildPrefilter(expr)
+	if p == nil {
+		return func([]byte) bool { return true }, false
+	}
+	return p.mayMatch, true
+}
+
+func IndexFoldASCIIForTest(b, lit []byte) bool { return indexFoldASCII(b, lit) }

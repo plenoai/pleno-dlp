@@ -22,7 +22,6 @@ package kafka
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -31,9 +30,11 @@ import (
 
 // Property-style: `sasl.password=…`. Value runs to whitespace, quote, or pleno-dlp:allow
 // line end.
-var propPasswordRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)sasl\.password\s*=\s*["']?([^\s"'<>;]+)`) })
-var propUsernameRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)sasl\.username\s*=\s*["']?([^\s"'<>;]+)`) })
-var bootstrapRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)bootstrap\.servers\s*=\s*["']?([^\s"'<>;]+)`) })
+var propPasswordRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)sasl\.password\s*=\s*["']?([^\s"'<>;]+)`) })
+var propUsernameRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)sasl\.username\s*=\s*["']?([^\s"'<>;]+)`) })
+var bootstrapRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)bootstrap\.servers\s*=\s*["']?([^\s"'<>;]+)`)
+})
 
 // JAAS-style: `password="…"` and `username="…"` that live *inside* a
 // LoginModule directive's clause. JAAS config is a single logical line
@@ -42,9 +43,9 @@ var bootstrapRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompi
 // (between the directive and the next ';', capped at jaasClauseWindow
 // bytes). This excludes co-located but unrelated password="…" fields
 // (JDBC, Spring datasource, other beans) sharing the same chunk.
-var jaasPasswordRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)password\s*=\s*"([^"]+)"`) })
-var jaasUsernameRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)username\s*=\s*"([^"]+)"`) })
-var jaasModuleRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)(?:Plain|Scram)LoginModule`) })
+var jaasPasswordRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)password\s*=\s*"([^"]+)"`) })
+var jaasUsernameRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)username\s*=\s*"([^"]+)"`) })
+var jaasModuleRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)(?:Plain|Scram)LoginModule`) })
 
 // jaasClauseWindow bounds how far after a LoginModule directive we will
 // still treat a password/username field as belonging to its clause when
@@ -68,7 +69,7 @@ var placeholderValues = map[string]struct{}{
 // interpolationRe matches values that are purely a templating token, e.g.
 // ${KAFKA_PASSWORD} or {{ kafka.password }}, so they are never emitted as
 // live secrets.
-var interpolationRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\s*(?:\$\{[^}]*\}|\{\{[^}]*\}\})\s*$`) })
+var interpolationRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^\s*(?:\$\{[^}]*\}|\{\{[^}]*\}\})\s*$`) })
 
 // isPlaceholder reports whether v is a templating token or a well-known
 // non-secret default.

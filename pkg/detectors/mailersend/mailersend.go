@@ -7,7 +7,6 @@ package mailersend
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = "https://api.mailersend.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // MailerSend tokens: mlsn. + 60-130 alnum/_-./
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(mlsn\.[A-Za-z0-9._-]{40,200})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(mlsn\.[A-Za-z0-9._-]{40,200})\b`) })
 
 type Scanner struct{}
 

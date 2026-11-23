@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,8 +21,12 @@ var apiBase = "https://api.us-west-1.saucelabs.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Sauce Labs access_keys are UUIDs (`8-4-4-4-12` hex). Username is alnum/_-.
-var userRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)SAUCE_USERNAME["\s:=]+([A-Za-z0-9._-]{3,40})`) })
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)SAUCE_ACCESS_KEY["\s:=]+([A-Fa-f0-9-]{32,40})`) })
+var userRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)SAUCE_USERNAME["\s:=]+([A-Za-z0-9._-]{3,40})`)
+})
+var keyRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)SAUCE_ACCESS_KEY["\s:=]+([A-Fa-f0-9-]{32,40})`)
+})
 
 type Scanner struct{}
 

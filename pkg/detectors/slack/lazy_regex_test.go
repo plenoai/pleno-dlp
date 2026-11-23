@@ -1,14 +1,14 @@
 package slack
 
 import (
-	"regexp"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"sync"
 	"testing"
 )
 
 func TestTokenRegexConcurrentInitialization(t *testing.T) {
 	const workers = 64
-	got := make([]*regexp.Regexp, workers)
+	got := make([]*detectors.Regexp, workers)
 	var wg sync.WaitGroup
 	wg.Add(workers)
 	for i := range got {

@@ -10,7 +10,6 @@ package jumpcloud
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +21,7 @@ var apiBase = "https://console.jumpcloud.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{40})\b`) })
 
 var contextKeywords = []string{"jumpcloud", "jumpcloud_api", "jumpcloud_key", "jumpcloud.com"}
 

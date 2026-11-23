@@ -7,7 +7,6 @@ package hanko
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,8 +18,8 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)hanko[_\.\-]?(?:api[_\.\-]?key|admin[_\.\-]?key|token|secret)\s*[:=]\s*["']?([A-Za-z0-9_\-\.]{32,200})["']?`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)hanko[_\.\-]?(?:api[_\.\-]?key|admin[_\.\-]?key|token|secret)\s*[:=]\s*["']?([A-Za-z0-9_\-\.]{32,200})["']?`)
 })
 
 type Scanner struct{}

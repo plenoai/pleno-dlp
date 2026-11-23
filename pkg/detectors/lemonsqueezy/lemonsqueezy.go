@@ -6,7 +6,6 @@ package lemonsqueezy
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +20,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Lemon Squeezy API tokens are JWT-like (3 dot-separated base64url segments).
 // Accept anything matching that JWT pattern with a wide length range. The
 // keyword gate keeps FP rate bounded.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
 })
 
 var contextKeywords = []string{"lemonsqueezy", "lemon_squeezy", "lemonsqueezy_api"}

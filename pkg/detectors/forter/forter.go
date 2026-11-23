@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,12 +19,14 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // ID + Secret Key credentials, so pinning either would risk destroying
 // recall; the regex is left as a generic 40-80 char run and only the
 // recall-safe gates below are tightened.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe requires an assignment-style Forter reference in the proximity
 // window; a bare "forter" substring (script-src URLs, doc links, the portal
 // host) is too weak a gate against a generic 40-80 alphanumeric run.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)forter[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)forter[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // 3.0 is a conservative floor for an undocumented charset; 3.5 would
 // over-cull a possibly hex/low-variety key.

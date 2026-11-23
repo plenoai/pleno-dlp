@@ -39,7 +39,6 @@ package jslogincallsecret
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -52,8 +51,8 @@ import (
 // Go's RE2 has no backreferences, so the opening/closing quote is not
 // required to match per argument (a mismatched-quote literal is not
 // valid JS and essentially never appears in real files).
-var loginCallRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var loginCallRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?i)\.(?:login|authenticate|signIn)\s*\(\s*['"]([^'"\r\n]+@[^'"\r\n]+)['"]\s*,\s*['"]([^'"\r\n]{4,128})['"]`,
 	)
 })

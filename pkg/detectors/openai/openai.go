@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,7 +25,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Excludes sk-ant- via a negative-lookahead-equivalent: we match `sk-` then
 // either `proj-` or any non-`a` char (or `a` not followed by `nt-`). Since Go
 // regexp lacks lookaheads, we match broadly and filter in code.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk-(?:proj-)?[A-Za-z0-9_-]{20,})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(sk-(?:proj-)?[A-Za-z0-9_-]{20,})\b`) })
 
 // notable models we surface so a triager can immediately see whether a key
 // unlocks the expensive / sensitive surface.

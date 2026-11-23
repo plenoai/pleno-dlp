@@ -10,7 +10,6 @@ package coinbase
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -34,8 +33,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // lengths below are left as-is (changing them would silently move recall)
 // and we apply only recall-safe gate tightening: a tight assignment-anchor
 // arm regex over a radius-64 window plus a conservative entropy floor.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
-var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
+var secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{64})\b`) })
 
 // armRe is the assignment-style Coinbase reference that must appear within
 // the proximity window. A bare "coinbase" substring is too weak a gate
@@ -43,7 +42,9 @@ var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(
 // `coinbase[_-]?(api[_-]?)?(token|key|secret)` is the shape a real
 // credential assignment or config key takes. The bare keyword stays in
 // Keywords() as the cheap engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)coinbase[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)coinbase[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-information 32/64-char alnum runs (padded
 // placeholders, repeated characters, structured IDs) that clear the regex

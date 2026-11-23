@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -30,13 +29,13 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Sift Science accountId/apiKey are documented as 20-80 char
 // alphanumeric strings. We rely on the keywordRe gate to suppress
 // generic blob FPs.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{20,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{20,80})\b`) })
 
 // keywordRe requires an explicit Sift anchor. The bare substring
 // "sift" no longer satisfies, so prose like `sifted`, `sifting`,
 // `shift`, `sifter` is rejected.
-var keywordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)` +
+var keywordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)` +
 		`(?:` +
 		`sift[_\-]api(?:[_\-]key|[_\-]token)?` +
 		`|sift[_\-]account[_\-]id` +

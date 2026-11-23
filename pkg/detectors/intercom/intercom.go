@@ -6,7 +6,6 @@ package intercom
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -17,7 +16,7 @@ var apiBase = "https://api.intercom.io"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dG9rOg[A-Za-z0-9_=+/-]{50,})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(dG9rOg[A-Za-z0-9_=+/-]{50,})\b`) })
 
 type Scanner struct{}
 

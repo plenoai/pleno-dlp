@@ -9,7 +9,6 @@ package postmarkaccount
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +20,8 @@ var apiBase = "https://api.postmarkapp.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)postmark[_\.\-]?account[_\.\-]?(?:api[_\.\-]?token|token|key|secret)\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']?`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)postmark[_\.\-]?account[_\.\-]?(?:api[_\.\-]?token|token|key|secret)\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']?`)
 })
 
 type Scanner struct{}

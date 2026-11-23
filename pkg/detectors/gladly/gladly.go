@@ -6,7 +6,6 @@ package gladly
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -18,18 +17,20 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var emailRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b`)
+var emailRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b`)
 })
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,128})\b`) })
 
 // armRe is the assignment-style Gladly reference that must appear within the
 // proximity window. A bare "gladly" substring (script-src URLs, doc links,
 // the per-org `<org>.gladly.com` host) is too weak a gate against a generic
 // 32-128 alphanumeric run; `gladly[_-]?(api[_-]?)?(token|key|email)` is the
 // shape a real credential assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)gladly[_\-]?(api[_\-]?)?(token|key|email)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)gladly[_\-]?(api[_\-]?)?(token|key|email)`)
+})
 
 // minEntropy rejects low-entropy 32-128 char runs that clear the alnum
 // regex but are not random tokens.

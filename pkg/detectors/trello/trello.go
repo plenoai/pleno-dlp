@@ -14,7 +14,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,8 +26,8 @@ var apiBase = "https://api.trello.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
-	keyRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
-	tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{64})\b`) })
+	keyRe   = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
+	tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{64})\b`) })
 )
 
 var contextKeywords = []string{"trello", "trello_key", "trello_token", "trello_api"}
