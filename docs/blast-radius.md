@@ -43,6 +43,9 @@ pleno-dlp blast-radius aws creds.json   # {"access_key_id","secret_access_key","
 | github | `github` | `GET /user` | `X-OAuth-Scopes` | organizations, repositories (role per repository) |
 | gitlab | `gitlab` | `GET /api/v4/user` | `personal_access_tokens/self` scopes | member projects (access level) |
 | slack | `slack_bot_token` | `auth.test` | `X-OAuth-Scopes` | workspace |
+| azure | `AzureAD`, `AzureApp` | Entra client-credentials token; `servicePrincipals(appId=)` | Graph app roles (`graph:`), ARM role assignments (`rbac:`) | directory roles/groups, subscriptions (roles) |
+| azure-storage | `AzureStorageKey` | account name | `storage:*` (shared key = full access) | blob containers |
+| alibaba | — (standalone) | STS `GetCallerIdentity` | RAM user policy names | RAM policies |
 | openai | `OpenAI` | `GET /v1/me` | — | organizations (role), projects (admin keys) |
 | anthropic | `Anthropic` | — (admin keys flagged privileged) | — | models, workspaces (admin keys) |
 | huggingface | `HuggingFace` | `GET /api/whoami-v2` | token role | organizations (role) |
