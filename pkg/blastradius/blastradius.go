@@ -16,11 +16,13 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/alibaba"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/aws"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/azure"
+	"github.com/plenoai/pleno-dlp/pkg/blastradius/database"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/gcp"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/github"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/gitlab"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/slack"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/spec"
+	"github.com/plenoai/pleno-dlp/pkg/blastradius/teams"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
@@ -71,6 +73,10 @@ func Default() *Registry {
 		{Name: "azure", Mapper: azure.ServicePrincipalMapper{}, Detectors: []detectors.DetectorType{detectors.AzureAD, detectors.AzureApp}},
 		{Name: "azure-storage", Mapper: azure.StorageKeyMapper{}, Detectors: []detectors.DetectorType{detectors.AzureStorageKey}},
 		{Name: "alibaba", Mapper: alibaba.Mapper{}, Detectors: []detectors.DetectorType{detectors.AlibabaCloud}},
+		{Name: "microsoft-teams", Mapper: teams.Mapper{}},
+		{Name: "postgres", Mapper: database.Postgres{}, Detectors: []detectors.DetectorType{detectors.Postgres}},
+		{Name: "mysql", Mapper: database.MySQL{}, Detectors: []detectors.DetectorType{detectors.MySQL}},
+		{Name: "mongodb", Mapper: database.MongoDB{}, Detectors: []detectors.DetectorType{detectors.MongoDB}},
 	}
 	for _, s := range spec.All {
 		ps = append(ps, Provider{Name: s.Spec.Provider, Mapper: spec.Mapper{Spec: s.Spec}, Detectors: s.Detectors})
@@ -122,15 +128,16 @@ func CredentialFromResult(res detectors.Result) detectors.AccessCredential {
 	switch res.DetectorType {
 	case detectors.AWS:
 		return detectors.AccessCredential{Secret: string(res.Raw), Secondary: string(res.RawV2)}
-	case detectors.GCPServiceAccount:
+	case detectors.GCPServiceAccount, detectors.Postgres, detectors.MySQL, detectors.MongoDB:
+		// The connection URI (RawV2) carries host, user and password.
 		return detectors.AccessCredential{Secret: string(res.RawV2)}
-	case detectors.AlibabaCloud:
+	case detectors.AlibabaCloud, detectors.PayPal, detectors.Plaid:
 		return detectors.AccessCredential{Secret: string(res.Raw), Secondary: string(res.RawV2)}
 	}
 	c := detectors.AccessCredential{Secret: string(res.Raw)}
 	// Context the detector extracted beside the secret (Entra tenant/client
 	// ids, storage account name, self-hosted endpoint).
-	for _, k := range []string{"tenant_id", "client_id", "account", "api_endpoint"} {
+	for _, k := range []string{"tenant_id", "client_id", "account", "api_endpoint", "application_id", "domain"} {
 		if v := res.ExtraData[k]; v != "" {
 			if c.Extra == nil {
 				c.Extra = map[string]string{}
@@ -223,7 +230,7 @@ func ParseCredentialFile(provider string, data []byte) (detectors.AccessCredenti
 	if trimmed == "" {
 		return detectors.AccessCredential{}, fmt.Errorf("empty credential input")
 	}
-	if provider == "gcp" {
+	if provider == "gcp" || provider == "postgres" || provider == "mysql" || provider == "mongodb" || provider == "microsoft-teams" {
 		return detectors.AccessCredential{Secret: trimmed}, nil
 	}
 	if strings.HasPrefix(trimmed, "{") {
@@ -247,7 +254,7 @@ func ParseCredentialFile(provider string, data []byte) (detectors.AccessCredenti
 		}
 		return c, nil
 	}
-	if provider == "aws" || provider == "alibaba" {
+	if provider == "aws" || provider == "alibaba" || provider == "paypal" || provider == "plaid" {
 		id, sk, ok := strings.Cut(trimmed, ":")
 		if !ok {
 			return detectors.AccessCredential{}, fmt.Errorf("%s credential must be JSON or access_key_id:secret_access_key", provider)

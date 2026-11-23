@@ -162,6 +162,7 @@ var TerraformCloud = Spec{
 			PermPaths: []string{"attributes.permissions.can-destroy", "attributes.permissions.can-update"}, Privileged: anyOf("can-destroy"),
 			Paginate: NextField, NextPath: "links.next"},
 	},
+	Activity: &Activity{LinkPath: "data.links.auth-token", LastUsedPath: "data.attributes.last-used-at"},
 }
 
 // Jira maps an Atlassian API token (Extra: api_endpoint site URL, email).
@@ -205,6 +206,7 @@ var Fastly = Spec{
 	IdentityPath: "/current_user", IDPath: "id", NamePath: "login|name", TypeLiteral: "user", AccountPath: "customer_id",
 	ScopeEndpoint: "/tokens/self", ScopeEndpointPath: "scopes",
 	PrivilegedScopes: set("global"),
+	Activity:         &Activity{Path: "/tokens/self", LastUsedPath: "last_used_at"},
 	PrivilegedIdentity: func(d any, _ detectors.AccessCredential) bool {
 		r := str(Get(d, "role"))
 		return r == "superuser" || r == "engineer"
@@ -259,6 +261,9 @@ var Zendesk = Spec{
 	},
 	IdentityPath: "/api/v2/users/me.json", IDPath: "user.id", NamePath: "user.email|user.name", TypeLiteral: "user", ScopePath: "user.role",
 	PrivilegedScopes: set("admin"),
+	// Only OAuth bearer tokens have a "current token" record; API tokens
+	// (email/token basic auth) leave Activity empty with a limitation.
+	Activity: &Activity{Path: "/api/v2/oauth/tokens/current", LastUsedPath: "token.used_at"},
 }
 
 // AzureDevOps maps an Azure DevOps PAT to its profile.
@@ -314,4 +319,14 @@ var All = []struct {
 	{Zendesk, []detectors.DetectorType{detectors.Zendesk}},
 	{AzureDevOps, []detectors.DetectorType{detectors.AzureDevOps}},
 	{Shopify, []detectors.DetectorType{detectors.Shopify}},
+	{Algolia, []detectors.DetectorType{detectors.Algolia}},
+	{Artifactory, []detectors.DetectorType{detectors.JFrog}},
+	{Xray, nil},
+	{Auth0, []detectors.DetectorType{detectors.Auth0}},
+	{IBMCloud, []detectors.DetectorType{detectors.IBMCloud}},
+	{Monday, []detectors.DetectorType{detectors.Monday}},
+	{WeightsAndBiases, []detectors.DetectorType{detectors.Wandb}},
+	{PayPal, []detectors.DetectorType{detectors.PayPal}},
+	{Plaid, []detectors.DetectorType{detectors.Plaid}},
+	{Salesforce, nil},
 }

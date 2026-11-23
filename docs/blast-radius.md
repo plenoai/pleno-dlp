@@ -70,6 +70,20 @@ pleno-dlp blast-radius aws creds.json   # {"access_key_id","secret_access_key","
 | zendesk | `Zendesk` | `users/me.json` (api_endpoint + email) | user role | — |
 | azure-devops | `AzureDevOps` | `profiles/me` | — | — |
 | shopify | `Shopify` | — (api_endpoint shop URL) | `access_scopes` | — |
+| algolia | `Algolia` (`application_id`) | `/1/keys/{key}` | key ACLs | indexes, index restrictions |
+| artifactory | `JFrog` | `api/security/current` (api_endpoint); `access/api/v1/tokens/me` activity | groups (admin flag) | repositories |
+| xray | — (standalone) | ping (api_endpoint); token activity | — | Xray repositories, policies |
+| auth0 | `Auth0` (`client_id`, `domain`) | client-credentials grant | granted Management API scopes | clients, resource servers |
+| ibmcloud | `IBMCloud` | IAM API-key grant; `apikeys/details`; `last_authn` activity | — | resource instances |
+| monday | `Monday` | GraphQL `me` | — (`is_admin`) | teams, workspaces, boards |
+| wandb | `Wandb` | GraphQL `viewer` | — (`admin`) | teams |
+| paypal | `PayPal` (client id + secret) | client-credentials grant | granted OAuth scopes | merchant (userinfo) |
+| plaid | `Plaid` (client id + secret) | `/institutions/get` | — (production privileged) | institutions |
+| salesforce | — (standalone, api_endpoint instance URL) | `oauth2/userinfo` | — | permission sets (ModifyAllData, ManageUsers, AuthorApex, ...), sObjects |
+| microsoft-teams | — (standalone webhook URL) | parsed from the URL, no request | `channel:post_message` | channel webhook |
+| postgres | `Postgres` (URI) | `current_user` role attributes | superuser/createrole/createdb/replication/bypassrls | role memberships, databases (owner/create/connect/temp) |
+| mysql | `MySQL` (URI) | `CURRENT_USER()` | global grants | `SHOW GRANTS` entries, databases |
+| mongodb | `MongoDB` (URI) | `connectionStatus` | roles | roles, authorized databases |
 
 AWS evaluation is an over-approximation: statement conditions, permission
 boundaries, SCPs and resource policies are not applied, and `NotAction` is
@@ -88,11 +102,35 @@ probes up to 200 visible service accounts for `getAccessToken`, `signJwt`,
 `signBlob`, `implicitDelegation`, `actAs`, and key creation.
 
 `activity` (`{"last_used","service","region"}`) is present when the provider
-reports credential last use (AWS `GetAccessKeyLastUsed`; `service: "N/A"`
-means never used). It is additive within v1.
+reports credential last use: AWS `GetAccessKeyLastUsed` (`service: "N/A"`
+means never used), GitLab `personal_access_tokens/self`, Fastly
+`/tokens/self`, HCP Terraform `authentication-tokens/{id}`, Zendesk OAuth
+`tokens/current`, JFrog `access/api/v1/tokens/me` (artifactory, xray), and
+IBM Cloud `apikeys/{id}?include_activity=true`. It is additive within v1.
+
+The database mappers (postgres, mysql, mongodb) connect with the connection
+URI found by the detector. Sessions are read-only (Postgres
+`default_transaction_read_only=on`, MySQL `SET SESSION TRANSACTION READ
+ONLY`, MongoDB `connectionStatus`/`listDatabases` only), bounded by a
+10-second connect and 30-second session timeout, and refuse loopback and
+documentation hosts. Driver errors are redacted of the password.
+
+Credentials without a scan-time detector pairing (salesforce, xray,
+microsoft-teams) and unverified detectors (auth0) are mapped through the
+standalone command. Two-part credentials accept JSON
+with `token` and `secondary` fields or `id:secret` for paypal and plaid; algolia takes
+`application_id`, auth0 `client_id` and `domain`, paypal and plaid an
+optional `environment` (`sandbox`, `development`).
+
+Every provider in kingfisher's `src/access_map` has a pleno-dlp mapper;
+`TestKingfisherProviderParity` fails if one is removed.
 
 The providers from openai onward are table-driven `spec.Spec` values in
-`pkg/blastradius/spec`. GitHub, GitLab and Gitea accept
+`pkg/blastradius/spec`. A spec can exchange the credential for a bearer
+token first (`Exchange`), issue GraphQL (`IdentityQuery`, `Listing.Query`)
+or JSON POST requests, and expand the placeholders `secret`, `secondary`,
+`extra.<k>` and `id` (each written in braces) into paths and bodies (each value encoded for its position; `{id}` is
+restricted to identifier characters), and read `Activity`. GitHub, GitLab and Gitea accept
 `{"token","api_endpoint"}` for self-hosted instances; Gitea, Jira and
 Confluence require `api_endpoint` (an `https` URL). Jira/Confluence take
 `email` for basic auth, and Bitbucket app passwords take `username`.

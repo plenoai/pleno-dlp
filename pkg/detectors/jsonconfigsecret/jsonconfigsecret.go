@@ -80,9 +80,14 @@ var placeholders = map[string]struct{}{
 	"123456":             {},
 }
 
+// templateValueRe matches values that are entirely a template marker
+// ({secret}, {{ .Token }}, ${API_KEY}, <password>, %(pw)s) rather than a
+// literal secret.
+var templateValueRe = regexp.MustCompile(`^(?:\$?\{\{?[^{}"]+\}\}?|<[^<>"]+>|%\([^)"]+\)s)$`)
+
 func isPlaceholder(v string) bool {
 	_, ok := placeholders[strings.ToLower(v)]
-	return ok
+	return ok || templateValueRe.MatchString(strings.TrimSpace(v))
 }
 
 type Scanner struct{}
