@@ -23,3 +23,15 @@ updates:
       go-dependencies:
         patterns:
           - "*"
+
+  # Node binding (bindings/node): koffi and dev tooling.
+  - package-ecosystem: npm
+    directory: "/bindings/node"
+    schedule:
+      interval: weekly
+
+  # Python binding (bindings/python).
+  - package-ecosystem: pip
+    directory: "/bindings/python"
+    schedule:
+      interval: weekly
