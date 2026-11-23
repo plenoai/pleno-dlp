@@ -31,7 +31,7 @@ Status values:
 | `revoke` | `revoke` | done |
 | `blast-radius` / `access-map` | `blast-radius`, `scan --blast-radius` | done |
 | `view` | `view` | done |
-| `config` (emit `kingfisher.yaml` from flags) | — | gap |
+| `config` (emit `kingfisher.yaml` from flags) | `config init` (emits `pleno-dlp.yaml`) | done |
 | `self-update`, `--self-update`, `--no-update-check` | — | won't: binaries ship through Homebrew and GoReleaser trusted publishing with signed provenance; an in-place updater would bypass the package manager and the attestation check. `brew upgrade pleno-dlp` is the update path |
 
 ## Scan flags
@@ -73,7 +73,7 @@ Status values:
 | `--view-report*` | `view` | done |
 | `--tls-mode`, `--ignore-certs` | — | won't: verification always uses system trust |
 | `--user-agent-suffix` | — | gap |
-| `--config` (`kingfisher.yaml`) | `.pleno-dlp-allowlist` discovery only | gap |
+| `--config` (`kingfisher.yaml`) | `scan --config` / `PLENO_DLP_CONFIG` (`docs/config.md`) | done |
 | `--quiet`, `--verbose`, `--color`, `--progress` | `--quiet` | done |
 | `--warnings-as-errors` | `--fail-on-coverage=any` | done |
 
