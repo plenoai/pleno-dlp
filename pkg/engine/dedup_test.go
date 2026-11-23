@@ -399,3 +399,32 @@ func TestGitCrossCommitDedup_SameCommitDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// TestGitCrossCommitDedup_ExpandsReplicas pins that a finding from a chunk
+// standing for several identical diffs counts every copy and is attributed
+// to the lowest-ordinal commit, even when that commit was a skipped replica.
+func TestGitCrossCommitDedup_ExpandsReplicas(t *testing.T) {
+	rec := &recordingSink{}
+	s := NewGitCrossCommitDedup(rec)
+	reps := &sources.DiffReplicas{}
+	f := mkGitFinding("AKIA0000000000000000", "vendor.js", "late")
+	f.Chunk.SourceMetadata.Git.Ordinal = 9
+	f.Chunk.SourceMetadata.Git.Replicas = reps
+	s.Emit(f)
+	other := mkGitFinding("AKIA0000000000000000", "vendor.js", "mid")
+	other.Chunk.SourceMetadata.Git.Ordinal = 5
+	s.Emit(other)
+	reps.Add(sources.DiffReplica{Commit: "early", Ordinal: 2})
+	reps.Add(sources.DiffReplica{Commit: "later", Ordinal: 12})
+	_ = s.Close()
+	if len(rec.findings) != 1 {
+		t.Fatalf("want 1 finding, got %d", len(rec.findings))
+	}
+	g := rec.findings[0].Chunk.SourceMetadata.Git
+	if g.Commit != "early" || g.Replicas != nil {
+		t.Errorf("want replica commit early without Replicas, got %s %v", g.Commit, g.Replicas)
+	}
+	if got := rec.findings[0].Result.ExtraData["occurrence_count"]; got != "4" {
+		t.Errorf("want occurrence_count=4, got %q", got)
+	}
+}

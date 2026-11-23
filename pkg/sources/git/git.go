@@ -166,7 +166,14 @@ type Config struct {
 	SkipMergeCommits bool `json:"skip_merge_commits,omitempty"`
 	// TrufflehogCompatible matches trufflehog's Git diff surface: merge and
 	// rename diffs are omitted and unchanged context keeps only newlines.
-	TrufflehogCompatible    bool          `json:"trufflehog_compatible,omitempty"`
+	TrufflehogCompatible bool `json:"trufflehog_compatible,omitempty"`
+	// CollapseIdenticalDiffs scans a file diff that is byte-identical to
+	// one already seen in this walk (same path, pre-image, and post-image
+	// blob: re-added vendor trees, cherry-picks, branch copies) only once
+	// and attaches the other commits as sources.GitMeta.Replicas. Only a
+	// consumer that expands replicas (engine.NewGitCrossCommitDedup) may
+	// set it; any other consumer would lose the skipped copies' findings.
+	CollapseIdenticalDiffs  bool          `json:"collapse_identical_diffs,omitempty"`
 	IncludeGitArchives      bool          `json:"include_git_archives,omitempty"`
 	IncludeGitBinaries      bool          `json:"include_git_binaries,omitempty"`
 	GitArtifactMaxBytes     int64         `json:"git_artifact_max_bytes,omitempty"`
@@ -177,10 +184,14 @@ type Config struct {
 }
 
 type Source struct {
-	name        string
-	jobID       int64
-	sourceID    int64
-	concurrency int
+	name                   string
+	jobID                  int64
+	sourceID               int64
+	concurrency            int
+	collapseIdenticalDiffs bool
+	// diffReplicas indexes the file diffs already scanned in this walk
+	// when CollapseIdenticalDiffs is on; nil otherwise.
+	diffReplicas *diffReplicaRegistry
 	// binaryBlobs memoizes binary classification by blob id for one walk.
 	binaryBlobs *binaryBlobCache
 	// inlineBatches is set only for the duration of ChunksInline.
@@ -291,6 +302,7 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, _
 	s.skipMergeCommits = cfg.SkipMergeCommits
 	s.trufflehogCompatible = cfg.TrufflehogCompatible
 	s.includeGitArchives = cfg.IncludeGitArchives
+	s.collapseIdenticalDiffs = cfg.CollapseIdenticalDiffs
 	s.includeGitBinaries = cfg.IncludeGitBinaries
 	s.gitArtifactMaxBytes = cfg.GitArtifactMaxBytes
 	if s.gitArtifactMaxBytes <= 0 {
@@ -327,6 +339,7 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	s.promisorFiltered = s.repoPromisorFiltered(repo)
 	s.promisorSkipped = 0
 	s.binaryBlobs = &binaryBlobCache{}
+	s.diffReplicas = newDiffReplicaRegistry(s.collapseIdenticalDiffs && !s.trufflehogCompatible && !s.includeGitArchives && !s.includeGitBinaries)
 	starts, err := s.resolveStarts(repo)
 	if err != nil {
 		return err
