@@ -1,13 +1,17 @@
 package git
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
 func gitRun(t *testing.T, dir string, args ...string) {
@@ -121,5 +125,50 @@ func TestParallelShardsMatchSingleStream(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Errorf("missing %q in sharded chunks:\n%s", want, joined)
 		}
+	}
+}
+
+// TestChunksInlineMatchesChannel pins that the inline batch pool used by the
+// engine delivers exactly the chunks of the plain channel path.
+func TestChunksInlineMatchesChannel(t *testing.T) {
+	dir := buildShardRepo(t)
+	want := chunkKeys(t, dir, 1)
+
+	old := nativeShardMinCommits
+	nativeShardMinCommits = 1
+	defer func() { nativeShardMinCommits = old }()
+	s := &Source{}
+	mustInit(t, s, Config{Repo: dir})
+	s.concurrency = 4
+	var mu sync.Mutex
+	var got []string
+	record := func(c *sources.Chunk) {
+		g := c.SourceMetadata.Git
+		mu.Lock()
+		got = append(got, g.Commit+" "+g.File+" "+string(c.Data))
+		mu.Unlock()
+	}
+	ch := make(chan *sources.Chunk)
+	done := make(chan struct{})
+	go func() {
+		for c := range ch {
+			record(c)
+		}
+		close(done)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	err := s.ChunksInline(ctx, ch, 3, record)
+	close(ch)
+	<-done
+	if err != nil {
+		t.Fatalf("ChunksInline: %v", err)
+	}
+	sort.Strings(got)
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("inline chunks differ\nwant:\n%s\ngot:\n%s", strings.Join(want, "\n"), strings.Join(got, "\n"))
+	}
+	if s.inlineBatches != nil {
+		t.Fatal("inlineBatches leaked past ChunksInline")
 	}
 }

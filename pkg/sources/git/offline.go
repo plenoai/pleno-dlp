@@ -538,11 +538,13 @@ func (s *Source) chunksOffline(ctx context.Context, repo *gogit.Repository, gitB
 			return nil
 		}
 		ids := make([]string, len(pending))
+		ordinals := make(map[string]int64, len(pending))
 		for i, commit := range pending {
 			ids[i] = commit.hash
+			ordinals[commit.hash] = commit.ordinal
 		}
 		pending = nil
-		return s.offlinePatchBatch(ctx, &nativeLogParser{ctx: ctx, source: s, repo: repo, gitBin: gitBin, ch: ch}, gitBin, ids)
+		return s.offlinePatchBatch(ctx, &nativeLogParser{ctx: ctx, source: s, repo: repo, gitBin: gitBin, ch: ch, ordinals: ordinals}, gitBin, ids)
 	}
 	process := func(commit nativeCommit, entries []offlineRawEntry) error {
 		if err := ctx.Err(); err != nil {
@@ -575,7 +577,13 @@ func (s *Source) chunksOffline(ctx context.Context, repo *gogit.Repository, gitB
 		mergeBuf = nil
 		return w.merges(ctx, repo, gitBin, batch)
 	}
+	// Number every enumerated commit (merges included) exactly as the
+	// single native stream does, so cross-commit dedup picks the same
+	// introducing commit on complete and partial clones.
+	var ordinal int64
 	handle := func(commit nativeCommit, entries []offlineRawEntry) error {
+		ordinal++
+		commit.ordinal = ordinal
 		if commit.parentCount > 1 {
 			if s.omitMergeDiffs() {
 				// SkipMergeCommits/TrufflehogCompatible drop merge
@@ -950,6 +958,7 @@ func (w *offlineWalk) emitBlob(ctx context.Context, commit nativeCommit, path, s
 		email:        commit.email,
 		authoredDate: commit.authoredDate,
 		message:      commit.message,
+		ordinal:      commit.ordinal,
 	}}
 	emit := func(segment diffSegment) error {
 		return parser.emitSegments(path, []diffSegment{segment})
