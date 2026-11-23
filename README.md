@@ -40,12 +40,14 @@ it current with `brew upgrade pleno-dlp`; see
 
 ## Sources
 
-`filesystem`, `git` history (branch, depth, and time filters), `stdin`,
+`filesystem`, `git` history (branch, depth, time, and commit-range filters), `stdin`,
 and SaaS connectors: GitHub, GitLab, Bitbucket, Slack, Notion, Confluence,
 Jira, and more.
 
 ```sh
 pleno-dlp scan git --repo ./repo --branch main --max-depth 500
+pleno-dlp scan git --repo . --branch HEAD --since-commit origin/main   # PR range only
+pleno-dlp scan git --repo . --branch HEAD --branch-root-commit "$FORK_POINT"  # inclusive
 git diff | pleno-dlp scan stdin --label git-diff
 pleno-dlp scan github --org acme
 pleno-dlp sources list

@@ -81,6 +81,13 @@ func DeriveContainer(c *sources.Chunk) ContainerKey {
 			Parent:    parent,
 			Extension: extOf(g.Object),
 		}
+	case md.AzureBlob != nil:
+		a := md.AzureBlob
+		return ContainerKey{
+			Container: a.Locator(),
+			Parent:    a.Endpoint + "/" + a.Container + "/" + s3Parent(a.Blob),
+			Extension: extOf(a.Blob),
+		}
 	case md.Slack != nil:
 		s := md.Slack
 		return ContainerKey{

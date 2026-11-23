@@ -1,6 +1,7 @@
 // Gitea-compatible forge connectors.
 //
-// Surface: single repository issue comments. Forgejo and
+// Surface: single repository issue comments, plus the repository's full Git
+// history (all branches and tags) when history=true. Forgejo and
 // Codeberg expose the Gitea API shape; Gogs follows the same broad v1 shape.
 // GitBucket's API v3 is GitHub-like enough for the repository comments
 // endpoint. Repository blobs are intentionally out of scope here because
@@ -100,6 +101,24 @@ func scanGiteaCompatible(ctx context.Context, provider giteaProvider, cfg Config
 	scanState := forgeScanState{previous: previousState, next: nextState}
 	if err := scanGiteaIssueComments(ctx, provider, cli, owner, name, maxBytes, &scanState, emit); err != nil {
 		return err
+	}
+	if parseBool(cfg["history"]) {
+		key := owner + "/" + name
+		cloneURL := cfg.Get("clone_url", giteaCloneURL(apiBase, owner, name))
+		target := remoteGitRepo{Key: key, CloneURL: cloneURL}
+		// Only HTTP(S) remotes receive the API token; local/file remotes
+		// need no credentials and must never be handed one.
+		if strings.HasPrefix(cloneURL, "https://") || strings.HasPrefix(cloneURL, "http://") {
+			target.Username = cfg.Get("username", owner)
+			target.Password = token
+		}
+		state, err := scanRemoteGitRepo(ctx, provider.name, target, previousState.Repos[key], emit)
+		if err != nil {
+			return err
+		}
+		if len(state) > 0 {
+			nextState.Repos = map[string]json.RawMessage{key: state}
+		}
 	}
 	data, err := json.Marshal(nextState)
 	if err != nil {
@@ -203,6 +222,19 @@ func forEachGiteaIssueComment(ctx context.Context, provider giteaProvider, cli *
 		next = parseLinkHeader(resp.Header.Get("Link"))
 	}
 	return nil
+}
+
+// giteaCloneURL derives the smart-HTTP clone URL from a Gitea-style API base
+// (https://host[/prefix]/api/v1 -> https://host[/prefix]/owner/repo.git).
+func giteaCloneURL(apiBase, owner, repo string) string {
+	base := strings.TrimRight(apiBase, "/")
+	for _, suffix := range []string{"/api/v1", "/api/v3", "/api"} {
+		if strings.HasSuffix(base, suffix) {
+			base = strings.TrimSuffix(base, suffix)
+			break
+		}
+	}
+	return base + "/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + ".git"
 }
 
 func giteaCommentKey(id int64) string {

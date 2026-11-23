@@ -299,6 +299,15 @@ func githubHistoryPolicy(cfg Config) string {
 		writeFingerprint(h, key)
 		writeFingerprint(h, cfg[key])
 	}
+	// Range-limited walks do not cover the excluded ancestry. Mixing them
+	// into the policy only when set keeps existing checkpoints valid while
+	// forcing the next unranged run to rescan in full.
+	for _, key := range []string{"since_commit", "branch_root_commit"} {
+		if cfg[key] != "" {
+			writeFingerprint(h, key)
+			writeFingerprint(h, cfg[key])
+		}
+	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 
