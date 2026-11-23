@@ -71,7 +71,15 @@ type Rule struct {
 	// Validation is a templated HTTP liveness check with SSRF guards (see
 	// validation.go). Mutually exclusive with verify_url.
 	Validation *Validation `json:"validation,omitempty"`
+	// Examples must each produce at least one finding and NegativeExamples
+	// must produce none; `pleno-dlp detectors check --rules FILE` enforces
+	// both offline. They are ignored during scans.
+	Examples         []string `json:"examples,omitempty"`
+	NegativeExamples []string `json:"negative_examples,omitempty"`
 }
+
+// Rule returns the parsed rule this detector was compiled from.
+func (d *Detector) Rule() Rule { return d.rule }
 
 // Detector wraps a parsed Rule. Stateless after Compile — concurrent calls
 // from different scan workers are safe.

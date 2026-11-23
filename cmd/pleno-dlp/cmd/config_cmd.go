@@ -37,7 +37,7 @@ func configDeniedFlag(name string) bool {
 		}
 	}
 	switch name {
-	case "config", "repo", "git-url", "cpu-profile", "help":
+	case "config", "repo", "git-url", "cpu-profile", "help", "output":
 		return true
 	}
 	return false
@@ -119,10 +119,12 @@ func scanConfigPreRun(cmd *cobra.Command, _ []string) error {
 	if path == "" {
 		path = os.Getenv("PLENO_DLP_CONFIG")
 	}
-	if path == "" {
-		return nil
+	if path != "" {
+		if err := loadProjectConfig(cmd, path); err != nil {
+			return err
+		}
 	}
-	return loadProjectConfig(cmd, path)
+	return applyScanTransportAndOutput(cmd)
 }
 
 var configCmd = &cobra.Command{

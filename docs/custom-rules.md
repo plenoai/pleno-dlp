@@ -10,6 +10,7 @@
 | `checksum` | Offline check-digit validation; failing candidates are dropped. |
 | `validation` | Templated HTTPS liveness check with SSRF guards. |
 | `verify_url`, `verify_header` | Legacy GET check; mutually exclusive with `validation`. |
+| `examples`, `negative_examples` | Test inputs: each example must yield a finding, no negative example may. Checked offline by `pleno-dlp detectors check --rules rules.json` (non-zero exit on failure); ignored during scans. |
 
 ## Checksum
 

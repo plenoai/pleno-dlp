@@ -19,6 +19,8 @@ func registerSuppressionFlags(fs *pflag.FlagSet) {
 		"path to a baseline file (see 'pleno-dlp baseline create'); findings whose fingerprint is recorded there are suppressed")
 	fs.BoolVar(&scanOpts.noInlineAllow, "no-inline-allow", false,
 		"ignore inline pleno-dlp:allow / pleno-dlp:allow-next-line pragmas (audit mode: annotated secrets are reported)")
+	fs.StringArrayVar(&scanOpts.inlineAllowTokens, "inline-allow-token", nil,
+		"additional same-line inline-allow comment token, e.g. NOSONAR or 'secret-scan: ignore' (repeatable; added to pleno-dlp:allow, kingfisher:ignore, gitleaks:allow)")
 	fs.StringArrayVar(&scanOpts.skipRegex, "skip-regex", nil,
 		"suppress findings whose raw secret matches this Go regexp (repeatable)")
 	fs.StringArrayVar(&scanOpts.skipWord, "skip-word", nil,
