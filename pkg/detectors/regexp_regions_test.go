@@ -89,6 +89,18 @@ func TestAnchorNarrowingMatchesStd(t *testing.T) {
 		f := &detectors.Format{Pattern: expr}
 		for i := 0; i < docs; i++ {
 			doc := narrowDoc(rng, tree, i%2 == 0)
+			if i%3 == 0 {
+				// Text anchors (\A, \z, non-multiline $) only fire at
+				// the input edges, so place a generated match there too.
+				var m strings.Builder
+				if generate(rng, tree, &m, 0) {
+					if i%2 == 0 {
+						doc = append([]byte(m.String()), doc...)
+					} else {
+						doc = append(doc, m.String()...)
+					}
+				}
+			}
 			want := std.FindAllSubmatchIndex(doc, -1)
 			matched += len(want)
 			checkSame(t, expr, doc, "FindAllSubmatchIndex", re.FindAllSubmatchIndex(doc, -1), want)
@@ -144,6 +156,10 @@ func FuzzAnchorNarrowing(f *testing.F) {
 		`(?i)k[a-z]{2}\b`,
 		`-----BEGIN (RSA |EC )?PRIVATE KEY-----[\s\S]*?-----END`,
 		`(?s)é.{0,3}ab`,
+		`ion_[A-Za-z0-9]{8}(?:[^A-Za-z0-9]|$)`,
+		`^AC[a-f0-9]{4}`,
+		`\Ax{0,3}ab[0-9]*\z`,
+		`(?i)pwd\s*=\s*(\S{2,8})$`,
 	}
 	for i := range exprs {
 		// Assembled at run time so the fixture is not itself a finding.

@@ -25,7 +25,12 @@ import (
 //   - each span is widened by utf8.UTFMax bytes and then to rune starts,
 //     so the regexp decodes the same runes and its context-sensitive
 //     assertions (\b, \B, (?m)^, (?m)$) see the same neighbouring runes
-//     as in the whole input; patterns with \A or \z get no anchor;
+//     as in the whole input;
+//   - text anchors (\A, ^ and \z, $ without (?m)) hold at a span edge
+//     only where that edge is the input edge: a span edge inside the
+//     input lies at least utf8.UTFMax bytes beyond everything the
+//     bounds let a match reach, so no in-span match can start or end
+//     there and the assertion never fires spuriously (#1037);
 //   - a match found inside a span still contains an occurrence and obeys
 //     the bounds, so it never touches a widened edge: it is a real match;
 //   - overlapping spans merge, so every candidate match starting at a
@@ -81,9 +86,6 @@ func buildAnchor(expr string) *anchor {
 	// The tree stays unsimplified: Simplify expands x{0,1000} into a
 	// thousand nested optional nodes, and the analysis handles OpRepeat
 	// directly.
-	if hasTextAnchor(re) {
-		return nil
-	}
 	b := &anchorBuilder{facts: map[*syntax.Regexp]*facts{}, maxLen: map[*syntax.Regexp]int{}}
 	a, ok := b.findAnchor(re)
 	if ok && a.left.bounded() && a.left.score()+a.right.score() < scoreClass {
@@ -104,18 +106,6 @@ func buildAnchor(expr string) *anchor {
 // bounded reports whether walking the extent can stop before the input
 // edge.
 func (e extent) bounded() bool { return e.score() < scoreAny }
-
-func hasTextAnchor(re *syntax.Regexp) bool {
-	if re.Op == syntax.OpBeginText || re.Op == syntax.OpEndText {
-		return true
-	}
-	for _, s := range re.Sub {
-		if hasTextAnchor(s) {
-			return true
-		}
-	}
-	return false
-}
 
 // runeWidth is the widest UTF-8 encoding among runes r matches; invalid
 // bytes match as U+FFFD one byte at a time, within the bound.
