@@ -14,3 +14,10 @@ the combined-diff parser. A git without `--attr-source` records a
 `merge-forced-text` coverage gap instead of failing the walk. The go-git
 walker already sniffs content rather than attributes; both paths are pinned
 by `mergeattr_test.go`. Unique findings on croc/django/rails are unchanged.
+
+Follow-up: `--attr-source` does not stop git from reading
+`$GIT_DIR/info/attributes`, so files marked binary only there were still
+skipped. Merge rendering now runs against a temporary git dir without
+`info/attributes` that shares the repository's object store
+(`GIT_OBJECT_DIRECTORY`) and shallow file; pinned by
+`TestChunks_NativeMergeResolutionInfoAttributesBinaryText`.

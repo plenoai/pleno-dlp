@@ -12,6 +12,12 @@ import (
 // buildAttrBinaryMergeRepo resolves a conflict on a `*.dat binary` text file
 // with content that appears in neither parent (#994).
 func buildAttrBinaryMergeRepo(t *testing.T, secret string) string {
+	return buildAttrBinaryMergeRepoWith(t, secret, false)
+}
+
+// buildAttrBinaryMergeRepoWith optionally marks *.dat binary only through
+// .git/info/attributes instead of a committed .gitattributes.
+func buildAttrBinaryMergeRepoWith(t *testing.T, secret string, infoOnly bool) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
@@ -23,7 +29,14 @@ func buildAttrBinaryMergeRepo(t *testing.T, secret string) string {
 		}
 	}
 	gitRun(t, dir, "init", "-q", "-b", "main")
-	write(".gitattributes", "*.dat binary\n")
+	if infoOnly {
+		if err := os.MkdirAll(filepath.Join(dir, ".git", "info"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		write(".git/info/attributes", "*.dat binary\n")
+	} else {
+		write(".gitattributes", "*.dat binary\n")
+	}
 	write("conf.dat", "base\n")
 	gitRun(t, dir, "add", "-A")
 	gitRun(t, dir, "commit", "-qm", "base")
@@ -70,4 +83,9 @@ func TestChunks_GoGitMergeResolutionAttributeBinaryText(t *testing.T) {
 	dir := buildAttrBinaryMergeRepo(t, secret)
 	t.Setenv("PATH", t.TempDir()) // no git binary: go-git walker
 	assertMergeAttrSecret(t, dir, secret)
+}
+
+func TestChunks_NativeMergeResolutionInfoAttributesBinaryText(t *testing.T) {
+	const secret = "github_pat_11MERGEINFO_abcdefghijklmnopqrstuvwxyz0123456789"
+	assertMergeAttrSecret(t, buildAttrBinaryMergeRepoWith(t, secret, true), secret)
 }

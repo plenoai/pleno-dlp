@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -1737,8 +1738,19 @@ func (p *nativeLogParser) emitForcedTextPatch(path string) error {
 	// A merge resolution only renders as a dense combined diff (#994);
 	// --diff-merges=off would print nothing for it. Combined diffs ignore
 	// --text, so attributes are read from the empty tree instead (git >=
-	// 2.40) and the global attributes file is disabled.
+	// 2.40), the global attributes file is disabled, and git runs against
+	// an isolated git dir sharing the object store so $GIT_DIR/info/attributes
+	// does not apply either.
 	merge := p.commit.parentCount > 1
+	var isolatedEnv []string
+	if merge {
+		env, cleanup, err := p.isolatedAttrGitEnv()
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+		isolatedEnv = env
+	}
 	diffMerges := "--diff-merges=off"
 	args := []string{"-c", "diff.suppressBlankEmpty=false"}
 	if merge {
@@ -1777,7 +1789,7 @@ func (p *nativeLogParser) emitForcedTextPatch(path string) error {
 	var stderr limitedWriter
 	stderr.limit = nativeStderrLimit
 	cmd.Stderr = &stderr
-	cmd.Env = nativeGitEnv()
+	cmd.Env = append(nativeGitEnv(), isolatedEnv...)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start forced text diff: %w", err)
 	}
@@ -1806,6 +1818,48 @@ func (p *nativeLogParser) emitForcedTextPatch(path string) error {
 		return fmt.Errorf("forced text diff: %w", waitErr)
 	}
 	return nil
+}
+
+// isolatedAttrGitEnv returns environment entries pointing git at a temporary
+// git dir without info/attributes that reads objects (and the shallow file)
+// from the scanned repository.
+func (p *nativeLogParser) isolatedAttrGitEnv() ([]string, func(), error) {
+	cmd := exec.CommandContext(p.ctx, p.gitBin, "-C", p.source.repoAbs, "rev-parse", "--path-format=absolute", "--git-path", "objects", "--git-path", "shallow")
+	cmd.Env = nativeGitEnv()
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, nil, fmt.Errorf("git: resolve object directory: %w", err)
+	}
+	paths := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(paths) != 2 || paths[0] == "" {
+		return nil, nil, fmt.Errorf("git: unexpected rev-parse output %q", out)
+	}
+	dir, err := os.MkdirTemp("", "pleno-dlp-attr-")
+	if err != nil {
+		return nil, nil, fmt.Errorf("git: isolated git dir: %w", err)
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+	for _, sub := range []string{"objects", "refs"} {
+		if err := os.Mkdir(filepath.Join(dir, sub), 0o700); err != nil {
+			cleanup()
+			return nil, nil, fmt.Errorf("git: isolated git dir: %w", err)
+		}
+	}
+	files := map[string]string{
+		"HEAD":   p.commit.hash + "\n",
+		"config": "[core]\n\trepositoryformatversion = 0\n\tbare = true\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			cleanup()
+			return nil, nil, fmt.Errorf("git: isolated git dir: %w", err)
+		}
+	}
+	env := []string{"GIT_DIR=" + dir, "GIT_OBJECT_DIRECTORY=" + paths[0]}
+	if _, err := os.Stat(paths[1]); err == nil {
+		env = append(env, "GIT_SHALLOW_FILE="+paths[1])
+	}
+	return env, cleanup, nil
 }
 
 func splitNativePatch(data []byte, firstLine int) []diffSegment {
