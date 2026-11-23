@@ -74,9 +74,10 @@ pleno-dlp detectors list --verify-status
 
 ## Revocation
 
-`pleno-dlp revoke` invalidates leaked GitHub, GitLab, Slack, and Stripe
-restricted-key credentials from the CLI; AWS additionally needs
-operator-supplied IAM admin context. Each attempt writes a
+`pleno-dlp revoke` invalidates leaked GitHub, GitLab, Slack, Stripe
+restricted-key, Hugging Face, and Vercel credentials from the CLI; AWS,
+Anthropic, OpenAI, Resend, Notion OAuth, and GCP service-account keys
+additionally need operator-supplied admin context. Each attempt writes a
 schema-versioned [JSON Lines audit record](docs/audit-trail-schema.md)
 (`--audit-trail <path>`, default stderr). Gating rules:
 [`docs/revoke-support.md`](docs/revoke-support.md)

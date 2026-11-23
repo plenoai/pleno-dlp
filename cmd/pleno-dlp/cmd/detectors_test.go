@@ -107,12 +107,19 @@ func TestDetectorsList_RevokeSupport(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"GitHub":        "supported",
-		"GitLab":        "supported",
-		"SlackBotToken": "supported",
-		"Stripe":        "supported",
-		"AWS":           "context-required",
-		"JWT":           "unsupported",
+		"GitHub":            "supported",
+		"GitLab":            "supported",
+		"SlackBotToken":     "supported",
+		"Stripe":            "supported",
+		"AWS":               "context-required",
+		"JWT":               "unsupported",
+		"HuggingFace":       "supported",
+		"Vercel":            "supported",
+		"Anthropic":         "context-required",
+		"OpenAI":            "context-required",
+		"Resend":            "context-required",
+		"Notion":            "context-required",
+		"GCPServiceAccount": "context-required",
 	}
 	got := map[string]string{}
 	for _, r := range rows {
