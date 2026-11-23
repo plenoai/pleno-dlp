@@ -111,6 +111,8 @@ func (t SourceType) String() string {
 		return "huggingface"
 	case SourceCircleCI:
 		return "circleci"
+	case SourceTeams:
+		return "teams"
 	default:
 		return "unknown"
 	}
