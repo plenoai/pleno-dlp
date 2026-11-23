@@ -192,7 +192,7 @@ var scanSQLDumpCmd = &cobra.Command{
 }
 
 func init() {
-	scanCmd.PersistentFlags().StringVar(&scanOpts.format, "format", "table", "output format: json, sarif, table")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.format, "format", "table", "output format: "+output.FormatsHelp)
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.onlyVerified, "only-verified", false, "legacy compatibility mode: emit, count, and optionally revoke detector-verified findings regardless of assurance; indeterminate findings are kept by default — see --drop-indeterminate and --only-provider-confirmed")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.providerOnly, "only-provider-confirmed", false,
 		"verify, emit, count, and optionally revoke only findings from detectors whose semantics were audited as provider-confirmed; unaudited and weaker verification requests are skipped")
