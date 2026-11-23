@@ -90,6 +90,20 @@ func isPlaceholder(v string) bool {
 	return ok || templateValueRe.MatchString(strings.TrimSpace(v))
 }
 
+var (
+	pascalTypeKeyRe = regexp.MustCompile(`^[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*$`)
+	enumSlugRe      = regexp.MustCompile(`^[a-z]+(?:-[a-z]+)+$`)
+)
+
+// isTypeNameEnum reports a Go/TS map literal keyed by a PascalCase type
+// name that merely contains a vocabulary word (a detector-name to
+// revoke-status table, #886) whose value is a digit-free kebab-case status
+// token. Credential-shaped keys in snake/camel case and PascalCase keys with
+// non-slug values (a ClientSecret holding a real secret) still report.
+func isTypeNameEnum(key, val string) bool {
+	return pascalTypeKeyRe.MatchString(key) && enumSlugRe.MatchString(val)
+}
+
 type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.JSONConfigSecret }
@@ -117,7 +131,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		if len(val) < 4 {
 			continue
 		}
-		if isPlaceholder(val) {
+		if isPlaceholder(val) || isTypeNameEnum(key, val) {
 			continue
 		}
 		dedupKey := strings.ToLower(key) + "\x00" + val

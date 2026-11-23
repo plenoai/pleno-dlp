@@ -4,6 +4,7 @@ package detectors
 import (
 	"context"
 	"io"
+	"strings"
 	"time"
 )
 
@@ -1490,4 +1491,13 @@ func (r RevokeResult) Status() RevokeOutcome {
 		return RevokeConfirmed
 	}
 	return RevokeFailed
+}
+
+// HasLeadingEscape reports whether v starts with a backslash escape such as
+// `\n` or `\t`. Assignment-shaped detectors scanning source code otherwise
+// read an escaped Go/JS string literal spanning a case label and its
+// statement as a key/value pair whose value begins with the escape (#886);
+// a configured credential never does.
+func HasLeadingEscape(v string) bool {
+	return len(v) >= 2 && v[0] == '\\' && strings.IndexByte(`ntr"'\`, v[1]) >= 0
 }

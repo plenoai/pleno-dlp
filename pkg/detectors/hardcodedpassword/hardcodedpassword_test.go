@@ -143,8 +143,8 @@ func TestAssignmentHeadPreservesGrammar(t *testing.T) {
 		"db_password = 'R8!actualValue'",
 		"Paſſword = 'R8!actualValue'",
 		"password\n\n = 'R8!actualValue'",
-		"password:\nname = 'R8!actualValue'",
-		"db_password_suffix\n : 'R8!actualValue'",
+		"password: 'R8!actualValue'",
+		"db_password_suffix : 'R8!actualValue'",
 		"variable \"db_password\" {\n default = \"R8!actualValue\"\n}",
 	} {
 		if !assignEqRe().MatchString(input) && !yamlValueRe().MatchString(input) && !tfVariableRe().MatchString(input) {
@@ -213,5 +213,15 @@ func TestHasAssignmentHeadRequiresSeparator(t *testing.T) {
 				t.Fatalf("hasAssignmentHead(%q) = %v, want %v", tc.data, got, tc.want)
 			}
 		})
+	}
+}
+
+// #886: a Go case label is not a YAML mapping; the value must be on the
+// key's line.
+func TestFromData_CaseLabelNotMapping(t *testing.T) {
+	data := []byte("switch d {\n\tcase HardcodedPassword:" + "\n\t\treturn \"HardcodedPassword\"\n}\n")
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
+	if len(res) != 0 {
+		t.Fatalf("expected no findings, got %+v", res)
 	}
 }

@@ -75,3 +75,23 @@ func TestFromData_Suppressed(t *testing.T) {
 		})
 	}
 }
+
+// #886: Go source shapes must not be read as config assignments.
+func TestFromData_GoSourceNotAssignment(t *testing.T) {
+	data := []byte("switch d {\n\tcase TwilioAPIKey:" + "\n\t\treturn \"TwilioAPIKey\"\n}\n" + // pleno-dlp:allow fixture
+		"c := client{\n\tapiKey: apiKey,\n\tapiKey: secret,\n}\n") // pleno-dlp:allow fixture
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
+	if len(res) != 0 {
+		t.Fatalf("expected no findings, got %+v", res)
+	}
+}
+
+func TestFromData_UnquotedConfigLiteralStillReported(t *testing.T) {
+	// Assembled at runtime so the repo's own pre-commit scan does not flag
+	// this deliberate detection fixture.
+	data := []byte("api_" + "key: abcd1234\n" + "API_" + "KEY = 'case'\n")
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
+	if len(res) != 2 {
+		t.Fatalf("expected 2 findings, got %+v", res)
+	}
+}
