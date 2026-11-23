@@ -60,6 +60,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-11-23 | detector-engineer, core-engineer, qa | Add Revokers for Anthropic, OpenAI, Resend, Notion OAuth (env admin context), GCP service-account keys (self-delete), Hugging Face, and Vercel via the shared `pkg/detectors/revokehttp` helper; `revoke --detector` and spool replay resolve any registered Revoker by type name (#809). |
 | 2026-11-23 | core-engineer, qa | Add `pleno-dlp baseline create|update`, `--baseline` fingerprint suppression, inline `pleno-dlp:allow` / `pleno-dlp:allow-next-line` pragmas (`--no-inline-allow` to audit), and `--skip-regex/--skip-word`, all folded into the single `engine.Allowlist` policy with per-reason counts and `--show-suppressed` audit (#812). |
 | 2026-11-23 | architect, core-engineer, qa | Add the stable embeddable API `pkg/dlp` (JSON shape frozen by `TestJSONContractFrozen`), the c-shared C ABI `cmd/libpleno-dlp`, and Python/Node bindings under `bindings/`; release.yml builds Linux arm64/amd64 libraries and publishes PyPI/npm via OIDC after `finalize` (ADR 0001, #816). |
 | 2026-11-23 | connector-engineer, core-engineer, qa | Add `--since-commit` (exclusive `rev..tip`) and `--branch-root-commit` (inclusive) to `scan git` and `scan github`; boundaries feed the existing stop-set (full ancestry on the go-git path), unresolvable revisions fail, ranged runs never advance git checkpoints, and the GitHub history policy includes the range so the next unranged run rescans fully (#815). |

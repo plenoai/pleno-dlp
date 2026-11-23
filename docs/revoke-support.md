@@ -73,11 +73,9 @@ Spool record shape (v1):
 ```
 
 `pleno-dlp revoke --revoke-from-spool` iterates the file and dispatches
-each line to the matching `Revoker`. Known limitation: spool lines
-record the detector type name (e.g. `SlackBotToken`), and
-`SlackBotToken` currently fails to resolve to the slack `Revoker`, so
-Slack lines are counted as skipped rather than revoked. Lines whose
-detector lacks a Revoker also land in the skipped count; they never
+each line to the matching `Revoker`. Spool lines record the detector type name (e.g. `SlackBotToken`);
+any registered detector type implementing `Revoker` resolves by that
+name. Lines whose detector lacks a Revoker land in the skipped count; they never
 count as failures. The same gating rules
 apply once for the batch: `--confirm`/`--dry-run` and
 `PLENO_DLP_ALLOW_REVOKE=1` in non-interactive contexts.
@@ -104,6 +102,13 @@ already-revoked secret returns `Revoked=true` with a non-nil
 | `SlackBotToken`     | `POST /api/auth.revoke`                                            | `pkg/detectors/slack` (Scanner.Revoke)                        | supported          |
 | `Stripe`            | `POST /v1/api_keys/{key}/revoke`                                   | `pkg/detectors/stripe` (Scanner.Revoke)                       | supported (rk_ only) |
 | `AWS`               | IAM `DeleteAccessKey` action (SigV4 signed)                        | `pkg/detectors/aws` (Scanner.Revoke)                          | context-required   |
+| `HuggingFace`       | `POST /api/credentials/revoke` (unauthenticated report; 202 = accepted) | `pkg/detectors/huggingface` (Scanner.Revoke)             | supported          |
+| `Vercel`            | `DELETE /v3/user/tokens/current` (self-auth)                       | `pkg/detectors/vercel` (Scanner.Revoke)                       | supported          |
+| `Anthropic`         | Admin API `POST /v1/organizations/api_keys/{id}` `status=inactive` | `pkg/detectors/anthropic` (Scanner.Revoke)                    | context-required   |
+| `OpenAI`            | Admin API `DELETE /v1/organization/projects/{p}/api_keys/{id}` or `/v1/organization/admin_api_keys/{id}` | `pkg/detectors/openai` (Scanner.Revoke) | context-required   |
+| `Resend`            | `DELETE /api-keys/{uuid}` with a full-access key                   | `pkg/detectors/resend` (Scanner.Revoke)                       | context-required   |
+| `Notion`            | OAuth introspect → `POST /v1/oauth/revoke` → introspect            | `pkg/detectors/notion` (Scanner.Revoke)                       | context-required   |
+| `GCPServiceAccount` | IAM `DELETE .../serviceAccounts/{email}/keys/{key_id}` (self-auth) | `pkg/detectors/gcp` (Scanner.Revoke)                          | context-required   |
 
 Status semantics:
 
@@ -190,6 +195,44 @@ an `sk_` key never gets reported as successfully rotated.
 The `ProviderID` field carries the key's prefix plus the first four
 characters of the body so audit logs correlate revocations without
 storing the live secret.
+
+### Admin-context providers (Anthropic, OpenAI, Resend, Notion)
+
+These providers revoke by key id or issuing app, never by the raw
+value, so the operator supplies context through environment variables.
+Each Revoker deletes or deactivates only the attested key and treats a
+response without the exact id, object type, and deleted/inactive flag
+as unconfirmed (`Revoked=false` plus a diagnostic).
+
+| Detector | Required environment |
+|---|---|
+| `Anthropic` | `PLENO_DLP_REVOKE_ANTHROPIC_ADMIN_KEY`, `PLENO_DLP_REVOKE_ANTHROPIC_API_KEY_ID` (admin keys are unsupported) |
+| `OpenAI` | `PLENO_DLP_REVOKE_OPENAI_ADMIN_KEY`, `PLENO_DLP_REVOKE_OPENAI_API_KEY_ID`, plus `PLENO_DLP_REVOKE_OPENAI_PROJECT_ID` for project keys (`sk-admin-` keys use the admin-key endpoint) |
+| `Resend` | `PLENO_DLP_REVOKE_RESEND_ADMIN_API_KEY` (full access), `PLENO_DLP_REVOKE_RESEND_API_KEY_ID` (UUID) |
+| `Notion` | `PLENO_DLP_REVOKE_NOTION_CLIENT_ID`, `PLENO_DLP_REVOKE_NOTION_CLIENT_SECRET` of the issuing public integration; internal integration tokens need manual owner action |
+
+### Hugging Face and Vercel
+
+Hugging Face's report endpoint answers 202 for any input. The
+Revoker therefore returns `Revoked=true` with a diagnostic stating
+that the report was accepted, not confirmed. Vercel tokens delete
+themselves; HTTP 401/403 is the idempotent case. `ProviderID` for
+both is a `sha256:` fingerprint, not a prefix of the secret.
+
+### GCP service-account key
+
+`--secret` must be the full key JSON. Scan findings carry only
+`client_email` in `Raw`, so scan-driven revoke fails with an
+explanatory error. The key mints its own token and deletes itself;
+HTTP 403 means it lacks `iam.serviceAccountKeys.delete` and an admin
+must delete it. Deletion does not remove the account or invalidate
+short-lived tokens already issued.
+
+### Not yet covered
+
+RubyGems has no detector and no automatic revocation API. Twilio's
+detector emits an Account SID and Auth Token, which the API cannot
+revoke. Both are tracked as follow-ups (#854, #855).
 
 ### AWS access key (context-required)
 

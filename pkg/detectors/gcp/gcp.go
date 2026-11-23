@@ -47,6 +47,7 @@ type serviceAccount struct {
 	PrivateKey  string `json:"private_key"`
 	TokenURI    string `json:"token_uri"`
 	ProjectID   string `json:"project_id"`
+	KeyID       string `json:"private_key_id"`
 }
 
 func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]detectors.Result, error) {
