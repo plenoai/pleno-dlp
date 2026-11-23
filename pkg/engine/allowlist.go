@@ -280,6 +280,8 @@ func findingPath(f Finding) string {
 		return md.S3.Key
 	case md.GCS != nil:
 		return md.GCS.Object
+	case md.AzureBlob != nil:
+		return md.AzureBlob.Blob
 	case md.Slack != nil:
 		return md.Slack.Channel
 	case md.GitLab != nil:

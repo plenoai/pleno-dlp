@@ -12,6 +12,9 @@ import (
 type forgeIncrementalState struct {
 	Version int                                    `json:"version"`
 	Objects map[string]forgeObjectIncrementalState `json:"objects"`
+	// Repos holds the git-source checkpoint per cloned repository when the
+	// connector also walks repository history (see remote_git.go).
+	Repos map[string]json.RawMessage `json:"repos,omitempty"`
 }
 
 type forgeObjectIncrementalState struct {

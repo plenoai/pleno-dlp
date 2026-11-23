@@ -136,6 +136,8 @@ type gitFlags struct {
 	repo                    string
 	branch                  string
 	since                   string
+	sinceCommit             string
+	branchRootCommit        string
 	maxDepth                int
 	include                 []string
 	exclude                 []string
@@ -150,13 +152,16 @@ type gitFlags struct {
 	archiveMaxFiles         int
 	archiveMaxDepth         int
 	archiveTimeout          time.Duration
+	gitURL                  string
+	gitUsername             string
+	gitToken                string
 }
 
 var gitOpts gitFlags
 
 var scanGitCmd = &cobra.Command{
-	Use:   "git --repo <path>",
-	Short: "Scan a local git repository's commit history",
+	Use:   "git (--repo <path> | --git-url <url>)",
+	Short: "Scan a local or remote git repository's commit history",
 	Args:  cobra.NoArgs,
 	RunE:  runScanGit,
 }
@@ -289,8 +294,14 @@ func init() {
 	scanFilesystemCmd.Flags().BoolVar(&fsOpts.disableDefaultExcludes, "no-default-excludes", false, "disable default excludes (.git, node_modules, vendor, target, ...)")
 
 	scanGitCmd.Flags().StringVar(&gitOpts.repo, "repo", "", "absolute or relative path to a local git repository")
+	scanGitCmd.Flags().StringVar(&gitOpts.gitURL, "git-url", "", "remote repository URL to clone and scan (mutually exclusive with --repo)")
+	scanGitCmd.Flags().StringVar(&gitOpts.gitUsername, "git-username", "", "HTTP username for --git-url (default x-access-token)")
+	scanGitCmd.Flags().StringVar(&gitOpts.gitToken, "git-token", "", "HTTPS token for --git-url (falls back to the PLENO_GIT_TOKEN env var)")
 	scanGitCmd.Flags().StringVar(&gitOpts.branch, "branch", "", "branch to walk (default: all safe advertised history refs)")
 	scanGitCmd.Flags().StringVar(&gitOpts.since, "since", "", "RFC3339 cutoff; commits older than this are skipped")
+	scanGitCmd.Flags().StringVar(&gitOpts.sinceCommit, "since-commit", "", "scan only commits not reachable from this revision (exclusive ancestry boundary, e.g. origin/main or a PR base SHA)")
+	scanGitCmd.Flags().StringVar(&gitOpts.branchRootCommit, "branch-root-commit", "", "scan this commit and its descendants only (inclusive variant of --since-commit)")
+	scanGitCmd.MarkFlagsMutuallyExclusive("since-commit", "branch-root-commit")
 	scanGitCmd.Flags().IntVar(&gitOpts.maxDepth, "max-depth", 0, "cap on commits walked (0 = unbounded)")
 	scanGitCmd.Flags().StringSliceVar(&gitOpts.include, "include", nil, "glob(s) to include (matched against repo-relative paths)")
 	scanGitCmd.Flags().StringSliceVar(&gitOpts.exclude, "exclude", nil, "glob(s) to exclude")
@@ -405,11 +416,18 @@ func runScanGit(cmd *cobra.Command, _ []string) error {
 	if gitOpts.gitArtifactMaxBytes > gitsource.MaxGitArtifactBytes || gitOpts.archiveMaxExpandedBytes > gitsource.MaxArchiveExpandedBytes || gitOpts.archiveMaxFiles > 10000 || gitOpts.archiveMaxDepth > 8 || gitOpts.archiveTimeout > time.Minute {
 		return errors.New("git: artifact limits exceed hard caps")
 	}
+	repoPath, cleanup, err := resolveGitScanRepo(cmd.Context(), gitOpts)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 	cfg, err := json.Marshal(map[string]any{
-		"repo":                       gitOpts.repo,
+		"repo":                       repoPath,
 		"branch":                     gitOpts.branch,
 		"all_branches":               gitOpts.branch == "",
 		"since":                      gitOpts.since,
+		"since_commit":               gitOpts.sinceCommit,
+		"branch_root_commit":         gitOpts.branchRootCommit,
 		"max_depth":                  gitOpts.maxDepth,
 		"include":                    gitOpts.include,
 		"exclude":                    gitOpts.exclude,
@@ -428,6 +446,30 @@ func runScanGit(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("encode source config: %w", err)
 	}
 	return runScanCommon(cmd, src, cfg, "git")
+}
+
+// resolveGitScanRepo returns the local repository to walk: --repo as given,
+// or a temporary bare clone of --git-url.
+func resolveGitScanRepo(ctx context.Context, opts gitFlags) (string, func(), error) {
+	noop := func() {}
+	if opts.gitURL == "" {
+		if opts.gitToken != "" || opts.gitUsername != "" {
+			return "", noop, errors.New("git: --git-token/--git-username require --git-url")
+		}
+		return opts.repo, noop, nil
+	}
+	if opts.repo != "" {
+		return "", noop, errors.New("git: --repo and --git-url are mutually exclusive")
+	}
+	token := opts.gitToken
+	if token == "" {
+		token = os.Getenv("PLENO_GIT_TOKEN")
+	}
+	dir, cleanup, err := gitsource.CloneRemote(ctx, opts.gitURL, gitsource.RemoteAuth{Username: opts.gitUsername, Password: token})
+	if err != nil {
+		return "", noop, err
+	}
+	return dir, cleanup, nil
 }
 
 func runScanSQLDump(cmd *cobra.Command, args []string) error {
@@ -734,6 +776,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// sink (so they don't print). With --fail-on critical, this means
 	// CI gates on "is there a verified credential with elevated impact"
 	// instead of "any finding at all".
+	if scanBlastRadius && !scanOpts.noVerify {
+		topSink = chain.Track(&blastRadiusMapSink{inner: topSink, reg: blastRadiusRegistry()})
+	}
 	if scanOpts.blastRadiusOnly {
 		topSink = chain.Track(&blastRadiusFilterSink{inner: topSink})
 	}

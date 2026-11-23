@@ -1,0 +1,22 @@
+{
+  "name": "@plenoai/pleno-dlp",
+  "version": "0.0.0-dev",
+  "description": "Embeddable pleno-dlp secret scanner: scan, verify and revoke secrets from Node.js",
+  "license": "AGPL-3.0-only",
+  "homepage": "https://github.com/plenoai/pleno-dlp/blob/main/docs/library.md",
+  "repository": { "type": "git", "url": "git+https://github.com/plenoai/pleno-dlp.git", "directory": "bindings/node" },
+  "keywords": ["secrets", "dlp", "secret-scanner", "security"],
+  "engines": { "node": ">=20" },
+  "os": ["linux", "darwin"],
+  "cpu": ["x64", "arm64"],
+  "main": "index.cjs",
+  "types": "index.d.ts",
+  "exports": {
+    ".": { "types": "./index.d.ts", "import": "./index.mjs", "require": "./index.cjs" },
+    "./package.json": "./package.json"
+  },
+  "files": ["index.cjs", "index.mjs", "index.d.ts", "lib/", "README.md"],
+  "scripts": { "test": "node --test test/*.test.cjs" },
+  "dependencies": { "koffi": "2.14.1" },
+  "publishConfig": { "access": "public", "provenance": true }
+}

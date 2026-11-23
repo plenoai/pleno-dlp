@@ -230,6 +230,11 @@ func jsonSourceOf(c *sources.Chunk) jsonSource {
 	case c.SourceMetadata.GCS != nil:
 		md["bucket"] = c.SourceMetadata.GCS.Bucket
 		md["object"] = c.SourceMetadata.GCS.Object
+	case c.SourceMetadata.AzureBlob != nil:
+		md["endpoint"] = c.SourceMetadata.AzureBlob.Endpoint
+		md["container"] = c.SourceMetadata.AzureBlob.Container
+		md["blob"] = c.SourceMetadata.AzureBlob.Blob
+		md["etag"] = c.SourceMetadata.AzureBlob.ETag
 	case c.SourceMetadata.Slack != nil:
 		md["channel"] = c.SourceMetadata.Slack.Channel
 		md["timestamp"] = c.SourceMetadata.Slack.Timestamp
