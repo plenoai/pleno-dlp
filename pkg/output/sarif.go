@@ -601,6 +601,7 @@ var ruleDescriptions = map[string]string{
 	detectors.AbstractAPI.String():            "AbstractAPI key (32 hex) near abstract keyword, verified via /v1/?api_key=... on emailvalidation.abstractapi.com with api_key query param",
 	detectors.NeverBounce.String():            "NeverBounce API key (`secret_`/`private_` alnum) near neverbounce keyword, verified via /v4/account/info on api.neverbounce.com with key query param",
 	detectors.Snov.String():                   "Snov.io OAuth2 client_id + client_secret pair near snov keyword, verified via /v1/oauth/access_token (client_credentials) on api.snov.io (RawV2 carries the secret)",
+	detectors.TwilioAPIKey.String():           "Twilio API key SID (SK + 32 hex) paired with its 32-char secret, verified via /2010-04-01/Accounts.json on api.twilio.com with HTTP Basic auth (RawV2 carries the secret)",
 	detectors.OpenWeather.String():            "OpenWeather API key (32 hex) within 40 bytes after the openweather keyword, verified via /data/2.5/weather on api.openweathermap.org with the appid query parameter",
 	detectors.IPStack.String():                "ipstack IP-geolocation access key (32 hex) within 40 bytes after the ipstack keyword, verified via /check on api.ipstack.com with the access_key query parameter",
 	detectors.Apollo.String():                 "Apollo.io sales-engagement API key (22 alnum) within 40 bytes after the apollo keyword, verified via /api/v1/auth/health on api.apollo.io with X-Api-Key header",
