@@ -699,6 +699,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// sink (so they don't print). With --fail-on critical, this means
 	// CI gates on "is there a verified credential with elevated impact"
 	// instead of "any finding at all".
+	if scanBlastRadius && !scanOpts.noVerify {
+		topSink = chain.Track(&blastRadiusMapSink{inner: topSink, reg: blastRadiusRegistry()})
+	}
 	if scanOpts.blastRadiusOnly {
 		topSink = chain.Track(&blastRadiusFilterSink{inner: topSink})
 	}
