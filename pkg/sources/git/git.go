@@ -237,6 +237,10 @@ type Source struct {
 	// promisorSkipped counts those boundary omissions.
 	promisorFiltered bool
 	promisorSkipped  int64
+
+	// nativeSynthCostly routes a long history's patches to git log -p
+	// instead of the in-process renderer (see nativeSynthMaxCommits).
+	nativeSynthCostly bool
 }
 
 type incrementalState struct {

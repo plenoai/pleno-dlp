@@ -1,0 +1,3 @@
+Owners: connector-engineer, core-engineer, qa
+
+Render ordinary git history in process (#983): a raw-only `git log` feeds a Go port of git's Myers xdiff, and blobs come from an mmapped pack reader with a shared delta-base cache, falling back to git per commit for submodules, renames, named diff drivers, loose or unreadable objects. Output is byte-identical to `git log -p`. A cost rule keeps histories over 20,000 commits on `git log -p`, where git's C reconstruction and diffing cost less CPU (django 52k commits: 2.8 s / 47 CPU-s in process against 2.4 s / 43); `PLENO_DLP_GIT_PATCH_RENDER=git|inprocess` forces either renderer (#978).

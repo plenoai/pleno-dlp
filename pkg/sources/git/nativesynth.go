@@ -41,7 +41,24 @@ func nativeSynthDisabled() bool {
 }
 
 func (s *Source) nativeSynthEligible() bool {
-	return !s.promisorFiltered && !nativeSynthDisabled()
+	return !s.promisorFiltered && !nativeSynthDisabled() && !s.nativeSynthCostly
+}
+
+// nativeSynthMaxCommits is the largest history the in-process renderer
+// takes by default. It wins where per-process and pipe overhead dominates
+// (croc, 2.4k commits: 0.28 s / 3.1 CPU-s against 0.32 s / 4.0 for
+// `git log -p`), but on long histories the work is blob reconstruction
+// and diffing, which git's C does with less CPU than Go while every shard
+// already runs in parallel (django, 52k commits: 2.8 s / 47 CPU-s against
+// 2.4 s / 43; #978). Unsharded histories are too small to repay its
+// helper processes. PLENO_DLP_GIT_PATCH_RENDER=inprocess overrides both.
+const nativeSynthMaxCommits = 20000
+
+// chooseNativeSynth applies the cost rule to a walk of commits rendered by
+// shards parallel workers.
+func (s *Source) chooseNativeSynth(commits, shards int) {
+	s.nativeSynthCostly = (shards <= 1 || commits > nativeSynthMaxCommits) &&
+		os.Getenv("PLENO_DLP_GIT_PATCH_RENDER") != "inprocess"
 }
 
 // nativeRawArgs turns patch-rendering log arguments into the equivalent
@@ -621,21 +638,6 @@ func (r *nativeSynthLog) renderWithGit() error {
 		return fmt.Errorf("git: native log fallback for %s: %w: %s", r.commit, err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
-}
-
-// readBlob reads the blob oid into buf (reused when large enough). Objects
-// over limit are drained and reported as errors without breaking framing.
-func (b *catFileBatch) readBlob(ctx context.Context, oid string, limit int64, buf []byte) ([]byte, error) {
-	if b.broken != nil {
-		return nil, b.broken
-	}
-	if strings.ContainsAny(oid, "\n") {
-		return nil, fmt.Errorf("git: cat-file batch cannot address %q", oid)
-	}
-	if _, err := io.WriteString(b.stdin, "contents "+oid+"\nflush\n"); err != nil {
-		return nil, b.fail(fmt.Errorf("git: cat-file batch write: %w", err))
-	}
-	return b.readBlobResponse(ctx, oid, limit, buf)
 }
 
 // readBlobResponse reads one --batch-command "contents" response.

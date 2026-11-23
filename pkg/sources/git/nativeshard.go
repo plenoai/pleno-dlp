@@ -55,6 +55,7 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 // or a fatal error; mergeErr reports a merge-resolution failure (wantMerges)
 // when the history result is not fatal.
 func (s *Source) runNativePatchLog(ctx context.Context, repo *gogit.Repository, gitBin string, starts, stops []plumbing.Hash, wantMerges bool, ch chan<- *sources.Chunk) (historyErr, mergeErr error) {
+	s.chooseNativeSynth(0, 1)
 	shards := s.nativeShardCount()
 	if shards > 1 {
 		costCtx, cancelCost := context.WithCancel(ctx)
@@ -70,6 +71,7 @@ func (s *Source) runNativePatchLog(ctx context.Context, repo *gogit.Repository, 
 		if n := len(commits) / nativeShardMinCommits; n < shards {
 			shards = n
 		}
+		s.chooseNativeSynth(len(commits), shards)
 		if shards > 1 {
 			if !wantMerges {
 				merges = nil
