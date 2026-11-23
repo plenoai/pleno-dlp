@@ -37,3 +37,7 @@ func PrefilterForTest(expr string) (mayMatch func([]byte) bool, ok bool) {
 }
 
 func IndexFoldASCIIForTest(b, lit []byte) bool { return indexFoldASCII(b, lit) }
+
+// AnchoredForTest reports whether expr gets #1034 candidate-span
+// narrowing.
+func AnchoredForTest(expr string) bool { return buildAnchor(expr) != nil }
