@@ -12,6 +12,8 @@ pleno-dlp scan filesystem ./repo --format json
 pleno-dlp scan filesystem ./repo --format sarif
 pleno-dlp scan filesystem ./repo --format jsonl   # one JSON object per line
 pleno-dlp scan filesystem ./repo --format html > report.html
+pleno-dlp scan filesystem ./repo --format bson > findings.bson
+pleno-dlp scan filesystem ./repo --format toon    # compact, for LLM agents
 ```
 
 JSON output includes a stable `secret_hash` field computed as
@@ -28,6 +30,13 @@ is the stable, secret-free key used by `pleno-dlp baseline` and
 truncated stream stays parseable. `html` buffers redacted findings and
 writes one page with inline CSS/JS and no network references (a
 restrictive CSP blocks any fetch); duplicate findings are merged.
+
+`bson` writes the `json` record as one BSON document per finding,
+concatenated, which `mongoimport`/`mongorestore` and `bsondump` read
+directly. `toon` writes a `pleno-dlp.toon.v1` header and one tabular
+`findings[N]{detector,severity,verdict,redacted,location,fingerprint}`
+array, which costs agents far fewer tokens than JSON; cells that contain
+delimiters or look like literals are JSON-quoted.
 
 ### Local report viewer
 
