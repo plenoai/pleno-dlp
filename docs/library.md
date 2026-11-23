@@ -105,9 +105,16 @@ Published packages bundle the shared library for:
 |---|---|---|
 | Linux (glibc) | arm64 | `manylinux_2_X_aarch64` |
 | Linux (glibc) | x86-64 | `manylinux_2_X_x86_64` |
+| macOS 11+ | arm64 | `macosx_11_0_arm64` |
+| macOS 11+ | x86-64 | `macosx_11_0_x86_64` |
+| Windows | x86-64 | `win_amd64` |
+| Windows | arm64 | `win_arm64` |
 
 `X` is the newest glibc symbol version the library needs, measured at
-build time. On other platforms, build the library yourself and point the
+build time. macOS and Windows libraries are cross-linked with `zig cc` on
+Linux; darwin links against the symbol stubs in `scripts/darwin-stubs`
+(regenerate them with `scripts/bindings.sh darwin-stubs <native dylib>`
+when a Go upgrade breaks the link). On other platforms (musl, 32-bit), build the library yourself and point the
 binding at it:
 
 ```sh
