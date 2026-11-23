@@ -40,6 +40,7 @@ file instead of a stderr stream; the file is opened append-only, mode
 | `secret_hash`   | string (sha256 hex) | yes | `sha256(raw secret)`, hex-encoded. Comparable to `pkg/output`'s `secret_hash` JSON field for the same leaked value, so a scan's JSON output and the audit trail can be joined on this without either side ever holding the raw secret. |
 | `redacted`      | string | no | Safe display rendering from the revoke attempt. The shared boundary preserves the supplied candidate only when it excludes the complete secret; otherwise it substitutes a common mask. |
 | `revoked`       | bool   | yes | The provider's confirmation that the credential is now dead. `false` for a `--dry-run` preview or a failed/declined attempt. |
+| `outcome`       | string | no | Tri-state result: `confirmed` (provider confirmed invalidation), `accepted` (provider queued the request without confirming, e.g. Hugging Face HTTP 202; `revoked` is `false`), or `failed`. Omitted for `--dry-run`. `pleno-dlp revoke` exits 0 only on `confirmed`, 3 on `accepted`, 2 on `failed`. |
 | `revoked_at`    | string (RFC3339, UTC) | no | When the provider confirmed revocation. Empty when `revoked` is false or the provider does not report a completion time. |
 | `provider_id`   | string | no | Provider-specific non-secret identifier for the revoked credential (e.g. Stripe's key-prefix diagnostic). |
 | `dry_run`       | bool   | no | `true` marks a preview record: no provider call was made. |

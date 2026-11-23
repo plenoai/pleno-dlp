@@ -271,7 +271,11 @@ func (c *giteaClient) do(ctx context.Context, method, path string, body io.Reade
 		if err := c.waitForBucket(ctx); err != nil {
 			return nil, err
 		}
-		req, err := http.NewRequestWithContext(ctx, method, c.url(path), body)
+		target, err := c.url(path)
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(ctx, method, target, body)
 		if err != nil {
 			return nil, err
 		}
@@ -327,14 +331,8 @@ func (c *giteaClient) getJSON(ctx context.Context, path string, out any) (*http.
 	return resp, nil
 }
 
-func (c *giteaClient) url(p string) string {
-	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
-		return p
-	}
-	if strings.HasPrefix(p, "/") {
-		return c.base + p
-	}
-	return c.base + "/" + p
+func (c *giteaClient) url(p string) (string, error) {
+	return apiURL("gitea", c.base, p)
 }
 
 func (c *giteaClient) waitForBucket(ctx context.Context) error {

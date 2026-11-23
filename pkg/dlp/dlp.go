@@ -39,7 +39,7 @@ import (
 // APIVersion is the version of this package's contract. It increments its
 // major component only on a breaking change to an exported identifier or
 // to the JSON shape of Finding, VerifyResult, RevokeResult, or Detector.
-const APIVersion = "1.0.0"
+const APIVersion = "1.1.0"
 
 // Errors returned by this package. Callers should match them with errors.Is.
 var (
@@ -116,6 +116,9 @@ type RevokeResult struct {
 	RevokedAt  time.Time `json:"revoked_at,omitzero"`
 	ProviderID string    `json:"provider_id,omitempty"`
 	Note       string    `json:"note,omitempty"`
+	// Outcome is confirmed, accepted (queued, not confirmed), or failed
+	// (added in APIVersion 1.1.0, #859).
+	Outcome string `json:"outcome,omitempty"`
 }
 
 // Detector describes one registered detector.
@@ -312,7 +315,7 @@ func Revoke(ctx context.Context, detector, secret string, opts RevokeOptions) (R
 	if err != nil {
 		return RevokeResult{}, err
 	}
-	out := RevokeResult{Detector: detector, Revoked: pr.Revoked, RevokedAt: pr.RevokedAt, ProviderID: pr.ProviderID}
+	out := RevokeResult{Detector: detector, Revoked: pr.Revoked, Outcome: string(pr.Status()), RevokedAt: pr.RevokedAt, ProviderID: pr.ProviderID}
 	if pr.Err != nil {
 		out.Note = pr.Err.Error()
 	}

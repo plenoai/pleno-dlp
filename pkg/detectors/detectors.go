@@ -1337,9 +1337,41 @@ type Revoker interface {
 // own records. Err carries non-fatal diagnostics from the provider
 // (rate-limit headers, partial-success notes); a hard failure is
 // surfaced via the second return value of Revoke.
+//
+// Outcome distinguishes a provider-confirmed invalidation from a request
+// the provider merely queued (e.g. Hugging Face answers 202 Accepted to
+// any report). Revokers that cannot confirm invalidation MUST set
+// Outcome=RevokeAccepted and Revoked=false; Status derives the outcome
+// for Revokers that leave Outcome empty.
 type RevokeResult struct {
 	Revoked    bool
+	Outcome    RevokeOutcome
 	RevokedAt  time.Time
 	ProviderID string
 	Err        error
+}
+
+// RevokeOutcome is the tri-state result of a revoke attempt.
+type RevokeOutcome string
+
+const (
+	// RevokeConfirmed means the provider confirmed the credential is dead.
+	RevokeConfirmed RevokeOutcome = "confirmed"
+	// RevokeAccepted means the provider queued the request without
+	// confirming invalidation; the credential may still authenticate.
+	RevokeAccepted RevokeOutcome = "accepted"
+	// RevokeFailed means the provider declined or could not be reached.
+	RevokeFailed RevokeOutcome = "failed"
+)
+
+// Status returns the attempt's outcome: the explicit Outcome when set,
+// otherwise confirmed when Revoked and failed when not.
+func (r RevokeResult) Status() RevokeOutcome {
+	if r.Outcome != "" {
+		return r.Outcome
+	}
+	if r.Revoked {
+		return RevokeConfirmed
+	}
+	return RevokeFailed
 }

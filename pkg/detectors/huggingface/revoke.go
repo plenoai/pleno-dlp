@@ -15,8 +15,8 @@ import (
 
 // Revoke reports the token to Hugging Face's unauthenticated
 // POST /api/credentials/revoke. The endpoint answers 202 for any input,
-// so success means "accepted", not proof of invalidation; the result
-// carries that caveat in Err.
+// so success maps to Outcome=accepted with Revoked=false: it is not
+// proof of invalidation (#859).
 func (Scanner) Revoke(ctx context.Context, secret string) (detectors.RevokeResult, error) {
 	if secret == "" {
 		return detectors.RevokeResult{}, errors.New("huggingface: revoke: empty secret")
@@ -35,7 +35,8 @@ func (Scanner) Revoke(ctx context.Context, secret string) (detectors.RevokeResul
 		return detectors.RevokeResult{}, revokehttp.StatusError("huggingface", resp.Status)
 	}
 	return detectors.RevokeResult{
-		Revoked:    true,
+		Revoked:    false,
+		Outcome:    detectors.RevokeAccepted,
 		RevokedAt:  time.Now().UTC(),
 		ProviderID: revokehttp.Fingerprint(secret),
 		Err:        errors.New("huggingface: revoke: report accepted (HTTP 202); provider does not confirm invalidation"),

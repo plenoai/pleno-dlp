@@ -105,6 +105,15 @@ func IsRevokeRefused(err error) bool { return errors.Is(err, errRevokeRefused) }
 
 func IsRevokeFailed(err error) bool { return errors.Is(err, errRevokeFailed) }
 
+// errRevokeUnconfirmed means the provider accepted the request without
+// confirming invalidation (#859). It wraps errRevokeFailed so the exit
+// code stays non-zero for callers that only test IsRevokeFailed.
+var errRevokeUnconfirmed = fmt.Errorf("%w: accepted but not confirmed", errRevokeFailed)
+
+// IsRevokeUnconfirmed reports whether err is the accepted-but-unconfirmed
+// outcome.
+func IsRevokeUnconfirmed(err error) bool { return errors.Is(err, errRevokeUnconfirmed) }
+
 func runRevoke(cmd *cobra.Command, _ []string) error {
 	if revokeOpts.fromSpool == "" && revokeOpts.detector == "" {
 		return errors.New("--detector is required (or use --revoke-from-spool)")
@@ -176,6 +185,7 @@ func runRevoke(cmd *cobra.Command, _ []string) error {
 		Detector:       detectorType.String(),
 		RedactedSecret: redacted,
 		Revoked:        res.Revoked,
+		Outcome:        string(res.Status()),
 		ProviderID:     res.ProviderID,
 	}
 	if !res.RevokedAt.IsZero() {
@@ -197,6 +207,7 @@ func runRevoke(cmd *cobra.Command, _ []string) error {
 		Secret:     secret,
 		Redacted:   redacted,
 		Revoked:    res.Revoked,
+		Outcome:    res.Status(),
 		RevokedAt:  res.RevokedAt,
 		ProviderID: res.ProviderID,
 		Err:        attemptErr,
@@ -204,6 +215,9 @@ func runRevoke(cmd *cobra.Command, _ []string) error {
 
 	if runErr != nil {
 		return errRevokeFailed
+	}
+	if res.Status() == detectors.RevokeAccepted {
+		return errRevokeUnconfirmed
 	}
 	if !res.Revoked {
 		return errRevokeFailed
@@ -298,6 +312,7 @@ type revokeRecord struct {
 	Detector       string `json:"detector"`
 	RedactedSecret string `json:"redacted_secret"`
 	Revoked        bool   `json:"revoked"`
+	Outcome        string `json:"outcome,omitempty"`
 	RevokedAt      string `json:"revoked_at,omitempty"`
 	ProviderID     string `json:"provider_id,omitempty"`
 	DryRun         bool   `json:"dry_run,omitempty"`
@@ -319,6 +334,8 @@ func emitRevoke(cmd *cobra.Command, format string, rec revokeRecord) {
 		switch {
 		case rec.DryRun:
 			termsafe.Fprintf(cmd.ErrOrStderr(), "DRY-RUN: would revoke %s secret %s\n", rec.Detector, rec.RedactedSecret)
+		case rec.Outcome == string(detectors.RevokeAccepted):
+			termsafe.Fprintf(cmd.ErrOrStderr(), "ACCEPTED: %s secret %s — provider queued the request but did not confirm invalidation; rotate manually\n", rec.Detector, rec.RedactedSecret)
 		case rec.Revoked && rec.Error == "":
 			termsafe.Fprintf(cmd.ErrOrStderr(), "OK: revoked %s secret %s\n", rec.Detector, rec.RedactedSecret)
 		case rec.Revoked && rec.Error != "":
