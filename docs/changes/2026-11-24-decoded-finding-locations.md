@@ -1,0 +1,3 @@
+Owners: core-engineer, qa
+
+Map findings in buffered decoded variants (base64, percent, hex, UTF-16, unicode-escape) back to the encoded bytes of the chunk with `decoder.SourceSpan`, which replays the decoder only for findings so the scan hot path keeps no offset table. Diff inputs (`protect`, git/cursor hooks, `scan stdin --diff`) now attribute decoded findings to the file and line holding the encoded text instead of `git-diff-staged`, and filesystem/git chunks report the encoded line and RawSpan; allowlist `path` entries, inline pragmas, and baselines therefore suppress them (#964). Streamed chunks remain on the chunk base line (#977).

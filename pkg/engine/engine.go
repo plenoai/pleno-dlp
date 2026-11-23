@@ -1998,7 +1998,13 @@ func (e *Engine) runDetectorWindow(ctx context.Context, c *sources.Chunk, v deco
 		return
 	}
 	for _, r := range results {
-		e.emitDetectorResultAt(ctx, c, v, archivePath, di, stream, r, matchCache, base, chunkMatchStart(ctx, d, c, v, stream, winStart, data, r.Raw))
+		span := [2]int{-1, -1}
+		if ds, ok := decodedSourceSpan(ctx, d, c, v, stream, winStart, data, r.Raw); ok {
+			span = ds
+		} else if start := chunkMatchStart(ctx, d, c, v, stream, winStart, data, r.Raw); start >= 0 {
+			span = [2]int{start, start + len(r.Raw)}
+		}
+		e.emitDetectorResultAt(ctx, c, v, archivePath, di, stream, r, matchCache, base, span)
 	}
 }
 
@@ -2014,6 +2020,17 @@ func chunkMatchStart(ctx context.Context, d detectors.Detector, c *sources.Chunk
 		len(v.Data) != len(c.Data) || &v.Data[0] != &c.Data[0] {
 		return -1
 	}
+	idx := windowMatchIndex(ctx, d, data, raw)
+	if idx < 0 {
+		return -1
+	}
+	return winStart + idx
+}
+
+// windowMatchIndex returns the index of raw inside data, preferring the
+// first occurrence the detector confirms on its own line when raw repeats.
+// It returns -1 when raw does not occur in data.
+func windowMatchIndex(ctx context.Context, d detectors.Detector, data, raw []byte) int {
 	idx := bytes.Index(data, raw)
 	if idx < 0 {
 		return -1
@@ -2021,7 +2038,7 @@ func chunkMatchStart(ctx context.Context, d detectors.Detector, c *sources.Chunk
 	if next := bytes.Index(data[idx+len(raw):], raw); next >= 0 {
 		for i := idx; i >= 0; {
 			if detectorConfirmsLine(ctx, d, data, i, raw) {
-				return winStart + i
+				return i
 			}
 			n := bytes.Index(data[i+len(raw):], raw)
 			if n < 0 {
@@ -2030,19 +2047,46 @@ func chunkMatchStart(ctx context.Context, d detectors.Detector, c *sources.Chunk
 			i += len(raw) + n
 		}
 	}
-	return winStart + idx
+	return idx
+}
+
+// decodedSourceSpan maps a finding in a buffered decoded variant back to the
+// encoded bytes of c.Data, so decoded findings keep the path, line, inline
+// pragma, and baseline span of the text that encodes them (#964). ok is false
+// for raw and stream variants and when Raw is not present in the window.
+func decodedSourceSpan(ctx context.Context, d detectors.Detector, c *sources.Chunk, v decoder.Variant, stream bool, winStart int, data, raw []byte) ([2]int, bool) {
+	if stream || c == nil || v.Source == "" || len(raw) == 0 || len(c.Data) == 0 {
+		return [2]int{}, false
+	}
+	idx := windowMatchIndex(ctx, d, data, raw)
+	if idx < 0 {
+		return [2]int{}, false
+	}
+	start := winStart + idx
+	s, e, ok := decoder.SourceSpan(v.Source, c.Data, start, start+len(raw))
+	if !ok || e > len(c.Data) {
+		return [2]int{}, false
+	}
+	return [2]int{s, e}, true
 }
 
 func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, stream bool, r detectors.Result, matchCache *streamMatchCache, base streamWindowBase) {
-	e.emitDetectorResultAt(ctx, c, v, archivePath, di, stream, r, matchCache, base, -1)
+	e.emitDetectorResultAt(ctx, c, v, archivePath, di, stream, r, matchCache, base, [2]int{-1, -1})
 }
 
-// emitDetectorResultAt finalises one result. matchStart, when >= 0, is the
-// absolute offset of the first occurrence of Raw in c.Data inside the
-// detector's window; it takes precedence over earliest-occurrence line
+// emitDetectorResultAt finalises one result. match, when match[0] >= 0, is
+// the span of c.Data the finding came from: the first occurrence of Raw
+// inside the detector's window for the raw variant, or the encoded bytes for
+// a decoded variant (#964). It takes precedence over earliest-occurrence line
 // resolution.
-func (e *Engine) emitDetectorResultAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, stream bool, r detectors.Result, matchCache *streamMatchCache, base streamWindowBase, matchStart int) {
+func (e *Engine) emitDetectorResultAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, stream bool, r detectors.Result, matchCache *streamMatchCache, base streamWindowBase, match [2]int) {
 	d := e.dets[di]
+	matchStart, matchEnd := match[0], match[1]
+	var matchBytes []byte
+	if matchStart >= 0 {
+		matchBytes = c.Data[matchStart:matchEnd]
+	}
+	decodedMatch := matchStart >= 0 && v.Source != ""
 	if dropCodeToken(d, r) {
 		return
 	}
@@ -2095,7 +2139,7 @@ func (e *Engine) emitDetectorResultAt(ctx context.Context, c *sources.Chunk, v d
 	e.stats.findings.Add(1)
 	var inline bool
 	if matchStart >= 0 {
-		inline = inlineAllowedAt(c.Data, matchStart, matchStart+len(r.Raw), e.inlineTokens...)
+		inline = inlineAllowedAt(c.Data, matchStart, matchEnd, e.inlineTokens...)
 	} else {
 		inline = inlineAllowedIn(v.Data, r.Raw, e.inlineTokens...)
 	}
@@ -2135,14 +2179,14 @@ func (e *Engine) emitDetectorResultAt(ctx context.Context, c *sources.Chunk, v d
 	}
 	chunk := chunkWithMatchLine(c, r.Raw)
 	if matchStart >= 0 {
-		chunk = chunkWithMatchLineAt(c, r.Raw, matchStart)
+		chunk = chunkWithMatchLineAt(c, matchBytes, matchStart)
 	}
 	if stream {
 		chunk = chunkForFinding(c, line, true)
 	}
 	var rawSpan *[2]int
 	if matchStart >= 0 {
-		rawSpan = &[2]int{matchStart, matchStart + len(r.Raw)}
+		rawSpan = &[2]int{matchStart, matchEnd}
 	}
 	if stream && matchCache != nil && len(r.Raw) > 0 {
 		if matchErr != nil {
@@ -2179,6 +2223,23 @@ func (e *Engine) emitDetectorResultAt(ctx context.Context, c *sources.Chunk, v d
 				RawSpan:        &[2]int{o.start, o.start + len(r.Raw)},
 				InlineAllowed:  inlineAllowedAt(c.Data, o.start, o.start+len(r.Raw), e.inlineTokens...),
 			})
+		}
+		if decodedMatch {
+			// A decoded finding's Raw is absent from c.Data; attribute it to
+			// the diff line holding the encoded bytes.
+			line := 1 + bytes.Count(c.Data[:matchStart], []byte{'\n'})
+			if loc, ok := c.SourceMetadata.Stdin.Locations[line]; ok && loc.Path != "" && loc.Line > 0 {
+				lc := *c
+				lc.SourceMetadata.Stdin = nil
+				lc.SourceMetadata.Filesystem = &sources.FilesystemMeta{Path: loc.Path, Line: loc.Line}
+				e.sink.Emit(Finding{
+					Result: r, Chunk: &lc, Detector: d.Type(),
+					VerifierBacked: e.isVerifier[di],
+					RawSpan:        rawSpan,
+					InlineAllowed:  inline,
+				})
+				return
+			}
 		}
 		emitted := false
 		line := 1
