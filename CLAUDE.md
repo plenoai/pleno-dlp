@@ -58,6 +58,10 @@ without invoking the orchestrator.
 
 ## Change history
 
+New entries go in `docs/changes/` as one file per change (see
+`docs/changes/README.md`); never append to the table below, which is
+frozen as of 2026-11-23.
+
 | Date | Owners | Change |
 |---|---|---|
 | 2026-11-23 | detector-engineer, core-engineer, qa | Add Revokers for Anthropic, OpenAI, Resend, Notion OAuth (env admin context), GCP service-account keys (self-delete), Hugging Face, and Vercel via the shared `pkg/detectors/revokehttp` helper; `revoke --detector` and spool replay resolve any registered Revoker by type name (#809). |
