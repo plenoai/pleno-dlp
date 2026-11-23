@@ -22,20 +22,27 @@ assets. Before installing, aqua checks the archive against
 and verifies the archive's GitHub artifact attestation from the same
 workflow. `aqua/aqua-checksums.json` records the expected digests.
 
-The package definition lives in `aqua/registry.yaml`, a copy of
-`pkgs/plenoai/pleno-dlp/registry.yaml` submitted to
-[aquaproj/aqua-registry](https://github.com/aquaproj/aqua-registry).
-Until that lands in the standard registry, `aqua/aqua-policy.yaml`
-allows the local registry:
+The package definition lives only in
+[plenoai/aqua-registry](https://github.com/plenoai/aqua-registry)
+(`pkgs/plenoai/pleno-dlp/registry.yaml`, merged into `registry.yaml`).
+`aqua/aqua.yaml` consumes it as a `github_content` registry pinned to a
+commit SHA, so a registry change reaches operators only through a reviewed
+pin bump. This repository keeps no copy: one source of truth. Nothing is
+submitted to aquaproj/aqua-registry. `aqua/aqua-policy.yaml` allows the
+registry without a `ref`, so SHA bumps need no policy change:
 
 ```sh
 export AQUA_POLICY_CONFIG="$PWD/aqua/aqua-policy.yaml"
 ```
 
-To move to a new release, bump the pin and refresh the checksums:
+`.github/workflows/dogfooding-bump.yml` runs on every published release
+and daily; it calls `scripts/bump-dogfooding.sh`, which moves the pin to
+the newest release that ships `pleno-dlp_darwin_arm64.tar.gz`, moves
+`ref` to the newest plenoai/aqua-registry `main` commit, refreshes the
+checksums, and opens a pull request. To bump by hand:
 
 ```sh
-aqua -c aqua/aqua.yaml upc -prune
+scripts/bump-dogfooding.sh
 ```
 
 The Homebrew tap was retired: it needed a GitHub App to write to a
@@ -83,8 +90,10 @@ source entirely.
 
 `tests/ci/dogfooding_test.go` fails the build if an ad-hoc mise pin for
 pleno-dlp is reintroduced, if `aqua/aqua.yaml` stops pinning a released
-version with checksums required, if `aqua/registry.yaml` stops verifying
-`checksums.txt` with cosign and the artifact attestation from
-`release.yml`, if GoReleaser renames the archives or the signed checksum
-file aqua expects, or if Homebrew publication creeps back into the
-release pipeline.
+version with checksums required, if it stops consuming the plenoai/aqua-registry
+`github_content` registry pinned by a 40-hex commit SHA, if the policy
+stops allowing that registry, if a local registry copy reappears, if the
+bump workflow disappears, if GoReleaser renames the archives or the signed
+checksum file the registry expects, or if Homebrew publication creeps back
+into the release pipeline. The cosign and attestation requirements are
+enforced by the registry entry itself and checked at install time.

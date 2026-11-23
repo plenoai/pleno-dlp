@@ -33,7 +33,7 @@ func TestDogfoodingInstallsReleasedBinaryThroughAqua(t *testing.T) {
 	}
 
 	doc := read("docs", "dogfooding.md")
-	for _, want := range []string{"aqua -c aqua/aqua.yaml i", "aqua/registry.yaml", "aquaproj/aqua-registry"} {
+	for _, want := range []string{"aqua -c aqua/aqua.yaml i", "plenoai/aqua-registry", "scripts/bump-dogfooding.sh"} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("docs/dogfooding.md must document %q", want)
 		}
@@ -52,18 +52,32 @@ func TestDogfoodingInstallsReleasedBinaryThroughAqua(t *testing.T) {
 		t.Errorf("aqua/aqua-checksums.json must record %s; run aqua -c aqua/aqua.yaml upc -prune", pin[1])
 	}
 
-	registry := read("aqua", "registry.yaml")
-	latest := registry[strings.LastIndex(registry, `version_constraint: "true"`):]
-	for _, want := range []string{
-		"asset: pleno-dlp_{{.OS}}_{{.Arch}}.{{.Format}}",
-		"asset: checksums.txt",
-		"asset: checksums.txt.sigstore.json",
-		`^https://github\\.com/plenoai/pleno-dlp/\\.github/workflows/release\\.yml@refs/tags/\\Q{{.Version}}\\E$`,
-		"signer_workflow: plenoai/pleno-dlp/.github/workflows/release.yml",
-	} {
-		if !strings.Contains(latest, want) {
-			t.Errorf("aqua/registry.yaml current override must contain %q", want)
+	if !regexp.MustCompile(`(?m)^  - name: plenoai\n    type: github_content\n    repo_owner: plenoai\n    repo_name: aqua-registry\n    ref: [0-9a-f]{40}\n    path: registry.yaml$`).MatchString(aquaConfig) {
+		t.Error("aqua/aqua.yaml must consume the plenoai/aqua-registry github_content registry pinned by commit SHA")
+	}
+	if !regexp.MustCompile(`(?m)^  - name: plenoai/pleno-dlp@v\S+\n    registry: plenoai$`).MatchString(aquaConfig) {
+		t.Error("aqua/aqua.yaml must install pleno-dlp from the plenoai registry")
+	}
+	policy := read("aqua", "aqua-policy.yaml")
+	for _, want := range []string{"type: github_content", "repo_owner: plenoai", "repo_name: aqua-registry", "path: registry.yaml", "- registry: plenoai"} {
+		if !strings.Contains(policy, want) {
+			t.Errorf("aqua/aqua-policy.yaml must allow the plenoai registry: missing %q", want)
 		}
+	}
+	if strings.Contains(policy, "ref:") {
+		t.Error("aqua/aqua-policy.yaml must not pin ref; SHA bumps would need policy edits")
+	}
+	if _, err := os.Stat(filepath.Join(root, "aqua", "registry.yaml")); err == nil {
+		t.Error("aqua/registry.yaml must not exist: plenoai/aqua-registry is the single source of truth")
+	}
+	bump := read(".github", "workflows", "dogfooding-bump.yml")
+	for _, want := range []string{"types: [published]", "scripts/bump-dogfooding.sh"} {
+		if !strings.Contains(bump, want) {
+			t.Errorf("dogfooding-bump.yml must contain %q", want)
+		}
+	}
+	if !strings.Contains(read("scripts", "bump-dogfooding.sh"), "pleno-dlp_darwin_arm64.tar.gz") {
+		t.Error("bump-dogfooding.sh must only select releases that ship darwin/arm64")
 	}
 
 	// The registry entry depends on these release asset names and signatures.

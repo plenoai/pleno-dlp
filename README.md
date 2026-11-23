@@ -24,7 +24,7 @@
 </p>
 
 ```sh
-aqua g -i plenoai/pleno-dlp          # signed release binary (aqua)
+aqua i                               # signed release binary (aqua, plenoai registry below)
 go install github.com/plenoai/pleno-dlp/cmd/pleno-dlp@latest
 
 pleno-dlp protect
@@ -35,12 +35,32 @@ pleno-dlp scan filesystem ./repo --format sarif > findings.sarif
 
 Release binaries ship through [aqua](https://aquaproj.github.io/), which
 verifies the cosign-signed `checksums.txt` and the GitHub artifact
-attestation; there is no Homebrew tap. `aqua g -i` works once the
-package lands in the standard aqua registry; until then use the local
-registry under `aqua/`. Operator machines dogfood the
+attestation; there is no Homebrew tap. The package is defined in the
+org-owned [plenoai/aqua-registry](https://github.com/plenoai/aqua-registry)
+(not the standard registry):
+
+```yaml
+# aqua.yaml
+checksum:
+  enabled: true
+  require_checksum: true
+registries:
+  - name: plenoai
+    type: github_content
+    repo_owner: plenoai
+    repo_name: aqua-registry
+    ref: <commit SHA> # pin for reproducibility
+    path: registry.yaml
+packages:
+  - name: plenoai/pleno-dlp@<version>
+    registry: plenoai
+```
+
+Allow the registry with the policy in
+[`aqua/aqua-policy.yaml`](aqua/aqua-policy.yaml)
+(`aqua policy allow aqua/aqua-policy.yaml`). Operator machines dogfood the
 pinned release in `aqua/aqua.yaml`; see
-[`docs/dogfooding.md`](docs/dogfooding.md) for why the ad-hoc mise
-`go:` pin was dropped.
+[`docs/dogfooding.md`](docs/dogfooding.md).
 
 ## Sources
 
