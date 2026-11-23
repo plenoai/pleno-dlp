@@ -13,13 +13,6 @@ name: action-test
 # deterministic and immune to documentation drift.
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - "action.yml"
-      - "scripts/select-executable-tempdir.sh"
-      - "tests/test_action_tempdir.py"
-      - ".github/workflows/action-test.yml"
-      - ".github/action-smoke/**"
   push:
     branches: ["main"]
     paths:
