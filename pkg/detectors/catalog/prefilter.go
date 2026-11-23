@@ -22,19 +22,29 @@ var prefilters = map[string]func([]byte) bool{
 // digits immediately followed by '.'.
 func hexRunBeforeDot(n int) func([]byte) bool {
 	return func(data []byte) bool {
-		run := 0
-		for _, c := range data {
-			switch {
-			case '0' <= c && c <= '9', 'a' <= c && c <= 'f', 'A' <= c && c <= 'F':
-				run++
-			case c == '.' && run >= n:
-				return true
-			default:
-				run = 0
+		// Visit each '.' and test the n bytes before it, nearest first:
+		// dots are sparse and most are preceded by a non-hex byte.
+		for off := n; off < len(data); {
+			i := bytes.IndexByte(data[off:], '.')
+			if i < 0 {
+				return false
 			}
+			dot := off + i
+			j := dot - 1
+			for j >= dot-n && isHexDigit(data[j]) {
+				j--
+			}
+			if j < dot-n {
+				return true
+			}
+			off = dot + 1
 		}
 		return false
 	}
+}
+
+func isHexDigit(c byte) bool {
+	return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F'
 }
 
 // literalThenRun reports whether one of lits occurs followed by at least n

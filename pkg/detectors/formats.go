@@ -220,17 +220,7 @@ func (s *asciiScratch) get(data []byte) []byte {
 	if s.buf == nil {
 		s.buf = asciiScratchPool.Get().(*[]byte)
 	}
-	dst := (*s.buf)[:0]
-	if cap(dst) < len(data) {
-		dst = make([]byte, 0, len(data))
-	}
-	dst = dst[:len(data)]
-	for i, c := range data {
-		if 'A' <= c && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		dst[i] = c
-	}
+	dst := LowerASCIIInto((*s.buf)[:0], data)
 	*s.buf = dst
 	s.view, s.done = dst, true
 	return dst

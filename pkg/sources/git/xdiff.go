@@ -2,7 +2,9 @@ package git
 
 import (
 	"bytes"
+	"encoding/binary"
 	"hash/maphash"
+	"math/bits"
 	"strconv"
 )
 
@@ -79,16 +81,33 @@ func xdlBogosqrt(n uint64) int {
 	return int(i)
 }
 
+// xdlSplitRecords splits data into newline-terminated records; a final
+// record without a newline is kept. Newlines are located eight bytes per
+// load: source lines are short, so a per-line bytes.IndexByte call costs
+// more in setup than in scanning.
 func xdlSplitRecords(data []byte, recs [][]byte) [][]byte {
 	recs = recs[:0]
-	for len(data) > 0 {
-		nl := bytes.IndexByte(data, '\n')
-		if nl < 0 {
-			recs = append(recs, data)
-			break
+	const low7, hi, nl = 0x7f7f7f7f7f7f7f7f, 0x8080808080808080, 0x0a0a0a0a0a0a0a0a
+	start, i := 0, 0
+	for ; i+8 <= len(data); i += 8 {
+		w := binary.LittleEndian.Uint64(data[i:]) ^ nl
+		// High bit set exactly in the zero bytes of w (the newlines).
+		m := ^(((w & low7) + low7) | w) & hi
+		for m != 0 {
+			k := i + bits.TrailingZeros64(m)>>3
+			recs = append(recs, data[start:k+1])
+			start = k + 1
+			m &= m - 1
 		}
-		recs = append(recs, data[:nl+1])
-		data = data[nl+1:]
+	}
+	for ; i < len(data); i++ {
+		if data[i] == '\n' {
+			recs = append(recs, data[start:i+1])
+			start = i + 1
+		}
+	}
+	if start < len(data) {
+		recs = append(recs, data[start:])
 	}
 	return recs
 }

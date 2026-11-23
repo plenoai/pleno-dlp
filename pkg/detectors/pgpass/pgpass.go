@@ -98,11 +98,19 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
+	// Only lines holding a colon can match; jump between colons so the
+	// common colon-free lines are skipped by vectorized searches.
 	for start := 0; start < len(data); {
-		line := data[start:]
-		if end := bytes.IndexByte(line, '\n'); end >= 0 {
-			line = line[:end]
-			start += end + 1
+		c := bytes.IndexByte(data[start:], ':')
+		if c < 0 {
+			break
+		}
+		c += start
+		lineStart := bytes.LastIndexByte(data[start:c], '\n') + 1 + start
+		line := data[lineStart:]
+		if end := bytes.IndexByte(data[c:], '\n'); end >= 0 {
+			line = data[lineStart : c+end]
+			start = c + end + 1
 		} else {
 			start = len(data)
 		}

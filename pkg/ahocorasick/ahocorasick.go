@@ -19,7 +19,11 @@ type Matcher struct {
 	// i. Multiple IDs share a node when the same byte sequence was added
 	// twice with different IDs — pleno-dlp does this when several
 	// detectors share a keyword like "key" or "token".
-	patternsAt  [][]int32
+	patternsAt [][]int32
+	// emit[i] is the first terminal on node i's output chain: i itself
+	// when patterns end there, else dictLink[i]. Scans test one entry per
+	// byte instead of walking patternsAt and dictLink.
+	emit        []int32
 	numPatterns int
 	// symbols maps input bytes to a compact alphabet. The final symbol is
 	// reserved for bytes absent from every pattern and always returns root.
@@ -75,16 +79,12 @@ func (m *Matcher) walk(data []byte, seen []bool, out *[]int32) {
 		state = m.transition(state, m.symbols[b])
 		// Emit terminals at the current node, then walk the dictionary
 		// suffix chain to emit any shorter pattern matches that overlap.
-		for s := state; s > 0; {
+		for s := m.emit[state]; s > 0; s = m.dictLink[s] {
 			for _, id := range m.patternsAt[s] {
 				if int(id) < len(seen) && !seen[id] {
 					seen[id] = true
 					*out = append(*out, id)
 				}
-			}
-			s = m.dictLink[s]
-			if s < 0 {
-				break
 			}
 		}
 	}
@@ -118,17 +118,30 @@ func (m *Matcher) MatchHitsInto(data []byte, out []Hit) []Hit {
 // occurrence. It avoids retaining the complete hit list when callers can
 // consume matches immediately.
 func (m *Matcher) VisitHits(data []byte, visit func(Hit)) {
+	if m.next16 != nil {
+		next, stride := m.next16, m.stride
+		state := 0
+		for i, b := range data {
+			state = int(next[state*stride+int(m.symbols[b])])
+			if s := m.emit[state]; s > 0 {
+				m.visitChain(s, i, visit)
+			}
+		}
+		return
+	}
 	state := int32(0)
 	for i, b := range data {
 		state = m.transition(state, m.symbols[b])
-		for s := state; s > 0; {
-			for _, id := range m.patternsAt[s] {
-				visit(Hit{PatternID: id, End: i})
-			}
-			s = m.dictLink[s]
-			if s < 0 {
-				break
-			}
+		if s := m.emit[state]; s > 0 {
+			m.visitChain(s, i, visit)
+		}
+	}
+}
+
+func (m *Matcher) visitChain(s int32, end int, visit func(Hit)) {
+	for ; s > 0; s = m.dictLink[s] {
+		for _, id := range m.patternsAt[s] {
+			visit(Hit{PatternID: id, End: end})
 		}
 	}
 }

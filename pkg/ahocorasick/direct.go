@@ -179,6 +179,14 @@ func (m *Matcher) buildDirect(edges []trieEdge, edgeStart []int32, edgeCount []u
 		}
 	}
 	m.failure = nil
+	m.emit = make([]int32, stateCount)
+	for i := range m.emit {
+		if len(m.patternsAt[i]) > 0 {
+			m.emit[i] = int32(i)
+		} else {
+			m.emit[i] = m.dictLink[i]
+		}
+	}
 }
 
 func (m *Matcher) transition(state int32, symbol uint16) int32 {
