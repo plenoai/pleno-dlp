@@ -1263,7 +1263,12 @@ func (e *Engine) RunWithStats(ctx context.Context, src sources.Source) (Stats, e
 		}()
 	}
 
-	srcErr := src.Chunks(ctx, ch)
+	var srcErr error
+	if inline, ok := src.(sources.InlineScanner); ok {
+		srcErr = inline.ChunksInline(ctx, ch, e.opts.Concurrency, func(c *sources.Chunk) { e.scanChunk(ctx, c) })
+	} else {
+		srcErr = src.Chunks(ctx, ch)
+	}
 	close(ch)
 	wg.Wait()
 	degradedErr := e.takeFailures()

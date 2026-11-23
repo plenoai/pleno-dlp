@@ -334,3 +334,68 @@ func TestGitCrossCommitDedup_NonGitPassesThrough(t *testing.T) {
 		t.Fatalf("non-git findings should pass through unfiltered: got %d", got)
 	}
 }
+
+func withOrdinal(f Finding, ordinal int64, line int) Finding {
+	g := *f.Chunk.SourceMetadata.Git
+	g.Ordinal = ordinal
+	g.Line = line
+	c := *f.Chunk
+	c.SourceMetadata.Git = &g
+	f.Chunk = &c
+	return f
+}
+
+// Parallel history shards deliver commits out of order; the lowest ordinal
+// (introducing commit) must win regardless of arrival.
+func TestGitCrossCommitDedup_PrefersLowestOrdinal(t *testing.T) {
+	rec := &recordingSink{}
+	s := NewGitCrossCommitDedup(rec)
+	s.Emit(withOrdinal(mkGitFinding("tok-123456", "config.js", "late"), 9, 1))
+	s.Emit(withOrdinal(mkGitFinding("tok-123456", "config.js", "first"), 2, 1))
+	s.Emit(withOrdinal(mkGitFinding("tok-123456", "config.js", "mid"), 5, 1))
+	_ = s.Close()
+	if len(rec.findings) != 1 {
+		t.Fatalf("want 1 finding, got %d", len(rec.findings))
+	}
+	if got := rec.findings[0].Chunk.SourceMetadata.Git.Commit; got != "first" {
+		t.Errorf("want lowest-ordinal commit, got %s", got)
+	}
+	if got := rec.findings[0].Result.ExtraData["occurrence_count"]; got != "3" {
+		t.Errorf("want occurrence_count=3, got %q", got)
+	}
+}
+
+// Unknown ordinals keep first-arrival semantics.
+func TestGitCrossCommitDedup_UnknownOrdinalKeepsArrival(t *testing.T) {
+	rec := &recordingSink{}
+	s := NewGitCrossCommitDedup(rec)
+	s.Emit(withOrdinal(mkGitFinding("tok-123456", "config.js", "a"), 0, 1))
+	s.Emit(withOrdinal(mkGitFinding("tok-123456", "config.js", "b"), 1, 1))
+	_ = s.Close()
+	if got := rec.findings[0].Chunk.SourceMetadata.Git.Commit; got != "a" {
+		t.Errorf("want first arrival when an ordinal is unknown, got %s", got)
+	}
+}
+
+// Within one commit the reported occurrence is independent of worker
+// scheduling: lower line, then Verifier-backed, then lower detector type.
+func TestGitCrossCommitDedup_SameCommitDeterministic(t *testing.T) {
+	base := mkGitFinding("tok-123456", "config.js", "c1")
+	low := withOrdinal(base, 3, 4)
+	high := withOrdinal(base, 3, 10)
+	verified := withOrdinal(base, 3, 4)
+	verified.VerifierBacked = true
+	verified.Detector = detectors.DetectorType(9999)
+	for _, order := range [][]Finding{{high, low, verified}, {verified, high, low}, {low, verified, high}} {
+		rec := &recordingSink{}
+		s := NewGitCrossCommitDedup(rec)
+		for _, f := range order {
+			s.Emit(f)
+		}
+		_ = s.Close()
+		got := rec.findings[0]
+		if got.Chunk.SourceMetadata.Git.Line != 4 || !got.VerifierBacked {
+			t.Fatalf("order-dependent pick: line=%d verifier=%v", got.Chunk.SourceMetadata.Git.Line, got.VerifierBacked)
+		}
+	}
+}

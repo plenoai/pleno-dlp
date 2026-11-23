@@ -97,6 +97,11 @@ type GitMeta struct {
 	Author       string
 	AuthoredDate string // RFC3339
 	Message      string // first line of commit message
+	// Ordinal is the 1-based position of Commit in the walk's oldest-first
+	// order, set when chunks may arrive out of commit order (parallel
+	// history shards). 0 means unknown: consumers fall back to arrival
+	// order. Never serialized.
+	Ordinal int64 `json:"-"`
 }
 
 // GitHubMeta is populated by the GitHub source / SaaS connector. The legacy
@@ -310,6 +315,20 @@ type Source interface {
 	Init(ctx context.Context, name string, jobID, sourceID int64, verify bool, config []byte, concurrency int) error
 	Chunks(ctx context.Context, ch chan<- *Chunk) error
 	Type() SourceType
+}
+
+// InlineScanner is an optional Source extension for sources that produce
+// chunks from many goroutines at once. Instead of funnelling every chunk
+// through the engine's single shared channel (whose lock dominated CPU when
+// 30 git log shards fed 30 workers ~500k small chunks), the engine hands the
+// source a scan callback that each producer goroutine calls inline.
+//
+// ChunksInline must deliver every chunk exactly once, either by calling scan
+// (safe for concurrent use) or by sending it on ch, and must not run more
+// than workers concurrent scan calls. ch is drained by the engine's regular
+// worker pool. Returning ends the run exactly as Chunks returning would.
+type InlineScanner interface {
+	ChunksInline(ctx context.Context, ch chan<- *Chunk, workers int, scan func(*Chunk)) error
 }
 
 // ResourceFingerprinter is an optional Source extension used by the CLI's

@@ -181,6 +181,10 @@ type Source struct {
 	jobID       int64
 	sourceID    int64
 	concurrency int
+	// binaryBlobs memoizes binary classification by blob id for one walk.
+	binaryBlobs *binaryBlobCache
+	// inlineBatches is set only for the duration of ChunksInline.
+	inlineBatches chan<- []*sources.Chunk
 
 	repoAbs               string
 	branch                string
@@ -322,6 +326,7 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	}
 	s.promisorFiltered = s.repoPromisorFiltered(repo)
 	s.promisorSkipped = 0
+	s.binaryBlobs = &binaryBlobCache{}
 	starts, err := s.resolveStarts(repo)
 	if err != nil {
 		return err
