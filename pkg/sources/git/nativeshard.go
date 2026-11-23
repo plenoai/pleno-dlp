@@ -180,17 +180,44 @@ func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repositor
 	}
 	// Commit cost is highly skewed (an import commit can dwarf thousands of
 	// one-line fixes), so equal contiguous ranges leave most workers idle
-	// behind one heavy shard. Workers instead pull small contiguous batches
-	// from a shared queue.
-	parts := shards * nativeShardBatchesPerWorker
-	batchSize := (len(commits) + parts - 1) / parts
-	if batchSize < nativeShardMinBatch {
-		batchSize = nativeShardMinBatch
+	// behind one heavy shard. Workers instead pull work items from a shared
+	// queue; short histories get a cost-based plan that also splits a heavy
+	// commit by path (#985).
+	batches := s.nativeWorkPlan(ctx, gitBin, commits, shards)
+	pathArgs := append([]string{"--literal-pathspecs"}, args...)
+	itemArgs := func(it nativeWorkItem) []string {
+		if len(it.paths) > 0 {
+			return pathArgs
+		}
+		return args
 	}
-	var batches [][]string
-	for lo := 0; lo < len(commits); lo += batchSize {
-		batches = append(batches, commits[lo:min(lo+batchSize, len(commits))])
+	// Start every item's git process before any chunk is scanned. Go forks
+	// child processes on darwin, and each fork write-protects the parent's
+	// heap, so a fork in the middle of the scan makes every scan worker
+	// re-fault the pages it writes next (croc: 9 s of system time with one
+	// fork per item). One burst while the heap is small pays that once.
+	procs := make([]*nativeLogProc, len(batches))
+	var startNext atomic.Int64
+	var started sync.WaitGroup
+	for w := 0; w < shards; w++ {
+		started.Add(1)
+		go func() {
+			defer started.Done()
+			for {
+				i := int(startNext.Add(1) - 1)
+				if i >= len(batches) || i >= nativeEagerStartMax {
+					return
+				}
+				procs[i] = startNativeLog(ctx, gitBin, itemArgs(batches[i]), batches[i].stdin())
+			}
+		}()
 	}
+	started.Wait()
+	defer func() {
+		for _, p := range procs {
+			p.abandon()
+		}
+	}()
 	errs := make([]error, len(batches))
 	var next atomic.Int64
 	var wg sync.WaitGroup
@@ -198,19 +225,27 @@ func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repositor
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// One cat-file batch per worker serves all of its items, so
+			// binary classification does not fork per item.
+			blobs := &catFileHolder{}
+			defer blobs.close()
 			for {
 				i := int(next.Add(1) - 1)
 				if i >= len(batches) || ctx.Err() != nil {
 					return
 				}
-				input := strings.Join(batches[i], "\n") + "\n"
+				proc := procs[i]
+				if proc == nil {
+					proc = startNativeLog(ctx, gitBin, itemArgs(batches[i]), batches[i].stdin())
+				}
+				procs[i] = nil
 				var scan func(*sources.Chunk)
 				var batch *chunkBatcher
 				if s.inlineBatches != nil {
 					batch = &chunkBatcher{ctx: ctx, out: s.inlineBatches}
 					scan = batch.add
 				}
-				err := s.runNativeLogProcess(ctx, repo, gitBin, args, input, nil, ch, scan, ordinals)
+				err := s.consumeNativeLog(ctx, repo, gitBin, proc, nil, ch, scan, ordinals, blobs)
 				if batch != nil {
 					batch.flush()
 				}
@@ -275,22 +310,62 @@ func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repositor
 	return merged
 }
 
+// nativeEagerStartMax bounds how many shard processes start up front; the
+// rest start when a worker reaches them.
+const nativeEagerStartMax = 256
+
+// nativeLogProc is a started native `git log` whose output is not yet read.
+type nativeLogProc struct {
+	cmd    *exec.Cmd
+	stdout io.ReadCloser
+	stderr *limitedWriter
+	err    error
+}
+
+func startNativeLog(ctx context.Context, gitBin string, args []string, stdin string) *nativeLogProc {
+	cmd := exec.CommandContext(ctx, gitBin, args...)
+	cmd.Stdin = strings.NewReader(stdin)
+	p := &nativeLogProc{cmd: cmd, stderr: &limitedWriter{limit: nativeStderrLimit}}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		p.err = fmt.Errorf("git: native log stdout: %w", err)
+		return p
+	}
+	p.stdout = stdout
+	cmd.Stderr = p.stderr
+	cmd.Env = nativeGitEnv()
+	if err := cmd.Start(); err != nil {
+		p.err = fmt.Errorf("git: start native log: %w", err)
+	}
+	return p
+}
+
+// abandon kills and reaps a process no worker consumed. Nil-safe.
+func (p *nativeLogProc) abandon() {
+	if p == nil || p.err != nil {
+		return
+	}
+	if p.cmd.Process != nil {
+		_ = p.cmd.Process.Kill()
+	}
+	_ = p.cmd.Wait()
+}
+
 // runNativeLogProcess runs one native `git log` and streams it through a
 // fresh parser.
 func (s *Source) runNativeLogProcess(ctx context.Context, repo *gogit.Repository, gitBin string, args []string, stdin string, mergeInput io.Writer, ch chan<- *sources.Chunk, scan func(*sources.Chunk), ordinals map[string]int64) error {
-	cmd := exec.CommandContext(ctx, gitBin, args...)
-	cmd.Stdin = strings.NewReader(stdin)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("git: native log stdout: %w", err)
+	blobs := &catFileHolder{}
+	defer blobs.close()
+	return s.consumeNativeLog(ctx, repo, gitBin, startNativeLog(ctx, gitBin, args, stdin), mergeInput, ch, scan, ordinals, blobs)
+}
+
+// consumeNativeLog parses a started native `git log` and waits for it. blobs
+// is the caller's cat-file holder for binary classification.
+func (s *Source) consumeNativeLog(ctx context.Context, repo *gogit.Repository, gitBin string, proc *nativeLogProc, mergeInput io.Writer, ch chan<- *sources.Chunk, scan func(*sources.Chunk), ordinals map[string]int64, blobs *catFileHolder) error {
+	if proc.err != nil {
+		return proc.err
 	}
-	var stderr limitedWriter
-	stderr.limit = nativeStderrLimit
-	cmd.Stderr = &stderr
-	cmd.Env = nativeGitEnv()
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("git: start native log: %w", err)
-	}
+	cmd, stdout, stderr := proc.cmd, proc.stdout, proc.stderr
 	parser := nativeLogParser{
 		ctx:        ctx,
 		source:     s,
@@ -298,7 +373,7 @@ func (s *Source) runNativeLogProcess(ctx context.Context, repo *gogit.Repository
 		gitBin:     gitBin,
 		ch:         ch,
 		mergeInput: mergeInput,
-		blobs:      &catFileHolder{},
+		blobs:      blobs,
 		scan:       scan,
 		ordinals:   ordinals,
 	}
@@ -306,7 +381,6 @@ func (s *Source) runNativeLogProcess(ctx context.Context, repo *gogit.Repository
 		parser.seq = new(int64)
 	}
 	parseErr := parser.parse(stdout)
-	parser.blobs.close()
 	var parseCoverage *engine.DegradedError
 	parseOnlyCoverage := errors.As(parseErr, &parseCoverage)
 	if parseErr != nil && !parseOnlyCoverage && cmd.Process != nil {
