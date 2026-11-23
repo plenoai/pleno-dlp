@@ -88,7 +88,13 @@ func init() {
 //   - app_installation_id GitHub App installation ID
 //   - app_private_key GitHub App PEM private key
 //   - app_private_key_file path to GitHub App PEM private key
-//   - org           org login (mutually exclusive with repo)
+//   - org           org login (mutually exclusive with repo and user)
+//   - user          comma-separated user logins whose owned repositories are
+//     scanned (mutually exclusive with org and repo)
+//   - include_user_events scan each user's public events feed
+//     (GET /users/{login}/events/public: commit messages, issue/PR/comment
+//     bodies, release notes)
+//   - event_lookback_hours only scan events newer than this many hours (0 = all)
 //   - repo          owner/name single-repo scope
 //   - api_base      override https://api.github.com
 //   - include_comments scan issue comments and pull review comments
@@ -102,12 +108,19 @@ func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
 		return err
 	}
 	org, repo := cfg["org"], cfg["repo"]
+	users := splitList(cfg["user"])
 	hasGists := len(splitNonEmptyLines(cfg["gist_urls"])) > 0 || parseBool(cfg["include_authenticated_gists"])
-	if org == "" && repo == "" && !hasGists {
-		return errors.New("github: either org, repo, explicit gists, or authenticated gists must be set")
+	if org == "" && repo == "" && len(users) == 0 && !hasGists {
+		return errors.New("github: either org, repo, user, explicit gists, or authenticated gists must be set")
 	}
 	if org != "" && repo != "" {
 		return errors.New("github: org and repo are mutually exclusive")
+	}
+	if len(users) > 0 && (org != "" || repo != "") {
+		return errors.New("github: user is mutually exclusive with org and repo")
+	}
+	if parseBool(cfg["include_user_events"]) && len(users) == 0 {
+		return errors.New("github: include_user_events requires user")
 	}
 	if repo != "" {
 		parts := strings.SplitN(repo, "/", 2)
@@ -126,18 +139,33 @@ func scanGitHub(ctx context.Context, cfg Config, emit Emit) error {
 		return err
 	}
 	var historyErr error
-	if org != "" || repo != "" {
+	if org != "" || repo != "" || len(users) > 0 {
 		historyErr = scanGitHubHistory(ctx, cfg, auth, apiBase, org, repo, emit)
 	}
 	var gistErr error
 	if hasGists {
 		gistErr = scanGitHubGists(ctx, cfg, auth, apiBase, emit)
 	}
-	if hasGists {
-		// Repository state safety does not certify independent gist surfaces.
+	var eventsErr error
+	if parseBool(cfg["include_user_events"]) {
+		var since time.Time
+		if raw := cfg["event_lookback_hours"]; raw != "" {
+			h, err := strconv.Atoi(raw)
+			if err != nil || h < 0 {
+				return fmt.Errorf("github: event_lookback_hours must be a non-negative integer, got %q", raw)
+			}
+			if h > 0 {
+				since = time.Now().Add(-time.Duration(h) * time.Hour)
+			}
+		}
+		eventsErr = scanGitHubUserEvents(ctx, newGitHubClient(apiBase, auth), users, since, emit)
+	}
+	if hasGists || eventsErr != nil {
+		// Repository state safety does not certify independent gist or
+		// event surfaces.
 		delete(cfg, configKeyIncrementalPartialSafe)
 	}
-	return errors.Join(historyErr, gistErr)
+	return errors.Join(historyErr, gistErr, eventsErr)
 }
 
 // verifyGitHub hits GET /user for PATs and GET /installation/repositories for
@@ -411,6 +439,18 @@ func githubEnumerateRepos(ctx context.Context, cli *githubClient, cfg Config, or
 			return selected, repos, skipped, err
 		}
 	}
+	var repos []githubRepoRef
+	if users := splitList(cfg["user"]); repo == "" && org == "" && len(users) > 0 {
+		for _, u := range users {
+			userRepos, err := githubListUserRepos(ctx, cli, u)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			repos = append(repos, userRepos...)
+		}
+		selected, skipped, err := githubFilterRepos(cfg, repos)
+		return selected, repos, skipped, err
+	}
 	repos, err := githubListRepos(ctx, cli, org, repo)
 	if err != nil {
 		return nil, nil, nil, err
@@ -463,12 +503,12 @@ func githubListMembers(ctx context.Context, cli *githubClient, org string) ([]gi
 
 func githubListUserRepos(ctx context.Context, cli *githubClient, login string) ([]githubRepoRef, error) {
 	var repos []githubRepoRef
-	next := fmt.Sprintf("/users/%s/repos?per_page=100&type=owner", login)
+	next := fmt.Sprintf("/users/%s/repos?per_page=100&type=owner", url.PathEscape(login))
 	for next != "" {
 		var page []githubRepoRef
 		resp, err := cli.getJSON(ctx, next, &page)
 		if err != nil {
-			return nil, fmt.Errorf("github: list member %s repos: %w", login, err)
+			return nil, fmt.Errorf("github: list user %s repos: %w", login, err)
 		}
 		repos = append(repos, page...)
 		next = parseLinkHeader(resp.Header.Get("Link"))

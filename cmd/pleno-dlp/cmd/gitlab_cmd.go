@@ -12,6 +12,7 @@ import (
 
 type gitlabFlags struct {
 	group           string
+	user            string
 	project         string
 	token           string
 	apiBase         string
@@ -43,6 +44,7 @@ var verifyGitLabCmd = &cobra.Command{
 
 func init() {
 	scanGitLabCmd.Flags().StringVar(&scanGitLabOpts.group, "group", "", "GitLab group path to scan (mutually exclusive with --project)")
+	scanGitLabCmd.Flags().StringVar(&scanGitLabOpts.user, "user", "", "GitLab username whose personal projects are scanned (mutually exclusive with --group/--project)")
 	scanGitLabCmd.Flags().StringVar(&scanGitLabOpts.project, "project", "", "single GitLab project in namespace/name form (mutually exclusive with --group)")
 	scanGitLabCmd.Flags().StringVar(&scanGitLabOpts.token, "token", "", "GitLab PAT or OAuth token (falls back to the GITLAB_TOKEN env var)")
 	scanGitLabCmd.Flags().StringVar(&scanGitLabOpts.apiBase, "api-base", "", "GitLab API base URL (default https://gitlab.com/api/v4; override for self-hosted)")
@@ -57,8 +59,8 @@ func init() {
 }
 
 func runScanGitLab(cmd *cobra.Command, _ []string) error {
-	if scanGitLabOpts.group == "" && scanGitLabOpts.project == "" {
-		return errors.New("gitlab: one of --group or --project is required")
+	if scanGitLabOpts.group == "" && scanGitLabOpts.project == "" && scanGitLabOpts.user == "" {
+		return errors.New("gitlab: one of --group, --project, or --user is required")
 	}
 	token := resolveGitLabToken(scanGitLabOpts.token)
 	if token == "" {
@@ -67,6 +69,7 @@ func runScanGitLab(cmd *cobra.Command, _ []string) error {
 	return runScanSaaS(cmd, "gitlab", connectors.Config{
 		"token":            token,
 		"group":            scanGitLabOpts.group,
+		"user":             scanGitLabOpts.user,
 		"project":          scanGitLabOpts.project,
 		"api_base":         scanGitLabOpts.apiBase,
 		"include_comments": fmt.Sprintf("%t", scanGitLabOpts.includeComments),
