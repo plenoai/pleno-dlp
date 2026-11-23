@@ -8,6 +8,9 @@
 #                                                (plat manylinux-auto-<arch> derives the glibc floor)
 #   scripts/bindings.sh stage-node <lib> <goos-goarch>  copy a lib into bindings/node
 #   scripts/bindings.sh version <tag>            stamp both packages with a release version
+#   scripts/bindings.sh smoke <wheel-dir> <lib-dir> <goos-goarch>
+#                                                install the wheel and stage the npm lib on the
+#                                                target host, then run both binding test suites
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 
@@ -97,8 +100,18 @@ case "${1:-}" in
       >"$root/bindings/python/pleno_dlp/_version.py"
     (cd "$root/bindings/node" && npm version --no-git-tag-version --allow-same-version "$v" >/dev/null)
     ;;
+  smoke)
+    # Runs on the target OS (release.yml bindings-smoke-windows-*): proves a
+    # cross-linked library loads and scans in a real host process before any
+    # registry publish (#879).
+    wheels=${2:?wheel dir} libs=${3:?lib dir} target=${4:?goos-goarch}
+    python -m pip install --disable-pip-version-check pytest==8.4.2 "$wheels"/*.whl
+    (cd "${RUNNER_TEMP:-${TMPDIR:-/tmp}}" && python -m pytest -q "$root/bindings/python/tests")
+    "$0" stage-node "$(ls "$libs"/*pleno_dlp.*)" "$target"
+    (cd "$root/bindings/node" && npm ci --no-audit --no-fund && npm test)
+    ;;
   *)
-    sed -n '2,11p' "$0" >&2
+    sed -n '2,14p' "$0" >&2
     exit 2
     ;;
 esac

@@ -59,7 +59,7 @@ func TestWorkflowsUsePinnedRunnerPolicy(t *testing.T) {
 				continue
 			}
 			found = true
-			if !strings.HasPrefix(value, "blacksmith-") && hostedOS.MatchString(value) {
+			if !strings.HasPrefix(value, "blacksmith-") && hostedOS.MatchString(value) && !(name == "release.yml" && windowsSmokeRunners[job] == value) {
 				t.Errorf("%s:%d: runs-on must not select a GitHub-hosted runner: %q", name, i+1, value)
 			}
 			if !runnerMatchesPolicy(name, job, value) {
@@ -72,7 +72,21 @@ func TestWorkflowsUsePinnedRunnerPolicy(t *testing.T) {
 	}
 }
 
+// windowsSmokeRunners is the only GitHub-hosted exception: cross-linked
+// Windows bindings must load on Windows before publishing (#879, ADR 0001).
+// Blacksmith has no Windows pool and wine cannot run x86-64 PE images on the
+// arm64 pool. The jobs hold no secrets or OIDC token.
+var windowsSmokeRunners = map[string]string{
+	"bindings-smoke-windows-amd64": "windows-2025",
+	"bindings-smoke-windows-arm64": "windows-11-arm",
+}
+
 func expectedRunnerLabels(workflow, job string) string {
+	if workflow == "release.yml" {
+		if label, ok := windowsSmokeRunners[job]; ok {
+			return label
+		}
+	}
 	if workflow == "test.yml" && job == "test" ||
 		workflow == "release.yml" && (job == "quality" || job == "native") {
 		return largeRunnerLabel
@@ -88,6 +102,27 @@ func TestRunnerPolicyRejectsUnvalidatedMatrixExpressions(t *testing.T) {
 	for _, value := range []string{"${{ matrix.runner }}", "${{ fromJSON(matrix.runner) }}"} {
 		if runnerMatchesPolicy("release.yml", "native", value) {
 			t.Errorf("matrix expression %q bypasses the pinned runner policy", value)
+		}
+	}
+}
+
+func TestWindowsSmokeGatesPublishing(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", ".github", "workflows", "release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	for _, job := range []string{"pypi", "npm"} {
+		i := strings.Index(s, "\n  "+job+":\n")
+		if i < 0 {
+			t.Fatalf("release.yml has no %s job", job)
+		}
+		needs := s[i : i+strings.Index(s[i:], "\n    runs-on:")]
+		for smoke := range windowsSmokeRunners {
+			if !strings.Contains(needs, smoke) {
+				t.Errorf("%s must need %s so an unloadable Windows library never publishes", job, smoke)
+			}
 		}
 	}
 }

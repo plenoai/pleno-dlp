@@ -48,8 +48,15 @@ in Python and `koffi` in Node.js. Exchange JSON across the boundary.
   against text-based stubs (`scripts/darwin-stubs`) that export only the
   CoreFoundation/Security symbols the Go runtime imports, instead of the
   macOS SDK; a symbol a future Go release adds fails the link rather than
-  shipping a broken library. Cross-built libraries are not executed in
-  release; the darwin/arm64 build is verified on a Mac before adoption.
+  shipping a broken library. The darwin builds were verified on a Mac
+  (arm64 natively, x86-64 under Rosetta) before adoption. The Windows
+  builds are executed on every release: `bindings-smoke-windows-{amd64,arm64}`
+  install the wheel and the staged npm library on GitHub-hosted
+  `windows-2025` / `windows-11-arm` and run both binding test suites, and
+  `pypi`/`npm` depend on them (#879). This is the repository's only
+  GitHub-hosted runner exception: Blacksmith offers no Windows pool and wine
+  on the arm64 pool cannot run x86-64 PE images reliably; the jobs are
+  read-only and hold no secrets or OIDC token.
 - The Go runtime starts inside the host process. One process loads one
   copy of the runtime; repeated calls reuse it.
 - Calls are synchronous. Async wrappers are left to callers (worker
