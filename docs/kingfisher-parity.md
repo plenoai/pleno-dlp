@@ -11,7 +11,16 @@ from the machine block. Epic #817.
 kingfisher's catalog is the imported Betterleaks configuration, the
 selected Google Veles detectors, and a few first-party rules. The
 `validation` column is kingfisher's live-validation type (`-` =
-detection only).
+detection only). The `verified` column is how pleno-dlp verifies the
+rule (`-` = not verified): `native` (the credited detector's own
+Verify), `base:<Type>` (a catalog format routed to that provider's
+verifier, with paired credentials packed into its secret shape),
+`http` (a declarative request modelled on kingfisher's validator), or
+`signed` (an HMAC/SigV4-style signed request, OIDC signature, or
+offline key check). Paired credentials are resolved from the
+surrounding text the way kingfisher's `depends_on` does. The test
+fails when a kingfisher-validated rule has no pleno-dlp verification
+(issue #934).
 
 Status:
 
@@ -40,6 +49,10 @@ generic class with stricter false-positive gates.
 | all rules | 455 | 1 | 0 | 47 | 503 |
 | with kingfisher validation | 266 | 0 | 0 | 0 | 266 |
 
+| | kingfisher validates | pleno-dlp verifies |
+|---|---|---|
+| validated parity | 266 | 266 |
+
 ## Rules
 
 ```parity-machine
@@ -49,507 +62,509 @@ covered=455
 partial=1
 missing=0
 context=47
-rule=betterleaks.1password-secret-key validation=- status=covered detector=OnePasswordServiceAccount
-rule=betterleaks.1password-service-account-token validation=Betterleaks status=covered detector=OnePasswordServiceAccount
-rule=betterleaks.abuseipdb-api-key.1 validation=Betterleaks status=covered detector=AbuseIPDB
-rule=betterleaks.adafruit-api-key validation=- status=covered detector=Adafruit
-rule=betterleaks.adobe-client-id validation=- status=covered detector=AdobeIO
-rule=betterleaks.adobe-client-secret validation=- status=covered detector=AdobeIO
-rule=betterleaks.age-secret-key validation=- status=covered detector=AgeSecretKey
-rule=betterleaks.aikido-ci-token validation=- status=covered detector=AikidoSecurity
-rule=betterleaks.aikido-client-id validation=- status=context detector=-
-rule=betterleaks.aikido-client-secret validation=- status=covered detector=AikidoSecurity
-rule=betterleaks.airtable-api-key validation=- status=covered detector=Airtable
-rule=betterleaks.airtable-oauth-token validation=Betterleaks status=covered detector=Airtable
-rule=betterleaks.airtable-personnal-access-token validation=Betterleaks status=covered detector=Airtable
-rule=betterleaks.aiven-auth-token validation=Betterleaks status=covered detector=Aiven
-rule=betterleaks.algolia-api-key validation=Betterleaks status=covered detector=Algolia
-rule=betterleaks.algolia-application-id validation=- status=context detector=-
-rule=betterleaks.alibaba-access-key-id validation=- status=context detector=-
-rule=betterleaks.alibaba-secret-key validation=Betterleaks status=covered detector=AlibabaCloud
-rule=betterleaks.alibaba-sts-access-key-id validation=- status=context detector=-
-rule=betterleaks.alibaba-sts-access-key-secret validation=Betterleaks status=covered detector=AlibabaCloud
-rule=betterleaks.alibaba-sts-security-token validation=- status=context detector=AlibabaCloud
-rule=betterleaks.amplitude-secret-key validation=Betterleaks status=covered detector=Amplitude
-rule=betterleaks.anthropic-admin-api-key validation=Betterleaks status=covered detector=Anthropic
-rule=betterleaks.anthropic-api-key validation=Betterleaks status=covered detector=Anthropic
-rule=betterleaks.apify-api-token validation=Betterleaks status=covered detector=Apify
-rule=betterleaks.apollo-api-key.1 validation=Betterleaks status=covered detector=Apollo
-rule=betterleaks.artifactory-api-key validation=Betterleaks status=covered detector=JFrog
-rule=betterleaks.artifactory-jfrog-url validation=- status=context detector=-
-rule=betterleaks.artifactory-reference-token validation=Betterleaks status=covered detector=JFrog
-rule=betterleaks.asaas-api-token validation=Betterleaks status=covered detector=Asaas
-rule=betterleaks.asana-client-id validation=- status=covered detector=Asana
-rule=betterleaks.asana-client-secret validation=- status=covered detector=Asana
-rule=betterleaks.assemblyai-api-key validation=- status=covered detector=AssemblyAI
-rule=betterleaks.atlassian-api-token validation=- status=covered detector=Atlassian
-rule=betterleaks.auth0-client-id.1 validation=- status=context detector=-
-rule=betterleaks.auth0-client-secret.1 validation=Betterleaks status=covered detector=Akamai
-rule=betterleaks.auth0-domain.1 validation=- status=context detector=-
-rule=betterleaks.authress-service-client-access-key validation=Betterleaks status=covered detector=Authress
-rule=betterleaks.aws-access-token validation=Betterleaks status=covered detector=AWS
-rule=betterleaks.aws-amazon-bedrock-api-key-long-lived validation=- status=covered detector=AWS
-rule=betterleaks.aws-amazon-bedrock-api-key-short-lived validation=- status=covered detector=AWS
-rule=betterleaks.aws-secret-access-key validation=- status=context detector=-
-rule=betterleaks.aws-session-token validation=AWS status=covered detector=AWSSession
-rule=betterleaks.azure-ad-client-secret validation=Betterleaks status=covered detector=AzureAD
-rule=betterleaks.azure-app-configuration-connection-string validation=Betterleaks status=covered detector=AzureAppConfiguration
-rule=betterleaks.azure-client-id validation=- status=context detector=-
-rule=betterleaks.azure-servicebus-connection-string validation=Betterleaks status=covered detector=AzureServiceBus
-rule=betterleaks.azure-storage-account-key validation=Betterleaks status=covered detector=AzureStorageKey
-rule=betterleaks.azure-storage-account-name validation=- status=context detector=-
-rule=betterleaks.azure-tenant-id validation=- status=context detector=-
-rule=betterleaks.beamer-api-token validation=- status=covered detector=Beamer
-rule=betterleaks.bitbucket-client-id validation=- status=covered detector=BitbucketCloud
-rule=betterleaks.bitbucket-client-secret validation=- status=covered detector=BitbucketCloud
-rule=betterleaks.bitbucket-data-center-token validation=- status=covered detector=BitbucketServer
-rule=betterleaks.bitly-access-token validation=Betterleaks status=covered detector=Bitly
-rule=betterleaks.bitrise-access-token validation=Betterleaks status=covered detector=Bitrise
-rule=betterleaks.bittrex-access-key validation=- status=covered detector=Bittrex
-rule=betterleaks.bittrex-secret-key validation=- status=covered detector=Bittrex
-rule=betterleaks.box-api-access-token validation=Betterleaks status=covered detector=Box
-rule=betterleaks.brave-search-api-key validation=Betterleaks status=covered detector=BraveSearch
-rule=betterleaks.browserstack-access-key.1 validation=Betterleaks status=covered detector=Browserstack
-rule=betterleaks.browserstack-username.1 validation=- status=context detector=-
-rule=betterleaks.buildkite-service-token validation=- status=covered detector=Buildkite
-rule=betterleaks.buildkite-user-access-token validation=Betterleaks status=covered detector=Buildkite
-rule=betterleaks.canadian-digital-service-notify-api-key validation=Betterleaks status=covered detector=GCNotify
-rule=betterleaks.canva-client-id validation=- status=context detector=-
-rule=betterleaks.canva-client-secret validation=Betterleaks status=covered detector=Canva
-rule=betterleaks.cartesia-api-key.1 validation=Betterleaks status=covered detector=Cartesia
-rule=betterleaks.cerebras-api-key validation=Betterleaks status=covered detector=Cerebras
-rule=betterleaks.checkout-secret-key validation=Betterleaks status=covered detector=CheckoutCom
-rule=betterleaks.circleci-personal-token validation=Betterleaks status=covered detector=CircleCI
-rule=betterleaks.circleci-project-token validation=Betterleaks status=covered detector=CircleCI
-rule=betterleaks.cisco-meraki-api-key validation=Betterleaks status=covered detector=CiscoMeraki
-rule=betterleaks.civo-api-key validation=Betterleaks status=covered detector=Civo
-rule=betterleaks.clerk-secret-key validation=Betterleaks status=covered detector=Clerk,Stripe
-rule=betterleaks.clickhouse-cloud-api-secret-key validation=Betterleaks status=covered detector=ClickHouseCloud
-rule=betterleaks.clickhouse-cloud-key-id validation=- status=context detector=-
-rule=betterleaks.clickup-personal-api-token validation=Betterleaks status=covered detector=ClickUp
-rule=betterleaks.clojars-api-token validation=- status=covered detector=Clojars
-rule=betterleaks.cloudflare-account-id.1 validation=- status=context detector=-
-rule=betterleaks.cloudflare-api-key.1 validation=Betterleaks status=covered detector=Cloudflare
-rule=betterleaks.cloudflare-api-key.2 validation=Betterleaks status=covered detector=Cloudflare
-rule=betterleaks.cloudflare-global-api-key validation=- status=covered detector=Cloudflare
-rule=betterleaks.cloudflare-origin-ca-key validation=- status=covered detector=Cloudflare
-rule=betterleaks.cloudinary-api-key validation=- status=context detector=-
-rule=betterleaks.cloudinary-api-secret validation=Betterleaks status=covered detector=Cloudinary
-rule=betterleaks.cloudinary-cloud-name validation=- status=context detector=-
-rule=betterleaks.cloudsmith-api-key validation=Betterleaks status=covered detector=Cloudsmith
-rule=betterleaks.cockroachlabs-cloud-api-key validation=Betterleaks status=covered detector=CockroachCloud
-rule=betterleaks.codecov-access-token validation=Betterleaks status=covered detector=Codecov
-rule=betterleaks.cohere-api-token validation=Betterleaks status=covered detector=Cohere
-rule=betterleaks.coinbase-access-token validation=- status=covered detector=Coinbase
-rule=betterleaks.configcat-sdk-key validation=Betterleaks status=covered detector=ConfigCat
-rule=betterleaks.configcat-sdk-key-extended validation=Betterleaks status=covered detector=ConfigCat
-rule=betterleaks.confluent-access-token validation=- status=covered detector=Kafka
-rule=betterleaks.confluent-secret-key validation=- status=covered detector=Kafka
-rule=betterleaks.contentful-delivery-api-token validation=- status=covered detector=Contentful
-rule=betterleaks.couchbase-capella-api-key validation=Betterleaks status=covered detector=CouchbaseCapella
-rule=betterleaks.coveralls-personal-api-token validation=- status=covered detector=Coveralls
-rule=betterleaks.crates-io-api-key validation=Betterleaks status=covered detector=CratesIO
-rule=betterleaks.curl-auth-header validation=- status=covered detector=CurlAuth
-rule=betterleaks.curl-auth-user validation=- status=covered detector=CurlAuth
-rule=betterleaks.cursor-api-key validation=Betterleaks status=covered detector=Cursor
-rule=betterleaks.databento-api-key validation=Betterleaks status=covered detector=Databento
-rule=betterleaks.databricks-api-token validation=- status=covered detector=Databricks
-rule=betterleaks.datadog-api-key validation=Betterleaks status=covered detector=Datadog
-rule=betterleaks.datadog-application-key validation=- status=covered detector=DatadogAppKey
-rule=betterleaks.datagov-api-key validation=Betterleaks status=covered detector=DataGov
-rule=betterleaks.datastax-astra-application-token validation=Betterleaks status=covered detector=DataStaxAstra
-rule=betterleaks.deepgram-api-key validation=- status=covered detector=Deepgram
-rule=betterleaks.deepseek-api-key validation=Betterleaks status=covered detector=OpenAI
-rule=betterleaks.defined-networking-api-token validation=- status=covered detector=DefinedNetworking
-rule=betterleaks.deno-account-token validation=Betterleaks status=covered detector=DenoDeploy
-rule=betterleaks.devcycle-client-sdk-key validation=Betterleaks status=covered detector=DevCycle
-rule=betterleaks.devcycle-mobile-sdk-key validation=Betterleaks status=covered detector=DevCycle
-rule=betterleaks.devcycle-server-sdk-key validation=Betterleaks status=covered detector=DevCycle
-rule=betterleaks.devin-personal-api-key validation=Betterleaks status=covered detector=Devin
-rule=betterleaks.devin-service-api-key validation=Betterleaks status=covered detector=Devin
-rule=betterleaks.devin-service-user-token validation=Betterleaks status=covered detector=Devin
-rule=betterleaks.digitalocean-access-token validation=- status=covered detector=DigitalOcean
-rule=betterleaks.digitalocean-pat validation=- status=covered detector=DigitalOcean
-rule=betterleaks.digitalocean-refresh-token validation=- status=covered detector=DigitalOcean
-rule=betterleaks.discord-api-token validation=- status=covered detector=Discord
-rule=betterleaks.discord-client-id validation=- status=covered detector=Discord
-rule=betterleaks.discord-client-secret validation=- status=covered detector=Discord
-rule=betterleaks.disqus-api-key validation=Betterleaks status=covered detector=Disqus
-rule=betterleaks.docker-swarm-join-token validation=- status=covered detector=DockerSwarm
-rule=betterleaks.docker-swarm-unlock-key validation=- status=covered detector=DockerSwarm
-rule=betterleaks.dockerhub-organization-access-token validation=- status=covered detector=DockerHub
-rule=betterleaks.dockerhub-personal-access-token validation=- status=covered detector=DockerHub
-rule=betterleaks.doppler-api-token validation=- status=covered detector=Doppler
-rule=betterleaks.droneci-access-token validation=- status=covered detector=DroneCI
-rule=betterleaks.dropbox-api-token validation=- status=covered detector=Dropbox
-rule=betterleaks.dropbox-long-lived-api-token validation=- status=covered detector=Dropbox
-rule=betterleaks.dropbox-short-lived-api-token validation=- status=covered detector=Dropbox
-rule=betterleaks.duffel-api-token validation=- status=covered detector=Duffel
-rule=betterleaks.dynatrace-api-token validation=- status=covered detector=Dynatrace
-rule=betterleaks.easypost-api-token validation=- status=covered detector=EasyPost
-rule=betterleaks.easypost-test-api-token validation=- status=covered detector=EasyPost
-rule=betterleaks.ebay-client-id validation=- status=context detector=-
-rule=betterleaks.ebay-client-secret validation=Betterleaks status=covered detector=EBay
-rule=betterleaks.elastic-cloud-api-key validation=Betterleaks status=covered detector=ElasticCloud
-rule=betterleaks.elevenlabs-api-key validation=- status=covered detector=Klaviyo
-rule=betterleaks.endorlabs-api-key validation=- status=covered detector=EndorLabs
-rule=betterleaks.endorlabs-api-secret validation=- status=covered detector=EndorLabs
-rule=betterleaks.etsy-open-api-key validation=Betterleaks status=covered detector=Etsy
-rule=betterleaks.exoscale-api-key validation=Betterleaks status=covered detector=Exoscale
-rule=betterleaks.exoscale-api-secret validation=- status=context detector=-
-rule=betterleaks.facebook-access-token validation=- status=covered detector=Facebook
-rule=betterleaks.facebook-page-access-token validation=- status=covered detector=Facebook
-rule=betterleaks.facebook-secret validation=- status=covered detector=Facebook
-rule=betterleaks.fal-api-key.1 validation=Betterleaks status=covered detector=FalAI
-rule=betterleaks.fastly-api-token validation=Betterleaks status=covered detector=Fastly
-rule=betterleaks.figma-personal-access-header-token validation=Betterleaks status=covered detector=Figma
-rule=betterleaks.figma-personal-access-token validation=Betterleaks status=covered detector=Figma
-rule=betterleaks.finicity-api-token validation=- status=covered detector=Finicity
-rule=betterleaks.finicity-client-secret validation=- status=covered detector=Finicity
-rule=betterleaks.finnhub-access-token validation=- status=covered detector=Finnhub
-rule=betterleaks.flickr-access-token validation=- status=covered detector=Flickr
-rule=betterleaks.flutterwave-encryption-key validation=- status=covered detector=Flutterwave
-rule=betterleaks.flutterwave-public-key validation=- status=covered detector=Flutterwave
-rule=betterleaks.flutterwave-secret-key validation=- status=covered detector=Flutterwave
-rule=betterleaks.flyio-access-token validation=Betterleaks status=covered detector=FlyMachines
-rule=betterleaks.frameio-api-token validation=Betterleaks status=covered detector=FrameIO
-rule=betterleaks.freemius-secret-key validation=- status=covered detector=Freemius
-rule=betterleaks.freshbooks-access-token validation=Betterleaks status=covered detector=FreshBooks
-rule=betterleaks.fullstory-api-key validation=Betterleaks status=covered detector=FullStory
-rule=betterleaks.gcp-api-key validation=Betterleaks status=covered detector=GCPAPIKey
-rule=betterleaks.gcp-application-default-credentials validation=Betterleaks status=covered detector=JSONConfigSecret
-rule=betterleaks.gcp-gemini-api validation=Betterleaks status=covered detector=GCPAPIKey
-rule=betterleaks.gcp-service-account validation=Betterleaks status=covered detector=GCPServiceAccount
-rule=betterleaks.generic-api-key validation=- status=partial detector=GenericHighEntropy
-rule=betterleaks.generic-credential-uri validation=CredentialUri status=covered detector=GitCredentialsURL,Postgres
-rule=betterleaks.gitea-access-token validation=- status=covered detector=Gitea
-rule=betterleaks.github-app-token validation=Betterleaks status=covered detector=GitHubApp
-rule=betterleaks.github-fine-grained-pat validation=Betterleaks status=covered detector=GitHub,GitHubFineGrained
-rule=betterleaks.github-oauth validation=Betterleaks status=covered detector=GitHub
-rule=betterleaks.github-pat validation=Betterleaks status=covered detector=GitHub
-rule=betterleaks.github-refresh-token validation=Betterleaks status=covered detector=GitHub
-rule=betterleaks.gitlab-cicd-job-token validation=Betterleaks status=covered detector=GitLabDeploy
-rule=betterleaks.gitlab-deploy-token validation=Betterleaks status=covered detector=GitLabDeploy
-rule=betterleaks.gitlab-feature-flag-client-token validation=- status=covered detector=GitLab
-rule=betterleaks.gitlab-feed-token validation=- status=covered detector=GitLab
-rule=betterleaks.gitlab-incoming-mail-address-token validation=- status=covered detector=GitLab
-rule=betterleaks.gitlab-incoming-mail-token validation=- status=covered detector=GitLab
-rule=betterleaks.gitlab-kubernetes-agent-token validation=- status=covered detector=GitLabDeploy
-rule=betterleaks.gitlab-oauth-app-secret validation=- status=covered detector=GitLab
-rule=betterleaks.gitlab-pat validation=Betterleaks status=covered detector=GitLab
-rule=betterleaks.gitlab-pat-routable validation=Betterleaks status=covered detector=GitLab
-rule=betterleaks.gitlab-pat-routable-versioned validation=Betterleaks status=covered detector=GitLab
-rule=betterleaks.gitlab-ptt validation=Betterleaks status=covered detector=GitLabDeploy
-rule=betterleaks.gitlab-rrt validation=Betterleaks status=covered detector=GitLab
-rule=betterleaks.gitlab-runner-authentication-token validation=Betterleaks status=covered detector=GitLabDeploy
-rule=betterleaks.gitlab-runner-authentication-token-routable validation=Betterleaks status=covered detector=GitLabDeploy
-rule=betterleaks.gitlab-scim-token validation=- status=covered detector=GitLabDeploy
-rule=betterleaks.gitlab-session-cookie validation=- status=covered detector=GitLab
-rule=betterleaks.gitter-access-token validation=- status=covered detector=Gitter
-rule=betterleaks.gocardless-api-token validation=Betterleaks status=covered detector=GoCardless
-rule=betterleaks.grafana-api-key validation=- status=covered detector=Grafana
-rule=betterleaks.grafana-cloud-api-token validation=Betterleaks status=covered detector=Grafana
-rule=betterleaks.grafana-service-account-token validation=- status=covered detector=Grafana
-rule=betterleaks.greptile-api-key validation=- status=covered detector=Greptile
-rule=betterleaks.groq-api-key validation=Betterleaks status=covered detector=Groq
-rule=betterleaks.gumroad-access-token validation=Betterleaks status=covered detector=Gumroad
-rule=betterleaks.harness-api-key validation=Betterleaks status=covered detector=Harness
-rule=betterleaks.hashicorp-tf-api-token validation=- status=covered detector=TerraformCloud
-rule=betterleaks.hashicorp-tf-password validation=- status=covered detector=TerraformCloud
-rule=betterleaks.heroku-api-key validation=- status=covered detector=Heroku
-rule=betterleaks.heroku-api-key-v2 validation=- status=covered detector=Heroku
-rule=betterleaks.highnote-secret-live-key validation=Betterleaks status=covered detector=Stripe
-rule=betterleaks.honeycomb-api-key validation=Betterleaks status=covered detector=Honeycomb
-rule=betterleaks.hubspot-api-key validation=- status=covered detector=HubSpot
-rule=betterleaks.huggingface-access-token validation=Betterleaks status=covered detector=HuggingFace
-rule=betterleaks.huggingface-organization-api-token validation=Betterleaks status=covered detector=HuggingFace
-rule=betterleaks.hunter-api-key.1 validation=Betterleaks status=covered detector=Hunter
-rule=betterleaks.ibm-cloud-user-api-key validation=Betterleaks status=covered detector=IBMCloud
-rule=betterleaks.influxdb-api-token validation=Betterleaks status=covered detector=InfluxDB
-rule=betterleaks.infomaniak-api-token validation=Betterleaks status=covered detector=Infomaniak
-rule=betterleaks.infracost-api-token validation=- status=covered detector=Infracost
-rule=betterleaks.instantly-api-key.1 validation=Betterleaks status=covered detector=Instantly
-rule=betterleaks.intercom-api-key validation=- status=covered detector=Intercom
-rule=betterleaks.intra42-client-secret validation=- status=covered detector=Intra42
-rule=betterleaks.ionic-personal-access-token validation=Betterleaks status=covered detector=Ionic
-rule=betterleaks.jumpcloud-api-key validation=Betterleaks status=covered detector=JumpCloud
-rule=betterleaks.jwt validation=JWT status=covered detector=JWT
-rule=betterleaks.jwt-base64 validation=- status=covered detector=JWT
-rule=betterleaks.kagi-api-key validation=Betterleaks status=covered detector=Kagi
-rule=betterleaks.kimi-api-key validation=Betterleaks status=covered detector=OpenAI
-rule=betterleaks.klaviyo-api-key validation=Betterleaks status=covered detector=Klaviyo
-rule=betterleaks.kraken-access-token validation=- status=covered detector=Kraken
-rule=betterleaks.kubernetes-secret-yaml validation=- status=covered detector=KubernetesSecret
-rule=betterleaks.kucoin-access-token validation=- status=covered detector=KuCoin
-rule=betterleaks.kucoin-secret-key validation=- status=covered detector=KuCoin
-rule=betterleaks.labelbox-api-key validation=Betterleaks status=covered detector=Labelbox
-rule=betterleaks.labelbox-recursion-api-key validation=Betterleaks status=covered detector=Labelbox
-rule=betterleaks.langchain-langsmith-personal-access-token validation=Betterleaks status=covered detector=LangSmith
-rule=betterleaks.langchain-langsmith-service-key validation=Betterleaks status=covered detector=LangSmith
-rule=betterleaks.langfuse-public-key.1 validation=- status=context detector=-
-rule=betterleaks.langfuse-secret-key.1 validation=Betterleaks status=covered detector=OpenAI
-rule=betterleaks.lark-app-id validation=- status=context detector=-
-rule=betterleaks.lark-app-secret validation=Betterleaks status=covered detector=Lark
-rule=betterleaks.launchdarkly-access-token validation=- status=covered detector=LaunchDarkly
-rule=betterleaks.lichess-personal-access-token validation=Betterleaks status=covered detector=Lichess
-rule=betterleaks.lighton-paradigm-api-key validation=Betterleaks status=covered detector=LightOn
-rule=betterleaks.linear-api-key validation=Betterleaks status=covered detector=Linear
-rule=betterleaks.linear-client-secret validation=- status=covered detector=Linear
-rule=betterleaks.linkedin-client-id validation=- status=covered detector=LinkedIn
-rule=betterleaks.linkedin-client-secret validation=- status=covered detector=LinkedIn
-rule=betterleaks.llama-cloud-api-key.1 validation=Betterleaks status=covered detector=LlamaCloud
-rule=betterleaks.lob-api-key validation=- status=covered detector=Lob
-rule=betterleaks.lob-pub-api-key validation=- status=covered detector=Lob
-rule=betterleaks.looker-client-id validation=- status=covered detector=Looker
-rule=betterleaks.looker-client-secret validation=- status=covered detector=Looker
-rule=betterleaks.mailchimp-api-key validation=Betterleaks status=covered detector=Mailchimp
-rule=betterleaks.mailersend-api-token validation=Betterleaks status=covered detector=MailerSend
-rule=betterleaks.mailgun-private-api-token validation=Betterleaks status=covered detector=Mailgun
-rule=betterleaks.mailgun-pub-key validation=- status=covered detector=Mailgun
-rule=betterleaks.mailgun-signing-key validation=- status=covered detector=Mailgun
-rule=betterleaks.mapbox-api-token validation=Betterleaks status=covered detector=Mapbox
-rule=betterleaks.mapbox-secret-token validation=Betterleaks status=covered detector=Mapbox
-rule=betterleaks.mattermost-access-token validation=- status=covered detector=Mattermost
-rule=betterleaks.maxmind-license-key validation=- status=covered detector=MaxMind
-rule=betterleaks.mem0-api-key.1 validation=Betterleaks status=covered detector=Mem0
-rule=betterleaks.mercury-production-api-token validation=Betterleaks status=covered detector=MercuryBank
-rule=betterleaks.mergify-application-key validation=Betterleaks status=covered detector=Mergify
-rule=betterleaks.messagebird-api-token validation=- status=covered detector=MessageBird
-rule=betterleaks.messagebird-client-id validation=- status=covered detector=MessageBird
-rule=betterleaks.microsoft-teams-webhook validation=- status=covered detector=MicrosoftTeamsWebhook
-rule=betterleaks.midtrans-production-server-client-key validation=Betterleaks status=covered detector=Midtrans
-rule=betterleaks.minimax-api-key validation=Betterleaks status=covered detector=OpenAI
-rule=betterleaks.miro-access-token validation=Betterleaks status=covered detector=Miro
-rule=betterleaks.miro-client-id validation=- status=context detector=-
-rule=betterleaks.miro-client-secret validation=Betterleaks status=covered detector=Miro
-rule=betterleaks.mistral-api-key validation=Betterleaks status=covered detector=Mistral
-rule=betterleaks.monday-api-token.1 validation=Betterleaks status=covered detector=JWT
-rule=betterleaks.mongodb-atlas-service-account-id validation=- status=context detector=-
-rule=betterleaks.mongodb-atlas-service-account-secret validation=Betterleaks status=covered detector=MongoDBAtlas
-rule=betterleaks.mongodb-connection-string validation=MongoDB status=covered detector=MongoDB
-rule=betterleaks.mux-access-token-id.1 validation=- status=context detector=-
-rule=betterleaks.mux-access-token-secret.1 validation=Betterleaks status=covered detector=Mux
-rule=betterleaks.neon-api-key validation=Betterleaks status=covered detector=Neon
-rule=betterleaks.netlify-access-token validation=- status=covered detector=Netlify
-rule=betterleaks.new-relic-browser-api-token validation=- status=covered detector=NewRelic
-rule=betterleaks.new-relic-insert-key validation=- status=covered detector=NewRelic
-rule=betterleaks.new-relic-user-api-id validation=- status=covered detector=NewRelic
-rule=betterleaks.new-relic-user-api-key validation=- status=covered detector=NewRelic
-rule=betterleaks.ngrok-api-key.1 validation=Betterleaks status=covered detector=Ngrok
-rule=betterleaks.notion-api-token validation=- status=covered detector=Notion
-rule=betterleaks.npm-access-token validation=- status=covered detector=NPM
-rule=betterleaks.nuget-api-key validation=Betterleaks status=covered detector=NuGet
-rule=betterleaks.nuget-config-password validation=- status=covered detector=NuGet
-rule=betterleaks.nvidia-api-key validation=- status=covered detector=NvidiaNGC
-rule=betterleaks.nylas-api-key.1 validation=Betterleaks status=covered detector=Nylas
-rule=betterleaks.nytimes-access-token validation=- status=covered detector=NYTimes
-rule=betterleaks.octopus-deploy-api-key validation=- status=covered detector=OctopusDeploy
-rule=betterleaks.okta-access-token validation=- status=covered detector=Okta
-rule=betterleaks.ollama-api-key validation=- status=covered detector=OllamaCloud
-rule=betterleaks.onesignal-rich-authentication-token validation=Betterleaks status=covered detector=OneSignal
-rule=betterleaks.onfido-live-api-token-ca validation=Betterleaks status=covered detector=Onfido
-rule=betterleaks.onfido-live-api-token-eu validation=Betterleaks status=covered detector=Onfido
-rule=betterleaks.onfido-live-api-token-us validation=Betterleaks status=covered detector=Onfido
-rule=betterleaks.openai-api-key validation=Betterleaks status=covered detector=OpenAI
-rule=betterleaks.openrouter-api-key validation=Betterleaks status=covered detector=OpenAI,OpenRouter
-rule=betterleaks.openshift-user-token validation=- status=covered detector=OpenShift
-rule=betterleaks.openweather-api-key validation=Betterleaks status=covered detector=OpenWeather
-rule=betterleaks.opsgenie-api-key.1 validation=Betterleaks status=covered detector=Opsgenie
-rule=betterleaks.ovh-application-key validation=- status=context detector=-
-rule=betterleaks.ovh-application-secret validation=Betterleaks status=covered detector=OVHCloud
-rule=betterleaks.ovh-consumer-key validation=- status=context detector=-
-rule=betterleaks.paddle-live-api-key validation=Betterleaks status=covered detector=Paddle
-rule=betterleaks.pagerduty-authorization-token.1 validation=Betterleaks status=covered detector=PagerDuty
-rule=betterleaks.paypal-client-id.1 validation=- status=context detector=-
-rule=betterleaks.paypal-client-secret.1 validation=Betterleaks status=covered detector=Akamai
-rule=betterleaks.perplexity-api-key validation=Betterleaks status=covered detector=Perplexity
-rule=betterleaks.persona-production-api-key validation=Betterleaks status=covered detector=Persona
-rule=betterleaks.pinecone-api-key.1 validation=Betterleaks status=covered detector=Pinecone
-rule=betterleaks.pinecone-api-key.2 validation=Betterleaks status=covered detector=Pinecone
-rule=betterleaks.pinterest-access-token validation=Betterleaks status=covered detector=Pinterest
-rule=betterleaks.plaid-api-token validation=- status=covered detector=Plaid
-rule=betterleaks.plaid-client-id validation=- status=covered detector=Plaid
-rule=betterleaks.plaid-secret-key validation=- status=covered detector=Plaid
-rule=betterleaks.planetscale-api-token validation=Betterleaks status=covered detector=PlanetScale
-rule=betterleaks.planetscale-id validation=- status=context detector=-
-rule=betterleaks.planetscale-oauth-token validation=- status=covered detector=PlanetScale
-rule=betterleaks.planetscale-password validation=- status=covered detector=PlanetScale
-rule=betterleaks.plivo-auth-id validation=- status=context detector=-
-rule=betterleaks.plivo-auth-token validation=Betterleaks status=covered detector=Plivo
-rule=betterleaks.polar-oauth-access-token validation=Betterleaks status=covered detector=Polar
-rule=betterleaks.polar-organization-access-token validation=Betterleaks status=covered detector=Polar
-rule=betterleaks.polar-personal-access-token validation=Betterleaks status=covered detector=Polar
-rule=betterleaks.polymarket-address validation=- status=context detector=-
-rule=betterleaks.polymarket-api-key validation=Betterleaks status=covered detector=Polymarket
-rule=betterleaks.polymarket-api-secret validation=- status=context detector=-
-rule=betterleaks.polymarket-passphrase validation=- status=context detector=-
-rule=betterleaks.polymarket-private-key validation=Ethereum status=covered detector=Polymarket
-rule=betterleaks.posthog-personal-api-key validation=Betterleaks status=covered detector=PostHog
-rule=betterleaks.posthog-project-api-key validation=- status=covered detector=PostHog
-rule=betterleaks.postman-api-token validation=- status=covered detector=Postman
-rule=betterleaks.postmark-api-token.1 validation=Betterleaks status=covered detector=Postmark
-rule=betterleaks.prefect-api-token validation=- status=covered detector=PrefectCloud
-rule=betterleaks.private-key validation=Assumed status=covered detector=PrivateKeyPEM
-rule=betterleaks.privateai-api-token validation=- status=covered detector=PrivateAI
-rule=betterleaks.proof-full-access-api-key validation=Betterleaks status=covered detector=Proof
-rule=betterleaks.pulumi-api-token validation=- status=covered detector=Pulumi
-rule=betterleaks.pypi-upload-token validation=- status=covered detector=PyPI
-rule=betterleaks.rainforest-pay-production-api-key validation=Betterleaks status=covered detector=RainforestPay
-rule=betterleaks.ramp-client-id validation=- status=context detector=-
-rule=betterleaks.ramp-client-secret validation=Betterleaks status=covered detector=Ramp
-rule=betterleaks.rapidapi-access-token validation=- status=covered detector=RapidAPI
-rule=betterleaks.razorpay-key-id.1 validation=- status=context detector=-
-rule=betterleaks.razorpay-key-secret.1 validation=Betterleaks status=covered detector=Razorpay
-rule=betterleaks.readme-api-token validation=- status=covered detector=ReadMe
-rule=betterleaks.redirect-pizza-api-token.1 validation=Betterleaks status=covered detector=RedirectPizza
-rule=betterleaks.render-api-key validation=Betterleaks status=covered detector=Render
-rule=betterleaks.replicate-api-token validation=Betterleaks status=covered detector=Replicate
-rule=betterleaks.resend-api-key.1 validation=Betterleaks status=covered detector=Resend
-rule=betterleaks.retell-api-key.1 validation=Betterleaks status=covered detector=Retell
-rule=betterleaks.rootly-api-key.1 validation=Betterleaks status=covered detector=Rootly
-rule=betterleaks.rubygems-api-token validation=Betterleaks status=covered detector=RubyGems
-rule=betterleaks.runpod-api-key.1 validation=Betterleaks status=covered detector=RunPod
-rule=betterleaks.salesforce-access-token.1 validation=Betterleaks status=covered detector=SalesforceRefresh
-rule=betterleaks.salesforce-instance-url.1 validation=- status=context detector=-
-rule=betterleaks.samsara-api-token.1 validation=Betterleaks status=covered detector=Samsara
-rule=betterleaks.scaleway-secret-key validation=Betterleaks status=covered detector=Scaleway
-rule=betterleaks.scalingo-api-token validation=- status=covered detector=Scalingo
-rule=betterleaks.scalr-api-access-token.1 validation=Betterleaks status=covered detector=JWT
-rule=betterleaks.segment-public-api-token.1 validation=Betterleaks status=covered detector=Segment
-rule=betterleaks.sendbird-access-id validation=- status=covered detector=Sendbird
-rule=betterleaks.sendbird-access-token validation=- status=covered detector=Sendbird
-rule=betterleaks.sendgrid-api-token validation=Betterleaks status=covered detector=SendGrid
-rule=betterleaks.sendinblue-api-token validation=Betterleaks status=covered detector=Brevo
-rule=betterleaks.sentry-access-token validation=- status=covered detector=Sentry
-rule=betterleaks.sentry-org-token validation=- status=covered detector=Sentry
-rule=betterleaks.sentry-user-token validation=- status=covered detector=SentryUser
-rule=betterleaks.settlemint-application-access-token validation=- status=covered detector=SettleMint
-rule=betterleaks.settlemint-personal-access-token validation=- status=covered detector=SettleMint
-rule=betterleaks.settlemint-service-access-token validation=- status=covered detector=SettleMint
-rule=betterleaks.shippo-api-token validation=- status=covered detector=Shippo
-rule=betterleaks.shopify-access-token validation=- status=covered detector=Shopify
-rule=betterleaks.shopify-custom-access-token validation=- status=covered detector=Shopify
-rule=betterleaks.shopify-private-app-access-token validation=- status=covered detector=Shopify
-rule=betterleaks.shopify-shared-secret validation=- status=covered detector=Shopify
-rule=betterleaks.sidekiq-secret validation=- status=covered detector=Sidekiq
-rule=betterleaks.sidekiq-sensitive-url validation=- status=covered detector=Sidekiq
-rule=betterleaks.slack-app-token validation=- status=covered detector=SlackBotToken
-rule=betterleaks.slack-bot-token validation=Betterleaks status=covered detector=SlackBotToken
-rule=betterleaks.slack-config-access-token validation=- status=covered detector=SlackBotToken
-rule=betterleaks.slack-config-refresh-token validation=- status=covered detector=SlackBotToken
-rule=betterleaks.slack-legacy-bot-token validation=Betterleaks status=covered detector=SlackBotToken
-rule=betterleaks.slack-legacy-token validation=- status=covered detector=SlackUserToken
-rule=betterleaks.slack-legacy-workspace-token validation=- status=covered detector=SlackBotToken
-rule=betterleaks.slack-session-cookie validation=- status=covered detector=SlackUserToken
-rule=betterleaks.slack-session-token validation=- status=covered detector=SlackUserToken
-rule=betterleaks.slack-user-token validation=Betterleaks status=covered detector=SlackUserToken
-rule=betterleaks.slack-webhook-url validation=- status=covered detector=SlackWebhook
-rule=betterleaks.snowflake-account-host.1 validation=- status=context detector=-
-rule=betterleaks.snowflake-programmatic-access-token.1 validation=Betterleaks status=covered detector=Snowflake
-rule=betterleaks.snyk-api-token validation=- status=covered detector=Snyk
-rule=betterleaks.sonar-api-token validation=- status=covered detector=SonarQube
-rule=betterleaks.sourcegraph-access-token validation=Betterleaks status=covered detector=Sourcegraph
-rule=betterleaks.square-access-token validation=- status=covered detector=Square
-rule=betterleaks.squarespace-access-token validation=- status=covered detector=Squarespace
-rule=betterleaks.sslmate-api-key.1 validation=Betterleaks status=covered detector=SSLMate
-rule=betterleaks.stability-ai-api-key validation=- status=covered detector=OpenAI,StabilityAI
-rule=betterleaks.stripe-access-token validation=Betterleaks status=covered detector=Stripe
-rule=betterleaks.sumologic-access-id validation=- status=covered detector=SumoLogic
-rule=betterleaks.sumologic-access-token validation=- status=covered detector=SumoLogic
-rule=betterleaks.supabase-management-token validation=Betterleaks status=covered detector=Supabase
-rule=betterleaks.supabase-project-api-key validation=Betterleaks status=covered detector=Supabase
-rule=betterleaks.supabase-project-url validation=- status=context detector=-
-rule=betterleaks.tableau-personal-access-token-name.1 validation=- status=context detector=-
-rule=betterleaks.tableau-personal-access-token.1 validation=Betterleaks status=covered detector=Tableau
-rule=betterleaks.tableau-server-host.1 validation=- status=context detector=-
-rule=betterleaks.tailscale-api-key.1 validation=Betterleaks status=covered detector=Tailscale
-rule=betterleaks.tailscale-auth-key validation=Betterleaks status=covered detector=Tailscale
-rule=betterleaks.tailscale-key validation=Betterleaks status=covered detector=Tailscale
-rule=betterleaks.tailscale-oauth-client-secret validation=Betterleaks status=covered detector=Miro,Tailscale
-rule=betterleaks.tailscale-scim-key validation=Betterleaks status=covered detector=Tailscale
-rule=betterleaks.tailscale-webhook-secret validation=Betterleaks status=covered detector=Tailscale
-rule=betterleaks.telegram-bot-api-token validation=- status=covered detector=Telegram
-rule=betterleaks.telnyx-api-v2-key.1 validation=Betterleaks status=covered detector=Telnyx
-rule=betterleaks.temporal-cloud-api-key.1 validation=Betterleaks status=covered detector=TemporalCloud
-rule=betterleaks.thunderstore-api-token.1 validation=Betterleaks status=covered detector=Thunderstore
-rule=betterleaks.togetherai-api-key validation=Betterleaks status=covered detector=Together
-rule=betterleaks.travisci-access-token validation=- status=covered detector=TravisCI
-rule=betterleaks.twilio-api-key validation=- status=covered detector=TwilioAPIKey
-rule=betterleaks.twitch-api-token validation=Betterleaks status=covered detector=Twitch
-rule=betterleaks.twitter-access-secret validation=- status=covered detector=Twitter
-rule=betterleaks.twitter-access-token validation=- status=covered detector=Twitter
-rule=betterleaks.twitter-api-key validation=- status=covered detector=Twitter
-rule=betterleaks.twitter-api-secret validation=- status=covered detector=Twitter
-rule=betterleaks.twitter-bearer-token validation=- status=covered detector=Twitter
-rule=betterleaks.typeform-api-token validation=- status=covered detector=Typeform
-rule=betterleaks.unkey-root-key.1 validation=Betterleaks status=covered detector=Unkey
-rule=betterleaks.upcloud-api-token validation=Betterleaks status=covered detector=UpCloud
-rule=betterleaks.upstage-api-key validation=Betterleaks status=covered detector=Upstage
-rule=betterleaks.upstash-redis-rest-token.1 validation=Betterleaks status=covered detector=UpstashRedis
-rule=betterleaks.upstash-redis-rest-url.1 validation=- status=context detector=-
-rule=betterleaks.val-town-api-token.1 validation=Betterleaks status=covered detector=ValTown
-rule=betterleaks.vault-batch-token validation=- status=covered detector=Vault
-rule=betterleaks.vault-service-token validation=- status=covered detector=Vault
-rule=betterleaks.vercel-ai-gateway-key validation=Betterleaks status=covered detector=VercelAIGateway
-rule=betterleaks.vercel-api-token validation=Betterleaks status=covered detector=Vercel
-rule=betterleaks.vercel-app-access-token validation=Betterleaks status=covered detector=Vercel
-rule=betterleaks.vercel-app-refresh-token validation=Betterleaks status=covered detector=Vercel
-rule=betterleaks.vercel-integration-token validation=Betterleaks status=covered detector=Vercel
-rule=betterleaks.vercel-personal-access-token validation=Betterleaks status=covered detector=Vercel
-rule=betterleaks.virustotal-api-key.1 validation=Betterleaks status=covered detector=VirusTotal
-rule=betterleaks.voyageai-api-key validation=Betterleaks status=covered detector=VoyageAI
-rule=betterleaks.vultr-api-key.1 validation=Betterleaks status=covered detector=Vultr
-rule=betterleaks.wakatime-api-key.1 validation=Betterleaks status=covered detector=WakaTime
-rule=betterleaks.wakatime-api-key.2 validation=Betterleaks status=covered detector=WakaTime
-rule=betterleaks.weatherstack-api-key.1 validation=Betterleaks status=covered detector=Weatherstack
-rule=betterleaks.weights-and-biases-api-key validation=Betterleaks status=covered detector=Wandb
-rule=betterleaks.weights-and-biases-api-key-v1 validation=Betterleaks status=covered detector=Wandb
-rule=betterleaks.wiz-client-id.1 validation=- status=context detector=-
-rule=betterleaks.wiz-client-secret.1 validation=Betterleaks status=covered detector=Wiz
-rule=betterleaks.woocommerce-consumer-secret.1 validation=- status=covered detector=WooCommerce
-rule=betterleaks.workato-developer-api-token.1 validation=Betterleaks status=covered detector=Workato
-rule=betterleaks.workos-production-api-key.1 validation=Betterleaks status=covered detector=Stripe,WorkOS
-rule=betterleaks.xai-api-key validation=Betterleaks status=covered detector=XAI
-rule=betterleaks.xendit-production-api-key.1 validation=Betterleaks status=covered detector=Xendit
-rule=betterleaks.yandex-access-token validation=- status=covered detector=Yandex
-rule=betterleaks.yandex-api-key validation=- status=covered detector=Yandex
-rule=betterleaks.yandex-aws-access-token validation=- status=covered detector=Yandex
-rule=betterleaks.zai-api-key validation=Betterleaks status=covered detector=ZAI
-rule=betterleaks.zendesk-secret-key validation=- status=covered detector=Zendesk
-rule=betterleaks.zoho-client-id.1 validation=- status=context detector=-
-rule=betterleaks.zoho-client-secret.1 validation=Betterleaks status=covered detector=Zoho
-rule=betterleaks.zoho-oauth-token.1 validation=Betterleaks status=covered detector=Zoho
-rule=betterleaks.zoho-zapi-key.1 validation=- status=covered detector=Zoho
-rule=betterleaks.zuplo-consumer-api-key.1 validation=Betterleaks status=covered detector=Zuplo
-rule=kingfisher.connection-string.password.double-quoted validation=- status=covered detector=GenericHighEntropy,HardcodedPassword
-rule=kingfisher.connection-string.password.jdbc-query validation=- status=covered detector=GenericHighEntropy,HardcodedPassword
-rule=kingfisher.connection-string.password.odbc-braced validation=- status=covered detector=HardcodedPassword
-rule=kingfisher.connection-string.password.single-quoted validation=- status=covered detector=GenericHighEntropy,HardcodedPassword
-rule=kingfisher.connection-string.password.unquoted validation=- status=covered detector=GenericHighEntropy,HardcodedPassword
-rule=veles.secrets/bitbucketcredentials validation=Http status=covered detector=BitbucketCloud
-rule=veles.secrets/bitwardenoauth2access validation=Http status=covered detector=Bitwarden
-rule=veles.secrets/circleciproject validation=Http status=covered detector=CircleCI
-rule=veles.secrets/cloudflareapitoken validation=Http status=covered detector=Cloudflare
-rule=veles.secrets/codecatalystcredentials validation=Http status=covered detector=AWSCodeCatalyst
-rule=veles.secrets/codecommitcredentials validation=Http status=covered detector=AWSCodeCommit
-rule=veles.secrets/denopatorg validation=Http status=covered detector=DenoDeploy
-rule=veles.secrets/digitaloceanapikey validation=Http status=covered detector=DigitalOcean
-rule=veles.secrets/grokxaiapikey validation=Http status=covered detector=XAI
-rule=veles.secrets/hcpclientcredentials validation=Http status=covered detector=Akamai
-rule=veles.secrets/hcpclientcredentials-client-id validation=- status=context detector=-
-rule=veles.secrets/herokuplatformkey validation=Http status=covered detector=Heroku
-rule=veles.secrets/npmjsaccesstoken validation=Http status=covered detector=NPM
-rule=veles.secrets/openrouter validation=Http status=covered detector=OpenAI
-rule=veles.secrets/packagistorgreadtoken validation=Http status=covered detector=Packagist
-rule=veles.secrets/packagistorgreadtoken-repository validation=- status=context detector=-
-rule=veles.secrets/packagistorgupdatetoken validation=Http status=covered detector=Packagist
-rule=veles.secrets/packagistorgupdatetoken-repository validation=- status=context detector=-
-rule=veles.secrets/packagistsecret validation=Http status=covered detector=Packagist
-rule=veles.secrets/packagistsecret-api-key validation=- status=context detector=-
-rule=veles.secrets/postmanapikey validation=Http status=covered detector=Postman
-rule=veles.secrets/postmancollectiontoken validation=Http status=covered detector=Postman
-rule=veles.secrets/sendgrid validation=Http status=covered detector=SendGrid
-rule=veles.secrets/slackappconfigaccesstoken validation=Http status=covered detector=SlackBotToken
-rule=veles.secrets/slackappconfigrefreshtoken validation=Http status=covered detector=SlackBotToken
-rule=veles.secrets/slackappleveltoken validation=Http status=covered detector=SlackBotToken
+validated=266
+verified=266
+rule=betterleaks.1password-secret-key validation=- status=covered detector=OnePasswordServiceAccount verified=native
+rule=betterleaks.1password-service-account-token validation=Betterleaks status=covered detector=OnePasswordServiceAccount verified=native
+rule=betterleaks.abuseipdb-api-key.1 validation=Betterleaks status=covered detector=AbuseIPDB verified=native
+rule=betterleaks.adafruit-api-key validation=- status=covered detector=Adafruit verified=-
+rule=betterleaks.adobe-client-id validation=- status=covered detector=AdobeIO verified=native
+rule=betterleaks.adobe-client-secret validation=- status=covered detector=AdobeIO verified=native
+rule=betterleaks.age-secret-key validation=- status=covered detector=AgeSecretKey verified=-
+rule=betterleaks.aikido-ci-token validation=- status=covered detector=AikidoSecurity verified=native
+rule=betterleaks.aikido-client-id validation=- status=context detector=- verified=-
+rule=betterleaks.aikido-client-secret validation=- status=covered detector=AikidoSecurity verified=native
+rule=betterleaks.airtable-api-key validation=- status=covered detector=Airtable verified=native
+rule=betterleaks.airtable-oauth-token validation=Betterleaks status=covered detector=Airtable verified=base:Airtable
+rule=betterleaks.airtable-personnal-access-token validation=Betterleaks status=covered detector=Airtable verified=native
+rule=betterleaks.aiven-auth-token validation=Betterleaks status=covered detector=Aiven verified=native
+rule=betterleaks.algolia-api-key validation=Betterleaks status=covered detector=Algolia verified=base:Algolia
+rule=betterleaks.algolia-application-id validation=- status=context detector=- verified=-
+rule=betterleaks.alibaba-access-key-id validation=- status=context detector=- verified=-
+rule=betterleaks.alibaba-secret-key validation=Betterleaks status=covered detector=AlibabaCloud verified=signed
+rule=betterleaks.alibaba-sts-access-key-id validation=- status=context detector=- verified=-
+rule=betterleaks.alibaba-sts-access-key-secret validation=Betterleaks status=covered detector=AlibabaCloud verified=signed
+rule=betterleaks.alibaba-sts-security-token validation=- status=context detector=AlibabaCloud verified=-
+rule=betterleaks.amplitude-secret-key validation=Betterleaks status=covered detector=Amplitude verified=http
+rule=betterleaks.anthropic-admin-api-key validation=Betterleaks status=covered detector=Anthropic verified=http
+rule=betterleaks.anthropic-api-key validation=Betterleaks status=covered detector=Anthropic verified=native
+rule=betterleaks.apify-api-token validation=Betterleaks status=covered detector=Apify verified=native
+rule=betterleaks.apollo-api-key.1 validation=Betterleaks status=covered detector=Apollo verified=native
+rule=betterleaks.artifactory-api-key validation=Betterleaks status=covered detector=JFrog verified=base:JFrog
+rule=betterleaks.artifactory-jfrog-url validation=- status=context detector=- verified=-
+rule=betterleaks.artifactory-reference-token validation=Betterleaks status=covered detector=JFrog verified=base:JFrog
+rule=betterleaks.asaas-api-token validation=Betterleaks status=covered detector=Asaas verified=http
+rule=betterleaks.asana-client-id validation=- status=covered detector=Asana verified=native
+rule=betterleaks.asana-client-secret validation=- status=covered detector=Asana verified=native
+rule=betterleaks.assemblyai-api-key validation=- status=covered detector=AssemblyAI verified=native
+rule=betterleaks.atlassian-api-token validation=- status=covered detector=Atlassian verified=-
+rule=betterleaks.auth0-client-id.1 validation=- status=context detector=- verified=-
+rule=betterleaks.auth0-client-secret.1 validation=Betterleaks status=covered detector=Akamai,Auth0 verified=http
+rule=betterleaks.auth0-domain.1 validation=- status=context detector=- verified=-
+rule=betterleaks.authress-service-client-access-key validation=Betterleaks status=covered detector=Authress verified=http
+rule=betterleaks.aws-access-token validation=Betterleaks status=covered detector=AWS verified=base:AWS
+rule=betterleaks.aws-amazon-bedrock-api-key-long-lived validation=- status=covered detector=AWS verified=native
+rule=betterleaks.aws-amazon-bedrock-api-key-short-lived validation=- status=covered detector=AWS verified=native
+rule=betterleaks.aws-secret-access-key validation=- status=context detector=- verified=-
+rule=betterleaks.aws-session-token validation=AWS status=covered detector=AWSSession verified=base:AWSSession
+rule=betterleaks.azure-ad-client-secret validation=Betterleaks status=covered detector=AzureAD verified=base:AzureAD
+rule=betterleaks.azure-app-configuration-connection-string validation=Betterleaks status=covered detector=AzureAppConfiguration verified=signed
+rule=betterleaks.azure-client-id validation=- status=context detector=- verified=-
+rule=betterleaks.azure-servicebus-connection-string validation=Betterleaks status=covered detector=AzureServiceBus verified=signed
+rule=betterleaks.azure-storage-account-key validation=Betterleaks status=covered detector=AzureStorageKey verified=base:AzureStorageKey
+rule=betterleaks.azure-storage-account-name validation=- status=context detector=- verified=-
+rule=betterleaks.azure-tenant-id validation=- status=context detector=- verified=-
+rule=betterleaks.beamer-api-token validation=- status=covered detector=Beamer verified=-
+rule=betterleaks.bitbucket-client-id validation=- status=covered detector=BitbucketCloud verified=native
+rule=betterleaks.bitbucket-client-secret validation=- status=covered detector=BitbucketCloud verified=native
+rule=betterleaks.bitbucket-data-center-token validation=- status=covered detector=BitbucketServer verified=native
+rule=betterleaks.bitly-access-token validation=Betterleaks status=covered detector=Bitly verified=native
+rule=betterleaks.bitrise-access-token validation=Betterleaks status=covered detector=Bitrise verified=native
+rule=betterleaks.bittrex-access-key validation=- status=covered detector=Bittrex verified=-
+rule=betterleaks.bittrex-secret-key validation=- status=covered detector=Bittrex verified=-
+rule=betterleaks.box-api-access-token validation=Betterleaks status=covered detector=Box verified=base:Box
+rule=betterleaks.brave-search-api-key validation=Betterleaks status=covered detector=BraveSearch verified=native
+rule=betterleaks.browserstack-access-key.1 validation=Betterleaks status=covered detector=Browserstack verified=base:Browserstack
+rule=betterleaks.browserstack-username.1 validation=- status=context detector=- verified=-
+rule=betterleaks.buildkite-service-token validation=- status=covered detector=Buildkite verified=native
+rule=betterleaks.buildkite-user-access-token validation=Betterleaks status=covered detector=Buildkite verified=base:Buildkite
+rule=betterleaks.canadian-digital-service-notify-api-key validation=Betterleaks status=covered detector=GCNotify verified=native
+rule=betterleaks.canva-client-id validation=- status=context detector=- verified=-
+rule=betterleaks.canva-client-secret validation=Betterleaks status=covered detector=Canva verified=http
+rule=betterleaks.cartesia-api-key.1 validation=Betterleaks status=covered detector=Cartesia verified=native
+rule=betterleaks.cerebras-api-key validation=Betterleaks status=covered detector=Cerebras verified=native
+rule=betterleaks.checkout-secret-key validation=Betterleaks status=covered detector=CheckoutCom verified=native
+rule=betterleaks.circleci-personal-token validation=Betterleaks status=covered detector=CircleCI verified=base:CircleCI
+rule=betterleaks.circleci-project-token validation=Betterleaks status=covered detector=CircleCI verified=native
+rule=betterleaks.cisco-meraki-api-key validation=Betterleaks status=covered detector=CiscoMeraki verified=native
+rule=betterleaks.civo-api-key validation=Betterleaks status=covered detector=Civo verified=base:Civo
+rule=betterleaks.clerk-secret-key validation=Betterleaks status=covered detector=Clerk,Stripe verified=native
+rule=betterleaks.clickhouse-cloud-api-secret-key validation=Betterleaks status=covered detector=ClickHouseCloud verified=base:ClickHouseCloud
+rule=betterleaks.clickhouse-cloud-key-id validation=- status=context detector=- verified=-
+rule=betterleaks.clickup-personal-api-token validation=Betterleaks status=covered detector=ClickUp verified=base:ClickUp
+rule=betterleaks.clojars-api-token validation=- status=covered detector=Clojars verified=-
+rule=betterleaks.cloudflare-account-id.1 validation=- status=context detector=- verified=-
+rule=betterleaks.cloudflare-api-key.1 validation=Betterleaks status=covered detector=Cloudflare verified=native
+rule=betterleaks.cloudflare-api-key.2 validation=Betterleaks status=covered detector=Cloudflare verified=signed
+rule=betterleaks.cloudflare-global-api-key validation=- status=covered detector=Cloudflare verified=native
+rule=betterleaks.cloudflare-origin-ca-key validation=- status=covered detector=Cloudflare verified=native
+rule=betterleaks.cloudinary-api-key validation=- status=context detector=- verified=-
+rule=betterleaks.cloudinary-api-secret validation=Betterleaks status=covered detector=Cloudinary verified=base:Cloudinary
+rule=betterleaks.cloudinary-cloud-name validation=- status=context detector=- verified=-
+rule=betterleaks.cloudsmith-api-key validation=Betterleaks status=covered detector=Cloudsmith verified=native
+rule=betterleaks.cockroachlabs-cloud-api-key validation=Betterleaks status=covered detector=CockroachCloud verified=base:CockroachCloud
+rule=betterleaks.codecov-access-token validation=Betterleaks status=covered detector=Codecov verified=base:Codecov
+rule=betterleaks.cohere-api-token validation=Betterleaks status=covered detector=Cohere verified=native
+rule=betterleaks.coinbase-access-token validation=- status=covered detector=Coinbase verified=native
+rule=betterleaks.configcat-sdk-key validation=Betterleaks status=covered detector=ConfigCat verified=native
+rule=betterleaks.configcat-sdk-key-extended validation=Betterleaks status=covered detector=ConfigCat verified=native
+rule=betterleaks.confluent-access-token validation=- status=covered detector=Kafka verified=-
+rule=betterleaks.confluent-secret-key validation=- status=covered detector=Kafka verified=-
+rule=betterleaks.contentful-delivery-api-token validation=- status=covered detector=Contentful verified=-
+rule=betterleaks.couchbase-capella-api-key validation=Betterleaks status=covered detector=CouchbaseCapella verified=native
+rule=betterleaks.coveralls-personal-api-token validation=- status=covered detector=Coveralls verified=-
+rule=betterleaks.crates-io-api-key validation=Betterleaks status=covered detector=CratesIO verified=native
+rule=betterleaks.curl-auth-header validation=- status=covered detector=CurlAuth verified=-
+rule=betterleaks.curl-auth-user validation=- status=covered detector=CurlAuth verified=-
+rule=betterleaks.cursor-api-key validation=Betterleaks status=covered detector=Cursor verified=native
+rule=betterleaks.databento-api-key validation=Betterleaks status=covered detector=Databento verified=native
+rule=betterleaks.databricks-api-token validation=- status=covered detector=Databricks verified=native
+rule=betterleaks.datadog-api-key validation=Betterleaks status=covered detector=Datadog verified=http
+rule=betterleaks.datadog-application-key validation=- status=covered detector=DatadogAppKey verified=-
+rule=betterleaks.datagov-api-key validation=Betterleaks status=covered detector=DataGov verified=native
+rule=betterleaks.datastax-astra-application-token validation=Betterleaks status=covered detector=DataStaxAstra verified=native
+rule=betterleaks.deepgram-api-key validation=- status=covered detector=Deepgram verified=native
+rule=betterleaks.deepseek-api-key validation=Betterleaks status=covered detector=OpenAI verified=native
+rule=betterleaks.defined-networking-api-token validation=- status=covered detector=DefinedNetworking verified=-
+rule=betterleaks.deno-account-token validation=Betterleaks status=covered detector=DenoDeploy verified=native
+rule=betterleaks.devcycle-client-sdk-key validation=Betterleaks status=covered detector=DevCycle verified=http
+rule=betterleaks.devcycle-mobile-sdk-key validation=Betterleaks status=covered detector=DevCycle verified=http
+rule=betterleaks.devcycle-server-sdk-key validation=Betterleaks status=covered detector=DevCycle verified=http
+rule=betterleaks.devin-personal-api-key validation=Betterleaks status=covered detector=Devin verified=http
+rule=betterleaks.devin-service-api-key validation=Betterleaks status=covered detector=Devin verified=http
+rule=betterleaks.devin-service-user-token validation=Betterleaks status=covered detector=Devin verified=http
+rule=betterleaks.digitalocean-access-token validation=- status=covered detector=DigitalOcean verified=native
+rule=betterleaks.digitalocean-pat validation=- status=covered detector=DigitalOcean verified=native
+rule=betterleaks.digitalocean-refresh-token validation=- status=covered detector=DigitalOcean verified=native
+rule=betterleaks.discord-api-token validation=- status=covered detector=Discord verified=native
+rule=betterleaks.discord-client-id validation=- status=covered detector=Discord verified=native
+rule=betterleaks.discord-client-secret validation=- status=covered detector=Discord verified=native
+rule=betterleaks.disqus-api-key validation=Betterleaks status=covered detector=Disqus verified=native
+rule=betterleaks.docker-swarm-join-token validation=- status=covered detector=DockerSwarm verified=-
+rule=betterleaks.docker-swarm-unlock-key validation=- status=covered detector=DockerSwarm verified=-
+rule=betterleaks.dockerhub-organization-access-token validation=- status=covered detector=DockerHub verified=native
+rule=betterleaks.dockerhub-personal-access-token validation=- status=covered detector=DockerHub verified=native
+rule=betterleaks.doppler-api-token validation=- status=covered detector=Doppler verified=native
+rule=betterleaks.droneci-access-token validation=- status=covered detector=DroneCI verified=-
+rule=betterleaks.dropbox-api-token validation=- status=covered detector=Dropbox verified=native
+rule=betterleaks.dropbox-long-lived-api-token validation=- status=covered detector=Dropbox verified=native
+rule=betterleaks.dropbox-short-lived-api-token validation=- status=covered detector=Dropbox verified=native
+rule=betterleaks.duffel-api-token validation=- status=covered detector=Duffel verified=-
+rule=betterleaks.dynatrace-api-token validation=- status=covered detector=Dynatrace verified=native
+rule=betterleaks.easypost-api-token validation=- status=covered detector=EasyPost verified=native
+rule=betterleaks.easypost-test-api-token validation=- status=covered detector=EasyPost verified=native
+rule=betterleaks.ebay-client-id validation=- status=context detector=- verified=-
+rule=betterleaks.ebay-client-secret validation=Betterleaks status=covered detector=EBay verified=http
+rule=betterleaks.elastic-cloud-api-key validation=Betterleaks status=covered detector=ElasticCloud verified=http
+rule=betterleaks.elevenlabs-api-key validation=- status=covered detector=Klaviyo verified=native
+rule=betterleaks.endorlabs-api-key validation=- status=covered detector=EndorLabs verified=-
+rule=betterleaks.endorlabs-api-secret validation=- status=covered detector=EndorLabs verified=-
+rule=betterleaks.etsy-open-api-key validation=Betterleaks status=covered detector=Etsy verified=native
+rule=betterleaks.exoscale-api-key validation=Betterleaks status=covered detector=Exoscale verified=signed
+rule=betterleaks.exoscale-api-secret validation=- status=context detector=- verified=-
+rule=betterleaks.facebook-access-token validation=- status=covered detector=Facebook verified=-
+rule=betterleaks.facebook-page-access-token validation=- status=covered detector=Facebook verified=-
+rule=betterleaks.facebook-secret validation=- status=covered detector=Facebook verified=-
+rule=betterleaks.fal-api-key.1 validation=Betterleaks status=covered detector=FalAI verified=native
+rule=betterleaks.fastly-api-token validation=Betterleaks status=covered detector=Fastly verified=native
+rule=betterleaks.figma-personal-access-header-token validation=Betterleaks status=covered detector=Figma verified=base:Figma
+rule=betterleaks.figma-personal-access-token validation=Betterleaks status=covered detector=Figma verified=native
+rule=betterleaks.finicity-api-token validation=- status=covered detector=Finicity verified=-
+rule=betterleaks.finicity-client-secret validation=- status=covered detector=Finicity verified=-
+rule=betterleaks.finnhub-access-token validation=- status=covered detector=Finnhub verified=-
+rule=betterleaks.flickr-access-token validation=- status=covered detector=Flickr verified=-
+rule=betterleaks.flutterwave-encryption-key validation=- status=covered detector=Flutterwave verified=native
+rule=betterleaks.flutterwave-public-key validation=- status=covered detector=Flutterwave verified=native
+rule=betterleaks.flutterwave-secret-key validation=- status=covered detector=Flutterwave verified=native
+rule=betterleaks.flyio-access-token validation=Betterleaks status=covered detector=FlyMachines verified=native
+rule=betterleaks.frameio-api-token validation=Betterleaks status=covered detector=FrameIO verified=native
+rule=betterleaks.freemius-secret-key validation=- status=covered detector=Freemius verified=-
+rule=betterleaks.freshbooks-access-token validation=Betterleaks status=covered detector=FreshBooks verified=http
+rule=betterleaks.fullstory-api-key validation=Betterleaks status=covered detector=FullStory verified=http
+rule=betterleaks.gcp-api-key validation=Betterleaks status=covered detector=GCPAPIKey verified=native
+rule=betterleaks.gcp-application-default-credentials validation=Betterleaks status=covered detector=GCPOAuth,JSONConfigSecret verified=signed
+rule=betterleaks.gcp-gemini-api validation=Betterleaks status=covered detector=GCPAPIKey verified=base:GCPAPIKey
+rule=betterleaks.gcp-service-account validation=Betterleaks status=covered detector=GCPServiceAccount verified=base:GCPServiceAccount
+rule=betterleaks.generic-api-key validation=- status=partial detector=GenericHighEntropy verified=-
+rule=betterleaks.generic-credential-uri validation=CredentialUri status=covered detector=GitCredentialsURL,Postgres verified=native
+rule=betterleaks.gitea-access-token validation=- status=covered detector=Gitea verified=native
+rule=betterleaks.github-app-token validation=Betterleaks status=covered detector=GitHubApp verified=native
+rule=betterleaks.github-fine-grained-pat validation=Betterleaks status=covered detector=GitHub,GitHubFineGrained verified=native
+rule=betterleaks.github-oauth validation=Betterleaks status=covered detector=GitHub verified=base:GitHub
+rule=betterleaks.github-pat validation=Betterleaks status=covered detector=GitHub verified=native
+rule=betterleaks.github-refresh-token validation=Betterleaks status=covered detector=GitHub verified=base:GitHub
+rule=betterleaks.gitlab-cicd-job-token validation=Betterleaks status=covered detector=GitLabDeploy verified=native
+rule=betterleaks.gitlab-deploy-token validation=Betterleaks status=covered detector=GitLabDeploy verified=native
+rule=betterleaks.gitlab-feature-flag-client-token validation=- status=covered detector=GitLab verified=native
+rule=betterleaks.gitlab-feed-token validation=- status=covered detector=GitLab verified=native
+rule=betterleaks.gitlab-incoming-mail-address-token validation=- status=covered detector=GitLab verified=native
+rule=betterleaks.gitlab-incoming-mail-token validation=- status=covered detector=GitLab verified=native
+rule=betterleaks.gitlab-kubernetes-agent-token validation=- status=covered detector=GitLabDeploy verified=native
+rule=betterleaks.gitlab-oauth-app-secret validation=- status=covered detector=GitLab verified=native
+rule=betterleaks.gitlab-pat validation=Betterleaks status=covered detector=GitLab verified=native
+rule=betterleaks.gitlab-pat-routable validation=Betterleaks status=covered detector=GitLab verified=base:GitLab
+rule=betterleaks.gitlab-pat-routable-versioned validation=Betterleaks status=covered detector=GitLab verified=base:GitLab
+rule=betterleaks.gitlab-ptt validation=Betterleaks status=covered detector=GitLabDeploy verified=native
+rule=betterleaks.gitlab-rrt validation=Betterleaks status=covered detector=GitLab verified=http
+rule=betterleaks.gitlab-runner-authentication-token validation=Betterleaks status=covered detector=GitLabDeploy verified=native
+rule=betterleaks.gitlab-runner-authentication-token-routable validation=Betterleaks status=covered detector=GitLabDeploy verified=native
+rule=betterleaks.gitlab-scim-token validation=- status=covered detector=GitLabDeploy verified=native
+rule=betterleaks.gitlab-session-cookie validation=- status=covered detector=GitLab verified=native
+rule=betterleaks.gitter-access-token validation=- status=covered detector=Gitter verified=native
+rule=betterleaks.gocardless-api-token validation=Betterleaks status=covered detector=GoCardless verified=native
+rule=betterleaks.grafana-api-key validation=- status=covered detector=Grafana verified=native
+rule=betterleaks.grafana-cloud-api-token validation=Betterleaks status=covered detector=Grafana verified=http
+rule=betterleaks.grafana-service-account-token validation=- status=covered detector=Grafana verified=native
+rule=betterleaks.greptile-api-key validation=- status=covered detector=Greptile verified=-
+rule=betterleaks.groq-api-key validation=Betterleaks status=covered detector=Groq verified=native
+rule=betterleaks.gumroad-access-token validation=Betterleaks status=covered detector=Gumroad verified=native
+rule=betterleaks.harness-api-key validation=Betterleaks status=covered detector=Harness verified=native
+rule=betterleaks.hashicorp-tf-api-token validation=- status=covered detector=TerraformCloud verified=native
+rule=betterleaks.hashicorp-tf-password validation=- status=covered detector=TerraformCloud verified=native
+rule=betterleaks.heroku-api-key validation=- status=covered detector=Heroku verified=native
+rule=betterleaks.heroku-api-key-v2 validation=- status=covered detector=Heroku verified=native
+rule=betterleaks.highnote-secret-live-key validation=Betterleaks status=covered detector=Stripe verified=native
+rule=betterleaks.honeycomb-api-key validation=Betterleaks status=covered detector=Honeycomb verified=native
+rule=betterleaks.hubspot-api-key validation=- status=covered detector=HubSpot verified=native
+rule=betterleaks.huggingface-access-token validation=Betterleaks status=covered detector=HuggingFace verified=native
+rule=betterleaks.huggingface-organization-api-token validation=Betterleaks status=covered detector=HuggingFace verified=base:HuggingFace
+rule=betterleaks.hunter-api-key.1 validation=Betterleaks status=covered detector=Hunter verified=native
+rule=betterleaks.ibm-cloud-user-api-key validation=Betterleaks status=covered detector=IBMCloud verified=base:IBMCloud
+rule=betterleaks.influxdb-api-token validation=Betterleaks status=covered detector=InfluxDB verified=native
+rule=betterleaks.infomaniak-api-token validation=Betterleaks status=covered detector=Infomaniak verified=native
+rule=betterleaks.infracost-api-token validation=- status=covered detector=Infracost verified=-
+rule=betterleaks.instantly-api-key.1 validation=Betterleaks status=covered detector=Instantly verified=native
+rule=betterleaks.intercom-api-key validation=- status=covered detector=Intercom verified=native
+rule=betterleaks.intra42-client-secret validation=- status=covered detector=Intra42 verified=-
+rule=betterleaks.ionic-personal-access-token validation=Betterleaks status=covered detector=Ionic verified=native
+rule=betterleaks.jumpcloud-api-key validation=Betterleaks status=covered detector=JumpCloud verified=base:JumpCloud
+rule=betterleaks.jwt validation=JWT status=covered detector=JWT verified=signed
+rule=betterleaks.jwt-base64 validation=- status=covered detector=JWT verified=-
+rule=betterleaks.kagi-api-key validation=Betterleaks status=covered detector=Kagi verified=base:Kagi
+rule=betterleaks.kimi-api-key validation=Betterleaks status=covered detector=OpenAI verified=native
+rule=betterleaks.klaviyo-api-key validation=Betterleaks status=covered detector=Klaviyo verified=native
+rule=betterleaks.kraken-access-token validation=- status=covered detector=Kraken verified=native
+rule=betterleaks.kubernetes-secret-yaml validation=- status=covered detector=KubernetesSecret verified=-
+rule=betterleaks.kucoin-access-token validation=- status=covered detector=KuCoin verified=-
+rule=betterleaks.kucoin-secret-key validation=- status=covered detector=KuCoin verified=-
+rule=betterleaks.labelbox-api-key validation=Betterleaks status=covered detector=Labelbox verified=native
+rule=betterleaks.labelbox-recursion-api-key validation=Betterleaks status=covered detector=Labelbox verified=http
+rule=betterleaks.langchain-langsmith-personal-access-token validation=Betterleaks status=covered detector=LangSmith verified=native
+rule=betterleaks.langchain-langsmith-service-key validation=Betterleaks status=covered detector=LangSmith verified=native
+rule=betterleaks.langfuse-public-key.1 validation=- status=context detector=- verified=-
+rule=betterleaks.langfuse-secret-key.1 validation=Betterleaks status=covered detector=OpenAI verified=native
+rule=betterleaks.lark-app-id validation=- status=context detector=- verified=-
+rule=betterleaks.lark-app-secret validation=Betterleaks status=covered detector=Lark verified=base:Lark
+rule=betterleaks.launchdarkly-access-token validation=- status=covered detector=LaunchDarkly verified=native
+rule=betterleaks.lichess-personal-access-token validation=Betterleaks status=covered detector=Lichess verified=native
+rule=betterleaks.lighton-paradigm-api-key validation=Betterleaks status=covered detector=LightOn verified=native
+rule=betterleaks.linear-api-key validation=Betterleaks status=covered detector=Linear verified=native
+rule=betterleaks.linear-client-secret validation=- status=covered detector=Linear verified=native
+rule=betterleaks.linkedin-client-id validation=- status=covered detector=LinkedIn verified=-
+rule=betterleaks.linkedin-client-secret validation=- status=covered detector=LinkedIn verified=-
+rule=betterleaks.llama-cloud-api-key.1 validation=Betterleaks status=covered detector=LlamaCloud verified=native
+rule=betterleaks.lob-api-key validation=- status=covered detector=Lob verified=-
+rule=betterleaks.lob-pub-api-key validation=- status=covered detector=Lob verified=-
+rule=betterleaks.looker-client-id validation=- status=covered detector=Looker verified=-
+rule=betterleaks.looker-client-secret validation=- status=covered detector=Looker verified=-
+rule=betterleaks.mailchimp-api-key validation=Betterleaks status=covered detector=Mailchimp verified=native
+rule=betterleaks.mailersend-api-token validation=Betterleaks status=covered detector=MailerSend verified=native
+rule=betterleaks.mailgun-private-api-token validation=Betterleaks status=covered detector=Mailgun verified=native
+rule=betterleaks.mailgun-pub-key validation=- status=covered detector=Mailgun verified=native
+rule=betterleaks.mailgun-signing-key validation=- status=covered detector=Mailgun verified=native
+rule=betterleaks.mapbox-api-token validation=Betterleaks status=covered detector=Mapbox verified=base:Mapbox
+rule=betterleaks.mapbox-secret-token validation=Betterleaks status=covered detector=Mapbox verified=base:Mapbox
+rule=betterleaks.mattermost-access-token validation=- status=covered detector=Mattermost verified=-
+rule=betterleaks.maxmind-license-key validation=- status=covered detector=MaxMind verified=-
+rule=betterleaks.mem0-api-key.1 validation=Betterleaks status=covered detector=Mem0 verified=native
+rule=betterleaks.mercury-production-api-token validation=Betterleaks status=covered detector=MercuryBank verified=http
+rule=betterleaks.mergify-application-key validation=Betterleaks status=covered detector=Mergify verified=native
+rule=betterleaks.messagebird-api-token validation=- status=covered detector=MessageBird verified=native
+rule=betterleaks.messagebird-client-id validation=- status=covered detector=MessageBird verified=native
+rule=betterleaks.microsoft-teams-webhook validation=- status=covered detector=MicrosoftTeamsWebhook verified=-
+rule=betterleaks.midtrans-production-server-client-key validation=Betterleaks status=covered detector=Midtrans verified=native
+rule=betterleaks.minimax-api-key validation=Betterleaks status=covered detector=OpenAI verified=native
+rule=betterleaks.miro-access-token validation=Betterleaks status=covered detector=Miro verified=native
+rule=betterleaks.miro-client-id validation=- status=context detector=- verified=-
+rule=betterleaks.miro-client-secret validation=Betterleaks status=covered detector=Miro verified=http
+rule=betterleaks.mistral-api-key validation=Betterleaks status=covered detector=Mistral verified=base:Mistral
+rule=betterleaks.monday-api-token.1 validation=Betterleaks status=covered detector=Monday verified=base:Monday
+rule=betterleaks.mongodb-atlas-service-account-id validation=- status=context detector=- verified=-
+rule=betterleaks.mongodb-atlas-service-account-secret validation=Betterleaks status=covered detector=MongoDBAtlas verified=http
+rule=betterleaks.mongodb-connection-string validation=MongoDB status=covered detector=MongoDB verified=native
+rule=betterleaks.mux-access-token-id.1 validation=- status=context detector=- verified=-
+rule=betterleaks.mux-access-token-secret.1 validation=Betterleaks status=covered detector=Mux verified=base:Mux
+rule=betterleaks.neon-api-key validation=Betterleaks status=covered detector=Neon verified=base:Neon
+rule=betterleaks.netlify-access-token validation=- status=covered detector=Netlify verified=native
+rule=betterleaks.new-relic-browser-api-token validation=- status=covered detector=NewRelic verified=native
+rule=betterleaks.new-relic-insert-key validation=- status=covered detector=NewRelic verified=native
+rule=betterleaks.new-relic-user-api-id validation=- status=covered detector=NewRelic verified=native
+rule=betterleaks.new-relic-user-api-key validation=- status=covered detector=NewRelic verified=native
+rule=betterleaks.ngrok-api-key.1 validation=Betterleaks status=covered detector=Ngrok verified=native
+rule=betterleaks.notion-api-token validation=- status=covered detector=Notion verified=native
+rule=betterleaks.npm-access-token validation=- status=covered detector=NPM verified=native
+rule=betterleaks.nuget-api-key validation=Betterleaks status=covered detector=NuGet verified=native
+rule=betterleaks.nuget-config-password validation=- status=covered detector=NuGet verified=native
+rule=betterleaks.nvidia-api-key validation=- status=covered detector=NvidiaNGC verified=native
+rule=betterleaks.nylas-api-key.1 validation=Betterleaks status=covered detector=Nylas verified=native
+rule=betterleaks.nytimes-access-token validation=- status=covered detector=NYTimes verified=-
+rule=betterleaks.octopus-deploy-api-key validation=- status=covered detector=OctopusDeploy verified=native
+rule=betterleaks.okta-access-token validation=- status=covered detector=Okta verified=native
+rule=betterleaks.ollama-api-key validation=- status=covered detector=OllamaCloud verified=native
+rule=betterleaks.onesignal-rich-authentication-token validation=Betterleaks status=covered detector=OneSignal verified=http
+rule=betterleaks.onfido-live-api-token-ca validation=Betterleaks status=covered detector=Onfido verified=http
+rule=betterleaks.onfido-live-api-token-eu validation=Betterleaks status=covered detector=Onfido verified=http
+rule=betterleaks.onfido-live-api-token-us validation=Betterleaks status=covered detector=Onfido verified=http
+rule=betterleaks.openai-api-key validation=Betterleaks status=covered detector=OpenAI verified=native
+rule=betterleaks.openrouter-api-key validation=Betterleaks status=covered detector=OpenAI,OpenRouter verified=native
+rule=betterleaks.openshift-user-token validation=- status=covered detector=OpenShift verified=-
+rule=betterleaks.openweather-api-key validation=Betterleaks status=covered detector=OpenWeather verified=base:OpenWeather
+rule=betterleaks.opsgenie-api-key.1 validation=Betterleaks status=covered detector=Opsgenie verified=native
+rule=betterleaks.ovh-application-key validation=- status=context detector=- verified=-
+rule=betterleaks.ovh-application-secret validation=Betterleaks status=covered detector=OVHCloud verified=signed
+rule=betterleaks.ovh-consumer-key validation=- status=context detector=- verified=-
+rule=betterleaks.paddle-live-api-key validation=Betterleaks status=covered detector=Paddle verified=native
+rule=betterleaks.pagerduty-authorization-token.1 validation=Betterleaks status=covered detector=PagerDuty verified=base:PagerDuty
+rule=betterleaks.paypal-client-id.1 validation=- status=context detector=- verified=-
+rule=betterleaks.paypal-client-secret.1 validation=Betterleaks status=covered detector=Akamai,PayPal verified=base:PayPal
+rule=betterleaks.perplexity-api-key validation=Betterleaks status=covered detector=Perplexity verified=native
+rule=betterleaks.persona-production-api-key validation=Betterleaks status=covered detector=Persona verified=native
+rule=betterleaks.pinecone-api-key.1 validation=Betterleaks status=covered detector=Pinecone verified=http
+rule=betterleaks.pinecone-api-key.2 validation=Betterleaks status=covered detector=Pinecone verified=native
+rule=betterleaks.pinterest-access-token validation=Betterleaks status=covered detector=Pinterest verified=native
+rule=betterleaks.plaid-api-token validation=- status=covered detector=Plaid verified=native
+rule=betterleaks.plaid-client-id validation=- status=covered detector=Plaid verified=native
+rule=betterleaks.plaid-secret-key validation=- status=covered detector=Plaid verified=native
+rule=betterleaks.planetscale-api-token validation=Betterleaks status=covered detector=PlanetScale verified=base:PlanetScale
+rule=betterleaks.planetscale-id validation=- status=context detector=- verified=-
+rule=betterleaks.planetscale-oauth-token validation=- status=covered detector=PlanetScale verified=native
+rule=betterleaks.planetscale-password validation=- status=covered detector=PlanetScale verified=native
+rule=betterleaks.plivo-auth-id validation=- status=context detector=- verified=-
+rule=betterleaks.plivo-auth-token validation=Betterleaks status=covered detector=Plivo verified=base:Plivo
+rule=betterleaks.polar-oauth-access-token validation=Betterleaks status=covered detector=Polar verified=native
+rule=betterleaks.polar-organization-access-token validation=Betterleaks status=covered detector=Polar verified=native
+rule=betterleaks.polar-personal-access-token validation=Betterleaks status=covered detector=Polar verified=native
+rule=betterleaks.polymarket-address validation=- status=context detector=- verified=-
+rule=betterleaks.polymarket-api-key validation=Betterleaks status=covered detector=Polymarket verified=signed
+rule=betterleaks.polymarket-api-secret validation=- status=context detector=- verified=-
+rule=betterleaks.polymarket-passphrase validation=- status=context detector=- verified=-
+rule=betterleaks.polymarket-private-key validation=Ethereum status=covered detector=Polymarket verified=signed
+rule=betterleaks.posthog-personal-api-key validation=Betterleaks status=covered detector=PostHog verified=native
+rule=betterleaks.posthog-project-api-key validation=- status=covered detector=PostHog verified=native
+rule=betterleaks.postman-api-token validation=- status=covered detector=Postman verified=native
+rule=betterleaks.postmark-api-token.1 validation=Betterleaks status=covered detector=Postmark verified=native
+rule=betterleaks.prefect-api-token validation=- status=covered detector=PrefectCloud verified=native
+rule=betterleaks.private-key validation=Assumed status=covered detector=PrivateKeyPEM verified=base:PrivateKeyPEM
+rule=betterleaks.privateai-api-token validation=- status=covered detector=PrivateAI verified=-
+rule=betterleaks.proof-full-access-api-key validation=Betterleaks status=covered detector=Proof verified=native
+rule=betterleaks.pulumi-api-token validation=- status=covered detector=Pulumi verified=native
+rule=betterleaks.pypi-upload-token validation=- status=covered detector=PyPI verified=native
+rule=betterleaks.rainforest-pay-production-api-key validation=Betterleaks status=covered detector=RainforestPay verified=http
+rule=betterleaks.ramp-client-id validation=- status=context detector=- verified=-
+rule=betterleaks.ramp-client-secret validation=Betterleaks status=covered detector=Ramp verified=http
+rule=betterleaks.rapidapi-access-token validation=- status=covered detector=RapidAPI verified=-
+rule=betterleaks.razorpay-key-id.1 validation=- status=context detector=- verified=-
+rule=betterleaks.razorpay-key-secret.1 validation=Betterleaks status=covered detector=Razorpay verified=base:Razorpay
+rule=betterleaks.readme-api-token validation=- status=covered detector=ReadMe verified=-
+rule=betterleaks.redirect-pizza-api-token.1 validation=Betterleaks status=covered detector=RedirectPizza verified=native
+rule=betterleaks.render-api-key validation=Betterleaks status=covered detector=Render verified=base:Render
+rule=betterleaks.replicate-api-token validation=Betterleaks status=covered detector=Replicate verified=native
+rule=betterleaks.resend-api-key.1 validation=Betterleaks status=covered detector=Resend verified=native
+rule=betterleaks.retell-api-key.1 validation=Betterleaks status=covered detector=Retell verified=native
+rule=betterleaks.rootly-api-key.1 validation=Betterleaks status=covered detector=Rootly verified=native
+rule=betterleaks.rubygems-api-token validation=Betterleaks status=covered detector=RubyGems verified=native
+rule=betterleaks.runpod-api-key.1 validation=Betterleaks status=covered detector=RunPod verified=base:RunPod
+rule=betterleaks.salesforce-access-token.1 validation=Betterleaks status=covered detector=SalesforceRefresh verified=http
+rule=betterleaks.salesforce-instance-url.1 validation=- status=context detector=- verified=-
+rule=betterleaks.samsara-api-token.1 validation=Betterleaks status=covered detector=Samsara verified=native
+rule=betterleaks.scaleway-secret-key validation=Betterleaks status=covered detector=Scaleway verified=native
+rule=betterleaks.scalingo-api-token validation=- status=covered detector=Scalingo verified=-
+rule=betterleaks.scalr-api-access-token.1 validation=Betterleaks status=covered detector=JWT verified=http
+rule=betterleaks.segment-public-api-token.1 validation=Betterleaks status=covered detector=Segment verified=http
+rule=betterleaks.sendbird-access-id validation=- status=covered detector=Sendbird verified=-
+rule=betterleaks.sendbird-access-token validation=- status=covered detector=Sendbird verified=-
+rule=betterleaks.sendgrid-api-token validation=Betterleaks status=covered detector=SendGrid verified=base:SendGrid
+rule=betterleaks.sendinblue-api-token validation=Betterleaks status=covered detector=Brevo verified=native
+rule=betterleaks.sentry-access-token validation=- status=covered detector=Sentry verified=-
+rule=betterleaks.sentry-org-token validation=- status=covered detector=Sentry verified=-
+rule=betterleaks.sentry-user-token validation=- status=covered detector=SentryUser verified=native
+rule=betterleaks.settlemint-application-access-token validation=- status=covered detector=SettleMint verified=-
+rule=betterleaks.settlemint-personal-access-token validation=- status=covered detector=SettleMint verified=-
+rule=betterleaks.settlemint-service-access-token validation=- status=covered detector=SettleMint verified=-
+rule=betterleaks.shippo-api-token validation=- status=covered detector=Shippo verified=native
+rule=betterleaks.shopify-access-token validation=- status=covered detector=Shopify verified=native
+rule=betterleaks.shopify-custom-access-token validation=- status=covered detector=Shopify verified=native
+rule=betterleaks.shopify-private-app-access-token validation=- status=covered detector=Shopify verified=native
+rule=betterleaks.shopify-shared-secret validation=- status=covered detector=Shopify verified=native
+rule=betterleaks.sidekiq-secret validation=- status=covered detector=Sidekiq verified=-
+rule=betterleaks.sidekiq-sensitive-url validation=- status=covered detector=Sidekiq verified=-
+rule=betterleaks.slack-app-token validation=- status=covered detector=SlackBotToken verified=native
+rule=betterleaks.slack-bot-token validation=Betterleaks status=covered detector=SlackBotToken verified=base:SlackBotToken
+rule=betterleaks.slack-config-access-token validation=- status=covered detector=SlackBotToken verified=native
+rule=betterleaks.slack-config-refresh-token validation=- status=covered detector=SlackBotToken verified=native
+rule=betterleaks.slack-legacy-bot-token validation=Betterleaks status=covered detector=SlackBotToken verified=base:SlackBotToken
+rule=betterleaks.slack-legacy-token validation=- status=covered detector=SlackUserToken verified=native
+rule=betterleaks.slack-legacy-workspace-token validation=- status=covered detector=SlackBotToken verified=native
+rule=betterleaks.slack-session-cookie validation=- status=covered detector=SlackUserToken verified=native
+rule=betterleaks.slack-session-token validation=- status=covered detector=SlackUserToken verified=native
+rule=betterleaks.slack-user-token validation=Betterleaks status=covered detector=SlackUserToken verified=native
+rule=betterleaks.slack-webhook-url validation=- status=covered detector=SlackWebhook verified=native
+rule=betterleaks.snowflake-account-host.1 validation=- status=context detector=- verified=-
+rule=betterleaks.snowflake-programmatic-access-token.1 validation=Betterleaks status=covered detector=Snowflake verified=http
+rule=betterleaks.snyk-api-token validation=- status=covered detector=Snyk verified=native
+rule=betterleaks.sonar-api-token validation=- status=covered detector=SonarQube verified=native
+rule=betterleaks.sourcegraph-access-token validation=Betterleaks status=covered detector=Sourcegraph verified=native
+rule=betterleaks.square-access-token validation=- status=covered detector=Square verified=native
+rule=betterleaks.squarespace-access-token validation=- status=covered detector=Squarespace verified=native
+rule=betterleaks.sslmate-api-key.1 validation=Betterleaks status=covered detector=SSLMate verified=native
+rule=betterleaks.stability-ai-api-key validation=- status=covered detector=OpenAI,StabilityAI verified=native
+rule=betterleaks.stripe-access-token validation=Betterleaks status=covered detector=Stripe verified=native
+rule=betterleaks.sumologic-access-id validation=- status=covered detector=SumoLogic verified=native
+rule=betterleaks.sumologic-access-token validation=- status=covered detector=SumoLogic verified=native
+rule=betterleaks.supabase-management-token validation=Betterleaks status=covered detector=Supabase verified=http
+rule=betterleaks.supabase-project-api-key validation=Betterleaks status=covered detector=Supabase verified=http
+rule=betterleaks.supabase-project-url validation=- status=context detector=- verified=-
+rule=betterleaks.tableau-personal-access-token-name.1 validation=- status=context detector=- verified=-
+rule=betterleaks.tableau-personal-access-token.1 validation=Betterleaks status=covered detector=Tableau verified=http
+rule=betterleaks.tableau-server-host.1 validation=- status=context detector=- verified=-
+rule=betterleaks.tailscale-api-key.1 validation=Betterleaks status=covered detector=Tailscale verified=native
+rule=betterleaks.tailscale-auth-key validation=Betterleaks status=covered detector=Tailscale verified=native
+rule=betterleaks.tailscale-key validation=Betterleaks status=covered detector=Tailscale verified=base:Tailscale
+rule=betterleaks.tailscale-oauth-client-secret validation=Betterleaks status=covered detector=Miro,Tailscale verified=native
+rule=betterleaks.tailscale-scim-key validation=Betterleaks status=covered detector=Tailscale verified=native
+rule=betterleaks.tailscale-webhook-secret validation=Betterleaks status=covered detector=Tailscale verified=native
+rule=betterleaks.telegram-bot-api-token validation=- status=covered detector=Telegram verified=native
+rule=betterleaks.telnyx-api-v2-key.1 validation=Betterleaks status=covered detector=Telnyx verified=native
+rule=betterleaks.temporal-cloud-api-key.1 validation=Betterleaks status=covered detector=TemporalCloud verified=http
+rule=betterleaks.thunderstore-api-token.1 validation=Betterleaks status=covered detector=Thunderstore verified=native
+rule=betterleaks.togetherai-api-key validation=Betterleaks status=covered detector=Together verified=base:Together
+rule=betterleaks.travisci-access-token validation=- status=covered detector=TravisCI verified=native
+rule=betterleaks.twilio-api-key validation=- status=covered detector=TwilioAPIKey verified=native
+rule=betterleaks.twitch-api-token validation=Betterleaks status=covered detector=Twitch verified=base:Twitch
+rule=betterleaks.twitter-access-secret validation=- status=covered detector=Twitter verified=-
+rule=betterleaks.twitter-access-token validation=- status=covered detector=Twitter verified=-
+rule=betterleaks.twitter-api-key validation=- status=covered detector=Twitter verified=-
+rule=betterleaks.twitter-api-secret validation=- status=covered detector=Twitter verified=-
+rule=betterleaks.twitter-bearer-token validation=- status=covered detector=Twitter verified=-
+rule=betterleaks.typeform-api-token validation=- status=covered detector=Typeform verified=-
+rule=betterleaks.unkey-root-key.1 validation=Betterleaks status=covered detector=Unkey verified=native
+rule=betterleaks.upcloud-api-token validation=Betterleaks status=covered detector=UpCloud verified=native
+rule=betterleaks.upstage-api-key validation=Betterleaks status=covered detector=Upstage verified=native
+rule=betterleaks.upstash-redis-rest-token.1 validation=Betterleaks status=covered detector=UpstashRedis verified=http
+rule=betterleaks.upstash-redis-rest-url.1 validation=- status=context detector=- verified=-
+rule=betterleaks.val-town-api-token.1 validation=Betterleaks status=covered detector=ValTown verified=native
+rule=betterleaks.vault-batch-token validation=- status=covered detector=Vault verified=native
+rule=betterleaks.vault-service-token validation=- status=covered detector=Vault verified=native
+rule=betterleaks.vercel-ai-gateway-key validation=Betterleaks status=covered detector=VercelAIGateway verified=native
+rule=betterleaks.vercel-api-token validation=Betterleaks status=covered detector=Vercel verified=base:Vercel
+rule=betterleaks.vercel-app-access-token validation=Betterleaks status=covered detector=Vercel verified=http
+rule=betterleaks.vercel-app-refresh-token validation=Betterleaks status=covered detector=Vercel verified=http
+rule=betterleaks.vercel-integration-token validation=Betterleaks status=covered detector=Vercel verified=base:Vercel
+rule=betterleaks.vercel-personal-access-token validation=Betterleaks status=covered detector=Vercel verified=base:Vercel
+rule=betterleaks.virustotal-api-key.1 validation=Betterleaks status=covered detector=VirusTotal verified=native
+rule=betterleaks.voyageai-api-key validation=Betterleaks status=covered detector=VoyageAI verified=base:VoyageAI
+rule=betterleaks.vultr-api-key.1 validation=Betterleaks status=covered detector=Vultr verified=base:Vultr
+rule=betterleaks.wakatime-api-key.1 validation=Betterleaks status=covered detector=WakaTime verified=native
+rule=betterleaks.wakatime-api-key.2 validation=Betterleaks status=covered detector=WakaTime verified=native
+rule=betterleaks.weatherstack-api-key.1 validation=Betterleaks status=covered detector=Weatherstack verified=native
+rule=betterleaks.weights-and-biases-api-key validation=Betterleaks status=covered detector=Wandb verified=native
+rule=betterleaks.weights-and-biases-api-key-v1 validation=Betterleaks status=covered detector=Wandb verified=base:Wandb
+rule=betterleaks.wiz-client-id.1 validation=- status=context detector=- verified=-
+rule=betterleaks.wiz-client-secret.1 validation=Betterleaks status=covered detector=Wiz verified=http
+rule=betterleaks.woocommerce-consumer-secret.1 validation=- status=covered detector=WooCommerce verified=native
+rule=betterleaks.workato-developer-api-token.1 validation=Betterleaks status=covered detector=Workato verified=signed
+rule=betterleaks.workos-production-api-key.1 validation=Betterleaks status=covered detector=Stripe,WorkOS verified=native
+rule=betterleaks.xai-api-key validation=Betterleaks status=covered detector=XAI verified=native
+rule=betterleaks.xendit-production-api-key.1 validation=Betterleaks status=covered detector=Xendit verified=native
+rule=betterleaks.yandex-access-token validation=- status=covered detector=Yandex verified=-
+rule=betterleaks.yandex-api-key validation=- status=covered detector=Yandex verified=-
+rule=betterleaks.yandex-aws-access-token validation=- status=covered detector=Yandex verified=-
+rule=betterleaks.zai-api-key validation=Betterleaks status=covered detector=ZAI verified=http
+rule=betterleaks.zendesk-secret-key validation=- status=covered detector=Zendesk verified=native
+rule=betterleaks.zoho-client-id.1 validation=- status=context detector=- verified=-
+rule=betterleaks.zoho-client-secret.1 validation=Betterleaks status=covered detector=Zoho verified=http
+rule=betterleaks.zoho-oauth-token.1 validation=Betterleaks status=covered detector=Zoho verified=http
+rule=betterleaks.zoho-zapi-key.1 validation=- status=covered detector=Zoho verified=-
+rule=betterleaks.zuplo-consumer-api-key.1 validation=Betterleaks status=covered detector=Zuplo verified=native
+rule=kingfisher.connection-string.password.double-quoted validation=- status=covered detector=GenericHighEntropy,HardcodedPassword verified=-
+rule=kingfisher.connection-string.password.jdbc-query validation=- status=covered detector=GenericHighEntropy,HardcodedPassword verified=-
+rule=kingfisher.connection-string.password.odbc-braced validation=- status=covered detector=HardcodedPassword verified=-
+rule=kingfisher.connection-string.password.single-quoted validation=- status=covered detector=GenericHighEntropy,HardcodedPassword verified=-
+rule=kingfisher.connection-string.password.unquoted validation=- status=covered detector=GenericHighEntropy,HardcodedPassword verified=-
+rule=veles.secrets/bitbucketcredentials validation=Http status=covered detector=BitbucketCloud verified=signed
+rule=veles.secrets/bitwardenoauth2access validation=Http status=covered detector=Bitwarden verified=http
+rule=veles.secrets/circleciproject validation=Http status=covered detector=CircleCI verified=http
+rule=veles.secrets/cloudflareapitoken validation=Http status=covered detector=Cloudflare verified=native
+rule=veles.secrets/codecatalystcredentials validation=Http status=covered detector=AWSCodeCatalyst verified=signed
+rule=veles.secrets/codecommitcredentials validation=Http status=covered detector=AWSCodeCommit verified=signed
+rule=veles.secrets/denopatorg validation=Http status=covered detector=DenoDeploy verified=http
+rule=veles.secrets/digitaloceanapikey validation=Http status=covered detector=DigitalOcean verified=native
+rule=veles.secrets/grokxaiapikey validation=Http status=covered detector=XAI verified=native
+rule=veles.secrets/hcpclientcredentials validation=Http status=covered detector=HashiCorpCloud verified=http
+rule=veles.secrets/hcpclientcredentials-client-id validation=- status=context detector=- verified=-
+rule=veles.secrets/herokuplatformkey validation=Http status=covered detector=Heroku verified=base:Heroku
+rule=veles.secrets/npmjsaccesstoken validation=Http status=covered detector=NPM verified=native
+rule=veles.secrets/openrouter validation=Http status=covered detector=OpenAI verified=native
+rule=veles.secrets/packagistorgreadtoken validation=Http status=covered detector=Packagist verified=http
+rule=veles.secrets/packagistorgreadtoken-repository validation=- status=context detector=- verified=-
+rule=veles.secrets/packagistorgupdatetoken validation=Http status=covered detector=Packagist verified=http
+rule=veles.secrets/packagistorgupdatetoken-repository validation=- status=context detector=- verified=-
+rule=veles.secrets/packagistsecret validation=Http status=covered detector=Packagist verified=signed
+rule=veles.secrets/packagistsecret-api-key validation=- status=context detector=- verified=-
+rule=veles.secrets/postmanapikey validation=Http status=covered detector=Postman verified=native
+rule=veles.secrets/postmancollectiontoken validation=Http status=covered detector=Postman verified=http
+rule=veles.secrets/sendgrid validation=Http status=covered detector=SendGrid verified=native
+rule=veles.secrets/slackappconfigaccesstoken validation=Http status=covered detector=SlackBotToken verified=base:SlackBotToken
+rule=veles.secrets/slackappconfigrefreshtoken validation=Http status=covered detector=SlackBotToken verified=base:SlackBotToken
+rule=veles.secrets/slackappleveltoken validation=Http status=covered detector=SlackBotToken verified=base:SlackBotToken
 ```

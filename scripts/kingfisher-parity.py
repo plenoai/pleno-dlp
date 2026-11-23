@@ -23,6 +23,9 @@ Method (no network, deterministic for a given kingfisher pin and pleno-dlp tree)
        context  - kingfisher hides the rule (visible: false): an identifier,
                   host, or URL that only feeds another rule's validation and
                   is never reported, so it is not a detection gap.
+  4. Record how pleno-dlp verifies each rule: the pkg/detectors/catalog
+     check kind (scripts/kingfisher-checks), else "native" when a credited
+     detector implements Verify, else "-".
 pkg/detectors/kingfisherparity_test.go checks the committed machine block
 against the live registry.
 """
@@ -309,6 +312,9 @@ def main():
     listed = json.loads(subprocess.run(["go", "run", "./cmd/pleno-dlp", "detectors", "list", "--format", "json"],
                                        cwd=repo, capture_output=True, text=True, check=True).stdout)
     names = {re.sub("[^a-z0-9]", "", d["type"].lower()): d["type"] for d in listed}
+    verifies = {d["type"] for d in listed if d.get("verifies")}
+    checks = json.loads(subprocess.run(["go", "run", "./scripts/kingfisher-checks"],
+                                       cwd=repo, capture_output=True, text=True, check=True).stdout)
     rules = load_rules(args.kingfisher)
     hits = scan(repo, rules)
     rows = []
@@ -325,16 +331,23 @@ def main():
         det = ",".join(sorted(h)) if h else (prov or "-")
         if status == "context" and not h:
             det = "-"
-        rows.append((r["id"], r["validation"], status, det))
+        if r["id"] in checks:
+            ver = checks[r["id"]]
+        elif status == "covered" and any(x in verifies for x in det.split(",")):
+            ver = "native"
+        else:
+            ver = "-"
+        rows.append((r["id"], r["validation"], status, det, ver))
     write(args.out, pin, rows)
-    c = collections.Counter(s for _, _, s, _ in rows)
+    c = collections.Counter(row[2] for row in rows)
     print(f"{len(rows)} rules: {dict(c)}", file=sys.stderr)
 
 
 def write(out, pin, rows):
-    c = collections.Counter(s for _, _, s, _ in rows)
-    cv = collections.Counter(s for _, v, s, _ in rows if v != "-")
+    c = collections.Counter(r[2] for r in rows)
+    cv = collections.Counter(r[2] for r in rows if r[1] != "-")
     total, validated = len(rows), sum(1 for r in rows if r[1] != "-")
+    verified = sum(1 for r in rows if r[1] != "-" and r[4] != "-")
     lines = [
         "# kingfisher detector parity",
         "",
@@ -349,7 +362,16 @@ def write(out, pin, rows):
         "kingfisher's catalog is the imported Betterleaks configuration, the",
         "selected Google Veles detectors, and a few first-party rules. The",
         "`validation` column is kingfisher's live-validation type (`-` =",
-        "detection only).",
+        "detection only). The `verified` column is how pleno-dlp verifies the",
+        "rule (`-` = not verified): `native` (the credited detector's own",
+        "Verify), `base:<Type>` (a catalog format routed to that provider's",
+        "verifier, with paired credentials packed into its secret shape),",
+        "`http` (a declarative request modelled on kingfisher's validator), or",
+        "`signed` (an HMAC/SigV4-style signed request, OIDC signature, or",
+        "offline key check). Paired credentials are resolved from the",
+        "surrounding text the way kingfisher's `depends_on` does. The test",
+        "fails when a kingfisher-validated rule has no pleno-dlp verification",
+        "(issue #934).",
         "",
         "Status:",
         "",
@@ -378,6 +400,10 @@ def write(out, pin, rows):
         f"| all rules | {c['covered']} | {c['partial']} | {c['missing']} | {c['context']} | {total} |",
         f"| with kingfisher validation | {cv['covered']} | {cv['partial']} | {cv['missing']} | {cv['context']} | {validated} |",
         "",
+        "| | kingfisher validates | pleno-dlp verifies |",
+        "|---|---|---|",
+        f"| validated parity | {validated} | {verified} |",
+        "",
         "## Rules",
         "",
         "```parity-machine",
@@ -387,9 +413,11 @@ def write(out, pin, rows):
         f"partial={c['partial']}",
         f"missing={c['missing']}",
         f"context={c['context']}",
+        f"validated={validated}",
+        f"verified={verified}",
     ]
-    for rid, v, s, d in rows:
-        lines.append(f"rule={rid} validation={v} status={s} detector={d}")
+    for rid, v, s, d, ver in rows:
+        lines.append(f"rule={rid} validation={v} status={s} detector={d} verified={ver}")
     lines += ["```", ""]
     with open(out, "w") as f:
         f.write("\n".join(lines))

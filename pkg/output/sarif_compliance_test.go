@@ -74,7 +74,7 @@ func TestSARIF_RuleIDsMatchDeclaredRules(t *testing.T) {
 	// Three findings, two distinct detectors. We expect 2 rule
 	// descriptors and 3 results, all referencing one of the 2 ids.
 	s.Emit(sample())
-	s.Emit(findingFor(detectors.GitHub, "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"))
+	s.Emit(findingFor(detectors.GitHub, "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"+detectors.CRC32Base62("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")))
 	s.Emit(sample())
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)

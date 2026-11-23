@@ -17,7 +17,8 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 )
 
-const dummyClassic = "ghp_abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"
+var dummyClassic = "ghp_abcdefghijklmnopqrstuvwxyzABCD" + detectors.CRC32Base62("abcdefghijklmnopqrstuvwxyzABCD")
+
 const dummyFine = "github_pat_" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_abcdefghijklmnopqrs"
 
 func TestFromData_Positive(t *testing.T) {
@@ -523,8 +524,8 @@ func TestVerifyWithMetadata_UnauthorizedNoMeta(t *testing.T) {
 
 func TestTokenType(t *testing.T) {
 	cases := map[string]string{
-		"ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":            "classic",
-		"github_pat_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "fine-grained",
+		"ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" + detectors.CRC32Base62("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"): "classic",
+		"github_pat_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":                                          "fine-grained",
 		"gho_aaaaa": "oauth",
 		"ghu_aaaaa": "user-to-server",
 		"ghs_aaaaa": "server-to-server",
@@ -553,13 +554,17 @@ func TestHasPrivilegedScope(t *testing.T) {
 	}
 }
 
-func TestClassicChecksumAnnotation(t *testing.T) {
+func TestClassicChecksumRejection(t *testing.T) {
+	// A valid CRC32 suffix is reported (checksum=valid); a bad one means
+	// the provider never issued the token, so it is rejected offline (#934).
 	body := "Zq8Lm3XcVb7Nn2Kk5Jh4Gf6Dd9Ss1A"
 	valid := "ghp_" + body + detectors.CRC32Base62(body)
-	for tok, want := range map[string]string{valid: "valid", dummyClassic: "invalid"} {
-		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(" "+tok))
-		if len(res) != 1 || res[0].ExtraData["checksum"] != want {
-			t.Fatalf("%s: got %+v, want checksum=%s", tok[:8], res, want)
-		}
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(" "+valid))
+	if len(res) != 1 || res[0].ExtraData["checksum"] != "valid" {
+		t.Fatalf("valid checksum: got %+v", res)
+	}
+	bad := "ghp_" + body + "000000"
+	if res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(" "+bad)); len(res) != 0 {
+		t.Fatalf("invalid checksum must be rejected: got %+v", res)
 	}
 }

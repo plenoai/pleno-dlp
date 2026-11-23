@@ -1494,3 +1494,11 @@ func (t DetectorType) String() string {
 		return "Unknown"
 	}
 }
+
+// Registered returns the detector registered for t.
+func Registered(t DetectorType) (Detector, bool) {
+	mu.RLock()
+	defer mu.RUnlock()
+	d, ok := registry[t]
+	return d, ok
+}

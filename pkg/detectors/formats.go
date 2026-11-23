@@ -2,6 +2,7 @@ package detectors
 
 import (
 	"bytes"
+	"context"
 	"regexp"
 	"sort"
 	"strings"
@@ -13,8 +14,10 @@ import (
 // native detector does not match (legacy key shapes, context-anchored
 // assignments, sibling credential kinds) so that coverage can grow from
 // declarative data instead of hand-edited scanners. Format results carry
-// the owning DetectorType, are never verified, and are tagged with
-// ExtraData["format"] = ID and ExtraData["verification"] = "not-attempted".
+// the owning DetectorType and are tagged with ExtraData["format"] = ID.
+// A format without Verify is detection-only (ExtraData["verification"] =
+// "not-attempted"); one with Verify is verified by VerifyFormatResults
+// (ExtraData["verification"] = "format").
 type Format struct {
 	// ID names the format (for imported rules, the upstream rule id).
 	ID string
@@ -34,6 +37,18 @@ type Format struct {
 	// archive entry) must match; the format never fires when the caller
 	// supplies no path.
 	Path string
+	// Verify, when set, verifies a candidate. data is the window the
+	// candidate was found in, so paired credentials (a client id, a host,
+	// a key id) can be resolved from nearby text. It follows the
+	// Verifier contract: (false, nil) only for a provider rejection,
+	// an error for anything indeterminate (including a missing partner).
+	Verify func(ctx context.Context, secret string, data []byte) (bool, error)
+	// Assurance is the strongest evidence a successful Verify carries; a
+	// format with Verify must declare it.
+	Assurance VerificationAssurance
+	// AssuranceFunc, when set, supplies Assurance at verification time
+	// (for formats routed to a provider verifier registered later).
+	AssuranceFunc func() VerificationAssurance
 
 	once   sync.Once
 	re     *regexp.Regexp
@@ -221,6 +236,50 @@ func redactFormat(raw []byte) string {
 	}
 	return string(raw[:keep]) + "…"
 }
+
+// VerifyFormatResults verifies, in place, every result in results that a
+// format in fs with a Verify hook produced (ExtraData["format"] = its ID
+// and not yet attempted). The format's declared Assurance is recorded on
+// verified results; the engine does not cap it by the owning detector's
+// policy because the format, not the detector, performed the check.
+func VerifyFormatResults(ctx context.Context, fs []*Format, data []byte, results []Result) {
+	if len(results) == 0 {
+		return
+	}
+	byID := map[string]*Format{}
+	for _, f := range fs {
+		if f.Verify != nil {
+			byID[f.ID] = f
+		}
+	}
+	if len(byID) == 0 {
+		return
+	}
+	for i := range results {
+		r := &results[i]
+		f := byID[r.ExtraData["format"]]
+		if f == nil || r.ExtraData["verification"] != "not-attempted" {
+			continue
+		}
+		r.Verified, r.VerificationErr = f.Verify(ctx, string(r.Raw), data)
+		r.ExtraData["verification"] = "format"
+		if r.Verified {
+			r.VerificationAssurance = f.MaxAssurance()
+		}
+	}
+}
+
+// MaxAssurance is the assurance a successful Verify carries.
+func (f *Format) MaxAssurance() VerificationAssurance {
+	if f.AssuranceFunc != nil {
+		return f.AssuranceFunc()
+	}
+	return f.Assurance
+}
+
+// FormatVerified reports whether r was verified by a format hook (see
+// VerifyFormatResults), whose assurance the format itself declared.
+func FormatVerified(r Result) bool { return r.ExtraData["verification"] == "format" }
 
 // FormatTypes lists the types with registered formats, sorted.
 func FormatTypes() []DetectorType {

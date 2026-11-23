@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"runtime"
 	"sync/atomic"
 	"testing"
@@ -94,7 +95,7 @@ func (r *reviewRealisticPeakReader) ReadAt(p []byte, off int64) (int, error) {
 // Go heap allocation after each ReaderAt block under the default GC settings;
 // this is a diagnostic of transient heap pressure, not CLI RSS evidence.
 func TestReviewRealisticPrefixIndexCapMemory(t *testing.T) {
-	const rawText = "ghp_123456789012345678901234567890123456"
+	var rawText = "ghp_123456789012345678901234567890" + detectors.CRC32Base62("123456789012345678901234567890")
 	raw := []byte(rawText)
 	if len(raw) != 40 {
 		t.Fatalf("raw length=%d, want 40", len(raw))

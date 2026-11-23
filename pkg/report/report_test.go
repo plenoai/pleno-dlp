@@ -8,7 +8,8 @@ import (
 
 // Fixtures are assembled at runtime so the repo pre-commit scan does not
 // flag them as real credentials.
-var secret = "ghp" + "_" + strings.Repeat("aB3d", 9)
+// Checksum-valid: GitHub rejects ghp_ tokens with a bad CRC32 suffix.
+var secret = "ghp" + "_" + "aB3daB3daB3daB3daB3daB3daB3daB0cdxXj"
 
 const gSecret = "Sec" + "ret"
 

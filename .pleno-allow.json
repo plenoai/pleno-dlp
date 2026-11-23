@@ -80,6 +80,43 @@
       "detector": "JSONConfigSecret",
       "raw": "{a}b-Zx81kq",
       "reason": "jsonconfigsecret fixture asserting partial templates stay flagged"
+    },
+    {
+      "path": "pkg/detectors/catalog/verify_test.go",
+      "reason": "kingfisher verification checks: partner-credential patterns and synthetic httptest fixtures (#934)"
+    },
+    {
+      "path": "**/pkg/detectors/catalog/verify_test.go",
+      "reason": "kingfisher verification checks: partner-credential patterns and synthetic httptest fixtures (#934)"
+    },
+    {
+      "path": "pkg/detectors/catalog/checks.go",
+      "reason": "kingfisher verification checks: partner-credential patterns and synthetic httptest fixtures (#934)"
+    },
+    {
+      "path": "**/pkg/detectors/catalog/checks.go",
+      "reason": "kingfisher verification checks: partner-credential patterns and synthetic httptest fixtures (#934)"
+    },
+    {
+      "path": "pkg/detectors/catalog/extra.go",
+      "reason": "kingfisher verification checks: partner-credential patterns and synthetic httptest fixtures (#934)"
+    },
+    {
+      "path": "**/pkg/detectors/catalog/extra.go",
+      "reason": "kingfisher verification checks: partner-credential patterns and synthetic httptest fixtures (#934)"
+    },
+    {
+      "detector": "JSONConfigSecret",
+      "raw": "https://user:p@ss@bitbucket.org/team/repo.git",
+      "reason": "percent-decoded git-credential URL fixture in catalog verify tests (#934)"
+    },
+    {
+      "path": "tests/e2e/05_git_metadata_output.sh",
+      "reason": "deterministic dummy GitHub token the git-metadata e2e scenario commits and expects to be found (#934)"
+    },
+    {
+      "path": "**/tests/e2e/05_git_metadata_output.sh",
+      "reason": "deterministic dummy GitHub token the git-metadata e2e scenario commits and expects to be found (#934)"
     }
   ]
 }

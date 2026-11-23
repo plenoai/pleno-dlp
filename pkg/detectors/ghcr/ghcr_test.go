@@ -4,13 +4,14 @@ package ghcr
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-const dummy = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+var dummy = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123" + detectors.CRC32Base62("AbCdEfGhIjKlMnOpQrStUvWxYz0123")
 
 func TestFromData_Positive(t *testing.T) {
 	body := "registry=ghcr.io\nGHCR_TOKEN=" + dummy

@@ -38,7 +38,7 @@ func TestFromData_Positive(t *testing.T) {
 }
 
 func TestFromData_NoKeyword(t *testing.T) {
-	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X=ghp_AbCdEf0123456789AbCdEf0123456789AbCd"))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("X=ghp_AbCdEf0123456789AbCdEf01234567"+detectors.CRC32Base62("AbCdEf0123456789AbCdEf01234567")))
 	if len(res) != 0 {
 		t.Fatalf("expected 0 without ghs_ prefix, got %d", len(res))
 	}

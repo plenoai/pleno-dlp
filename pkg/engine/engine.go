@@ -1944,7 +1944,14 @@ func (e *Engine) runDetectorWindow(ctx context.Context, c *sources.Chunk, v deco
 		if path == "" {
 			path = findingPath(Finding{Chunk: c})
 		}
+		n := len(results)
 		results = detectors.AppendFormatResults(d.Type(), path, data, results)
+		if len(results) > n && !e.opts.NoVerify {
+			// Formats with a Verify hook (paired, signed, or routed to the
+			// provider's verifier) check their own candidates against the
+			// same window, so partner credentials resolve from nearby text.
+			detectors.VerifyFormatResults(ctx, e.verifiableFormats(d.Type()), data, results[n:])
+		}
 	}
 	if e.detStats != nil {
 		e.detStats[di].record(time.Since(started), len(results))
@@ -2201,8 +2208,29 @@ func detectorConfirmsLine(ctx context.Context, d detectors.Detector, data []byte
 	return false
 }
 
+// verifiableFormats returns t's formats whose declared assurance meets
+// Options.MinimumVerificationAssurance (the same gate detector-level
+// verification applies), so a strict caller never triggers a weaker check.
+func (e *Engine) verifiableFormats(t detectors.DetectorType) []*detectors.Format {
+	fs := detectors.FormatsFor(t)
+	minimum := e.opts.MinimumVerificationAssurance
+	if minimum == detectors.AssuranceUnknown {
+		return fs
+	}
+	out := fs[:0]
+	for _, f := range fs {
+		if f.MaxAssurance() >= minimum {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 func applyVerificationPolicy(detector detectors.Detector, result *detectors.Result) {
 	if !result.Verified {
+		return
+	}
+	if detectors.FormatVerified(*result) {
 		return
 	}
 	maxAssurance := maxVerificationAssurance(detector)

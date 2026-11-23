@@ -13,7 +13,7 @@ import (
 )
 
 // 36 base62 chars after "npm_".
-const dummyTok = "npm_abcdefghijklmnopqrstuvwxyz0123456789"
+var dummyTok = "npm_abcdefghijklmnopqrstuvwxyz0123" + detectors.CRC32Base62("abcdefghijklmnopqrstuvwxyz0123")
 
 func TestFromData_Positive(t *testing.T) {
 	res, err := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("//registry.npmjs.org/:_authToken="+dummyTok))
@@ -210,13 +210,17 @@ func TestTFAMode(t *testing.T) {
 	}
 }
 
-func TestChecksumAnnotation(t *testing.T) {
+func TestChecksumRejection(t *testing.T) {
+	// A valid CRC32 suffix is reported (checksum=valid); a bad one means
+	// the provider never issued the token, so it is rejected offline (#934).
 	body := "Zq8Lm3XcVb7Nn2Kk5Jh4Gf6Dd9Ss1A"
 	valid := "npm_" + body + detectors.CRC32Base62(body)
-	for tok, want := range map[string]string{valid: "valid", dummyTok: "invalid"} {
-		res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(tok))
-		if len(res) != 1 || res[0].ExtraData["checksum"] != want {
-			t.Fatalf("%s: got %+v, want checksum=%s", tok[:8], res, want)
-		}
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(valid))
+	if len(res) != 1 || res[0].ExtraData["checksum"] != "valid" {
+		t.Fatalf("valid checksum: got %+v", res)
+	}
+	bad := "npm_" + body + "000000"
+	if res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), true, []byte(bad)); len(res) != 0 {
+		t.Fatalf("invalid checksum must be rejected: got %+v", res)
 	}
 }

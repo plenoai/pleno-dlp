@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"os"
 	"strings"
 	"testing"
@@ -20,7 +21,7 @@ func TestRedactSecret(t *testing.T) {
 		{name: "len9_just_over", secret: "abcdefghi", want: "abcdefgh..."},
 		{
 			name:   "long",
-			secret: "ghp_0123456789abcdefghijklmnopqrstuvwxyz",
+			secret: "ghp_0123456789abcdefghijklmnopqrst" + detectors.CRC32Base62("0123456789abcdefghijklmnopqrst"),
 			want:   "ghp_0123...",
 		},
 	}

@@ -16,7 +16,7 @@ to a catalog host type from HOSTS below. New host
 types are appended to the DetectorType enum and its String() switch between
 the "kingfisher catalog hosts" markers, and listed in
 docs/verify-coverage.md and pkg/detectors/verifycoverage (class per
-HOST_CLASS). Patterns are kingfisher's (Apache-2.0; the Betterleaks import
+HOST_CLASS) unless a catalog check makes the host a Verifier (class a). Patterns are kingfisher's (Apache-2.0; the Betterleaks import
 is MIT), translated to RE2 where Rust-regex syntax differs ((?x) comments).
 """
 import importlib.util
@@ -301,7 +301,13 @@ def main():
         v = rules.get(rid, {}).get("validation", "-")
         if v != "-":
             validated.setdefault(t, set()).add(v)
-    cls = {h: ("b" if h in BY_DESIGN else "c") for h in hosts}
+    # Hosts carrying a catalog check (pkg/detectors/catalog/checks.go,
+    # issue #934) register as Verifiers: class (a), the open-set
+    # complement, so they stay out of the coverage tables.
+    checks = json.loads(subprocess.run(["go", "run", "./scripts/kingfisher-checks"], cwd=repo,
+                                       capture_output=True, text=True, check=True).stdout)
+    verifying = {want[rid] for rid in checks if rid in want}
+    cls = {h: ("b" if h in BY_DESIGN else "c") for h in hosts if h not in verifying}
     write_coverage(repo, cls, validated)
     print(f"{len(want)} rules, {len(hosts)} hosts ({len(new_hosts)} new)", file=sys.stderr)
 
