@@ -1278,6 +1278,8 @@ func (t DetectorType) String() string {
 		return "IPStack"
 	case OpenWeather:
 		return "OpenWeather"
+	case TwilioAPIKey:
+		return "TwilioAPIKey"
 	default:
 		return "Unknown"
 	}

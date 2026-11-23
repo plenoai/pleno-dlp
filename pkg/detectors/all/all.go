@@ -76,6 +76,7 @@ import (
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/terraformcloud"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/together"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/twilio"
+	_ "github.com/plenoai/pleno-dlp/pkg/detectors/twilioapikey"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vault"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/vercel"
 	_ "github.com/plenoai/pleno-dlp/pkg/detectors/virustotal"

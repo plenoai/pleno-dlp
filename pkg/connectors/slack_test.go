@@ -3,6 +3,8 @@ package connectors
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -11,6 +13,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
@@ -24,7 +27,7 @@ func captureSlackWarn(t *testing.T) *[]string {
 	slackWarn = func(format string, args ...any) {
 		mu.Lock()
 		defer mu.Unlock()
-		got = append(got, format)
+		got = append(got, fmt.Sprintf(format, args...))
 	}
 	t.Cleanup(func() { slackWarn = prev })
 	return &got
@@ -221,5 +224,108 @@ func TestScanSlackIncrementalEmitsOnlyChangedMessages(t *testing.T) {
 	}
 	if got, want := strings.Join(second, ","), "new"; got != want {
 		t.Fatalf("second emitted %q, want only changed message %q", got, want)
+	}
+}
+
+// TestScanSlackFileFetchFailuresAreCoverageGaps pins #882: a refused
+// cross-origin download, a failing files.info and an unreadable thread
+// surface as engine.DegradedError (so --fail-on-coverage sees them), the
+// healthy file is still emitted, and failed files stay out of the next
+// checkpoint so the following incremental run retries them.
+func TestScanSlackFileFetchFailuresAreCoverageGaps(t *testing.T) {
+	_ = captureSlackWarn(t)
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "conversations.history"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true,"has_more":false,"messages":[{"text":"parent","ts":"1.0","thread_ts":"1.0","files":[
+				{"id":"FOK","name":"ok.txt","url_private_download":"` + srvURL + `/dl/ok"},
+				{"id":"FX","name":"evil.txt","url_private_download":"https://attacker.example/steal"},
+				{"id":"FINFO","name":"info.txt"}]}]}`))
+		case strings.Contains(r.URL.Path, "files.info"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":false,"error":"file_not_found"}`))
+		case strings.Contains(r.URL.Path, "conversations.replies"):
+			w.WriteHeader(http.StatusInternalServerError)
+		case r.URL.Path == "/dl/ok":
+			_, _ = w.Write([]byte("file-body"))
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	cfg := Config{"token": "xoxb-test", "channel": "C1", "api_base": srv.URL}
+	var got []string
+	err := scanSlack(context.Background(), cfg, func(data []byte, _ sources.Metadata) error {
+		got = append(got, string(data))
+		return nil
+	})
+	var de *engine.DegradedError
+	if !errors.As(err, &de) || de.Total != 3 {
+		t.Fatalf("err = %v, want DegradedError with 3 failures", err)
+	}
+	seen := map[string]bool{}
+	for _, f := range de.Failures {
+		seen[f.Source] = true
+	}
+	for _, want := range []string{"slack/C1/file/FX", "slack/C1/file/FINFO", "slack/C1/thread/1.0"} {
+		if !seen[want] {
+			t.Errorf("missing failure for %s in %v", want, seen)
+		}
+	}
+	sort.Strings(got)
+	if strings.Join(got, ",") != "file-body,parent" {
+		t.Fatalf("emitted %v, want healthy file and message", got)
+	}
+	var next slackIncrementalState
+	if err := json.Unmarshal([]byte(cfg[configKeyIncrementalNextState]), &next); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := next.Files[slackFileKey("C1", "1.0", "FOK")]; !ok {
+		t.Error("covered file missing from next checkpoint")
+	}
+	for _, id := range []string{"FX", "FINFO"} {
+		if _, ok := next.Files[slackFileKey("C1", "1.0", id)]; ok {
+			t.Errorf("failed file %s recorded in next checkpoint; it would never be retried", id)
+		}
+	}
+}
+
+// TestScanSlackChannelFailureIsCoverageGap: a channel whose history cannot
+// be read is a coverage gap, not a skipped-and-forgotten channel.
+func TestScanSlackChannelFailureIsCoverageGap(t *testing.T) {
+	_ = captureSlackWarn(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":false,"error":"not_in_channel"}`))
+	}))
+	defer srv.Close()
+	err := scanSlack(context.Background(), Config{"token": "xoxb-test", "channel": "C9", "api_base": srv.URL},
+		func([]byte, sources.Metadata) error { return nil })
+	var de *engine.DegradedError
+	if !errors.As(err, &de) || de.Failures[0].Source != "slack/C9" {
+		t.Fatalf("err = %v, want DegradedError for slack/C9", err)
+	}
+}
+
+// TestFingerprintSlackFailsOnThreadGap: an unreadable thread must not
+// produce a stable fingerprint that lets an unchanged-source skip hide it.
+func TestFingerprintSlackFailsOnThreadGap(t *testing.T) {
+	_ = captureSlackWarn(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "conversations.replies") {
+			_, _ = w.Write([]byte(`{"ok":false,"error":"ratelimited"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"has_more":false,"messages":[{"text":"p","ts":"1.0","thread_ts":"1.0"}]}`))
+	}))
+	defer srv.Close()
+	if _, err := fingerprintSlack(context.Background(), Config{"token": "xoxb-test", "channel": "C1", "api_base": srv.URL}); err == nil {
+		t.Fatal("fingerprint succeeded despite unreadable thread")
 	}
 }

@@ -1037,6 +1037,10 @@ const (
 	IPStack
 	// OpenWeather is a verified weather API key (provider-confirmed via api.openweathermap.org).
 	OpenWeather
+	// TwilioAPIKey is a Twilio API key SID (SK + 32 hex) paired with its
+	// 32-char secret; verified via Basic auth and revocable by the
+	// operator's account credentials (#854).
+	TwilioAPIKey
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

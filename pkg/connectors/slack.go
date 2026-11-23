@@ -33,6 +33,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
@@ -109,7 +110,7 @@ func scanSlack(ctx context.Context, cfg Config, emit Emit) error {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
-			continue
+			scanState.fail("slack/"+ch.ID, err)
 		}
 	}
 	data, err := json.Marshal(nextState)
@@ -117,7 +118,7 @@ func scanSlack(ctx context.Context, cfg Config, emit Emit) error {
 		return fmt.Errorf("slack: encode incremental source state: %w", err)
 	}
 	cfg[configKeyIncrementalNextState] = string(data)
-	return nil
+	return scanState.degraded()
 }
 
 func verifySlack(ctx context.Context, cfg Config, secret string) (bool, error) {
@@ -169,10 +170,13 @@ func fingerprintSlack(ctx context.Context, cfg Config) (string, error) {
 
 func fingerprintSlackChannel(ctx context.Context, h hash.Hash, cli *slackClient, chInfo slackChannelInfo) error {
 	writeFingerprint(h, chInfo.ID)
-	return scanSlackChannelMessages(ctx, cli, chInfo, func(msg slackMessage) error {
+	// A thread whose replies could not be read must not yield a stable
+	// fingerprint, or an unchanged-source skip would hide the gap.
+	var gaps slackScanState
+	err := scanSlackChannelMessages(ctx, cli, chInfo, func(msg slackMessage) error {
 		fingerprintSlackMessage(h, chInfo, msg)
 		if msg.ThreadTS != "" && msg.ThreadTS == msg.TS {
-			return scanSlackThreadMessages(ctx, cli, chInfo, msg, func(reply slackMessage) error {
+			return scanSlackThreadMessages(ctx, cli, chInfo, msg, &gaps, func(reply slackMessage) error {
 				if reply.TS == msg.TS {
 					return nil
 				}
@@ -182,6 +186,10 @@ func fingerprintSlackChannel(ctx context.Context, h hash.Hash, cli *slackClient,
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	return gaps.degraded()
 }
 
 func fingerprintSlackMessage(h hash.Hash, chInfo slackChannelInfo, msg slackMessage) {
@@ -273,6 +281,38 @@ type slackFileIncrementalState struct {
 type slackScanState struct {
 	previous *slackIncrementalState
 	next     *slackIncrementalState
+
+	// Per-channel, per-thread and per-file fetch failures (auth, rate
+	// limit, cross-origin download refusal, oversize body) are coverage
+	// gaps surfaced as engine.DegradedError, never silent zero findings
+	// (#882). Thread scans run concurrently, hence the mutex.
+	mu       sync.Mutex
+	failures []engine.ScanFailure
+}
+
+// fail records a coverage gap. It is nil-safe so helpers can be driven
+// without incremental state in tests; the warning is always emitted.
+func (s *slackScanState) fail(source string, err error) {
+	slackWarn("%s: %v", source, err)
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.failures = append(s.failures, engine.ScanFailure{Kind: engine.FailureSource, Source: source, Err: err})
+	s.mu.Unlock()
+}
+
+func (s *slackScanState) degraded() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.failures) == 0 {
+		return nil
+	}
+	failures := append([]engine.ScanFailure(nil), s.failures...)
+	return &engine.DegradedError{Total: len(failures), Counts: map[engine.FailureKind]int{engine.FailureSource: len(failures)}, Failures: failures}
 }
 
 func loadSlackIncrementalState(raw string) (*slackIncrementalState, error) {
@@ -385,7 +425,7 @@ func scanSlackThreadConcurrent(ctx context.Context, cli *slackClient, chInfo sla
 }
 
 func scanSlackThread(ctx context.Context, cli *slackClient, chInfo slackChannelInfo, parent slackMessage, state *slackScanState, emit Emit) error {
-	return scanSlackThreadMessages(ctx, cli, chInfo, parent, func(msg slackMessage) error {
+	return scanSlackThreadMessages(ctx, cli, chInfo, parent, state, func(msg slackMessage) error {
 		if msg.TS == parent.TS {
 			return nil
 		}
@@ -401,7 +441,11 @@ func scanSlackThread(ctx context.Context, cli *slackClient, chInfo slackChannelI
 	})
 }
 
-func scanSlackThreadMessages(ctx context.Context, cli *slackClient, chInfo slackChannelInfo, parent slackMessage, visit func(slackMessage) error) error {
+func slackThreadSource(channel, ts string) string {
+	return "slack/" + channel + "/thread/" + ts
+}
+
+func scanSlackThreadMessages(ctx context.Context, cli *slackClient, chInfo slackChannelInfo, parent slackMessage, state *slackScanState, visit func(slackMessage) error) error {
 	cursor := ""
 	for {
 		path := fmt.Sprintf("/api/conversations.replies?channel=%s&ts=%s&limit=200", chInfo.ID, parent.ThreadTS)
@@ -413,15 +457,14 @@ func scanSlackThreadMessages(ctx context.Context, cli *slackClient, chInfo slack
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
-			// Log-and-continue: do not propagate. scanSlackThread runs in an
-			// errgroup whose g.Wait() would cancel the whole channel scan on
-			// one bad thread. Surfacing the error prevents a thread with an
-			// auth/rate/decode failure from masquerading as zero findings.
-			slackWarn("channel=%s thread=%s replies fetch failed: %v", chInfo.ID, parent.ThreadTS, err)
+			// Record-and-continue: do not propagate. scanSlackThread runs in
+			// an errgroup whose g.Wait() would cancel the whole channel scan
+			// on one bad thread; the gap is recorded as a coverage failure.
+			state.fail(slackThreadSource(chInfo.ID, parent.ThreadTS), fmt.Errorf("replies fetch failed: %w", err))
 			return nil
 		}
 		if !resp.OK {
-			slackWarn("channel=%s thread=%s conversations.replies not ok: %s", chInfo.ID, parent.ThreadTS, resp.Error)
+			state.fail(slackThreadSource(chInfo.ID, parent.ThreadTS), fmt.Errorf("conversations.replies not ok: %s", resp.Error))
 			return nil
 		}
 		for _, msg := range resp.Messages {
@@ -444,7 +487,9 @@ func emitSlackMessageIncremental(ctx context.Context, chInfo slackChannelInfo, m
 	key := slackMessageKey(chInfo.ID, msg.TS)
 	current := slackMessageIncrementalState{Text: msg.Text}
 	if state != nil && state.next != nil {
+		state.mu.Lock()
 		state.next.Messages[key] = current
+		state.mu.Unlock()
 	}
 	if state != nil && state.previous != nil && state.previous.Messages[key] == current {
 		return nil
@@ -455,13 +500,29 @@ func emitSlackMessageIncremental(ctx context.Context, chInfo slackChannelInfo, m
 func emitSlackFileIncremental(ctx context.Context, cli *slackClient, chInfo slackChannelInfo, msg slackMessage, fileID, fileName, downloadURL string, state *slackScanState, emit Emit) error {
 	key := slackFileKey(chInfo.ID, msg.TS, fileID)
 	current := slackFileIncrementalState{Name: fileName, URLPrivateDownload: downloadURL}
-	if state != nil && state.next != nil {
-		state.next.Files[key] = current
-	}
 	if state != nil && state.previous != nil && state.previous.Files[key] == current {
+		state.recordFile(key, current)
 		return nil
 	}
-	return emitSlackFile(ctx, cli, chInfo, msg, fileID, fileName, downloadURL, emit)
+	ok, err := emitSlackFile(ctx, cli, chInfo, msg, fileID, fileName, downloadURL, state, emit)
+	if err != nil {
+		return err
+	}
+	// A file that failed to fetch is left out of the next checkpoint so
+	// the following incremental run retries it instead of skipping it.
+	if ok {
+		state.recordFile(key, current)
+	}
+	return nil
+}
+
+func (s *slackScanState) recordFile(key string, current slackFileIncrementalState) {
+	if s == nil || s.next == nil {
+		return
+	}
+	s.mu.Lock()
+	s.next.Files[key] = current
+	s.mu.Unlock()
 }
 
 func slackMessageKey(channel, ts string) string {
@@ -485,29 +546,43 @@ func emitSlackMessage(_ context.Context, chInfo slackChannelInfo, msg slackMessa
 	})
 }
 
-func emitSlackFile(ctx context.Context, cli *slackClient, chInfo slackChannelInfo, msg slackMessage, fileID, fileName, downloadURL string, emit Emit) error {
+// emitSlackFile fetches and emits one attached file. ok reports whether the
+// file was covered; provider failures are recorded on state and return
+// ok=false with a nil error. Only cancellation and sink errors return.
+func emitSlackFile(ctx context.Context, cli *slackClient, chInfo slackChannelInfo, msg slackMessage, fileID, fileName, downloadURL string, state *slackScanState, emit Emit) (bool, error) {
+	src := "slack/" + chInfo.ID + "/file/" + fileID
+	isCtx := func(err error) bool {
+		return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+	}
 	if downloadURL == "" {
 		var resp slackFilesInfoResp
-		if err := cli.getJSON(ctx, "/api/files.info?file="+fileID, &resp); err != nil {
-			return nil
+		if err := cli.getJSON(ctx, "/api/files.info?file="+neturl.QueryEscape(fileID), &resp); err != nil {
+			if isCtx(err) {
+				return false, err
+			}
+			state.fail(src, fmt.Errorf("files.info: %w", err))
+			return false, nil
 		}
 		if !resp.OK {
-			return nil
+			state.fail(src, fmt.Errorf("files.info not ok: %s", resp.Error))
+			return false, nil
 		}
 		downloadURL = resp.File.URLPrivateDownload
 		fileName = resp.File.Name
 	}
 	if downloadURL == "" {
-		return nil
+		// External/tombstoned files carry no downloadable body: nothing to cover.
+		return true, nil
 	}
 	data, err := cli.download(ctx, downloadURL)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return err
+		if isCtx(err) {
+			return false, err
 		}
-		return nil
+		state.fail(src, fmt.Errorf("download: %w", err))
+		return false, nil
 	}
-	return emit(data, sources.Metadata{
+	return true, emit(data, sources.Metadata{
 		Slack: &sources.SlackMeta{
 			Channel:   chInfo.ID,
 			Timestamp: msg.TS,

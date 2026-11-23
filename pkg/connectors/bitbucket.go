@@ -113,6 +113,7 @@ func scanBitbucket(ctx context.Context, cfg Config, emit Emit) error {
 	if previousState == nil {
 		previousState = &bitbucketIncrementalState{Version: 1, Repos: map[string]bitbucketRepoIncrementalState{}}
 	}
+	var gaps coverageGaps
 	for _, r := range repos {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -122,11 +123,12 @@ func scanBitbucket(ctx context.Context, cfg Config, emit Emit) error {
 			repoKey = r.workspaceSlug() + "/" + r.Name
 		}
 		prevRepo, hasPrevRepo := previousState.Repos[repoKey]
-		nextRepo, err := scanBitbucketRepoIncremental(ctx, cli, r, prevRepo, hasPrevRepo, maxBytes, concurrency, emit)
+		nextRepo, err := scanBitbucketRepoIncremental(ctx, cli, r, prevRepo, hasPrevRepo, maxBytes, concurrency, &gaps, emit)
 		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if isContextErr(err) {
 				return err
 			}
+			gaps.fail("bitbucket/"+repoKey, err)
 			continue
 		}
 		if parseBool(cfg["history"]) {
@@ -157,7 +159,7 @@ func scanBitbucket(ctx context.Context, cfg Config, emit Emit) error {
 		return fmt.Errorf("bitbucket: encode incremental source state: %w", err)
 	}
 	cfg[configKeyIncrementalNextState] = string(data)
-	return nil
+	return gaps.err()
 }
 
 func verifyBitbucket(ctx context.Context, cfg Config, secret string) (bool, error) {
@@ -407,7 +409,7 @@ func bitbucketListRepos(ctx context.Context, cli *bitbucketClient, workspace, re
 	return repos, nil
 }
 
-func scanBitbucketRepoIncremental(ctx context.Context, cli *bitbucketClient, repo bitbucketRepoRef, prev bitbucketRepoIncrementalState, hasPrev bool, maxBytes int64, concurrency int, emit Emit) (bitbucketRepoIncrementalState, error) {
+func scanBitbucketRepoIncremental(ctx context.Context, cli *bitbucketClient, repo bitbucketRepoRef, prev bitbucketRepoIncrementalState, hasPrev bool, maxBytes int64, concurrency int, gaps *coverageGaps, emit Emit) (bitbucketRepoIncrementalState, error) {
 	branch := repo.MainBranch.Name
 	nextRepo := bitbucketRepoIncrementalState{Branch: branch, Files: map[string]bitbucketFileIncrementalState{}}
 	if branch == "" {
@@ -442,11 +444,18 @@ func scanBitbucketRepoIncremental(ctx context.Context, cli *bitbucketClient, rep
 		}
 		g.Go(func() error {
 			defer func() { <-sem }()
-			return emitBitbucketFile(gctx, cli, ws, slug, branch, entry, maxBytes, emit)
+			return emitBitbucketFile(gctx, cli, ws, slug, branch, entry, maxBytes, gaps, emit)
 		})
 	}
 	if err := g.Wait(); err != nil {
 		return bitbucketRepoIncrementalState{}, err
+	}
+	// Files that failed to fetch stay out of the checkpoint so the next
+	// incremental run retries them.
+	for path := range nextRepo.Files {
+		if gaps.has(bitbucketFileSource(ws, slug, branch, path)) {
+			delete(nextRepo.Files, path)
+		}
 	}
 	return nextRepo, nil
 }
@@ -472,25 +481,38 @@ func bitbucketListSrcEntries(ctx context.Context, cli *bitbucketClient, ws, slug
 	return entries, nil
 }
 
-func emitBitbucketFile(ctx context.Context, cli *bitbucketClient, workspace, slug, branch string, entry bitbucketSrcEntry, maxBytes int64, emit Emit) error {
+func bitbucketFileSource(workspace, slug, branch, path string) string {
+	return "bitbucket/" + workspace + "/" + slug + "@" + branch + ":" + path
+}
+
+// emitBitbucketFile fetches and emits one file. Provider failures are
+// recorded on gaps; only cancellation and sink errors return.
+func emitBitbucketFile(ctx context.Context, cli *bitbucketClient, workspace, slug, branch string, entry bitbucketSrcEntry, maxBytes int64, gaps *coverageGaps, emit Emit) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	src := bitbucketFileSource(workspace, slug, branch, entry.Path)
 	path := fmt.Sprintf("/2.0/repositories/%s/%s/src/%s/%s", workspace, slug, branch, entry.Path)
 	resp, err := cli.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if isContextErr(err) {
 			return err
 		}
+		gaps.fail(src, err)
 		return nil
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
+		gaps.fail(src, fmt.Errorf("bitbucket: fetch file: HTTP %d", resp.StatusCode))
 		return nil
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
 	if err != nil {
+		if isContextErr(err) {
+			return err
+		}
+		gaps.fail(src, fmt.Errorf("bitbucket: read file: %w", err))
 		return nil
 	}
 	return emit(data, sources.Metadata{
