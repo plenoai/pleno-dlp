@@ -1,5 +1,6 @@
 // Package alerts posts an end-of-scan summary of findings to one or more
-// webhooks (Slack, Microsoft Teams, or a generic JSON endpoint).
+// webhooks (Slack, Microsoft Teams, Discord, Mattermost, Google Chat, or a
+// generic JSON endpoint).
 //
 // Alerting is best-effort: delivery failures are reported to the caller as
 // warnings and must never change the scan's exit code. Payloads never carry
@@ -19,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
@@ -29,10 +31,31 @@ import (
 type Format string
 
 const (
-	FormatSlack   Format = "slack"
-	FormatTeams   Format = "teams"
-	FormatGeneric Format = "generic"
+	FormatSlack      Format = "slack"
+	FormatTeams      Format = "teams"
+	FormatGeneric    Format = "generic"
+	FormatDiscord    Format = "discord"
+	FormatMattermost Format = "mattermost"
+	FormatGoogleChat Format = "googlechat"
 )
+
+// Formats lists every accepted --alert-format value besides "auto".
+var Formats = []Format{FormatSlack, FormatTeams, FormatDiscord, FormatMattermost, FormatGoogleChat, FormatGeneric}
+
+// ParseFormat validates an explicit --alert-format value. "" and "auto"
+// return "" (infer from host).
+func ParseFormat(s string) (Format, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" || s == "auto" {
+		return "", nil
+	}
+	for _, f := range Formats {
+		if string(f) == s {
+			return f, nil
+		}
+	}
+	return "", fmt.Errorf("--alert-format: unknown value %q (valid: auto, slack, teams, discord, mattermost, googlechat, generic)", s)
+}
 
 // maxListed caps per-finding lines rendered in chat payloads; the totals
 // still count every finding.
@@ -48,6 +71,10 @@ func InferFormat(u *url.URL) Format {
 		strings.HasPrefix(h, "webhook.office."),
 		strings.HasSuffix(h, ".logic.azure.com"):
 		return FormatTeams
+	case h == "discord.com" || h == "discordapp.com" || strings.HasSuffix(h, ".discord.com"):
+		return FormatDiscord
+	case h == "chat.googleapis.com":
+		return FormatGoogleChat
 	default:
 		return FormatGeneric
 	}
@@ -219,9 +246,70 @@ func Payload(format Format, s Summary) ([]byte, error) {
 				},
 			}},
 		})
+	case FormatMattermost:
+		// Mattermost accepts the Slack-compatible attachments shape.
+		return json.Marshal(map[string]any{
+			"text": s.headline(),
+			"attachments": []map[string]any{{
+				"color": severityColorHex(s), "text": strings.Join(s.lines(), "\n"),
+			}},
+		})
+	case FormatDiscord:
+		desc := strings.Join(s.lines(), "\n")
+		desc = truncate(desc, 4000) // Discord embed description limit is 4096.
+		return json.Marshal(map[string]any{
+			"username": "pleno-dlp",
+			"embeds": []map[string]any{{
+				"title": truncate(s.headline(), 256), "description": desc, "color": severityColorInt(s),
+			}},
+		})
+	case FormatGoogleChat:
+		widgets := []map[string]any{}
+		for _, l := range s.lines() {
+			widgets = append(widgets, map[string]any{"textParagraph": map[string]string{"text": l}})
+		}
+		return json.Marshal(map[string]any{
+			"text": s.headline(),
+			"cardsV2": []map[string]any{{
+				"cardId": "pleno-dlp",
+				"card": map[string]any{
+					"header":   map[string]string{"title": "pleno-dlp", "subtitle": s.headline()},
+					"sections": []map[string]any{{"widgets": widgets}},
+				},
+			}},
+		})
 	default:
 		return json.Marshal(s)
 	}
+}
+
+// truncate caps s at n bytes without splitting a UTF-8 sequence.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n - 3
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
+}
+
+func severityColorInt(s Summary) int {
+	switch {
+	case s.BySeverity["critical"] > 0:
+		return 0x8B0000
+	case s.BySeverity["high"] > 0:
+		return 0xE01E5A
+	case s.BySeverity["medium"] > 0:
+		return 0xECB22E
+	default:
+		return 0x2EB67D
+	}
+}
+
+func severityColorHex(s Summary) string {
+	return fmt.Sprintf("#%06X", severityColorInt(s))
 }
 
 // Send posts s to every webhook. It returns one error per failed webhook,

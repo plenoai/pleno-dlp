@@ -101,8 +101,7 @@ Status values:
 |---|---|---|
 | `--alert-webhook`, `--alert-dry-run` | same | done |
 | `--alert-min-confidence` | `--alert-min-severity` | done |
-| `--alert-format slack/teams/generic` | inferred from host | done |
-| `--alert-format discord/mattermost/googlechat`, explicit `--alert-format` | — | gap |
+| `--alert-format slack/teams/discord/mattermost/googlechat/generic` | `--alert-format` (default `auto`, inferred from host) | done |
 | `--alert-on`, `--alert-finding-filter`, `--alert-detail`, `--alert-prevent-empty`, `--alert-report-url` | — | gap |
 | `--alert-include-secret` | — | won't: alerts carry redacted findings only |
 
