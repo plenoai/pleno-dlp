@@ -25,8 +25,10 @@ const pdfMaxStreamBytes = 32 << 20
 
 var (
 	pdfStreamKeyword = regexp.MustCompile(`stream\r?\n`)
-	pdfFilterFlate   = regexp.MustCompile(`/Filter\s*(\[\s*)?/(FlateDecode|Fl)\b`)
-	pdfFilterAny     = regexp.MustCompile(`/Filter\b`)
+	// Streams that are never text: embedded font programs (Length1-3,
+	// compact font subtypes), images, ICC profiles, and xref streams. Their
+	// bytes only add noise to the string pass.
+	pdfBinaryStream = regexp.MustCompile(`/Length[123]\b|/Subtype\s*/(Image|Type1C|CIDFontType0C|OpenType)\b|/Type\s*/XRef\b|/Alternate\s*/Device`)
 )
 
 func extractPDF(data []byte, out *textBuffer) error {
@@ -64,17 +66,15 @@ func extractPDF(data []byte, out *textBuffer) error {
 		raw := bytes.TrimRight(data[start:start+end], "\r\n")
 		pos = start + end + len("endstream")
 		switch {
-		case handled[start]:
-		case pdfFilterFlate.Match(dict):
-			inflated, err := pdfInflate(raw)
-			if len(inflated) > 0 && !bytes.Contains(inflated, []byte("begincmap")) {
-				pdfStrings(inflated, out)
+		case handled[start], pdfBinaryStream.Match(dict):
+		default:
+			decoded, ok, err := pdfDecodeStream(dict, raw)
+			if ok && len(decoded) > 0 && !bytes.Contains(decoded, []byte("begincmap")) {
+				pdfStrings(decoded, out)
 			}
 			if err != nil {
 				errs = append(errs, err)
 			}
-		case !pdfFilterAny.Match(dict) && !bytes.Contains(raw, []byte("begincmap")):
-			pdfStrings(raw, out)
 		}
 	}
 	if pos < len(data) {
@@ -105,15 +105,16 @@ func pdfInflate(raw []byte) ([]byte, error) {
 }
 
 // pdfStrings tokenizes PDF syntax and writes string operands.
-func pdfStrings(data []byte, out *textBuffer) { pdfStringsWithFonts(data, nil, out) }
+func pdfStrings(data []byte, out *textBuffer) { pdfStringsWithFonts(data, nil, nil, out) }
 
-// pdfStringsWithFonts decodes string operands through the ToUnicode CMap of
-// the font most recently selected by Tf, when one is known.
-func pdfStringsWithFonts(data []byte, fonts map[string]*pdfCMap, out *textBuffer) {
+// pdfStringsWithFonts decodes string operands through the decoder of the
+// font most recently selected by Tf, when one is known (fonts != nil marks a
+// page content stream). do is called for each Do operator with its name.
+func pdfStringsWithFonts(data []byte, fonts map[string]pdfFont, do func(string), out *textBuffer) {
 	var line bytes.Buffer
 	inArray := 0
 	var lastName, prevTok, lastTmY string
-	var font *pdfCMap
+	var font pdfFont
 	// Marked content carrying /ActualText replaces the glyphs it encloses
 	// (Skia maps spaces and ligatures this way), so those glyphs are skipped.
 	dictDepth, mcDepth, suppressAt := 0, 0, 0
@@ -206,6 +207,9 @@ func pdfStringsWithFonts(data []byte, fonts map[string]*pdfCMap, out *textBuffer
 				switch {
 				case op == "Tf":
 					font = fonts[lastName]
+				case op == "Do" && do != nil:
+					flush()
+					do(lastName)
 				case (op == "Td" || op == "TD") && prevTok == "0":
 					i = j
 					continue

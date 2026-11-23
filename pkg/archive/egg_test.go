@@ -5,7 +5,11 @@ import (
 	"compress/bzip2"
 	"compress/flate"
 	"encoding/binary"
+	"math/rand/v2"
+	"strings"
 	"testing"
+
+	"github.com/ulikunitz/xz/lzma"
 )
 
 // EGG fixtures are assembled field by field from the ESTsoft layout (see
@@ -55,8 +59,28 @@ func eggCompress(t *testing.T, method byte, plain []byte) []byte {
 			t.Fatalf("bzip2 fixture mismatch: %q %v", check, err)
 		}
 		return out
+	case eggMethodLZMA:
+		return eggLZMABlock(t, plain)
 	}
 	return plain
+}
+
+// eggLZMABlock lays out an LZMA block the way ALZip writes it (observed in
+// real ALZip output): LZMA SDK version 0x4104 and properties size 5, the
+// properties (lc=3 lp=0 pb=2, dictionary size), then the raw LZMA stream.
+func eggLZMABlock(t testing.TB, plain []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	w, err := lzma.WriterConfig{DictCap: 1 << 16, Size: int64(len(plain)), SizeInHeader: true}.NewWriter(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Write(plain)
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	classic := buf.Bytes() // props(1) dict(4) size(8) stream
+	return append(append([]byte{0x04, 0x41, 0x05, 0x00}, classic[:5]...), classic[13:]...)
 }
 
 func readAllBzip2(b []byte) ([]byte, error) {
@@ -148,6 +172,7 @@ func TestWalkEggGaps(t *testing.T) {
 		{name: "flag.txt", nameFlag: eggNameEncrypted, blocks: []eggTestBlock{{method: eggMethodStore, plain: []byte("SECRET")}}},
 		{name: "azo.bin", blocks: []eggTestBlock{{method: eggMethodAZO, plain: []byte("xx"), comp: []byte("yy")}}},
 		{name: "lzma.bin", blocks: []eggTestBlock{{method: eggMethodLZMA, plain: []byte("xx"), comp: []byte("yy")}}},
+		{name: "unknown.bin", blocks: []eggTestBlock{{method: 9, plain: []byte("xx"), comp: []byte("yy")}}},
 		{name: "ok.txt", blocks: []eggTestBlock{{method: eggMethodStore, plain: []byte("FIXTURE-AFTER-GAPS")}}},
 		{name: "../evil", blocks: []eggTestBlock{{method: eggMethodStore, plain: []byte("x")}}},
 	})
@@ -166,15 +191,215 @@ func TestWalkEggGaps(t *testing.T) {
 	}
 }
 
-func TestWalkEggSolidFallsBackToRaw(t *testing.T) {
-	data := buildEgg(t, [][]byte{eggExtra(eggSolidMagic, 0, nil)}, []eggTestFile{
-		{name: "s.txt", blocks: []eggTestBlock{{method: eggMethodStore, plain: []byte("FIXTURE-SOLID")}}},
+func TestWalkEggLZMA(t *testing.T) {
+	plain := bytes.Repeat([]byte("FIXTURE-EGG-LZMA "), 200)
+	data := buildEgg(t, nil, []eggTestFile{
+		{name: "one.txt", blocks: []eggTestBlock{{method: eggMethodLZMA, plain: plain}}},
+		{name: "two.txt", blocks: []eggTestBlock{
+			{method: eggMethodLZMA, plain: []byte("FIXTURE-EGG-")},
+			{method: eggMethodLZMA, plain: []byte("LZMA-MULTI\n")},
+		}},
 	})
-	entries, err := walkEntries(t, "s.egg", data, Limits{})
-	if !partialKinds(err)["unsupported-compression"] {
-		t.Fatalf("want unsupported-compression gap, got %v", err)
+	entries, err := walkEntries(t, "l.egg", data, Limits{})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
 	}
-	requireEntry(t, entries, "s.egg", "FIXTURE-SOLID")
+	if got := entries["l.egg!one.txt"]; !bytes.Equal([]byte(got), plain) {
+		t.Fatalf("one.txt: got %d bytes", len(got))
+	}
+	requireEntry(t, entries, "l.egg!two.txt", "FIXTURE-EGG-LZMA-MULTI")
+}
+
+func TestWalkEggLZMARejectsHugeDictionary(t *testing.T) {
+	comp := eggLZMABlock(t, []byte("x"))
+	binary.LittleEndian.PutUint32(comp[5:], eggMaxLZMADict+1)
+	data := buildEgg(t, nil, []eggTestFile{{name: "d", blocks: []eggTestBlock{{method: eggMethodLZMA, plain: []byte("x"), comp: comp}}}})
+	_, err := walkEntries(t, "d.egg", data, Limits{})
+	if !partialKinds(err)["unsupported-compression"] {
+		t.Fatalf("want unsupported-compression, got %v", err)
+	}
+}
+
+// eggSpecSolid is the "Solid Archive" example of the EGG Format
+// Specification 1.0, section 3, byte for byte: a.txt ("a") and b.txt ("bc")
+// share one stored block "abc".
+var eggSpecSolid = []byte{
+	0x45, 0x47, 0x47, 0x41, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x60, 0xA0, 0xE5, 0x24, 0x00, 0x00, 0x00,
+	0x22, 0x82, 0xE2, 0x08,
+	0xE3, 0x90, 0x85, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0xAC, 0x91, 0x85, 0x0A, 0x00, 0x05, 0x00, 'a', '.', 't', 'x', 't',
+	0x0B, 0x95, 0x86, 0x2C, 0x00, 0x09, 0x00, 0x23, 0xC9, 0xA3, 0x4F, 0x63, 0xFB, 0xC7, 0x01, 0x00,
+	0x22, 0x82, 0xE2, 0x08,
+	0xE3, 0x90, 0x85, 0x0A, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0xAC, 0x91, 0x85, 0x0A, 0x00, 0x05, 0x00, 'b', '.', 't', 'x', 't',
+	0x0B, 0x95, 0x86, 0x2C, 0x00, 0x09, 0x00, 0x67, 0xFA, 0xA3, 0x4F, 0x63, 0xFB, 0xC7, 0x01, 0x00,
+	0x22, 0x82, 0xE2, 0x08,
+	0x13, 0x0C, 0xB5, 0x02, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x6D, 0x48, 0x83, 0x9E,
+	0x22, 0x82, 0xE2, 0x08,
+	'a', 'b', 'c',
+	0x22, 0x82, 0xE2, 0x08,
+}
+
+func TestWalkEggSolidSpecExample(t *testing.T) {
+	entries, err := walkEntries(t, "s.egg", eggSpecSolid, Limits{})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if entries["s.egg!a.txt"] != "a" || entries["s.egg!b.txt"] != "bc" || len(entries) != 2 {
+		t.Fatalf("got %q", entries)
+	}
+}
+
+// buildSolidEgg writes every file header first and then the archive's blocks,
+// as ALZip does for solid compression.
+func buildSolidEgg(t *testing.T, names []string, plains [][]byte, extras [][][]byte, blocks []eggTestBlock) []byte {
+	t.Helper()
+	b := le32(eggHeaderMagic)
+	b = append(b, 0, 1)
+	b = append(b, le32(1)...)
+	b = append(b, le32(0)...)
+	b = append(b, eggExtra(eggSolidMagic, 0, nil)...)
+	b = append(b, le32(eggEOFARC)...)
+	for i, n := range names {
+		b = append(b, le32(eggFileMagic)...)
+		b = append(b, le32(uint32(i))...)
+		b = binary.LittleEndian.AppendUint64(b, uint64(len(plains[i])))
+		b = append(b, eggExtra(eggFilenameMagic, 0, []byte(n))...)
+		if extras != nil {
+			for _, x := range extras[i] {
+				b = append(b, x...)
+			}
+		}
+		b = append(b, le32(eggEOFARC)...)
+	}
+	for _, blk := range blocks {
+		comp := blk.comp
+		if comp == nil {
+			comp = eggCompress(t, blk.method, blk.plain)
+		}
+		b = append(b, le32(eggBlockMagic)...)
+		b = append(b, blk.method, 0)
+		b = append(b, le32(uint32(len(blk.plain)))...)
+		b = append(b, le32(uint32(len(comp)))...)
+		b = append(b, le32(0)...)
+		b = append(b, le32(eggEOFARC)...)
+		b = append(b, comp...)
+	}
+	return append(b, le32(eggEOFARC)...)
+}
+
+func TestWalkEggSolidMultiBlock(t *testing.T) {
+	names := []string{"dir", "first.txt", "skip/../../evil", "third.txt"}
+	plains := [][]byte{nil, []byte("FIXTURE-SOLID-ONE\n"), []byte("dropped"), []byte("FIXTURE-SOLID-THREE\n")}
+	stream := bytes.Join(plains, nil)
+	dir := [][]byte{eggExtra(eggWindowsMagic, 0, append(make([]byte, 8), eggWinDirectory))}
+	for _, method := range []byte{eggMethodDeflate, eggMethodLZMA} {
+		// The block boundary falls inside first.txt.
+		data := buildSolidEgg(t, names, plains, [][][]byte{dir, nil, nil, nil}, []eggTestBlock{
+			{method: method, plain: stream[:7]},
+			{method: method, plain: stream[7:]},
+		})
+		entries, err := walkEntries(t, "s.egg", data, Limits{})
+		if !partialKinds(err)["path"] {
+			t.Fatalf("method %d: want path gap, got %v", method, err)
+		}
+		requireEntry(t, entries, "s.egg!first.txt", "FIXTURE-SOLID-ONE")
+		requireEntry(t, entries, "s.egg!third.txt", "FIXTURE-SOLID-THREE")
+		if len(entries) != 2 {
+			t.Fatalf("method %d: got %q", method, entries)
+		}
+	}
+}
+
+func TestWalkEggSolidShortStreamAndBudget(t *testing.T) {
+	data := buildSolidEgg(t, []string{"a.txt", "b.txt"}, [][]byte{[]byte("FIXTURE-A"), []byte("FIXTURE-B-LONGER")}, nil,
+		[]eggTestBlock{{method: eggMethodStore, plain: []byte("FIXTURE-AFIXTURE-B")}})
+	entries, err := walkEntries(t, "s.egg", data, Limits{})
+	if !partialKinds(err)["corrupt-entry"] {
+		t.Fatalf("want corrupt-entry for a stream shorter than the file lengths, got %v", err)
+	}
+	requireEntry(t, entries, "s.egg!a.txt", "FIXTURE-A")
+	// A skipped member's bytes are still decoded to realign the stream and
+	// count against the expansion budget.
+	big := bytes.Repeat([]byte("Z"), 8192)
+	enc := eggExtra(eggEncryptMagic, 0, make([]byte, 17))
+	binary.LittleEndian.PutUint16(enc[5:], uint16(len(enc)))
+	data = buildSolidEgg(t, []string{"enc.bin", "after.txt"}, [][]byte{big, []byte("x")}, [][][]byte{{enc}, nil},
+		[]eggTestBlock{{method: eggMethodDeflate, plain: append(append([]byte{}, big...), 'x')}})
+	_, err = walkEntries(t, "s.egg", data, Limits{MaxExpandedBytes: 1024})
+	if k := partialKinds(err); !k["encrypted"] || !k["max-expanded-bytes"] {
+		t.Fatalf("want encrypted and max-expanded-bytes, got %v", err)
+	}
+}
+
+// splitVolumes cuts a single-volume archive into two ALZip split volumes at
+// body offset cut: each volume repeats the EGG header with a split extra
+// field (previous and next volume ids) and the second continues the byte
+// stream where the first ended.
+func splitVolumes(body []byte, cut int) [][]byte {
+	vol := func(id, prev, next uint32, rest []byte) []byte {
+		v := le32(eggHeaderMagic)
+		v = append(v, 0, 1)
+		v = append(v, le32(id)...)
+		v = append(v, le32(0)...)
+		v = append(v, eggExtra(eggSplitMagic, 0, append(le32(prev), le32(next)...))...)
+		v = append(v, le32(eggEOFARC)...)
+		return append(v, rest...)
+	}
+	const head = 18 // EGG header (14) and its EOFARC (4)
+	return [][]byte{vol(100, 0, 101, body[head:cut]), vol(101, 100, 0, body[cut:])}
+}
+
+func TestWalkEggSplitVolumes(t *testing.T) {
+	// Incompressible filler keeps the compressed block long enough to cut.
+	rng := rand.New(rand.NewPCG(1, 2))
+	filler := make([]byte, 4096)
+	for i := range filler {
+		filler[i] = 'a' + byte(rng.IntN(26))
+	}
+	plain := []byte("FIXTURE-SPLIT-PREFIX " + string(filler) + " TAIL-IN-SECOND-VOLUME")
+	for _, method := range []byte{eggMethodStore, eggMethodDeflate, eggMethodLZMA} {
+		body := buildEgg(t, nil, []eggTestFile{
+			{name: "whole.txt", blocks: []eggTestBlock{{method: eggMethodStore, plain: []byte("FIXTURE-WHOLE-MEMBER")}}},
+			{name: "cut.txt", blocks: []eggTestBlock{{method: method, plain: plain}}},
+		})
+		// The first volume ends halfway through cut.txt's block data.
+		blk := bytes.Index(body[bytes.Index(body, []byte("cut.txt")):], le32(eggBlockMagic)) + bytes.Index(body, []byte("cut.txt"))
+		csize := int(binary.LittleEndian.Uint32(body[blk+10:]))
+		cut := blk + 22 + csize/2
+		vols := splitVolumes(body, cut)
+		entries, err := walkEntries(t, "a.vol1.egg", vols[0], Limits{})
+		if !partialKinds(err)["split-volume"] {
+			t.Fatalf("method %d: want split-volume gap, got %v", method, err)
+		}
+		requireEntry(t, entries, "a.vol1.egg!whole.txt", "FIXTURE-WHOLE-MEMBER")
+		requireEntry(t, entries, "a.vol1.egg!cut.txt", "FIXTURE-SPLIT-PREFIX")
+		if got := entries["a.vol1.egg!cut.txt"]; strings.Contains(got, "TAIL") {
+			t.Fatalf("method %d: prefix must stop at the cut, got %q", method, got)
+		}
+		entries, err = walkEntries(t, "a.vol2.egg", vols[1], Limits{})
+		if !partialKinds(err)["split-volume"] {
+			t.Fatalf("method %d: want split-volume gap for continuation, got %v", method, err)
+		}
+		if _, ok := entries["a.vol2.egg"]; !ok {
+			t.Fatalf("method %d: continuation volume must be scanned raw, got %q", method, entries)
+		}
+	}
+}
+
+func TestWalkEggSkipsDummyHeaders(t *testing.T) {
+	body := buildEgg(t, nil, []eggTestFile{{name: "d.txt",
+		extras: [][]byte{eggExtra(eggDummyMagic, 0, make([]byte, 8))},
+		blocks: []eggTestBlock{{method: eggMethodStore, plain: []byte("FIXTURE-DUMMY")}}}})
+	// A top-level dummy header between members.
+	i := bytes.LastIndex(body, le32(eggCommentMagic))
+	body = append(append(append([]byte{}, body[:i]...), eggExtra(eggDummyMagic, 0, make([]byte, 8))...), body[i:]...)
+	entries, err := walkEntries(t, "d.egg", body, Limits{})
+	if err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	requireEntry(t, entries, "d.egg!d.txt", "FIXTURE-DUMMY")
 }
 
 func TestWalkEggBudgets(t *testing.T) {
@@ -194,6 +419,8 @@ func TestWalkEggBudgets(t *testing.T) {
 
 func FuzzWalkEgg(f *testing.F) {
 	f.Add(buildEgg(&testing.T{}, nil, []eggTestFile{{name: "a", blocks: []eggTestBlock{{method: eggMethodStore, plain: []byte("hello")}}}}))
+	f.Add(eggSpecSolid)
+	f.Add(buildEgg(&testing.T{}, nil, []eggTestFile{{name: "l", blocks: []eggTestBlock{{method: eggMethodLZMA, plain: []byte("hello lzma")}}}}))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		entries, _ := Walk("f.egg", data, Limits{MaxExpandedBytes: 1 << 20, MaxEntryBytes: 1 << 20, MaxFiles: 64})
 		total := 0

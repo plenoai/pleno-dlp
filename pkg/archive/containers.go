@@ -166,7 +166,8 @@ const (
 )
 
 type oleStream struct {
-	path string
+	path string // display path; mscfb drops a non-printable first character
+	raw  string // path with that character (\x01, \x05) restored
 	file *mscfb.File
 }
 
@@ -204,7 +205,11 @@ func (s *walkState) walkOLE(name string, data *spool, depth int) (err error) {
 		if p == "FileHeader" {
 			fileHeader = f
 		}
-		streams = append(streams, oleStream{path: p, file: f})
+		raw := p
+		if f.Initial != 0 && f.Initial < 0x20 {
+			raw = strings.Join(append(append([]string{}, f.Path...), string(rune(f.Initial))+f.Name), "/")
+		}
+		streams = append(streams, oleStream{path: p, raw: raw, file: f})
 	}
 	hwp, compressed := false, false
 	if fileHeader != nil {
@@ -219,12 +224,42 @@ func (s *walkState) walkOLE(name string, data *spool, depth int) (err error) {
 			}
 		}
 	}
+	// The Word main stream goes first so the table stream it consumed is
+	// known before the other streams are walked.
+	consumed := map[string]bool{}
+	if !hwp {
+		for _, st := range streams {
+			if st.path != "WordDocument" {
+				continue
+			}
+			if s.files >= s.limits.MaxFiles {
+				break
+			}
+			done, table, err := s.walkWordStream(name+"!"+sanitizeOLEPath(st.path), st, streams)
+			if err != nil {
+				return err
+			}
+			if done {
+				consumed[st.path] = true
+				if table != "" {
+					consumed[table] = true
+				}
+			}
+		}
+	}
 	for _, st := range streams {
 		if s.terminal {
 			return nil
 		}
 		if err := s.ctx.Err(); err != nil {
 			return err
+		}
+		if consumed[st.path] {
+			continue
+		}
+		base := st.raw[strings.LastIndexByte(st.raw, '/')+1:]
+		if !hwp && oleMetadataStream(base) {
+			continue
 		}
 		clean := sanitizeOLEPath(st.path)
 		entryName := name + "!" + clean
@@ -234,7 +269,7 @@ func (s *walkState) walkOLE(name string, data *spool, depth int) (err error) {
 		}
 		var input io.Reader = io.NewSectionReader(st.file, 0, st.file.Size)
 		declared := st.file.Size
-		if hwp && compressed && hwpCompressedStream(st.path) {
+		if hwp && compressed && hwpCompressedStream(st.raw) {
 			input, declared = hwpInflater(input), -1
 		}
 		if hwp && strings.HasPrefix(st.path, "BodyText/Section") {
@@ -244,6 +279,24 @@ func (s *walkState) walkOLE(name string, data *spool, depth int) (err error) {
 			continue
 		}
 		if !hwp {
+			switch base {
+			case oleNativeStream:
+				done, err := s.walkOle10Native(entryName, st, depth)
+				if err != nil {
+					return err
+				}
+				if done {
+					continue
+				}
+			case oleSummaryStream, oleDocSummary:
+				done, err := s.walkPropertySet(entryName, st)
+				if err != nil {
+					return err
+				}
+				if done {
+					continue
+				}
+			}
 			if extract := officeStreamExtractor(st.path); extract != nil {
 				done, err := s.walkOfficeStream(entryName, st, streams, extract)
 				if err != nil {
@@ -267,8 +320,6 @@ type officeExtractor func(stream []byte, tables map[string][]byte, out *textBuff
 // legacy Word, Excel, or PowerPoint document.
 func officeStreamExtractor(p string) officeExtractor {
 	switch p {
-	case "WordDocument":
-		return extractWordText
 	case "Workbook", "Book":
 		return func(b []byte, _ map[string][]byte, out *textBuffer) error { return extractBIFFText(b, out) }
 	case "PowerPoint Document":
@@ -321,6 +372,92 @@ func (s *walkState) walkOfficeStream(entryName string, st oleStream, streams []o
 		if out.buf.Len() == 0 {
 			return false, nil
 		}
+	}
+	return true, s.emitDerived(entryName+extractedTextSuffix, out.buf.Bytes())
+}
+
+// walkWordStream emits the text of each Word story (main text, footnotes,
+// headers, comments, endnotes, text boxes) as its own derived entry. It
+// reports done=false when the stream could not be parsed so the caller
+// scans the raw bytes instead, and the table stream it consumed otherwise.
+func (s *walkState) walkWordStream(entryName string, st oleStream, streams []oleStream) (bool, string, error) {
+	body, err := readOLEStream(st.file)
+	if err != nil {
+		s.partial("corrupt-entry", entryName, err)
+		return false, "", nil
+	}
+	tables := map[string][]byte{}
+	for _, t := range streams {
+		if t.path == "0Table" || t.path == "1Table" {
+			if b, err := readOLEStream(t.file); err == nil {
+				tables[t.path] = b
+			}
+		}
+	}
+	out := &textBuffer{limit: s.extractLimit()}
+	var marks []wordStoryMark
+	parseErr := extractWordStories(body, tables, out, &marks)
+	if errors.Is(parseErr, errOfficeEncrypted) {
+		// RC4 CryptoAPI / Office binary encryption is not decrypted.
+		s.partial("encrypted", entryName, parseErr)
+		return true, "", nil
+	}
+	if out.overflow {
+		s.rejectBudget("max-expanded-bytes", entryName, fmt.Errorf("office text %w", errExtractLimit))
+	}
+	if parseErr != nil {
+		s.partial("corrupt-entry", entryName, parseErr)
+		if out.buf.Len() == 0 {
+			return false, "", nil
+		}
+	}
+	text := out.buf.Bytes()
+	if len(marks) == 0 || marks[0].offset > 0 {
+		marks = append([]wordStoryMark{{extractedTextSuffix, 0}}, marks...)
+	}
+	for i, m := range marks {
+		end := len(text)
+		if i+1 < len(marks) {
+			end = marks[i+1].offset
+		}
+		if err := s.emitDerived(entryName+m.suffix, text[m.offset:end]); err != nil {
+			return true, "", err
+		}
+	}
+	return true, wordActiveTable(body), nil
+}
+
+// walkOle10Native unwraps an OLE Packager stream and walks the embedded
+// file as a nested member (archives, Office files, and PDFs inside are
+// expanded in turn). It reports done=false for malformed headers.
+func (s *walkState) walkOle10Native(entryName string, st oleStream, depth int) (bool, error) {
+	body, err := readOLEStream(st.file)
+	if err != nil {
+		return false, nil
+	}
+	name, payload, err := parseOle10Native(body)
+	if err != nil {
+		s.partial("corrupt-entry", entryName, err)
+		return false, nil
+	}
+	clean := sanitizeComponent(name)
+	return true, s.walkMember(entryName+"!"+clean, name, bytes.NewReader(payload), int64(len(payload)), depth)
+}
+
+// walkPropertySet emits the string properties of a summary information
+// stream; malformed streams are scanned raw (done=false).
+func (s *walkState) walkPropertySet(entryName string, st oleStream) (bool, error) {
+	body, err := readOLEStream(st.file)
+	if err != nil {
+		return false, nil
+	}
+	out := &textBuffer{limit: s.extractLimit()}
+	if err := extractPropertySetText(body, out); err != nil {
+		s.partial("corrupt-entry", entryName, err)
+		return false, nil
+	}
+	if out.overflow {
+		s.rejectBudget("max-expanded-bytes", entryName, fmt.Errorf("property set text %w", errExtractLimit))
 	}
 	return true, s.emitDerived(entryName+extractedTextSuffix, out.buf.Bytes())
 }

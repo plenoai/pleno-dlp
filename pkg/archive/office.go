@@ -22,13 +22,46 @@ const (
 	wordFibFcClx       = 0x01A2
 	wordFibLcbClx      = 0x01A6
 	wordFcCompressed   = 0x40000000
+	wordFibCcpText     = 0x4C // FibRgLw97.ccpText; ccpFtn, ccpHdd, reserved3, ccpAtn, ccpEdn, ccpTxbx, ccpHdrTxbx follow
 )
+
+// wordStories names the document parts in CP order ([MS-DOC] 2.4.1): each
+// part after the main text gets its own derived entry.
+var wordStories = []struct {
+	suffix string
+	field  int // offset of its ccp in the FIB; -1 for none
+}{
+	{extractedTextSuffix, wordFibCcpText},
+	{"#footnotes", wordFibCcpText + 4},
+	{"#headers", wordFibCcpText + 8},
+	{"", wordFibCcpText + 12}, // reserved3 (macros), always 0
+	{"#comments", wordFibCcpText + 16},
+	{"#endnotes", wordFibCcpText + 20},
+	{"#textboxes", wordFibCcpText + 24},
+	{"#header-textboxes", wordFibCcpText + 28},
+}
+
+// wordStoryMark records where a story starts in the extracted text.
+type wordStoryMark struct {
+	suffix string
+	offset int
+}
+
+// wordActiveTable returns the name of the table stream the FIB selects.
+func wordActiveTable(word []byte) string {
+	if len(word) > wordFibFlagsOffset+2 && binary.LittleEndian.Uint16(word[wordFibFlagsOffset:])&wordFibWhichTblStm != 0 {
+		return "1Table"
+	}
+	return "0Table"
+}
 
 var errOfficeEncrypted = errors.New("password-protected Office document")
 
-// extractWordText decodes the piece table of a WordDocument stream using the
+// extractWordStories decodes the piece table of a WordDocument stream using the
 // table stream picked by the FIB.
-func extractWordText(word []byte, tables map[string][]byte, out *textBuffer) error {
+// It also records, in marks, the text offset where each story (main text,
+// footnotes, headers, comments, endnotes, text boxes) begins.
+func extractWordStories(word []byte, tables map[string][]byte, out *textBuffer, marks *[]wordStoryMark) error {
 	if len(word) < wordFibLcbClx+4 || binary.LittleEndian.Uint16(word) != 0xA5EC {
 		return errors.New("not a Word 97 FIB")
 	}
@@ -68,6 +101,29 @@ func extractWordText(word []byte, tables map[string][]byte, out *textBuffer) err
 	}
 	n := (len(plc) - 4) / 12
 	pcds := plc[4*(n+1):]
+	// Story boundaries in CP space; without the FIB fields everything is
+	// main text.
+	// Only non-empty stories get a start; CPs past the last story (the
+	// final paragraph mark) stay in it.
+	type storyStart struct {
+		cp  uint32
+		idx int
+	}
+	var bounds []storyStart
+	if len(word) >= wordFibCcpText+32 {
+		var cp uint64
+		for i, st := range wordStories {
+			n := binary.LittleEndian.Uint32(word[st.field:])
+			if n > 0 && cp <= 0xFFFFFFFF {
+				bounds = append(bounds, storyStart{uint32(cp), i})
+			}
+			cp += uint64(n)
+		}
+	}
+	if len(bounds) > 0 && bounds[0].cp != 0 {
+		bounds = nil // main text must start at CP 0
+	}
+	story := -1
 	var line []uint16
 	flush := func() bool {
 		if len(line) == 0 {
@@ -77,7 +133,20 @@ func extractWordText(word []byte, tables map[string][]byte, out *textBuffer) err
 		line = line[:0]
 		return ok
 	}
-	emit := func(c uint16) bool {
+	emit := func(cp uint32, c uint16) bool {
+		next := story
+		for next+1 < len(bounds) && cp >= bounds[next+1].cp {
+			next++
+		}
+		if next != story {
+			if !flush() {
+				return false
+			}
+			story = next
+			if suffix := wordStories[bounds[story].idx].suffix; marks != nil && suffix != "" {
+				*marks = append(*marks, wordStoryMark{suffix, out.buf.Len()})
+			}
+		}
 		switch {
 		case c == '\r' || c == 0x0B || c == 0x0C || c == 0x07 || c == '\n':
 			return flush()
@@ -103,8 +172,8 @@ func extractWordText(word []byte, tables map[string][]byte, out *textBuffer) err
 				continue // piece outside the stream (fast-save remnant)
 			}
 			chars = min(chars, int64(len(word))-off) // last piece may overrun the stream
-			for _, b := range word[off : off+chars] {
-				if !emit(cp1252ToUnicode(b)) {
+			for j, b := range word[off : off+chars] {
+				if !emit(cpStart+uint32(j), cp1252ToUnicode(b)) {
 					return nil
 				}
 			}
@@ -116,7 +185,7 @@ func extractWordText(word []byte, tables map[string][]byte, out *textBuffer) err
 		}
 		chars = min(chars, (int64(len(word))-off)/2)
 		for j := int64(0); j < chars; j++ {
-			if !emit(binary.LittleEndian.Uint16(word[off+2*j:])) {
+			if !emit(cpStart+uint32(j), binary.LittleEndian.Uint16(word[off+2*j:])) {
 				return nil
 			}
 		}
