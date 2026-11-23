@@ -1,0 +1,3 @@
+Owners: connector-engineer, core-engineer, qa
+
+Join multi-volume archives before the archive walker sees them. `pkg/archive.JoinVolumes` builds one logical reader from ALZip split volumes (`<base>.volN.egg`, continuation headers stripped, prev/next split ids must link) and byte-split containers (`<base>.<zip|tar|gz|bz2|xz|zst|egg|…>.NNN`, concatenated). The filesystem source emits one lazy chunk at volume 1 for a linked set and skips the continuation volumes; the S3 source holds volume keys until listing ends, downloads the set within the 50 MiB archive budget, and emits one joined chunk. Joined totals are capped by the source size budget, incremental state covers every volume, and `split-volume` gaps remain only when a volume is missing or the chain breaks (#938).

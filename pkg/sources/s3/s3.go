@@ -109,6 +109,10 @@ type assumeRoleProviderFactory func(aws.Config, string, string) aws.CredentialsP
 type objectJob struct {
 	key   string
 	state objectIncrementalState
+	// volumes, when set, are volumes 2..n of a multi-volume archive whose
+	// volume 1 is key; the worker joins them into one archive chunk.
+	volumes []objectJob
+	scheme  archive.VolumeScheme
 }
 
 type objectOutcome struct {
@@ -297,7 +301,13 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 				if ctx.Err() != nil {
 					return
 				}
-				outcome, err := s.emitObject(ctx, client, job.key, job.state.Size, ch)
+				var outcome objectOutcome
+				var err error
+				if len(job.volumes) > 0 {
+					outcome, err = s.emitVolumes(ctx, client, job, ch)
+				} else {
+					outcome, err = s.emitObject(ctx, client, job.key, job.state.Size, ch)
+				}
 				if err != nil {
 					if ctx.Err() != nil {
 						return
@@ -310,6 +320,9 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 				}
 				if outcome.checkpoint {
 					complete(job)
+					for _, v := range job.volumes {
+						complete(v)
+					}
 				}
 				switch {
 				case outcome.empty:
@@ -335,6 +348,9 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 		input.Prefix = aws.String(s.prefix)
 	}
 
+	// Volume keys are held back until listing ends so siblings that span
+	// pages are grouped before dispatch.
+	volumes := newVolumeSets()
 	paginator := s3.NewListObjectsV2Paginator(client, input)
 	for paginator.HasMorePages() {
 		if err := ctx.Err(); err != nil {
@@ -376,12 +392,31 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 				summary.empty.Add(1)
 				continue
 			}
+			if volumes.add(key, objState) {
+				continue
+			}
 			select {
 			case jobs <- objectJob{key: key, state: objState}:
 			case <-ctx.Done():
 				waitWorkers()
 				return ctx.Err()
 			}
+		}
+	}
+	for _, job := range volumes.jobs(min(s.maxSizeBytes, maxArchiveObjectSize)) {
+		if len(job.volumes) > 0 && s.objectUnchanged(job.key, job.state) && allUnchanged(s, job.volumes) {
+			complete(job)
+			for _, v := range job.volumes {
+				complete(v)
+			}
+			summary.unchanged.Add(int64(1 + len(job.volumes)))
+			continue
+		}
+		select {
+		case jobs <- job:
+		case <-ctx.Done():
+			waitWorkers()
+			return ctx.Err()
 		}
 	}
 	waitWorkers()

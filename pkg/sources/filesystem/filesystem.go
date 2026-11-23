@@ -170,6 +170,9 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	s.nextState = &incrementalState{Version: 1, Files: map[string]fileIncrementalState{}}
 	var nestedRepos []string
 	seenRepo := map[string]bool{}
+	// Multi-volume archives keyed by their volume-1 walk path; nil marks a
+	// set that does not link and is scanned file by file.
+	volumeGroups := map[string]*volumeGroup{}
 
 	for _, root := range s.cfg.Paths {
 		root := root
@@ -232,6 +235,30 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 			}
 			fileState := stateForFile(info)
 			s.nextState.Files[absPath] = fileState
+			if id, ok := archive.ParseVolumeName(d.Name()); ok {
+				first := path
+				if id.Index != 1 {
+					first = filepath.Join(filepath.Dir(path), id.Sibling(1))
+				}
+				group, seen := volumeGroups[first]
+				if !seen {
+					group = s.resolveVolumes(root, first, id)
+					volumeGroups[first] = group
+				}
+				if group != nil && group.members[absPath] {
+					// Continuation volumes are scanned through volume 1's
+					// joined stream; volume 1 emits it when any volume changed.
+					if id.Index != 1 || s.volumesUnchanged(group) {
+						return nil
+					}
+					sem <- struct{}{}
+					g.Go(func() error {
+						defer func() { <-sem }()
+						return s.emitVolumeGroup(gctx, group, ch)
+					})
+					return nil
+				}
+			}
 			if s.fileUnchanged(absPath, fileState) {
 				return nil
 			}
