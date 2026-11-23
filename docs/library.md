@@ -79,11 +79,11 @@ Errors raise `pleno_dlp.PlenoDLPError` with a `code` attribute.
 ## Node.js
 
 ```sh
-npm install @plenoai/pleno-dlp
+npm install pleno-dlp
 ```
 
 ```js
-import { scanBytes, PlenoDLPError } from '@plenoai/pleno-dlp';
+import { scanBytes, PlenoDLPError } from 'pleno-dlp';
 
 for (const f of scanBytes(process.env.SOME_BLOB ?? '')) {
   console.log(f.detector, f.redacted);
@@ -151,5 +151,5 @@ registry tokens. One-time registry setup:
 - **PyPI:** add a trusted publisher for project `pleno-dlp`: owner
   `plenoai`, repository `pleno-dlp`, workflow `release.yml`, environment
   `pypi`.
-- **npm:** add a trusted publisher for `@plenoai/pleno-dlp`: repository
+- **npm:** add a trusted publisher for `pleno-dlp`: repository
   `plenoai/pleno-dlp`, workflow `release.yml`, environment `npm`.

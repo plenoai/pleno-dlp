@@ -1,5 +1,5 @@
 {
-  "name": "@plenoai/pleno-dlp",
+  "name": "pleno-dlp",
   "version": "0.0.0-dev",
   "description": "Embeddable pleno-dlp secret scanner: scan, verify and revoke secrets from Node.js",
   "license": "AGPL-3.0-only",
