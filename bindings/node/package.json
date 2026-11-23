@@ -17,6 +17,6 @@
   },
   "files": ["index.cjs", "index.mjs", "index.d.ts", "lib/", "README.md"],
   "scripts": { "test": "node --test test/*.test.cjs" },
-  "dependencies": { "koffi": "2.14.1" },
+  "dependencies": { "koffi": "3.3.8" },
   "publishConfig": { "access": "public", "provenance": true }
 }
