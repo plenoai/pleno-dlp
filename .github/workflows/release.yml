@@ -575,7 +575,10 @@ jobs:
       - name: Test and publish
         working-directory: bindings/node
         run: |
-          npm install -g npm@11.6.2
+          npm install -g npm@11.19.0
           npm ci --no-audit --no-fund
           npm test
-          npm publish --provenance --access public
+          # Staged publishing: the trusted publisher requires a maintainer to
+          # approve each version with 2FA (`npm stage approve <id>` or the
+          # npmjs.com UI) before it becomes public; CI only stages it.
+          npm stage publish --provenance --access public
