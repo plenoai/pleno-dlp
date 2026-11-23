@@ -132,6 +132,8 @@ type gitFlags struct {
 	repo                    string
 	branch                  string
 	since                   string
+	sinceCommit             string
+	branchRootCommit        string
 	maxDepth                int
 	include                 []string
 	exclude                 []string
@@ -292,6 +294,9 @@ func init() {
 	scanGitCmd.Flags().StringVar(&gitOpts.gitToken, "git-token", "", "HTTPS token for --git-url (falls back to the PLENO_GIT_TOKEN env var)")
 	scanGitCmd.Flags().StringVar(&gitOpts.branch, "branch", "", "branch to walk (default: all safe advertised history refs)")
 	scanGitCmd.Flags().StringVar(&gitOpts.since, "since", "", "RFC3339 cutoff; commits older than this are skipped")
+	scanGitCmd.Flags().StringVar(&gitOpts.sinceCommit, "since-commit", "", "scan only commits not reachable from this revision (exclusive ancestry boundary, e.g. origin/main or a PR base SHA)")
+	scanGitCmd.Flags().StringVar(&gitOpts.branchRootCommit, "branch-root-commit", "", "scan this commit and its descendants only (inclusive variant of --since-commit)")
+	scanGitCmd.MarkFlagsMutuallyExclusive("since-commit", "branch-root-commit")
 	scanGitCmd.Flags().IntVar(&gitOpts.maxDepth, "max-depth", 0, "cap on commits walked (0 = unbounded)")
 	scanGitCmd.Flags().StringSliceVar(&gitOpts.include, "include", nil, "glob(s) to include (matched against repo-relative paths)")
 	scanGitCmd.Flags().StringSliceVar(&gitOpts.exclude, "exclude", nil, "glob(s) to exclude")
@@ -416,6 +421,8 @@ func runScanGit(cmd *cobra.Command, _ []string) error {
 		"branch":                     gitOpts.branch,
 		"all_branches":               gitOpts.branch == "",
 		"since":                      gitOpts.since,
+		"since_commit":               gitOpts.sinceCommit,
+		"branch_root_commit":         gitOpts.branchRootCommit,
 		"max_depth":                  gitOpts.maxDepth,
 		"include":                    gitOpts.include,
 		"exclude":                    gitOpts.exclude,

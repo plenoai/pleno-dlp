@@ -60,6 +60,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-11-23 | connector-engineer, core-engineer, qa | Add `--since-commit` (exclusive `rev..tip`) and `--branch-root-commit` (inclusive) to `scan git` and `scan github`; boundaries feed the existing stop-set (full ancestry on the go-git path), unresolvable revisions fail, ranged runs never advance git checkpoints, and the GitHub history policy includes the range so the next unranged run rescans fully (#815). |
 | 2026-11-23 | core-engineer, connector-engineer, qa | Add `detectors.AccessMapper` and the `pleno-dlp.access-map/v1` schema; `scan --blast-radius` attaches identity/permission/resource maps to verified AWS, GCP service-account, GitHub, GitLab, and Slack findings, and `pleno-dlp blast-radius <provider>` maps one credential (#808). |
 | 2026-11-23 | connector-engineer, qa | Add the shared `pkg/connectors/remote_git.go` clone-and-walk helper (ForgeMeta provenance, per-repo git checkpoints in `forgeIncrementalState.Repos`) and `--history`/`--clone-url` for Gitea-family forges; tokens reach HTTP(S) remotes only (#811). |
 | 2026-11-23 | connector-engineer, qa | Add `pkg/sources/git.CloneRemote` (HTTPS-only credentials, no URL userinfo, token-redacted errors) and `scan git --git-url` so remote repositories are scanned with the full local git walker (#811). |
