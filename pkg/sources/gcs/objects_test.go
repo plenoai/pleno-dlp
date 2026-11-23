@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"testing"
@@ -170,5 +172,28 @@ func TestChunksListErrorIsCoverageGap(t *testing.T) {
 	var deg *engine.DegradedError
 	if !errors.As(err, &deg) {
 		t.Fatalf("want degraded error, got %v", err)
+	}
+}
+
+func TestChunksJoinsSpannedZip(t *testing.T) {
+	b := &fakeBucket{bodies: map[string][]byte{}}
+	for _, n := range []string{"span.z01", "span.zip"} {
+		data, err := os.ReadFile(filepath.Join("..", "..", "archive", "testdata", "zipspan", n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b.order = append(b.order, "bk/"+n)
+		b.bodies["bk/"+n] = data
+	}
+	got, err := drain(t, newTestSource(t, b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got["bk/span.z01"] == nil {
+		t.Fatalf("chunks %d", len(got))
+	}
+	entries, err := archive.Walk("span.z01", got["bk/span.z01"], archive.Limits{})
+	if err != nil || len(entries) != 2 || string(entries[1].Data) != "FIXTURE-SPAN-SECRET\n" {
+		t.Fatalf("walk: %d %v", len(entries), err)
 	}
 }

@@ -1,7 +1,7 @@
 // Package gcs lists objects in a GCS bucket and emits one chunk per text
 // object and one chunk per archive object, which the engine expands under
 // its archive budgets. Multi-volume archives ("<name>.vol1.egg",
-// "<name>.zip.001", ...) are joined across objects with archive.JoinVolumes
+// "<name>.zip.001", "<name>.z01".."<name>.zip") are joined across objects with archive.JoinVolumes
 // before expansion. Authentication uses Application Default Credentials
 // (GOOGLE_APPLICATION_CREDENTIALS, gcloud auth, Workload Identity) — no
 // pleno-dlp-specific auth.

@@ -47,6 +47,23 @@ func (s *Source) resolveVolumes(root, first string, id archive.VolumeID) *volume
 			paths = append(paths, path)
 		}
 	}
+	if term, ok := id.Terminal(); ok {
+		path := filepath.Join(dir, term)
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			return nil
+		}
+		if fi, err := os.Lstat(first); err != nil || !fi.Mode().IsRegular() {
+			return nil
+		}
+		if s.excluded(info.Name(), relPath(root, path)) || !s.included(info.Name(), relPath(root, path)) {
+			return nil
+		}
+		if total += info.Size(); total > s.cfg.MaxSizeBytes {
+			return nil
+		}
+		paths = append(paths, path)
+	}
 	if len(paths) < 2 {
 		return nil
 	}

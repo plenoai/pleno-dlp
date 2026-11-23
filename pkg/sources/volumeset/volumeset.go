@@ -54,8 +54,9 @@ func (v *Sets[T]) Add(key string, size int64, item T) bool {
 	return true
 }
 
-// Jobs returns one job per linked set (volumes 1..n present, n >= 2, total
-// within maxTotal) and a single-object job for every other volume key.
+// Jobs returns one job per linked set (volumes 1..n present, n >= 2, plus
+// the terminal volume for schemes that have one, total within maxTotal) and
+// a single-object job for every other volume key.
 func (v *Sets[T]) Jobs(maxTotal int64) []Job[T] {
 	var out []Job[T]
 	for _, set := range v.order {
@@ -63,6 +64,7 @@ func (v *Sets[T]) Jobs(maxTotal int64) []Job[T] {
 		id := v.ids[set]
 		var chain []Member[T]
 		var total int64
+		inChain := map[int]bool{}
 		for i := 1; i <= archive.MaxVolumes; i++ {
 			m, ok := members[i]
 			if !ok || m.Key != id.Sibling(i) {
@@ -70,14 +72,25 @@ func (v *Sets[T]) Jobs(maxTotal int64) []Job[T] {
 			}
 			total += m.Size
 			chain = append(chain, m)
+			inChain[i] = true
 		}
-		linked := len(chain) >= 2 && total <= maxTotal
+		complete := true
+		if term, ok := id.Terminal(); ok {
+			m, present := members[0]
+			complete = present && m.Key == term && len(chain) > 0
+			if complete {
+				total += m.Size
+				chain = append(chain, m)
+				inChain[0] = true
+			}
+		}
+		linked := complete && len(chain) >= 2 && total <= maxTotal
 		if linked {
 			out = append(out, Job[T]{Head: chain[0], Volumes: chain[1:], Scheme: id.Scheme})
 		}
 		rest := make([]int, 0, len(members))
-		for i, m := range members {
-			if linked && i <= len(chain) && m.Key == id.Sibling(i) {
+		for i := range members {
+			if linked && inChain[i] {
 				continue
 			}
 			rest = append(rest, i)

@@ -47,7 +47,7 @@ func TestParseVolumeName(t *testing.T) {
 			t.Fatalf("%s: sibling %q want %q", tc.name, got, tc.sibling)
 		}
 	}
-	for _, name := range []string{"a.egg", "a.vol0.egg", "a.zip.000", "a.txt.001", "a.7z.001", "a.zip"} {
+	for _, name := range []string{"a.egg", "a.vol0.egg", "a.zip.000", "a.txt.001", "a.7z.001"} {
 		if _, ok := ParseVolumeName(name); ok {
 			t.Fatalf("%s: unexpected volume", name)
 		}
