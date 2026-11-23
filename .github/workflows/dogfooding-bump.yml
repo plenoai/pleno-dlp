@@ -3,8 +3,14 @@ name: dogfooding-bump
 # Opens a PR that moves aqua/aqua.yaml to the newest pleno-dlp release and
 # plenoai/aqua-registry commit, with refreshed checksums (docs/dogfooding.md).
 on:
-  release:
-    types: [published]
+  # Releases are published by release.yml's GITHUB_TOKEN, which never fires
+  # `release: published`; chain off the finished release run instead so the
+  # assets exist when the bump script picks the newest darwin/arm64 release.
+  # Any conclusion: a failed npm/PyPI job must not block the binary pin, and
+  # the script only selects published releases that ship darwin/arm64.
+  workflow_run:
+    workflows: [release]
+    types: [completed]
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:

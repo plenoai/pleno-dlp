@@ -71,7 +71,7 @@ func TestDogfoodingInstallsReleasedBinaryThroughAqua(t *testing.T) {
 		t.Error("aqua/registry.yaml must not exist: plenoai/aqua-registry is the single source of truth")
 	}
 	bump := read(".github", "workflows", "dogfooding-bump.yml")
-	for _, want := range []string{"types: [published]", "scripts/bump-dogfooding.sh"} {
+	for _, want := range []string{"workflows: [release]", "types: [completed]", "scripts/bump-dogfooding.sh"} {
 		if !strings.Contains(bump, want) {
 			t.Errorf("dogfooding-bump.yml must contain %q", want)
 		}
