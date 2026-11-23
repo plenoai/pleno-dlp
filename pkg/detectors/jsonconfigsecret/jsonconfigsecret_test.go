@@ -108,3 +108,15 @@ func TestFromData_Dedup(t *testing.T) {
 		t.Fatalf("expected 1 deduped, got %d", len(res))
 	}
 }
+
+func TestFromData_TemplateMarkersAreNotSecrets(t *testing.T) {
+	data := []byte(`{"client_secret":"{secret}","api_key":"${API_KEY}","password":"{{ .Password }}","secret":"<your-secret>","pwd":"%(pw)s"}`)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
+	if len(res) != 0 {
+		t.Fatalf("template markers flagged: %+v", res)
+	}
+	res, _ = redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(`{"client_secret":"{a}b-Zx81kq"}`))
+	if len(res) != 1 {
+		t.Fatalf("partial template must still be flagged: %+v", res)
+	}
+}
