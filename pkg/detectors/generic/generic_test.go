@@ -320,10 +320,10 @@ func TestFromData_StillFiresOnRealSecret(t *testing.T) {
 }
 
 func TestShannonEntropy_CalibratesAtFour(t *testing.T) {
-	if e := shannonEntropy("Hf83KdjL9qZ8xVnB2Wm7TpRcJyXuAbCdEfGhIjKlMnOp01"); e < 4.0 {
+	if e := detectors.ShannonEntropy("Hf83KdjL9qZ8xVnB2Wm7TpRcJyXuAbCdEfGhIjKlMnOp01"); e < 4.0 { // pleno-dlp:allow fixture
 		t.Errorf("random b64 must score >= 4.0, got %v", e)
 	}
-	if e := shannonEntropy("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); e > 1.0 {
+	if e := detectors.ShannonEntropy("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); e > 1.0 {
 		t.Errorf("all-same-char must score < 1.0, got %v", e)
 	}
 }
@@ -561,4 +561,23 @@ class RehashOnLogoutOtherDevicesTest extends TestCase
 	if !found {
 		t.Error("Laravel APP_KEY-shaped secret must still fire in a bcrypt/argon2-hash-dense test file")
 	}
+}
+
+func TestAppendLowerMatchesStringsToLower(t *testing.T) {
+	for _, in := range []string{
+		"", "ABC def", "PASSWORD=x", "\xff\xfePassWord", "İSTANBUL TOKEN=", "KELVIN K", "ǅ Ǆ ǆ", "日本語 SECRET:", "\xe2\x82", "ΣΑΣ",
+	} {
+		if got, want := string(appendLower(nil, []byte(in))), strings.ToLower(in); got != want {
+			t.Errorf("appendLower(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func FuzzAppendLower(f *testing.F) {
+	f.Add([]byte("\xc4\xb0PASSWORD\xff"))
+	f.Fuzz(func(t *testing.T, in []byte) {
+		if got, want := string(appendLower(nil, in)), strings.ToLower(string(in)); got != want {
+			t.Fatalf("appendLower(%q) = %q, want %q", in, got, want)
+		}
+	})
 }

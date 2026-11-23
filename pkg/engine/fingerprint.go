@@ -23,12 +23,24 @@ const fingerprintVersion = "pleno-dlp/fingerprint/v1"
 // a 32-hex-digit (128-bit) prefix of SHA-256; the secret is not recoverable
 // from it beyond brute force over the secret space.
 func Fingerprint(f Finding) string {
+	fp, _ := FingerprintAndPath(f)
+	return fp
+}
+
+// FingerprintAndPath returns Fingerprint(f) and FingerprintPath(f) while
+// resolving the working directory and symlinks once instead of twice.
+func FingerprintAndPath(f Finding) (string, string) {
+	path := FingerprintPath(f)
+	return fingerprintWithPath(f, path), path
+}
+
+func fingerprintWithPath(f Finding, path string) string {
 	h := sha256.New()
 	h.Write([]byte(fingerprintVersion))
 	h.Write([]byte{0})
 	h.Write([]byte(strings.ToLower(f.Detector.String())))
 	h.Write([]byte{0})
-	h.Write([]byte(FingerprintPath(f)))
+	h.Write([]byte(path))
 	h.Write([]byte{0})
 	h.Write(f.Result.Raw)
 	sum := h.Sum(nil)

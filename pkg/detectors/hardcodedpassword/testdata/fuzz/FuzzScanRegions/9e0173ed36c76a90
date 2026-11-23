@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("pAsswd\n0\n=\n0000")

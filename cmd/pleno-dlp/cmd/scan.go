@@ -388,6 +388,7 @@ func init() {
 }
 
 func runScanFilesystem(cmd *cobra.Command, args []string) error {
+	capScanProcs(filesystemScanProcs)
 	src := sources.New(sources.SourceFilesystem)
 	if src == nil {
 		return fmt.Errorf("filesystem source is not registered (missing pkg/sources/all import?)")
@@ -432,7 +433,7 @@ func runScanStdin(cmd *cobra.Command, _ []string) error {
 }
 
 func runScanGit(cmd *cobra.Command, _ []string) error {
-	capGitScanProcs()
+	capScanProcs(gitScanProcs)
 	src := sources.New(sources.SourceGit)
 	if src == nil {
 		return fmt.Errorf("git source is not registered (missing pkg/sources/all import?)")
@@ -1927,12 +1928,21 @@ func Execute(ctx context.Context) (err error) {
 // kingfisher (#1018).
 func gitScanProcs(cpus int) int { return max(4, cpus*2/3) }
 
-// capGitScanProcs applies gitScanProcs unless the operator set GOMAXPROCS.
-func capGitScanProcs() {
+// filesystemScanProcs is the Go scheduler width for a filesystem scan: a
+// third of the CPUs, at least 4. File open/stat/close serialize in the
+// kernel and idle detector workers spin in the scheduler, so CPU grew with
+// GOMAXPROCS while wall time stayed flat. Measured on a 30-CPU host
+// (hyperfine median, #1020): django 3.03→2.39 and rails 1.93→1.55 CPU-s at
+// 10 procs, wall within noise of 30 procs and of kingfisher.
+func filesystemScanProcs(cpus int) int { return max(4, cpus/3) }
+
+// capScanProcs lowers GOMAXPROCS to procs(NumCPU) unless the operator set
+// GOMAXPROCS explicitly.
+func capScanProcs(procs func(cpus int) int) {
 	if os.Getenv("GOMAXPROCS") != "" {
 		return
 	}
-	if n := gitScanProcs(runtime.NumCPU()); n < runtime.GOMAXPROCS(0) {
+	if n := procs(runtime.NumCPU()); n < runtime.GOMAXPROCS(0) {
 		runtime.GOMAXPROCS(n)
 	}
 }

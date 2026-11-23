@@ -2831,3 +2831,11 @@ func TestGitScanProcs(t *testing.T) {
 		}
 	}
 }
+
+func TestFilesystemScanProcs(t *testing.T) {
+	for cpus, want := range map[int]int{1: 4, 4: 4, 12: 4, 15: 5, 30: 10} {
+		if got := filesystemScanProcs(cpus); got != want {
+			t.Errorf("filesystemScanProcs(%d) = %d, want %d", cpus, got, want)
+		}
+	}
+}

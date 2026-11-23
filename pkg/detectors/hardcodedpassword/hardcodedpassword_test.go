@@ -4,11 +4,18 @@ package hardcodedpassword
 
 import (
 	"context"
+	"fmt"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"strings"
 	"testing"
 )
+
+// hasAssignmentHead reports assignmentScan's admission decision.
+func hasAssignmentHead(data []byte) bool {
+	ok, _ := assignmentScan(data)
+	return ok
+}
 
 var legacyAssignmentHeadRe = detectors.MustCompile(
 	`(?:password|passwd|pwd)(?:(?:[^a-z0-9_][^\n=]*)?\s*=|[a-z0-9_]*\s*:)`,
@@ -227,4 +234,52 @@ func TestFromData_CaseLabelNotMapping(t *testing.T) {
 	if len(res) != 0 {
 		t.Fatalf("expected no findings, got %+v", res)
 	}
+}
+
+// TestScanRegionsMatchFullScan pins the assignmentScan regions: scanning
+// only keyword lines and the three non-blank lines after them must find
+// exactly what a whole-window scan finds (#1020).
+func TestScanRegionsMatchFullScan(t *testing.T) {
+	inputs := []string{
+		"x\ny\npassword = hunter2abc\n",                              // pleno-dlp:allow fixture
+		"prefix text\n\tDB_PASSWORD=s3cr3tval\nother: 1\n",           // pleno-dlp:allow fixture
+		"a\n  db_pwd: realvalue1\nPASSWD=another1\n",                 // pleno-dlp:allow fixture
+		"no keyword here = value\n:\n",                               // pleno-dlp:allow fixture
+		"variable \"db_password\" {\n  default = \"tfsecret1\"\n}\n", // pleno-dlp:allow fixture
+		"\npassword\n\n = \"multi1line\"\n",                          // pleno-dlp:allow fixture
+		"k=v\nfoo-password: 'quoted99'\n",                            // pleno-dlp:allow fixture
+		"PassWord := \"camel123\"\nPWD=\"x9x9x9x\"",                  // pleno-dlp:allow fixture
+		"password\n\n \t\n=\n\n\r\n'spread99'\nnext = 1\n",           // pleno-dlp:allow fixture
+		"pwd\n=\nvalue1234\npassword: 'two2two2'\n",                  // pleno-dlp:allow fixture
+		"my_password\r\n  =  'crlf1234'\r\n",                         // pleno-dlp:allow fixture
+		"pAsswd\n0\n=\n0000",                                         // pleno-dlp:allow fixture
+		"passwd\nrest of line\n\n=\n\n\"v4lue9999\"\n",               // pleno-dlp:allow fixture
+	}
+	for _, in := range inputs {
+		data := []byte(strings.Repeat("filler line without keywords = 1\n", 3) + in)
+		ok, regions := assignmentScan(data)
+		if !ok {
+			continue
+		}
+		got := fmt.Sprint(scan(data, regions))
+		want := fmt.Sprint(scan(data, []span{{0, len(data)}}))
+		if got != want {
+			t.Errorf("scan(%q, %v) = %s, full scan = %s", data, regions, got, want)
+		}
+	}
+}
+
+func FuzzScanRegions(f *testing.F) {
+	f.Add([]byte("a\nb: 1\n db_password = hunter22\n"))                  // pleno-dlp:allow fixture
+	f.Add([]byte("password\n\n \t\n=\n\n\r\n'spread99'\nnext = 1\n"))    // pleno-dlp:allow fixture
+	f.Add([]byte("x pwd y\n\n= z\n\n\"v4lu3abc\" password: w0rd1234\n")) // pleno-dlp:allow fixture
+	f.Fuzz(func(t *testing.T, data []byte) {
+		ok, regions := assignmentScan(data)
+		if !ok {
+			return
+		}
+		if got, want := fmt.Sprint(scan(data, regions)), fmt.Sprint(scan(data, []span{{0, len(data)}})); got != want {
+			t.Fatalf("scan(%q, %v) = %s, full scan = %s", data, regions, got, want)
+		}
+	})
 }

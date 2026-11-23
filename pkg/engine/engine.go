@@ -1927,8 +1927,7 @@ func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Var
 	// detector, merge overlapping ranges, then run FromData once per
 	// merged range. VisitHits preserves the global input order while
 	// avoiding an unbounded hit slice on repeated keywords.
-	var dets map[int][]vicinitySpan
-	var detectorOrder []int
+	var sc *dispatchScratch
 	e.prefilter.VisitHits(lower, func(h ahocorasick.Hit) {
 		for _, pd := range e.detectorIdxByPattern[h.PatternID] {
 			di := pd.di
@@ -1939,8 +1938,8 @@ func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Var
 			if e.wantsFull[di] {
 				continue
 			}
-			if dets == nil {
-				dets = make(map[int][]vicinitySpan)
+			if sc == nil {
+				sc = getDispatchScratch(len(e.dets))
 			}
 			start := h.End - vicinityRadius
 			if start < 0 {
@@ -1950,15 +1949,21 @@ func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Var
 			if end > len(v.Data) {
 				end = len(v.Data)
 			}
-			if _, exists := dets[di]; !exists {
+			slot := sc.slot[di]
+			if slot == 0 {
 				// Detector indices follow e.dets, which NewWithDetectors sorts
 				// verifier-first. Record each detector once, then restore that
-				// order below instead of ranging over the randomized map.
-				detectorOrder = append(detectorOrder, di)
+				// order below.
+				sc.order = append(sc.order, di)
+				if len(sc.spans) < len(sc.order) {
+					sc.spans = append(sc.spans, nil)
+				}
+				slot = int32(len(sc.order))
+				sc.slot[di] = slot
 			}
 			// Hits arrive in byte order, so merge each detector's spans as
 			// they arrive instead of allocating and sorting every occurrence.
-			spans := dets[di]
+			spans := sc.spans[slot-1]
 			if len(spans) > 0 && start <= spans[len(spans)-1].end {
 				if end > spans[len(spans)-1].end {
 					spans[len(spans)-1].end = end
@@ -1967,22 +1972,58 @@ func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Var
 					spans[len(spans)-1].own = true
 				}
 			} else {
-				dets[di] = append(spans, vicinitySpan{start, end, pd.own})
+				sc.spans[slot-1] = append(spans, vicinitySpan{start, end, pd.own})
 			}
 		}
 	})
-	sort.Ints(detectorOrder)
-	for _, di := range detectorOrder {
-		spans := dets[di]
+	if sc == nil {
+		return
+	}
+	defer putDispatchScratch(sc)
+	sort.Ints(sc.order)
+	for _, di := range sc.order {
+		spans := sc.spans[sc.slot[di]-1]
 		// Bail out of the per-detector dispatch on cancellation so a
 		// cancelled scan stops running detectors mid-window.
 		if ctx.Err() != nil {
 			return
 		}
 		for _, sp := range spans {
-			e.runDetectorWindow(ctx, c, v, archivePath, di, sp.start, v.Data[sp.start:sp.end], stream, matchCache, base, !sp.own)
+			e.runDetectorWindow(ctx, c, v, archivePath, di, sp.start, v.Data[sp.start:sp.end], lower[sp.start:sp.end], stream, matchCache, base, !sp.own)
 		}
 	}
+}
+
+// dispatchScratch groups one window's keyword hits by detector. slot[di]
+// is 1 + the index of detector di in order/spans, 0 when di has no hit.
+// It replaced a per-window map[int][]vicinitySpan whose inserts cost 0.7
+// CPU-s on django git history (#1020).
+type dispatchScratch struct {
+	slot  []int32
+	order []int
+	spans [][]vicinitySpan
+}
+
+var dispatchScratchPool sync.Pool
+
+func getDispatchScratch(numDetectors int) *dispatchScratch {
+	sc, _ := dispatchScratchPool.Get().(*dispatchScratch)
+	if sc == nil {
+		sc = &dispatchScratch{}
+	}
+	if len(sc.slot) < numDetectors {
+		sc.slot = make([]int32, numDetectors)
+	}
+	return sc
+}
+
+func putDispatchScratch(sc *dispatchScratch) {
+	for i, di := range sc.order {
+		sc.slot[di] = 0
+		sc.spans[i] = sc.spans[i][:0]
+	}
+	sc.order = sc.order[:0]
+	dispatchScratchPool.Put(sc)
 }
 
 // vicinitySpan is a merged keyword-hit window. own reports whether any
@@ -2016,7 +2057,7 @@ func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.
 }
 
 func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte, stream bool, matchCache *streamMatchCache, base streamWindowBase) {
-	e.runDetectorWindow(ctx, c, v, archivePath, di, 0, data, stream, matchCache, base, false)
+	e.runDetectorWindow(ctx, c, v, archivePath, di, 0, data, nil, stream, matchCache, base, false)
 }
 
 // runDetectorWindow runs detector di over data, which starts at byte winStart
@@ -2027,7 +2068,7 @@ func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decode
 // formatsOnly skips the detector's own FromData and runs only the
 // formats registered for its type: the window was reached solely through
 // a format keyword, so the detector's own keywords are absent (#986).
-func (e *Engine) runDetectorWindow(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, winStart int, data []byte, stream bool, matchCache *streamMatchCache, base streamWindowBase, formatsOnly bool) {
+func (e *Engine) runDetectorWindow(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, winStart int, data, lowerData []byte, stream bool, matchCache *streamMatchCache, base streamWindowBase, formatsOnly bool) {
 	d := e.dets[di]
 	// Verification defaults to unconditional-true: the bool is the
 	// trufflehog Detector contract, not normally a configurable option.
@@ -2053,7 +2094,7 @@ func (e *Engine) runDetectorWindow(ctx context.Context, c *sources.Chunk, v deco
 			path = findingPath(Finding{Chunk: c})
 		}
 		n := len(results)
-		results = detectors.AppendFormatResults(d.Type(), path, data, results)
+		results = detectors.AppendFormatResultsLower(d.Type(), path, data, lowerData, results)
 		if len(results) > n && !e.opts.NoVerify {
 			// Formats with a Verify hook (paired, signed, or routed to the
 			// provider's verifier) check their own candidates against the

@@ -302,11 +302,20 @@ func KeywordsWithFormats(d Detector) []string {
 // data, read from path ("" when unknown), to results, skipping secrets
 // already present in results.
 func AppendFormatResults(t DetectorType, path string, data []byte, results []Result) []Result {
+	return AppendFormatResultsLower(t, path, data, nil, results)
+}
+
+// AppendFormatResultsLower is AppendFormatResults for a caller that already
+// holds asciiLower, data with only A-Z lowered (len(asciiLower) ==
+// len(data)). The engine lowers each window once for its keyword prefilter;
+// reusing that copy spares every format-bearing detector its own lowering
+// pass (#1020). A nil asciiLower lowers on demand.
+func AppendFormatResultsLower(t DetectorType, path string, data, asciiLower []byte, results []Result) []Result {
 	fs := FormatsFor(t)
 	if len(fs) == 0 {
 		return results
 	}
-	return MatchFormatsAt(t, fs, path, data, results)
+	return matchFormatsAt(t, fs, path, data, asciiLower, results)
 }
 
 // MatchFormats is MatchFormatsAt with no source path: path-constrained
@@ -318,12 +327,19 @@ func MatchFormats(t DetectorType, fs []*Format, data []byte, results []Result) [
 // MatchFormatsAt appends the matches of fs in data, read from path and
 // typed t, to results, skipping secrets already present in results.
 func MatchFormatsAt(t DetectorType, fs []*Format, path string, data []byte, results []Result) []Result {
+	return matchFormatsAt(t, fs, path, data, nil, results)
+}
+
+func matchFormatsAt(t DetectorType, fs []*Format, path string, data, asciiLowerData []byte, results []Result) []Result {
 	seen := make(map[string]bool, len(results))
 	for _, r := range results {
 		seen[string(r.Raw)] = true
 	}
 	lower := []byte(nil)
 	var asciiLower asciiScratch
+	if asciiLowerData != nil && len(asciiLowerData) == len(data) {
+		asciiLower.view, asciiLower.done = asciiLowerData, true
+	}
 	defer asciiLower.release()
 	for _, f := range fs {
 		if _, err := f.Compile(); err != nil {
