@@ -937,6 +937,35 @@ func missingTreeHash(message string) plumbing.Hash {
 }
 
 func (p *nativeLogParser) parse(r io.Reader) error {
+	if err := p.parseStream(r); err != nil {
+		return err
+	}
+	return p.finish()
+}
+
+// feed consumes complete rendered lines held in memory. It is parseStream
+// for a producer running on the parser's goroutine: no pipe, no copy, and
+// the same per-line rules (an overlong line is accepted only where the
+// streaming reader would have consumed it in fragments).
+func (p *nativeLogParser) feed(data []byte) error {
+	for len(data) > 0 {
+		line := data
+		if i := bytes.IndexByte(data, '\n'); i >= 0 {
+			line = data[:i+1]
+		}
+		data = data[len(line):]
+		if len(line) > int(maxBlobSize)+1 && !p.fragmentedHunkLine(line) {
+			return fmt.Errorf("native output line exceeds %d-byte limit", maxBlobSize)
+		}
+		if err := p.consumeLine(line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// parseStream consumes r without the end-of-stream flush.
+func (p *nativeLogParser) parseStream(r io.Reader) error {
 	reader := bufio.NewReaderSize(r, 256<<10)
 	for {
 		line, err := reader.ReadSlice('\n')
@@ -981,7 +1010,7 @@ func (p *nativeLogParser) parse(r io.Reader) error {
 			return err
 		}
 	}
-	return p.finish()
+	return nil
 }
 
 func (p *nativeLogParser) finish() error {

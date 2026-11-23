@@ -334,21 +334,9 @@ func (b *batchReader) Read(p []byte) (int, error) {
 // consumeNativeStream renders the raw records read from raw in process and
 // parses the result, like consumeNativeLog does for one shard.
 func (s *Source) consumeNativeStream(ctx context.Context, repo *gogit.Repository, gitBin string, patchArgs []string, raw io.Reader, ch chan<- *sources.Chunk, scan func(*sources.Chunk), ordinals map[string]int64, blobs *catFileHolder, res *nativeSynthRes) error {
-	pr, pw := io.Pipe()
-	synth := &nativeSynthLog{
-		ctx:       ctx,
-		source:    s,
-		gitBin:    gitBin,
-		patchArgs: patchArgs,
-		res:       res,
-		out:       bufio.NewWriterSize(pw, 256<<10),
-	}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_ = pw.CloseWithError(synth.run(raw))
-	}()
-	parser := nativeLogParser{
+	// The renderer feeds the parser on this goroutine: the patch text
+	// never crosses a pipe (#1033).
+	parser := &nativeLogParser{
 		ctx:      ctx,
 		source:   s,
 		repo:     repo,
@@ -358,9 +346,18 @@ func (s *Source) consumeNativeStream(ctx context.Context, repo *gogit.Repository
 		scan:     scan,
 		ordinals: ordinals,
 	}
-	parseErr := parser.parse(pr)
-	_ = pr.CloseWithError(errNativeRenderStopped)
-	<-done
+	synth := &nativeSynthLog{
+		ctx:       ctx,
+		source:    s,
+		gitBin:    gitBin,
+		patchArgs: patchArgs,
+		res:       res,
+		direct:    parser,
+	}
+	parseErr := synth.run(raw)
+	if parseErr == nil {
+		parseErr = parser.finish()
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}

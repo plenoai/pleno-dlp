@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -1610,5 +1611,52 @@ func TestMissingTreeHashDiagnosticForms(t *testing.T) {
 		if got := missingTreeHash(message).String(); got != hash {
 			t.Errorf("%q: got %s", message, got)
 		}
+	}
+}
+
+// TestNativeLogParserFeedMatchesParse pins the in-memory feed used by the
+// in-process stream (#1033) to the streaming reader: same chunks and lines,
+// including context, a no-newline marker, and a hunk line longer than the
+// reader's 256 KiB buffer.
+func TestNativeLogParserFeedMatchesParse(t *testing.T) {
+	repoPath, hashes := buildRepo(t, []commitSpec{{
+		files: map[string]string{"f.txt": "x\n"},
+		msg:   "feed",
+	}})
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	long := strings.Repeat("k", 300<<10)
+	diff := "diff --git a/f.txt b/f.txt\n" +
+		"index 0000000000000000000000000000000000000001..0000000000000000000000000000000000000002 100644\n" +
+		"--- a/f.txt\n+++ b/f.txt\n" +
+		"@@ -1,3 +1,4 @@\n ctx one\n-gone\n+added token=abc\n+" + long + "\n ctx two\n" +
+		"@@ -9 +10 @@\n-old\n+last line\n\\ No newline at end of file\n"
+	run := func(useFeed bool) []string {
+		s := &Source{}
+		mustInit(t, s, Config{Repo: repoPath})
+		ch := make(chan *sources.Chunk, 16)
+		parser := nativeLogParser{ctx: context.Background(), source: s, repo: repo, ch: ch, commit: &nativeCommit{hash: hashes[0]}}
+		if useFeed {
+			if err := parser.feed([]byte(diff)); err != nil {
+				t.Fatal(err)
+			}
+			if err := parser.finish(); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := parser.parse(strings.NewReader(diff)); err != nil {
+			t.Fatal(err)
+		}
+		close(ch)
+		var out []string
+		for c := range ch {
+			out = append(out, fmt.Sprintf("%d:%q", c.SourceMetadata.Git.Line, c.Data))
+		}
+		return out
+	}
+	want, got := run(false), run(true)
+	if len(want) == 0 || !reflect.DeepEqual(want, got) {
+		t.Fatalf("feed differs from parse:\nparse %d chunks\nfeed  %d chunks", len(want), len(got))
 	}
 }
