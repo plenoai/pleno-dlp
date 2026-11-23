@@ -45,7 +45,7 @@ Status values:
 | `--only-valid` | `--only-verified`, `--only-provider-confirmed` | done |
 | `--no-validate` | `--no-verify` | done |
 | `--validation-rps` | `--verify-rps` (per host) | done |
-| `--validation-rps-rule`, `--validation-retries`, `--validation-timeout` | — | gap |
+| `--validation-rps-rule`, `--validation-retries`, `--validation-timeout` | `--verify-rps-detector DETECTOR=RPS`, `--verify-retries`, `--verify-timeout` | done |
 | `--max-validation-response-length`, `--full-validation-response` | — | won't: pleno-dlp never stores provider response bodies (redaction policy, `docs/redaction.md`) |
 | `--skip-aws-account`, `--skip-aws-account-file` | same; built-in Thinkst canary list; account decoded offline into `aws_account_id` | done |
 | `--allow-internal-ips`, `--enable-rule-internal-ips` | verifiers refuse non-public IPs; custom-rule `validation` has SSRF guards | done (stricter, not overridable) |
@@ -56,7 +56,7 @@ Status values:
 | `--no-ignore`, `--no-ignore-if-contains` | `--no-default-excludes` | done |
 | `--max-file-size(-mb)` | `--max-size` (bytes) | done |
 | `--no-binary` | binary detection is automatic | done |
-| `--no-extract-archives`, `--extraction-depth` | `pkg/archive` budgets; git `--git-archive-max-depth` | partial (filesystem depth flag: gap) |
+| `--no-extract-archives`, `--extraction-depth` | `pkg/archive` budgets; `--extraction-depth`; git `--git-archive-max-depth` | partial (`--no-extract-archives`: gap) |
 | `--no-dedup` | `scan git --all-occurrences` | partial |
 | `--redact` | redaction is always on | done (stricter) |
 | `--min-entropy` | per-detector entropy thresholds | won't: global override would weaken calibrated detectors |
@@ -102,7 +102,7 @@ Status values:
 | `--alert-webhook`, `--alert-dry-run` | same | done |
 | `--alert-min-confidence` | `--alert-min-severity` | done |
 | `--alert-format slack/teams/discord/mattermost/googlechat/generic` | `--alert-format` (default `auto`, inferred from host) | done |
-| `--alert-on`, `--alert-finding-filter`, `--alert-detail`, `--alert-prevent-empty`, `--alert-report-url` | — | gap |
+| `--alert-on`, `--alert-finding-filter`, `--alert-detail`, `--alert-prevent-empty`, `--alert-report-url` | same (`--alert-prevent-empty` defaults to true) | done |
 | `--alert-include-secret` | — | won't: alerts carry redacted findings only |
 
 pleno-dlp-only capabilities (PII detection, stdin/diff scanning, SaaS
