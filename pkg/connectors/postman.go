@@ -93,7 +93,7 @@ func postmanEmitWorkspace(ctx context.Context, cli *postmanClient, ws postmanWor
 			meta := sources.Metadata{
 				SIEM: &sources.SIEMMeta{
 					Provider: "postman",
-					Host:     postmanBaseURL,
+					Host:     cli.baseURL,
 					Index:    ws.Name + "/" + coll.Name,
 					EventID:  coll.UID,
 					Link:     "https://www.postman.com/collection/" + coll.UID,
@@ -124,7 +124,7 @@ func postmanEmitWorkspace(ctx context.Context, cli *postmanClient, ws postmanWor
 			meta := sources.Metadata{
 				SIEM: &sources.SIEMMeta{
 					Provider: "postman",
-					Host:     postmanBaseURL,
+					Host:     cli.baseURL,
 					Index:    ws.Name + "/env/" + env.Name,
 					EventID:  env.UID,
 					Link:     "https://www.postman.com/environment/" + env.UID,
