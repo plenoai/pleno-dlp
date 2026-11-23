@@ -12,7 +12,6 @@ package recurly
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +23,7 @@ var apiBase = "https://v3.recurly.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // armRe is the assignment-style Recurly reference that must appear within the
 // proximity window. A bare "recurly" substring (script-src URLs, doc links,
@@ -39,7 +38,9 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // length is left unchanged (not re-pinned on an unverified claim) and only the
 // recall-safe gate is tightened here: arm regex + tighter radius + conservative
 // entropy floor.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)recurly[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)recurly[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-information 32-char alnum runs that clear the regex but
 // are not random tokens (padded placeholders, repeated characters, slugs). 3.0

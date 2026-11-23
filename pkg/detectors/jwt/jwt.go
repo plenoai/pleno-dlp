@@ -28,7 +28,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,8 +38,8 @@ import (
 
 // Header always begins with "eyJ" because every JWT header JSON starts with
 // `{"` which base64url-encodes to "eyJ". Payload likewise.
-var jwtRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+var jwtRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
 })
 
 // nowFunc is the time source for expiration checks. Overridable from tests

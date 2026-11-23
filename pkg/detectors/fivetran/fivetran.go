@@ -6,7 +6,6 @@ package fivetran
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,14 +18,14 @@ var apiBase = "https://api.fivetran.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Fivetran API keys/secrets are 20 alnum each. We pair them by proximity.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{20})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{20})\b`) })
 
 // anchorRe is an assignment-style Fivetran reference (env/config/source shape)
 // that must sit within anchorRadius bytes of one half of a candidate pair.
 // Without it, the bare keyword "fivetran" anywhere in a 256B window paired any
 // two adjacent 20-char alnum runs — README hashes, git SHAs, build IDs, etc.
-var anchorRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)fivetran[_\- ]?(?:api[_\- ]?key|key|secret|token)\s*[:=]`)
+var anchorRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)fivetran[_\- ]?(?:api[_\- ]?key|key|secret|token)\s*[:=]`)
 })
 
 // minEntropy is a SECONDARY gate. Fivetran 20-char alnum IDs measure ~3.9

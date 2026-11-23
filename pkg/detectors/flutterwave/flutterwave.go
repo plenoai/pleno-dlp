@@ -7,7 +7,6 @@ package flutterwave
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,9 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Flutterwave secret keys: `FLWSECK-` (live) or `FLWSECK_TEST-` (test)
 // followed by 32-64 alnum / dash / X chars (the trailing -X is documented).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(FLWSECK(?:_TEST)?-[A-Za-z0-9]{20,64}(?:-X)?)\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(FLWSECK(?:_TEST)?-[A-Za-z0-9]{20,64}(?:-X)?)\b`)
+})
 
 type Scanner struct{}
 

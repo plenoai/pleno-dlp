@@ -6,7 +6,6 @@ package motherduck
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,8 +18,8 @@ var apiBase = "https://api.motherduck.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // MotherDuck tokens are JWTs (three dot-separated base64url segments).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
 })
 
 var contextKeywords = []string{"motherduck", "motherduck_token", "md_token"}

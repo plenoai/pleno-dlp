@@ -6,7 +6,6 @@ package ns1
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -18,8 +17,8 @@ var apiBase = "https://api.nsone.net"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)ns1[_\.\-]?(?:api[_\.\-]?key|api[_\.\-]?token|token|secret|key)\s*[:=]\s*["']?([A-Za-z0-9]{16,40})["']?`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)ns1[_\.\-]?(?:api[_\.\-]?key|api[_\.\-]?token|token|secret|key)\s*[:=]\s*["']?([A-Za-z0-9]{16,40})["']?`)
 })
 
 type Scanner struct{}

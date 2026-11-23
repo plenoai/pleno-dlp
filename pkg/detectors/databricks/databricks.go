@@ -34,7 +34,6 @@ package databricks
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -58,11 +57,11 @@ var (
 // `dapi` + 32 lowercase hex. Older PATs exist as 32 hex without the `dapi`
 // prefix but those collide with md5/sha1 shapes; we reject them and only
 // surface the unambiguous prefixed variant.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dapi[a-f0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(dapi[a-f0-9]{32})\b`) })
 
 // Optional workspace host capture for ExtraData / host derivation.
-var hostRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([a-z0-9-]+\.cloud\.databricks\.com|adb-[0-9]+\.[0-9]+\.azuredatabricks\.net)\b`)
+var hostRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([a-z0-9-]+\.cloud\.databricks\.com|adb-[0-9]+\.[0-9]+\.azuredatabricks\.net)\b`)
 })
 
 type Scanner struct{}

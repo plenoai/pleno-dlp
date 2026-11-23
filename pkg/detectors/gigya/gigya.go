@@ -7,7 +7,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,8 +18,8 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(_[A-Za-z0-9_\-]{28,40})`) })
-var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`([A-Za-z0-9+/]{27}=)`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(_[A-Za-z0-9_\-]{28,40})`) })
+var secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`([A-Za-z0-9+/]{27}=)`) })
 
 var contextKeywords = []string{"gigya"}
 

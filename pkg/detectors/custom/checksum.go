@@ -3,8 +3,8 @@ package custom
 import (
 	"errors"
 	"fmt"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"hash/crc32"
-	"regexp"
 	"strings"
 )
 
@@ -40,7 +40,7 @@ type checksumCheck struct {
 	algorithm func(body, sum string) bool
 }
 
-func compileChecksum(c *Checksum, re *regexp.Regexp) (*checksumCheck, error) {
+func compileChecksum(c *Checksum, re *detectors.Regexp) (*checksumCheck, error) {
 	if c == nil {
 		return nil, nil
 	}

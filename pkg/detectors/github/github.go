@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -103,8 +102,8 @@ func loadRevokeMode(clientID, clientSecret string) string {
 }
 
 var (
-	classicRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`ghp_[A-Za-z0-9]{36}\b`) })
-	fineRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`github_pat_[A-Za-z0-9_]{82}\b`) })
+	classicRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`ghp_[A-Za-z0-9]{36}\b`) })
+	fineRe    = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`github_pat_[A-Za-z0-9_]{82}\b`) })
 )
 
 const (

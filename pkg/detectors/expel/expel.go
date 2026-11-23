@@ -6,7 +6,6 @@ package expel
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +23,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // so the 32-64 alnum range is left unchanged — narrowing it would silently
 // destroy recall. Disambiguation is delegated to the arm-regex gate plus a
 // conservative entropy floor.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // minEntropy rejects low-information 32-64 char runs (padded placeholders,
 // repeated characters, structured IDs) that clear the alnum regex but lack
@@ -39,7 +38,9 @@ const minEntropy = 3.0
 // generic 32-64 alphanumeric run; `expel[_-]?(api[_-]?)?(token|key|secret)`
 // is the shape a real credential assignment or config key takes. The bare
 // "expel" keyword stays in Keywords() as the cheap engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)expel[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)expel[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 type Scanner struct{}
 

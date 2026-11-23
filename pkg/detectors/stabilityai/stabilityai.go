@@ -9,7 +9,6 @@ package stabilityai
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,7 @@ var apiBase = "https://api.stability.ai"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk-[A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(sk-[A-Za-z0-9]{40,80})\b`) })
 
 var contextKeywords = []string{"stability", "stability_ai", "stabilityai", "stability_key", "stability_token"}
 

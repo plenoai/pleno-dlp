@@ -7,7 +7,6 @@ package transifex
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = "https://rest.api.transifex.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Transifex tokens are `1/<40-hex>` or modern `1/<base64url>{40+}`.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(1/[A-Za-z0-9_-]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(1/[A-Za-z0-9_-]{40,80})\b`) })
 
 var contextKeywords = []string{"transifex", "transifex_api", "transifex_token", "tx_api"}
 

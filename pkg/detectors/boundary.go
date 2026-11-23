@@ -2,13 +2,12 @@ package detectors
 
 import (
 	"bytes"
-	"regexp"
 )
 
 // FindAllLeftWordBoundary returns regexp matches whose left edge is not
 // preceded by an ASCII RE2 word byte. Callers keep any trailing \b in the
 // expression so the standard library still enforces the right edge.
-func FindAllLeftWordBoundary(re *regexp.Regexp, data []byte) [][]int {
+func FindAllLeftWordBoundary(re *Regexp, data []byte) [][]int {
 	indices := re.FindAllIndex(data, -1)
 	write := 0
 	for _, index := range indices {

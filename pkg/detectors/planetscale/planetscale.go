@@ -10,7 +10,6 @@ package planetscale
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,13 +26,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // retain the `pscale_oauth_` shape this detector has historically matched),
 // followed by 32+ base62 characters. The prefix is the false-positive gate
 // for this half — no entropy floor is needed on a prefixed token.
-var idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pscale_(?:oauth|tkn)_[A-Za-z0-9]{32,64})\b`) })
+var idRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(pscale_(?:oauth|tkn)_[A-Za-z0-9]{32,64})\b`)
+})
 
 // Secret is a bare 32-64 base62 run. With no prefix to anchor on, this is the
 // real false-positive source (it matches commit SHAs, nonces, base62 ids), so
 // we gate it on Shannon entropy (high-variety alnum charset -> 3.5) in
 // addition to the keyword arm + pairing.
-var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // secretMinEntropy rejects low-information 32-64 char runs (structured ids,
 // padded names) that clear the alnum regex but are not random secrets.
@@ -44,7 +45,9 @@ const secretMinEntropy = 3.5
 // names, docs, URLs) is too weak; the shape a real service-token assignment or
 // config key takes is `planetscale[_-]token` / `pscale[_-]token`, optionally
 // with an `_id` suffix.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)(?:planetscale|pscale)[_\-]?token(?:[_\-]?id)?`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(?:planetscale|pscale)[_\-]?token(?:[_\-]?id)?`)
+})
 
 type Scanner struct{}
 

@@ -37,7 +37,6 @@ package puttyprivatekey
 import (
 	"context"
 	"io"
-	"regexp"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -48,15 +47,15 @@ import (
 // alone (`PuTTY-User-Key-File-2:`/`-3:`) is specific enough that a
 // non-greedy body match to the first `Private-MAC:` line is safe — real
 // .ppk files contain exactly one such block.
-var blockRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var blockRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?s)PuTTY-User-Key-File-[23]:[ \t]*\S+.*?Private-MAC:[ \t]*[0-9a-fA-F]+`,
 	)
 })
 
-var algRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`PuTTY-User-Key-File-[23]:[ \t]*(\S+)`) })
-var encryptionRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^Encryption:[ \t]*(\S+)[ \t]*$`) })
-var formatVersionRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`PuTTY-User-Key-File-([23]):`) })
+var algRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`PuTTY-User-Key-File-[23]:[ \t]*(\S+)`) })
+var encryptionRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?m)^Encryption:[ \t]*(\S+)[ \t]*$`) })
+var formatVersionRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`PuTTY-User-Key-File-([23]):`) })
 
 type Scanner struct{}
 

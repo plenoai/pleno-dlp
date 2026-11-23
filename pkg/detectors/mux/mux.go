@@ -8,7 +8,6 @@ package mux
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,11 +20,11 @@ var apiBase = "https://api.mux.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
-	tokenIDRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)mux[_\.\-]?(?:token[_\.\-]?id|access[_\.\-]?token[_\.\-]?id|id)\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']?`)
+	tokenIDRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`(?i)mux[_\.\-]?(?:token[_\.\-]?id|access[_\.\-]?token[_\.\-]?id|id)\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']?`)
 	})
-	secretRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)mux[_\.\-]?(?:token[_\.\-]?secret|secret[_\.\-]?key|secret)\s*[:=]\s*["']?([A-Za-z0-9+/=_\-]{50,200})["']?`)
+	secretRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`(?i)mux[_\.\-]?(?:token[_\.\-]?secret|secret[_\.\-]?key|secret)\s*[:=]\s*["']?([A-Za-z0-9+/=_\-]{50,200})["']?`)
 	})
 )
 

@@ -25,14 +25,13 @@ package agoraio
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([0-9a-f]{32})\b`) })
+var idRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([0-9a-f]{32})\b`) })
 
 // labelVicinity is how close (in bytes) an Agora-specific label token must
 // be to a hex candidate. Tightened from the previous 256-byte gate: at 40

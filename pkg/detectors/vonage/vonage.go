@@ -41,7 +41,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -57,18 +56,18 @@ var (
 	// Key: 8-char alnum. No authoritative length spec exists, so this is left
 	// unchanged from the original — it serves as the assignment anchor for the
 	// pair, not the entropy carrier.
-	keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{8})\b`) })
+	keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{8})\b`) })
 	// Secret: documented 8-25 char mixed-case alphanumeric. Composition
 	// (upper+lower+digit) and entropy are enforced separately in FromData.
-	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{8,25})\b`) })
+	secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{8,25})\b`) })
 )
 
 // armRe is the assignment-style Vonage/Nexmo reference that must appear within
 // the proximity window. A bare "vonage"/"nexmo" substring (npm deps, comments,
 // URLs) is too weak; "vonage_api_secret", "nexmo-api-key", "vonageApiToken"
 // etc. is the shape a real credential assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(vonage|nexmo)[_\- ]?(api[_\- ]?)?(key|secret|token)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(vonage|nexmo)[_\- ]?(api[_\- ]?)?(key|secret|token)`)
 })
 
 // minSecretEntropy rejects low-entropy 8-25 char runs that clear the regex and

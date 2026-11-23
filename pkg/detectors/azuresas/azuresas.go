@@ -12,7 +12,6 @@ package azuresas
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -25,8 +24,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // We anchor on a `sig=` query because that's the cryptographic parameter; sv
 // (service version) and other params are present too but sig is mandatory.
 // The capture is the full URL up to whitespace / quote.
-var sasURLRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`https://[a-z0-9]{3,24}\.(?:blob|file|queue|table|dfs)\.core\.windows\.net/[^\s"'<>]*[?&]sig=[^\s"'<>&]+[^\s"'<>]*`)
+var sasURLRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`https://[a-z0-9]{3,24}\.(?:blob|file|queue|table|dfs)\.core\.windows\.net/[^\s"'<>]*[?&]sig=[^\s"'<>&]+[^\s"'<>]*`)
 })
 
 type Scanner struct{}

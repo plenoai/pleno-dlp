@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,15 +26,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // recall. The false-positive load is carried instead by an assignment-anchor
 // keyword gate (armRe within a tight window) plus a conservative entropy
 // floor. See research record: no authoritative format found.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // armRe is the assignment-style NEAR-RPC reference that must appear within the
 // proximity window. A bare "pagoda"/"fastnear"/"near-rpc" substring (docs
 // links, dependency names, prose) is too weak; the shape a real credential
 // assignment or config key takes is e.g. NEAR_RPC_API_KEY, PAGODA_API_KEY,
 // fastnear-token, nearrpc_secret.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(near[_\-]?rpc|nearrpc|pagoda|fastnear|near[_\-]?protocol|nearprotocol)[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(near[_\-]?rpc|nearrpc|pagoda|fastnear|near[_\-]?protocol|nearprotocol)[_\-]?(api[_\-]?)?(token|key|secret)`)
 })
 
 // minEntropy rejects low-entropy 32-64-char alnum runs that clear the regex

@@ -7,7 +7,6 @@ package vanta
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = "https://api.vanta.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Vanta API tokens are documented as 40+ char alphanumeric (vat_/usr_ prefix).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:vat_|usr_)?[A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b((?:vat_|usr_)?[A-Za-z0-9]{40,80})\b`) })
 
 var contextKeywords = []string{"vanta", "vanta_api", "vanta_token"}
 

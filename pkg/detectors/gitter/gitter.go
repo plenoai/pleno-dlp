@@ -6,7 +6,6 @@ package gitter
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -17,15 +16,15 @@ var apiBase = "https://api.gitter.im"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{40})\b`) })
 
 // keywordRe is the anchored Gitter marker. The 6-letter `gitter`
 // substring sits inside identifiers like `TestTagItter` (case-
 // insensitive substring match), which is a real symbol in go-git's
 // `tag_test.go` and pairs with adjacent git SHA-1 hashes. Require a
 // word-bounded `\bgitter\b` or a Gitter credential anchor.
-var keywordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)` +
+var keywordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)` +
 		`(?:` +
 		`\bgitter[_\-](?:api|token|key|secret|access)` +
 		`|\bgitter\.im\b` +

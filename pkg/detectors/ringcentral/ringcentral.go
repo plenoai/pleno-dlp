@@ -28,7 +28,6 @@ package ringcentral
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -45,15 +44,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // trufflehog. The secret length is undocumented, so the upper bound is left
 // generous (128) rather than guessed; the keyword arm + entropy gate carry the
 // false-positive load.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([0-9A-Za-z_-]{22,128})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([0-9A-Za-z_-]{22,128})\b`) })
 
 // armRe is the assignment-style RingCentral reference that must appear within
 // the proximity window. A bare "ringcentral" substring (SDK package names,
 // doc URLs, comments) is too weak; the `ringcentral[_-]?(client[_-]?|app[_-]?)?
 // (id|key|secret|token)` shapes are what a real credential assignment or env
 // var takes (RINGCENTRAL_CLIENT_ID, ringcentral_app_secret, etc.).
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)ringcentral[_\-]?(client[_\-]?|app[_\-]?)?(id|key|secret|token)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)ringcentral[_\-]?(client[_\-]?|app[_\-]?)?(id|key|secret|token)`)
 })
 
 // minEntropy rejects low-information 22+ char runs (repeated chars, padded

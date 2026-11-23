@@ -13,7 +13,6 @@ package terraformcloudteam
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +24,9 @@ var apiBase = "https://app.terraform.io"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_-]{60,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_-]{60,})\b`)
+})
 
 // Both `team` and `tfe_team_token` style cues are accepted.
 var contextKeywords = []string{"team_token", "team-token", "tfeteam", "tfe_team", "terraform_team", "tfc_team"}

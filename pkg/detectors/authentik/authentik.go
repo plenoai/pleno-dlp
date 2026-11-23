@@ -7,7 +7,6 @@ package authentik
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,13 +26,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // floor rather than a hard length pin.
 // Source: goauthentik/authentik authentik/lib/generators.py (generate_id)
 // and authentik/tenants/models.py (DEFAULT_TOKEN_LENGTH = 60).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{60,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{60,})\b`) })
 
 // armRe is the assignment-style authentik reference that must appear
 // within the radius window — it replaces a bare strings.Contains over
 // radius 256, which let any high-entropy 60+ alnum string near the word
 // "authentik" match.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)authentik[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)authentik[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy guards against low-variety 60+ alnum runs. authentik keys
 // draw from a 62-char alphabet (~5.95 bits/char ceiling), so a 3.5

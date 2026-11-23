@@ -6,13 +6,12 @@ package smee
 
 import (
 	"context"
-	"regexp"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`https?://smee\.io/([A-Za-z0-9]{8,})`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`https?://smee\.io/([A-Za-z0-9]{8,})`) })
 
 type Scanner struct{}
 

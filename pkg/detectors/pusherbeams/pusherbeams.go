@@ -8,7 +8,6 @@ package pusherbeams
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -16,7 +15,7 @@ import (
 )
 
 // Pusher Beams secret keys are documented as 32-hex.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-fA-F0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-fA-F0-9]{32})\b`) })
 
 // contextKeywords are the assignment-adjacent words that must appear close to
 // the token. Deliberately excludes the bare word "beams" — a 32-hex shape is

@@ -11,7 +11,6 @@ package launchdarklyrelay
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -24,8 +23,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `relay-proxy-` + UUID. Same UUID body as access keys but the prefix is
 // distinctive.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(relay-proxy-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(relay-proxy-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
 })
 
 type Scanner struct{}

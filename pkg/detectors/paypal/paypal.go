@@ -13,7 +13,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,7 +26,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 80 base64url chars. Both halves share this shape — identification of which
 // is "id" vs "secret" relies on positional ordering + keyword window.
-var idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{80})\b`) })
+var idRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{80})\b`) })
 
 var contextKeywords = []string{"paypal", "paypal_client", "client_id", "client_secret"}
 

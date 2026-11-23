@@ -21,15 +21,14 @@ package modal
 
 import (
 	"context"
-	"regexp"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
 var (
-	idRe     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(ak-[A-Za-z0-9]{20,})\b`) })
-	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(as-[A-Za-z0-9]{20,})\b`) })
+	idRe     = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(ak-[A-Za-z0-9]{20,})\b`) })
+	secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(as-[A-Za-z0-9]{20,})\b`) })
 )
 
 // minBodyEntropy is the Shannon-entropy floor (bits/char) applied to the

@@ -6,6 +6,7 @@ package contextextract
 
 import (
 	"bytes"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"math"
 	"regexp"
 	"strings"
@@ -14,8 +15,8 @@ import (
 )
 
 // uuidPat matches standard 8-4-4-4-12 hex UUIDs.
-var uuidPat = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+var uuidPat = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
 })
 
 // FindNearbyUUID scans for a UUID near the anchor position associated with one of the keywords.
@@ -74,14 +75,14 @@ func FindNearbyKeyValue(data []byte, key string, maxRadius int) (string, bool) {
 	escapedKey := regexp.QuoteMeta(key)
 
 	// Try JSON pattern first: "key": "value"
-	jsonPat := sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)"` + escapedKey + `"\s*:\s*"([^"]*)"`) })
+	jsonPat := sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)"` + escapedKey + `"\s*:\s*"([^"]*)"`) })
 	if m := jsonPat().FindSubmatch(data); m != nil {
 		return string(m[1]), true
 	}
 
 	// Try assignment pattern: key=value, key: value, key="value"
-	eqPat := sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)(?:^|[\s;,])` + escapedKey + `\s*[:=]\s*"?([^\s,;"'\r\n]+)"?`)
+	eqPat := sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`(?i)(?:^|[\s;,])` + escapedKey + `\s*[:=]\s*"?([^\s,;"'\r\n]+)"?`)
 	})
 	if m := eqPat().FindSubmatch(data); m != nil {
 		val := string(m[1])
@@ -96,8 +97,8 @@ func FindNearbyKeyValue(data []byte, key string, maxRadius int) (string, bool) {
 // FindNearbyHost scans for hostnames matching *.<suffix> within maxRadius bytes of the anchor.
 func FindNearbyHost(data []byte, anchorStart int, suffix string, maxRadius int) (string, bool) {
 	escapedSuffix := regexp.QuoteMeta(suffix)
-	pat := sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*` + escapedSuffix)
+	pat := sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*` + escapedSuffix)
 	})
 
 	window, offset := extractWindow(data, anchorStart, anchorStart, maxRadius)

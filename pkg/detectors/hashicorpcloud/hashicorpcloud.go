@@ -3,7 +3,6 @@ package hashicorpcloud
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -16,7 +15,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // HCP tokens have three internal dot-separated segments, but the leading
 // `hcp.` prefix is the unambiguous anchor.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(hcp\.[A-Za-z0-9_.-]{60,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(hcp\.[A-Za-z0-9_.-]{60,})\b`) })
 
 type Scanner struct{}
 

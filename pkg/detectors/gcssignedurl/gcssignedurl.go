@@ -12,7 +12,6 @@ package gcssignedurl
 import (
 	"context"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,8 +20,8 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var urlRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`https?://storage\.googleapis\.com/[^\s"'<>]*?X-Goog-Algorithm=GOOG4-RSA-SHA256[^\s"'<>]*`)
+var urlRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`https?://storage\.googleapis\.com/[^\s"'<>]*?X-Goog-Algorithm=GOOG4-RSA-SHA256[^\s"'<>]*`)
 })
 
 type Scanner struct{}

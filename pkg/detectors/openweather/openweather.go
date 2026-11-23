@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,8 +19,8 @@ var apiBase = "https://api.openweathermap.org"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i:openweather)(?:.|[\n\r]){0,40}?\b([a-fA-F0-9]{32})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i:openweather)(?:.|[\n\r]){0,40}?\b([a-fA-F0-9]{32})\b`)
 })
 
 type Scanner struct{}

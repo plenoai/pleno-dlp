@@ -6,7 +6,6 @@ package render
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -17,7 +16,7 @@ var apiBase = "https://api.render.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(rnd_[A-Za-z0-9]{14})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(rnd_[A-Za-z0-9]{14})\b`) })
 
 type Scanner struct{}
 

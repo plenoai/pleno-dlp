@@ -20,7 +20,6 @@ package smartsheet
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -34,7 +33,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // No documented prefix or fixed length; keep the wide alnum range and rely on
 // the keyword gate + entropy floor to disambiguate.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{24,64})\b`) })
 
 // minEntropy rejects low-information runs that clear the loose alnum regex
 // but are not tokens. 3.0 is the conservative hex-grade floor — high enough
@@ -47,8 +46,8 @@ const minEntropy = 3.0
 // (smartsheet[_-]?(api[_-]?)?(token|key|secret)) keeps the env/config-style
 // fixtures armed, while the bare \bsmartsheet\b match preserves recall for
 // tokens introduced by a nearby plain "smartsheet" mention.
-var contextRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)smartsheet[_-]?(api[_-]?)?(token|key|secret)|\bsmartsheet\b`)
+var contextRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)smartsheet[_-]?(api[_-]?)?(token|key|secret)|\bsmartsheet\b`)
 })
 
 type Scanner struct{}

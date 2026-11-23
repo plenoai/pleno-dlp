@@ -11,7 +11,6 @@ package gitlabdeploy
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -29,8 +28,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 //   - glsoat-<20+ chars> SCIM OAuth access token
 //   - glcbt-<20+ chars> CI build / job token (when leaked verbatim)
 //   - glrt-<20+ chars> runner authentication token
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b((?:gldt|glptt|glagent|glsoat|glcbt|glrt)-[A-Za-z0-9_-]{20,})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b((?:gldt|glptt|glagent|glsoat|glcbt|glrt)-[A-Za-z0-9_-]{20,})\b`)
 })
 
 type Scanner struct{}

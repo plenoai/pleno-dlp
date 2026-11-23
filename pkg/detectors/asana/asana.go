@@ -5,7 +5,6 @@ package asana
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -22,7 +21,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 //
 // Both use "1" (or "2" for forward-compat) as the version prefix.
 // GID minimum length is 16 to exclude short numeric path segments.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([12]/[0-9]{16,}[/:]([a-f0-9]{32}))\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([12]/[0-9]{16,}[/:]([a-f0-9]{32}))\b`) })
 
 type Scanner struct{}
 

@@ -17,7 +17,6 @@ package lambdalabs
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -33,15 +32,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // arm regex and entropy floor carry the false-positive load. The {40,} bound
 // is the pre-existing recall-safe shape — we keep it because no source pins a
 // length, and tightening it would silently destroy recall.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,})\b`) })
 
 // armRe is the assignment-style Lambda Labs reference that must appear within
 // the proximity window. A bare "lambdalabs" substring (doc URLs, dependency
 // names, comments) is too weak to gate a generic 40+ char alphanumeric run;
 // the `lambdalabs[_-]?(api[_-]?)?(token|key|secret)` shape is what a real
 // assignment or config key takes (e.g. LAMBDALABS_API_KEY).
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)lambda[_\-]?labs[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)lambda[_\-]?labs[_\-]?(api[_\-]?)?(token|key|secret)`)
 })
 
 // minEntropy rejects low-information 40+ char runs that clear the alnum regex

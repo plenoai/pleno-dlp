@@ -6,7 +6,6 @@ package earthly
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +22,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // protobuf stubs only, and the docs use opaque `<my-token>` placeholders).
 // The shape stays a generic alphanumeric run — a tight keyword arm plus an
 // entropy floor are required to keep this from matching arbitrary IDs.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,120})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,120})\b`) })
 
 // armRe is the assignment-style Earthly reference that must appear within the
 // proximity window. A bare "earthly" substring (build-tool docs, Earthfile
@@ -31,8 +30,8 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // generic 40-120 alphanumeric run; `earthly[_-]?(api[_-]?)?(token|key|secret)`
 // — plus the documented `EARTHLY_TOKEN` / `earthly_cloud` config keys — is the
 // shape a real credential assignment takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)earthly[_\-]?((api[_\-]?)?(token|key|secret)|cloud)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)earthly[_\-]?((api[_\-]?)?(token|key|secret)|cloud)`)
 })
 
 // minEntropy rejects low-information 40-120 char runs that clear the alnum

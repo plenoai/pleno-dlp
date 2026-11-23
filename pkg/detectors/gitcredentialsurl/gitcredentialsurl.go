@@ -30,7 +30,6 @@ import (
 	"context"
 	"io"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -40,7 +39,7 @@ import (
 // lineRe matches one bare scheme://... URL occupying an entire line
 // (git-credentials convention: one credential per line, no
 // surrounding text). \S+ forbids embedded whitespace.
-var lineRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*((?:https?|ftp)://\S+)[ \t]*$`) })
+var lineRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?m)^[ \t]*((?:https?|ftp)://\S+)[ \t]*$`) })
 
 var placeholders = map[string]struct{}{
 	"password":      {},

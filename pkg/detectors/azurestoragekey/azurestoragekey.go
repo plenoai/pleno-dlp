@@ -21,7 +21,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -34,8 +33,8 @@ const dialTimeout = 8 * time.Second
 // connRe matches the AccountName and AccountKey fields in an Azure Storage
 // connection string in either order. The AccountKey value is an 88-character
 // base64 string (64 decoded bytes, always ending with ==).
-var connRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var connRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?i)AccountName\s*=\s*([a-z0-9]{3,24})[^;]{0,200}AccountKey\s*=\s*([A-Za-z0-9+/]{86}==)` +
 			`|` +
 			`(?i)AccountKey\s*=\s*([A-Za-z0-9+/]{86}==)[^;]{0,200}AccountName\s*=\s*([a-z0-9]{3,24})`,

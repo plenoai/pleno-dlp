@@ -18,7 +18,6 @@ package propelauth
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -33,13 +32,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // No authoritative length/charset/prefix is documented (see package doc), so
 // the original 40+ alphanumeric run is preserved to protect recall. The
 // false-positive load is carried by the arm regex and the entropy floor.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,})\b`) })
 
 // armRe is the assignment-style PropelAuth reference that must appear within
 // the proximity window. A bare "propelauth" substring (docs URLs, SDK import
 // paths, comments) is too weak; "propelauth_api_key" / "propelauth-token" /
 // "propelauthapikey" is the shape a real key assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)propelauth[_-]?(api[_-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)propelauth[_-]?(api[_-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-entropy 40+ char runs that clear the alnum regex but
 // are not random tokens. 3.0 is conservative: with no documented charset we do

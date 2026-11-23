@@ -13,7 +13,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +27,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Airbrake user API keys are exactly 40 alphanumeric chars, no prefix.
 // Source: upstream trufflehog pkg/detectors/airbrakeuserkey keyPat
 // `[a-zA-Z-0-9]{40}`.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40})\b`) })
 
 // armRe is the assignment-style Airbrake reference that must appear within the
 // proximity window. A bare "airbrake" substring is too weak; the shape a real
@@ -36,8 +35,8 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // takes is `airbrake`, `airbrake_token`, `airbrake-api-key`, `airbrake_project`,
 // etc. The token/key/project/id suffix is optional so a bare `airbrake=<key>`
 // assignment still arms.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)airbrake[_-]?(api[_-]?)?(token|key|secret|project|id)?`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)airbrake[_-]?(api[_-]?)?(token|key|secret|project|id)?`)
 })
 
 // minEntropy rejects low-information 40-char runs that clear the alnum regex

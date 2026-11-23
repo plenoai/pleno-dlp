@@ -12,7 +12,6 @@ package cometml
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +23,7 @@ var apiBase = "https://www.comet.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,100})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,100})\b`) })
 
 // minEntropy is a conservative floor. No authoritative source documents the
 // Comet API key charset, so we cannot assume a high-variety distribution;
@@ -38,8 +37,8 @@ const minEntropy = 3.0
 // kills incidental "comet.com" URLs and prose mentions sitting near any
 // high-entropy alnum blob. The bare keywords stay in Keywords() as the
 // engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)comet[._-]?(ml)?[._-]?(api[._-]?)?(key|token|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)comet[._-]?(ml)?[._-]?(api[._-]?)?(key|token|secret)`)
 })
 
 type Scanner struct{}

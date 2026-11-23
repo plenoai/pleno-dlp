@@ -7,7 +7,6 @@ package deepl
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,8 +21,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // DeepL Free key: 36-char UUID + ":fx" suffix.
 // DeepL Pro key: 36-char UUID, identical shape to many UUIDs, so we
 // require the keyword "deepl" nearby for the bare-UUID case.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?::fx)?)\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?::fx)?)\b`)
 })
 
 var contextKeywords = []string{"deepl"}

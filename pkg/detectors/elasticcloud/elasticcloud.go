@@ -19,7 +19,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -36,7 +35,9 @@ var httpClient = detectors.NewVerifyHTTPClient(5 * time.Second)
 
 // id:secret pair, both URL-safe base64. Lengths chosen to match observed
 // Elastic Cloud API keys (id ~20 chars, secret 22-43 chars).
-var pairRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{16,32}):([A-Za-z0-9_-]{20,48})\b`) })
+var pairRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([A-Za-z0-9_-]{16,32}):([A-Za-z0-9_-]{20,48})\b`)
+})
 
 var contextKeywords = []string{
 	"elastic",

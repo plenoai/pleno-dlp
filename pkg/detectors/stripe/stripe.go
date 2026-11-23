@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +20,8 @@ var apiBase = "https://api.stripe.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // sk_live_, sk_test_, and rk_live_ share the same suffix shape.
-var keyRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b((?:sk_live_|sk_test_|rk_live_)[A-Za-z0-9]{20,247})\b`)
+var keyRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b((?:sk_live_|sk_test_|rk_live_)[A-Za-z0-9]{20,247})\b`)
 })
 
 type Scanner struct{}

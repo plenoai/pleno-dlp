@@ -12,7 +12,6 @@ package workato
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,13 +26,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // tokenRe matches the documented 64-char lowercase-hex auth token. Length and
 // charset are both authoritatively documented (docs.workato.com auth-token),
 // so pinning them does not risk recall.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{64})\b`) })
 
 // armRe is the assignment-style Workato reference that must appear within the
 // proximity window. A bare "workato" substring (dependency names, doc URLs,
 // comments) is too weak a gate; the shape a real token assignment or config
 // key takes is `workato_token` / `workato-api-key` / `workatoSecret` etc.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)workato[_-]?(api[_-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)workato[_-]?(api[_-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-information 64-char hex runs that clear the regex but
 // are not random tokens (e.g. repeated/structured digests). Hex tops out near

@@ -35,7 +35,6 @@ package cloudflarer2
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -43,8 +42,8 @@ import (
 )
 
 var (
-	idRe     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
-	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{64})\b`) })
+	idRe     = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
+	secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{64})\b`) })
 )
 
 // minHexEntropy is the Shannon-entropy floor (bits/char) for both the

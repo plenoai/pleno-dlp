@@ -23,7 +23,6 @@ package woodpecker
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -38,8 +37,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // tokenRe matches the canonical JWT shape used by Woodpecker CI: an `eyJ`
 // header, a base64url payload, and a base64url signature, dot-separated.
 // Mirrors the repo's jwt detector regex.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
 })
 
 // contextRe is the windowed keyword gate. It replaces the bare
@@ -47,8 +46,8 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp {
 // assignment-anchor arm regex over radius 64, so a `woodpecker` mention far
 // from an unrelated JWT no longer arms the detector. The bare keyword stays
 // in Keywords() as the engine prefilter.
-var contextRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)woodpecker[_-]?(ci[_-]?)?(api[_-]?)?(token|key|secret)`)
+var contextRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)woodpecker[_-]?(ci[_-]?)?(api[_-]?)?(token|key|secret)`)
 })
 
 type Scanner struct{}

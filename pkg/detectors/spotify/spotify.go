@@ -12,7 +12,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +23,7 @@ var apiBase = "https://accounts.spotify.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+var idRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
 
 var contextKeywords = []string{"spotify", "spotify_client", "client_id", "client_secret"}
 

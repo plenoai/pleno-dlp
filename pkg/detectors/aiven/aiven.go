@@ -7,7 +7,6 @@ package aiven
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -33,15 +32,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // short-id shapes, the ceiling (400) comfortably covers the documented 372,
 // and the base64 charset matches the real token alphabet (a superset of the
 // historical `[A-Za-z0-9]`, so prior matches are preserved).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9/+=]{32,400})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9/+=]{32,400})\b`) })
 
 // contextRe is the windowed keyword gate. The bare `aiven` substring is kept
 // only as the cheap Keywords() prefilter; this assignment-style arm regex
 // (word-boundaried keyword or `aiven_(api_)?(token|key|secret)`) is what
 // actually arms a hit, so prose mentioning "aiven" near an unrelated
 // high-entropy blob no longer matches.
-var contextRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)\baiven\b|aiven[_-]?(api[_-]?)?(token|key|secret)`)
+var contextRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)\baiven\b|aiven[_-]?(api[_-]?)?(token|key|secret)`)
 })
 
 // minEntropy rejects low-information 372-or-shorter runs that clear the

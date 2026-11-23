@@ -26,7 +26,6 @@ package akamai
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -47,18 +46,18 @@ const contextRadius = 128
 
 // edgercRe captures the high-confidence structured form
 // `client_secret = <value>` as found in an .edgerc credentials file.
-var edgercRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)client_secret\s*[=:]\s*([A-Za-z0-9+/=_\-]{32,80})`)
+var edgercRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)client_secret\s*[=:]\s*([A-Za-z0-9+/=_\-]{32,80})`)
 })
 
 // tokenRe is the loose fallback candidate shape. `=` is only allowed as
 // trailing base64 padding (not interior) so the match does not swallow a
 // `key=value` assignment prefix like `client_secret=`.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9+/_\-]{32,80}={0,2})`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9+/_\-]{32,80}={0,2})`) })
 
 // hexRe matches pure-hex values (git SHAs, ETags, content hashes) which
 // are not EdgeGrid secrets even when they meet the length bound.
-var hexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-fA-F0-9]+$`) })
+var hexRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^[a-fA-F0-9]+$`) })
 
 // anchorKeywords are the assignment-context anchors required for the
 // windowed fallback. The bare word `akamai` is intentionally NOT here:

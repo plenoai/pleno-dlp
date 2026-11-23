@@ -12,7 +12,6 @@ package clerk
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +23,7 @@ var apiBase = "https://api.clerk.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:sk_test_|sk_live_)[A-Za-z0-9]{32,})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b((?:sk_test_|sk_live_)[A-Za-z0-9]{32,})\b`) })
 
 var contextKeywords = []string{"clerk", "clerk_secret", "clerk_api", "clerk_dev", "clerk.com"}
 

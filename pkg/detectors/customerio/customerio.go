@@ -8,7 +8,6 @@ package customerio
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +24,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // confirmed by the upstream trufflehog detector
 // (github.com/trufflesecurity/trufflehog pkg/detectors/customerio:
 // `[a-z0-9A-Z]{20}`), which is the authoritative format for this port.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{20})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{20})\b`) })
 
 // minEntropy rejects low-information 20-char runs (padded ids, repeated
 // chars, structured slugs) that clear the regex but lack key-grade
@@ -37,8 +36,8 @@ const minEntropy = 3.5
 // assignment-anchor arm regex pins the keyword to a credential-like
 // assignment so only genuine site_id/api_key declarations arm a hit. The
 // bare brand words stay in Keywords() as the engine prefilter.
-var contextRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(customer[._]?io|cio)[_-]?(site|api)[_-]?(id|key)`)
+var contextRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(customer[._]?io|cio)[_-]?(site|api)[_-]?(id|key)`)
 })
 
 type Scanner struct{}

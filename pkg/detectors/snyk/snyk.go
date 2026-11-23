@@ -5,7 +5,6 @@ package snyk
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,8 +18,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // UUID lowercase hex; not anchored to v4 because Snyk doesn't guarantee v4
 // in their token-mint contract.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b`)
 })
 
 var contextKeywords = []string{"snyk", "snyk_token", "snyk_api_token"}

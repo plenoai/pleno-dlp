@@ -23,7 +23,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -48,8 +47,8 @@ var emptyPayloadHash = func() string {
 }()
 
 var (
-	accessKeyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Z0-9]{20})\b`) })
-	secretRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9+/]{40})\b`) })
+	accessKeyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Z0-9]{20})\b`) })
+	secretRe    = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9+/]{40})\b`) })
 )
 
 var contextKeywords = []string{"wasabi", "wasabi_access_key", "wasabi_secret", "wasabisys"}

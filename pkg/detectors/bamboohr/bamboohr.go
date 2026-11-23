@@ -17,7 +17,6 @@ package bamboohr
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -31,7 +30,7 @@ var apiBase = ""
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 40 hex chars = 160-bit secret expressed in hexadecimal form (cited above).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-fA-F0-9]{40})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-fA-F0-9]{40})\b`) })
 
 // minEntropy rejects degenerate hex runs (repeated/sequential digits) that
 // clear the regex but lack key-grade randomness. 3.0, not 3.5: hex's 16-symbol
@@ -42,7 +41,9 @@ const minEntropy = 3.0
 // in Keywords() as the cheap prefilter; this arm regex anchors on the
 // assignment-style forms so a random 40-hex SHA merely co-located with the word
 // "bamboohr" within radius 64 is not promoted to a finding.
-var contextRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)bamboohr[_-]?(api[_-]?)?(token|key|secret)`) })
+var contextRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)bamboohr[_-]?(api[_-]?)?(token|key|secret)`)
+})
 
 type Scanner struct{}
 

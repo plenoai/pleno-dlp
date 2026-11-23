@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +21,7 @@ var apiBase = "https://slack.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // xoxb-<workspace_id>-<bot_id>-<secret>.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(xoxb-\d+-\d+-[A-Za-z0-9]{24,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(xoxb-\d+-\d+-[A-Za-z0-9]{24,})\b`) })
 
 type Scanner struct{}
 

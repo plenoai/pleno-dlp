@@ -20,7 +20,6 @@ package bitbucketserver
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -53,7 +52,7 @@ var (
 	// (pkg/detectors/atlassiandatacenter/bitbucketdatacenter):
 	// `\b(BBDC-[A-Za-z0-9+/@_-]{40,50})`. The `BBDC-` prefix is the
 	// distinguishing anchor, so no entropy floor is needed on this shape.
-	httpAccessRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(BBDC-[A-Za-z0-9+/@_-]{40,50})`) })
+	httpAccessRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(BBDC-[A-Za-z0-9+/@_-]{40,50})`) })
 	// Some self-hosted deployments expose a prefix-less 40-char base62 PAT.
 	// No authoritative source pins this length/charset (Atlassian docs do
 	// not document a prefix-less format; upstream trufflehog only matches
@@ -61,7 +60,7 @@ var (
 	// assignment-anchor arm regex within a tight window plus an entropy
 	// floor. The bare 40-char shape is otherwise indistinguishable from
 	// commit SHAs, nonces, and object names.
-	patRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`) })
+	patRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40})\b`) })
 )
 
 // armRe is the assignment-style Bitbucket reference that must appear within the
@@ -70,8 +69,8 @@ var (
 // 40-char run; `bitbucket_token` / `stash-api-key` / `bb_pat secret` is the
 // shape a real credential assignment or config key takes. The bare keywords
 // remain in Keywords() as the engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(?:bitbucket|stash|bbserver|bb)[\s_-]?(?:api[\s_-]?)?(?:token|key|secret|pat)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(?:bitbucket|stash|bbserver|bb)[\s_-]?(?:api[\s_-]?)?(?:token|key|secret|pat)`)
 })
 
 // minEntropy rejects low-entropy 40-char runs that clear the base62 regex but

@@ -4,13 +4,13 @@ package hardcodedpassword
 
 import (
 	"context"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
-	"regexp"
 	"strings"
 	"testing"
 )
 
-var legacyAssignmentHeadRe = regexp.MustCompile(
+var legacyAssignmentHeadRe = detectors.MustCompile(
 	`(?:password|passwd|pwd)(?:(?:[^a-z0-9_][^\n=]*)?\s*=|[a-z0-9_]*\s*:)`,
 )
 

@@ -22,15 +22,14 @@ package sinch
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
 })
 
 // keywordRe is the anchored, assignment-style Sinch credential marker. The
@@ -40,8 +39,8 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp {
 //
 //	sinch_api_key / sinch_key / sinch_token (any separator/case), or
 //	`sinch` immediately followed by key|token|secret or an `=` assignment.
-var keywordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)\bsinch[_\-\s]*(?:api[_\-\s]*)?(?:key|token|secret)\b|\bsinch\s*[:=]`)
+var keywordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)\bsinch[_\-\s]*(?:api[_\-\s]*)?(?:key|token|secret)\b|\bsinch\s*[:=]`)
 })
 
 // minEntropy is the Shannon floor (bits/char) for the dash-stripped 32-hex
@@ -56,7 +55,7 @@ const radius = 64
 
 // sequentialHex matches the ascending nibble run that headlines doc-example
 // UUIDs (e.g. 12345678-...). Such tokens are placeholders, not credentials.
-var sequentialHex = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(?:0123456789abcdef|0123456789)`) })
+var sequentialHex = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^(?:0123456789abcdef|0123456789)`) })
 
 type Scanner struct{}
 

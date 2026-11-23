@@ -27,7 +27,6 @@ package awssession
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -68,17 +67,19 @@ var (
 	// ASIA<16> is the temporary credential prefix. AKIA is owned by the
 	// long-lived AWS detector and is intentionally excluded here so the two
 	// don't double-fire on the same id.
-	idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(ASIA[0-9A-Z]{16})\b`) })
+	idRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(ASIA[0-9A-Z]{16})\b`) })
 	// 40-char base64-ish run, same shape as the long-lived secret access
 	// key. We anchor with non-base64 surrounding bytes so adjacent tokens
 	// don't merge into a single capture.
-	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[^A-Za-z0-9+/]([A-Za-z0-9+/]{40})[^A-Za-z0-9+/]`) })
+	secretRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`[^A-Za-z0-9+/]([A-Za-z0-9+/]{40})[^A-Za-z0-9+/]`)
+	})
 	// Session tokens are base64 with `+/=` and run 100..1024 chars. Go's
 	// regexp engine caps the upper repetition bound at 1000, so we use
 	// 100..1000 — that still covers every Amazon-issued session token
 	// today.
-	sessionRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`[^A-Za-z0-9+/=]([A-Za-z0-9+/=]{100,1000})[^A-Za-z0-9+/=]`)
+	sessionRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`[^A-Za-z0-9+/=]([A-Za-z0-9+/=]{100,1000})[^A-Za-z0-9+/=]`)
 	})
 )
 

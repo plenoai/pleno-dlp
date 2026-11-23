@@ -13,7 +13,6 @@ package messagebird
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -29,15 +28,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // (pkg/detectors/messagebird) and consistent with the documented key body.
 // No prefix to anchor on, so the keyword gate and entropy floor carry the
 // false-positive load.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{25})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{25})\b`) })
 
 // armRe is the assignment-style MessageBird reference that must appear within
 // the proximity window. A bare "messagebird" substring (doc links, the
 // messagebird.com host, dependency names) is too weak a gate against a generic
 // 25-char run; `messagebird[_-]?(api[_-]?)?(access[_-]?)?(token|key|secret)`
 // is the shape a real credential assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)messagebird[_\-]?(api[_\-]?)?(access[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)messagebird[_\-]?(api[_\-]?)?(access[_\-]?)?(token|key|secret)`)
 })
 
 // minEntropy rejects low-entropy 25-char runs that clear the charset regex but

@@ -7,7 +7,6 @@ package persona
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,8 +19,8 @@ var apiBase = "https://api.withpersona.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Persona API keys: persona_(production|sandbox)_ + 32-128 alnum.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(persona_(?:production|sandbox)_[A-Za-z0-9]{32,128})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(persona_(?:production|sandbox)_[A-Za-z0-9]{32,128})\b`)
 })
 
 type Scanner struct{}

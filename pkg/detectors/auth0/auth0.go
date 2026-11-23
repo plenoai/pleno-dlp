@@ -29,7 +29,6 @@ package auth0
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -38,16 +37,16 @@ import (
 
 // JWT shape; same regex as the generic JWT detector. The context gate is
 // what distinguishes this from a generic JWT hit.
-var jwtRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
+var jwtRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b`)
 })
 
 // auth0HostRe matches an Auth0 tenant host (<tenant>.auth0.com, with optional
 // region like <tenant>.us.auth0.com) or a bare auth0.com / management.auth0
 // reference. This is the tight, provider-specific context token — distinct
 // from the bare substring "auth0" which appears in unrelated import paths.
-var auth0HostRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(?:[a-z0-9][a-z0-9-]*\.)?auth0\.com|management\.auth0|auth0_management`)
+var auth0HostRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(?:[a-z0-9][a-z0-9-]*\.)?auth0\.com|management\.auth0|auth0_management`)
 })
 
 // minSigEntropy drops documentation / sample JWTs whose signature segment is

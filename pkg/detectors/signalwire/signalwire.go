@@ -9,7 +9,6 @@ package signalwire
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -30,7 +29,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // the id and token can both be harvested from the chunk, then disambiguate
 // with the keyword arm regex + an entropy floor. The token half, carried in
 // RawV2, is the value the entropy gate protects.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24,128})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{24,128})\b`) })
 
 // minEntropy rejects low-information runs that clear the alphanumeric regex
 // but are not real key material. The token charset is high-variety base62,
@@ -42,8 +41,8 @@ const minEntropy = 3.5
 // substring over radius 256 matched any prose mention of the provider; this
 // requires the keyword to sit next to a credential assignment within a tight
 // window. The bare keyword stays in Keywords() as the engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)signalwire[_-]?(project|api[_-]?)?(token|key|secret|id|project)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)signalwire[_-]?(project|api[_-]?)?(token|key|secret|id|project)`)
 })
 
 type Scanner struct{}

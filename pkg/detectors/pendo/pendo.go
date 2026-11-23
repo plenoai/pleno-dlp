@@ -10,7 +10,6 @@ package pendo
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +24,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // 32-char hex (pendo track API key) — collides with md5 digests, so the
 // keyword gate is mandatory. The integration-key JWT is left to the JWT
 // detector since both shapes are documented as valid.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
 
 var contextKeywords = []string{"pendo", "pendo_api", "pendo_key", "pendo_integration"}
 

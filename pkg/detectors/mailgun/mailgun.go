@@ -6,7 +6,6 @@ package mailgun
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -18,8 +17,8 @@ var apiBase = "https://api.mailgun.net"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
-	legacyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(key-[a-f0-9]{32})\b`) })
-	newRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32}-[a-f0-9]{8}-[a-f0-9]{8})\b`) })
+	legacyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(key-[a-f0-9]{32})\b`) })
+	newRe    = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32}-[a-f0-9]{8}-[a-f0-9]{8})\b`) })
 )
 
 type Scanner struct{}

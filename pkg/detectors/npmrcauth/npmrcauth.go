@@ -22,7 +22,6 @@ package npmrcauth
 import (
 	"context"
 	"encoding/base64"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -31,8 +30,8 @@ import (
 
 // npmrcLineRe matches one `.npmrc` auth directive line, with an optional
 // `//<registry>/:` scope prefix ahead of the key.
-var npmrcLineRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var npmrcLineRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?im)^[ \t]*(?:\/\/\S*\/:)?(_auth|_authToken|_password)\s*=\s*(\S+)[ \t]*$`,
 	)
 })

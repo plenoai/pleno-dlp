@@ -11,7 +11,6 @@ package weaviate
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,14 +20,14 @@ import (
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{64})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{64})\b`) })
 
 var contextKeywords = []string{"weaviate", "weaviate_api", "weaviate_key", "weaviate_admin"}
 
 // hostRe extracts a *.weaviate.cloud or *.weaviate.network URL from a
 // 256-byte window — the only way we can verify without configuration.
-var hostRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`https?://[a-zA-Z0-9.-]+\.weaviate\.(?:cloud|network)`)
+var hostRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`https?://[a-zA-Z0-9.-]+\.weaviate\.(?:cloud|network)`)
 })
 
 type Scanner struct{}

@@ -8,7 +8,6 @@ package chargebee
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:live|test)_[A-Za-z0-9_-]{20,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b((?:live|test)_[A-Za-z0-9_-]{20,})\b`) })
 
 var contextKeywords = []string{"chargebee"}
 

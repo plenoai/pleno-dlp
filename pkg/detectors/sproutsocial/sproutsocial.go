@@ -6,7 +6,6 @@ package sproutsocial
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ var apiBase = "https://api.sproutsocial.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Sprout Social tokens are 32-64 alnum chars.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Fa-f0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Fa-f0-9]{32,64})\b`) })
 
 var contextKeywords = []string{"sproutsocial", "sprout-social", "sprout_social"}
 

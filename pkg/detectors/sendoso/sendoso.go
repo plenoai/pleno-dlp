@@ -6,7 +6,6 @@ package sendoso
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Sendoso API keys are documented as `sendoso_` prefix plus 32-64 alnum
 // chars; we anchor on the prefix to bound false positives.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sendoso_[A-Za-z0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(sendoso_[A-Za-z0-9]{32,64})\b`) })
 
 var contextKeywords = []string{"sendoso"}
 

@@ -12,7 +12,6 @@ package flyio
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -25,7 +24,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // fm1_ or fm2_ + URL-safe base64 (alphanumeric + _ + -). We require >=50
 // characters of body to skip non-token noise like "fm1_TODO".
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(fm[12]_[A-Za-z0-9_-]{50,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(fm[12]_[A-Za-z0-9_-]{50,})\b`) })
 
 type Scanner struct{}
 

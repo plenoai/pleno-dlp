@@ -5,7 +5,6 @@ package gainsight
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +22,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // a fixed length, which would risk destroying recall on non-UUID shapes. We
 // keep a loose 32-64 alnum candidate regex and lean on the entropy floor +
 // arm-regex keyword gate to suppress false positives.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // 3.0 is the conservative hex floor (a UUID-without-dashes is hex, ceiling
 // ≈ 4.0); 3.5 would over-cull a hex-only key.
@@ -31,8 +30,8 @@ const minEntropy = 3.0
 
 // armRe replaces a bare strings.Contains(window, "gainsight") so the mere
 // word "gainsight" in unrelated prose no longer arms a high-entropy candidate.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)gainsight[_\-]?(api[_\-]?)?(access[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)gainsight[_\-]?(api[_\-]?)?(access[_\-]?)?(token|key|secret)`)
 })
 
 type Scanner struct{}

@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,10 +21,10 @@ var apiBase = "https://api.plivo.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // MA / SA + 18 uppercase alnum
-var authIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:MA|SA)[A-Z0-9]{18})\b`) })
+var authIDRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b((?:MA|SA)[A-Z0-9]{18})\b`) })
 
 // Auth tokens are 40+ base64url
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40,128})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{40,128})\b`) })
 
 type Scanner struct{}
 

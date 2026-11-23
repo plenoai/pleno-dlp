@@ -12,7 +12,6 @@ import (
 	"bytes"
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -25,8 +24,8 @@ var apiBase = "https://backboard.railway.app"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 8-4-4-4-12 hex UUID. Lowercase only — Railway emits lowercase.
-var keyRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+var keyRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
 })
 
 var contextKeywords = []string{"railway", "railway_token", "railway_api"}

@@ -12,7 +12,6 @@ package elasticapm
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +24,7 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style Elastic APM reference that must appear within
 // the proximity window. The Elastic APM secret token is operator-defined
@@ -34,8 +33,8 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // distinguishing signal — a bare "elasticapm" substring (package names, doc
 // URLs, comments) is too weak to gate on. We require the token-assignment shape
 // `elastic[_-]?apm...token|secret` instead.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)elastic[_\-]?apm[_\-]?(secret[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)elastic[_\-]?apm[_\-]?(secret[_\-]?)?(token|key|secret)`)
 })
 
 // minEntropy rejects low-information 40-80 char alnum runs that clear the regex

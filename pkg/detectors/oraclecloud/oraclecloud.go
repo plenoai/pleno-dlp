@@ -16,7 +16,6 @@ package oraclecloud
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +27,7 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,128})\b`) })
 
 // minEntropy is a CONSERVATIVE floor. Oracle does not publicly document the
 // OCI Auth Token length or charset (only an obfuscated console example), so we
@@ -45,8 +44,8 @@ const minEntropy = 3.0
 // as the real-world `OCI_TENANCY_KEY` / `oci_auth_token` shapes). The `ocid1.`
 // OCID prefix is also accepted directly as a strongly distinctive OCI marker.
 // Keywords() keeps the bare stems as the engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(oci|oraclecloud)[_\-]?(\w+[_\-])?(auth|api)?[_\-]?(token|key|secret)|ocid1\.`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(oci|oraclecloud)[_\-]?(\w+[_\-])?(auth|api)?[_\-]?(token|key|secret)|ocid1\.`)
 })
 
 type Scanner struct{}

@@ -9,7 +9,6 @@ package vertexai
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,8 +23,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Vertex tokens are GCP-issued OAuth bearer JWTs (3 base64url segments)
 // or short-lived ya29.* opaque tokens. We anchor on the JWT shape /
 // ya29 prefix to bound false positives.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}|ya29\.[A-Za-z0-9_\-]{40,200})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}|ya29\.[A-Za-z0-9_\-]{40,200})\b`)
 })
 
 var contextKeywords = []string{"vertex", "aiplatform", "vertexai", "vertex-ai"}

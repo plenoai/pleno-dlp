@@ -8,7 +8,6 @@ package browserstack
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,11 +22,11 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 var (
 	// Browserstack usernames are alphanumeric, typically 8-24 chars; access
 	// keys are exactly 20 chars (alnum) per current dashboard issuance.
-	userRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)browserstack[_\.\-]?user(?:name)?\s*[:=]\s*["']?([A-Za-z0-9_\-]{4,32})["']?`)
+	userRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`(?i)browserstack[_\.\-]?user(?:name)?\s*[:=]\s*["']?([A-Za-z0-9_\-]{4,32})["']?`)
 	})
-	keyRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)browserstack[_\.\-]?(?:access[_\.\-]?)?key\s*[:=]\s*["']?([A-Za-z0-9]{20})["']?`)
+	keyRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`(?i)browserstack[_\.\-]?(?:access[_\.\-]?)?key\s*[:=]\s*["']?([A-Za-z0-9]{20})["']?`)
 	})
 )
 

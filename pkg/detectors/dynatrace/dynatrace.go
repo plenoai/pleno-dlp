@@ -9,7 +9,6 @@ package dynatrace
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +22,9 @@ var apiBase = ""
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // dt0c01.<id>.<secret> — id is 24 base32 chars, secret is 64 base32 chars.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dt0[a-z][0-9]{2}\.[A-Z0-9]{24}\.[A-Z0-9]{64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(dt0[a-z][0-9]{2}\.[A-Z0-9]{24}\.[A-Z0-9]{64})\b`)
+})
 
 type Scanner struct{}
 

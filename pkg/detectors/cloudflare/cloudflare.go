@@ -12,7 +12,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,7 +28,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // 40 chars from the URL-safe alphabet. The shape is generic, so we only emit
 // matches when a co-occurring "cloudflare" / CF_API_TOKEN keyword is in the
 // surrounding 256-byte window.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{40})\b`) })
 
 var contextKeywords = []string{"cloudflare", "CF_API_TOKEN", "CF_TOKEN"}
 

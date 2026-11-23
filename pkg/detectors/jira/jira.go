@@ -32,7 +32,6 @@ package jira
 
 import (
 	"context"
-	"regexp"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -40,23 +39,25 @@ import (
 
 // 24 base62 characters. Same shape as `atlassian` — we differentiate by the
 // "jira" assignment keyword window, not by token format.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{24})\b`) })
 
 // assignmentRe requires the keyword to look like a config/env assignment:
 // jira, optionally followed by word/dash chars and one of token|key|api|secret,
 // then a ':' or '=' delimiter. This rejects prose mentions like "JIRA-1234".
-var assignmentRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)jira[\w-]*(?:token|key|api|secret)?\s*[:=]`) })
+var assignmentRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)jira[\w-]*(?:token|key|api|secret)?\s*[:=]`)
+})
 
 // pure 24-hex == git short-blob/sha fragment or a hex digest slice — never an
 // Atlassian base62 token.
-var hexOnlyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-fA-F]{24}$`) })
+var hexOnlyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^[0-9a-fA-F]{24}$`) })
 
 // Atlassian base62 tokens mix at least one uppercase, one lowercase, and one
 // digit. The structural classes below let us reject monotone runs.
 var (
-	hasUpperRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[A-Z]`) })
-	hasLowerRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[a-z]`) })
-	hasDigitRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[0-9]`) })
+	hasUpperRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`[A-Z]`) })
+	hasLowerRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`[a-z]`) })
+	hasDigitRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`[0-9]`) })
 )
 
 // minEntropy is the bits/char floor for a 24-char base62 candidate (alphabet

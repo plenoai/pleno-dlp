@@ -10,7 +10,6 @@ package klaviyo
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -24,7 +23,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Klaviyo private keys: `pk_<32-hex-or-base62>`. Site keys: `sk_<32-…>` or
 // `pk_…` shape, also documented as 6+ char base62 in some docs. We accept
 // 32..64 chars body; the prefix gate is enough to avoid noise.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:pk|sk)_[A-Za-z0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b((?:pk|sk)_[A-Za-z0-9]{32,64})\b`) })
 
 type Scanner struct{}
 

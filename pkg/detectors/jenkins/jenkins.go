@@ -14,7 +14,6 @@ package jenkins
 
 import (
 	"context"
-	"regexp"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -24,8 +23,8 @@ import (
 // credential-specific Jenkins key within a few bytes. The trailing `\b` plus
 // the fixed 34-char length means a longer git SHA or SHA-256 slice cannot be
 // captured — the closing word boundary fails.
-var assignRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var assignRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?i)(?:jenkins[_\-]?(?:api[_\-]?)?token|jenkins[_\-]?user[_\-]?(?:api[_\-]?)?token|jenkins[_\-]?(?:user[_\-]?)?password)` +
 			`["']?\s*[:=]\s*["']?` +
 			`\b(11[0-9a-f]{32})\b`,

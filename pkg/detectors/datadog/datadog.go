@@ -12,7 +12,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -27,8 +26,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // API key: 32 lowercase hex chars. Application key: 40 hex chars.
 var (
-	apiRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
-	appRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-fA-F0-9]{40})\b`) })
+	apiRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
+	appRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-fA-F0-9]{40})\b`) })
 )
 
 // Datadog candidates are extremely common shapes (md5, sha1) so the keyword

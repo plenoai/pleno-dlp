@@ -8,7 +8,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,7 @@ var apiBase = "https://api.pipedrive.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Pipedrive personal API tokens are documented as 40-char alphanumeric.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{40})\b`) })
 
 var contextKeywords = []string{"pipedrive", "pipedrive_api", "pipedrive_token"}
 

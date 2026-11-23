@@ -15,7 +15,6 @@ package ovhcloud
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -26,12 +25,12 @@ import (
 // tokens. A delimiter (=, :, quote or whitespace) must immediately precede
 // the token so we anchor on an assigned value rather than any arbitrary
 // 32-char run embedded in a larger word.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[=:"'\s]([A-Za-z0-9]{32})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`[=:"'\s]([A-Za-z0-9]{32})\b`) })
 
 // pure 32-char lowercase hex — the dominant false-positive class
 // (MD5 digests, hyphen-stripped UUIDs, hex32 session ids). Real OVH keys
 // are mixed-case, so excluding all-lowercase-hex loses no true positives.
-var lowerHex32Re = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-f]{32}$`) })
+var lowerHex32Re = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^[0-9a-f]{32}$`) })
 
 // contextKeywords are OVH-SPECIFIC. The bare generic "consumer_key"
 // (a stock OAuth1 / Twitter field) is intentionally NOT here — it stays a

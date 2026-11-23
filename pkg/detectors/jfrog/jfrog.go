@@ -17,7 +17,6 @@ package jfrog
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -31,11 +30,11 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // such string starts with "cmVmdGtuO". Production tokens are 200+ chars
 // after the prefix; we accept 80+ to allow for future-format truncation
 // while still rejecting bare "cmVmdGtuO" mentions in docs/comments.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(cmVmdGtuO[A-Za-z0-9+/=_-]{80,})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(cmVmdGtuO[A-Za-z0-9+/=_-]{80,})\b`) })
 
 // hostRe extracts a *.jfrog.io host or `/artifactory` path so we can probe.
-var hostRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`https?://[a-zA-Z0-9.-]+(?:\.jfrog\.io|/artifactory)`)
+var hostRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`https?://[a-zA-Z0-9.-]+(?:\.jfrog\.io|/artifactory)`)
 })
 
 type Scanner struct{}

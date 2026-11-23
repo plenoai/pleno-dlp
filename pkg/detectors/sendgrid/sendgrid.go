@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -24,7 +23,9 @@ var apiBase = "https://api.sendgrid.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // SendGrid keys: literal "SG." then 22-char id, dot, 43-char secret.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43})\b`)
+})
 
 // Scopes that grant either email-sending capability (fraud surface) or
 // administrative control (privilege escalation). Sorted by leaf for stable

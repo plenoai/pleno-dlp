@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -28,8 +27,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // we compare against: "apollo" must precede a 22-character alphanumeric key
 // by at most 40 bytes. The previous bidirectional 256-byte window admitted
 // unrelated identifiers and dominated large-repository false positives.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i:apollo)(?:.|[\n\r]){0,40}?\b([A-Za-z0-9]{22})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i:apollo)(?:.|[\n\r]){0,40}?\b([A-Za-z0-9]{22})\b`)
 })
 
 type Scanner struct{}

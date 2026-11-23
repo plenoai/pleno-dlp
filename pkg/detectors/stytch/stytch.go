@@ -8,14 +8,15 @@ package stytch
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(secret-(?:test|live)-[A-Za-z0-9_=\-]{32,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(secret-(?:test|live)-[A-Za-z0-9_=\-]{32,})\b`)
+})
 
 var contextKeywords = []string{"stytch", "stytch_secret", "stytch_project"}
 

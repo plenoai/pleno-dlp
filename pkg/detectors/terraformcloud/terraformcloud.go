@@ -6,7 +6,6 @@ package terraformcloud
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -20,7 +19,9 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // 14 alnum + ".atlasv1." + url-safe tail of 60+ chars. The "atlasv1" infix
 // is the legacy Atlas (HashiCorp's old name) marker that's still embedded in
 // Terraform Cloud user tokens.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_-]{60,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_-]{60,})\b`)
+})
 
 type Scanner struct{}
 

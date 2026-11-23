@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -92,7 +91,7 @@ func TestFromData_ShapeGateKeepsUnicodeAndRejectsNearMatches(t *testing.T) {
 func TestFromData_RegexesKeepLiteralPrefixes(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		re   *regexp.Regexp
+		re   *detectors.Regexp
 		want string
 	}{
 		{"classic", classicRe(), "ghp_"},

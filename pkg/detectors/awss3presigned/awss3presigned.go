@@ -16,7 +16,6 @@ package awss3presigned
 import (
 	"context"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,13 +27,13 @@ import (
 // S3 presigned URLs end with the X-Amz-Signature query parameter — the
 // full URL must include host, the AWS4-HMAC-SHA256 algorithm marker, and
 // the credential / signature pair.
-var urlRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`https?://[^\s"'<>]+\.(?:s3|s3-[a-z0-9-]+|s3\.[a-z0-9-]+)\.amazonaws\.com/[^\s"'<>]*?X-Amz-Algorithm=AWS4-HMAC-SHA256[^\s"'<>]*`)
+var urlRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`https?://[^\s"'<>]+\.(?:s3|s3-[a-z0-9-]+|s3\.[a-z0-9-]+)\.amazonaws\.com/[^\s"'<>]*?X-Amz-Algorithm=AWS4-HMAC-SHA256[^\s"'<>]*`)
 })
 
 // Path-style host (s3.amazonaws.com/bucket/key?…) — same algo marker.
-var pathStyleRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`https?://s3(?:\.[a-z0-9-]+)?\.amazonaws\.com/[^\s"'<>]*?X-Amz-Algorithm=AWS4-HMAC-SHA256[^\s"'<>]*`)
+var pathStyleRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`https?://s3(?:\.[a-z0-9-]+)?\.amazonaws\.com/[^\s"'<>]*?X-Amz-Algorithm=AWS4-HMAC-SHA256[^\s"'<>]*`)
 })
 
 type Scanner struct{}

@@ -8,7 +8,6 @@ package opslevel
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -28,15 +27,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // the documented 36-char shape in scope and bounds the upper end to avoid
 // matching arbitrarily long alnum runs. Recall is protected by the arm regex
 // + entropy floor below rather than by a fragile length pin.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{36,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{36,64})\b`) })
 
 // armRe is the assignment-style OpsLevel reference that must appear within a
 // tight proximity window. A bare "opslevel" substring (doc URLs, dependency
 // names, comments) is too weak to arm a high-entropy alnum match; an
 // `opslevel[_-]?(api[_-]?)?(token|key|secret)` shape is what a real token
 // assignment or config key looks like.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)ops[_\-]?level[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)ops[_\-]?level[_\-]?(api[_\-]?)?(token|key|secret)`)
 })
 
 // minEntropy rejects low-information alnum runs that clear the length regex

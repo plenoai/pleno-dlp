@@ -10,7 +10,6 @@ package sentryuser
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -22,7 +21,7 @@ var apiBase = "https://sentry.io"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // sntryu_ + 64 lowercase hex.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sntryu_[a-f0-9]{64})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(sntryu_[a-f0-9]{64})\b`) })
 
 type Scanner struct{}
 

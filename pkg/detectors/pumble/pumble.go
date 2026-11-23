@@ -19,7 +19,6 @@ package pumble
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -34,13 +33,13 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Pumble personal API tokens are 40-80 char base64url strings.
 // Trufflehog upstream regex matches `[A-Za-z0-9]{40,80}`; we keep
 // that shape but rely on the much tighter keyword gate below.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // keywordRe requires an explicit Pumble anchor. The bare "pumble"
 // substring is still cheap to find, but it must be followed by a
 // non-letter or a known suffix to register.
-var keywordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)` +
+var keywordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)` +
 		`(?:` +
 		`pumble[_\-]api(?:[_\-]key|[_\-]token)?` +
 		`|pumble[_\-]token` +

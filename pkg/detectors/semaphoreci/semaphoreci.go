@@ -23,7 +23,6 @@ package semaphoreci
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -38,15 +37,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // tokenRe stays at the original {40,80} alphanumeric range. The official docs
 // do not document a length or charset, so narrowing this would risk recall;
 // the arm regex and entropy floor carry the false-positive load instead.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style Semaphore reference that must appear within the
 // proximity window. A bare "semaphore" substring (the Go sync.Semaphore type,
 // the semaphore CLI library, generic mutex commentary) is too weak;
 // `semaphore_token` / `semaphore-api-key` / `semaphoreci secret` is the shape a
 // real token assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)semaphore(ci)?[_\- ]?(api[_\- ]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)semaphore(ci)?[_\- ]?(api[_\- ]?)?(token|key|secret)`)
 })
 
 // minEntropy rejects low-information 40-80 char runs that clear the alnum

@@ -37,7 +37,6 @@ package djangoconfigsecret
 import (
 	"bytes"
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -52,8 +51,8 @@ import (
 // Go's RE2 has no backreferences, so the opening/closing quote is not
 // required to match (a mismatched-quote value is not valid Python and
 // essentially never appears in real files).
-var secretKeyRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var secretKeyRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?m)^[ \t]*SECRET_KEY[ \t]*=[ \t]*['"]([^'"\r\n]{8,256})['"][ \t]*$`,
 	)
 })
@@ -61,8 +60,8 @@ var secretKeyRe = sync.OnceValue(func() *regexp.Regexp {
 // dbPasswordRe matches a quoted-key Python dict entry named PASSWORD
 // (case-insensitive to also catch the less common lowercase
 // convention), the shape Django's DATABASES block uses.
-var dbPasswordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var dbPasswordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?im)['"]PASSWORD['"][ \t]*:[ \t]*['"]([^'"\r\n]{1,256})['"]`,
 	)
 })

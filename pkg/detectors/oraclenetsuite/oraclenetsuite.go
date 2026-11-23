@@ -8,7 +8,6 @@ package oraclenetsuite
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,11 +19,11 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenIDRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)netsuite[_\-]?token[_\-]?id\s*[:=]\s*"?([0-9a-fA-F]{64})"?`)
+var tokenIDRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)netsuite[_\-]?token[_\-]?id\s*[:=]\s*"?([0-9a-fA-F]{64})"?`)
 })
-var tokenSecretRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)netsuite[_\-]?token[_\-]?secret\s*[:=]\s*"?([0-9a-fA-F]{64})"?`)
+var tokenSecretRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)netsuite[_\-]?token[_\-]?secret\s*[:=]\s*"?([0-9a-fA-F]{64})"?`)
 })
 
 type Scanner struct{}

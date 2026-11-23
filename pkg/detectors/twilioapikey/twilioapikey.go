@@ -10,7 +10,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,8 +22,8 @@ var apiBase = "https://api.twilio.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
-	sidRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(SK[0-9a-fA-F]{32})\b`) })
-	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
+	sidRe    = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(SK[0-9a-fA-F]{32})\b`) })
+	secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 )
 
 // maxPairDistance bounds how far (bytes) a secret may sit from its SID.

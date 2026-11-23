@@ -12,7 +12,6 @@ package dopplercli
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -25,7 +24,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `dp.cli.` + 40+ base64url chars. Anchored to the new prefix so it doesn't
 // overlap with the existing doppler detector.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dp\.cli\.[A-Za-z0-9_-]{40,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(dp\.cli\.[A-Za-z0-9_-]{40,})\b`) })
 
 type Scanner struct{}
 

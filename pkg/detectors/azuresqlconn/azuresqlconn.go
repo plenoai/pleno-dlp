@@ -46,7 +46,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -79,8 +78,8 @@ const defaultPort = "1433"
 //   - The cross-segment window is reduced from {0,8} to {0,3} so a host
 //     from one connection string cannot pair with a Password belonging to
 //     an adjacent concatenated connection string several segments away.
-var connRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?is)((?:Server|Data\s+Source|Address|Addr|Network\s+Address)\s*=\s*[^;]*\b[a-z0-9-]+\.database\.windows\.net[^;]*;(?:[^;]*;){0,3}?\s*Password\s*=\s*([^;\s"'<>]+))`)
+var connRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?is)((?:Server|Data\s+Source|Address|Addr|Network\s+Address)\s*=\s*[^;]*\b[a-z0-9-]+\.database\.windows\.net[^;]*;(?:[^;]*;){0,3}?\s*Password\s*=\s*([^;\s"'<>]+))`)
 })
 
 // placeholders are interpolation tokens or template values that must never
@@ -129,18 +128,18 @@ func isPlaceholder(p string) bool {
 }
 
 // Canonical key extractors for ExtraData. Used after a candidate match.
-var serverRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)Server\s*=\s*(?:tcp:)?\s*([a-z0-9-]+\.database\.windows\.net)(?:,\s*\d+)?`)
+var serverRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)Server\s*=\s*(?:tcp:)?\s*([a-z0-9-]+\.database\.windows\.net)(?:,\s*\d+)?`)
 })
-var userRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)User\s*ID\s*=\s*([^;\s"'<>]+)`) })
-var dbRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(?:Initial\s+Catalog|Database)\s*=\s*([^;\s"'<>]+)`)
+var userRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)User\s*ID\s*=\s*([^;\s"'<>]+)`) })
+var dbRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(?:Initial\s+Catalog|Database)\s*=\s*([^;\s"'<>]+)`)
 })
 
 // portRe extracts a non-default port from the Server value if present
 // (e.g. "Server=tcp:host.database.windows.net,3342").
-var portRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)Server\s*=\s*(?:tcp:)?\s*[a-z0-9-]+\.database\.windows\.net\s*,\s*(\d+)`)
+var portRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)Server\s*=\s*(?:tcp:)?\s*[a-z0-9-]+\.database\.windows\.net\s*,\s*(\d+)`)
 })
 
 type Scanner struct{}
@@ -222,7 +221,7 @@ func connStringFields(conn string) (server, port, user, password, database strin
 		user = um[1]
 	}
 	// Password regex: matches the same capture group as connRe.
-	pwRe := sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)Password\s*=\s*([^;\s"'<>]+)`) })
+	pwRe := sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)Password\s*=\s*([^;\s"'<>]+)`) })
 	if pm := pwRe().FindStringSubmatch(conn); len(pm) == 2 {
 		password = pm[1]
 	}

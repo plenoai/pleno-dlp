@@ -8,7 +8,6 @@ package exoscale
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -16,13 +15,13 @@ import (
 )
 
 // Exoscale API keys are documented as `EXO<base62>{56}` (uppercase prefix).
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(EXO[A-Za-z0-9]{56})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(EXO[A-Za-z0-9]{56})\b`) })
 
 // Secret is base64url (URL-safe alphabet, may include `-` and `_`). The
 // observed Exoscale secret shape is ~43-44 chars; we cap the upper bound
 // at 80 (down from 128) to shed long base64 blobs (PEM bodies, JWTs) that
 // a 128-wide window would otherwise swallow.
-var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40,80})\b`) })
+var secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{40,80})\b`) })
 
 // Negative lookalikes the secret regex would otherwise match:
 //   - pure-hex SHA digests (sha1=40, sha256=64) — low information, never
@@ -30,7 +29,7 @@ var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(
 //   - JWT segments — base64url but begin with the fixed `eyJ` header marker.
 //   - PEM body lines — base64 starting with the ASN.1 `MII` DER prefix.
 var (
-	hexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-fA-F0-9]+$`) })
+	hexRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^[a-fA-F0-9]+$`) })
 )
 
 const (

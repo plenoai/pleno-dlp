@@ -14,7 +14,6 @@ package totango
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -28,15 +27,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Totango service tokens are 32-64 alnum chars; anchored on an
 // explicit Totango keyword.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // keywordRe requires an explicit Totango anchor. The bare substring
 // "totango" appearing inside an unrelated identifier no longer
 // qualifies on its own — though since the word isn't a real English
 // word, the most important effect is requiring a token-like
 // neighbouring context.
-var keywordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)` +
+var keywordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)` +
 		`(?:` +
 		`totango[_\-]api(?:[_\-]key|[_\-]token)?` +
 		`|totango[_\-]token` +
@@ -106,7 +105,7 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 // (start-of-string, whitespace, `_`, `-`, `.`, `=`, `:`, end-of-word).
 // `\btotango\b` is wrong because `\b` treats `_` as a word char, so
 // `TOTANGO_TOKEN` would fail the boundary check.
-var totangoAnchorRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)(?:^|[^A-Za-z])totango(?:[^A-Za-z]|$)`) })
+var totangoAnchorRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)(?:^|[^A-Za-z])totango(?:[^A-Za-z]|$)`) })
 
 func hasTotangoAnchor(data []byte) bool {
 	return totangoAnchorRe().Match(data)

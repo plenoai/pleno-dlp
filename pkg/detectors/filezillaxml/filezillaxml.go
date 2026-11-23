@@ -15,7 +15,6 @@ package filezillaxml
 import (
 	"context"
 	"encoding/base64"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -25,8 +24,8 @@ import (
 // passTagRe matches a <Pass>...</Pass> element, optionally carrying a
 // FileZilla `encoding="base64"` attribute. `[^<]*` for the body is
 // sufficient — FileZilla never escapes `<` inside this element.
-var passTagRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var passTagRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?i)<Pass(?:\s+encoding="([^"]*)")?\s*>([^<]*)</Pass>`,
 	)
 })

@@ -8,7 +8,6 @@ package leaseweb
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,7 @@ var apiBase = "https://api.leaseweb.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 32-char lowercase hex matches both Leaseweb keys and secrets.
-var hexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+var hexRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
 
 var contextKeywords = []string{"leaseweb", "lsw_", "lsw_auth", "leaseweb_api"}
 

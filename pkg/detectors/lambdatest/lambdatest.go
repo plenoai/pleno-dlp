@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,8 +22,12 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // LambdaTest usernames are typically email-prefix or short alnum strings;
 // access_keys are 20-32 alnum chars. We pair a `LT_USERNAME=` shape with
 // a `LT_ACCESS_KEY=` shape — the same chunk almost always has both.
-var userRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)LT_USERNAME["\s:=]+([A-Za-z0-9._-]{3,40})`) })
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)LT_ACCESS_KEY["\s:=]+([A-Za-z0-9]{20,40})`) })
+var userRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)LT_USERNAME["\s:=]+([A-Za-z0-9._-]{3,40})`)
+})
+var keyRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)LT_ACCESS_KEY["\s:=]+([A-Za-z0-9]{20,40})`)
+})
 
 type Scanner struct{}
 

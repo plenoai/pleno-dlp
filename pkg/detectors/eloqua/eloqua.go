@@ -21,7 +21,6 @@ package eloqua
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -39,15 +38,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // placeholders like `a1b2c3d4`). With no authoritative format to pin, this
 // stays a wide alphanumeric range and the gate carries the FP load. See the
 // research note in the package-level doc comment.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24,128})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{24,128})\b`) })
 
 // armRe is the assignment-style Eloqua reference that must appear within the
 // proximity window. A bare "eloqua" substring (doc links, the per-pod
 // `secure.pNN.eloqua.com` host, dependency names) is far too weak a gate
 // against a generic 24-128 alphanumeric run; the shape an actual credential
 // assignment or config key takes is `eloqua[_-]?(client[_-]?)?(id|secret|token|key)`.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)eloqua[_\-]?(client[_\-]?)?(id|secret|token|key)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)eloqua[_\-]?(client[_\-]?)?(id|secret|token|key)`)
 })
 
 // minEntropy rejects low-entropy 24-128 char runs that clear the alnum regex

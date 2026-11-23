@@ -12,7 +12,6 @@ package vercel
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -26,13 +25,13 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 24 alphanumeric. No prefix to anchor on, so the keyword gate carries the
 // false-positive load.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{24})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{24})\b`) })
 
 // armRe is the assignment-style Vercel reference that must appear within the
 // proximity window. A bare "vercel" substring (script-src URLs, dependency
 // names, comments) is too weak; "vercel_token" / "vercel-token" / "verceltoken"
 // is the shape a real token assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)vercel[_\-]?token`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)vercel[_\-]?token`) })
 
 // minEntropy rejects low-entropy 24-char runs that clear the alnum regex but
 // are not random tokens.

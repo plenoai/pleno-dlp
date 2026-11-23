@@ -8,7 +8,6 @@ package vultr
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = "https://api.vultr.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Z0-9]{36})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Z0-9]{36})\b`) })
 
 var contextKeywords = []string{"vultr", "vultr_api", "vultr_key", "vultr_token"}
 

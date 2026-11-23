@@ -45,7 +45,6 @@ import (
 	"math"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -85,7 +84,7 @@ func (d *Detector) Rule() Rule { return d.rule }
 // from different scan workers are safe.
 type Detector struct {
 	rule     Rule
-	re       *regexp.Regexp
+	re       *detectors.Regexp
 	severity detectors.Severity
 	client   *http.Client
 	checksum *checksumCheck
@@ -244,7 +243,7 @@ func Compile(rule Rule) (*Detector, error) {
 	if rule.Regex == "" {
 		return nil, errors.New("regex is required")
 	}
-	re, err := regexp.Compile(rule.Regex)
+	re, err := detectors.Compile(rule.Regex)
 	if err != nil {
 		return nil, fmt.Errorf("regex: %w", err)
 	}

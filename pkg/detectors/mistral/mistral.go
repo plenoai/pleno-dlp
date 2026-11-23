@@ -9,7 +9,6 @@ package mistral
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +25,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // in the official docs, and trufflehog ships no mistral detector to mirror).
 // The 32-char length here is the pre-existing heuristic, NOT a documented
 // value — it is retained as-is to preserve recall, not tightened on a guess.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // minEntropy is a conservative floor. Without a documented charset we cannot
 // assume key-grade randomness, so 3.0 (not 3.5) is used to cull only the
@@ -39,7 +38,9 @@ const minEntropy = 3.0
 // the assignment-style fixtures (mistral_api_key=, MISTRAL_KEY:, etc.) armed
 // while rejecting incidental mentions. The bare "mistral" keyword stays in
 // Keywords() as the engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)mistral[_-]?(api[_-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)mistral[_-]?(api[_-]?)?(token|key|secret)`)
+})
 
 type Scanner struct{}
 

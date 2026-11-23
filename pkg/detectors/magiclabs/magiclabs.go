@@ -7,7 +7,6 @@ package magiclabs
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = "https://api.magic.link"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Magic secret keys are sk_(live|test)_ + 32+ alnum chars.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk_(?:live|test)_[A-Za-z0-9]{20,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(sk_(?:live|test)_[A-Za-z0-9]{20,64})\b`) })
 
 var contextKeywords = []string{"magic", "magiclink", "magic.link", "magiclabs"}
 

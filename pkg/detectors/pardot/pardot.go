@@ -8,7 +8,6 @@ package pardot
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +25,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // charset [A-Za-z0-9]. The `0Uv` prefix is the distinguishing anchor, so this
 // half needs no entropy gate.
 // Source: developer.salesforce.com/docs/marketing/pardot/guide/authentication.html
-var buRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(0Uv[A-Za-z0-9]{15})\b`) })
+var buRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(0Uv[A-Za-z0-9]{15})\b`) })
 
 // tokenRe matches the Salesforce OAuth access token used as the Bearer
 // credential. A real Salesforce access token is shaped `00D<15-char-orgid>!`
@@ -44,8 +43,8 @@ var buRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(
 // fallback for environments/fixtures that strip the `!`-separated session
 // material. The `00D` anchor + entropy 3.5 replaces the previous unanchored
 // `[A-Za-z0-9]{18,256}`.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(00D[A-Za-z0-9]{12,18}![A-Za-z0-9._\-]{20,}|00D[A-Za-z0-9]{15,253}\b)`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(00D[A-Za-z0-9]{12,18}![A-Za-z0-9._\-]{20,}|00D[A-Za-z0-9]{15,253}\b)`)
 })
 
 // armRe is the assignment-style Pardot reference that must appear within the
@@ -53,8 +52,8 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp {
 // tracker JS) is too weak a gate; `pardot[_-]?(business[_-]?unit[_-]?id|
 // (api[_-]?)?(token|key|secret|bu))` is the shape a real credential
 // assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)pardot[_\-]?(business[_\-]?unit[_\-]?id|(api[_\-]?)?(token|key|secret|bu|id))`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)pardot[_\-]?(business[_\-]?unit[_\-]?id|(api[_\-]?)?(token|key|secret|bu|id))`)
 })
 
 // minTokenEntropy rejects low-information runs that clear the token regex but

@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +24,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // and trufflehog ships no Vitally detector to mirror. With no authoritative
 // format to pin, we keep the broad length range and lean on the assignment
 // anchor + entropy floor to bound false positives without harming recall.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // armRe is the assignment-style Vitally reference that must appear within the
 // proximity window. A bare "vitally" substring (doc links, the vitally.io host,
@@ -33,7 +32,9 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // `vitally[_-]?(api[_-]?)?(token|key|secret)` is the shape a real credential
 // assignment or config key takes. The bare keyword stays in Keywords() as the
 // engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)vitally[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)vitally[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy is a conservative floor: with no documented charset we cannot
 // assume key-grade variety, so 3.0 only rejects clearly low-information runs

@@ -3,7 +3,6 @@ package helpscout
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -15,13 +14,13 @@ var apiBase = "https://api.helpscout.net"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,128})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,128})\b`) })
 
 // armRe gates on an assignment-shaped helpscout reference. Help Scout does not
 // document the App ID/Secret length or charset, so we pin no length and require
 // this arm shape within a radius-64 window instead of a bare keyword match.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)helpscout[_\-]?(app[_\-]?)?(id|key|token|secret|client)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)helpscout[_\-]?(app[_\-]?)?(id|key|token|secret|client)`)
 })
 
 // minEntropy rejects low-information 32-128 char runs that clear the alnum

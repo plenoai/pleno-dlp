@@ -24,15 +24,14 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([A-Za-z0-9_\-]{40,200}\.[A-Za-z0-9_\-]{40,200}\.[A-Za-z0-9_\-]{20,200})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([A-Za-z0-9_\-]{40,200}\.[A-Za-z0-9_\-]{40,200}\.[A-Za-z0-9_\-]{20,200})\b`)
 })
 
 // Wiz-distinctive context words. The bare `wiz` Keywords gate only narrows the

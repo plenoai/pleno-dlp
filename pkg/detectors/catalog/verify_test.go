@@ -79,7 +79,7 @@ func respond(rule tokenverify.Rule) func(http.ResponseWriter, *http.Request, str
 	}
 }
 
-var urlVar = regexp.MustCompile(`^\{(\w+)\}`)
+var urlVar = detectors.MustCompile(`^\{(\w+)\}`)
 
 // sampleVars gives every partner a value; a partner that forms the URL
 // host gets a host inside the check's allowlist.
@@ -96,7 +96,7 @@ func sampleVars(c *check, secret string) vars {
 		if m := urlVar.FindStringSubmatch(c.http.URL); m != nil {
 			v[m[1]] = "https://" + host
 		}
-		if m := regexp.MustCompile(`https://\{(\w+)\}`).FindStringSubmatch(c.http.URL); m != nil {
+		if m := detectors.MustCompile(`https://\{(\w+)\}`).FindStringSubmatch(c.http.URL); m != nil {
 			v[m[1]] = host
 		}
 	}
@@ -421,7 +421,7 @@ func TestExoscalePolymarketPackagistOVHSignatures(t *testing.T) {
 	t.Run("packagist", func(t *testing.T) {
 		fakeProvider(t, func(w http.ResponseWriter, r *http.Request, _ string) {
 			a := r.Header.Get("Authorization")
-			m := regexp.MustCompile(`^PACKAGIST-HMAC-SHA256 Key=(\S+), Timestamp=(\d+), Cnonce=(\w+), Signature=(\S+)$`).FindStringSubmatch(a)
+			m := detectors.MustCompile(`^PACKAGIST-HMAC-SHA256 Key=(\S+), Timestamp=(\d+), Cnonce=(\w+), Signature=(\S+)$`).FindStringSubmatch(a)
 			if m == nil {
 				w.WriteHeader(401)
 				return

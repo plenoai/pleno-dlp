@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,8 +25,8 @@ var apiBase = "https://api.kraken.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Kraken API keys are 56 base64-ish chars; secrets are 88 base64 chars.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9+/]{56})\b`) })
-var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9+/]{86,88}={0,2})`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9+/]{56})\b`) })
+var secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9+/]{86,88}={0,2})`) })
 
 var contextKeywords = []string{"kraken"}
 

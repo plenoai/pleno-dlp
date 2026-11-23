@@ -8,7 +8,6 @@ package vespacloud
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(vespa_cloud_[A-Za-z0-9_]{20,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(vespa_cloud_[A-Za-z0-9_]{20,80})\b`) })
 
 var contextKeywords = []string{"vespa", "vespa-cloud", "vespa_cloud", "vespacloud"}
 

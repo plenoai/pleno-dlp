@@ -5,7 +5,6 @@ package rekaai
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +23,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // pin a length or prefix (that would silently destroy recall) and keep
 // the broad 32-64 alnum shape; false positives are bounded instead by a
 // conservative entropy floor plus an assignment-anchored keyword gate.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // minEntropy is the recall-safe conservative floor for an unsourced
 // charset: 3.0 admits hex/low-variety key material (hex caps ~3.6) while
@@ -36,8 +35,8 @@ const minEntropy = 3.0
 // 256-char window — that matched prose like "Rekamilemu" and any unrelated
 // secret sharing a chunk with the word. The bare "reka" prefilter still
 // lives in Keywords().
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)reka(\.ai|ai)?[_-]?(api[_-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)reka(\.ai|ai)?[_-]?(api[_-]?)?(token|key|secret)`)
 })
 
 type Scanner struct{}

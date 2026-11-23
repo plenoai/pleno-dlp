@@ -6,7 +6,6 @@ package portswigger
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -18,7 +17,7 @@ var apiBase = "https://burpsuite.example.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style PortSwigger/Burp reference that must appear
 // within the proximity window. A bare "portswigger"/"burp" substring (doc
@@ -29,8 +28,8 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // length cannot be safely pinned. We arm on the credential-assignment shape
 // `(portswigger|burp)[_-]?(api[_-]?)?(token|key|secret)` instead. The bare
 // "portswigger"/"burp" prefilter stays in Keywords() to gate the engine.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(portswigger|burp)[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(portswigger|burp)[_\-]?(api[_\-]?)?(token|key|secret)`)
 })
 
 // minEntropy rejects low-information 40-80 char runs that clear the alnum regex

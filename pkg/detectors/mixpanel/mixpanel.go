@@ -7,7 +7,6 @@ package mixpanel
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,9 +21,9 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 var (
 	// Service account name: lowercase slug (>=10 chars to skip generic
 	// hostnames) + dot + 8-char base62 id.
-	accountRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z]{10,}\.[a-zA-Z0-9]{8})\b`) })
+	accountRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-z]{10,}\.[a-zA-Z0-9]{8})\b`) })
 	// Secret: 32 lowercase hex.
-	secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+	secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
 )
 
 type Scanner struct{}

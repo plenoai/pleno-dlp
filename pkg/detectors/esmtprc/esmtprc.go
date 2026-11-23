@@ -31,7 +31,6 @@ package esmtprc
 import (
 	"bytes"
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -43,8 +42,8 @@ import (
 // whitespace-delimited token, alone on its line (start-to-end
 // anchored, so leading/trailing text on the same line disqualifies
 // it).
-var passwordLineRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var passwordLineRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?m)^[ \t]*password[ \t]+(?:"([^"\r\n]*)"|(\S+))[ \t]*$`,
 	)
 })
@@ -54,8 +53,8 @@ var passwordLineRe = sync.OnceValue(func() *regexp.Regexp {
 // single-token-value, lowercase-keyword grammar as passwordLineRe. A
 // `password` line with no sibling directive line anywhere in the chunk
 // is not an `.esmtprc` file — it is coincidence.
-var contextDirectiveRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var contextDirectiveRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?m)^[ \t]*(?:hostname|username|mda|starttls)[ \t]+(?:"[^"\r\n]*"|\S+)[ \t]*$`,
 	)
 })

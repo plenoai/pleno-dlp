@@ -28,8 +28,8 @@ import (
 var (
 	beginPEM = "-----BEGIN " + "PRIVATE KEY-----"
 	endPEM   = "-----END " + "PRIVATE KEY-----"
-	pemRe    = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(regexp.QuoteMeta(beginPEM) + `[\s\S]*?` + regexp.QuoteMeta(endPEM))
+	pemRe    = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(regexp.QuoteMeta(beginPEM) + `[\s\S]*?` + regexp.QuoteMeta(endPEM))
 	})
 )
 

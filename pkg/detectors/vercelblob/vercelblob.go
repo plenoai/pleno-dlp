@@ -6,7 +6,6 @@ package vercelblob
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -18,8 +17,8 @@ var apiBase = "https://blob.vercel-storage.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(vercel_blob_rw_[A-Za-z0-9]{20,80}_[A-Za-z0-9]{8,40})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(vercel_blob_rw_[A-Za-z0-9]{20,80}_[A-Za-z0-9]{8,40})\b`)
 })
 
 type Scanner struct{}

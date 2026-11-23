@@ -6,7 +6,6 @@ package buildkite
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,12 +19,12 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
 	// `bkua_` + 40 hex (agent registration token).
-	agentRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(bkua_[a-f0-9]{40})\b`) })
+	agentRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(bkua_[a-f0-9]{40})\b`) })
 	// `bka_` + 40 alnum (Buildkite documents this as the API access token
 	// shape on newly-minted tokens).
-	apiRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(bka_[A-Za-z0-9]{40})\b`) })
+	apiRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(bka_[A-Za-z0-9]{40})\b`) })
 	// Legacy 40-char hex API tokens (no prefix). Keyword-gated.
-	legacyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40})\b`) })
+	legacyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{40})\b`) })
 )
 
 var contextKeywords = []string{"buildkite", "buildkite_api_token", "buildkite_token"}

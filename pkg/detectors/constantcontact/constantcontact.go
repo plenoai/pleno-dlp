@@ -7,7 +7,6 @@ package constantcontact
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,9 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Constant Contact mints JWT-shaped access tokens; we accept either a JWT or
 // a 32-char base62 long-lived token (legacy v2).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_.-]{20,}|[A-Za-z0-9]{32,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_.-]{20,}|[A-Za-z0-9]{32,80})\b`)
+})
 
 var contextKeywords = []string{
 	"constant_contact",

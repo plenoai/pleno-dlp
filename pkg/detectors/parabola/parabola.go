@@ -16,7 +16,6 @@ package parabola
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -31,13 +30,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // No documented prefix to anchor on, so the keyword gate plus the entropy
 // floor carry the false-positive load. Length stays unpinned (32..80) because
 // no authoritative source documents Parabola's credential length.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,80})\b`) })
 
 // armRe is the assignment-style Parabola reference that must appear within the
 // proximity window. A bare "parabola" substring (URLs, package names, prose)
 // is too weak; `parabola_token` / `parabola-api-key` / `parabolasecret` is the
 // shape a real credential assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)parabola[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)parabola[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-entropy 32..80-char runs that clear the alnum regex
 // but are not random tokens (e.g. structured identifiers, padded names). 3.0

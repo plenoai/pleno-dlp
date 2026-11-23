@@ -6,7 +6,6 @@ package figma
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -19,7 +18,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // `figd_` legacy: ~40 base64url chars; `figpat_` modern: 6-segment dash
 // shape ending in 32 base64url. We accept either.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(fig(?:d_|pat_)[A-Za-z0-9_-]{36,200})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(fig(?:d_|pat_)[A-Za-z0-9_-]{36,200})\b`) })
 
 type Scanner struct{}
 

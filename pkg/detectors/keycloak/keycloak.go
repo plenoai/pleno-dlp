@@ -21,7 +21,6 @@ package keycloak
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -39,8 +38,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // 48- or 64-char run is matched by the corresponding alternative rather than
 // truncated to 32. No prefix exists, so length + entropy + the arm-regex keyword
 // gate carry the false-positive load.
-var secretRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([A-Za-z0-9]{64}|[A-Za-z0-9]{48}|[A-Za-z0-9]{32})\b`)
+var secretRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([A-Za-z0-9]{64}|[A-Za-z0-9]{48}|[A-Za-z0-9]{32})\b`)
 })
 
 // idRe matches the admin-chosen client_id. This has no documented format
@@ -48,15 +47,15 @@ var secretRe = sync.OnceValue(func() *regexp.Regexp {
 // so it is intentionally NOT length-pinned to the secret's 32 — pinning a
 // free-form field would destroy recall. We accept a permissive identifier
 // shape and rely on the keyword gate + secret-half rigor.
-var idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9][A-Za-z0-9._\-]{2,127})\b`) })
+var idRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9][A-Za-z0-9._\-]{2,127})\b`) })
 
 // armRe is the assignment-style Keycloak reference that must appear within the
 // proximity window. A bare "keycloak" substring (script-src URLs, doc links,
 // the realm host) is too weak a gate against a generic 32-char alphanumeric
 // run; `keycloak[_-]?(client[_-]?)?(secret|id|key|token)` is the shape a real
 // credential assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)keycloak[_\-]?(client[_\-]?)?(secret|id|key|token)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)keycloak[_\-]?(client[_\-]?)?(secret|id|key|token)`)
 })
 
 // minEntropy rejects low-entropy 32-char runs that clear the alnum regex but

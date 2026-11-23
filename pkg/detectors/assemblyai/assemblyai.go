@@ -6,7 +6,6 @@ package assemblyai
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ var apiBase = "https://api.assemblyai.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // AssemblyAI keys are documented as 32-char hex.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
 
 var contextKeywords = []string{"assemblyai", "assembly_ai", "assembly_api"}
 

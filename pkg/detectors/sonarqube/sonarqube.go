@@ -10,7 +10,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -25,8 +24,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 const maxVerifyResponseBytes = 1 << 20
 
 var (
-	prefixedRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sq[apu]_[A-Za-z0-9]{40})\b`) })
-	legacyRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40})\b`) })
+	prefixedRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(sq[apu]_[A-Za-z0-9]{40})\b`) })
+	legacyRe   = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{40})\b`) })
 )
 
 var contextKeywords = []string{"sonar", "sonarqube", "sonarcloud", "sonar_token", "sonar_login"}

@@ -67,6 +67,8 @@ type Format struct {
 	lead     []byte
 	leadFold bool
 	anchored *regexp.Regexp
+	// pre is the exact necessary-condition prefilter for Pattern (#984).
+	pre *prefilter
 	// lowerKeywords caches strings.ToLower of each non-empty keyword;
 	// keywordsASCII reports that all of them are ASCII.
 	lowerKeywords [][]byte
@@ -78,6 +80,9 @@ type Format struct {
 func (f *Format) Compile() (*regexp.Regexp, error) {
 	f.once.Do(func() {
 		f.re, f.err = regexp.Compile(f.Pattern)
+		if f.err == nil {
+			f.pre = buildPrefilter(f.Pattern)
+		}
 		if f.err == nil && f.Path != "" {
 			f.pathRe, f.err = regexp.Compile(f.Path)
 		}
@@ -149,6 +154,9 @@ var unicodeFoldsOfASCII = [][]byte{[]byte("\u017f"), []byte("\u212a")}
 // semantics from a fixed start are identical anchored or not. lower lazily
 // holds data lowercased in ASCII only (same length as data).
 func (f *Format) findAll(data []byte, lower *asciiScratch) [][]int {
+	if f.pre != nil && !f.pre.mayMatch(data) {
+		return nil
+	}
 	if f.anchored == nil {
 		return f.re.FindAllSubmatchIndex(data, -1)
 	}

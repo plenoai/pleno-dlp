@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -30,8 +29,8 @@ import (
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var uriRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(mysqlx?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
+var uriRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(mysqlx?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
 })
 
 // skipVerifyHosts lists hosts that the Verify probe must never contact.

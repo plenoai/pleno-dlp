@@ -8,7 +8,6 @@ package dwolla
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -26,14 +25,16 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // github.com/trufflesecurity/trufflehog pkg/detectors/dwolla/dwolla.go.
 // We mirror the exact length rather than the previous open-ended `{50,}`,
 // which would over-match any longer alnum run.
-var credRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{50})\b`) })
+var credRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{50})\b`) })
 
 // armRe is the assignment-style Dwolla reference that must appear within the
 // proximity window. A bare "dwolla" substring (URLs, package names, prose) is
 // too weak; "dwolla_key" / "dwolla-secret" / "dwollaapitoken" is the shape a
 // real credential assignment or config key takes. The bare "dwolla" keyword
 // remains the engine prefilter via Keywords().
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)dwolla[_\-]?(api[_\-]?)?(key|secret|token)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)dwolla[_\-]?(api[_\-]?)?(key|secret|token)`)
+})
 
 // minEntropy rejects low-entropy 50-char runs that clear the alnum regex but
 // are not random credentials (e.g. padded identifiers, repeated patterns).

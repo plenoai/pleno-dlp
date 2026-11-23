@@ -28,7 +28,6 @@ package launchnotes
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -46,14 +45,14 @@ import (
 // match cannot start mid-identifier (e.g. `lin_api_…` Linear, `learn_…`,
 // `login_…`). Go's RE2 has no lookbehind, so the delimiter is a capture group
 // (group 1) and the token is group 2.
-var keyRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(^|[^A-Za-z0-9_])(public_[A-Za-z0-9]{20,64}|ln_[A-Za-z0-9]{32,64})`)
+var keyRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(^|[^A-Za-z0-9_])(public_[A-Za-z0-9]{20,64}|ln_[A-Za-z0-9]{32,64})`)
 })
 
 // Context keywords that must appear within vicinityWindow bytes of an `ln_`
 // match for it to be emitted. `public_` tokens are distinctive enough on their
 // own and do not require vicinity.
-var contextRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)launchnotes|launch_notes`) })
+var contextRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)launchnotes|launch_notes`) })
 
 const (
 	// vicinityWindow is the byte radius around a speculative `ln_` match in

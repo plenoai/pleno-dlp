@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"regexp"
 	"testing"
 )
 
 func TestForEachReaderPrefixedSubmatchRejectsShortReader(t *testing.T) {
-	re := regexp.MustCompile(`secret=([[:alnum:]]+)`)
+	re := MustCompile(`secret=([[:alnum:]]+)`)
 	err := ForEachReaderPrefixedSubmatch(context.Background(), bytes.NewReader([]byte("secret=x")), 64, re, []byte("secret="), []int{1}, func([][]byte) error {
 		return nil
 	})
@@ -19,7 +18,7 @@ func TestForEachReaderPrefixedSubmatchRejectsShortReader(t *testing.T) {
 }
 
 func TestForEachReaderLineSubmatchRejectsShortReader(t *testing.T) {
-	re := regexp.MustCompile(`(?m)^secret=([[:alnum:]]+)$`)
+	re := MustCompile(`(?m)^secret=([[:alnum:]]+)$`)
 	err := ForEachReaderLineSubmatch(context.Background(), bytes.NewReader([]byte("secret=x\n")), 64, re, []byte("="), 1, 0, []int{1}, func([][]byte) error {
 		return nil
 	})
@@ -29,7 +28,7 @@ func TestForEachReaderLineSubmatchRejectsShortReader(t *testing.T) {
 }
 
 func TestForEachReaderLineSubmatchHonorsMaxOccurrences(t *testing.T) {
-	re := regexp.MustCompile(`(?m)^([^\n]+)$`)
+	re := MustCompile(`(?m)^([^\n]+)$`)
 	data := []byte("one:two:three:four:five\none:two:three:four:five:six\n")
 	var got []string
 	err := ForEachReaderLineSubmatch(context.Background(), bytes.NewReader(data), int64(len(data)), re, []byte(":"), 4, 4, []int{1}, func(groups [][]byte) error {
@@ -45,7 +44,7 @@ func TestForEachReaderLineSubmatchHonorsMaxOccurrences(t *testing.T) {
 }
 
 func TestForEachReaderLineSubmatchZeroMaxKeepsLowerBoundOnly(t *testing.T) {
-	re := regexp.MustCompile(`(?m)^([^\n]+)$`)
+	re := MustCompile(`(?m)^([^\n]+)$`)
 	data := []byte("one:two:three:four:five\n")
 	called := false
 	err := ForEachReaderLineSubmatch(context.Background(), bytes.NewReader(data), int64(len(data)), re, []byte(":"), 4, 0, []int{1}, func([][]byte) error {
@@ -61,7 +60,7 @@ func TestForEachReaderLineSubmatchZeroMaxKeepsLowerBoundOnly(t *testing.T) {
 }
 
 func TestForEachReaderLineSubmatchFuncDefersAndCachesFactory(t *testing.T) {
-	re := regexp.MustCompile(`(?m)^([^\n]+)$`)
+	re := MustCompile(`(?m)^([^\n]+)$`)
 	tests := []struct {
 		name       string
 		data       []byte
@@ -138,9 +137,9 @@ func TestForEachReaderLineSubmatchFuncDefersAndCachesFactory(t *testing.T) {
 				ctx, cancel = context.WithCancel(ctx)
 				cancel()
 			}
-			var factory func() *regexp.Regexp
+			var factory func() *Regexp
 			if !tt.nilFactory {
-				factory = func() *regexp.Regexp {
+				factory = func() *Regexp {
 					calls++
 					if tt.nilResult {
 						return nil
@@ -166,7 +165,7 @@ func TestForEachReaderLineSubmatchFuncDefersAndCachesFactory(t *testing.T) {
 }
 
 func TestForEachReaderLineSubmatchPropagatesCancellation(t *testing.T) {
-	re := regexp.MustCompile(`(?m)^([^\n]+)$`)
+	re := MustCompile(`(?m)^([^\n]+)$`)
 	data := []byte("one:two:three:four\n")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -179,7 +178,7 @@ func TestForEachReaderLineSubmatchPropagatesCancellation(t *testing.T) {
 }
 
 func TestForEachReaderPrefixedSubmatchCopiesOnlyCapture(t *testing.T) {
-	re := regexp.MustCompile(`TOKEN=([[:alnum:]]+)`)
+	re := MustCompile(`TOKEN=([[:alnum:]]+)`)
 	var got []byte
 	err := ForEachReaderPrefixedSubmatch(context.Background(), bytes.NewReader([]byte("prefix TOKEN=abc suffix")), 23, re, []byte("TOKEN="), []int{1}, func(groups [][]byte) error {
 		got = groups[0]

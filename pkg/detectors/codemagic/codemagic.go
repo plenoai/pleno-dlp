@@ -6,7 +6,6 @@ package codemagic
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ var apiBase = "https://api.codemagic.io"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Codemagic API tokens are 32-64 alnum chars; anchored on `codemagic`.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{32,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{32,64})\b`) })
 
 var contextKeywords = []string{"codemagic", "code-magic"}
 

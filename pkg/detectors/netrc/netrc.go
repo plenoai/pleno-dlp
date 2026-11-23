@@ -24,7 +24,6 @@ package netrc
 import (
 	"bytes"
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -35,8 +34,8 @@ import (
 // followed by `login`/`password` in either order within the same
 // entry. `\S+` for the host/login/password values stops at the next
 // token boundary, so this cannot bleed into a following entry.
-var netrcEntryRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var netrcEntryRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?i)(?:\bmachine[ \t]+\S+|\bdefault\b)[ \t\r\n]+` +
 			`(?:login[ \t]+(\S+)[ \t\r\n]+password[ \t]+(\S+)` +
 			`|password[ \t]+(\S+)[ \t\r\n]+login[ \t]+(\S+))`,

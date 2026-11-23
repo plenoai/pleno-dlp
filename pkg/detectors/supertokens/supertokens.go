@@ -20,7 +20,6 @@ package supertokens
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -38,15 +37,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // quantifier is open-ended ({20,}). '=' / '-' are not \b word chars, so the
 // match is bounded by surrounding boundaries via the charset itself rather
 // than \b on the symbol ends.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`([A-Za-z0-9=\-]{20,})`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`([A-Za-z0-9=\-]{20,})`) })
 
 // armRe is the assignment-style SuperTokens reference that must appear within
 // the proximity window. A bare "supertokens" substring is too weak a gate for
 // a prefix-less operator-chosen key; "supertokens_api_key" / "super-tokens-key"
 // / "supertokenstoken" is the shape a real key assignment or config entry
 // takes. The bare keyword stays in Keywords() as the engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)super[_\-]?tokens?[_\-]?(api[_\-]?)?(key|token|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)super[_\-]?tokens?[_\-]?(api[_\-]?)?(key|token|secret)`)
 })
 
 // minEntropy rejects low-information runs that clear the charset regex but are

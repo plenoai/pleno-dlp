@@ -20,7 +20,6 @@ package droneci
 
 import (
 	"context"
-	"regexp"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -38,8 +37,8 @@ import (
 //
 // The key must start with `drone` and be one of the known credential
 // suffixes (token / secret / server[_token] / pat / api[_key]).
-var assignmentRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)` +
+var assignmentRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)` +
 		`drone[_\-]?(?:server[_\-]?)?(?:token|secret|pat|api[_\-]?key)` +
 		`["']?\s*[:=]\s*["']?` +
 		`([A-Za-z0-9]{24,32})\b`)
@@ -47,7 +46,7 @@ var assignmentRe = sync.OnceValue(func() *regexp.Regexp {
 
 // pureHexRe matches tokens that look like a hex commit-SHA / build id
 // rather than a real Drone PAT (which is mixed-case alnum).
-var pureHexRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-fA-F]+$`) })
+var pureHexRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^[0-9a-fA-F]+$`) })
 
 // minEntropy drops repetitive / low-information lookalikes (e.g. runs of
 // the same char). 3.0 bits/char is the sane floor for a 24-char alnum

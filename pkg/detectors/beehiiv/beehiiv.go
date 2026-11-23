@@ -6,7 +6,6 @@ package beehiiv
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -18,8 +17,8 @@ var apiBase = "https://api.beehiiv.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)beehiiv[_\.\-]?(?:api[_\.\-]?key|api[_\.\-]?token|token|secret|key)\s*[:=]\s*["']?([A-Za-z0-9]{40,80})["']?`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)beehiiv[_\.\-]?(?:api[_\.\-]?key|api[_\.\-]?token|token|secret|key)\s*[:=]\s*["']?([A-Za-z0-9]{40,80})["']?`)
 })
 
 type Scanner struct{}

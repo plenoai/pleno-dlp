@@ -22,7 +22,6 @@ package gitlabpipeline
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -31,15 +30,15 @@ import (
 
 // 40-char lowercase hex branch (vs. UUID). Used to decide whether the Git-SHA
 // negative exclusion applies.
-var hex40Re = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-f0-9]{40}$`) })
+var hex40Re = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^[a-f0-9]{40}$`) })
 
 // Assignment-form anchor: the token must appear as the RHS of a recognised
 // trigger keyword (with an optional small gap for quoting / spacing) rather
 // than merely co-occurring in a 256-byte vicinity. Anchored so that an
 // unrelated UUID/SHA near a trigger_token key holding a *different* value is
 // not cross-matched.
-var assignRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var assignRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?i)(?:pipeline_trigger|trigger_token|ci_pipeline_trigger|gitlab_trigger)["' ]{0,4}[:=]["' ]{0,4}([a-f0-9]{40}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})`,
 	)
 })

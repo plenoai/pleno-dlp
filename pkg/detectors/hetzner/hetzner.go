@@ -8,7 +8,6 @@ package hetzner
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,13 +19,13 @@ var apiBase = "https://api.hetzner.cloud"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{64})\b`) })
 
 // armRe requires an assignment-style Hetzner reference in the proximity window:
 // a bare "hcloud"/"hetzner" substring is too weak a gate for a generic 64-char
 // run. The bare keywords stay in Keywords() as the cheap prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(hcloud|hetzner)[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(hcloud|hetzner)[_\-]?(api[_\-]?)?(token|key|secret)`)
 })
 
 // minEntropy rejects low-information 64-char runs that clear the alnum regex but

@@ -7,7 +7,6 @@ package yugabytecloud
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = "https://cloud.yugabyte.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 64-byte+ base64url with optional `=` padding — Yugabyte's mint contract.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{64,512})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{64,512})\b`) })
 
 var contextKeywords = []string{"yugabyte", "ybcloud", "yb_api"}
 

@@ -6,7 +6,6 @@ package telegram
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -20,7 +19,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Telegram bot tokens are <8-10 digit bot id>:<35-char base64url-ish>. The
 // 35-char run is the documented length; we accept 30+ to absorb future
 // variations without a regex churn.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([0-9]{6,12}:[A-Za-z0-9_-]{30,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([0-9]{6,12}:[A-Za-z0-9_-]{30,})\b`) })
 
 type Scanner struct{}
 

@@ -17,7 +17,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -33,8 +32,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // sub-types. The body is base32/base62 of varying length and may contain
 // underscores; mirror trufflehog's `tskey-[a-z]+-[0-9A-Za-z_]+-[0-9A-Za-z_]+`
 // shape so verifiable OAuth/underscore tokens are not dropped.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(tskey-[a-z]+-[0-9A-Za-z_]{6,32}-[0-9A-Za-z_]{16,96})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(tskey-[a-z]+-[0-9A-Za-z_]{6,32}-[0-9A-Za-z_]{16,96})\b`)
 })
 
 var (

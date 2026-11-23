@@ -23,7 +23,6 @@ package apikeyassignment
 import (
 	"bytes"
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -34,21 +33,21 @@ var (
 	// The keyword must be at the start of a word (word boundary or line
 	// start); the boundary only excludes a preceding letter, so keywords
 	// embedded in snake_case names like DO_API_KEY still match.
-	assignEqRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(
+	assignEqRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(
 			`(?im)(?:^|[^a-zA-Z])[a-zA-Z0-9_]*api[_-]?key[a-zA-Z0-9_]*[ \t]*=[ \t]*(["']?)([^"'\n\r${}<>%\[\]{} #]{4,128})`,
 		)
 	})
 	// This is a necessary-syntax gate for the expensive equality grammar. It
 	// deliberately omits the leading boundary and capture limit: the full
 	// expression remains authoritative after this conservative prefilter.
-	assignEqCandidateRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(
+	assignEqCandidateRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(
 			`api[_-]?key[a-zA-Z0-9_]*[ \t]*=[ \t]*["']?[^"'\n\r${}<>%\[\]{} #]{4}`,
 		)
 	})
-	assignColonRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(
+	assignColonRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(
 			`(?im)(?:^|\s)[a-zA-Z0-9_]*api[_-]?key[a-zA-Z0-9_]*[ \t]*:[ \t]*(["']?)([^"'\n\r${}<>%\[\]{} #]{4,128})`,
 		)
 	})
@@ -158,7 +157,7 @@ func looksLikeCode(v string) bool {
 	return false
 }
 
-var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.]*$`)
+var identRe = detectors.MustCompile(`^[A-Za-z_][A-Za-z0-9_.]*$`)
 
 type Scanner struct{}
 
@@ -200,7 +199,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	// Avoid running the second full-file regexp when its assignment syntax is
 	// absent. Near-match fixtures are dense in `api_key=` references but can be
 	// megabytes long; a cheap byte scan is enough to skip the colon grammar.
-	res := []*regexp.Regexp{}
+	res := []*detectors.Regexp{}
 	if hasEqualCandidate(data) {
 		res = append(res, assignEqRe())
 	}

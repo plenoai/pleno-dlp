@@ -27,7 +27,6 @@ import (
 	"bytes"
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -43,21 +42,23 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // tail is base64-ish (letters, digits, +/=*_- and similar); the whole key may
 // run up to 255 chars, so we cap the tail at 240 to stay under that bound while
 // the prefix carries the discrimination.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`klarna_(?:live|test)_api_[A-Za-z0-9+/=*_-]{16,240}`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`klarna_(?:live|test)_api_[A-Za-z0-9+/=*_-]{16,240}`)
+})
 
 // uuidRe captures the merchant-portal username (a UUID) when it sits near the
 // key, so the pair can be sent to Basic auth. Optional — the key alone is the
 // detection.
-var uuidRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b`)
+var uuidRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b`)
 })
 
 // contextRe is the windowed assignment-anchor gate within radius 64. The bare
 // keyword "klarna" stays in Keywords() as the engine prefilter; here we require
 // an assignment-shaped klarna credential reference so prose mentions of the
 // word do not arm the detector.
-var contextRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)klarna[_-]?(api[_-]?)?(token|key|secret|user|pass(word)?|cred(ential)?s?)`)
+var contextRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)klarna[_-]?(api[_-]?)?(token|key|secret|user|pass(word)?|cred(ential)?s?)`)
 })
 
 type Scanner struct{}

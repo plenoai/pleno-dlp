@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,10 +20,10 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 var (
 	// PAT shape per Airtable docs: `pat` + 14 alnum + `.` + 64 hex. Distinct
 	// enough to skip the keyword gate.
-	patRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pat[A-Za-z0-9]{14}\.[a-f0-9]{64})\b`) })
+	patRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(pat[A-Za-z0-9]{14}\.[a-f0-9]{64})\b`) })
 	// Legacy API key: `key` + 14 alnum. The 17-char "key…" prefix is shared
 	// by other systems, so we keyword-gate this branch.
-	legacyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(key[A-Za-z0-9]{14})\b`) })
+	legacyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(key[A-Za-z0-9]{14})\b`) })
 )
 
 var contextKeywords = []string{"airtable", "airtable_api_key"}

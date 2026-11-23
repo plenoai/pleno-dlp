@@ -6,7 +6,6 @@ package quay
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -18,8 +17,8 @@ var apiBase = "https://quay.io"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)quay[_\.\-]?(?:oauth[_\.\-]?token|api[_\.\-]?token|access[_\.\-]?token|token|secret)\s*[:=]\s*["']?([A-Za-z0-9]{40,80})["']?`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)quay[_\.\-]?(?:oauth[_\.\-]?token|api[_\.\-]?token|access[_\.\-]?token|token|secret)\s*[:=]\s*["']?([A-Za-z0-9]{40,80})["']?`)
 })
 
 type Scanner struct{}

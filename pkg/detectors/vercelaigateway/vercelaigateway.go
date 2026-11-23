@@ -7,7 +7,6 @@ package vercelaigateway
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ var apiBase = "https://ai-gateway.vercel.sh"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(vck_[A-Za-z0-9]{32,120})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(vck_[A-Za-z0-9]{32,120})\b`) })
 
 type Scanner struct{}
 

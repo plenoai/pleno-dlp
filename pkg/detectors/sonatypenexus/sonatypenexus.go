@@ -6,7 +6,6 @@ package sonatypenexus
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -17,7 +16,7 @@ import (
 // endpoint and follow the `NXRT-<id>-<token>` shape. The detector is
 // permissive on the suffix to capture both `NXRT-` and the rarer `NPA-` /
 // raw-token forms shipped by older Nexus versions.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(NXRT-[A-Za-z0-9_=\-]{16,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(NXRT-[A-Za-z0-9_=\-]{16,})\b`) })
 
 var contextKeywords = []string{"nexus", "sonatype", "nexus_user_token", "nexus_token"}
 

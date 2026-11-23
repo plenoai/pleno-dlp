@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -24,8 +23,8 @@ const (
 )
 
 var (
-	keySIDRe     = regexp.MustCompile(`^SK[0-9a-fA-F]{32}$`)
-	accountSIDRe = regexp.MustCompile(`^AC[0-9a-fA-F]{32}$`)
+	keySIDRe     = detectors.MustCompile(`^SK[0-9a-fA-F]{32}$`)
+	accountSIDRe = detectors.MustCompile(`^AC[0-9a-fA-F]{32}$`)
 )
 
 // Revoke deletes the API key. secret is the key SID, optionally followed

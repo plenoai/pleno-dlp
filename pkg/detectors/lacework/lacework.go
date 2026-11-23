@@ -11,7 +11,6 @@ package lacework
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +25,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // `<40+ base64url>_<32+ hex>`. We require the underscore-and-hex tail
 // because that's what disambiguates Lacework from generic JWTs and
 // other base64 tokens.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{40,}_[a-f0-9]{32,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{40,}_[a-f0-9]{32,})\b`) })
 
 var contextKeywords = []string{"lacework", "lacework_account", "lacework_token", "lacework.net"}
 

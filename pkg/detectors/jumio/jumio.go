@@ -19,7 +19,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -31,14 +30,14 @@ var apiBase = ""
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // anchorRe is the assignment-style Jumio reference that must appear in the
 // proximityRadius bytes preceding a candidate token. Matching this rather
 // than a stray `jumio` substring anywhere in the chunk is what kills the
 // false positives from co-occurring asset hashes / UUIDs.
-var anchorRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`jumio[_\-]?(?:api[_\-]?(?:token|secret|key)|token|secret)\s*[:=]`)
+var anchorRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`jumio[_\-]?(?:api[_\-]?(?:token|secret|key)|token|secret)\s*[:=]`)
 })
 
 // minEntropy rejects low-entropy runs (repeated chars, zero-padded blobs,

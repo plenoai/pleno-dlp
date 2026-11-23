@@ -12,7 +12,6 @@ package keycdn
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -33,7 +32,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // destroy recall on any non-24-char key). The prefix is the false-positive
 // gate; an entropy floor is unnecessary because `sk_prod_` does not occur
 // in arbitrary text.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(sk_prod_[A-Za-z0-9]{16,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(sk_prod_[A-Za-z0-9]{16,64})\b`) })
 
 type Scanner struct{}
 

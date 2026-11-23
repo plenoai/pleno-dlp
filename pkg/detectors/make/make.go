@@ -7,7 +7,6 @@ package makedetector
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +20,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Make API tokens are 36 char UUID-like (8-4-4-4-12 hex with dashes) or
 // 32+ alnum without dashes — we accept both shapes.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12})\b`)
 })
 
 var contextKeywords = []string{"make.com", "integromat", "make-api", "make_api"}

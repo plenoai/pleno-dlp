@@ -10,7 +10,6 @@ package mailchimp
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -33,7 +32,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 32 hex + literal "-us" + 1-2 digit DC number. Mailchimp DCs are
 // us1..us2x range; we accept 1-2 digits to stay forward-compatible.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32}-us[0-9]{1,2})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32}-us[0-9]{1,2})\b`) })
 
 type Scanner struct{}
 

@@ -12,7 +12,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -24,7 +23,7 @@ var apiBase = "https://registry.npmjs.org"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // npm tokens: npm_ + 36 base62 chars.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(npm_[A-Za-z0-9]{36})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(npm_[A-Za-z0-9]{36})\b`) })
 
 type Scanner struct{}
 

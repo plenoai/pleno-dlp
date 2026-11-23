@@ -12,7 +12,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -36,8 +35,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // does not formally publish the segment lengths, so the ranges stay generous
 // and the env prefix carries the distinguishing weight (per the key-format
 // rubric, an entropy floor on a prefix-anchored token is unnecessary).
-var keyRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b((?:prd|tst|sbx):[A-Za-z0-9]{20,40}[.:][A-Za-z0-9]{8,40})\b`)
+var keyRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b((?:prd|tst|sbx):[A-Za-z0-9]{20,40}[.:][A-Za-z0-9]{8,40})\b`)
 })
 
 // secretRe matches the Sumsub secret key: an alphanumeric run. The two real
@@ -46,14 +45,14 @@ var keyRe = sync.OnceValue(func() *regexp.Regexp {
 // the floor is 32 (NOT documented as fixed). A bare alnum run is a heavy
 // false-positive shape, so the secret is additionally gated on proximity to a
 // `sumsub` arm reference and on Shannon entropy before being paired.
-var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
+var secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,64})\b`) })
 
 // armRe is the assignment-style Sumsub reference that must appear within a
 // tight window of a candidate. A bare "sumsub" substring anywhere in the
 // chunk is too weak a gate; `sumsub` / `sum-sub` / `sumsub_secret` etc. is
 // the shape a real credential assignment or config key takes. The bare
 // keyword stays in Keywords() as the engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)sum[_-]?sub`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)sum[_-]?sub`) })
 
 // minEntropy rejects low-information 32-64 char runs that clear the alnum
 // regex but are not random secrets. All known-good Sumsub secrets measure

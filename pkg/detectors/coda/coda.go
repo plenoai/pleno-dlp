@@ -9,7 +9,6 @@ package coda
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +21,7 @@ var apiBase = "https://coda.io"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Coda tokens are 36-char UUID-with-hyphens or 40-char alnum.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9_-]{36,48})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9_-]{36,48})\b`) })
 
 var contextKeywords = []string{"coda", "coda_token", "coda_api", "coda.io"}
 

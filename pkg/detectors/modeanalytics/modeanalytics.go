@@ -14,7 +14,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -35,7 +34,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // lengths are not, so we keep a hex-restricted {16,64} range rather than
 // pinning a single length — restricting the charset from the old broad
 // [A-Za-z0-9] alnum to hex alone already removes the bulk of the base62 noise.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-fA-F0-9]{16,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-fA-F0-9]{16,64})\b`) })
 
 // minEntropy rejects structured/low-information hex runs (zero-padded ids,
 // repeated-nibble placeholders) that clear the hex regex but are not real
@@ -50,8 +49,8 @@ const minEntropy = 3.0
 // what a real credential assignment or config key takes — including Mode's own
 // `access_key`/`access_secret` naming from the Discovery API docs. The bare
 // keywords stay in Keywords() as the cheap engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)mode[_\-]?(analytics|api|access)?[_\-]?(api[_\-]?)?(token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)mode[_\-]?(analytics|api|access)?[_\-]?(api[_\-]?)?(token|key|secret)`)
 })
 
 type Scanner struct{}

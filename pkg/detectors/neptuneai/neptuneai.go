@@ -7,7 +7,6 @@ package neptuneai
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,8 +19,8 @@ var apiBase = "https://app.neptune.ai"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Neptune tokens are JWTs (eyJ + base64url payload + signature).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(eyJ[A-Za-z0-9_-]{20,200}\.[A-Za-z0-9_-]{20,400}\.[A-Za-z0-9_-]{20,200})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(eyJ[A-Za-z0-9_-]{20,200}\.[A-Za-z0-9_-]{20,400}\.[A-Za-z0-9_-]{20,200})\b`)
 })
 
 var contextKeywords = []string{"neptune", "neptune_api_token", "neptune-api-token", "neptune.ai"}

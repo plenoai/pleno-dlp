@@ -19,7 +19,6 @@ package buddyci
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -35,15 +34,17 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Source: buddy.works API docs (Hello World / Personal Access Token pages)
 // show literal example tokens like 732e9e20-50ba-4047-8a7b-c9b17259a2a2. The
 // UUID structure is itself the anchor; we accept upper- or lower-case hex.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b`)
 })
 
 // armRe is the assignment-style Buddy reference that must appear within the
 // proximity window. A bare "buddy" substring is too weak; "buddy_token" /
 // "buddy-api-key" / "buddysecret" is the shape a real credential assignment
 // or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)buddy[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)buddy[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects degenerate UUIDs (all-zero, repeated nibbles) that clear
 // the structural regex but carry no secret material. Real v4 UUIDs sit

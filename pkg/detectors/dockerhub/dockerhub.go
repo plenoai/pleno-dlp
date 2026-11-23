@@ -25,7 +25,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -38,12 +37,12 @@ var apiBase = "https://hub.docker.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Token shape per the Docker Hub PAT issuance docs.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(dckr_pat_[A-Za-z0-9_-]{20,40})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(dckr_pat_[A-Za-z0-9_-]{20,40})\b`) })
 
 // Capture a likely username if present near a `docker_username` /
 // `DOCKER_USER` style key.
-var usernameRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(?:docker[_-]?(?:hub[_-]?)?(?:user(?:name)?|login))\s*[:=]\s*["']?([A-Za-z0-9][A-Za-z0-9_.-]{1,38})`)
+var usernameRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(?:docker[_-]?(?:hub[_-]?)?(?:user(?:name)?|login))\s*[:=]\s*["']?([A-Za-z0-9][A-Za-z0-9_.-]{1,38})`)
 })
 
 // pairSep joins username and token into the single secret string that the

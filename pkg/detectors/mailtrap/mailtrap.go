@@ -13,7 +13,6 @@ package mailtrap
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -32,7 +31,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // `last_4_digits` property). Without a sourced length/charset we keep the broad
 // alphanumeric shape and lean on the gate + a conservative entropy floor rather
 // than guess a length pin (an over-tight pin would silently destroy recall).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32,80})\b`) })
 
 // armRe is the assignment-style Mailtrap reference that must appear within the
 // proximity window. A bare "mailtrap" substring (script/doc URLs, the
@@ -40,7 +39,9 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // 32-80 char alphanumeric run; `mailtrap[_-]?(api[_-]?)?(token|key|secret)` is
 // the shape a real credential assignment or config key takes. The bare
 // "mailtrap" keyword stays in Keywords() as the cheap prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)mailtrap[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)mailtrap[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-information 32-80 char runs that clear the alnum regex
 // but are not random tokens (padded placeholders, repeated characters). 3.0 is

@@ -18,7 +18,6 @@ package drip
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -30,10 +29,10 @@ var apiBase = "https://api.getdrip.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // gitSHALikeRe matches 32-char lowercase-hex strings (truncated git SHAs / lockfile hashes).
-var gitSHALikeRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-f]{32}$`) })
+var gitSHALikeRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`^[0-9a-f]{32}$`) })
 
 // minEntropy is a conservative floor: the token shape is base62 (high variety),
 // but because the length/charset are not authoritatively documented we use the
@@ -47,8 +46,8 @@ const minEntropy = 3.0
 // credential assignment shapes (drip api token / key / secret) so the gate
 // fires on real config lines, not on any chunk that merely mentions "getdrip".
 // The bare "getdrip" prefilter stays in Keywords().
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(?:getdrip|drip)[_-]?(?:api[_-]?)?(?:token|key|secret|account[_-]?id)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(?:getdrip|drip)[_-]?(?:api[_-]?)?(?:token|key|secret|account[_-]?id)`)
 })
 
 type Scanner struct{}

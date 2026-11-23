@@ -10,7 +10,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +21,7 @@ var apiBase = "https://api.uptimerobot.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([um][0-9]{2,8}-[A-Za-z0-9]{32})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([um][0-9]{2,8}-[A-Za-z0-9]{32})\b`) })
 
 var contextKeywords = []string{
 	"uptimerobot",

@@ -8,7 +8,6 @@ package copper
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,8 +19,8 @@ var apiBase = "https://api.copper.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var emailRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b`)
+var emailRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b`)
 })
 
 // Copper API keys are 32-char lowercase-hex strings, per the upstream
@@ -30,14 +29,16 @@ var emailRe = sync.OnceValue(func() *regexp.Regexp {
 // authoritative shape we mirror: fixed length 32, charset [a-z0-9].
 // The previous bare [A-Za-z0-9]{32,128} matched commit SHAs, base64url
 // nonces, k8s object names, and arbitrary high-entropy blobs.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-z0-9]{32})\b`) })
 
 // armRe is the assignment-style Copper reference that must appear within
 // the proximity window of the token. A bare "copper" substring is far too
 // weak; "copper_api_token" / "copper-key" / "coppersecret" is the shape a
 // real credential assignment or config key takes. The bare "copper" keyword
 // stays in Keywords() as the engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)copper[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)copper[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy is the hex floor (alphabet 16 → ceiling ~4.0). 3.5 would
 // over-cull legitimate hex tokens; 3.0 still rejects runs of zeros,

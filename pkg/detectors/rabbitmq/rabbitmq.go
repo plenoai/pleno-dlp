@@ -11,13 +11,14 @@ package rabbitmq
 import (
 	"context"
 	"net/url"
-	"regexp"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
-var uriRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(amqps?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`) })
+var uriRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(amqps?://[^\s"'<>]*?:([^\s"'<>@/]+)@[^\s"'<>]+)`)
+})
 
 type Scanner struct{}
 

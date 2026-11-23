@@ -11,7 +11,6 @@ package hardcodedpassword
 import (
 	"bytes"
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -24,8 +23,8 @@ var (
 	// The keyword must be at the start of a word (word boundary or line
 	// start); the boundary only excludes a preceding letter, so keywords
 	// embedded in snake_case names like DB_PASSWORD still match.
-	assignEqRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(
+	assignEqRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(
 			`(?im)(?:^|[^a-zA-Z])(?:password|passwd|pwd)(?:[^a-z0-9_][^\n=]*)?` +
 				`\s*=\s*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
 		)
@@ -33,8 +32,8 @@ var (
 
 	// The mapping separator and value must share the key's line (#886): a
 	// Go `case XPassword:` label followed by a statement is not YAML.
-	yamlValueRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(
+	yamlValueRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(
 			`(?im)(?:^|\s)(?:[a-z0-9_]*(?:password|passwd|pwd)[a-z0-9_]*)[ \t]*:[ \t]*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
 		)
 	})
@@ -43,13 +42,13 @@ var (
 	// value on a different line, so assignEqRe cannot see them together;
 	// this pattern captures the block body separately and re-scans it for
 	// the default line.
-	tfVariableRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(
+	tfVariableRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(
 			`(?i)variable\s*"[a-z0-9_]*(?:password|passwd|pwd)[a-z0-9_]*"\s*\{([^}]*)\}`,
 		)
 	})
-	tfDefaultRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(
+	tfDefaultRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(
 			`(?im)^\s*default\s*=\s*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
 		)
 	})
@@ -58,8 +57,8 @@ var (
 // Match the complete assignment suffix in one RE2 pass over lower-cased bytes.
 // The previous implementation called an anchored regexp once per keyword
 // occurrence; repeated non-assignments could rescan the same tail quadratically.
-var assignmentHeadRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var assignmentHeadRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?:password|passwd|pwd)(?:(?:[^a-z0-9_][^\n=]*)?\s*=|[a-z0-9_]*\s*:)`,
 	)
 })
@@ -207,7 +206,7 @@ func looksLikeCodeReference(v string) bool {
 }
 
 // identRe matches a bare source-code identifier.
-var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var identRe = detectors.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // looksLikeIdentifierRef reports whether an unquoted right-hand side is a
 // variable reference rather than a literal (#863): `target.Password =
@@ -359,7 +358,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		})
 	}
 
-	for _, re := range []*regexp.Regexp{assignEqRe(), yamlValueRe()} {
+	for _, re := range []*detectors.Regexp{assignEqRe(), yamlValueRe()} {
 		for _, m := range re.FindAllStringSubmatchIndex(str, -1) {
 			if len(m) < 4 || m[2] < 0 {
 				continue

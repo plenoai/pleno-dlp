@@ -7,7 +7,6 @@ package paperspace
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +21,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // 40-char base64url. Optional `api_` documentation prefix is captured
 // via an alternation rather than hard-required because production keys
 // often don't carry the prefix in the raw value.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:api_)?[A-Za-z0-9_-]{40})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b((?:api_)?[A-Za-z0-9_-]{40})\b`) })
 
 var contextKeywords = []string{"paperspace", "paperspace_api", "paperspace_key"}
 

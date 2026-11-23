@@ -6,7 +6,6 @@ package runway
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ var apiBase = "https://api.dev.runwayml.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Runway API keys are documented as `key_` + 48-64 hex chars.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(key_[a-f0-9]{48,64})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(key_[a-f0-9]{48,64})\b`) })
 
 var contextKeywords = []string{"runway", "runwayml", "runway_api"}
 

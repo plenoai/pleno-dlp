@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,11 +20,11 @@ var apiBase = "https://api.frontegg.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
-	clientIDRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)frontegg[_\.\-]?(?:client[_\.\-]?id|vendor[_\.\-]?id)\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']?`)
+	clientIDRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`(?i)frontegg[_\.\-]?(?:client[_\.\-]?id|vendor[_\.\-]?id)\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']?`)
 	})
-	secretRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)frontegg[_\.\-]?(?:client[_\.\-]?secret|api[_\.\-]?secret|secret)\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']?`)
+	secretRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`(?i)frontegg[_\.\-]?(?:client[_\.\-]?secret|api[_\.\-]?secret|secret)\s*[:=]\s*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["']?`)
 	})
 )
 

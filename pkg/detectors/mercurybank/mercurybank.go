@@ -24,7 +24,6 @@ package mercurybank
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -42,8 +41,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // underscore segment separators Mercury uses; the token closes on the literal
 // "_yrucrem" suffix. Anchoring on this prefix is the false-positive gate, so no
 // entropy floor or keyword-proximity window is required.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`secret-token:mercury_(?:production|sandbox)_[A-Za-z0-9]+_[A-Za-z0-9_]+_yrucrem`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`secret-token:mercury_(?:production|sandbox)_[A-Za-z0-9]+_[A-Za-z0-9_]+_yrucrem`)
 })
 
 type Scanner struct{}

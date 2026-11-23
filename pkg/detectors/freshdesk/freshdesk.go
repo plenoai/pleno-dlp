@@ -9,7 +9,6 @@ package freshdesk
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -32,14 +31,14 @@ var (
 // "freshdesk". The only reliable cut is the length bound, so we cap at 32:
 // well clear of the documented 20, and with `\b` anchors a 40-hex run cannot
 // match a 32-char sub-slice.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{20,32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{20,32})\b`) })
 
-var hostRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z0-9-]+\.freshdesk\.com)\b`) })
+var hostRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-z0-9-]+\.freshdesk\.com)\b`) })
 
 // A bare "freshdesk" substring anywhere in a 256-byte window is too weak to
 // arm a generic 20..32 alnum token; we require either this anchor OR a
 // freshdesk.com host actually present in the chunk.
-var assignAnchorRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)fresh(?:desk|works)[a-z0-9_-]*\s*[:=]`) })
+var assignAnchorRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)fresh(?:desk|works)[a-z0-9_-]*\s*[:=]`) })
 
 // minEntropy only rejects degenerate low-information runs; see the note on
 // tokenRe for why it intentionally does NOT — and cannot — exclude git SHAs.

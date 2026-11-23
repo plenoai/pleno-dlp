@@ -29,7 +29,6 @@ package onesignal
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -44,14 +43,14 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // legacyRe matches the documented OneSignal legacy REST API key: a
 // lowercase-hex UUID (8-4-4-4-12). This mirrors trufflehog's upstream
 // detector, which gates the `onesignal` keyword against common.UUIDPattern.
-var legacyRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
+var legacyRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b`)
 })
 
 // v2Re matches the OneSignal v2 token: prefix-anchored `os_v2_app_` + base32
 // body (charset a-z2-7). The prefix carries the false-positive load, so no
 // entropy floor is needed here.
-var v2Re = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(os_v2_app_[a-z2-7]{50,200})\b`) })
+var v2Re = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(os_v2_app_[a-z2-7]{50,200})\b`) })
 
 // armRe is the assignment-style OneSignal reference that must appear within the
 // proximity window. A bare "onesignal" substring (SDK script-src URLs, doc
@@ -59,8 +58,8 @@ var v2Re = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(
 // occurs constantly (object ids, request ids, trace ids);
 // `onesignal[_-]?(rest[_-]?)?(api[_-]?)?(key|token|secret)` is the shape a real
 // credential assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)onesignal[_\-]?(rest[_\-]?)?(api[_\-]?)?(key|token|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)onesignal[_\-]?(rest[_\-]?)?(api[_\-]?)?(key|token|secret)`)
 })
 
 // minEntropy is a conservative floor for the legacy UUID. UUIDs are

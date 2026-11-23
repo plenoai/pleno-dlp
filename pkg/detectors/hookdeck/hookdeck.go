@@ -3,7 +3,6 @@ package hookdeck
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -14,7 +13,9 @@ var apiBase = "https://api.hookdeck.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(hookdeck_(?:test|live)_[A-Za-z0-9]{30,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(hookdeck_(?:test|live)_[A-Za-z0-9]{30,80})\b`)
+})
 
 type Scanner struct{}
 

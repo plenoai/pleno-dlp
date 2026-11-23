@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
 
@@ -22,7 +21,7 @@ const (
 	EnvRevokeKeyID    = "PLENO_DLP_REVOKE_RESEND_API_KEY_ID"
 )
 
-var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+var uuidRe = detectors.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // Revoke deletes one key (DELETE /api-keys/{id}). Success requires
 // object=api_key, the exact id and deleted=true; 404 is idempotent.

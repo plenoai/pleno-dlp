@@ -12,7 +12,6 @@ package taxjar
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,13 +26,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // 32 lowercase alphanumeric per upstream trufflehog (`[a-z0-9]{32}`). No
 // prefix to anchor on, so the arm regex + entropy floor carry the
 // false-positive load.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-z0-9]{32})\b`) })
 
 // armRe is the assignment-style TaxJar reference that must appear within the
 // proximity window. A bare "taxjar" substring (dependency names, doc URLs,
 // comments) is too weak; "taxjar_api_token" / "taxjar-key" / "taxjartoken"
 // is the shape a real token assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)taxjar[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)taxjar[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy rejects low-variety 32-char runs that clear the lowercase-alnum
 // regex but are not random tokens. The charset is hex-like (low variety, caps

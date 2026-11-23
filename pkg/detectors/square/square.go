@@ -9,7 +9,6 @@ package square
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -23,8 +22,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Production tokens are 64 base64url chars beginning with EAAA. Sandbox is
 // the legacy sq0atp- prefix. The combined alternation keeps a single match
 // loop in FromData.
-var keyRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b(EAAA[A-Za-z0-9_-]{60}|sq0atp-[A-Za-z0-9_-]{22})\b`)
+var keyRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b(EAAA[A-Za-z0-9_-]{60}|sq0atp-[A-Za-z0-9_-]{22})\b`)
 })
 
 type Scanner struct{}

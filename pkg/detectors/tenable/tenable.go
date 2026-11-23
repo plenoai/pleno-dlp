@@ -7,7 +7,6 @@ package tenable
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,11 +19,11 @@ var apiBase = "https://cloud.tenable.com"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 var (
-	accessRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)access[_\.\-]?key\s*[:=]\s*["']?([a-f0-9]{64})["']?`)
+	accessRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`(?i)access[_\.\-]?key\s*[:=]\s*["']?([a-f0-9]{64})["']?`)
 	})
-	secretRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?i)secret[_\.\-]?key\s*[:=]\s*["']?([a-f0-9]{64})["']?`)
+	secretRe = sync.OnceValue(func() *detectors.Regexp {
+		return detectors.MustCompile(`(?i)secret[_\.\-]?key\s*[:=]\s*["']?([a-f0-9]{64})["']?`)
 	})
 )
 

@@ -16,7 +16,6 @@ package lightstep
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -33,7 +32,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // detector) documents a prefix, fixed length, or charset for the API
 // key/access token, so pinning a length here would silently destroy recall.
 // The arm regex + entropy floor below carry the disambiguation instead.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,80})\b`) })
 
 // armRe is the assignment-style Lightstep reference that must appear within the
 // proximity window. A bare "lightstep" substring (doc links, the
@@ -41,7 +40,9 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // 40-80 alphanumeric run; `lightstep[_-]?(api[_-]?)?(token|key|secret)` is the
 // shape a real credential assignment or config key takes. The bare keyword
 // stays in Keywords() as the engine prefilter.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)lightstep[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)lightstep[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy is a conservative floor. The credential charset is not
 // authoritatively documented, so 3.0 (well below the ~3.5 a base62 key clears)

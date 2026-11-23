@@ -5,7 +5,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -17,9 +16,9 @@ var imsBase = "https://ims-na1.adobelogin.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
 
-var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b((?:p8e-)?[A-Za-z0-9_-]{32,64})\b`) })
+var secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b((?:p8e-)?[A-Za-z0-9_-]{32,64})\b`) })
 
 var contextKeywords = []string{"adobeio", "adobe.io", "adobe_client", "adobe_api"}
 

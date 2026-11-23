@@ -15,7 +15,6 @@ package lever
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -30,15 +29,15 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Lever API keys are documented as 40-char lower-hex strings. This
 // shape is identical to a git SHA-1, so the surrounding keyword
 // regex is the real gate.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{40})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{40})\b`) })
 
 // keywordRe requires an explicit Lever anchor — `lever_api`,
 // `lever_token`, `lever.co`, `api.lever.co`, or `LEVER` followed by
 // an assignment operator. The bare substring "lever" no longer
 // qualifies, so "leveraged" / "however" / "cleverest" prose is
 // rejected.
-var keywordRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)` +
+var keywordRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)` +
 		`(?:` +
 		`lever[_\-]api(?:[_\-]key|[_\-]token)?` +
 		`|lever[_\-]token` +

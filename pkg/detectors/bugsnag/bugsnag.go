@@ -20,7 +20,6 @@ package bugsnag
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -33,14 +32,14 @@ import (
 //	BUGSNAG_API_KEY=<hex>     bugsnag_key: <hex>     bugsnagApiKey = "<hex>"
 //
 // This is the high-confidence path and is checked first.
-var assignRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)bugsnag[_-]?(?:api[_-]?)?key["'\s:=]{1,4}([a-f0-9]{32})`)
+var assignRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)bugsnag[_-]?(?:api[_-]?)?key["'\s:=]{1,4}([a-f0-9]{32})`)
 })
 
 // Fallback shape: a bare 32-hex token, qualified only when it sits immediately
 // adjacent to a bugsnag context token (see nearKeyword) AND is not in a
 // hash/checksum context (see looksLikeHashContext).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
 
 // Context tokens that must appear within the tight vicinity for a bare hit.
 var contextKeywords = []string{"bugsnag"}

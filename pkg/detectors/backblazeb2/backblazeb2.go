@@ -13,7 +13,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -31,10 +30,10 @@ const authPath = "/b2api/v2/b2_authorize_account"
 
 var (
 	// Key ID: "K00" + 22-30 base64url-ish chars.
-	keyIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(K00[A-Za-z0-9]{22,30})\b`) })
+	keyIDRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(K00[A-Za-z0-9]{22,30})\b`) })
 	// Application key: ~31 chars of base64 (alnum, +, /), no K00 prefix.
 	// Loosened from the old K00-anchored regex per real-world shape.
-	keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9+/]{27,40})\b`) })
+	keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9+/]{27,40})\b`) })
 )
 
 var contextKeywords = []string{"b2_", "backblaze", "b2_application_key", "b2_app_key", "b2_key_id"}

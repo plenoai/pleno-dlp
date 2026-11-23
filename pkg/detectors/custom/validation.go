@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -52,7 +52,7 @@ type Validation struct {
 
 const maxValidationBody = 64 << 10
 
-var placeholderRe = regexp.MustCompile(`\{\{\s*\.(Secret|Group\.([A-Za-z_][A-Za-z0-9_]*))\s*\}\}`)
+var placeholderRe = detectors.MustCompile(`\{\{\s*\.(Secret|Group\.([A-Za-z_][A-Za-z0-9_]*))\s*\}\}`)
 
 type validator struct {
 	cfg    Validation
@@ -60,7 +60,7 @@ type validator struct {
 	client *http.Client
 }
 
-func compileValidation(v *Validation, re *regexp.Regexp) (*validator, error) {
+func compileValidation(v *Validation, re *detectors.Regexp) (*validator, error) {
 	if v == nil {
 		return nil, nil
 	}

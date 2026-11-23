@@ -6,7 +6,6 @@ package aihorde
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,8 +19,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // AI Horde keys are UUID-shaped (8-4-4-4-12 hex with dashes) or 22-26
 // alnum compact form. We accept either.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[A-Za-z0-9]{22,26})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[A-Za-z0-9]{22,26})\b`)
 })
 
 var contextKeywords = []string{"aihorde", "stablehorde", "ai-horde", "stable-horde", "horde"}

@@ -6,7 +6,6 @@ package civo
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -25,13 +24,13 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // authoritatively documented. We therefore keep the existing {50} match
 // (changing it could destroy recall in either direction) and rely on the armed
 // keyword gate plus a conservative entropy floor to suppress false positives.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{50})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{50})\b`) })
 
 // armRe is the assignment-style Civo reference that must appear within the
 // proximity window. A bare "civo" substring is too weak; "civo_api_key" /
 // "civo-token" / "civosecret" is the shape a real token assignment or config
 // key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)civo[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)civo[_\-]?(api[_\-]?)?(token|key|secret)`) })
 
 // minEntropy rejects low-information 50-char runs that clear the alnum regex
 // but are not random tokens (padded identifiers, repeated chars). Conservative

@@ -25,7 +25,6 @@ package jetbrainswebservers
 import (
 	"bytes"
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -34,11 +33,11 @@ import (
 
 // fileTransferTagRe captures a whole `<fileTransfer ...>` opening tag so
 // the password attribute can be found regardless of attribute order.
-var fileTransferTagRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?is)<fileTransfer\b([^>]{0,1000})>`) })
+var fileTransferTagRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?is)<fileTransfer\b([^>]{0,1000})>`) })
 
-var passwordAttrRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\bpassword\s*=\s*"([^"]*)"`) })
-var hostAttrRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\bhost\s*=\s*"([^"]*)"`) })
-var usernameAttrRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\busername\s*=\s*"([^"]*)"`) })
+var passwordAttrRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)\bpassword\s*=\s*"([^"]*)"`) })
+var hostAttrRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)\bhost\s*=\s*"([^"]*)"`) })
+var usernameAttrRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)\busername\s*=\s*"([^"]*)"`) })
 
 var placeholders = map[string]struct{}{
 	"password":    {},

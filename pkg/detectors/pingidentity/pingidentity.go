@@ -16,7 +16,6 @@ package pingidentity
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -26,8 +25,8 @@ import (
 // tokenRe matches an RFC4122 v4 UUID: version nibble fixed to 4 and the
 // variant nibble constrained to [89ab]. This rejects arbitrary 32-hex
 // blobs that are not real PingOne secrets.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\b`)
+var tokenRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\b`)
 })
 
 // secretKeywords are REQUIRED secret-intent assignment keywords; a bare
@@ -57,7 +56,7 @@ var idLookalikes = []string{
 
 // leftIDKeyRe matches an assignment whose key ends in "_id" immediately to
 // the left of the UUID (e.g. `environment_id: <uuid>`, `app_id=<uuid>`).
-var leftIDKeyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[a-z0-9]_id\s*[:=]\s*"?$`) })
+var leftIDKeyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`[a-z0-9]_id\s*[:=]\s*"?$`) })
 
 const (
 	// secretRadius bounds how far before the UUID a secret-intent keyword

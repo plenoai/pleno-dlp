@@ -5,9 +5,10 @@ import (
 	"context"
 	"encoding/base64"
 	"math"
-	"regexp"
 	"strings"
 	"sync"
+	"unicode/utf8"
+	"unsafe"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
@@ -80,8 +81,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if !hasSecretShapeRun(data) {
 		return nil, nil
 	}
-	lower := strings.ToLower(string(data))
-	keywordSpans := keywordPositions(lower)
+	keywordSpans := keywordPositionsIn(data)
 	if len(keywordSpans) == 0 {
 		return nil, nil
 	}
@@ -139,6 +139,38 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		})
 	}
 	return detectors.SafeResults(out), nil
+}
+
+// lowerPool holds ASCII-lowercased copies of scanned windows so the
+// keyword-position pass does not allocate two window-sized strings per
+// call (#995).
+var lowerPool = sync.Pool{New: func() any { b := make([]byte, 0, 16<<10); return &b }}
+
+const lowerPoolKeepMax = 1 << 20
+
+// keywordPositionsIn returns keywordPositions(strings.ToLower(data)).
+// ASCII windows are lowered into a pooled buffer; any non-ASCII byte
+// falls back to the Unicode lowering so offsets stay identical to the
+// historical behaviour.
+func keywordPositionsIn(data []byte) []int {
+	for _, c := range data {
+		if c >= utf8.RuneSelf {
+			return keywordPositions(strings.ToLower(string(data)))
+		}
+	}
+	bp := lowerPool.Get().(*[]byte)
+	buf := append((*bp)[:0], data...)
+	for i, c := range buf {
+		if 'A' <= c && c <= 'Z' {
+			buf[i] = c + ('a' - 'A')
+		}
+	}
+	spans := keywordPositions(unsafe.String(unsafe.SliceData(buf), len(buf)))
+	if cap(buf) <= lowerPoolKeepMax {
+		*bp = buf[:0]
+		lowerPool.Put(bp)
+	}
+	return spans
 }
 
 func keywordPositions(lower string) []int {
@@ -314,8 +346,8 @@ func looksLikeHexDigest(s string) bool {
 // pbkdf2. Wherever one of these appears, the surrounding entropy run is
 // unmistakably a hash literal from a hashing-library test fixture — never
 // a live secret.
-var cryptHashMarkerRE = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\$(2[abxy]|argon2(?:id|i|d)|1|5|6|pbkdf2(?:-sha\d+)?)\$`)
+var cryptHashMarkerRE = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\$(2[abxy]|argon2(?:id|i|d)|1|5|6|pbkdf2(?:-sha\d+)?)\$`)
 })
 
 // cryptHashLookback bounds how far back from a candidate's start we scan
@@ -364,8 +396,8 @@ func looksLikeCryptHashFragment(data []byte, start, end int) bool {
 // for the specific, bounded set of algorithm names rather than loosening
 // the digit tolerance generally, which would swallow real secrets like
 // AKIAIOSFODNN7EXAMPLE or ghp_aBcDeF123XYZ.
-var algoNameTokenRE = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)sha512|sha384|sha256|sha224|sha1|md5|md4|base64|base58|base32|aes256|aes192|aes128|argon2id|argon2i|argon2d|pbkdf2|utf8|utf16|rsa2048|rsa4096|crc32|hmac256|hmac512`)
+var algoNameTokenRE = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)sha512|sha384|sha256|sha224|sha1|md5|md4|base64|base58|base32|aes256|aes192|aes128|argon2id|argon2i|argon2d|pbkdf2|utf8|utf16|rsa2048|rsa4096|crc32|hmac256|hmac512`)
 })
 
 // looksLikeIdentifierWithAlgoName strips known algorithm-name tokens from
@@ -420,7 +452,9 @@ func looksLikeBundlerAssetFilename(secret string, data []byte, end int) bool {
 // right next to Authorization/token keywords in request-header examples,
 // but a real secret is essentially never confined to this all-lowercase,
 // single-slash shape.
-var mimeTypeRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-z][a-z0-9.+-]*/[a-z0-9.+-]*[a-z][a-z0-9.+-]*$`) })
+var mimeTypeRE = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`^[a-z][a-z0-9.+-]*/[a-z0-9.+-]*[a-z][a-z0-9.+-]*$`)
+})
 
 func looksLikeMimeType(s string) bool {
 	return mimeTypeRE().MatchString(s)

@@ -6,7 +6,6 @@ package firehydrant
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -18,7 +17,7 @@ var apiBase = "https://api.firehydrant.io"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(fhb_[A-Za-z0-9_-]{32,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(fhb_[A-Za-z0-9_-]{32,80})\b`) })
 
 type Scanner struct{}
 

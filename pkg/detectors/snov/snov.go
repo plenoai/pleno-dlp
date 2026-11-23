@@ -7,7 +7,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ var apiBase = "https://api.snov.io"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var idRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32,40})\b`) })
+var idRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32,40})\b`) })
 
 var contextKeywords = []string{"snov"}
 

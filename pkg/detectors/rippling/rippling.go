@@ -18,7 +18,6 @@ package rippling
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -33,7 +32,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // tokenRe stays a bare 40+ alphanumeric run: the credential format is
 // undocumented, so the keyword arm regex and entropy floor — not the token
 // regex — carry the false-positive load.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40,})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40,})\b`) })
 
 // armRe is the assignment-style Rippling reference that must appear within the
 // proximity window. A bare "rippling" substring (package names, doc links,
@@ -42,8 +41,8 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // The bare "RIPPLING_API" / "RIPPLING_AUTH" / "RIPPLING_CREDENTIAL" env-var
 // forms (no token/key/secret suffix) are themselves credible anchors, so the
 // suffix is optional after "api" and "auth"/"credential" arm on their own.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)rippling[_\-]?(api([_\-]?(token|key|secret))?|auth|credential|token|key|secret)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)rippling[_\-]?(api([_\-]?(token|key|secret))?|auth|credential|token|key|secret)`)
 })
 
 // minEntropy rejects low-entropy 40+ char runs that clear the alnum regex but

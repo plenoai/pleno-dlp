@@ -12,7 +12,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -27,8 +26,8 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // SID: AC + 32 hex. Auth token: 32 hex (no provider prefix, so we always
 // require pairing with a SID to emit verified=true).
 var (
-	sidRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(AC[a-f0-9]{32})\b`) })
-	tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-f0-9]{32})\b`) })
+	sidRe   = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(AC[a-f0-9]{32})\b`) })
+	tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-f0-9]{32})\b`) })
 )
 
 type Scanner struct{}

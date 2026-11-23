@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -133,7 +132,7 @@ type Spec struct {
 // Scanner implements detectors.Detector and detectors.Verifier for a Spec.
 type Scanner struct {
 	spec Spec
-	re   func() *regexp.Regexp
+	re   func() *detectors.Regexp
 	mu   sync.RWMutex
 	base string
 }
@@ -155,7 +154,7 @@ func New(spec Spec) *Scanner {
 	pattern := spec.Pattern
 	return &Scanner{
 		spec: spec,
-		re:   sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(pattern) }),
+		re:   sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(pattern) }),
 		base: spec.Verify.BaseURL,
 	}
 }

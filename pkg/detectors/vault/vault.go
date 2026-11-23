@@ -16,7 +16,6 @@ package vault
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -36,11 +35,11 @@ var (
 	// Modern wrapped service / batch tokens: `hvs.<base64url>` and
 	// `hvb.<base64url>`. Length floor is generous; Vault mints both ~95
 	// chars for service tokens, ~60 for batch.
-	modernRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(hv[sb]\.[A-Za-z0-9_-]{40,})\b`) })
+	modernRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(hv[sb]\.[A-Za-z0-9_-]{40,})\b`) })
 	// Legacy service tokens: `s.<24 base62 chars>`. The 24-char floor is
 	// the documented length; we anchor the leading `s.` and a word boundary
 	// to avoid matching `s.something` in Go pkg paths.
-	legacyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bs\.([A-Za-z0-9]{24})\b`) })
+	legacyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\bs\.([A-Za-z0-9]{24})\b`) })
 )
 
 type Scanner struct{}

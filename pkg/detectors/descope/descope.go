@@ -6,7 +6,6 @@ package descope
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Descope mgmt keys: K2 prefix + 40+ base64url body. Project IDs share the
 // `P` prefix but are 24 chars and don't trigger.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(K2[A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(K2[A-Za-z0-9]{40,80})\b`) })
 
 var contextKeywords = []string{"descope", "descope_mgmt", "descope_key", "descope_token"}
 

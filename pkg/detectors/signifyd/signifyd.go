@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,7 @@ var apiBase = "https://api.signifyd.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{20,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{20,80})\b`) })
 
 // armRe is the assignment-style Signifyd reference that must appear within the
 // proximity window. A bare "signifyd" substring is too weak a gate against a
@@ -29,7 +28,9 @@ var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`
 // placeholder keys such as `abcdefghijklmnopqrstuvwxyz`), so we do NOT pin a
 // length and instead arm on `signifyd[_-]?(api[_-]?)?(token|key|secret)` —
 // the shape a real credential assignment or config key takes.
-var armRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)signifyd[_\-]?(api[_\-]?)?(token|key|secret)`) })
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)signifyd[_\-]?(api[_\-]?)?(token|key|secret)`)
+})
 
 // minEntropy is a conservative floor that rejects low-entropy 20-80 char runs
 // which clear the alnum regex but are not random tokens. 3.0 (not 3.5)

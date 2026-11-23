@@ -11,7 +11,6 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,8 +22,8 @@ var apiBase = "https://api2.branch.io"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(key_(?:live|test)_[A-Za-z0-9]{32,})\b`) })
-var secretRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(secret_(?:live|test)_[A-Za-z0-9]{32,})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(key_(?:live|test)_[A-Za-z0-9]{32,})\b`) })
+var secretRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(secret_(?:live|test)_[A-Za-z0-9]{32,})\b`) })
 
 // contextKeywords intentionally drops the bare "branch" keyword: it
 // matches git terminology (`branched`, `branching`, `branchless`) and

@@ -17,7 +17,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -39,7 +38,7 @@ var (
 
 // Zendesk API tokens are documented as 40 base62 chars — the token portion
 // of the Basic-auth credential `<email>/token:<api_token>`.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40})\b`) })
 
 // minEntropy rejects low-information 40-char base62 runs that satisfy the
 // length+charset regex but are not random tokens (commit SHAs are hex/40 and
@@ -61,17 +60,17 @@ const minEntropy = 3.5
 //
 // The whole detector only runs after the "zendesk" Keywords() prefilter matches
 // the chunk, so the `/token:` arm is already scoped to a Zendesk context.
-var armRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)(zendesk[_\-]?(api[_\-]?)?(token|key|secret)|/token:)`)
+var armRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`(?i)(zendesk[_\-]?(api[_\-]?)?(token|key|secret)|/token:)`)
 })
 
 // RFC5322-ish email shape — kept conservative so we don't chase malformed
 // addresses. We pair the operator email with the token via Basic auth.
-var emailRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b`)
+var emailRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(`\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b`)
 })
 
-var hostRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([a-z0-9-]+\.zendesk\.com)\b`) })
+var hostRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([a-z0-9-]+\.zendesk\.com)\b`) })
 
 type Scanner struct{}
 

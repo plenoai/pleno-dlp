@@ -14,7 +14,6 @@ package sapariba
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +28,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 // Application Key: exactly 32 mixed-case alphanumeric chars, no prefix
 // (per SAP-samples). The bare shape collides with many random secrets, so
 // the entropy floor and the assignment-anchored keyword gate disambiguate.
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{32})\b`) })
 
 // minEntropy rejects git-SHA-shaped / low-information 32-char runs that
 // clear the regex but lack key-grade randomness. 3.5 bits/char is the
@@ -41,7 +40,7 @@ const minEntropy = 3.5
 // contextRe is the windowed assignment-anchor gate. Replaces a bare
 // strings.Contains(window, "ariba") which matched prose; this requires an
 // assignment-style ariba api/token/key/secret form near the token.
-var contextRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)ariba[_-]?(api[_-]?)?(token|key|secret)`) })
+var contextRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)ariba[_-]?(api[_-]?)?(token|key|secret)`) })
 
 type Scanner struct{}
 

@@ -26,7 +26,6 @@ package unixcrypthash
 
 import (
 	"context"
-	"regexp"
 	"sync"
 
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
@@ -38,8 +37,8 @@ import (
 // captured. The username charset covers typical POSIX account names;
 // the hash alternation covers glibc/Apache modular crypt ($id$salt$hash),
 // bcrypt ($2[aby]$rounds$payload), and legacy Apache curly-brace tags.
-var cryptLineRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(
+var cryptLineRe = sync.OnceValue(func() *detectors.Regexp {
+	return detectors.MustCompile(
 		`(?m)^([A-Za-z0-9_][A-Za-z0-9_.\-]{0,31}):` +
 			`(\$2[aby]\$[0-9]{2}\$[A-Za-z0-9./]{53}` +
 			`|\$(?:1|5|6|apr1)\$[A-Za-z0-9./]{1,16}\$[A-Za-z0-9./]{20,100}` +

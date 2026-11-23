@@ -10,7 +10,6 @@ package cohere
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +22,7 @@ var apiBase = "https://api.cohere.ai"
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // 40 base62 chars. Generic shape — keyword gate disambiguates.
-var keyRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b([A-Za-z0-9]{40})\b`) })
+var keyRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b([A-Za-z0-9]{40})\b`) })
 
 // minEntropy rejects git-SHA-shaped and other low-information 40-char runs
 // that clear the regex but are not real keys.
@@ -32,7 +31,7 @@ const minEntropy = 3.5
 // contextRe is the windowed keyword gate. A bare "cohere" substring matched
 // English words like "coherent"/"coherence"; the word boundary kills those
 // while the _api_key forms keep the assignment-style fixtures armed.
-var contextRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\bcohere\b|co_api_key|cohere_api_key`) })
+var contextRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`(?i)\bcohere\b|co_api_key|cohere_api_key`) })
 
 type Scanner struct{}
 

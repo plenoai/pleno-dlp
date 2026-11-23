@@ -1,8 +1,8 @@
 package catalog
 
 import (
+	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"math/rand"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -69,7 +69,7 @@ func TestPrefiltersAreNecessary(t *testing.T) {
 		if !ok {
 			t.Fatalf("no input generator for prefiltered rule %q", id)
 		}
-		re := regexp.MustCompile(pat)
+		re := detectors.MustCompile(pat)
 		matched := 0
 		for i := 0; i < 20000; i++ {
 			data := []byte(gen(rng))

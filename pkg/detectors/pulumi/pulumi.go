@@ -11,7 +11,6 @@ package pulumi
 import (
 	"context"
 	"net/http"
-	"regexp"
 	"sync"
 	"time"
 
@@ -22,7 +21,7 @@ var apiBase = "https://api.pulumi.com"
 
 var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(pul-[a-f0-9]{40})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(pul-[a-f0-9]{40})\b`) })
 
 type Scanner struct{}
 

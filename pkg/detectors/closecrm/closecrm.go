@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +20,7 @@ var httpClient = detectors.NewVerifyHTTPClient(10 * time.Second)
 
 // Close API keys are documented as `api_<base62>{40,}` (the `api_` prefix
 // is consistent across the platform).
-var tokenRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(api_[A-Za-z0-9]{40,80})\b`) })
+var tokenRe = sync.OnceValue(func() *detectors.Regexp { return detectors.MustCompile(`\b(api_[A-Za-z0-9]{40,80})\b`) })
 
 var contextKeywords = []string{"close.com", "closecrm", "close_api", "close_crm"}
 
