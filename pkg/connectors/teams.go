@@ -23,7 +23,6 @@ package connectors
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -354,20 +353,15 @@ func scanTeams(ctx context.Context, cfg Config, emit Emit) error {
 	return nil
 }
 
-// fingerprintTeams identifies the scanned scope without network calls or
-// the token: Graph host plus the configured team list.
+// fingerprintTeams returns "": there is no cheap fingerprint over every
+// channel's messages, and a scope-only hash would make --incremental skip
+// the scan even after new messages arrive. The per-message state still
+// makes re-scans incremental. Config is validated so errors surface early.
 func fingerprintTeams(_ context.Context, cfg Config) (string, error) {
-	cli, err := newTeamsClient(cfg)
-	if err != nil {
+	if _, err := newTeamsClient(cfg); err != nil {
 		return "", err
 	}
-	h := sha256.New()
-	writeFingerprint(h, "teams-v1")
-	writeFingerprint(h, cli.base.String())
-	for _, id := range splitCSV(cfg["team_ids"]) {
-		writeFingerprint(h, id)
-	}
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
+	return "", nil
 }
 
 // verifyTeams checks a Graph token against GET /organization, which any

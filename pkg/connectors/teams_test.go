@@ -181,10 +181,7 @@ func TestTeamsVerifyAndConfig(t *testing.T) {
 	if _, err := newTeamsClient(Config{"token": "x", "base_url": "http://graph.example.com"}); err == nil {
 		t.Fatal("plain http to non-loopback should fail")
 	}
-	a, _ := fingerprintTeams(context.Background(), Config{"token": "one", "team_ids": "t1"})
-	b, _ := fingerprintTeams(context.Background(), Config{"token": "two", "team_ids": "t1"})
-	c, _ := fingerprintTeams(context.Background(), Config{"token": "one", "team_ids": "t2"})
-	if a != b || a == c {
-		t.Fatalf("fingerprint must track scope not token: %s %s %s", a, b, c)
+	if fp, err := fingerprintTeams(context.Background(), Config{"token": "one", "team_ids": "t1"}); err != nil || fp != "" {
+		t.Fatalf("want empty fingerprint (per-message state drives incremental), got %q, %v", fp, err)
 	}
 }
