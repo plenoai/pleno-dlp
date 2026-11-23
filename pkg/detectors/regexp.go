@@ -2,6 +2,7 @@ package detectors
 
 import (
 	"bytes"
+	"encoding/binary"
 	"regexp"
 	"regexp/syntax"
 	"unicode/utf8"
@@ -259,10 +260,8 @@ const (
 )
 
 func (p *prefilter) mayMatch(b []byte) bool {
-	for _, c := range b {
-		if c >= utf8.RuneSelf {
-			return true
-		}
+	if hasNonASCII(b) {
+		return true
 	}
 	for i := range p.runs {
 		if !p.runs[i].present(b) {
@@ -277,17 +276,68 @@ func (p *prefilter) mayMatch(b []byte) bool {
 	return true
 }
 
-func (r *byteRun) present(b []byte) bool {
-	n := 0
+// hasNonASCII reports whether b holds a byte >= utf8.RuneSelf, testing
+// eight bytes per load.
+func hasNonASCII(b []byte) bool {
+	const hi = 0x8080808080808080
+	for len(b) >= 32 {
+		w := binary.LittleEndian.Uint64(b) | binary.LittleEndian.Uint64(b[8:]) |
+			binary.LittleEndian.Uint64(b[16:]) | binary.LittleEndian.Uint64(b[24:])
+		if w&hi != 0 {
+			return true
+		}
+		b = b[32:]
+	}
+	for len(b) >= 8 {
+		if binary.LittleEndian.Uint64(b)&hi != 0 {
+			return true
+		}
+		b = b[8:]
+	}
 	for _, c := range b {
-		if r.class[c] {
-			n++
-			if n >= r.min {
+		if c >= utf8.RuneSelf {
+			return true
+		}
+	}
+	return false
+}
+
+// present reports whether b holds r.min consecutive bytes of r.class.
+// Every such run covers one of the probe offsets min-1, 2*min-1, ..., so
+// only bytes at those offsets are tested until one is in the class; the
+// run through it is then measured left and right.
+func (r *byteRun) present(b []byte) bool {
+	m := r.min
+	if m <= 1 {
+		for _, c := range b {
+			if r.class[c] {
 				return true
 			}
-		} else {
-			n = 0
 		}
+		return false
+	}
+	for i := m - 1; i < len(b); i += m {
+		if !r.class[b[i]] {
+			continue
+		}
+		l := i
+		for l > 0 && i-l+1 < m && r.class[b[l-1]] {
+			l--
+		}
+		if i-l+1 >= m {
+			return true
+		}
+		need := m - (i - l + 1)
+		j := i + 1
+		for j < len(b) && r.class[b[j]] {
+			j++
+			if need--; need == 0 {
+				return true
+			}
+		}
+		// b[j] ends the run, so a qualifying run starts after j and
+		// covers j+m or a later probe.
+		i = j
 	}
 	return false
 }

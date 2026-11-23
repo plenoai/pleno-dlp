@@ -2969,20 +2969,7 @@ func tagBlastRadius(r *detectors.Result) {
 // unicode.ToLower on each byte. This is a hot path — one call per chunk
 // variant — and matches the lowercasing done at engine construction
 // over keyword sets.
-func lowerCaseInto(dst, src []byte) []byte {
-	if cap(dst) < len(src) {
-		dst = make([]byte, len(src))
-	} else {
-		dst = dst[:len(src)]
-	}
-	for i, b := range src {
-		if b >= 'A' && b <= 'Z' {
-			b += 'a' - 'A'
-		}
-		dst[i] = b
-	}
-	return dst
-}
+func lowerCaseInto(dst, src []byte) []byte { return detectors.LowerASCIIInto(dst, src) }
 
 // dropCodeToken reports whether an unverified result's secret is a
 // source-code token (import path, selector, identifier) that a

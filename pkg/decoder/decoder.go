@@ -409,45 +409,53 @@ type byteSpan struct{ start, end int }
 // walkBase64Spans is walkBase64RunsMeta that also appends to hexSpans
 // (when non-nil) every maximal base64-alphabet run of at least minHexRun
 // bytes, excluding padding.
+//
+// Every reported run spans minBase64Run bytes, so it covers one of the
+// probe offsets minBase64Run-1, 2*minBase64Run-1, ...; only those bytes are
+// tested until one is in the alphabet, and the maximal run through it is
+// then measured in both directions.
 func walkBase64Spans(data []byte, hexSpans *[]byteSpan, fn func([]byte, byte)) {
-	start := -1
-	var alphabet byte
-	for i := 0; i < len(data); i++ {
-		c := data[i]
-		if byteClass[c]&classBase64 != 0 {
-			if start < 0 {
-				start = i
-				alphabet = 0
-			}
-			switch c {
-			case '-', '_':
-				alphabet = 1
-			case '+', '/':
-				alphabet = 0
-			}
+	const m = minBase64Run
+	for i := m - 1; i < len(data); i += m {
+		if byteClass[data[i]]&classBase64 == 0 {
 			continue
 		}
-		if start >= 0 {
-			end := i
-			if i-start >= minBase64Run {
-				if hexSpans != nil && i-start >= minHexRun {
-					*hexSpans = append(*hexSpans, byteSpan{start, end})
-				}
-				pad := 0
-				for pad < 2 && end+pad < len(data) && data[end+pad] == '=' {
-					pad++
-				}
-				fn(data[start:end+pad], alphabet)
+		start := i
+		for start > 0 && byteClass[data[start-1]]&classBase64 != 0 {
+			start--
+		}
+		end := i + 1
+		for end < len(data) && byteClass[data[end]]&classBase64 != 0 {
+			end++
+		}
+		if end-start >= m {
+			if hexSpans != nil && end-start >= minHexRun {
+				*hexSpans = append(*hexSpans, byteSpan{start, end})
 			}
-			start = -1
+			pad := 0
+			for pad < 2 && end+pad < len(data) && data[end+pad] == '=' {
+				pad++
+			}
+			fn(data[start:end+pad], base64RunAlphabet(data[start:end]))
+		}
+		// data[end] is outside the alphabet, so the next run starts after
+		// it and covers end+m or a later probe.
+		i = end
+	}
+}
+
+// base64RunAlphabet is 1 (URL-safe) when the last '-', '_', '+' or '/' in
+// run is '-' or '_', else 0.
+func base64RunAlphabet(run []byte) byte {
+	for j := len(run) - 1; j >= 0; j-- {
+		switch run[j] {
+		case '-', '_':
+			return 1
+		case '+', '/':
+			return 0
 		}
 	}
-	if start >= 0 && len(data)-start >= minBase64Run {
-		if hexSpans != nil && len(data)-start >= minHexRun {
-			*hexSpans = append(*hexSpans, byteSpan{start, len(data)})
-		}
-		fn(data[start:], alphabet)
-	}
+	return 0
 }
 
 func decodeBase64Into(s []byte, alphabet byte, dst []byte) ([]byte, bool) {
