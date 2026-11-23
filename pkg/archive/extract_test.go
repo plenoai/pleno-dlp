@@ -387,12 +387,12 @@ func TestWalkHWPEncryptedIsCoverageGap(t *testing.T) {
 }
 
 func TestWalkGenericOLEStreams(t *testing.T) {
-	data := buildCFB(t, 1, []cfbEntry{{name: "WordDocument", typ: 2, data: []byte("FIXTURE-OLE-STREAM"), child: -1, right: -1}})
+	data := buildCFB(t, 1, []cfbEntry{{name: "Contents", typ: 2, data: []byte("FIXTURE-OLE-STREAM"), child: -1, right: -1}})
 	entries, err := walkEntries(t, "legacy.doc", data, Limits{})
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
-	requireEntry(t, entries, "legacy.doc!WordDocument", "FIXTURE-OLE-STREAM")
+	requireEntry(t, entries, "legacy.doc!Contents", "FIXTURE-OLE-STREAM")
 }
 
 func TestWalkCorruptOLEIsCoverageGap(t *testing.T) {
@@ -403,11 +403,11 @@ func TestWalkCorruptOLEIsCoverageGap(t *testing.T) {
 	}
 }
 
-func TestEggIsScannedRaw(t *testing.T) {
+func TestCorruptEggFallsBackToRaw(t *testing.T) {
 	data := append([]byte("EGGA\x00\x01"), []byte(" stored FIXTURE-EGG ")...)
 	entries, err := walkEntries(t, "a.egg", data, Limits{})
-	if err != nil {
-		t.Fatalf("Walk: %v", err)
+	if !partialKinds(err)["corrupt-archive"] {
+		t.Fatalf("want corrupt-archive gap, got %v", err)
 	}
 	requireEntry(t, entries, "a.egg", "FIXTURE-EGG")
 }
@@ -426,7 +426,7 @@ func TestExtractorOutputHonorsExpansionBudget(t *testing.T) {
 // FuzzWalkStructured asserts the extractors never panic or exceed budgets on
 // hostile input derived from every supported structured format.
 func FuzzWalkStructured(f *testing.F) {
-	for _, path := range []string{"testdata/extract.sqlite", "testdata/extract.pyc"} {
+	for _, path := range []string{"testdata/extract.sqlite", "testdata/extract.pyc", "testdata/tounicode.pdf"} {
 		if data, err := os.ReadFile(path); err == nil {
 			f.Add(data)
 		}

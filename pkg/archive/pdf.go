@@ -16,7 +16,8 @@ import (
 // object streams, and the uncompressed body (document info, annotations,
 // form values). Strings inside one TJ array are concatenated so kerning
 // adjustments do not split a token; text-positioning operators end a line.
-// Fonts with custom CMaps are not mapped back to Unicode.
+// Page content shown with fonts that carry a /ToUnicode CMap is decoded
+// through that CMap first (pdfcmap.go); those streams are then skipped here.
 
 var pdfMagic = []byte("%PDF-")
 
@@ -33,6 +34,7 @@ func extractPDF(data []byte, out *textBuffer) error {
 		return errors.New("not a PDF document")
 	}
 	var body bytes.Buffer // non-stream bytes
+	handled := pdfPageText(indexPDFObjects(data), out)
 	pos := 0
 	var errs []error
 	for pos < len(data) && !out.overflow {
@@ -62,15 +64,16 @@ func extractPDF(data []byte, out *textBuffer) error {
 		raw := bytes.TrimRight(data[start:start+end], "\r\n")
 		pos = start + end + len("endstream")
 		switch {
+		case handled[start]:
 		case pdfFilterFlate.Match(dict):
 			inflated, err := pdfInflate(raw)
-			if len(inflated) > 0 {
+			if len(inflated) > 0 && !bytes.Contains(inflated, []byte("begincmap")) {
 				pdfStrings(inflated, out)
 			}
 			if err != nil {
 				errs = append(errs, err)
 			}
-		case !pdfFilterAny.Match(dict):
+		case !pdfFilterAny.Match(dict) && !bytes.Contains(raw, []byte("begincmap")):
 			pdfStrings(raw, out)
 		}
 	}
@@ -102,9 +105,39 @@ func pdfInflate(raw []byte) ([]byte, error) {
 }
 
 // pdfStrings tokenizes PDF syntax and writes string operands.
-func pdfStrings(data []byte, out *textBuffer) {
+func pdfStrings(data []byte, out *textBuffer) { pdfStringsWithFonts(data, nil, out) }
+
+// pdfStringsWithFonts decodes string operands through the ToUnicode CMap of
+// the font most recently selected by Tf, when one is known.
+func pdfStringsWithFonts(data []byte, fonts map[string]*pdfCMap, out *textBuffer) {
 	var line bytes.Buffer
 	inArray := 0
+	var lastName, prevTok, lastTmY string
+	var font *pdfCMap
+	// Marked content carrying /ActualText replaces the glyphs it encloses
+	// (Skia maps spaces and ligatures this way), so those glyphs are skipped.
+	dictDepth, mcDepth, suppressAt := 0, 0, 0
+	pendingActual := false
+	var actualText []byte
+	decode := func(b []byte) []byte {
+		if dictDepth > 0 {
+			if fonts != nil && lastName == "ActualText" {
+				// Written where the replaced glyphs are shown, after any
+				// line-breaking positioning that precedes them.
+				pendingActual = true
+				actualText = pdfDecodeText(b)
+				return nil
+			}
+			return pdfDecodeText(b)
+		}
+		if suppressAt > 0 {
+			return nil
+		}
+		if font != nil {
+			return font.decode(b)
+		}
+		return pdfDecodeText(b)
+	}
 	flush := func() {
 		if line.Len() > 0 {
 			out.write(line.Bytes())
@@ -121,14 +154,18 @@ func pdfStrings(data []byte, out *textBuffer) {
 			}
 		case c == '(':
 			s, n := pdfLiteral(data[i:])
-			line.Write(pdfDecodeText(s))
+			line.Write(decode(s))
 			i += n
-			if inArray == 0 {
+			if inArray == 0 && fonts == nil {
 				line.WriteByte(' ')
 			}
 		case c == '<' && i+1 < len(data) && data[i+1] == '<':
+			dictDepth++
 			i += 2
 		case c == '>' && i+1 < len(data) && data[i+1] == '>':
+			if dictDepth > 0 {
+				dictDepth--
+			}
 			i += 2
 		case c == '<':
 			end := bytes.IndexByte(data[i:], '>')
@@ -136,11 +173,18 @@ func pdfStrings(data []byte, out *textBuffer) {
 				i = len(data)
 				break
 			}
-			line.Write(pdfDecodeText(pdfHex(data[i+1 : i+end])))
-			if inArray == 0 {
+			line.Write(decode(pdfHex(data[i+1 : i+end])))
+			if inArray == 0 && fonts == nil {
 				line.WriteByte(' ')
 			}
 			i += end + 1
+		case c == '/' && fonts != nil:
+			j := i + 1
+			for j < len(data) && isPDFRegular(data[j]) {
+				j++
+			}
+			lastName = string(data[i+1 : j])
+			i = j
 		case c == '[':
 			inArray++
 			i++
@@ -154,7 +198,50 @@ func pdfStrings(data []byte, out *textBuffer) {
 			for j < len(data) && isPDFRegular(data[j]) {
 				j++
 			}
-			switch string(data[i:j]) {
+			op := string(data[i:j])
+			if fonts != nil {
+				// Page text is positioned glyph by glyph; a horizontal-only
+				// move (tx 0 Td) continues the line instead of splitting a
+				// token into one-character lines.
+				switch {
+				case op == "Tf":
+					font = fonts[lastName]
+				case (op == "Td" || op == "TD") && prevTok == "0":
+					i = j
+					continue
+				case op == "Tm":
+					// A new text matrix on the same baseline (font switch
+					// mid-line) continues the line.
+					sameLine := prevTok == lastTmY
+					lastTmY, prevTok = prevTok, op
+					if sameLine {
+						i = j
+						continue
+					}
+				case op == "BDC" || op == "BMC":
+					mcDepth++
+					if pendingActual && suppressAt == 0 {
+						suppressAt = mcDepth
+					}
+					pendingActual = false
+				case op == "Tj" || op == "TJ" || op == "'" || op == `"`:
+					if suppressAt > 0 && actualText != nil {
+						line.Write(actualText)
+						actualText = nil
+					}
+				case op == "EMC":
+					if suppressAt == mcDepth {
+						suppressAt = 0
+						line.Write(actualText)
+						actualText = nil
+					}
+					if mcDepth > 0 {
+						mcDepth--
+					}
+				}
+				prevTok = op
+			}
+			switch op {
 			case "ET", "Td", "TD", "T*", "Tm", "'", `"`, "endobj", "BT":
 				flush()
 			}
