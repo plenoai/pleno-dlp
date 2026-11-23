@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // catFileBatch is one long-lived `git cat-file --batch` process shared by
@@ -135,4 +136,56 @@ func (b *catFileBatch) close() error {
 		return nil
 	}
 	return err
+}
+
+// parseNativeIndexNewOID extracts the post-image blob id from a patch
+// "index <old>..<new>[ <mode>]" header, returning "" unless it is a full
+// 40-hex id (nativeLogArgs passes --abbrev=40).
+func parseNativeIndexNewOID(line []byte) string {
+	rest := strings.TrimSpace(string(line[len("index "):]))
+	_, after, ok := strings.Cut(rest, "..")
+	if !ok {
+		return ""
+	}
+	if sp := strings.IndexByte(after, ' '); sp >= 0 {
+		after = after[:sp]
+	}
+	if len(after) != 40 || strings.Trim(after, "0123456789abcdef") != "" || after == strings.Repeat("0", 40) {
+		return ""
+	}
+	return after
+}
+
+// binaryBlobCacheLimit bounds the per-walk classification cache.
+const binaryBlobCacheLimit = 1 << 20
+
+// binaryBlobCache memoizes NUL classification by blob id across the
+// parallel shards of one walk.
+type binaryBlobCache struct {
+	mu sync.Mutex
+	m  map[string]bool
+}
+
+func (c *binaryBlobCache) lookup(oid string) (bool, bool) {
+	if c == nil {
+		return false, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	v, ok := c.m[oid]
+	return v, ok
+}
+
+func (c *binaryBlobCache) store(oid string, binary bool) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil {
+		c.m = make(map[string]bool)
+	}
+	if len(c.m) < binaryBlobCacheLimit {
+		c.m[oid] = binary
+	}
 }

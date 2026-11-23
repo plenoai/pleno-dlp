@@ -115,7 +115,8 @@ func collisionKey(f Finding) string {
 //
 // The git source delivers commits in oldest-first order (collectCommits sorts
 // by committer date ascending), so the first buffered finding for a key is
-// always the introducing commit.
+// the introducing commit. Parallel native history shards break arrival
+// order; they stamp GitMeta.Ordinal and the lowest ordinal wins instead.
 type gitCrossCommitSink struct {
 	inner       Sink
 	mu          sync.Mutex
@@ -144,9 +145,13 @@ func (g *gitCrossCommitSink) Emit(f Finding) {
 	key := gitHashFileKey(f)
 	g.mu.Lock()
 	g.counts[key]++
-	if _, exists := g.first[key]; !exists {
+	if prev, exists := g.first[key]; !exists {
 		g.first[key] = f
 		g.insertOrder = append(g.insertOrder, key)
+	} else if older(f, prev) {
+		// Parallel history shards deliver commits out of order; keep the
+		// introducing (lowest-ordinal) commit rather than the first arrival.
+		g.first[key] = f
 	}
 	g.mu.Unlock()
 }
@@ -187,6 +192,31 @@ func (g *gitCrossCommitSink) Close() error {
 		return err
 	}
 	return g.inner.Close()
+}
+
+// older reports whether f should replace prev as the reported occurrence
+// of a secret in a file. Across commits the lower GitMeta.Ordinal (the
+// introducing commit) wins when both are known; otherwise the earlier
+// arrival is kept. Within one commit the choice is made deterministic
+// regardless of which worker finished first: lower line, then earlier offset, then a
+// Verifier-backed detector, then the lower detector type.
+func older(f, prev Finding) bool {
+	fg, pg := f.Chunk.SourceMetadata.Git, prev.Chunk.SourceMetadata.Git
+	if fg.Commit != pg.Commit || fg.Repository != pg.Repository {
+		return fg.Ordinal > 0 && pg.Ordinal > 0 && fg.Ordinal < pg.Ordinal
+	}
+	_, fl := locationOf(f)
+	_, pl := locationOf(prev)
+	if fl != pl {
+		return fl < pl
+	}
+	if f.RawSpan != nil && prev.RawSpan != nil && f.RawSpan[0] != prev.RawSpan[0] {
+		return f.RawSpan[0] < prev.RawSpan[0]
+	}
+	if f.VerifierBacked != prev.VerifierBacked {
+		return f.VerifierBacked
+	}
+	return f.Detector < prev.Detector
 }
 
 // gitHashFileKey produces a dedup key from the SHA-256 of the secret bytes

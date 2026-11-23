@@ -147,78 +147,35 @@ func nativeGitEnv() []string {
 // emitted chunk would duplicate findings and could advance the checkpoint
 // across a partially covered walk.
 func (s *Source) chunksNative(ctx context.Context, repo *gogit.Repository, gitBin string, starts, stops []plumbing.Hash, ch chan<- *sources.Chunk) error {
-	cmd := exec.CommandContext(ctx, gitBin, s.nativeLogArgs()...)
-	cmd.Stdin = strings.NewReader(nativeRevisionInput(starts, stops))
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("git: native log stdout: %w", err)
-	}
-	var stderr limitedWriter
-	stderr.limit = nativeStderrLimit
-	cmd.Stderr = &stderr
-	cmd.Env = nativeGitEnv()
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("git: start native log: %w", err)
-	}
-
 	var mergePass *nativeMergePass
+	var err error
 	if !s.omitMergeDiffs() {
 		mergePass, err = s.startNativeMergeResults(ctx, gitBin)
 		if err != nil {
-			if cmd.Process != nil {
-				_ = cmd.Process.Kill()
-			}
-			_ = cmd.Wait()
 			return err
 		}
 	}
-
 	var mergeInput io.Writer
 	if mergePass != nil {
-		mergeInput = mergePass.stdin
+		mergeInput = &lockedWriter{w: mergePass.stdin}
 	}
-	parser := nativeLogParser{
-		ctx:        ctx,
-		source:     s,
-		repo:       repo,
-		gitBin:     gitBin,
-		ch:         ch,
-		mergeInput: mergeInput,
-		blobs:      &catFileHolder{},
-	}
-	parseErr := parser.parse(stdout)
-	parser.blobs.close()
+
+	parseErr := s.runNativePatchLog(ctx, repo, gitBin, starts, stops, mergeInput, ch)
 	var mergeCloseErr error
 	if mergePass != nil {
 		mergeCloseErr = mergePass.closeInput()
 	}
-	var parseCoverage *engine.DegradedError
-	parseOnlyCoverage := errors.As(parseErr, &parseCoverage)
-	if parseErr != nil && !parseOnlyCoverage && cmd.Process != nil {
-		_ = cmd.Process.Kill()
-	}
-	waitErr := cmd.Wait()
 	if err := ctx.Err(); err != nil {
 		if mergePass != nil {
 			mergePass.abort()
 		}
 		return err
 	}
-	if parseErr != nil && !parseOnlyCoverage {
+	if parseErr != nil && !isCoverageOnly(parseErr) {
 		if mergePass != nil {
 			mergePass.abort()
 		}
-		return parser.walkError(fmt.Errorf("git: parse native log: %w", parseErr))
-	}
-	if waitErr != nil {
-		if mergePass != nil {
-			mergePass.abort()
-		}
-		detail := strings.TrimSpace(stderr.String())
-		if detail != "" {
-			return errors.Join(parseErr, parser.walkError(fmt.Errorf("git: native log: %w: %s", waitErr, detail)))
-		}
-		return errors.Join(parseErr, parser.walkError(fmt.Errorf("git: native log: %w", waitErr)))
+		return parseErr
 	}
 	if mergeCloseErr != nil {
 		mergePass.abort()
@@ -832,10 +789,14 @@ type nativeCommit struct {
 	email        string
 	authoredDate string
 	message      string
+	// ordinal is the commit's 1-based oldest-first walk position, or 0
+	// when unknown (see sources.GitMeta.Ordinal).
+	ordinal int64
 }
 
 type nativeFilePatch struct {
 	path             string
+	newOID           string // full post-image blob id from the "index" header, if any
 	deleted          bool
 	segments         []diffSegment
 	totalBytes       int64
@@ -878,6 +839,15 @@ type nativeLogParser struct {
 	// blobs holds the lazily started cat-file batch process shared with
 	// nested forced-text parsers; the top-level owner closes it.
 	blobs *catFileHolder
+	// scan, when set, scans emitted chunks inline on this goroutine instead
+	// of sending them on ch (see sources.InlineScanner).
+	scan func(*sources.Chunk)
+	// ordinals maps commit hash to its 1-based oldest-first position for
+	// parallel shards (see sources.GitMeta.Ordinal); nil otherwise.
+	ordinals map[string]int64
+	// seq numbers commits in arrival order for the single-stream walk,
+	// whose git log output is already oldest-first; nil elsewhere.
+	seq *int64
 }
 
 type catFileHolder struct{ batch *catFileBatch }
@@ -1116,6 +1086,13 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		if err != nil {
 			return err
 		}
+		switch {
+		case p.ordinals != nil:
+			commit.ordinal = p.ordinals[commit.hash]
+		case p.seq != nil:
+			*p.seq++
+			commit.ordinal = *p.seq
+		}
 		p.commit = &commit
 		if commit.parentCount > 1 && p.mergeInput != nil {
 			if _, err := fmt.Fprintln(p.mergeInput, commit.hash); err != nil {
@@ -1151,6 +1128,10 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 			p.file.deleted = p.rawDeleted[p.rawIndex]
 			p.rawIndex++
 		}
+		return nil
+	}
+	if !p.inHunk && bytes.HasPrefix(line, []byte("index ")) {
+		p.file.newOID = parseNativeIndexNewOID(line)
 		return nil
 	}
 	if !p.inHunk && bytes.HasPrefix(line, []byte("--- ")) {
@@ -1405,6 +1386,16 @@ func (p *nativeLogParser) currentFileBinary() (binary bool, err error) {
 
 func (p *nativeLogParser) currentFileBinaryNative() (bool, error) {
 	object := p.commit.hash + ":" + p.file.path
+	oid := p.file.newOID
+	if oid != "" {
+		// Binary classification is a pure function of the blob, so a blob
+		// re-introduced by later commits (reverts, merges, translation
+		// catalogs flipping back) is read from git only once.
+		if binary, ok := p.source.binaryBlobs.lookup(oid); ok {
+			return binary, nil
+		}
+		object = oid
+	}
 	if p.blobs != nil && !strings.Contains(object, "\n") {
 		if p.blobs.batch == nil {
 			batch, err := startCatFileBatch(p.ctx, p.gitBin, p.source.repoAbs)
@@ -1415,6 +1406,9 @@ func (p *nativeLogParser) currentFileBinaryNative() (bool, error) {
 		}
 		binary, err := p.blobs.batch.blobContainsNUL(p.ctx, object)
 		if err == nil {
+			if oid != "" {
+				p.source.binaryBlobs.store(oid, binary)
+			}
 			return binary, nil
 		}
 		if ctxErr := p.ctx.Err(); ctxErr != nil {
@@ -1516,7 +1510,15 @@ func (p *nativeLogParser) emitSegments(path string, segments []diffSegment) erro
 				Author:       p.commit.author,
 				AuthoredDate: p.commit.authoredDate,
 				Message:      p.commit.message,
+				Ordinal:      p.commit.ordinal,
 			}},
+		}
+		if p.scan != nil {
+			if err := p.ctx.Err(); err != nil {
+				return err
+			}
+			p.scan(chunk)
+			continue
 		}
 		select {
 		case p.ch <- chunk:
@@ -1678,7 +1680,7 @@ func (p *nativeLogParser) emitForcedTextPatch(path string) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start forced text diff: %w", err)
 	}
-	parser := nativeLogParser{ctx: p.ctx, source: p.source, repo: p.repo, gitBin: p.gitBin, ch: p.ch, commit: p.commit, blobs: p.blobs}
+	parser := nativeLogParser{ctx: p.ctx, source: p.source, repo: p.repo, gitBin: p.gitBin, ch: p.ch, commit: p.commit, blobs: p.blobs, scan: p.scan, ordinals: p.ordinals}
 	parseErr := parser.parse(stdout)
 	if parseErr != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()

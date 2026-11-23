@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"runtime/pprof"
 	"strings"
 	"sync/atomic"
@@ -254,7 +255,7 @@ func init() {
 		"per-attempt verification HTTP timeout, e.g. 10s (0 = detector defaults)")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.listOnly, "list-only", false,
 		"print the repositories the scan would cover (github, gitlab, bitbucket, azure-devops, huggingface, gitea family) and exit without scanning")
-	scanCmd.PersistentFlags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
+	scanCmd.PersistentFlags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers (default: one per CPU, minimum 8, for local git and filesystem scans; 8 otherwise)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.failOn, "fail-on", "high", "minimum severity that triggers exit 1: any|info|low|medium|high|critical "+
 		"(default high: audit-first rollout — verified/critical and named unverified-secret findings gate CI; "+
@@ -588,6 +589,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// `--concurrency 0` scanned as if unset with no signal. Reject it here.
 	if scanOpts.concurrency < 1 {
 		return fmt.Errorf("--concurrency must be >= 1, got %d", scanOpts.concurrency)
+	}
+	if f := cmd.Flags().Lookup("concurrency"); f != nil && !f.Changed {
+		scanOpts.concurrency = defaultScanConcurrency(kind)
 	}
 	if scanOpts.revokeOnVerified {
 		if !scanOpts.revokeDryRun && os.Getenv(EnvAllowRevoke) != "1" {
@@ -1907,4 +1911,16 @@ func Execute(ctx context.Context) (err error) {
 		}
 	}()
 	return Root.ExecuteContext(ctx)
+}
+
+// defaultScanConcurrency is the worker count used when --concurrency is not
+// given. Local git and filesystem scans are CPU-bound (detector regexps and
+// parallel `git log` shards), so they use every CPU like kingfisher does;
+// remote sources keep 8 so API connectors are not fanned out further.
+func defaultScanConcurrency(kind string) int {
+	switch kind {
+	case "git", "filesystem":
+		return max(8, runtime.NumCPU())
+	}
+	return 8
 }
