@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-11-23 | connector-engineer, qa | Add `pkg/sources/git.CloneRemote` (HTTPS-only credentials, no URL userinfo, token-redacted errors) and `scan git --git-url` so remote repositories are scanned with the full local git walker (#811). |
 | 2026-11-19 | core-engineer, qa | Separate policy-limited archive skips from real coverage gaps: per-failure `coverage: entry` lines, `skipped_by_policy` counts, and `--fail-on-coverage=gap|any` (default gap); e2e 03 covers both modes (supersedes #744). |
 | 2026-11-17 | architect | Raise the minimum Go version to 1.26.11 for the net/http fix GO-2026-6859; no new govulncheck exception. |
 | 2026-11-17 | detector-engineer, qa | Declare provider-confirmed assurance for 11 authenticated verifiers and fail CI when a new Verifier omits `MaxVerificationAssurance` (existing ones frozen in `pkg/detectors/all/assurance_allowlist_test.go`). |
