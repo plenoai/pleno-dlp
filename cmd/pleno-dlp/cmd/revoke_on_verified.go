@@ -142,6 +142,10 @@ func (r *revokingSink) Emit(f engine.Finding) {
 		r.failed.Add(1)
 		attemptErr = err
 		fmt.Fprintf(r.logW, "revoke FAIL: %s %s — %s\n", f.Detector.String(), redacted, err.Error())
+	case res.Status() == detectors.RevokeAccepted:
+		r.failed.Add(1)
+		attemptErr = res.Err
+		fmt.Fprintf(r.logW, "revoke ACCEPTED (unconfirmed): %s %s\n", f.Detector.String(), redacted)
 	case res.Revoked && res.Err == nil:
 		r.revoked.Add(1)
 		fmt.Fprintf(r.logW, "revoke OK: %s %s\n", f.Detector.String(), redacted)
@@ -164,6 +168,7 @@ func (r *revokingSink) Emit(f engine.Finding) {
 		Secret:     secret,
 		Redacted:   redacted,
 		Revoked:    res.Revoked,
+		Outcome:    res.Status(),
 		RevokedAt:  res.RevokedAt,
 		ProviderID: res.ProviderID,
 		Err:        attemptErr,

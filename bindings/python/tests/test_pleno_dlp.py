@@ -9,7 +9,7 @@ HOOK = "/".join(["https://hooks.slack.com/services", "T024BE7LD", "B024BE7LD", "
 
 
 def test_version():
-    assert pleno_dlp.api_version() == "1.0.0"
+    assert pleno_dlp.api_version() == "1.1.0"
 
 
 def test_scan_bytes_redacts_by_default():

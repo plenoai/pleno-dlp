@@ -77,5 +77,10 @@ func main() {
 		os.Exit(1)
 	}
 	termsafe.Fprintf(os.Stderr, "error: %v\n", err)
+	// A revoke the provider only queued (accepted, not confirmed) gets
+	// its own code so automation can tell it apart from a hard failure.
+	if cmd.IsRevokeUnconfirmed(err) {
+		os.Exit(3)
+	}
 	os.Exit(2)
 }

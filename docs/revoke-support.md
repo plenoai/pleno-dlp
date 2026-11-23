@@ -214,8 +214,10 @@ as unconfirmed (`Revoked=false` plus a diagnostic).
 ### Hugging Face and Vercel
 
 Hugging Face's report endpoint answers 202 for any input. The
-Revoker therefore returns `Revoked=true` with a diagnostic stating
-that the report was accepted, not confirmed. Vercel tokens delete
+Revoker therefore returns `Outcome=accepted` with `Revoked=false`
+(#859): the audit record carries `"outcome":"accepted"` and
+`pleno-dlp revoke` exits 3 (not 0), so automation never mistakes a
+queued report for a confirmed revocation. Vercel tokens delete
 themselves; HTTP 401/403 is the idempotent case. `ProviderID` for
 both is a `sha256:` fingerprint, not a prefix of the secret.
 

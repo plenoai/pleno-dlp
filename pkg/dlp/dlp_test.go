@@ -120,7 +120,7 @@ func TestJSONContractFrozen(t *testing.T) {
 		"ScanOptions":   {ScanOptions{}, []string{"verify", "include_raw", "detectors", "concurrency", "max_file_size"}},
 		"VerifyResult":  {VerifyResult{}, []string{"detector", "verified", "error"}},
 		"RevokeOptions": {RevokeOptions{}, []string{"confirm", "dry_run"}},
-		"RevokeResult":  {RevokeResult{}, []string{"detector", "revoked", "dry_run", "revoked_at", "provider_id", "note"}},
+		"RevokeResult":  {RevokeResult{}, []string{"detector", "revoked", "dry_run", "revoked_at", "provider_id", "note", "outcome"}},
 		"Detector":      {Detector{}, []string{"name", "keywords", "can_verify", "can_revoke"}},
 	}
 	for name, c := range cases {
