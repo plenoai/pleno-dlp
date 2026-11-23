@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Access Map Report</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<style>
+:root{--bg:#fff;--fg:#1b1f24;--muted:#57606a;--line:#d0d7de;--card:#f6f8fa;--bad:#cf222e;--ok:#1a7f37}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#8d96a0;--line:#30363d;--card:#161b22;--bad:#ff7b72;--ok:#3fb950}}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-serif;margin:0 auto;max-width:1100px;padding:24px 16px}
+h1{font-size:20px;margin:0 0 4px}.muted{color:var(--muted)}
+details{border:1px solid var(--line);border-radius:8px;background:var(--card);margin:12px 0;padding:10px 14px}
+summary{cursor:pointer;font-weight:600}.tag{border-radius:10px;padding:1px 8px;font-size:12px;margin-left:6px;border:1px solid currentColor}
+.priv{color:var(--bad)}.std{color:var(--ok)}table{border-collapse:collapse;width:100%;margin-top:8px;font-size:13px}
+th,td{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
+code{font:12px ui-monospace,monospace}ul{margin:4px 0 0;padding-left:18px}
+</style></head><body>
+<h1>Access Map Report</h1>
+<p class="muted">{{len .Entries}} credential(s), {{.Privileged}} privileged · schema pleno-dlp.access-map/v1{{if .Version}} · pleno-dlp {{.Version}}{{end}}</p>
+{{range .Entries}}{{$m := .Map}}
+<details{{if $m.Privileged}} open{{end}}>
+<summary>{{$m.Provider}} · {{or $m.Identity.Name $m.Identity.ID "unknown identity"}}{{if $m.Privileged}}<span class="tag priv">privileged</span>{{else}}<span class="tag std">standard</span>{{end}}</summary>
+{{if .Label}}<p class="muted"><code>{{.Label}}</code></p>{{end}}
+<table><tr><th>Identity</th><td>{{$m.Identity.Type}} <code>{{$m.Identity.ID}}</code>{{if $m.Identity.Account}} · account <code>{{$m.Identity.Account}}</code>{{end}}</td></tr>
+{{if $m.Activity}}<tr><th>Last used</th><td>{{$m.Activity.LastUsed}}{{if $m.Activity.Service}} ({{$m.Activity.Service}}){{end}}</td></tr>{{end}}
+<tr><th>Permissions</th><td>{{range $m.Permissions}}<code>{{.}}</code> {{else}}<span class="muted">none reported</span>{{end}}</td></tr></table>
+{{if $m.Resources}}<table><tr><th>Type</th><th>Resource</th><th>Permissions</th></tr>
+{{range $m.Resources}}<tr><td>{{.Type}}</td><td><code>{{.Name}}</code></td><td>{{range .Permissions}}<code>{{.}}</code> {{end}}</td></tr>{{end}}</table>{{end}}
+{{if $m.Limitations}}<p class="muted">Limitations:</p><ul>{{range $m.Limitations}}<li>{{.}}</li>{{end}}</ul>{{end}}
+</details>
+{{else}}<p class="muted">No access maps found. Run <code>pleno-dlp scan --blast-radius --format json</code> first.</p>{{end}}
+</body></html>

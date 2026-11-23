@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/plenoai/pleno-dlp/pkg/blastradius"
+	"github.com/plenoai/pleno-dlp/pkg/blastradius/htmlreport"
 	"github.com/plenoai/pleno-dlp/pkg/engine"
 )
 
@@ -40,6 +42,9 @@ var blastRadiusCmd = &cobra.Command{
 		"  alibaba: JSON {\"access_key_id\",\"secret_access_key\"} or id:secret\n" +
 		"  azure:  JSON {\"token\": client secret, \"tenant_id\", \"client_id\"}\n" +
 		"  azure-storage: JSON {\"token\": account key, \"account\"}\n" +
+		"  postgres/mysql/mongodb: connection URI; microsoft-teams: webhook URL\n" +
+		"  paypal/plaid: JSON {\"token\": client id, \"secondary\": secret} or id:secret\n" +
+		"  algolia: {\"token\",\"application_id\"}; auth0: {\"token\": client secret, \"client_id\",\"domain\"}\n" +
 		"  others: bare token, or JSON {\"token\",\"api_endpoint\"?,\"email\"?,\"username\"?}\n" +
 		"          (gitea, jira, confluence require api_endpoint; jira/confluence take email,\n" +
 		"          bitbucket app passwords take username)\n\n" +
@@ -51,6 +56,8 @@ var blastRadiusCmd = &cobra.Command{
 
 func init() {
 	Root.AddCommand(blastRadiusCmd)
+	blastRadiusCmd.AddCommand(blastRadiusReportCmd)
+	blastRadiusCmd.PersistentFlags().StringVar(&blastRadiusHTML, "html", "", "write an HTML access-map report to this path ('-' for stdout) instead of JSON")
 	scanCmd.PersistentFlags().BoolVar(&scanBlastRadius, "blast-radius", false,
 		"for verified findings from supported detectors (see pleno-dlp blast-radius --help for providers), "+
 			"make additional authenticated requests to map identity, permissions, and resources; "+
@@ -84,9 +91,59 @@ func runBlastRadius(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if blastRadiusHTML != "" {
+		return writeAccessMapHTML(cmd, blastRadiusHTML, []htmlreport.Entry{{Map: *am}})
+	}
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
 	return enc.Encode(am)
+}
+
+var blastRadiusHTML string
+
+var blastRadiusReportCmd = &cobra.Command{
+	Use:   "report <scan-report.json>...",
+	Short: "Render access maps from `scan --blast-radius --format json/jsonl` reports as HTML",
+	Long: "Collect the access maps that `scan --blast-radius` attached to findings and write a\n" +
+		"self-contained HTML page (privileged credentials first). Labels use the redacted\n" +
+		"finding value; access maps carry no raw secrets. No network access.",
+	Args: cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		var all []htmlreport.Entry
+		for _, p := range args {
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			es, err := htmlreport.FromScan(data)
+			if err != nil {
+				return fmt.Errorf("%s: %w", p, err)
+			}
+			all = append(all, es...)
+		}
+		return writeAccessMapHTML(cmd, firstNonEmptyStr(blastRadiusHTML, "-"), all)
+	},
+}
+
+func firstNonEmptyStr(v ...string) string {
+	for _, s := range v {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func writeAccessMapHTML(cmd *cobra.Command, path string, entries []htmlreport.Entry) error {
+	var buf bytes.Buffer
+	if err := htmlreport.Render(&buf, entries, Root.Version); err != nil {
+		return err
+	}
+	if path == "-" {
+		_, err := cmd.OutOrStdout().Write(buf.Bytes())
+		return err
+	}
+	return os.WriteFile(path, buf.Bytes(), 0o600)
 }
 
 // blastRadiusMapSink attaches an AccessMap to verified findings whose
