@@ -156,7 +156,7 @@ streaming also requires native git and fails visibly if it is unavailable.
 ## Binary and archive history
 
 Binary history remains excluded by default. `--include-git-archives` expands
-ZIP, TAR, gzip, and bzip2 blobs; `--include-git-binaries` scans other binary
+ZIP, TAR, gzip, bzip2, xz, and zstd blobs; `--include-git-binaries` scans other binary
 bytes. Both are opt-in. Defaults are 10 MiB compressed/raw and per entry,
 50 MiB total expanded, 1,000 leaf files, depth 3, and 5 seconds per archive.
 Override them with the `--git-artifact-max-bytes`,

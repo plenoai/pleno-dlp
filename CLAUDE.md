@@ -55,6 +55,8 @@ without invoking the orchestrator.
 | Date | Owners | Change |
 |---|---|---|
 | 2026-11-23 | detector-engineer, core-engineer, qa | Add Revokers for Anthropic, OpenAI, Resend, Notion OAuth (env admin context), GCP service-account keys (self-delete), Hugging Face, and Vercel via the shared `pkg/detectors/revokehttp` helper; `revoke --detector` and spool replay resolve any registered Revoker by type name (#809). |
+| 2026-11-23 | core-engineer, qa | Expand xz (`ulikunitz/xz`, BSD-3) and zstd (`klauspost/compress`, window capped at 64 MiB) streams in `pkg/archive` through the shared bzip2 stream path so entry/expanded budgets and corrupt-archive coverage gaps apply; ZIP-family containers (jar/docx/xlsx/epub) already expand as zip (#810). |
+| 2026-11-23 | core-engineer, qa | Add `--alert-webhook` (repeatable; Slack/Teams/generic inferred from host), `--alert-min-severity`, and `--alert-dry-run` via `pkg/alerts`; payloads carry only redacted findings, URLs are redacted in logs, redirects are refused, and failures never change the exit code (#814). |
 | 2026-11-19 | core-engineer, qa | Separate policy-limited archive skips from real coverage gaps: per-failure `coverage: entry` lines, `skipped_by_policy` counts, and `--fail-on-coverage=gap|any` (default gap); e2e 03 covers both modes (supersedes #744). |
 | 2026-11-17 | architect | Raise the minimum Go version to 1.26.11 for the net/http fix GO-2026-6859; no new govulncheck exception. |
 | 2026-11-17 | detector-engineer, qa | Declare provider-confirmed assurance for 11 authenticated verifiers and fail CI when a new Verifier omits `MaxVerificationAssurance` (existing ones frozen in `pkg/detectors/all/assurance_allowlist_test.go`). |
