@@ -44,7 +44,7 @@ of the core-source registry (`sources.Register`) and the SaaS-connector
 registry (`connectors.Register`) — that have a wired `scan` subcommand.
 This is the same list `pleno-dlp sources list` prints, with the
 `CLI-WIRED` column marking the split. Registered-but-planned connectors
-(currently elasticsearch #217, jenkins #218, postman #219, enumerated in
+(currently elasticsearch #217 and jenkins #218, enumerated in
 `sources_sync_test.go`'s `plannedSources`) are excluded from the
 published count.
 
