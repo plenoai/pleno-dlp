@@ -37,6 +37,9 @@ var blastRadiusCmd = &cobra.Command{
 		"The credential is read from credential_file, or stdin when omitted or '-'.\n" +
 		"  aws:    JSON {\"access_key_id\",\"secret_access_key\",\"session_token\"?} or id:secret\n" +
 		"  gcp:    service-account JSON key file\n" +
+		"  alibaba: JSON {\"access_key_id\",\"secret_access_key\"} or id:secret\n" +
+		"  azure:  JSON {\"token\": client secret, \"tenant_id\", \"client_id\"}\n" +
+		"  azure-storage: JSON {\"token\": account key, \"account\"}\n" +
 		"  others: bare token, or JSON {\"token\",\"api_endpoint\"?,\"email\"?,\"username\"?}\n" +
 		"          (gitea, jira, confluence require api_endpoint; jira/confluence take email,\n" +
 		"          bitbucket app passwords take username)\n\n" +

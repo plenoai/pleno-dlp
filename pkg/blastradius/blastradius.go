@@ -13,7 +13,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/plenoai/pleno-dlp/pkg/blastradius/alibaba"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/aws"
+	"github.com/plenoai/pleno-dlp/pkg/blastradius/azure"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/gcp"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/github"
 	"github.com/plenoai/pleno-dlp/pkg/blastradius/gitlab"
@@ -66,6 +68,9 @@ func Default() *Registry {
 		{Name: "github", Mapper: github.Mapper{}, Detectors: []detectors.DetectorType{detectors.GitHub}},
 		{Name: "gitlab", Mapper: gitlab.Mapper{}, Detectors: []detectors.DetectorType{detectors.GitLab}},
 		{Name: "slack", Mapper: slack.Mapper{}, Detectors: []detectors.DetectorType{detectors.SlackBotToken}},
+		{Name: "azure", Mapper: azure.ServicePrincipalMapper{}, Detectors: []detectors.DetectorType{detectors.AzureAD, detectors.AzureApp}},
+		{Name: "azure-storage", Mapper: azure.StorageKeyMapper{}, Detectors: []detectors.DetectorType{detectors.AzureStorageKey}},
+		{Name: "alibaba", Mapper: alibaba.Mapper{}, Detectors: []detectors.DetectorType{detectors.AlibabaCloud}},
 	}
 	for _, s := range spec.All {
 		ps = append(ps, Provider{Name: s.Spec.Provider, Mapper: spec.Mapper{Spec: s.Spec}, Detectors: s.Detectors})
@@ -119,8 +124,21 @@ func CredentialFromResult(res detectors.Result) detectors.AccessCredential {
 		return detectors.AccessCredential{Secret: string(res.Raw), Secondary: string(res.RawV2)}
 	case detectors.GCPServiceAccount:
 		return detectors.AccessCredential{Secret: string(res.RawV2)}
+	case detectors.AlibabaCloud:
+		return detectors.AccessCredential{Secret: string(res.Raw), Secondary: string(res.RawV2)}
 	}
-	return detectors.AccessCredential{Secret: string(res.Raw)}
+	c := detectors.AccessCredential{Secret: string(res.Raw)}
+	// Context the detector extracted beside the secret (Entra tenant/client
+	// ids, storage account name, self-hosted endpoint).
+	for _, k := range []string{"tenant_id", "client_id", "account", "api_endpoint"} {
+		if v := res.ExtraData[k]; v != "" {
+			if c.Extra == nil {
+				c.Extra = map[string]string{}
+			}
+			c.Extra[k] = v
+		}
+	}
+	return c
 }
 
 // MapResult maps a verified detector result. It returns (nil, nil) when the
@@ -229,10 +247,10 @@ func ParseCredentialFile(provider string, data []byte) (detectors.AccessCredenti
 		}
 		return c, nil
 	}
-	if provider == "aws" {
+	if provider == "aws" || provider == "alibaba" {
 		id, sk, ok := strings.Cut(trimmed, ":")
 		if !ok {
-			return detectors.AccessCredential{}, fmt.Errorf("aws credential must be JSON or access_key_id:secret_access_key")
+			return detectors.AccessCredential{}, fmt.Errorf("%s credential must be JSON or access_key_id:secret_access_key", provider)
 		}
 		return detectors.AccessCredential{Secret: id, Secondary: sk}, nil
 	}
