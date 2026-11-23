@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=75", "wheel>=0.45"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pleno-dlp"
+dynamic = ["version"]
+description = "Embeddable pleno-dlp secret scanner: scan, verify and revoke secrets from Python"
+readme = "README.md"
+license = "AGPL-3.0-only"
+requires-python = ">=3.9"
+keywords = ["secrets", "dlp", "secret-scanner", "security"]
+classifiers = ["Programming Language :: Python :: 3", "Topic :: Security"]
+
+[project.urls]
+Homepage = "https://github.com/plenoai/pleno-dlp"
+Documentation = "https://github.com/plenoai/pleno-dlp/blob/main/docs/library.md"
+
+[tool.setuptools]
+packages = ["pleno_dlp"]
+
+[tool.setuptools.dynamic]
+version = { attr = "pleno_dlp._version.__version__" }
+
+[tool.setuptools.package-data]
+pleno_dlp = ["py.typed", "lib/*"]

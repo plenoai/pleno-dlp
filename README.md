@@ -95,6 +95,12 @@ Opt-in. Engines and setup in [`docs/pii-detection.md`](docs/pii-detection.md).
 pleno-dlp scan filesystem ./src --pii-engine=anonymize
 ```
 
+## Library (Go, Python, Node.js)
+
+Embed the scanner with the stable `pkg/dlp` Go API or the
+`pleno-dlp` (PyPI) and `@plenoai/pleno-dlp` (npm) bindings. See
+[docs/library.md](docs/library.md).
+
 ## GitHub Action
 
 ```yaml

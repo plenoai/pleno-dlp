@@ -54,6 +54,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-11-23 | architect, core-engineer, qa | Add the stable embeddable API `pkg/dlp` (JSON shape frozen by `TestJSONContractFrozen`), the c-shared C ABI `cmd/libpleno-dlp`, and Python/Node bindings under `bindings/`; release.yml builds Linux arm64/amd64 libraries and publishes PyPI/npm via OIDC after `finalize` (ADR 0001, #816). |
 | 2026-11-19 | core-engineer, qa | Separate policy-limited archive skips from real coverage gaps: per-failure `coverage: entry` lines, `skipped_by_policy` counts, and `--fail-on-coverage=gap|any` (default gap); e2e 03 covers both modes (supersedes #744). |
 | 2026-11-17 | architect | Raise the minimum Go version to 1.26.11 for the net/http fix GO-2026-6859; no new govulncheck exception. |
 | 2026-11-17 | detector-engineer, qa | Declare provider-confirmed assurance for 11 authenticated verifiers and fail CI when a new Verifier omits `MaxVerificationAssurance` (existing ones frozen in `pkg/detectors/all/assurance_allowlist_test.go`). |

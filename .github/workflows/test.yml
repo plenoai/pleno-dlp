@@ -147,3 +147,38 @@ jobs:
           sudo apt-get install -y --no-install-recommends cmake
       - run: cmake --version
       - run: make opf-native-test
+
+  # Embeddable API bindings (docs/library.md): build the c-shared library and
+  # run the Python and Node.js suites against it, plus the release packaging
+  # steps so a broken wheel or npm tarball fails before a tag is pushed.
+  bindings:
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - run: scripts/bindings.sh lib "$RUNNER_TEMP/lib"
+      - run: python -m pip install --disable-pip-version-check setuptools==80.9.0 wheel==0.45.1 pytest==8.4.2
+      - name: Python wheel
+        run: |
+          scripts/bindings.sh wheel "$RUNNER_TEMP/lib/libpleno_dlp.so" manylinux-auto-aarch64 "$RUNNER_TEMP/dist"
+          python -m pip install --disable-pip-version-check "$RUNNER_TEMP"/dist/*.whl
+          cd "$RUNNER_TEMP" && python -m pytest -q "$GITHUB_WORKSPACE/bindings/python/tests"
+      - name: Node package
+        working-directory: bindings/node
+        run: |
+          ../../scripts/bindings.sh stage-node "$RUNNER_TEMP/lib/libpleno_dlp.so" linux-arm64
+          npm ci --no-audit --no-fund
+          npm test
+          npm pack --dry-run
