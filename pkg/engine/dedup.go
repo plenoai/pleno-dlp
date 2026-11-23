@@ -217,6 +217,8 @@ func locationOf(f Finding) (string, int) {
 		return "s3://" + md.S3.Bucket + "/" + md.S3.Key, 0
 	case md.GCS != nil:
 		return "gs://" + md.GCS.Bucket + "/" + md.GCS.Object, 0
+	case md.AzureBlob != nil:
+		return md.AzureBlob.Locator(), 0
 	case md.Slack != nil:
 		return md.Slack.Channel + "@" + md.Slack.Timestamp, 0
 	case md.GitLab != nil:

@@ -935,6 +935,11 @@ func sourceURI(md sources.Metadata) (string, int) {
 		return objectStoreURI("s3", md.S3.Bucket, md.S3.Key), 0
 	case md.GCS != nil:
 		return objectStoreURI("gs", md.GCS.Bucket, md.GCS.Object), 0
+	case md.AzureBlob != nil:
+		if u, err := url.Parse(md.AzureBlob.Endpoint); err == nil && u.Scheme != "" && u.Host != "" {
+			return authorityURI(u.Scheme, u.Host, md.AzureBlob.Container+"/"+md.AzureBlob.Blob), 0
+		}
+		return objectStoreURI("azblob", md.AzureBlob.Container, md.AzureBlob.Blob), 0
 	case md.Slack != nil:
 		return sourceReference(md.Slack.Permalink), 0
 	case md.Stdin != nil:
