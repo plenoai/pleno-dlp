@@ -331,7 +331,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if !hasAssignmentHead(data) {
 		return nil, nil
 	}
-	str := string(data)
+	str := detectors.BorrowString(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 

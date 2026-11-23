@@ -155,7 +155,7 @@ const lowerPoolKeepMax = 1 << 20
 func keywordPositionsIn(data []byte) []int {
 	for _, c := range data {
 		if c >= utf8.RuneSelf {
-			return keywordPositions(strings.ToLower(string(data)))
+			return keywordPositions(strings.ToLower(detectors.BorrowString(data)))
 		}
 	}
 	bp := lowerPool.Get().(*[]byte)

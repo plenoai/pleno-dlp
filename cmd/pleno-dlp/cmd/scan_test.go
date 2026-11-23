@@ -2823,3 +2823,11 @@ func engineFinding(t detectors.DetectorType, verified bool, raw string) engine.F
 		},
 	}
 }
+
+func TestGitScanProcs(t *testing.T) {
+	for cpus, want := range map[int]int{1: 4, 4: 4, 6: 4, 9: 6, 30: 20} {
+		if got := gitScanProcs(cpus); got != want {
+			t.Errorf("gitScanProcs(%d) = %d, want %d", cpus, got, want)
+		}
+	}
+}

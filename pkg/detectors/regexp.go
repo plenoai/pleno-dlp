@@ -657,3 +657,16 @@ func bestRun(f facts) *byteRun {
 }
 
 func stringBytes(s string) []byte { return unsafe.Slice(unsafe.StringData(s), len(s)) }
+
+// BorrowString views data as a string without copying it. The result
+// aliases the chunk buffer, which the engine reuses after FromData
+// returns: a detector may match and slice it freely during the call but
+// must copy (strings.Clone, []byte(s), or concatenation) any piece it
+// keeps in a Result. A whole-chunk string(data) copy cost ~1.7 CPU-s per
+// django history scan across the config-file detectors (#1018).
+func BorrowString(data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+	return unsafe.String(&data[0], len(data))
+}

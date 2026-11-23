@@ -92,7 +92,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if !bytes.Contains(data, []byte("hostname")) && !bytes.Contains(data, []byte("username")) && !bytes.Contains(data, []byte("mda")) && !bytes.Contains(data, []byte("starttls")) {
 		return nil, nil
 	}
-	str := string(data)
+	str := detectors.BorrowString(data)
 
 	// No sibling esmtprc directive in the chunk: this isn't an
 	// .esmtprc file, whatever the password line looks like.
