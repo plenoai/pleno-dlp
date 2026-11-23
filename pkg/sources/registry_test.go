@@ -37,6 +37,7 @@ func TestSourceTypeString(t *testing.T) {
 		{SourcePagure, "pagure"},
 		{SourceHuggingFace, "huggingface"},
 		{SourceTeams, "teams"},
+		{SourceAzureDevOps, "azure-devops"},
 		{SourceType(9999), "unknown"},
 	}
 	for _, c := range cases {

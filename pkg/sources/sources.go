@@ -46,6 +46,7 @@ const (
 	SourceHuggingFace
 	SourceCircleCI
 	SourceTeams
+	SourceAzureDevOps
 )
 
 // Line contract
