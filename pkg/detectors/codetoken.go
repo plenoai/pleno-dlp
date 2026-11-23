@@ -129,10 +129,14 @@ func isWordIdentifier(s string) bool {
 			if upperRun > 5 {
 				return false
 			}
-		case hasVowel(lowerRun) && upperRun <= 6:
+		case len(w) > 20:
+			// No identifier word is this long; random letter runs are.
+			return false
+		case hasVowel(lowerRun) && upperRun <= 6 && len(w) >= 3:
 			long++
 		case len(w) <= 3:
-			// Abbreviations inside camelCase names (`pdfObjHeader`).
+			// Abbreviations and short words inside camelCase names
+			// (`pdfObjHeader`, `IsBuiltin`).
 			short++
 		default:
 			return false

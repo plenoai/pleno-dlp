@@ -34,6 +34,8 @@ func TestLooksLikeCodeToken(t *testing.T) {
 		"AbCdEfGhIjKlMnOpQrSt",
 		"aGVsbG8gd29ybGQgdGhpcyBpcyBhIHRva2Vu",
 		"x",
+		"hf" + "_abcdefghijklmnopqrstuvwxyzabcdefgh",
+		"hf" + "_AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGh",
 	}
 	for _, s := range keys {
 		if LooksLikeCodeToken([]byte(s)) {

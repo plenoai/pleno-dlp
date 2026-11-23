@@ -235,7 +235,7 @@ rule=betterleaks.freemius-secret-key validation=- status=covered detector=Freemi
 rule=betterleaks.freshbooks-access-token validation=Betterleaks status=covered detector=FreshBooks verified=http
 rule=betterleaks.fullstory-api-key validation=Betterleaks status=covered detector=FullStory verified=http
 rule=betterleaks.gcp-api-key validation=Betterleaks status=covered detector=GCPAPIKey verified=native
-rule=betterleaks.gcp-application-default-credentials validation=Betterleaks status=covered detector=GCPOAuth,JSONConfigSecret verified=signed
+rule=betterleaks.gcp-application-default-credentials validation=Betterleaks status=covered detector=GCPOAuth verified=signed
 rule=betterleaks.gcp-gemini-api validation=Betterleaks status=covered detector=GCPAPIKey verified=base:GCPAPIKey
 rule=betterleaks.gcp-service-account validation=Betterleaks status=covered detector=GCPServiceAccount verified=base:GCPServiceAccount
 rule=betterleaks.generic-api-key validation=- status=partial detector=GenericHighEntropy verified=-
