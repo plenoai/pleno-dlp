@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	plverify "github.com/plenoai/pleno-dlp/pkg/verify"
 	"reflect"
 	"sort"
 	"sync"
@@ -151,6 +152,9 @@ func (e *Engine) fromData(ctx context.Context, detector detectors.Detector, dete
 		verify = e.verificationAssurance[detectorIndex] >= minimum
 	}
 	if !verify || !e.isVerifier[detectorIndex] {
+		if verify {
+			ctx = plverify.WithDetector(ctx, detector.Type().String())
+		}
 		return detector.FromData(ctx, verify, data)
 	}
 	if !e.verificationCacheable[detectorIndex] {
@@ -248,7 +252,7 @@ func (e *Engine) applyCachedVerification(keys []verificationCacheKey, results []
 
 func (e *Engine) callVerifiedDetector(ctx context.Context, detector detectors.Detector, data []byte) ([]detectors.Result, error) {
 	verifyStart := time.Now()
-	verified, err := detector.FromData(ctx, true, data)
+	verified, err := detector.FromData(plverify.WithDetector(ctx, detector.Type().String()), true, data)
 	e.stats.verifiedDetectorCalls.Add(1)
 	e.stats.verifiedDetectorCallNanos.Add(time.Since(verifyStart).Nanoseconds())
 	return verified, err

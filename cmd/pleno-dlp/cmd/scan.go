@@ -71,6 +71,15 @@ type scanFlags struct {
 	alertMinSeverity   string
 	alertDryRun        bool
 	alertFormat        string
+	alertOn            string
+	extractionDepth    int
+	verifyRPSDetector  []string
+	verifyRetries      int
+	verifyTimeout      time.Duration
+	alertFindingFilter string
+	alertDetail        string
+	alertPreventEmpty  bool
+	alertReportURL     string
 	skipAWSAccounts    []string
 	skipAWSAccountFile string
 	allowlistPath      string
@@ -226,6 +235,14 @@ func init() {
 			"The default keeps them: a failed verification attempt means liveness is unknown, not disproven, so dropping by "+
 			"default would silently hide a possibly-live credential during a provider outage. Ignored without --only-verified.")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.verifyRPS, "verify-rps", 10, "per-host requests-per-second cap during verification (0 = disable rate limiting)")
+	scanCmd.PersistentFlags().IntVar(&scanOpts.extractionDepth, "extraction-depth", engine.DefaultArchiveMaxDepth,
+		fmt.Sprintf("maximum nested archive depth expanded inside scanned files (1-%d; Git history uses --git-archive-max-depth)", engine.MaxArchiveMaxDepth))
+	scanCmd.PersistentFlags().StringArrayVar(&scanOpts.verifyRPSDetector, "verify-rps-detector", nil,
+		"per-detector verification RPS override as DETECTOR=RPS (repeatable, case-insensitive type name; requests share one bucket per detector)")
+	scanCmd.PersistentFlags().IntVar(&scanOpts.verifyRetries, "verify-retries", 0,
+		fmt.Sprintf("extra verification attempts on network errors, 429, and 5xx (0-%d; replayable requests only)", verify.MaxRetries))
+	scanCmd.PersistentFlags().DurationVar(&scanOpts.verifyTimeout, "verify-timeout", 0,
+		"per-attempt verification HTTP timeout, e.g. 10s (0 = detector defaults)")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.failOn, "fail-on", "high", "minimum severity that triggers exit 1: any|info|low|medium|high|critical "+
@@ -244,6 +261,16 @@ func init() {
 		"12-digit AWS account ID(s) whose keys are never verified (canary tokens); repeatable, comma-separated. Known Thinkst canary accounts are always skipped")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.skipAWSAccountFile, "skip-aws-account-file", "",
 		"file of AWS account IDs to skip verifying, one per line (blank lines and # comments allowed)")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.alertOn, "alert-on", "findings",
+		"when to deliver alerts: findings (only when the scan produced findings)|always (heartbeat, even on clean runs)")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.alertFindingFilter, "alert-finding-filter", "all",
+		"restrict alerted findings: all|exclude-inactive (drop provider-rejected)|only-active (verified)|access-map-only (verified with a --blast-radius map)")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.alertDetail, "alert-detail", "auto",
+		"per-finding detail in chat payloads: auto (summary above 25 findings)|summary|detail")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.alertPreventEmpty, "alert-prevent-empty", true,
+		"skip delivery when the severity/finding filters leave nothing to report (pass =false to post an empty alert whenever the scan had findings; --alert-on always still posts)")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.alertReportURL, "alert-report-url", "",
+		"http(s) link rendered in every alert, e.g. the CI run URL (falls back to PLENO_DLP_ALERT_REPORT_URL)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.alertFormat, "alert-format", "auto",
 		"alert payload shape for every --alert-webhook: auto (infer from host)|slack|teams|discord|mattermost|googlechat|generic")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file that mutes known false positives (auto-discovers .pleno-allow.json from the repo root)")
@@ -506,6 +533,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if scanOpts.extractionDepth < 1 || scanOpts.extractionDepth > engine.MaxArchiveMaxDepth {
+		return fmt.Errorf("--extraction-depth: must be between 1 and %d (got %d)", engine.MaxArchiveMaxDepth, scanOpts.extractionDepth)
+	}
 	if scanOpts.noVerify && scanOpts.onlyVerified {
 		return fmt.Errorf("--no-verify and --only-verified are mutually exclusive: with --no-verify no finding is ever verified, so --only-verified would always emit zero results")
 	}
@@ -604,6 +634,10 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		}
 		alertHooks = append(alertHooks, w)
 	}
+	alertPolicy, alertFilter, err := parseAlertPolicy()
+	if err != nil {
+		return err
+	}
 	alertMin, err := parseAlertMinSeverity(scanOpts.alertMinSeverity)
 	if err != nil {
 		return err
@@ -687,7 +721,11 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 			return githubFailureClass(failure, scanGitHubOpts.allowCorruptArchives, scanGitHubOpts.allowArchiveLimits, scanGitHubOpts.allowRepoWalkTimeouts, scanGitHubOpts.allowRepoCloneFailures)
 		})()
 	}
-	prev := verify.Install(scanOpts.verifyRPS)
+	verifyPolicy, err := scanVerifyPolicy()
+	if err != nil {
+		return err
+	}
+	prev := verify.InstallPolicy(verifyPolicy)
 	defer verify.Restore(prev)
 
 	// PII engine lifecycle. When --pii-engine=anonymize is set, spawn
@@ -747,7 +785,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	var counterInner engine.Sink = sink
 	var alertCollector *alerts.Collector
 	if len(alertHooks) > 0 {
-		alertCollector = &alerts.Collector{Inner: sink, MinSeverity: alertMin}
+		alertCollector = &alerts.Collector{Inner: sink, MinSeverity: alertMin, Filter: alertFilter, VerifyDisabled: scanOpts.noVerify}
 		counterInner = alertCollector
 	}
 	counter := &countingSink{inner: counterInner, threshold: threshold}
@@ -837,6 +875,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 
 	eng := engine.NewWithDetectors(dets, engine.Options{
 		Concurrency:                  scanOpts.concurrency,
+		ArchiveMaxDepth:              scanOpts.extractionDepth,
 		NoVerify:                     scanOpts.noVerify,
 		MinimumVerificationAssurance: minimumVerificationAssurance,
 	}, scanSink)
@@ -894,9 +933,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	}
 
 	if alertCollector != nil {
-		if fs := alertCollector.Findings(); len(fs) > 0 {
+		if fs := alertCollector.Findings(); alertPolicy.ShouldSend(len(fs), alertCollector.ScanTotal()) {
 			n := &alerts.Notifier{Webhooks: alertHooks, Retries: 2, DryRun: scanOpts.alertDryRun, Log: cmd.ErrOrStderr()}
-			if err := n.Send(ctx, alerts.BuildSummary(toolVersion, kind, alertMin, fs)); err != nil {
+			if err := n.Send(ctx, alertPolicy.Apply(alerts.BuildSummary(toolVersion, kind, alertMin, fs))); err != nil {
 				termsafe.Fprintf(cmd.ErrOrStderr(), "warning: alert delivery failed: %v\n", err)
 			}
 		}
@@ -1300,6 +1339,58 @@ func parseFailOn(s string) (detectors.Severity, error) {
 	default:
 		return 0, fmt.Errorf("--fail-on: unknown value %q (valid: any, info, low, medium, high, critical)", s)
 	}
+}
+
+// scanVerifyPolicy assembles the verification transport policy from
+// --verify-rps, --verify-rps-detector, --verify-retries, --verify-timeout.
+func scanVerifyPolicy() (verify.Policy, error) {
+	det, err := verify.ParseDetectorRPS(scanOpts.verifyRPSDetector)
+	if err != nil {
+		return verify.Policy{}, fmt.Errorf("--verify-rps-detector: %w", err)
+	}
+	if len(det) > 0 {
+		known := map[string]bool{}
+		for _, d := range detectors.All() {
+			known[strings.ToLower(d.Type().String())] = true
+		}
+		for name := range det {
+			if !known[name] {
+				return verify.Policy{}, fmt.Errorf("--verify-rps-detector: unknown detector %q (see 'pleno-dlp detectors list')", name)
+			}
+		}
+	}
+	p := verify.Policy{HostRPS: scanOpts.verifyRPS, DetectorRPS: det, Retries: scanOpts.verifyRetries, Timeout: scanOpts.verifyTimeout}
+	if err := p.Validate(); err != nil {
+		return verify.Policy{}, fmt.Errorf("--verify-retries/--verify-timeout: %w", err)
+	}
+	return p, nil
+}
+
+// parseAlertPolicy validates --alert-on, --alert-finding-filter,
+// --alert-detail, --alert-prevent-empty, and --alert-report-url (with the
+// PLENO_DLP_ALERT_REPORT_URL fallback).
+func parseAlertPolicy() (alerts.Policy, alerts.FindingFilter, error) {
+	on, err := alerts.ParseOn(scanOpts.alertOn)
+	if err != nil {
+		return alerts.Policy{}, "", err
+	}
+	filter, err := alerts.ParseFindingFilter(scanOpts.alertFindingFilter)
+	if err != nil {
+		return alerts.Policy{}, "", err
+	}
+	detail, err := alerts.ParseDetail(scanOpts.alertDetail)
+	if err != nil {
+		return alerts.Policy{}, "", err
+	}
+	raw := scanOpts.alertReportURL
+	if raw == "" {
+		raw = os.Getenv("PLENO_DLP_ALERT_REPORT_URL")
+	}
+	reportURL, err := alerts.ParseReportURL(raw)
+	if err != nil {
+		return alerts.Policy{}, "", err
+	}
+	return alerts.Policy{On: on, PreventEmpty: scanOpts.alertPreventEmpty, Detail: detail, ReportURL: reportURL}, filter, nil
 }
 
 // parseAlertMinSeverity parses --alert-min-severity.

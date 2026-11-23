@@ -124,7 +124,9 @@ type Finding struct {
 	Redacted string `json:"redacted"`
 	Location string `json:"location"`
 
-	sev detectors.Severity
+	sev       detectors.Severity
+	attempted bool
+	accessMap bool
 }
 
 // Summary is the generic JSON payload.
@@ -136,6 +138,11 @@ type Summary struct {
 	Total       int            `json:"total"`
 	BySeverity  map[string]int `json:"by_severity"`
 	Findings    []Finding      `json:"findings"`
+	// Detail is the resolved detail level (summary|detail). In summary
+	// mode chat payloads omit per-finding lines; the generic JSON still
+	// carries every finding.
+	Detail    string `json:"detail,omitempty"`
+	ReportURL string `json:"report_url,omitempty"`
 }
 
 // Collector is an engine.Sink tee that records the redacted projection of
@@ -143,20 +150,38 @@ type Summary struct {
 type Collector struct {
 	Inner       engine.Sink
 	MinSeverity detectors.Severity
+	// Filter narrows findings by verification state / access map. The
+	// zero value keeps everything.
+	Filter FindingFilter
+	// VerifyDisabled is set under --no-verify so "unverified" is not read
+	// as "provider said inactive".
+	VerifyDisabled bool
 
 	mu       sync.Mutex
 	findings []Finding
+	total    int
 }
 
 func (c *Collector) Emit(f engine.Finding) {
-	if f.Result.Severity >= c.MinSeverity {
+	c.mu.Lock()
+	c.total++
+	c.mu.Unlock()
+	verdict := f.Result.Verdict().String()
+	// A verifier-backed finding scanned with verification enabled had a
+	// provider round-trip; an "unverified" verdict there means inactive.
+	attempted := f.Result.Verified || (f.VerifierBacked && !c.VerifyDisabled)
+	_, accessMap := f.Result.ExtraData[accessMapKey]
+	if f.Result.Severity >= c.MinSeverity && c.Filter.keep(verdict, attempted, accessMap) {
 		af := Finding{
 			Detector: f.Detector.String(),
 			Severity: f.Result.Severity.String(),
-			Verdict:  f.Result.Verdict().String(),
+			Verdict:  verdict,
 			Redacted: f.Result.SafeRedacted(),
 			Location: output.LocationOf(f),
 			sev:      f.Result.Severity,
+
+			attempted: attempted,
+			accessMap: accessMap,
 		}
 		c.mu.Lock()
 		c.findings = append(c.findings, af)
@@ -173,6 +198,18 @@ func (c *Collector) Findings() []Finding {
 	defer c.mu.Unlock()
 	return append([]Finding(nil), c.findings...)
 }
+
+// ScanTotal returns how many findings reached the collector before the
+// severity and finding filters.
+func (c *Collector) ScanTotal() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.total
+}
+
+// accessMapKey mirrors blastradius.ExtraDataKey without importing the
+// provider mappers into the alerts package.
+const accessMapKey = "blast_radius_map"
 
 // Notifier delivers a Summary to its webhooks.
 type Notifier struct {
@@ -212,12 +249,21 @@ func (s Summary) headline() string {
 
 func (s Summary) lines() []string {
 	var out []string
+	if s.Detail == string(DetailSummary) {
+		if s.ReportURL != "" {
+			out = append(out, "Report: "+s.ReportURL)
+		}
+		return out
+	}
 	for i, f := range s.Findings {
 		if i == maxListed {
 			out = append(out, fmt.Sprintf("… and %d more", len(s.Findings)-maxListed))
 			break
 		}
 		out = append(out, fmt.Sprintf("[%s] %s %s at %s (%s)", f.Severity, f.Detector, f.Redacted, f.Location, f.Verdict))
+	}
+	if s.ReportURL != "" {
+		out = append(out, "Report: "+s.ReportURL)
 	}
 	return out
 }

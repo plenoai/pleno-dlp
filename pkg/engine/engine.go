@@ -62,6 +62,10 @@ type Sink interface {
 
 type Options struct {
 	Concurrency int
+	// ArchiveMaxDepth caps nested archive recursion for archives found in
+	// scanned chunks. 0 keeps DefaultArchiveMaxDepth; values above
+	// MaxArchiveMaxDepth are clamped.
+	ArchiveMaxDepth int
 	// NoVerify skips the network round-trip in every Verifier detector's
 	// FromData call (the `verify bool` parameter of the trufflehog
 	// Detector contract is passed false instead of the unconditional
@@ -1317,6 +1321,23 @@ func (e *Engine) takeFailures() error {
 	return &DegradedError{Total: total, Counts: counts, Failures: failures, Classes: classes, Severities: severities}
 }
 
+// DefaultArchiveMaxDepth and MaxArchiveMaxDepth bound Options.ArchiveMaxDepth.
+const (
+	DefaultArchiveMaxDepth = 3
+	MaxArchiveMaxDepth     = 16
+)
+
+func (e *Engine) archiveMaxDepth() int {
+	d := e.opts.ArchiveMaxDepth
+	switch {
+	case d <= 0:
+		return DefaultArchiveMaxDepth
+	case d > MaxArchiveMaxDepth:
+		return MaxArchiveMaxDepth
+	}
+	return d
+}
+
 // scanChunk expands archive chunks and dispatches every leaf chunk.
 func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
 	if c == nil {
@@ -1419,7 +1440,7 @@ func (e *Engine) scanArchiveWith(ctx context.Context, c *sources.Chunk, budget t
 	timer := time.AfterFunc(budget, func() { cancel(context.DeadlineExceeded) })
 	defer timer.Stop()
 	err := walk(archiveCtx, archive.Limits{
-		MaxDepth: 3, MaxEntryBytes: 10 << 20, MaxExpandedBytes: 50 << 20, MaxFiles: 1000,
+		MaxDepth: e.archiveMaxDepth(), MaxEntryBytes: 10 << 20, MaxExpandedBytes: 50 << 20, MaxFiles: 1000,
 	}, func(entry archive.StreamEntry) error {
 		if entry.Size < 0 || entry.Size > int64(^uint(0)>>1) {
 			return fmt.Errorf("archive entry %q has invalid size %d", entry.Path, entry.Size)
