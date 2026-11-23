@@ -875,6 +875,8 @@ func fingerprints(f engine.Finding) map[string]string {
 	contentH := sha256.Sum256(append([]byte(f.Detector.String()+":"), f.Result.Raw...))
 	out := map[string]string{
 		"secret/v1": hex.EncodeToString(contentH[:]),
+		// baseline/v1 is the key `pleno-dlp baseline` and --baseline use.
+		"baseline/v1": engine.Fingerprint(f),
 	}
 	if f.Chunk != nil {
 		if uri, line := sourceURI(f.Chunk.SourceMetadata); uri != "" {
@@ -935,6 +937,11 @@ func sourceURI(md sources.Metadata) (string, int) {
 		return objectStoreURI("s3", md.S3.Bucket, md.S3.Key), 0
 	case md.GCS != nil:
 		return objectStoreURI("gs", md.GCS.Bucket, md.GCS.Object), 0
+	case md.AzureBlob != nil:
+		if u, err := url.Parse(md.AzureBlob.Endpoint); err == nil && u.Scheme != "" && u.Host != "" {
+			return authorityURI(u.Scheme, u.Host, md.AzureBlob.Container+"/"+md.AzureBlob.Blob), 0
+		}
+		return objectStoreURI("azblob", md.AzureBlob.Container, md.AzureBlob.Blob), 0
 	case md.Slack != nil:
 		return sourceReference(md.Slack.Permalink), 0
 	case md.Stdin != nil:

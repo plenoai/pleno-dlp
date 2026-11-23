@@ -355,6 +355,138 @@ jobs:
             *) echo "::error::unsafe release state: $state" >&2; exit 1 ;;
           esac
 
+  # Embeddable API bindings (docs/library.md, docs/adr/0001-language-bindings.md).
+  # c-shared needs cgo, so each target links with a C toolchain for its arch.
+  # macOS/Windows are out of scope until the runner policy admits those hosts.
+  bindings-lib:
+    needs: quality
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # Native build; the wheel is installed and tested before upload.
+          - { target: linux-arm64, goarch: arm64, cc: gcc, objdump: objdump, wheel: manylinux-auto-aarch64, test: true }
+          # Cross build with the GNU x86-64 toolchain on the arm64 runner pool.
+          - { target: linux-amd64, goarch: amd64, cc: x86_64-linux-gnu-gcc, objdump: x86_64-linux-gnu-objdump, wheel: manylinux-auto-x86_64, test: false }
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ github.ref_name }}
+      GOARCH: ${{ matrix.goarch }}
+      CC: ${{ matrix.cc }}
+      OBJDUMP: ${{ matrix.objdump }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Install x86-64 cross toolchain
+        if: matrix.goarch == 'amd64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu
+      - run: scripts/bindings.sh version "$TAG"
+      - run: scripts/bindings.sh lib "$RUNNER_TEMP/lib"
+      - run: python -m pip install --disable-pip-version-check setuptools==80.9.0 wheel==0.45.1 pytest==8.4.2
+      - name: Build and test wheel
+        env:
+          WHEEL_PLATFORM: ${{ matrix.wheel }}
+          RUN_TESTS: ${{ matrix.test }}
+        run: |
+          lib=$(ls "$RUNNER_TEMP"/lib/libpleno_dlp.*)
+          scripts/bindings.sh wheel "$lib" "$WHEEL_PLATFORM" "$RUNNER_TEMP/dist"
+          if [ "$RUN_TESTS" = true ]; then
+            python -m pip install --disable-pip-version-check "$RUNNER_TEMP"/dist/*.whl
+            cd "$RUNNER_TEMP" && python -m pytest -q "$GITHUB_WORKSPACE/bindings/python/tests"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bindings-lib-${{ matrix.target }}
+          path: ${{ runner.temp }}/lib/
+          if-no-files-found: error
+          retention-days: 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bindings-wheel-${{ matrix.target }}
+          path: ${{ runner.temp }}/dist/*.whl
+          if-no-files-found: error
+          retention-days: 1
+
+  # Trusted publishing (OIDC): no PyPI token exists in this repository. The
+  # PyPI project must list this workflow + the `pypi` environment as a
+  # trusted publisher.
+  pypi:
+    needs: [finalize, bindings-lib]
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: bindings-wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist
+
+  # npm trusted publishing (OIDC, npm >= 11.5.1) with provenance; the npm
+  # package must list this workflow + the `npm` environment as a trusted
+  # publisher. One package bundles every platform library (~14 MB each).
+  npm:
+    needs: [finalize, bindings-lib]
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: bindings-lib-*
+          path: ${{ runner.temp }}/libs
+      - name: Stage platform libraries
+        run: |
+          scripts/bindings.sh version "$TAG"
+          for d in "$RUNNER_TEMP"/libs/bindings-lib-*; do
+            target=${d##*/bindings-lib-}
+            scripts/bindings.sh stage-node "$(ls "$d"/libpleno_dlp.*)" "$target"
+          done
+      - name: Test and publish
+        working-directory: bindings/node
+        run: |
+          npm install -g npm@11.6.2
+          npm ci --no-audit --no-fund
+          npm test
+          npm publish --provenance --access public
+
   homebrew:
     needs: finalize
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm

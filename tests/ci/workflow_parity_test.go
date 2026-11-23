@@ -59,7 +59,7 @@ func TestReleaseWorkflowRemainsTagOnlyAndProvisionsJobTools(t *testing.T) {
 	}
 
 	setupGoJobs := strings.Count(release, "- uses: actions/setup-go@")
-	if setupGoJobs != 3 || strings.Count(release, "cache: false") != setupGoJobs || strings.Contains(release, "cache: true") {
+	if setupGoJobs != 5 || strings.Count(release, "cache: false") != setupGoJobs || strings.Contains(release, "cache: true") {
 		t.Errorf("all %d release Go setup jobs must disable cache to avoid flash disk pressure", setupGoJobs)
 	}
 

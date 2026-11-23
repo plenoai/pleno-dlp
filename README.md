@@ -40,12 +40,14 @@ it current with `brew upgrade pleno-dlp`; see
 
 ## Sources
 
-`filesystem`, `git` history (branch, depth, and time filters), `stdin`,
+`filesystem`, `git` history (branch, depth, time, and commit-range filters), `stdin`,
 and SaaS connectors: GitHub, GitLab, Bitbucket, Slack, Notion, Confluence,
 Jira, and more.
 
 ```sh
 pleno-dlp scan git --repo ./repo --branch main --max-depth 500
+pleno-dlp scan git --repo . --branch HEAD --since-commit origin/main   # PR range only
+pleno-dlp scan git --repo . --branch HEAD --branch-root-commit "$FORK_POINT"  # inclusive
 git diff | pleno-dlp scan stdin --label git-diff
 pleno-dlp scan github --org acme
 pleno-dlp sources list
@@ -54,7 +56,7 @@ pleno-dlp sources list
 ## Detectors
 
 617 built-in detector types ([counting method](docs/counts.md)).
-Table, JSON, or SARIF output; allowlists and org-specific rules via config.
+Table, JSON, or SARIF output; allowlists, baselines (`pleno-dlp baseline`), inline `pleno-dlp:allow` pragmas, and org-specific rules via config (see docs/baseline.md).
 
 ```sh
 pleno-dlp detectors list
@@ -95,6 +97,12 @@ Opt-in. Engines and setup in [`docs/pii-detection.md`](docs/pii-detection.md).
 ```sh
 pleno-dlp scan filesystem ./src --pii-engine=anonymize
 ```
+
+## Library (Go, Python, Node.js)
+
+Embed the scanner with the stable `pkg/dlp` Go API or the
+`pleno-dlp` (PyPI) and `@plenoai/pleno-dlp` (npm) bindings. See
+[docs/library.md](docs/library.md).
 
 ## GitHub Action
 

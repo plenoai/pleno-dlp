@@ -10,6 +10,7 @@ publishing, archives, SLSA provenance, and SBOM generation.
 
 ### Added
 
+- Embeddable library API: stable Go package `pkg/dlp` (scan bytes/paths, verify, revoke, list detectors), a C ABI, and Python (`pip install pleno-dlp`) and Node.js (`npm install @plenoai/pleno-dlp`) bindings for Linux published on tag push. See `docs/library.md`.
 - `feedback --pii-engine` (default `auto`): redact names, non-ASCII identifiers and other free-text PII with the anonymize or openai-pf-native engine when one is available.
 - `scan --fail-on-coverage=gap|any` (default `gap`): corrupt or over-budget archives are reported as `skipped_by_policy` with `coverage: status=ok` and no longer fail the scan; real gaps report `status=degraded` with a `reason=` list and per-failure `coverage: entry` lines. Pass `any` for the previous strict behavior.
 - `IPStack` detector: ipstack access keys, verified provider-confirmed via `api.ipstack.com/check`.

@@ -71,6 +71,10 @@ type scanFlags struct {
 	alertMinSeverity   string
 	alertDryRun        bool
 	allowlistPath      string
+	baselinePath       string
+	noInlineAllow      bool
+	skipRegex          []string
+	skipWord           []string
 	includeDetectors   []string
 	excludeDetectors   []string
 	quiet              bool
@@ -132,6 +136,8 @@ type gitFlags struct {
 	repo                    string
 	branch                  string
 	since                   string
+	sinceCommit             string
+	branchRootCommit        string
 	maxDepth                int
 	include                 []string
 	exclude                 []string
@@ -146,13 +152,16 @@ type gitFlags struct {
 	archiveMaxFiles         int
 	archiveMaxDepth         int
 	archiveTimeout          time.Duration
+	gitURL                  string
+	gitUsername             string
+	gitToken                string
 }
 
 var gitOpts gitFlags
 
 var scanGitCmd = &cobra.Command{
-	Use:   "git --repo <path>",
-	Short: "Scan a local git repository's commit history",
+	Use:   "git (--repo <path> | --git-url <url>)",
+	Short: "Scan a local or remote git repository's commit history",
 	Args:  cobra.NoArgs,
 	RunE:  runScanGit,
 }
@@ -229,6 +238,7 @@ func init() {
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.alertDryRun, "alert-dry-run", false,
 		"print each alert payload to stderr instead of POSTing it")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file that mutes known false positives (auto-discovers .pleno-allow.json from the repo root)")
+	registerSuppressionFlags(scanCmd.PersistentFlags())
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated, case-insensitive Type names; see 'pleno-dlp detectors list'). Custom rules from --rules count as GenericHighEntropy.")
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.excludeDetectors, "exclude-detectors", nil, "skip these detectors (comma-separated, case-insensitive Type names). Applied after --include-detectors.")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.quiet, "quiet", false, "suppress the end-of-scan summary line on stderr (use in scripted callers parsing stderr)")
@@ -284,8 +294,14 @@ func init() {
 	scanFilesystemCmd.Flags().BoolVar(&fsOpts.disableDefaultExcludes, "no-default-excludes", false, "disable default excludes (.git, node_modules, vendor, target, ...)")
 
 	scanGitCmd.Flags().StringVar(&gitOpts.repo, "repo", "", "absolute or relative path to a local git repository")
+	scanGitCmd.Flags().StringVar(&gitOpts.gitURL, "git-url", "", "remote repository URL to clone and scan (mutually exclusive with --repo)")
+	scanGitCmd.Flags().StringVar(&gitOpts.gitUsername, "git-username", "", "HTTP username for --git-url (default x-access-token)")
+	scanGitCmd.Flags().StringVar(&gitOpts.gitToken, "git-token", "", "HTTPS token for --git-url (falls back to the PLENO_GIT_TOKEN env var)")
 	scanGitCmd.Flags().StringVar(&gitOpts.branch, "branch", "", "branch to walk (default: all safe advertised history refs)")
 	scanGitCmd.Flags().StringVar(&gitOpts.since, "since", "", "RFC3339 cutoff; commits older than this are skipped")
+	scanGitCmd.Flags().StringVar(&gitOpts.sinceCommit, "since-commit", "", "scan only commits not reachable from this revision (exclusive ancestry boundary, e.g. origin/main or a PR base SHA)")
+	scanGitCmd.Flags().StringVar(&gitOpts.branchRootCommit, "branch-root-commit", "", "scan this commit and its descendants only (inclusive variant of --since-commit)")
+	scanGitCmd.MarkFlagsMutuallyExclusive("since-commit", "branch-root-commit")
 	scanGitCmd.Flags().IntVar(&gitOpts.maxDepth, "max-depth", 0, "cap on commits walked (0 = unbounded)")
 	scanGitCmd.Flags().StringSliceVar(&gitOpts.include, "include", nil, "glob(s) to include (matched against repo-relative paths)")
 	scanGitCmd.Flags().StringSliceVar(&gitOpts.exclude, "exclude", nil, "glob(s) to exclude")
@@ -400,11 +416,18 @@ func runScanGit(cmd *cobra.Command, _ []string) error {
 	if gitOpts.gitArtifactMaxBytes > gitsource.MaxGitArtifactBytes || gitOpts.archiveMaxExpandedBytes > gitsource.MaxArchiveExpandedBytes || gitOpts.archiveMaxFiles > 10000 || gitOpts.archiveMaxDepth > 8 || gitOpts.archiveTimeout > time.Minute {
 		return errors.New("git: artifact limits exceed hard caps")
 	}
+	repoPath, cleanup, err := resolveGitScanRepo(cmd.Context(), gitOpts)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 	cfg, err := json.Marshal(map[string]any{
-		"repo":                       gitOpts.repo,
+		"repo":                       repoPath,
 		"branch":                     gitOpts.branch,
 		"all_branches":               gitOpts.branch == "",
 		"since":                      gitOpts.since,
+		"since_commit":               gitOpts.sinceCommit,
+		"branch_root_commit":         gitOpts.branchRootCommit,
 		"max_depth":                  gitOpts.maxDepth,
 		"include":                    gitOpts.include,
 		"exclude":                    gitOpts.exclude,
@@ -423,6 +446,30 @@ func runScanGit(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("encode source config: %w", err)
 	}
 	return runScanCommon(cmd, src, cfg, "git")
+}
+
+// resolveGitScanRepo returns the local repository to walk: --repo as given,
+// or a temporary bare clone of --git-url.
+func resolveGitScanRepo(ctx context.Context, opts gitFlags) (string, func(), error) {
+	noop := func() {}
+	if opts.gitURL == "" {
+		if opts.gitToken != "" || opts.gitUsername != "" {
+			return "", noop, errors.New("git: --git-token/--git-username require --git-url")
+		}
+		return opts.repo, noop, nil
+	}
+	if opts.repo != "" {
+		return "", noop, errors.New("git: --repo and --git-url are mutually exclusive")
+	}
+	token := opts.gitToken
+	if token == "" {
+		token = os.Getenv("PLENO_GIT_TOKEN")
+	}
+	dir, cleanup, err := gitsource.CloneRemote(ctx, opts.gitURL, gitsource.RemoteAuth{Username: opts.gitUsername, Password: token})
+	if err != nil {
+		return "", noop, err
+	}
+	return dir, cleanup, nil
 }
 
 func runScanSQLDump(cmd *cobra.Command, args []string) error {
@@ -546,7 +593,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		return fmt.Errorf("invalid --fail-on-coverage %q: want gap or any", scanOpts.failOnCoverage)
 	}
 
-	allowlist, err := loadAllowlistMaybe(scanOpts.allowlistPath)
+	allowlist, err := loadSuppressionPolicy()
 	if err != nil {
 		return err
 	}
@@ -729,10 +776,13 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// sink (so they don't print). With --fail-on critical, this means
 	// CI gates on "is there a verified credential with elevated impact"
 	// instead of "any finding at all".
+	if scanBlastRadius && !scanOpts.noVerify {
+		topSink = chain.Track(&blastRadiusMapSink{inner: topSink, reg: blastRadiusRegistry()})
+	}
 	if scanOpts.blastRadiusOnly {
 		topSink = chain.Track(&blastRadiusFilterSink{inner: topSink})
 	}
-	allowed := chain.Track(engine.NewAllowlist(allowlist, topSink))
+	allowed := chain.Track(engine.NewAllowlistWithAudit(allowlist, topSink, suppressedAudit))
 	placeheld := chain.Track(engine.NewPlaceholderFilter(allowed, suppressedAudit))
 	deduped := chain.Track(engine.NewDedup(placeheld))
 	// Git-mode cross-commit dedup: collapse the same secret+file across many
@@ -744,9 +794,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	}
 	defer func() { _ = chain.Close() }()
 	defer func() {
-		if n := engine.SuppressedCounter(allowed); n > 0 {
-			fmt.Fprintf(cmd.ErrOrStderr(), "allowlist: suppressed %d finding(s)\n", n)
-		}
+		reportSuppressions(cmd.ErrOrStderr(), allowed)
 		if n := engine.PlaceholderSuppressedCounter(placeheld); n > 0 {
 			fmt.Fprintf(cmd.ErrOrStderr(), "placeholder: suppressed %d finding(s)\n", n)
 		}
@@ -1452,8 +1500,17 @@ func scannerFingerprint(kind string, cfg []byte) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("incremental: hash allowlist: %w", err)
 	}
+	baselineHash, err := fileContentHash(scanOpts.baselinePath)
+	if err != nil {
+		return "", fmt.Errorf("incremental: hash baseline: %w", err)
+	}
 	payload := map[string]any{
 		"version":                 1,
+		"baseline_path":           scanOpts.baselinePath,
+		"baseline_hash":           baselineHash,
+		"no_inline_allow":         scanOpts.noInlineAllow,
+		"skip_regex":              scanOpts.skipRegex,
+		"skip_word":               scanOpts.skipWord,
 		"tool_version":            toolVersion,
 		"kind":                    kind,
 		"source_config":           json.RawMessage(cfg),

@@ -24,8 +24,14 @@ without invoking the orchestrator.
 - All Go packages live in a single Go module rooted at this repo. New
   packages go under `pkg/<area>/<name>/` without their own `go.mod`
   (single-module configuration).
-- Go tests must pass `go test ./... -race`. Race-detector failures block
-  PRs.
+- Test locally before pushing: run `scripts/race-affected.sh` (race
+  detector over packages changed since `origin/main` plus their reverse
+  dependencies; `go.mod`/`go.sum` changes widen it to `./...`). There is
+  no PR CI and no required check; pull requests merge on local evidence.
+- `main` push runs `test.yml` with the race run narrowed to packages
+  affected since the previous main tip; fix regressions it finds in a
+  follow-up commit. The tag release still runs the full `./...` race
+  suite as the final gate.
 - Releases trigger exclusively by tag push: `vX.Y.Z` → Go binary release
   via GoReleaser trusted publishing.
 - `main` push runs build + tests only — it does not publish (this is a
@@ -55,6 +61,13 @@ without invoking the orchestrator.
 | Date | Owners | Change |
 |---|---|---|
 | 2026-11-23 | detector-engineer, core-engineer, qa | Add Revokers for Anthropic, OpenAI, Resend, Notion OAuth (env admin context), GCP service-account keys (self-delete), Hugging Face, and Vercel via the shared `pkg/detectors/revokehttp` helper; `revoke --detector` and spool replay resolve any registered Revoker by type name (#809). |
+| 2026-11-23 | core-engineer, qa | Add `pleno-dlp baseline create|update`, `--baseline` fingerprint suppression, inline `pleno-dlp:allow` / `pleno-dlp:allow-next-line` pragmas (`--no-inline-allow` to audit), and `--skip-regex/--skip-word`, all folded into the single `engine.Allowlist` policy with per-reason counts and `--show-suppressed` audit (#812). |
+| 2026-11-23 | architect, core-engineer, qa | Add the stable embeddable API `pkg/dlp` (JSON shape frozen by `TestJSONContractFrozen`), the c-shared C ABI `cmd/libpleno-dlp`, and Python/Node bindings under `bindings/`; release.yml builds Linux arm64/amd64 libraries and publishes PyPI/npm via OIDC after `finalize` (ADR 0001, #816). |
+| 2026-11-23 | connector-engineer, core-engineer, qa | Add `--since-commit` (exclusive `rev..tip`) and `--branch-root-commit` (inclusive) to `scan git` and `scan github`; boundaries feed the existing stop-set (full ancestry on the go-git path), unresolvable revisions fail, ranged runs never advance git checkpoints, and the GitHub history policy includes the range so the next unranged run rescans fully (#815). |
+| 2026-11-23 | core-engineer, connector-engineer, qa | Add `detectors.AccessMapper` and the `pleno-dlp.access-map/v1` schema; `scan --blast-radius` attaches identity/permission/resource maps to verified AWS, GCP service-account, GitHub, GitLab, and Slack findings, and `pleno-dlp blast-radius <provider>` maps one credential (#808). |
+| 2026-11-23 | connector-engineer, qa | Add the shared `pkg/connectors/remote_git.go` clone-and-walk helper (ForgeMeta provenance, per-repo git checkpoints in `forgeIncrementalState.Repos`) and `--history`/`--clone-url` for Gitea-family forges; tokens reach HTTP(S) remotes only (#811). |
+| 2026-11-23 | connector-engineer, qa | Add `pkg/sources/git.CloneRemote` (HTTPS-only credentials, no URL userinfo, token-redacted errors) and `scan git --git-url` so remote repositories are scanned with the full local git walker (#811). |
+| 2026-11-23 | architect | Drop pull-request CI and the required `test`/`detector-unit` checks; test locally with `scripts/race-affected.sh` (changed packages + reverse deps), and narrow the main-push race run to packages affected since the previous main tip while tag releases keep the full suite. |
 | 2026-11-23 | detector-engineer, qa | Custom rules gain offline `checksum` (luhn, iban, crc32 base62/hex/dec) and templated HTTPS `validation` with SSRF guards (literal host, post-DNS non-public IP refusal, no redirects, no proxy); documented in `docs/custom-rules.md` (#815). |
 | 2026-11-23 | core-engineer, qa | Expand xz (`ulikunitz/xz`, BSD-3) and zstd (`klauspost/compress`, window capped at 64 MiB) streams in `pkg/archive` through the shared bzip2 stream path so entry/expanded budgets and corrupt-archive coverage gaps apply; ZIP-family containers (jar/docx/xlsx/epub) already expand as zip (#810). |
 | 2026-11-23 | core-engineer, qa | Add `--alert-webhook` (repeatable; Slack/Teams/generic inferred from host), `--alert-min-severity`, and `--alert-dry-run` via `pkg/alerts`; payloads carry only redacted findings, URLs are redacted in logs, redirects are refused, and failures never change the exit code (#814). |
