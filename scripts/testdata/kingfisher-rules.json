@@ -1,0 +1,5102 @@
+{
+ "kingfisher": "98b67a0",
+ "rules": [
+  {
+   "id": "betterleaks.1password-secret-key",
+   "kw": [
+    "a3-"
+   ],
+   "path": "",
+   "pattern": "\\bA3-[A-Z0-9]{6}-(?:(?:[A-Z0-9]{11})|(?:[A-Z0-9]{6}-[A-Z0-9]{5}))-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}\\b",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.1password-service-account-token",
+   "kw": [
+    "ops_eyj"
+   ],
+   "path": "",
+   "pattern": "ops_eyJ[a-zA-Z0-9+/]{250,}={0,3}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.abuseipdb-api-key.1",
+   "kw": [
+    "abuseipdb"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:abuseipdb)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{80})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.adafruit-api-key",
+   "kw": [
+    "adafruit"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:adafruit)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9_-]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.adobe-client-id",
+   "kw": [
+    "adobe"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:adobe)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.adobe-client-secret",
+   "kw": [
+    "p8e-"
+   ],
+   "path": "",
+   "pattern": "\\b(p8e-(?i)[a-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.age-secret-key",
+   "kw": [
+    "age-secret-key-1"
+   ],
+   "path": "",
+   "pattern": "AGE-SECRET-KEY-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.aikido-ci-token",
+   "kw": [
+    "aik_ci_"
+   ],
+   "path": "",
+   "pattern": "\\b(AIK_CI_[A-Za-z0-9]{20,44})\\b",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.aikido-client-id",
+   "kw": [
+    "aik_client_"
+   ],
+   "path": "",
+   "pattern": "\\b(AIK_CLIENT_[A-Za-z0-9]{24})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.aikido-client-secret",
+   "kw": [
+    "aik_secret_"
+   ],
+   "path": "",
+   "pattern": "\\b(AIK_SECRET_[A-Za-z0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.airtable-api-key",
+   "kw": [
+    "airtable"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:airtable)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{17})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.airtable-oauth-token",
+   "kw": [
+    "airtable"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:airtable)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Z0-9]+\\.v1\\.[A-Z0-9_-]+\\.[a-f0-9]+)(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.airtable-personnal-access-token",
+   "kw": [
+    "airtable"
+   ],
+   "path": "",
+   "pattern": "\\b(pat[[:alnum:]]{14}\\.[a-f0-9]{64})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.aiven-auth-token",
+   "kw": [
+    "aiven"
+   ],
+   "path": "",
+   "pattern": "(?i:aiven)[\\s\\S]{0,32}?\\b([A-Za-z0-9/+=]{372})(?:[^A-Za-z0-9/+=]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.algolia-api-key",
+   "kw": [
+    "algolia"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:algolia)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.algolia-application-id",
+   "kw": [
+    "algolia"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:algolia)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{10})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.alibaba-access-key-id",
+   "kw": [
+    "ltai"
+   ],
+   "path": "",
+   "pattern": "\\b(LTAI[A-Za-z0-9]{17,21})\\b",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.alibaba-secret-key",
+   "kw": [
+    "alibaba",
+    "aliyun"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:alibaba|aliyun|secret|key)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9]{30})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.alibaba-sts-access-key-id",
+   "kw": [
+    "sts."
+   ],
+   "path": "",
+   "pattern": "\\b(STS\\.[A-Za-z0-9]{16,64})\\b",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.alibaba-sts-access-key-secret",
+   "kw": [
+    "alibaba",
+    "aliyun"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:alibaba|aliyun|secret|key)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9]{30,64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.alibaba-sts-security-token",
+   "kw": [
+    "alibaba",
+    "aliyun",
+    "cais"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:alibaba|aliyun|secret|key)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.amplitude-secret-key",
+   "kw": [
+    "amplitude"
+   ],
+   "path": "",
+   "pattern": "(?i)\\bamplitude(?:.|[\\n\\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN|AUTHORIZATION)(?:.|[\\n\\r]){0,16}?\\b([a-f0-9]{32})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.anthropic-admin-api-key",
+   "kw": [
+    "sk-ant-admin01"
+   ],
+   "path": "",
+   "pattern": "\\b(sk-ant-admin01-[a-zA-Z0-9_\\-]{93}AA)(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.anthropic-api-key",
+   "kw": [
+    "sk-ant-api03"
+   ],
+   "path": "",
+   "pattern": "\\b(sk-ant-api03-[a-zA-Z0-9_\\-]{93}AA)(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.apify-api-token",
+   "kw": [
+    "apify_api_"
+   ],
+   "path": "",
+   "pattern": "\\b(apify_api_[A-Za-z0-9]{34,38})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.apollo-api-key.1",
+   "kw": [
+    "apollo"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:apollo)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9_-]{22})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.artifactory-api-key",
+   "kw": [
+    "akcp"
+   ],
+   "path": "",
+   "pattern": "\\bAKCp[A-Za-z0-9]{68,70}\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.artifactory-jfrog-url",
+   "kw": [
+    "jfrog.io"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:^|[^a-z0-9-])([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.jfrog\\.io)(?:$|[^a-z0-9-])",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.artifactory-reference-token",
+   "kw": [
+    "cmvmd"
+   ],
+   "path": "",
+   "pattern": "\\bcmVmd[A-Za-z0-9]{59}\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.asaas-api-token",
+   "kw": [
+    "$aact_"
+   ],
+   "path": "",
+   "pattern": "(?:^|[^A-Za-z0-9_-])(\\$aact_(?:prod|hmlg)_[A-Za-z0-9_-]{20,100})(?:[^A-Za-z0-9_-]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.asana-client-id",
+   "kw": [
+    "asana"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:asana)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9]{16})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.asana-client-secret",
+   "kw": [
+    "asana"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:asana)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.assemblyai-api-key",
+   "kw": [
+    "assemblyai"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:assemblyai)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.atlassian-api-token",
+   "kw": [
+    "atat"
+   ],
+   "path": "",
+   "pattern": "\\b(ATAT[A-Za-z0-9_\\-=]{100,})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.auth0-client-id.1",
+   "kw": [
+    "auth0"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:auth0[_.-]?(?:client[_.-]?)?(?:id|identifier))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9_-]{32,60})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.auth0-client-secret.1",
+   "kw": [
+    "auth0"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:auth0[_.-]?(?:client[_.-]?)?(?:secret|private|key|token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9_-]{64,128})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.auth0-domain.1",
+   "kw": [
+    "auth0.com"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+auth0\\.com)(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.authress-service-client-access-key",
+   "kw": [
+    ".acc_",
+    ".acc-"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b((?:sc|ext|scauth|authress)_[a-z0-9]{5,30}\\.[a-z0-9]{4,6}\\.acc[_-][a-z0-9-]{10,32}\\.[a-z0-9+/_=-]{30,120})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.aws-access-token",
+   "kw": [
+    "a3t",
+    "akia",
+    "asia",
+    "abia",
+    "acca"
+   ],
+   "path": "",
+   "pattern": "\\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.aws-amazon-bedrock-api-key-long-lived",
+   "kw": [
+    "absk"
+   ],
+   "path": "",
+   "pattern": "\\b(ABSK[A-Za-z0-9+/]{109,269}={0,2})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.aws-amazon-bedrock-api-key-short-lived",
+   "kw": [
+    "bedrock-api-key-"
+   ],
+   "path": "",
+   "pattern": "bedrock-api-key-YmVkcm9jay5hbWF6b25hd3MuY29t",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.aws-secret-access-key",
+   "kw": [
+    "secret",
+    "access",
+    "key",
+    "token"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:secret|access|key|token)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9/+=]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.aws-session-token",
+   "kw": [],
+   "path": "",
+   "pattern": "(?x)\\b(?i:AWS[_-]?(?:SESSION|SECURITY)[_-]?TOKEN)\\b[\"']?\\s*(?:=|:)\\s*[\"']?([A-Za-z0-9/+=._-]{16,2048})(?:[\"'\\s,;}]|$)",
+   "validation": "AWS",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.azure-ad-client-secret",
+   "kw": [
+    "0q~",
+    "1q~",
+    "2q~",
+    "3q~",
+    "4q~",
+    "5q~",
+    "6q~",
+    "7q~",
+    "8q~",
+    "9q~"
+   ],
+   "path": "",
+   "pattern": "(?:^|[\\\\'\"\\x60\\s>=:(,)])([a-zA-Z0-9_~.]{3}\\dQ~[a-zA-Z0-9_~.-]{31,34})(?:$|[\\\\'\"\\x60\\s<),])",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.azure-app-configuration-connection-string",
+   "kw": [
+    "azconfig.io",
+    "endpoint=",
+    "secret="
+   ],
+   "path": "",
+   "pattern": "(?i)Endpoint=(?P<azure_appconfig_endpoint>https://[a-z0-9-]+\\.azconfig\\.io);Id=(?P<azure_appconfig_id>[^;\\s'\"]{4,80});Secret=([A-Za-z0-9+/]{36,100}={0,2})",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.azure-client-id",
+   "kw": [
+    "client"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(?:client[_\\s.-]*id|AZURE_CLIENT_ID)\\b(?s:.{0,24}?)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\b",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.azure-servicebus-connection-string",
+   "kw": [
+    "endpoint=sb://",
+    "sharedaccesskey"
+   ],
+   "path": "",
+   "pattern": "(?i)(Endpoint=sb://[a-z0-9-]+\\.servicebus\\.windows\\.net/;SharedAccessKeyName=[^;=\\s'\"]{1,128};SharedAccessKey=[A-Za-z0-9+/]{32,100}={0,2}(?:;EntityPath=[^;\\s'\"]{1,128})?)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.azure-storage-account-key",
+   "kw": [
+    "accountkey",
+    "storage",
+    "accesskey",
+    "access_key",
+    "access-key"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(?:AccountKey|(?:azure[_\\s.-]*)?(?:storage[_\\s.-]*)?(?:account[_\\s.-]*)?(?:access[_\\s.-]*)?key)\\b(?s:.{0,24}?)([A-Za-z0-9+/]{86}==)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.azure-storage-account-name",
+   "kw": [
+    "accountname",
+    "blob.core.windows.net",
+    "storage"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:\\bAccountName\\s*=\\s*([a-z0-9]{3,24})\\b|https://([a-z0-9]{3,24})\\.blob\\.core\\.windows\\.net\\b|\\b(?:azure[_\\s.-]*storage[_\\s.-]*(?:account[_\\s.-]*)?name|storage[_\\s.-]*account[_\\s.-]*name)\\b(?s:.{0,24}?)([a-z0-9]{3,24})\\b)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.azure-tenant-id",
+   "kw": [
+    "tenant"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(?:tenant[_\\s.-]*(?:id)?|AZURE_TENANT_ID)\\b(?s:.{0,24}?)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\b",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.beamer-api-token",
+   "kw": [
+    "beamer"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:beamer)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(b_[a-z0-9=_\\-]{44})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.bitbucket-client-id",
+   "kw": [
+    "bitbucket"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:bitbucket)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.bitbucket-client-secret",
+   "kw": [
+    "bitbucket"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:bitbucket)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9=_\\-]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.bitbucket-data-center-token",
+   "kw": [
+    "bbdc"
+   ],
+   "path": "",
+   "pattern": "\\b(BBDC-[A-Za-z0-9+/=]{32,})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.bitly-access-token",
+   "kw": [
+    "bitly"
+   ],
+   "path": "",
+   "pattern": "(?i)\\bbitly(?:.|[\\n\\r]){0,32}?(?:SECRET|PRIVATE|ACCESS|KEY|TOKEN)(?:.|[\\n\\r]){0,32}?([a-f0-9]{40})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.bitrise-access-token",
+   "kw": [
+    "bitrise"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:bitrise(?:[ _-]*(?:personal|workspace))?(?:[ _-]*(?:access|api))?[ _-]*token)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9_-]{60,120})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.bittrex-access-key",
+   "kw": [
+    "bittrex"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:bittrex)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.bittrex-secret-key",
+   "kw": [
+    "bittrex"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:bittrex)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.box-api-access-token",
+   "kw": [
+    "box_",
+    "box-",
+    "boxt",
+    "boxk",
+    "boxa"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:box)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.brave-search-api-key",
+   "kw": [
+    "bsa"
+   ],
+   "path": "",
+   "pattern": "\\b(BSA[A-Za-z0-9_-]{24,40})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.browserstack-access-key.1",
+   "kw": [
+    "browserstack"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:browserstack[_.-]?(?:access[_.-]?)?(?:key|secret|token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9]{20})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.browserstack-username.1",
+   "kw": [
+    "browserstack"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:browserstack[_.-]?(?:username|user))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9][A-Za-z0-9._-]{2,39})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.buildkite-service-token",
+   "kw": [
+    "bkaa_",
+    "bkaj_",
+    "bkar_",
+    "bkct_",
+    "bkpt_",
+    "bkpat_",
+    "bkps_"
+   ],
+   "path": "",
+   "pattern": "\\b(bkaa_[A-Za-z0-9_-]{75}|bkaj_[A-Za-z0-9_-]{333}|bkar_[A-Za-z0-9_-]{73}|bkct_[A-Za-z0-9_-]{73}|bkpt_[A-Za-z0-9_-]{199}|bkpat_[A-Za-z0-9_-]{54}|bkps_[A-Za-z0-9_-]{64})(?:$|[^A-Za-z0-9_-])",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.buildkite-user-access-token",
+   "kw": [
+    "bkua_"
+   ],
+   "path": "",
+   "pattern": "\\b(bkua_(?:[a-z0-9]{40}|[a-z0-9]{53}))\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.canadian-digital-service-notify-api-key",
+   "kw": [
+    "gcntfy-"
+   ],
+   "path": "",
+   "pattern": "(?i:\\b(ApiKey-v1\\s+gcntfy-[a-z0-9_]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\b)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.canva-client-id",
+   "kw": [
+    "canva"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(?:canva|CANVA_CLIENT_ID)(?:.|[\\n\\r]){0,32}?(?:client[_\\s-]*id|app[_\\s-]*id)(?:.|[\\n\\r]){0,16}?\\b(OC-[A-Za-z0-9_-]{8,16})\\b",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.canva-client-secret",
+   "kw": [
+    "cnvca"
+   ],
+   "path": "",
+   "pattern": "\\b(cnvca[a-zA-Z0-9_-]{51})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.cartesia-api-key.1",
+   "kw": [
+    "sk_car_"
+   ],
+   "path": "",
+   "pattern": "\\b(sk_car_[A-Za-z0-9_]{20})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.cerebras-api-key",
+   "kw": [
+    "csk-"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(csk-[a-z0-9]{48})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.checkout-secret-key",
+   "kw": [
+    "checkout"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:checkout)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(sk_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.circleci-personal-token",
+   "kw": [
+    "ccipat_"
+   ],
+   "path": "",
+   "pattern": "\\b(CCIPAT_[a-zA-Z0-9]{22}_[a-z0-9]{40})",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.circleci-project-token",
+   "kw": [
+    "circleci"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:circleci)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.cisco-meraki-api-key",
+   "kw": [
+    "meraki"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:(?-i:[Mm]eraki|MERAKI))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9a-f]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.civo-api-key",
+   "kw": [
+    "civo"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:civo)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{50})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.clerk-secret-key",
+   "kw": [
+    "clerk"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:clerk)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(sk_(?:test|live)_[A-Za-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.clickhouse-cloud-api-secret-key",
+   "kw": [
+    "4b1d"
+   ],
+   "path": "",
+   "pattern": "\\b(4b1d[A-Za-z0-9]{38})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.clickhouse-cloud-key-id",
+   "kw": [
+    "clickhouse"
+   ],
+   "path": "",
+   "pattern": "(?i)\\bclickhouse(?:.|[\\n\\r]){0,16}?(?:ID|USER)(?:.|[\\n\\r]){0,16}?([a-z0-9]{20})",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.clickup-personal-api-token",
+   "kw": [
+    "clickup"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:clickup)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(pk_[0-9]{8,9}_[a-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.clojars-api-token",
+   "kw": [
+    "clojars_"
+   ],
+   "path": "",
+   "pattern": "(?i)CLOJARS_[a-z0-9]{60}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.cloudflare-account-id.1",
+   "kw": [
+    "account_id",
+    "account-id",
+    "account id",
+    "accountid"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:account[_. -]*id)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.cloudflare-api-key.1",
+   "kw": [
+    "cloudflare"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:cloudflare)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9_-]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.cloudflare-api-key.2",
+   "kw": [
+    "cfut_",
+    "cfat_"
+   ],
+   "path": "",
+   "pattern": "\\b(cf[ua]t_[A-Za-z0-9]{40}[a-f0-9]{8})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.cloudflare-global-api-key",
+   "kw": [
+    "cloudflare"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:cloudflare)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{37})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.cloudflare-origin-ca-key",
+   "kw": [
+    "cloudflare",
+    "v1.0-"
+   ],
+   "path": "",
+   "pattern": "\\b(v1\\.0-[a-f0-9]{24}-[a-f0-9]{146})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.cloudinary-api-key",
+   "kw": [
+    "cloudinary"
+   ],
+   "path": "",
+   "pattern": "(?i)\\bcloudinary(?:.|[\\n\\r]){0,32}?(?:API[_\\s]?KEY|KEY)(?:.|[\\n\\r]){0,16}?\\b([0-9]{15})\\b",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.cloudinary-api-secret",
+   "kw": [
+    "cloudinary"
+   ],
+   "path": "",
+   "pattern": "(?i)\\bcloudinary(?:.|[\\n\\r]){0,32}?(?:SECRET|PRIVATE|API[_\\s]?SECRET)(?:.|[\\n\\r]){0,32}?\\b([A-Za-z0-9]{32})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.cloudinary-cloud-name",
+   "kw": [
+    "cloudinary"
+   ],
+   "path": "",
+   "pattern": "(?i)\\bcloudinary(?:.|[\\n\\r]){0,32}?(?:CLOUD[_\\s]?NAME|CLOUD)(?:.|[\\n\\r]){0,16}?\\b([a-z0-9_-]{3,32})\\b",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.cloudsmith-api-key",
+   "kw": [
+    "csa_"
+   ],
+   "path": "",
+   "pattern": "\\b(csa_[a-f0-9]{30}[A-Za-z0-9]{6})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.cockroachlabs-cloud-api-key",
+   "kw": [
+    "ccdb1_"
+   ],
+   "path": "",
+   "pattern": "\\b(CCDB1_[A-Za-z0-9]{22}_[A-Za-z0-9]{40})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.codecov-access-token",
+   "kw": [
+    "codecov"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:codecov)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Z0-9-]{36})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.cohere-api-token",
+   "kw": [
+    "cohere",
+    "co_api_key"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:cohere|CO_API_KEY)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-zA-Z0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.coinbase-access-token",
+   "kw": [
+    "coinbase"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:coinbase)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9_-]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.configcat-sdk-key",
+   "kw": [
+    "configcat"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:configcat)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.configcat-sdk-key-extended",
+   "kw": [
+    "configcat-sdk-1"
+   ],
+   "path": "",
+   "pattern": "\\b(configcat-sdk-1/[A-Za-z0-9_-]{22}/[A-Za-z0-9_-]{22})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.confluent-access-token",
+   "kw": [
+    "confluent"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:confluent)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{16})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.confluent-secret-key",
+   "kw": [
+    "confluent"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:confluent)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.contentful-delivery-api-token",
+   "kw": [
+    "contentful"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:contentful)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9=_\\-]{43})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.couchbase-capella-api-key",
+   "kw": [
+    "couchbase",
+    "capella"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(?:couchbase|capella)(?:.|[\\n\\r]){0,32}?(?:api(?:.|[\\n\\r]){0,12}?(?:key|secret)|key(?:.|[\\n\\r]){0,12}?secret)(?:.|[\\n\\r]){0,32}?\\b([A-Za-z0-9+/]{60,120}={0,2})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.coveralls-personal-api-token",
+   "kw": [
+    "coveralls"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:coveralls)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9-]{37})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.crates-io-api-key",
+   "kw": [
+    "crates"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:crates(?:[_.-]?io)?)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(cio[A-Za-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.curl-auth-header",
+   "kw": [
+    "curl"
+   ],
+   "path": "",
+   "pattern": "\\bcurl\\b(?:.*?|.*?(?:[\\r\\n]{1,2}.*?){1,5})[ \\t\\n\\r](?:-H|--header)(?:=|[ \\t]{0,5})(?:\"(?i)(?:Authorization:[ \\t]{0,5}(?:Basic[ \\t]([a-z0-9+/]{8,}={0,3})|(?:Bearer|(?:Api-)?Token)[ \\t]([\\w=~@.+/-]{8,})|([\\w=~@.+/-]{8,}))|(?:(?:X-(?:[a-z]+-)?)?(?:Api-?)?(?:Key|Token)):[ \\t]{0,5}([\\w=~@.+/-]{8,}))\"|'(?i)(?:Authorization:[ \\t]{0,5}(?:Basic[ \\t]([a-z0-9+/]{8,}={0,3})|(?:Bearer|(?:Api-)?Token)[ \\t]([\\w=~@.+/-]{8,})|([\\w=~@.+/-]{8,}))|(?:(?:X-(?:[a-z]+-)?)?(?:Api-?)?(?:Key|Token)):[ \\t]{0,5}([\\w=~@.+/-]{8,}))')(?:\\B|\\s|\\z)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.curl-auth-user",
+   "kw": [
+    "curl"
+   ],
+   "path": "",
+   "pattern": "\\bcurl\\b(?:.*|.*(?:[\\r\\n]{1,2}.*){1,5})[ \\t\\n\\r](?:-u|--user)(?:=|[ \\t]{0,5})(\"(:[^\"]{3,}|[^:\"]{3,}:|[^:\"]{3,}:[^\"]{3,})\"|'([^:']{3,}:[^']{3,})'|((?:\"[^\"]{3,}\"|'[^']{3,}'|[\\w$@.-]+):(?:\"[^\"]{3,}\"|'[^']{3,}'|[\\w${}@.-]+)))(?:\\s|\\z)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.cursor-api-key",
+   "kw": [
+    "cursor"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:cursor)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(key_[0-9a-f]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.databento-api-key",
+   "kw": [
+    "databento"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:databento)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(db-[A-Za-z0-9]{29})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.databricks-api-token",
+   "kw": [
+    "dapi"
+   ],
+   "path": "",
+   "pattern": "\\b(dapi[a-f0-9]{32}(?:-\\d)?)(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.datadog-api-key",
+   "kw": [
+    "datadog"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:datadog)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.datadog-application-key",
+   "kw": [
+    "datadog"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:datadog)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9-]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.datagov-api-key",
+   "kw": [
+    "data.gov"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:data\\.gov)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.datastax-astra-application-token",
+   "kw": [
+    "astracs:"
+   ],
+   "path": "",
+   "pattern": "\\b(AstraCS:[A-Za-z0-9]{20,})",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.deepgram-api-key",
+   "kw": [
+    "deepgram"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:deepgram)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.deepseek-api-key",
+   "kw": [],
+   "path": "",
+   "pattern": "(?:(?:\\A|(?:[\\x00-,\\./:-@\\[-\\^`\\{-\\xFF]))((?:(?:[Ss])(?:[Kk])\\-(?:[0-9A-Fa-f]){32}))(?:(?:\\\\?(?:[\"'`]))|(?:[\\x09-\\x0D\\x20;])|(?:\\\\(?:[NRnr]))|\\z))",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.defined-networking-api-token",
+   "kw": [
+    "dnkey"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:dnkey)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(dnkey-[a-z0-9=_\\-]{26}-[a-z0-9=_\\-]{52})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.deno-account-token",
+   "kw": [
+    "ddp_"
+   ],
+   "path": "",
+   "pattern": "\\b(ddp_[A-Za-z0-9]{36})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.devcycle-client-sdk-key",
+   "kw": [
+    "dvc_client_"
+   ],
+   "path": "",
+   "pattern": "\\b(dvc_client_[A-Za-z0-9]{8,32})",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.devcycle-mobile-sdk-key",
+   "kw": [
+    "dvc_mobile_"
+   ],
+   "path": "",
+   "pattern": "\\b(dvc_mobile_[A-Za-z0-9]{8,32})",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.devcycle-server-sdk-key",
+   "kw": [
+    "dvc_server_"
+   ],
+   "path": "",
+   "pattern": "\\b(dvc_server_[A-Za-z0-9]{8,32})",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.devin-personal-api-key",
+   "kw": [
+    "apk_user_"
+   ],
+   "path": "",
+   "pattern": "\\b(apk_user_[A-Za-z0-9+/]{120,180}={0,2})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.devin-service-api-key",
+   "kw": [
+    "apk_"
+   ],
+   "path": "",
+   "pattern": "\\b(apk_[A-Za-z0-9+/]{80,100}={0,2})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.devin-service-user-token",
+   "kw": [
+    "cog_"
+   ],
+   "path": "",
+   "pattern": "\\b(cog_[a-z2-7]{52})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.digitalocean-access-token",
+   "kw": [
+    "doo_v1_"
+   ],
+   "path": "",
+   "pattern": "\\b(doo_v1_[a-f0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.digitalocean-pat",
+   "kw": [
+    "dop_v1_"
+   ],
+   "path": "",
+   "pattern": "\\b(dop_v1_[a-f0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.digitalocean-refresh-token",
+   "kw": [
+    "dor_v1_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(dor_v1_[a-f0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.discord-api-token",
+   "kw": [
+    "discord"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:discord)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.discord-client-id",
+   "kw": [
+    "discord"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:discord)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9]{18})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.discord-client-secret",
+   "kw": [
+    "discord"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:discord)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9=_\\-]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.disqus-api-key",
+   "kw": [
+    "disqus"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:disqus)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.docker-swarm-join-token",
+   "kw": [
+    "swmtkn-1-"
+   ],
+   "path": "",
+   "pattern": "\\b(SWMTKN-1-[a-z0-9]{50,60}-[a-z0-9]{24,30})",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.docker-swarm-unlock-key",
+   "kw": [
+    "swmkey-1-"
+   ],
+   "path": "",
+   "pattern": "\\b(SWMKEY-1-[A-Za-z0-9+/]{40,50})",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.dockerhub-organization-access-token",
+   "kw": [
+    "dckr_oat_"
+   ],
+   "path": "",
+   "pattern": "\\b(dckr_oat_[A-Za-z0-9_-]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.dockerhub-personal-access-token",
+   "kw": [
+    "dckr_pat_"
+   ],
+   "path": "",
+   "pattern": "\\b(dckr_pat_[A-Za-z0-9_-]{27})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.doppler-api-token",
+   "kw": [
+    "dp.pt."
+   ],
+   "path": "",
+   "pattern": "dp\\.pt\\.(?i)[a-z0-9]{43}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.droneci-access-token",
+   "kw": [
+    "droneci"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:droneci)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.dropbox-api-token",
+   "kw": [
+    "dropbox"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:dropbox)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{15})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.dropbox-long-lived-api-token",
+   "kw": [
+    "dropbox"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:dropbox)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{11}(AAAAAAAAAA)[a-z0-9\\-_=]{43})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.dropbox-short-lived-api-token",
+   "kw": [
+    "dropbox"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:dropbox)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(sl\\.[a-z0-9\\-=_]{135})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.duffel-api-token",
+   "kw": [
+    "duffel_"
+   ],
+   "path": "",
+   "pattern": "duffel_(?:test|live)_(?i)[a-z0-9_\\-=]{43}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.dynatrace-api-token",
+   "kw": [
+    "dt0c01."
+   ],
+   "path": "",
+   "pattern": "dt0c01\\.(?i)[a-z0-9]{24}\\.[a-z0-9]{64}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.easypost-api-token",
+   "kw": [
+    "ezak"
+   ],
+   "path": "",
+   "pattern": "\\bEZAK(?i)[a-z0-9]{54}\\b",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.easypost-test-api-token",
+   "kw": [
+    "eztk"
+   ],
+   "path": "",
+   "pattern": "\\bEZTK(?i)[a-z0-9]{54}\\b",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.ebay-client-id",
+   "kw": [
+    "-prd-"
+   ],
+   "path": "",
+   "pattern": "\\b([a-zA-Z0-9_-]+-[a-zA-Z0-9_-]+-PRD-[a-f0-9]{8,12}-[a-f0-9]{8,12})",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.ebay-client-secret",
+   "kw": [
+    "ebay"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:ebay(?:[_. -]*(?:client|api))?[_. -]*(?:secret|key))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(PRD-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4,12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.elastic-cloud-api-key",
+   "kw": [
+    "essu_"
+   ],
+   "path": "",
+   "pattern": "\\b(essu_[A-Za-z0-9_\\-]{60,200}={0,2})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.elevenlabs-api-key",
+   "kw": [
+    "elevenlabs"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:elevenlabs)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(sk_[0-9a-f]{48})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.endorlabs-api-key",
+   "kw": [
+    "endr+"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:endor(?:labs)?|key)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(endr\\+[A-Za-z0-9-]{16})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.endorlabs-api-secret",
+   "kw": [
+    "endr+"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:endor(?:labs)?|secret)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(endr\\+[A-Za-z0-9-]{16})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.etsy-open-api-key",
+   "kw": [
+    "etsy",
+    "x-api-key"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:etsy|x-api-key)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{24}:[a-z0-9]{10,64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.exoscale-api-key",
+   "kw": [
+    "exo"
+   ],
+   "path": "",
+   "pattern": "\\b(EXO[a-zA-Z0-9]{24,30})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.exoscale-api-secret",
+   "kw": [
+    "exoscale"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:exoscale)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9_\\-]{40,60})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.facebook-access-token",
+   "kw": [
+    "facebook"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(\\d{15,16}(\\||%)[0-9a-z\\-_]{27,40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.facebook-page-access-token",
+   "kw": [
+    "eaam",
+    "eaac"
+   ],
+   "path": "",
+   "pattern": "\\b(EAA[MC](?i)[a-z0-9]{100,})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.facebook-secret",
+   "kw": [
+    "facebook"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:facebook)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.fal-api-key.1",
+   "kw": [
+    "falai",
+    "fal_ai",
+    "fal-ai",
+    "fal.ai",
+    "fal-api",
+    "fal_api",
+    "fal_key",
+    "fal-key"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:falai|fal_ai|fal-ai|fal.ai|fal-api|fal_api|fal_key|fal-key)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}:[a-f0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.fastly-api-token",
+   "kw": [
+    "fastly"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:fastly)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9_-]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.figma-personal-access-header-token",
+   "kw": [
+    "x-figma-token",
+    "xfigmatoken",
+    "x_figma_token"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:x-figma-token|xfigmatoken|x_figma_token)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9A-F]{4}-[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.figma-personal-access-token",
+   "kw": [
+    "figd_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(figd_[A-Z0-9_-]{38,42})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.finicity-api-token",
+   "kw": [
+    "finicity"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:finicity)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.finicity-client-secret",
+   "kw": [
+    "finicity"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:finicity)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{20})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.finnhub-access-token",
+   "kw": [
+    "finnhub"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:finnhub)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{20})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.flickr-access-token",
+   "kw": [
+    "flickr"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:flickr)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.flutterwave-encryption-key",
+   "kw": [
+    "flwseck_test"
+   ],
+   "path": "",
+   "pattern": "FLWSECK_TEST-(?i)[a-h0-9]{12}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.flutterwave-public-key",
+   "kw": [
+    "flwpubk_test"
+   ],
+   "path": "",
+   "pattern": "FLWPUBK_TEST-(?i)[a-h0-9]{32}-X",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.flutterwave-secret-key",
+   "kw": [
+    "flwseck_test"
+   ],
+   "path": "",
+   "pattern": "FLWSECK_TEST-(?i)[a-h0-9]{32}-X",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.flyio-access-token",
+   "kw": [
+    "flyv1"
+   ],
+   "path": "",
+   "pattern": "\\b(FlyV1\\s[A-Za-z0-9=_\\-,/+]{100,})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.frameio-api-token",
+   "kw": [
+    "fio-u-"
+   ],
+   "path": "",
+   "pattern": "fio-u-(?i)[a-z0-9\\-_=]{64}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.freemius-secret-key",
+   "kw": [
+    "secret_key"
+   ],
+   "path": "(?i)\\.php$",
+   "pattern": "(?i)[\"']secret_key[\"']\\s*=>\\s*[\"'](sk_[\\S]{29})[\"']",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.freshbooks-access-token",
+   "kw": [
+    "freshbooks"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:freshbooks)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.fullstory-api-key",
+   "kw": [
+    "fullstory",
+    "fs_api"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:(?:fullstory|fs_api|fullstory_api))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}((?:na1|eu1)\\.[A-Za-z0-9]{20,})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gcp-api-key",
+   "kw": [
+    "aiza"
+   ],
+   "path": "",
+   "pattern": "\\b(AIza[\\w-]{35})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gcp-application-default-credentials",
+   "kw": [
+    ".apps.googleusercontent.com"
+   ],
+   "path": "",
+   "pattern": "\\{[^{]+(?:(?:\"client_secret\"\\s*:\\s*\"[^\"]+\"[^}]+\"refresh_token\"\\s*:\\s*\"[^\"]+\")|(?:\"refresh_token\"\\s*:\\s*\"[^\"]+\"[^}]+\"client_secret\"\\s*:\\s*\"[^\"]+\"))[^}]+\\}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gcp-gemini-api",
+   "kw": [
+    "aq.ab8rn6"
+   ],
+   "path": "",
+   "pattern": "\\b(AQ\\.Ab8RN6[A-Za-z0-9_-]{44})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gcp-service-account",
+   "kw": [
+    "provider_x509"
+   ],
+   "path": "",
+   "pattern": "\\{[^{]+(?:(?:\"private_key\"\\s*:\\s*\"-----BEGIN (?:RSA )?PRIVATE KEY-----[^}]+auth_provider_x509_cert_url)|(?:auth_provider_x509_cert_url[^}]+\"private_key\"\\s*:\\s*\"-----BEGIN (?:RSA )?PRIVATE KEY-----))[^}]+\\}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.generic-api-key",
+   "kw": [
+    "access",
+    "api",
+    "auth",
+    "key",
+    "credential",
+    "creds",
+    "secret",
+    "token"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token)[ \\t'\"\\w.-]{0,20}[ \\t'\"]{0,20}[ \\t]*(?:\\r?\\n[ \\t]*)?(?:(?:=>|:{1,3}=|\\|\\||\\?=|[=:])(?:[ \\t]*(?:\\r?\\n[ \\t]*)?\"(?:[a-z0-9]{0,16}[_.-]){0,4}(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token)[a-z0-9_.-]{0,20}\"[ \\t]*(?:\\r?\\n[ \\t]*)?(?:,[ \\t]*(?:\\r?\\n[ \\t]*)?\"?value\"?[ \\t]*(?:\\r?\\n[ \\t]*)?:[ \\t]*(?:\\r?\\n[ \\t]*)?|value[ \\t]*=|>))?|,(?:[ \\t]*(?:\\r?\\n[ \\t]*)?\"?value\"?[ \\t]*(?:\\r?\\n[ \\t]*)?:[ \\t]*(?:\\r?\\n[ \\t]*)?)?|['\"][ \\t]*(?:\\r?\\n[ \\t]*)?(?:value[ \\t]*=|>))|<[\\w.:-]{0,64}(?:access|auth|(?-i:[Aa]pi|API)|credential|creds|key|secret|token)[\\w.:-]{0,20}(?:(?:[ \\t]+|[ \\t]*\\r?\\n[ \\t]*)[\\w.:-]{1,64}[ \\t]*=[ \\t]*(?:\"[^\"<\\r\\n]*\"|'[^'<\\r\\n]*')){0,5}[ \\t]*(?:\\r?\\n[ \\t]*)?>)(?:(?:[ \\t]*(?:\\r?\\n[ \\t]*)?(?:(?:\\[[ \\t]*(?:\\r?\\n[ \\t]*)?)?\\{[ \\t]*(?:\\r?\\n[ \\t]*)?\"[\\w.-]{1,64}\"[ \\t]*(?:\\r?\\n[ \\t]*)?:|<[\\w.:-]{1,64}(?:(?:[ \\t]+|[ \\t]*\\r?\\n[ \\t]*)[\\w.:-]{1,64}[ \\t]*=[ \\t]*(?:\"[^\"<\\r\\n]*\"|'[^'<\\r\\n]*')){0,5}[ \\t]*(?:\\r?\\n[ \\t]*)?>))?[ \\t]*(?:\\r?\\n[ \\t]*)?(?:\\[[ \\t]*(?:\\r?\\n[ \\t]*)?)?\\{[ \\t]*(?:\\r?\\n[ \\t]*)?(?:\"[\\w.-]+\"[ \\t]*:[ \\t]*(?:\"(?:\\\\[^\\r\\n]|[^\"\\\\\\r\\n])*\"|-?[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)[ \\t]*,[ \\t]*(?:\\r?\\n[ \\t]*)?){1,5}?\"value\"[ \\t]*(?:\\r?\\n[ \\t]*)?:|(?:[ \\t]*(?:\\r?\\n[ \\t]*)?(?:(?:\\[[ \\t]*(?:\\r?\\n[ \\t]*)?)?\\{[ \\t]*(?:\\r?\\n[ \\t]*)?\"[\\w.-]{1,64}\"[ \\t]*(?:\\r?\\n[ \\t]*)?:|<[\\w.:-]{1,64}(?:(?:[ \\t]+|[ \\t]*\\r?\\n[ \\t]*)[\\w.:-]{1,64}[ \\t]*=[ \\t]*(?:\"[^\"<\\r\\n]*\"|'[^'<\\r\\n]*')){0,5}[ \\t]*(?:\\r?\\n[ \\t]*)?>)){0,2})[ \\t]*(?:\\r?\\n[ \\t]*)?(?:<!\\[CDATA\\[)?[\\x60'\"\\s=]{0,5}([\\w.=-]{10,150}|[a-z0-9][a-z0-9+/]{11,}={0,3})(?:\\\\?['\"\\x60]|[\\s;]|</[\\w.:-]{1,64}[ \\t]*(?:\\r?\\n[ \\t]*)?>|\\]\\]>|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.generic-credential-uri",
+   "kw": [
+    "http://",
+    "https://",
+    "postgres://",
+    "postgresql://",
+    "mysql://",
+    "mariadb://",
+    "mongodb://",
+    "mongodb+srv://",
+    "redis://",
+    "rediss://",
+    "amqp://",
+    "amqps://",
+    "ldap://",
+    "ldaps://",
+    "smtp://",
+    "smtps://",
+    "ftp://",
+    "ftps://",
+    "ssh://"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(?P<uri>(?P<scheme>https?|postgres(?:ql)?|mysql|mariadb|mongodb(?:\\+srv)?|rediss?|amqps?|ldaps?|smtps?|ftps?|ssh)://(?P<username>[^:/@\\s'\"\\x60]{0,128}):(?P<password>[^/@\\s'\"\\x60]{1,256})@(?P<host>(?:\\[[0-9a-f:.%]+\\]|[a-z0-9][a-z0-9._-]{0,252}))(?::[0-9]{1,5})?(?:,(?:\\[[0-9a-f:.%]+\\]|[a-z0-9][a-z0-9._-]{0,252})(?::[0-9]{1,5})?)*(?:[/?][a-z0-9._~!$&(*+,;=:@%/?-]*)?)(?:[\\s'\"\\x60#<>{}\\[\\],;)]|\\\\[nr]|$)",
+   "validation": "CredentialUri",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitea-access-token",
+   "kw": [
+    "gitea"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:gitea[_.-]?(?:token|key|secret|access))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.github-app-token",
+   "kw": [
+    "ghu_",
+    "ghs_"
+   ],
+   "path": "",
+   "pattern": "(?:ghu|ghs)_[0-9a-zA-Z]{36}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.github-fine-grained-pat",
+   "kw": [
+    "github_pat_"
+   ],
+   "path": "",
+   "pattern": "github_pat_\\w{82}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.github-oauth",
+   "kw": [
+    "gho_"
+   ],
+   "path": "",
+   "pattern": "gho_[0-9a-zA-Z]{36}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.github-pat",
+   "kw": [
+    "ghp_"
+   ],
+   "path": "",
+   "pattern": "ghp_[0-9a-zA-Z]{36}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.github-refresh-token",
+   "kw": [
+    "ghr_"
+   ],
+   "path": "",
+   "pattern": "ghr_[0-9a-zA-Z]{36}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-cicd-job-token",
+   "kw": [
+    "glcbt-"
+   ],
+   "path": "",
+   "pattern": "glcbt-[0-9a-zA-Z]{1,5}_[0-9a-zA-Z_-]{20}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-deploy-token",
+   "kw": [
+    "gldt-"
+   ],
+   "path": "",
+   "pattern": "gldt-[0-9a-zA-Z_\\-]{20}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-feature-flag-client-token",
+   "kw": [
+    "glffct-"
+   ],
+   "path": "",
+   "pattern": "glffct-[0-9a-zA-Z_\\-]{20}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-feed-token",
+   "kw": [
+    "glft-"
+   ],
+   "path": "",
+   "pattern": "glft-[0-9a-zA-Z_\\-]{20}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-incoming-mail-address-token",
+   "kw": [
+    "incoming+"
+   ],
+   "path": "",
+   "pattern": "incoming\\+(?:[A-Za-z0-9._-]+-)?\\d+-([A-Za-z0-9_-]+)-(?:issue(?:-\\d+)?|merge-request)@",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-incoming-mail-token",
+   "kw": [
+    "glimt-"
+   ],
+   "path": "",
+   "pattern": "glimt-[0-9a-zA-Z_\\-]{25}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-kubernetes-agent-token",
+   "kw": [
+    "glagent-"
+   ],
+   "path": "",
+   "pattern": "glagent-[0-9a-zA-Z_\\-]{50}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-oauth-app-secret",
+   "kw": [
+    "gloas-"
+   ],
+   "path": "",
+   "pattern": "gloas-[0-9a-zA-Z_\\-]{64}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-pat",
+   "kw": [
+    "glpat-"
+   ],
+   "path": "",
+   "pattern": "glpat-[\\w-]{20}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-pat-routable",
+   "kw": [
+    "glpat-"
+   ],
+   "path": "",
+   "pattern": "\\bglpat-[0-9a-zA-Z_-]{27,300}\\.[0-9a-z]{2}[0-9a-z]{7}\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-pat-routable-versioned",
+   "kw": [
+    "glpat-"
+   ],
+   "path": "",
+   "pattern": "\\bglpat-[0-9a-zA-Z_-]{27,300}\\.[0-9a-z]{2}\\.[0-9a-z]{9}\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-ptt",
+   "kw": [
+    "glptt-"
+   ],
+   "path": "",
+   "pattern": "glptt-[0-9a-f]{40}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-rrt",
+   "kw": [
+    "gr1348941"
+   ],
+   "path": "",
+   "pattern": "GR1348941[\\w-]{20}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-runner-authentication-token",
+   "kw": [
+    "glrt-"
+   ],
+   "path": "",
+   "pattern": "glrt-[0-9a-zA-Z_\\-]{20}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-runner-authentication-token-routable",
+   "kw": [
+    "glrt-"
+   ],
+   "path": "",
+   "pattern": "\\bglrt-t\\d_[0-9a-zA-Z_\\-]{27,300}\\.[0-9a-z]{2}[0-9a-z]{7}\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-scim-token",
+   "kw": [
+    "glsoat-"
+   ],
+   "path": "",
+   "pattern": "glsoat-[0-9a-zA-Z_\\-]{20}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitlab-session-cookie",
+   "kw": [
+    "_gitlab_session="
+   ],
+   "path": "",
+   "pattern": "_gitlab_session=[0-9a-z]{32}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gitter-access-token",
+   "kw": [
+    "gitter"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:gitter)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9_-]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gocardless-api-token",
+   "kw": [
+    "live_",
+    "gocardless"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:gocardless)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(live_(?i)[a-z0-9\\-_=]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.grafana-api-key",
+   "kw": [
+    "eyjrijoi"
+   ],
+   "path": "",
+   "pattern": "\\b(eyJrIjoi[A-Za-z0-9+/]{40,380}={0,2})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.grafana-cloud-api-token",
+   "kw": [
+    "glc_"
+   ],
+   "path": "",
+   "pattern": "\\b(glc_[A-Za-z0-9+/]{40,150}={0,2})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.grafana-service-account-token",
+   "kw": [
+    "glsa_"
+   ],
+   "path": "",
+   "pattern": "\\b(glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.greptile-api-key",
+   "kw": [
+    "greptile"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:greptile)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-zA-Z0-9+/]{48})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.groq-api-key",
+   "kw": [
+    "gsk_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(gsk_[A-Z0-9]{52})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.gumroad-access-token",
+   "kw": [
+    "gumroad"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:gumroad)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}((?:[a-f0-9]{64}|[A-Za-z0-9-]{43}))(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.harness-api-key",
+   "kw": [
+    "pat.",
+    "sat."
+   ],
+   "path": "",
+   "pattern": "(?:pat|sat)\\.[a-zA-Z0-9_-]{22}\\.[0-9a-f]{24}\\.[a-zA-Z0-9]{20}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.hashicorp-tf-api-token",
+   "kw": [
+    "atlasv1"
+   ],
+   "path": "",
+   "pattern": "(?i)[a-z0-9]{14}\\.(?-i:atlasv1)\\.[a-z0-9\\-_=]{60,70}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.hashicorp-tf-password",
+   "kw": [
+    "administrator_login_password",
+    "password"
+   ],
+   "path": "(?i)\\.(?:tf|hcl)$",
+   "pattern": "(?i)(?:administrator_login_password|password)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(\"[a-z0-9=_\\-]{8,20}\")(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.heroku-api-key",
+   "kw": [
+    "heroku"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:heroku)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.heroku-api-key-v2",
+   "kw": [
+    "hrku-aa"
+   ],
+   "path": "",
+   "pattern": "\\b((HRKU-AA[0-9a-zA-Z_-]{58}))(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.highnote-secret-live-key",
+   "kw": [
+    "highnote"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:highnote(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token|sk[_. -]*live))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(sk_live_a2V5Xz[A-Za-z0-9+/]{69}={0,2})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.honeycomb-api-key",
+   "kw": [
+    "honeycomb"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:honeycomb)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}((?:[a-f0-9]{32}|[a-z0-9]{22}))(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.hubspot-api-key",
+   "kw": [
+    "hubspot"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:hubspot)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.huggingface-access-token",
+   "kw": [
+    "hf_"
+   ],
+   "path": "",
+   "pattern": "\\b(hf_(?i:[a-z]{34}))(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.huggingface-organization-api-token",
+   "kw": [
+    "api_org_"
+   ],
+   "path": "",
+   "pattern": "\\b(api_org_(?i:[a-z]{34}))(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.hunter-api-key.1",
+   "kw": [
+    "hunter"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:hunter)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.ibm-cloud-user-api-key",
+   "kw": [
+    "ibm"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:ibm(?:cloud)?|bx)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9_-]{42,44})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.influxdb-api-token",
+   "kw": [
+    "influx"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:\\binflux(?:db)?\\b(?:.|[\\n\\r]){0,64}?\\b(?:token|api[_-]?key)\\b(?:.|[\\n\\r]){0,32}?)[=:\"'\\s]{1,8}([A-Za-z0-9+/=_-]{88,})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.infomaniak-api-token",
+   "kw": [
+    "infomaniak"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:infomaniak)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9_\\-]{60,100})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.infracost-api-token",
+   "kw": [
+    "ico-"
+   ],
+   "path": "",
+   "pattern": "\\b(ico-[a-zA-Z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.instantly-api-key.1",
+   "kw": [
+    "instantly"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:instantly)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9+/]{66}==)(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.intercom-api-key",
+   "kw": [
+    "intercom"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:intercom)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9=_\\-]{60})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.intra42-client-secret",
+   "kw": [
+    "intra",
+    "s-s4t2ud-",
+    "s-s4t2af-"
+   ],
+   "path": "",
+   "pattern": "\\b(s-s4t2(?:ud|af)-(?i)[abcdef0123456789]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.ionic-personal-access-token",
+   "kw": [
+    "ionic"
+   ],
+   "path": "",
+   "pattern": "\\b(ion_[A-Za-z0-9]{42})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.jumpcloud-api-key",
+   "kw": [
+    "jumpcloud"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:jumpcloud)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.jwt",
+   "kw": [
+    "eyj"
+   ],
+   "path": "",
+   "pattern": "\\b(ey[a-zA-Z0-9]{17,}\\.ey[a-zA-Z0-9\\/\\\\_-]{17,}\\.(?:[a-zA-Z0-9\\/\\\\_-]{10,}={0,2})?)(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "JWT",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.jwt-base64",
+   "kw": [
+    "zxlk"
+   ],
+   "path": "",
+   "pattern": "\\bZXlK(?:(?P<alg>aGJHY2lPaU)|(?P<apu>aGNIVWlPaU)|(?P<apv>aGNIWWlPaU)|(?P<aud>aGRXUWlPaU)|(?P<b64>aU5qUWlP)|(?P<crit>amNtbDBJanBi)|(?P<cty>amRIa2lPaU)|(?P<epk>bGNHc2lPbn)|(?P<enc>bGJtTWlPaU)|(?P<jku>cWEzVWlPaU)|(?P<jwk>cWQyc2lPb)|(?P<iss>cGMzTWlPaU)|(?P<iv>cGRpSTZJ)|(?P<kid>cmFXUWlP)|(?P<key_ops>clpYbGZiM0J6SWpwY)|(?P<kty>cmRIa2lPaUp)|(?P<nonce>dWIyNWpaU0k2)|(?P<p2c>d01tTWlP)|(?P<p2s>d01uTWlPaU)|(?P<ppt>d2NIUWlPaU)|(?P<sub>emRXSWlPaU)|(?P<svt>emRuUWlP)|(?P<tag>MFlXY2lPaU)|(?P<typ>MGVYQWlPaUp)|(?P<url>MWNtd2l)|(?P<use>MWMyVWlPaUp)|(?P<ver>MlpYSWlPaU)|(?P<version>MlpYSnphVzl1SWpv)|(?P<x>NElqb2)|(?P<x5c>NE5XTWlP)|(?P<x5t>NE5YUWlPaU)|(?P<x5ts256>NE5YUWpVekkxTmlJNkl)|(?P<x5u>NE5YVWlPaU)|(?P<zip>NmFYQWlPaU))[a-zA-Z0-9\\/\\\\_+\\-\\r\\n]{40,}={0,2}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.kagi-api-key",
+   "kw": [
+    "kagi"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:kagi)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9_-]{11}\\.[a-z0-9_-]{43})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.kimi-api-key",
+   "kw": [],
+   "path": "",
+   "pattern": "(?:(?:\\A|(?:[\\x00-,\\./:-@\\[-\\^`\\{-\\xFF]))((?:(?:[Ss])(?:[Kk])\\-(?:[\\-0-9A-Z_a-z]){48}))(?:(?:\\\\?(?:[\"'`]))|(?:[\\x09-\\x0D\\x20;])|(?:\\\\(?:[NRnr]))|\\z))",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.klaviyo-api-key",
+   "kw": [
+    "klaviyo"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:klaviyo)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(pk_[a-z0-9]{34})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.kraken-access-token",
+   "kw": [
+    "kraken"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:kraken)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9\\/=_\\+\\-]{80,90})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.kubernetes-secret-yaml",
+   "kw": [
+    "secret"
+   ],
+   "path": "(?i)\\.ya?ml$",
+   "pattern": "(?i)(?:\\bkind:[ \\t]*[\"']?\\bsecret\\b[\"']?(?s:.){0,1000}?\\bdata:(?s:.){0,100}?\\s+([\\w.-]+:(?:[ \\t]*(?:\\||>[-+]?)\\s+)?[ \\t]*(?:[\"']?[a-z0-9+/]{10,}={0,3}[\"']?|\\{\\{[ \\t\\w\"|$:=,.-]+}}|\"\"|''))|\\bdata:(?s:.){0,100}?\\s+([\\w.-]+:(?:[ \\t]*(?:\\||>[-+]?)\\s+)?[ \\t]*(?:[\"']?[a-z0-9+/]{10,}={0,3}[\"']?|\\{\\{[ \\t\\w\"|$:=,.-]+}}|\"\"|''))(?s:.){0,1000}?\\bkind:[ \\t]*[\"']?\\bsecret\\b[\"']?)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.kucoin-access-token",
+   "kw": [
+    "kucoin"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:kucoin)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{24})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.kucoin-secret-key",
+   "kw": [
+    "kucoin"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:kucoin)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.labelbox-api-key",
+   "kw": [
+    "lbx_"
+   ],
+   "path": "",
+   "pattern": "\\b(lbx_[\\w-]{42}[AEIMQUYcgkosw048])(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.labelbox-recursion-api-key",
+   "kw": [
+    "rma_"
+   ],
+   "path": "",
+   "pattern": "\\b(rma_[\\w-]{42}[AEIMQUYcgkosw048])(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.langchain-langsmith-personal-access-token",
+   "kw": [
+    "lsv2_pt_"
+   ],
+   "path": "",
+   "pattern": "\\b(lsv2_pt_[0-9a-fA-F]{32}_[0-9a-fA-F]{10})",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.langchain-langsmith-service-key",
+   "kw": [
+    "lsv2_sk_"
+   ],
+   "path": "",
+   "pattern": "\\b(lsv2_sk_[0-9a-fA-F]{32}_[0-9a-fA-F]{10})",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.langfuse-public-key.1",
+   "kw": [
+    "pk-lf-"
+   ],
+   "path": "",
+   "pattern": "\\b(pk-lf-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.langfuse-secret-key.1",
+   "kw": [
+    "sk-lf-"
+   ],
+   "path": "",
+   "pattern": "\\b(sk-lf-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.lark-app-id",
+   "kw": [
+    "cli_"
+   ],
+   "path": "",
+   "pattern": "\\b(cli_[A-Za-z0-9]{16})",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.lark-app-secret",
+   "kw": [
+    "lark"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:lark|larksuite)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.launchdarkly-access-token",
+   "kw": [
+    "launchdarkly"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:launchdarkly)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9=_\\-]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.lichess-personal-access-token",
+   "kw": [
+    "lip_"
+   ],
+   "path": "",
+   "pattern": "\\b(lip_[A-Za-z0-9_]{16,60})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.lighton-paradigm-api-key",
+   "kw": [
+    "lighton",
+    "paradigm"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:lighton|paradigm)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9_\\-]{40,80})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.linear-api-key",
+   "kw": [
+    "lin_api_"
+   ],
+   "path": "",
+   "pattern": "lin_api_(?i)[a-z0-9]{40}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.linear-client-secret",
+   "kw": [
+    "linear"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:linear)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.linkedin-client-id",
+   "kw": [
+    "linkedin",
+    "linked_in",
+    "linked-in"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:linked[_-]?in)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{14})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.linkedin-client-secret",
+   "kw": [
+    "linkedin",
+    "linked_in",
+    "linked-in"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:linked[_-]?in)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{16})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.llama-cloud-api-key.1",
+   "kw": [
+    "llx-"
+   ],
+   "path": "",
+   "pattern": "\\b(llx-[A-Za-z0-9]{44,52})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.lob-api-key",
+   "kw": [
+    "test_",
+    "live_"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:lob)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}((live|test)_[a-f0-9]{35})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.lob-pub-api-key",
+   "kw": [
+    "test_pub_",
+    "live_pub_"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:lob)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}((test|live)_pub_[a-f0-9]{31})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.looker-client-id",
+   "kw": [
+    "looker"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:looker)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{20})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.looker-client-secret",
+   "kw": [
+    "looker"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:looker)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{24})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.mailchimp-api-key",
+   "kw": [
+    "mailchimp"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:MailchimpSDK.initialize|mailchimp)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{32}-us\\d\\d)(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.mailersend-api-token",
+   "kw": [
+    "mlsn."
+   ],
+   "path": "",
+   "pattern": "\\b(mlsn\\.[A-Za-z0-9]{30,100})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.mailgun-private-api-token",
+   "kw": [
+    "mailgun"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:mailgun)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(key-[a-f0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.mailgun-pub-key",
+   "kw": [
+    "mailgun"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:mailgun)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(pubkey-[a-f0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.mailgun-signing-key",
+   "kw": [
+    "mailgun"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:mailgun)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-h0-9]{32}-[a-h0-9]{8}-[a-h0-9]{8})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.mapbox-api-token",
+   "kw": [
+    "pk.eyj1ijoi"
+   ],
+   "path": "",
+   "pattern": "\\b(pk\\.eyJ1Ijoi[A-Za-z0-9_-]{15,300}\\.[A-Za-z0-9_-]{21}[AQgw])(?:$|[^A-Za-z0-9_-])",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.mapbox-secret-token",
+   "kw": [
+    "sk.eyj1ijoi"
+   ],
+   "path": "",
+   "pattern": "\\b(sk\\.eyJ1Ijoi[A-Za-z0-9_-]{15,300}\\.[A-Za-z0-9_-]{21}[AQgw])(?:$|[^A-Za-z0-9_-])",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.mattermost-access-token",
+   "kw": [
+    "mattermost"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:mattermost)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{26})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.maxmind-license-key",
+   "kw": [
+    "_mmk"
+   ],
+   "path": "",
+   "pattern": "\\b([A-Za-z0-9]{6}_[A-Za-z0-9]{29}_mmk)(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.mem0-api-key.1",
+   "kw": [
+    "mem0"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:mem0)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(m0-[A-Za-z0-9]{24,44})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.mercury-production-api-token",
+   "kw": [
+    "mercury_production_"
+   ],
+   "path": "",
+   "pattern": "\\b(mercury_production_[a-z]{3,6}_[A-Za-z0-9]{40,50}_yrucrem)(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.mergify-application-key",
+   "kw": [
+    "mergify_application_key_"
+   ],
+   "path": "",
+   "pattern": "\\b(mergify_application_key_[A-Za-z0-9_-]{40,200})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.messagebird-api-token",
+   "kw": [
+    "messagebird",
+    "message-bird",
+    "message_bird"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:message[_-]?bird)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{25})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.messagebird-client-id",
+   "kw": [
+    "messagebird",
+    "message-bird",
+    "message_bird"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:message[_-]?bird)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.microsoft-teams-webhook",
+   "kw": [
+    "webhook.office.com",
+    "webhookb2",
+    "incomingwebhook"
+   ],
+   "path": "",
+   "pattern": "https://[a-z0-9]+\\.webhook\\.office\\.com/webhookb2/[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}@[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}/IncomingWebhook/[a-z0-9]{32}/[a-z0-9]{8}-([a-z0-9]{4}-){3}[a-z0-9]{12}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.midtrans-production-server-client-key",
+   "kw": [
+    "mid-server-",
+    "mid-client-"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:midtrans|mid[_-]?)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(Mid-(?:server|client)-[A-Za-z0-9_]{10,20})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.minimax-api-key",
+   "kw": [
+    "sk-api-",
+    "minimax"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(sk-api-[A-Za-z0-9_-]{119})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.miro-access-token",
+   "kw": [
+    "miro"
+   ],
+   "path": "",
+   "pattern": "\\b(eyJtaXJv[A-Za-z0-9-]{10,64}_[A-Za-z0-9_-]{20,64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.miro-client-id",
+   "kw": [
+    "miro"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:miro[_. -]*client[_. -]*id)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9]{15,21})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.miro-client-secret",
+   "kw": [
+    "miro"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:miro)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.mistral-api-key",
+   "kw": [
+    "mistral"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:mistral)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.monday-api-token.1",
+   "kw": [
+    "monday"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:monday)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(eyJ[A-Za-z0-9_-]{10,200}\\.eyJ[A-Za-z0-9_-]{50,1000}\\.[A-Za-z0-9_-]{20,500})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.mongodb-atlas-service-account-id",
+   "kw": [
+    "mdb_sa_id_"
+   ],
+   "path": "",
+   "pattern": "\\b(mdb_sa_id_[a-f0-9]{24})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.mongodb-atlas-service-account-secret",
+   "kw": [
+    "mdb_sa_sk_"
+   ],
+   "path": "",
+   "pattern": "\\b(mdb_sa_sk_[A-Za-z0-9_-]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.mongodb-connection-string",
+   "kw": [
+    "mongodb://",
+    "mongodb+srv://"
+   ],
+   "path": "",
+   "pattern": "\\b(mongodb(?:\\+srv)?://(?P<username>[!-9;-~]{3,50}):(?P<password>[!-?A-~]{3,88})@(?P<host>(?:[a-zA-Z0-9][\\w.-]+|\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})(?::\\d{1,5})?(?:,(?:[a-zA-Z0-9][\\w.-]+|\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})(?::\\d{1,5})?)*)/?(?:(?P<authdb>[\\w-]+)?(?P<options>\\?\\w+=[\\w@/.$-]+(?:&(?:amp;)?\\w+=[\\w@/.$-]+)*)?)?)(?:['\"\\s;\\x60]|\\\\[nr]|\\b|$)",
+   "validation": "MongoDB",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.mux-access-token-id.1",
+   "kw": [
+    "mux"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:mux[_.-]?(?:access[_.-]?)?token[_.-]?(?:id|identifier))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.mux-access-token-secret.1",
+   "kw": [
+    "mux"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:mux[_.-]?(?:access[_.-]?)?token[_.-]?(?:secret|private|key))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9+/]{75})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.neon-api-key",
+   "kw": [
+    "napi_"
+   ],
+   "path": "",
+   "pattern": "\\b(napi_[A-Za-z0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.netlify-access-token",
+   "kw": [
+    "netlify"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:netlify)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9=_\\-]{40,46})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.new-relic-browser-api-token",
+   "kw": [
+    "nrjs-"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:new-relic|newrelic|new_relic)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(NRJS-[a-f0-9]{19})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.new-relic-insert-key",
+   "kw": [
+    "nrii-"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:new-relic|newrelic|new_relic)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(NRII-[a-z0-9-]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.new-relic-user-api-id",
+   "kw": [
+    "new-relic",
+    "newrelic",
+    "new_relic"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:new-relic|newrelic|new_relic)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.new-relic-user-api-key",
+   "kw": [
+    "nrak"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:new-relic|newrelic|new_relic)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(NRAK-[a-z0-9]{27})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.ngrok-api-key.1",
+   "kw": [
+    "ngrok"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:ngrok[_. -]*(?:(?:api|agent)[_. -]*)?(?:secret|key|token|authtoken))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(2[A-Za-z0-9]{26}_[0-9][A-Za-z0-9]{20})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.notion-api-token",
+   "kw": [
+    "ntn_"
+   ],
+   "path": "",
+   "pattern": "\\b(ntn_[0-9]{11}[A-Za-z0-9]{32}[A-Za-z0-9]{3})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.npm-access-token",
+   "kw": [
+    "npm_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(npm_[a-z0-9]{36})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.nuget-api-key",
+   "kw": [
+    "oy2"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(oy2[a-p][a-z2-7]{15}[aq][a-z2-7]{25}[aeimquy4])(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.nuget-config-password",
+   "kw": [
+    "<add key="
+   ],
+   "path": "(?i)nuget\\.config$",
+   "pattern": "(?i)<add key=\\\"(?:(?:ClearText)?Password)\\\"\\s*value=\\\"(.{8,})\\\"\\s*/>",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.nvidia-api-key",
+   "kw": [
+    "nvapi-"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(nvapi-[A-Z0-9_-]{60,70})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.nylas-api-key.1",
+   "kw": [
+    "nyk_"
+   ],
+   "path": "",
+   "pattern": "\\b(nyk_[A-Za-z0-9]{67})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.nytimes-access-token",
+   "kw": [
+    "nytimes",
+    "new-york-times",
+    "newyorktimes"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:nytimes|new-york-times|newyorktimes)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9=_\\-]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.octopus-deploy-api-key",
+   "kw": [
+    "api-"
+   ],
+   "path": "",
+   "pattern": "\\b(API-[A-Z0-9]{26})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.okta-access-token",
+   "kw": [
+    "okta"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:(?-i:[Oo]kta|OKTA))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(00[\\w=\\-]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.ollama-api-key",
+   "kw": [
+    "ollama"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:ollama)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{32}\\.[a-zA-Z0-9_-]{24})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.onesignal-rich-authentication-token",
+   "kw": [
+    "os_v2_app_",
+    "os_v2_org_"
+   ],
+   "path": "",
+   "pattern": "\\b(os_v2_(?:app|org)_[a-z2-7]{103})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.onfido-live-api-token-ca",
+   "kw": [
+    "api_live_ca."
+   ],
+   "path": "",
+   "pattern": "\\b(api_live_ca\\.[A-Za-z0-9_-]{20,80})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.onfido-live-api-token-eu",
+   "kw": [
+    "api_live."
+   ],
+   "path": "",
+   "pattern": "\\b(api_live\\.[A-Za-z0-9_-]{20,80})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.onfido-live-api-token-us",
+   "kw": [
+    "api_live_us."
+   ],
+   "path": "",
+   "pattern": "\\b(api_live_us\\.[A-Za-z0-9_-]{20,80})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.openai-api-key",
+   "kw": [
+    "t3blbkfj"
+   ],
+   "path": "",
+   "pattern": "\\b(sk-(?:proj|svcacct|admin)-(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})T3BlbkFJ(?:[A-Za-z0-9_-]{74}|[A-Za-z0-9_-]{58}|[A-Za-z0-9_-]{20})\\b|sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.openrouter-api-key",
+   "kw": [
+    "sk-or-v1-"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(sk-or-v1-[0-9a-f]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.openshift-user-token",
+   "kw": [
+    "sha256~"
+   ],
+   "path": "",
+   "pattern": "\\b(sha256~[\\w-]{43})(?:[^\\w-]|\\z)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.openweather-api-key",
+   "kw": [
+    "openweather",
+    "pyowm"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:openweather|pyowm)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.opsgenie-api-key.1",
+   "kw": [
+    "opsgenie"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:opsgenie)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.ovh-application-key",
+   "kw": [
+    "ovh"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:app(?:lication)?[_.-]{0,1}key)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9-]{16})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.ovh-application-secret",
+   "kw": [
+    "ovh"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:app(?:lication)?[_.-]{0,1}secret)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9-]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.ovh-consumer-key",
+   "kw": [
+    "ovh"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:consumer[_.-]{0,1}key)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9-]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.paddle-live-api-key",
+   "kw": [
+    "pdl_live_apikey_"
+   ],
+   "path": "",
+   "pattern": "\\b(pdl_live_apikey_[a-z0-9]{26}_[A-Za-z0-9]{22}_[A-Za-z0-9]{3})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.pagerduty-authorization-token.1",
+   "kw": [
+    "pagerduty"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:pagerduty)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(u\\+[A-Za-z0-9_+-]{18})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.paypal-client-id.1",
+   "kw": [
+    "paypal"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:paypal[_.-]?(?:client[_.-]?)?(?:id|user))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(A[A-Za-z0-9_-]{78,99})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.paypal-client-secret.1",
+   "kw": [
+    "paypal"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:paypal[_.-]?(?:client[_.-]?)?(?:secret|private|access|key|token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9_.-]{78,120})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.perplexity-api-key",
+   "kw": [
+    "pplx-"
+   ],
+   "path": "",
+   "pattern": "\\b(pplx-[a-zA-Z0-9]{48})(?:[\\x60'\"\\s;]|\\\\[nr]|$|\\b)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.persona-production-api-key",
+   "kw": [
+    "persona_production_"
+   ],
+   "path": "",
+   "pattern": "\\b(persona_production_[a-z0-9_-]{20,80})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.pinecone-api-key.1",
+   "kw": [
+    "pinecone"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:pinecone(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.pinecone-api-key.2",
+   "kw": [
+    "pcsk_"
+   ],
+   "path": "",
+   "pattern": "\\b(pcsk_[A-Za-z0-9]{5,6}_[A-Za-z0-9]{63})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.pinterest-access-token",
+   "kw": [
+    "pina_"
+   ],
+   "path": "",
+   "pattern": "\\b(pina_[A-Za-z0-9_-]{20,200})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.plaid-api-token",
+   "kw": [
+    "plaid"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:plaid)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(access-(?:sandbox|development|production)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.plaid-client-id",
+   "kw": [
+    "plaid"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:plaid)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{24})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.plaid-secret-key",
+   "kw": [
+    "plaid"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:plaid)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{30})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.planetscale-api-token",
+   "kw": [
+    "pscale_tkn_"
+   ],
+   "path": "",
+   "pattern": "\\b(pscale_tkn_(?i)[\\w=\\.-]{32,64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.planetscale-id",
+   "kw": [
+    "pscale",
+    "planetscale"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:pscale|planetscale)(?:.|[\\n\\r]){0,16}?(?:USER|ID|NAME)(?:.|[\\n\\r]){0,16}?([a-z0-9]{12})",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.planetscale-oauth-token",
+   "kw": [
+    "pscale_oauth_"
+   ],
+   "path": "",
+   "pattern": "\\b(pscale_oauth_[\\w=\\.-]{32,64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.planetscale-password",
+   "kw": [
+    "pscale_pw_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(pscale_pw_(?i)[\\w=\\.-]{32,64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.plivo-auth-id",
+   "kw": [
+    "plivo"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:plivo(?:[_. -]*(?:auth|account))?[_. -]*(?:id|sid))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(MA[A-Z0-9]{18})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.plivo-auth-token",
+   "kw": [
+    "plivo"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:plivo(?:[_. -]*(?:auth))?[_. -]*(?:secret|token|key))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9_-]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.polar-oauth-access-token",
+   "kw": [
+    "polar_at_"
+   ],
+   "path": "",
+   "pattern": "\\b(polar_at_[A-Za-z0-9_-]{20,100})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.polar-organization-access-token",
+   "kw": [
+    "polar_oat_"
+   ],
+   "path": "",
+   "pattern": "\\b(polar_oat_[A-Za-z0-9_-]{20,100})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.polar-personal-access-token",
+   "kw": [
+    "polar_pat_"
+   ],
+   "path": "",
+   "pattern": "\\b(polar_pat_[A-Za-z0-9_-]{20,100})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.polymarket-address",
+   "kw": [
+    "poly"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:poly.{0,20}address)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(0x[a-fA-F0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.polymarket-api-key",
+   "kw": [
+    "poly"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:poly.{0,20}key)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.polymarket-api-secret",
+   "kw": [
+    "poly"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:poly.{0,20}secret)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-zA-Z0-9+/]{40,}={0,2})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.polymarket-passphrase",
+   "kw": [
+    "poly"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:poly.{0,20}passphrase)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-zA-Z0-9_]{8,128})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.polymarket-private-key",
+   "kw": [
+    "poly"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:poly.{0,20}private.{0,20}key)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(0x[a-fA-F0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Ethereum",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.posthog-personal-api-key",
+   "kw": [
+    "phx_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(phx_[a-zA-Z0-9_\\-]{41,49})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.posthog-project-api-key",
+   "kw": [
+    "phc_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(phc_[a-zA-Z0-9_\\-]{41,44})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.postman-api-token",
+   "kw": [
+    "pmak-"
+   ],
+   "path": "",
+   "pattern": "\\b(PMAK-(?i)[a-f0-9]{24}\\-[a-f0-9]{34})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.postmark-api-token.1",
+   "kw": [
+    "postmark"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:postmark)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.prefect-api-token",
+   "kw": [
+    "pnu_"
+   ],
+   "path": "",
+   "pattern": "\\b(pnu_[a-zA-Z0-9]{36})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.private-key",
+   "kw": [
+    "-----begin"
+   ],
+   "path": "",
+   "pattern": "(?i)-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----[\\s\\S-]*?-----END[ A-Z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----",
+   "validation": "Assumed",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.privateai-api-token",
+   "kw": [
+    "privateai",
+    "private_ai",
+    "private-ai"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:private[_-]?ai)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.proof-full-access-api-key",
+   "kw": [
+    "prf_"
+   ],
+   "path": "",
+   "pattern": "\\b(prf_(?:cli_)?[A-Za-z0-9_-]{20,80})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.pulumi-api-token",
+   "kw": [
+    "pul-"
+   ],
+   "path": "",
+   "pattern": "\\b(pul-[a-f0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.pypi-upload-token",
+   "kw": [
+    "pypi-ageichlwas5vcmc"
+   ],
+   "path": "",
+   "pattern": "pypi-AgEIcHlwaS5vcmc[\\w-]{50,1000}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.rainforest-pay-production-api-key",
+   "kw": [
+    "rainforest"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:rainforest(?:[_. -]*pay)?(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(apikey_[a-f0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.ramp-client-id",
+   "kw": [
+    "ramp_id_"
+   ],
+   "path": "",
+   "pattern": "\\b(ramp_id_[A-Za-z0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.ramp-client-secret",
+   "kw": [
+    "ramp_sec_"
+   ],
+   "path": "",
+   "pattern": "\\b(ramp_sec_[A-Za-z0-9]{48})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.rapidapi-access-token",
+   "kw": [
+    "rapidapi"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:rapidapi)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9_-]{50})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.razorpay-key-id.1",
+   "kw": [
+    "rzp_live_",
+    "rzp_test_"
+   ],
+   "path": "",
+   "pattern": "\\b(rzp_(?:live|test)_[A-Za-z0-9]{14})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.razorpay-key-secret.1",
+   "kw": [
+    "razorpay"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:razorpay[_.-]?(?:(?:api|key)[_.-]?)?(?:secret|private|token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9]{24})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.readme-api-token",
+   "kw": [
+    "rdme_"
+   ],
+   "path": "",
+   "pattern": "\\b(rdme_[a-z0-9]{70})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.redirect-pizza-api-token.1",
+   "kw": [
+    "rpa_"
+   ],
+   "path": "",
+   "pattern": "\\b(rpa_[A-Za-z0-9]{30})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.render-api-key",
+   "kw": [
+    "rnd_"
+   ],
+   "path": "",
+   "pattern": "\\b(rnd_[A-Za-z0-9]{28})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.replicate-api-token",
+   "kw": [
+    "r8_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(r8_[A-Za-z0-9]{37})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.resend-api-key.1",
+   "kw": [
+    "resend"
+   ],
+   "path": "",
+   "pattern": "\\b(re_[1-9A-HJ-NP-Za-km-z]{8}_[1-9A-HJ-NP-Za-km-z]{24})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.retell-api-key.1",
+   "kw": [
+    "retell"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:retell)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(key_[a-f0-9]{28})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.rootly-api-key.1",
+   "kw": [
+    "rootly_"
+   ],
+   "path": "",
+   "pattern": "\\b(rootly_[a-f0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.rubygems-api-token",
+   "kw": [
+    "rubygems_"
+   ],
+   "path": "",
+   "pattern": "\\b(rubygems_[a-f0-9]{48})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.runpod-api-key.1",
+   "kw": [
+    "rpa_"
+   ],
+   "path": "",
+   "pattern": "\\b(rpa_[A-Z0-9]{40}[A-Za-z0-9]{6})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.salesforce-access-token.1",
+   "kw": [
+    "salesforce.com"
+   ],
+   "path": "",
+   "pattern": "\\b(00[A-Za-z0-9]{13}![A-Za-z0-9._-]{80,260})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.salesforce-instance-url.1",
+   "kw": [
+    "salesforce.com"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:^|[^a-z0-9.-])(?:https?://)?((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?){0,4}\\.my\\.salesforce\\.com|[a-z]{2,8}[0-9]{1,4}\\.salesforce\\.com))(?:[^a-z0-9.-]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.samsara-api-token.1",
+   "kw": [
+    "samsara_api_"
+   ],
+   "path": "",
+   "pattern": "\\b(samsara_api_[A-Za-z0-9]{26,32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.scaleway-secret-key",
+   "kw": [
+    "scaleway",
+    "scw"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:(?:scaleway|scw).{0,20}?(?:secret|token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.scalingo-api-token",
+   "kw": [
+    "tk-us-"
+   ],
+   "path": "",
+   "pattern": "\\b(tk-us-[\\w-]{48})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.scalr-api-access-token.1",
+   "kw": [
+    "scalr"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:scalr(?:[_. -]*(?:api|access))?[_. -]*(?:secret|key|token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\\.eyJpc3MiOiJ1c2VyIiwianRpIjoiYXQt[A-Za-z0-9_-]{20,40}\\.[A-Za-z0-9_-]{43})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.segment-public-api-token.1",
+   "kw": [
+    "sgp_"
+   ],
+   "path": "",
+   "pattern": "\\b(sgp_[A-Za-z0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.sendbird-access-id",
+   "kw": [
+    "sendbird"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:sendbird)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.sendbird-access-token",
+   "kw": [
+    "sendbird"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:sendbird)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.sendgrid-api-token",
+   "kw": [
+    "sg."
+   ],
+   "path": "",
+   "pattern": "\\b(SG\\.(?i)[a-z0-9=_\\-\\.]{66})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.sendinblue-api-token",
+   "kw": [
+    "xkeysib-"
+   ],
+   "path": "",
+   "pattern": "\\b(xkeysib-[a-fA-F0-9]{64}-[a-zA-Z0-9]{16})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.sentry-access-token",
+   "kw": [
+    "sentry"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:sentry)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.sentry-org-token",
+   "kw": [
+    "sntrys_eyjpyxqio"
+   ],
+   "path": "",
+   "pattern": "\\bsntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl91cmwi|cmVnaW9uX3VybCI6)[a-zA-Z0-9+/]{10,200}={0,2}_[a-zA-Z0-9+/]{43}(?:[^a-zA-Z0-9+/]|\\z)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.sentry-user-token",
+   "kw": [
+    "sntryu_"
+   ],
+   "path": "",
+   "pattern": "\\b(sntryu_[a-f0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.settlemint-application-access-token",
+   "kw": [
+    "sm_aat"
+   ],
+   "path": "",
+   "pattern": "\\b(sm_aat_[a-zA-Z0-9]{16})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.settlemint-personal-access-token",
+   "kw": [
+    "sm_pat"
+   ],
+   "path": "",
+   "pattern": "\\b(sm_pat_[a-zA-Z0-9]{16})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.settlemint-service-access-token",
+   "kw": [
+    "sm_sat"
+   ],
+   "path": "",
+   "pattern": "\\b(sm_sat_[a-zA-Z0-9]{16})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.shippo-api-token",
+   "kw": [
+    "shippo_"
+   ],
+   "path": "",
+   "pattern": "\\b(shippo_(?:live|test)_[a-fA-F0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.shopify-access-token",
+   "kw": [
+    "shpat_"
+   ],
+   "path": "",
+   "pattern": "shpat_[a-fA-F0-9]{32}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.shopify-custom-access-token",
+   "kw": [
+    "shpca_"
+   ],
+   "path": "",
+   "pattern": "shpca_[a-fA-F0-9]{32}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.shopify-private-app-access-token",
+   "kw": [
+    "shppa_"
+   ],
+   "path": "",
+   "pattern": "shppa_[a-fA-F0-9]{32}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.shopify-shared-secret",
+   "kw": [
+    "shpss_"
+   ],
+   "path": "",
+   "pattern": "shpss_[a-fA-F0-9]{32}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.sidekiq-secret",
+   "kw": [
+    "bundle_enterprise__contribsys__com",
+    "bundle_gems__contribsys__com"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:BUNDLE_ENTERPRISE__CONTRIBSYS__COM|BUNDLE_GEMS__CONTRIBSYS__COM)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{8}:[a-f0-9]{8})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.sidekiq-sensitive-url",
+   "kw": [
+    "gems.contribsys.com",
+    "enterprise.contribsys.com"
+   ],
+   "path": "",
+   "pattern": "(?i)\\bhttps?://([a-f0-9]{8}:[a-f0-9]{8})@(?:gems.contribsys.com|enterprise.contribsys.com)(?:[\\/|\\#|\\?|:]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.slack-app-token",
+   "kw": [
+    "xapp"
+   ],
+   "path": "",
+   "pattern": "(?i)xapp-\\d-[A-Z0-9]+-\\d+-[a-z0-9]+",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.slack-bot-token",
+   "kw": [
+    "xoxb"
+   ],
+   "path": "",
+   "pattern": "xoxb-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.slack-config-access-token",
+   "kw": [
+    "xoxe.xoxb-",
+    "xoxe.xoxp-"
+   ],
+   "path": "",
+   "pattern": "(?i)xoxe.xox[bp]-\\d-[A-Z0-9]{163,166}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.slack-config-refresh-token",
+   "kw": [
+    "xoxe-"
+   ],
+   "path": "",
+   "pattern": "(?i)xoxe-\\d-[A-Z0-9]{146}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.slack-legacy-bot-token",
+   "kw": [
+    "xoxb"
+   ],
+   "path": "",
+   "pattern": "xoxb-[0-9]{8,14}-[a-zA-Z0-9]{18,26}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.slack-legacy-token",
+   "kw": [
+    "xoxo",
+    "xoxs"
+   ],
+   "path": "",
+   "pattern": "xox[os]-\\d+-\\d+-\\d+-[a-fA-F\\d]+",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.slack-legacy-workspace-token",
+   "kw": [
+    "xoxa",
+    "xoxr"
+   ],
+   "path": "",
+   "pattern": "xox[ar]-(?:\\d-)?[0-9a-zA-Z]{8,48}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.slack-session-cookie",
+   "kw": [
+    "xoxd-"
+   ],
+   "path": "",
+   "pattern": "(xoxd-[\\w\\/\\\\+-]{100,}={0,2})(?:[^\\w\\/+=-]|\\z)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.slack-session-token",
+   "kw": [
+    "xoxc-"
+   ],
+   "path": "",
+   "pattern": "xoxc-\\d{9,15}-\\d{9,15}-\\d{9,15}-[a-f0-9]{64}\\b",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.slack-user-token",
+   "kw": [
+    "xoxp-",
+    "xoxe-"
+   ],
+   "path": "",
+   "pattern": "xox[pe](?:-[0-9]{10,13}){3}-[a-zA-Z0-9-]{28,34}",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.slack-webhook-url",
+   "kw": [
+    "hooks.slack.com"
+   ],
+   "path": "",
+   "pattern": "(?:https?://)?hooks.slack.com/(?:services|workflows|triggers)/[A-Za-z0-9+/]{43,56}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.snowflake-account-host.1",
+   "kw": [
+    "snowflakecomputing.com"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b([a-z0-9_-]+(?:\\.[a-z0-9_-]+)*\\.snowflakecomputing\\.com)\\b",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.snowflake-programmatic-access-token.1",
+   "kw": [
+    "snowflake",
+    "sf_token"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:(?:snowflake[_. -]*(?:programmatic[_. -]*)?(?:access[_. -]*)?token|sf[_. -]*token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9_-]{100,500})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.snyk-api-token",
+   "kw": [
+    "snyk"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:snyk[_.-]?(?:(?:api|oauth)[_.-]?)?(?:key|token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.sonar-api-token",
+   "kw": [
+    "sonar"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:sonar[_.-]?(login|token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}((?:squ_|sqp_|sqa_)?[a-z0-9=_\\-]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.sourcegraph-access-token",
+   "kw": [
+    "sgp_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(sgp_(?:[a-fA-F0-9]{16}|local)_[a-fA-F0-9]{40}|sgp_[a-fA-F0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.square-access-token",
+   "kw": [
+    "sq0atp-",
+    "eaaa"
+   ],
+   "path": "",
+   "pattern": "\\b((?:EAAA|sq0atp-)[\\w-]{22,60})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.squarespace-access-token",
+   "kw": [
+    "squarespace"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:squarespace)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.sslmate-api-key.1",
+   "kw": [
+    "sslmate"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:sslmate(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9]{36})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.stability-ai-api-key",
+   "kw": [
+    "stability"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:stability)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(sk-[A-Za-z0-9]{48})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.stripe-access-token",
+   "kw": [
+    "sk_test",
+    "sk_live",
+    "sk_prod",
+    "rk_test",
+    "rk_live",
+    "rk_prod"
+   ],
+   "path": "",
+   "pattern": "\\b((?:sk|rk)_(?:test|live|prod)_[a-zA-Z0-9]{10,99})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.sumologic-access-id",
+   "kw": [
+    "sumo"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:(?-i:[Ss]umo|SUMO))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}((?-i:su)[a-zA-Z0-9]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.sumologic-access-token",
+   "kw": [
+    "sumo"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:(?-i:[Ss]umo|SUMO))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.supabase-management-token",
+   "kw": [
+    "sbp_"
+   ],
+   "path": "",
+   "pattern": "\\b(sbp_[a-z0-9_-]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.supabase-project-api-key",
+   "kw": [
+    "sb_secret_"
+   ],
+   "path": "",
+   "pattern": "\\b(sb_secret_[A-Za-z0-9_-]{31})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.supabase-project-url",
+   "kw": [
+    "supabase.co"
+   ],
+   "path": "",
+   "pattern": "\\b(https://[a-z0-9]{16,32}\\.supabase\\.co)\\b",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.tableau-personal-access-token-name.1",
+   "kw": [
+    "tableau"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:tableau(?:[_. -]*(?:personal[_. -]*access|pat))?[_. -]*(?:token[_. -]*)?name)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z][A-Za-z0-9_-]{2,50})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.tableau-personal-access-token.1",
+   "kw": [
+    "tableau"
+   ],
+   "path": "",
+   "pattern": "(?:^|[^A-Za-z0-9+/])([A-Za-z0-9+/]{22}==:[A-Za-z0-9]{32})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.tableau-server-host.1",
+   "kw": [
+    "online.tableau.com"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b([a-z0-9-]+\\.online\\.tableau\\.com)\\b",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.tailscale-api-key.1",
+   "kw": [
+    "tskey-api-k"
+   ],
+   "path": "",
+   "pattern": "\\b(tskey-api-k[A-Za-z0-9]{4,16}CNTRL-[A-Za-z0-9]{28,40})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.tailscale-auth-key",
+   "kw": [
+    "tskey-auth-k"
+   ],
+   "path": "",
+   "pattern": "\\b(tskey-auth-k[A-Za-z0-9]{4,16}CNTRL-[A-Za-z0-9]{28,40})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.tailscale-key",
+   "kw": [
+    "tskey-k"
+   ],
+   "path": "",
+   "pattern": "\\b(tskey-k[A-Za-z0-9]{4,16}CNTRL-[A-Za-z0-9]{20,40})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.tailscale-oauth-client-secret",
+   "kw": [
+    "tskey-client-k"
+   ],
+   "path": "",
+   "pattern": "\\b(tskey-client-k[A-Za-z0-9]{4,16}CNTRL-[A-Za-z0-9]{28,40})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.tailscale-scim-key",
+   "kw": [
+    "tskey-scim-"
+   ],
+   "path": "",
+   "pattern": "\\b(tskey-scim-[A-Za-z0-9]{8,24}-[A-Za-z0-9]{28,40})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.tailscale-webhook-secret",
+   "kw": [
+    "tskey-webhook-k"
+   ],
+   "path": "",
+   "pattern": "\\b(tskey-webhook-k[A-Za-z0-9]{4,16}CNTRL-[A-Za-z0-9]{28,40})\\b",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.telegram-bot-api-token",
+   "kw": [
+    "telegr"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:telegr)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9]{5,16}:(?-i:A)[a-z0-9_\\-]{34})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.telnyx-api-v2-key.1",
+   "kw": [
+    "telnyx"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:telnyx(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(KEY[0-9A-Za-z_-]{55})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.temporal-cloud-api-key.1",
+   "kw": [
+    "inrlbxbvcmfslmlv"
+   ],
+   "path": "",
+   "pattern": "\\b(eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]*Y2NvdW50X2lk[A-Za-z0-9_-]*InRlbXBvcmFsLmlv[A-Za-z0-9_-]*(?:ICJrZXlfaWQiOi|a2V5X2lk|rZXlfaWQi)[A-Za-z0-9_-]{20,}\\.[A-Za-z0-9_-]{20,})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.thunderstore-api-token.1",
+   "kw": [
+    "tss_"
+   ],
+   "path": "",
+   "pattern": "\\b(tss_[A-Za-z0-9_-]{20,80})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.togetherai-api-key",
+   "kw": [
+    "tgp_v1_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(tgp_v1_[A-Za-z0-9_-]{43})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.travisci-access-token",
+   "kw": [
+    "travis"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:travis)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{22})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.twilio-api-key",
+   "kw": [
+    "twilio"
+   ],
+   "path": "",
+   "pattern": "SK[0-9a-fA-F]{32}",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.twitch-api-token",
+   "kw": [
+    "twitch"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:twitch)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{30})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.twitter-access-secret",
+   "kw": [
+    "twitter"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:twitter)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{45})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.twitter-access-token",
+   "kw": [
+    "twitter"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:twitter)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9]{15,25}-[a-zA-Z0-9]{20,40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.twitter-api-key",
+   "kw": [
+    "twitter"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:twitter)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{25})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.twitter-api-secret",
+   "kw": [
+    "twitter"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:twitter)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{50})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.twitter-bearer-token",
+   "kw": [
+    "twitter"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:twitter)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(A{22}[a-zA-Z0-9%]{80,100})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.typeform-api-token",
+   "kw": [
+    "tfp_"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:typeform)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(tfp_[a-z0-9\\-_\\.=]{59})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.unkey-root-key.1",
+   "kw": [
+    "unkey_"
+   ],
+   "path": "",
+   "pattern": "\\b(unkey_[A-Za-z0-9]{20,32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.upcloud-api-token",
+   "kw": [
+    "ucat_"
+   ],
+   "path": "",
+   "pattern": "\\b(ucat_[0-9A-Za-z]{24,32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.upstage-api-key",
+   "kw": [
+    "upstage"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:upstage)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9]{40,50})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.upstash-redis-rest-token.1",
+   "kw": [
+    "upstash"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:upstash)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}((?:[A-Za-z0-9]{32,48}|AYNgAS[A-Za-z0-9+/_-]{26,90}={0,2}))(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.upstash-redis-rest-url.1",
+   "kw": [
+    "upstash.io"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(https://[a-z0-9][a-z0-9-]{2,63}\\.upstash\\.io)(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.val-town-api-token.1",
+   "kw": [
+    "vtwn_"
+   ],
+   "path": "",
+   "pattern": "\\b(vtwn_[A-Za-z0-9_-]{20,80})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.vault-batch-token",
+   "kw": [
+    "hvb."
+   ],
+   "path": "",
+   "pattern": "\\b(hvb\\.[\\w-]{138,300})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.vault-service-token",
+   "kw": [
+    "hvs.",
+    "vault"
+   ],
+   "path": "",
+   "pattern": "\\b((?:hvs\\.[\\w-]{90,120}|s\\.(?i:[a-z0-9]{24})))(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.vercel-ai-gateway-key",
+   "kw": [
+    "vck_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(vck_[A-Za-z0-9_-]{56})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.vercel-api-token",
+   "kw": [
+    "vercel"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:vercel)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Z0-9]{24})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.vercel-app-access-token",
+   "kw": [
+    "vca_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(vca_[A-Za-z0-9_-]{56})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.vercel-app-refresh-token",
+   "kw": [
+    "vcr_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(vcr_[A-Za-z0-9_-]{56})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.vercel-integration-token",
+   "kw": [
+    "vci_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(vci_[A-Za-z0-9_-]{56})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.vercel-personal-access-token",
+   "kw": [
+    "vcp_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(vcp_[A-Za-z0-9_-]{56})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.virustotal-api-key.1",
+   "kw": [
+    "virustotal"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:virustotal)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.voyageai-api-key",
+   "kw": [],
+   "path": "",
+   "pattern": "(?:(?:\\A|(?:[\\x00-,\\./:-@\\[-\\^`\\{-\\xFF]))((?:(?:(?:pa)|(?:al))\\-(?:[\\-0-9A-Z_a-z]){43}))(?:(?:\\\\?(?:[\"'`]))|(?:[\\x09-\\x0D\\x20;])|(?:\\\\(?:[nr]))|\\z))",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.vultr-api-key.1",
+   "kw": [
+    "vultr"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:vultr)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{36})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.wakatime-api-key.1",
+   "kw": [
+    "wakatime",
+    "waka_time",
+    "waka-time",
+    "waka time",
+    "waka.time"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:waka[_. -]?time(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.wakatime-api-key.2",
+   "kw": [
+    "waka_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(waka_[a-z0-9]{36,64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.weatherstack-api-key.1",
+   "kw": [
+    "weatherstack"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:weatherstack(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([0-9a-z]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.weights-and-biases-api-key",
+   "kw": [
+    "wandb",
+    "weightsandbiases"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:wandb|weightsandbiases)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.weights-and-biases-api-key-v1",
+   "kw": [
+    "wandb_v1_"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(wandb_v1_[A-Za-z0-9_]{77})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.wiz-client-id.1",
+   "kw": [
+    "wiz"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:wiz)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9]{53,56})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.wiz-client-secret.1",
+   "kw": [
+    "wiz"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:wiz)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([A-Za-z0-9]{64})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.woocommerce-consumer-secret.1",
+   "kw": [
+    "wooc",
+    "woo-",
+    "woo_",
+    "cs_"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:woo)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(cs_[a-f0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.workato-developer-api-token.1",
+   "kw": [
+    "wrka"
+   ],
+   "path": "",
+   "pattern": "\\b(wrka(?:[a-z]{2})?-eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{16,}\\.[A-Za-z0-9_-]{64,})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.workos-production-api-key.1",
+   "kw": [
+    "workos"
+   ],
+   "path": "",
+   "pattern": "(?i:(?:workos(?:[_. -]*(?:api))?[_. -]*(?:secret|key|token))(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3})(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(sk_live_a2V5Xz[A-Za-z0-9+/]{69}={0,2})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.xai-api-key",
+   "kw": [
+    "xai-"
+   ],
+   "path": "",
+   "pattern": "(?i)\\b(xai-[A-Za-z0-9_-]{70,120})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.xendit-production-api-key.1",
+   "kw": [
+    "xnd_production_"
+   ],
+   "path": "",
+   "pattern": "\\b(xnd_production_[A-Za-z0-9]{56,72})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.yandex-access-token",
+   "kw": [
+    "yandex"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:yandex)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(t1\\.[A-Z0-9a-z_-]+[=]{0,2}\\.[A-Z0-9a-z_-]{86}[=]{0,2})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.yandex-api-key",
+   "kw": [
+    "yandex"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:yandex)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(AQVN[A-Za-z0-9_\\-]{35,38})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.yandex-aws-access-token",
+   "kw": [
+    "yandex"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:yandex)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(YC[a-zA-Z0-9_\\-]{38})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.zai-api-key",
+   "kw": [],
+   "path": "",
+   "pattern": "(?:(?:\\A|(?:[\\x00-,\\./:-@\\[-\\^`\\{-\\xFF]))((?:(?:[0-9A-Fa-f]){32}\\.(?:[0-9A-Za-z]){16}))(?:(?:\\\\?(?:[\"'`]))|(?:[\\x09-\\x0D\\x20;])|(?:\\\\(?:[NRnr]))|\\z))",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.zendesk-secret-key",
+   "kw": [
+    "zendesk"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:zendesk)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-z0-9]{40})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.zoho-client-id.1",
+   "kw": [
+    "zoho"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:zoho)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(1000\\.[a-z0-9]{30})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "betterleaks.zoho-client-secret.1",
+   "kw": [
+    "zoho"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:zoho)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}([a-f0-9]{42})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.zoho-oauth-token.1",
+   "kw": [
+    "zoho"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:zoho)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}(1000\\.[a-f0-9]{32}\\.[a-f0-9]{32})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.zoho-zapi-key.1",
+   "kw": [
+    "zoho"
+   ],
+   "path": "",
+   "pattern": "(?i)(?:zoho)(?:[ \\t\\w.-]{0,20})[\\s'\"]{0,3}(?:=|>|:{1,3}=|\\|\\||:|=>|\\?=|,)[\\x60'\"\\s=]{0,5}((?:1001\\.[a-f0-9]{32}\\.[a-f0-9]{32}(?:-d)?|1003\\.[a-f0-9]{32,64}))(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "betterleaks.zuplo-consumer-api-key.1",
+   "kw": [
+    "zpka_"
+   ],
+   "path": "",
+   "pattern": "\\b(zpka_[a-z0-9]{32}_[0-9a-f]{8})(?:\\\\?['\"\\x60]|[\\s;]|\\\\[nr]|$)",
+   "validation": "Betterleaks",
+   "visible": true
+  },
+  {
+   "id": "kingfisher.connection-string.password.double-quoted",
+   "kw": [],
+   "path": "",
+   "pattern": "(?xi)\n(?:^|[;\\s'\"=(])\n(?:server|host|data[\\t\\x20]+source|dsn)[\\t\\x20]*=[\\t\\x20]*\n[^\\s;'\"{}][^;'\"{}\\r\\n]{0,127}[\\t\\x20]*;\n(?:[^'\"{}\\r\\n]{0,200}?;)??[\\t\\x20]*\n(?:password|pwd)[\\t\\x20]*=[\\t\\x20]*\n\"([^\"\\r\\n]{4,128})\"[\\t\\x20]*(?:;|[\\r\\n']|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "kingfisher.connection-string.password.jdbc-query",
+   "kw": [],
+   "path": "",
+   "pattern": "(?xi)\n\\bjdbc:(?:postgresql|mariadb|mysql(?::(?:loadbalance|replication))?)://\n[a-z0-9\\[][a-z0-9.:\\[\\]%,_-]{0,255}\n(?:/[^?&\\s;\\#'\"\\x60{}<>]{0,200})?\\?\n(?:[a-z_][a-z0-9_.-]{0,63}(?:=[^&\\s;\\#'\"\\x60{}<>]{0,200})?&(?:amp;)?){0,16}\n(?-i:password)=([^&\\s;\\#'\"\\x60{}<>]{4,128})\n(?:[&\\s;\\#'\"\\x60<>]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "kingfisher.connection-string.password.odbc-braced",
+   "kw": [],
+   "path": "",
+   "pattern": "(?xi)\n(?:\n  (?:^|[;\\s'\"=(])\n  (?:server|host|data[\\t\\x20]+source|dsn)[\\t\\x20]*=[\\t\\x20]*\n  [^\\s;'\"{}][^;'\"{}\\r\\n]{0,127}[\\t\\x20]*;\n  |\n  \\bjdbc:sqlserver://[^\\s;'\"{}][^;'\"{}\\r\\n]{0,127}[\\t\\x20]*;\n)\n(?:[^'\"{}\\r\\n]{0,200}?;)??[\\t\\x20]*\n(?:password|pwd)[\\t\\x20]*=[\\t\\x20]*\n\\{((?:[^}\\r\\n]|}}){4,128})\\}[\\t\\x20]*(?:;|[\\r\\n'\"]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "kingfisher.connection-string.password.single-quoted",
+   "kw": [],
+   "path": "",
+   "pattern": "(?xi)\n(?:^|[;\\s'\"=(])\n(?:server|host|data[\\t\\x20]+source|dsn)[\\t\\x20]*=[\\t\\x20]*\n[^\\s;'\"{}][^;'\"{}\\r\\n]{0,127}[\\t\\x20]*;\n(?:[^'\"{}\\r\\n]{0,200}?;)??[\\t\\x20]*\n(?:password|pwd)[\\t\\x20]*=[\\t\\x20]*\n'([^'\\r\\n]{4,128})'[\\t\\x20]*(?:;|[\\r\\n\"]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "kingfisher.connection-string.password.unquoted",
+   "kw": [],
+   "path": "",
+   "pattern": "(?xi)\n(?:\n  (?:^|[;\\s'\"=(])\n  (?:server|host|data[\\t\\x20]+source|dsn)[\\t\\x20]*=[\\t\\x20]*\n  [^\\s;'\"{}][^;'\"{}\\r\\n]{0,127}[\\t\\x20]*;\n  |\n  \\bjdbc:sqlserver://[^\\s;'\"{}][^;'\"{}\\r\\n]{0,127}[\\t\\x20]*;\n)\n(?:[^'\"{}\\r\\n]{0,200}?;)??[\\t\\x20]*\n(?:password|pwd)[\\t\\x20]*=[\\t\\x20]*\n([^\\s;'\"{}]{4,128})[\\t\\x20]*(?:;|[\\r\\n'\"]|$)",
+   "validation": "-",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/bitbucketcredentials",
+   "kw": [],
+   "path": "(?i)(?:\\.git[/\\\\]config|(?:^|[/\\\\])\\.git-credentials|_history)$",
+   "pattern": "(?P<TOKEN>\\bhttps://(?P<GIT_USERNAME>[^:\\s]+):(?P<GIT_PASSWORD>[^\\s@]+)@bitbucket\\.org/[^\\s]+\\.git\\b)",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/bitwardenoauth2access",
+   "kw": [],
+   "path": "(?i)bitwarden[ _-]*cli(?:[\\/]+)data\\.json$",
+   "pattern": "(?s)\"user_(?P<TOKEN_ID>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})_token_apiKeyClientSecret\"\\s*:.{0,20}?\"(?P<TOKEN>[A-Za-z0-9]{10,50})\"",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/circleciproject",
+   "kw": [],
+   "path": "",
+   "pattern": "(CCIPRJ_[A-Za-z0-9]{22}_[0-9a-f]{40})",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/cloudflareapitoken",
+   "kw": [],
+   "path": "",
+   "pattern": "(?s)(?i)[\"']?\\b(?:CLOUDFLARE_API_TOKEN|CLOUDFLARE_API_KEY|CF_API_TOKEN|CF_API_KEY|CLOUDFLARE_TOKEN|CF_TOKEN|CLOUDFLARE_AUTH_KEY|CF_ACCOUNT_ID)\\b[\"']?\\s*[=:].{0,20}?(\\b[A-Za-z0-9_-]{40}\\b)",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/codecatalystcredentials",
+   "kw": [],
+   "path": "(?i)(?:\\.git[/\\\\]config|(?:^|[/\\\\])\\.git-credentials|_history)$",
+   "pattern": "(?P<TOKEN>\\bhttps://(?P<GIT_USERNAME>[^:\\s]+):(?P<GIT_PASSWORD>[^\\s@]+)@git\\.[^/]*codecatalyst\\.aws/[^\\s]*)",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/codecommitcredentials",
+   "kw": [],
+   "path": "(?i)(?:\\.git[/\\\\]config|(?:^|[/\\\\])\\.git-credentials|_history)$",
+   "pattern": "(?P<TOKEN>https://(?P<GIT_USERNAME>[^:\\s]+):(?P<GIT_PASSWORD>[^\\s@]+)@git-codecommit\\.[a-zA-Z\\-0-9]+\\.amazonaws\\.com/[^\\s]+)",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/denopatorg",
+   "kw": [],
+   "path": "",
+   "pattern": "(ddo_[A-Za-z0-9]{36})",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/digitaloceanapikey",
+   "kw": [],
+   "path": "",
+   "pattern": "(dop_v1_[abcdef0-9]{64})",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/grokxaiapikey",
+   "kw": [],
+   "path": "",
+   "pattern": "(xai-[A-Za-z0-9]{80})",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/hcpclientcredentials",
+   "kw": [],
+   "path": "",
+   "pattern": "[\"']?\\b(?:HCP_CLIENT_SECRET|hcp_client_secret)\\b[\"']?\\s*[:=]\\s*[\"']?([A-Za-z0-9._~\\-]{64})[\"']?",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/hcpclientcredentials-client-id",
+   "kw": [],
+   "path": "",
+   "pattern": "[\"']?\\b(?:HCP_CLIENT_ID|hcp_client_id)\\b[\"']?\\s*[:=]\\s*[\"']?([A-Za-z0-9]{32})[\"']?",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "veles.secrets/herokuplatformkey",
+   "kw": [],
+   "path": "",
+   "pattern": "(\\b(HRKU-[0-9a-zA-Z_-]{60})\\b)",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/npmjsaccesstoken",
+   "kw": [],
+   "path": "",
+   "pattern": "(npm_[a-zA-Z0-9]{36})",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/openrouter",
+   "kw": [],
+   "path": "",
+   "pattern": "(sk-or-v[0-9]+-[A-Za-z0-9_-]{20,})",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/packagistorgreadtoken",
+   "kw": [],
+   "path": "",
+   "pattern": "(packagist_ort_[0-9a-f]{68})",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/packagistorgreadtoken-repository",
+   "kw": [],
+   "path": "",
+   "pattern": "(https?://repo\\.packagist\\.com[/\\w\\-\\.]*)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "veles.secrets/packagistorgupdatetoken",
+   "kw": [],
+   "path": "",
+   "pattern": "(packagist_out_[0-9a-f]{68})",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/packagistorgupdatetoken-repository",
+   "kw": [],
+   "path": "",
+   "pattern": "(https?://repo\\.packagist\\.com[/\\w\\-\\.]*)",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "veles.secrets/packagistsecret",
+   "kw": [],
+   "path": "",
+   "pattern": "(packagist_acs_[0-9a-f]{64,96})",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/packagistsecret-api-key",
+   "kw": [],
+   "path": "",
+   "pattern": "(packagist_ack_[0-9a-f]{28,32})",
+   "validation": "-",
+   "visible": false
+  },
+  {
+   "id": "veles.secrets/postmanapikey",
+   "kw": [],
+   "path": "",
+   "pattern": "(PMAK-[A-Fa-f0-9]{24}-[A-Fa-f0-9]{34})",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/postmancollectiontoken",
+   "kw": [],
+   "path": "",
+   "pattern": "(PMAT-[A-Za-z0-9]{26})",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/sendgrid",
+   "kw": [],
+   "path": "",
+   "pattern": "(SG\\.[A-Za-z0-9_-]{22}\\.[A-Za-z0-9_-]{43})",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/slackappconfigaccesstoken",
+   "kw": [],
+   "path": "",
+   "pattern": "(xoxe\\.xoxp-\\d{1,10}-[a-zA-Z0-9]{166})",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/slackappconfigrefreshtoken",
+   "kw": [],
+   "path": "",
+   "pattern": "(xoxe-\\d{1,10}-[a-zA-Z0-9]{147})",
+   "validation": "Http",
+   "visible": true
+  },
+  {
+   "id": "veles.secrets/slackappleveltoken",
+   "kw": [],
+   "path": "",
+   "pattern": "(xapp-\\d{1,10}-[A-Za-z0-9]{11}-[0-9]{13}-[a-fA-F0-9]{64})",
+   "validation": "Http",
+   "visible": true
+  }
+ ]
+}

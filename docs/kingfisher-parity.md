@@ -3,8 +3,8 @@
 Machine-checked diff of the credential types
 [mongodb/kingfisher](https://github.com/mongodb/kingfisher) (pin `98b67a0`) detects
 against pleno-dlp detectors. Regenerate with
-`scripts/kingfisher-parity.py <kingfisher-clone>`; the method is in the
-script header. `pkg/detectors/kingfisherparity_test.go` fails when a
+`scripts/kingfisher-parity.py` (re-pin with `--kingfisher <clone>`); the
+method is in the script header. Do not hand-edit: `--check` fails on drift. `pkg/detectors/kingfisherparity_test.go` fails when a
 detector named below is no longer registered or the summary drifts
 from the machine block. Epic #817.
 
@@ -53,7 +53,7 @@ generic class with stricter false-positive gates.
 | | kingfisher validates | pleno-dlp verifies |
 |---|---|---|
 | validated parity | 266 | 266 |
-| pleno-only verified | 0 | 138 |
+| pleno-only verified | 0 | 147 |
 
 ## Rules
 
@@ -66,7 +66,7 @@ missing=0
 context=47
 validated=266
 verified=266
-pleno_only_verified=138
+pleno_only_verified=147
 rule=betterleaks.1password-secret-key validation=- status=covered detector=OnePasswordServiceAccount verified=native
 rule=betterleaks.1password-service-account-token validation=Betterleaks status=covered detector=OnePasswordServiceAccount verified=native
 rule=betterleaks.abuseipdb-api-key.1 validation=Betterleaks status=covered detector=AbuseIPDB verified=native
@@ -210,14 +210,14 @@ rule=betterleaks.ebay-client-id validation=- status=context detector=- verified=
 rule=betterleaks.ebay-client-secret validation=Betterleaks status=covered detector=EBay verified=http
 rule=betterleaks.elastic-cloud-api-key validation=Betterleaks status=covered detector=ElasticCloud verified=http
 rule=betterleaks.elevenlabs-api-key validation=- status=covered detector=Klaviyo verified=native
-rule=betterleaks.endorlabs-api-key validation=- status=covered detector=EndorLabs verified=-
+rule=betterleaks.endorlabs-api-key validation=- status=covered detector=EndorLabs verified=native
 rule=betterleaks.endorlabs-api-secret validation=- status=covered detector=EndorLabs verified=http
 rule=betterleaks.etsy-open-api-key validation=Betterleaks status=covered detector=Etsy verified=native
 rule=betterleaks.exoscale-api-key validation=Betterleaks status=covered detector=Exoscale verified=signed
 rule=betterleaks.exoscale-api-secret validation=- status=context detector=- verified=-
 rule=betterleaks.facebook-access-token validation=- status=covered detector=Facebook verified=http
 rule=betterleaks.facebook-page-access-token validation=- status=covered detector=Facebook verified=http
-rule=betterleaks.facebook-secret validation=- status=covered detector=Facebook verified=-
+rule=betterleaks.facebook-secret validation=- status=covered detector=Facebook verified=native
 rule=betterleaks.fal-api-key.1 validation=Betterleaks status=covered detector=FalAI verified=native
 rule=betterleaks.fastly-api-token validation=Betterleaks status=covered detector=Fastly verified=native
 rule=betterleaks.figma-personal-access-header-token validation=Betterleaks status=covered detector=Figma verified=base:Figma
@@ -317,7 +317,7 @@ rule=betterleaks.linkedin-client-id validation=- status=covered detector=LinkedI
 rule=betterleaks.linkedin-client-secret validation=- status=covered detector=LinkedIn verified=-
 rule=betterleaks.llama-cloud-api-key.1 validation=Betterleaks status=covered detector=LlamaCloud verified=native
 rule=betterleaks.lob-api-key validation=- status=covered detector=Lob verified=http
-rule=betterleaks.lob-pub-api-key validation=- status=covered detector=Lob verified=-
+rule=betterleaks.lob-pub-api-key validation=- status=covered detector=Lob verified=native
 rule=betterleaks.looker-client-id validation=- status=covered detector=Looker verified=-
 rule=betterleaks.looker-client-secret validation=- status=covered detector=Looker verified=-
 rule=betterleaks.mailchimp-api-key validation=Betterleaks status=covered detector=Mailchimp verified=native
@@ -434,7 +434,7 @@ rule=betterleaks.scaleway-secret-key validation=Betterleaks status=covered detec
 rule=betterleaks.scalingo-api-token validation=- status=covered detector=Scalingo verified=http
 rule=betterleaks.scalr-api-access-token.1 validation=Betterleaks status=covered detector=JWT verified=http
 rule=betterleaks.segment-public-api-token.1 validation=Betterleaks status=covered detector=Segment verified=http
-rule=betterleaks.sendbird-access-id validation=- status=covered detector=Sendbird verified=-
+rule=betterleaks.sendbird-access-id validation=- status=covered detector=Sendbird verified=native
 rule=betterleaks.sendbird-access-token validation=- status=covered detector=Sendbird verified=http
 rule=betterleaks.sendgrid-api-token validation=Betterleaks status=covered detector=SendGrid verified=base:SendGrid
 rule=betterleaks.sendinblue-api-token validation=Betterleaks status=covered detector=Brevo verified=native
@@ -494,10 +494,10 @@ rule=betterleaks.togetherai-api-key validation=Betterleaks status=covered detect
 rule=betterleaks.travisci-access-token validation=- status=covered detector=TravisCI verified=native
 rule=betterleaks.twilio-api-key validation=- status=covered detector=TwilioAPIKey verified=native
 rule=betterleaks.twitch-api-token validation=Betterleaks status=covered detector=Twitch verified=base:Twitch
-rule=betterleaks.twitter-access-secret validation=- status=covered detector=Twitter verified=-
-rule=betterleaks.twitter-access-token validation=- status=covered detector=Twitter verified=-
-rule=betterleaks.twitter-api-key validation=- status=covered detector=Twitter verified=-
-rule=betterleaks.twitter-api-secret validation=- status=covered detector=Twitter verified=-
+rule=betterleaks.twitter-access-secret validation=- status=covered detector=Twitter verified=native
+rule=betterleaks.twitter-access-token validation=- status=covered detector=Twitter verified=native
+rule=betterleaks.twitter-api-key validation=- status=covered detector=Twitter verified=native
+rule=betterleaks.twitter-api-secret validation=- status=covered detector=Twitter verified=native
 rule=betterleaks.twitter-bearer-token validation=- status=covered detector=Twitter verified=http
 rule=betterleaks.typeform-api-token validation=- status=covered detector=Typeform verified=http
 rule=betterleaks.unkey-root-key.1 validation=Betterleaks status=covered detector=Unkey verified=native
@@ -531,7 +531,7 @@ rule=betterleaks.xai-api-key validation=Betterleaks status=covered detector=XAI 
 rule=betterleaks.xendit-production-api-key.1 validation=Betterleaks status=covered detector=Xendit verified=native
 rule=betterleaks.yandex-access-token validation=- status=covered detector=Yandex verified=http
 rule=betterleaks.yandex-api-key validation=- status=covered detector=Yandex verified=http
-rule=betterleaks.yandex-aws-access-token validation=- status=covered detector=Yandex verified=-
+rule=betterleaks.yandex-aws-access-token validation=- status=covered detector=Yandex verified=native
 rule=betterleaks.zai-api-key validation=Betterleaks status=covered detector=ZAI verified=http
 rule=betterleaks.zendesk-secret-key validation=- status=covered detector=Zendesk verified=native
 rule=betterleaks.zoho-client-id.1 validation=- status=context detector=- verified=-
