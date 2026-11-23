@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -72,7 +73,7 @@ var revokeCmd = &cobra.Command{
 }
 
 func init() {
-	revokeCmd.Flags().StringVar(&revokeOpts.detector, "detector", "", "detector type whose leaked secret should be revoked (supported: github, gitlab, slack, aws, stripe)")
+	revokeCmd.Flags().StringVar(&revokeOpts.detector, "detector", "", "detector type whose leaked secret should be revoked (aliases github, gitlab, slack, aws, stripe, or any Revoker detector type listed by detectors list --revoke-support)")
 	revokeCmd.Flags().StringVar(&revokeOpts.secret, "secret", "", "the leaked credential, or '-' to read it from stdin")
 	revokeCmd.Flags().StringVar(&revokeOpts.clientID, "client-id", "", "OAuth app client_id (GitHub: overrides "+githubdet.EnvClientID+")")
 	revokeCmd.Flags().StringVar(&revokeOpts.clientSecret, "client-secret", "", "OAuth app client_secret (GitHub: overrides "+githubdet.EnvClientSecret+")")
@@ -240,7 +241,10 @@ func resolveRevoker(name string) (detectors.Revoker, detectors.DetectorType, err
 		}
 		return awsdet.Scanner{}, detectors.AWS, nil
 	default:
-		return nil, detectors.Unknown, fmt.Errorf("--detector %q: revoke not supported (supported: github, gitlab, slack, aws, stripe)", name)
+		if r, t, ok := registryRevoker(name); ok {
+			return r, t, nil
+		}
+		return nil, detectors.Unknown, fmt.Errorf("--detector %q: revoke not supported (supported: %s)", name, strings.Join(supportedRevokerNames(), ", "))
 	}
 }
 
@@ -325,4 +329,37 @@ func emitRevoke(cmd *cobra.Command, format string, rec revokeRecord) {
 			termsafe.Fprintf(cmd.ErrOrStderr(), "FAIL: %s secret %s — provider declined revocation\n", rec.Detector, rec.RedactedSecret)
 		}
 	}
+}
+
+// registryRevoker resolves any registered detector implementing Revoker by
+// its type name (case-insensitive), so new Revokers need no CLI edit.
+// Flag-configured providers keep their explicit cases above.
+func registryRevoker(name string) (detectors.Revoker, detectors.DetectorType, bool) {
+	want := strings.ToLower(strings.TrimSpace(name))
+	for _, d := range detectors.All() {
+		if strings.ToLower(d.Type().String()) != want {
+			continue
+		}
+		if r, ok := d.(detectors.Revoker); ok {
+			return r, d.Type(), true
+		}
+	}
+	return nil, detectors.Unknown, false
+}
+
+// supportedRevokerNames lists the explicit aliases plus every registered
+// Revoker type name, sorted, for error messages.
+func supportedRevokerNames() []string {
+	seen := map[string]struct{}{"aws": {}, "github": {}, "gitlab": {}, "slack": {}, "stripe": {}}
+	for _, d := range detectors.All() {
+		if _, ok := d.(detectors.Revoker); ok {
+			seen[strings.ToLower(d.Type().String())] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for n := range seen {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
 }

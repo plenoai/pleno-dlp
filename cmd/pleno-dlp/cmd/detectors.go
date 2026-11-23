@@ -108,7 +108,12 @@ func buildDetectorRecords() []detectorRecord {
 
 // revokeContextRequired enumerates detectors that need extra operator context.
 var revokeContextRequired = map[detectors.DetectorType]struct{}{
-	detectors.AWS: {},
+	detectors.AWS:               {},
+	detectors.Anthropic:         {},
+	detectors.OpenAI:            {},
+	detectors.Resend:            {},
+	detectors.Notion:            {},
+	detectors.GCPServiceAccount: {},
 }
 
 // annotateRevokeSupport fills RevokeStatus from implementation plus allowlist.

@@ -22,19 +22,25 @@ type jsonRecord struct {
 	// working — but it cannot distinguish "provider said no" from
 	// "verification attempt failed", which is exactly the distinction
 	// --only-verified needs (#246). New consumers should read Verdict.
-	Verdict           string            `json:"verdict"`
-	Assurance         string            `json:"verification_assurance"`
-	VerificationError string            `json:"verification_error,omitempty"`
-	Severity          string            `json:"severity"`
-	Redacted          string            `json:"redacted"`
-	SecretHash        string            `json:"secret_hash,omitempty"`
-	SecretHashV2      string            `json:"secret_hash_v2,omitempty"`
-	Source            jsonSource        `json:"source"`
-	ExtraData         map[string]string `json:"extra_data,omitempty"`
+	Verdict           string `json:"verdict"`
+	Assurance         string `json:"verification_assurance"`
+	VerificationError string `json:"verification_error,omitempty"`
+	Severity          string `json:"severity"`
+	Redacted          string `json:"redacted"`
+	SecretHash        string `json:"secret_hash,omitempty"`
+	SecretHashV2      string `json:"secret_hash_v2,omitempty"`
+	// Fingerprint is engine.Fingerprint: the stable, secret-free key that
+	// `pleno-dlp baseline create|update` records and --baseline matches.
+	Fingerprint string `json:"fingerprint,omitempty"`
+	// Path is the location path folded into Fingerprint, surfaced so the
+	// baseline file can show reviewers where each accepted finding lives.
+	Path      string            `json:"path,omitempty"`
+	Source    jsonSource        `json:"source"`
+	ExtraData map[string]string `json:"extra_data,omitempty"`
 	// SuppressedBy is present only under --show-suppressed: it names the
 	// filter that would otherwise have silently dropped this finding
-	// ("placeholder" today; "allowlist" once a CLI flag wires that
-	// sink's own audit extension point). Additive field — omitted
+	// ("placeholder", "allowlist", "baseline", or "inline-allow").
+	// Additive field — omitted
 	// entirely for every finding that reached this sink normally, so
 	// existing consumers parsing the schema are unaffected (issue #290).
 	SuppressedBy string `json:"suppressed_by,omitempty"`
@@ -125,6 +131,8 @@ func toJSONRecord(f engine.Finding) jsonRecord {
 		SecretHash:   hashSecret(f.Result.Raw),
 		ExtraData:    f.Result.ExtraData,
 		SuppressedBy: f.SuppressedBy,
+		Fingerprint:  engine.Fingerprint(f),
+		Path:         engine.FingerprintPath(f),
 	}
 	rec.SecretHashV2 = hashSecret(f.Result.RawV2)
 	if f.Result.VerificationErr != nil {
@@ -222,6 +230,11 @@ func jsonSourceOf(c *sources.Chunk) jsonSource {
 	case c.SourceMetadata.GCS != nil:
 		md["bucket"] = c.SourceMetadata.GCS.Bucket
 		md["object"] = c.SourceMetadata.GCS.Object
+	case c.SourceMetadata.AzureBlob != nil:
+		md["endpoint"] = c.SourceMetadata.AzureBlob.Endpoint
+		md["container"] = c.SourceMetadata.AzureBlob.Container
+		md["blob"] = c.SourceMetadata.AzureBlob.Blob
+		md["etag"] = c.SourceMetadata.AzureBlob.ETag
 	case c.SourceMetadata.Slack != nil:
 		md["channel"] = c.SourceMetadata.Slack.Channel
 		md["timestamp"] = c.SourceMetadata.Slack.Timestamp

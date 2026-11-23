@@ -43,6 +43,12 @@ type Finding struct {
 	// appears on a finding read back out of dedup or the engine's own
 	// emission path.
 	SuppressedBy string
+	// InlineAllowed reports that the scanned content annotates this secret
+	// with an inline pragma (`pleno-dlp:allow` on the secret's line, or
+	// `pleno-dlp:allow-next-line` on the line above). The engine only
+	// records the annotation; Allowlist decides whether to honor it, so
+	// --no-inline-allow audits can still see annotated secrets (#812).
+	InlineAllowed bool
 	// rawHint is the position where Result.Raw was observed in a raw-variant
 	// stream window. It is used only after raw observation has been enabled;
 	// the authoritative reader remains the fallback for every other finding.
@@ -1944,6 +1950,7 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 	}
 	tagBlastRadius(&r)
 	e.stats.findings.Add(1)
+	inline := inlineAllowedIn(v.Data, r.Raw)
 	if stream && matchCache != nil && matchCache.pending != nil {
 		if len(matchCache.pending.findings) >= streamFindingBatchLimit {
 			matchCache.pending.flush(ctx, e, c, matchCache)
@@ -1953,6 +1960,7 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 			Chunk:          chunkForFinding(c, sourceLine(c), true),
 			Detector:       d.Type(),
 			VerifierBacked: e.isVerifier[di],
+			InlineAllowed:  inline,
 			rawHint:        hint,
 		})
 		return
@@ -2013,6 +2021,7 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 					Result: r, Chunk: &located, Detector: d.Type(),
 					VerifierBacked: e.isVerifier[di],
 					RawSpan:        &[2]int{start, start + len(r.Raw)},
+					InlineAllowed:  inlineAllowedAt(c.Data, start, start+len(r.Raw)),
 				})
 				emitted = true
 			}
@@ -2029,6 +2038,7 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 		Detector:       d.Type(),
 		VerifierBacked: e.isVerifier[di],
 		RawSpan:        rawSpan,
+		InlineAllowed:  inline,
 	})
 }
 

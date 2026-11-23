@@ -135,12 +135,21 @@ func init() {
 }
 
 type Config struct {
-	Repo     string   `json:"repo"`
-	Branch   string   `json:"branch,omitempty"`
-	MaxDepth int      `json:"max_depth,omitempty"`
-	Since    string   `json:"since,omitempty"`
-	Include  []string `json:"include,omitempty"`
-	Exclude  []string `json:"exclude,omitempty"`
+	Repo     string `json:"repo"`
+	Branch   string `json:"branch,omitempty"`
+	MaxDepth int    `json:"max_depth,omitempty"`
+	Since    string `json:"since,omitempty"`
+	// SinceCommit limits the walk to commits reachable from the starts but
+	// not from this revision (git's `<rev>..<start>`): the revision and its
+	// ancestors are excluded. It is an ancestry boundary, not a time filter.
+	SinceCommit string `json:"since_commit,omitempty"`
+	// BranchRootCommit is the inclusive variant: the revision itself and
+	// everything after it are scanned (`<rev>^@..<start>`). Unlike
+	// kingfisher's net tree diff, every commit's patch is scanned, so secrets
+	// added and removed inside the range are still reported.
+	BranchRootCommit string   `json:"branch_root_commit,omitempty"`
+	Include          []string `json:"include,omitempty"`
+	Exclude          []string `json:"exclude,omitempty"`
 	// AllBranches walks every reachable commit on safe advertised history
 	// refs (HEAD, branches, remotes, tags, and GitHub pull-request refs), not
 	// just the single resolved start. Pseudo refs such as replace/notes/stash
@@ -178,6 +187,9 @@ type Source struct {
 	allBranches           bool
 	maxDepth              int
 	since                 time.Time
+	sinceCommit           string
+	branchRootCommit      string
+	rangeStops            []plumbing.Hash
 	include               []string
 	exclude               []string
 	includeCommitMetadata bool
@@ -243,6 +255,16 @@ func (s *Source) Init(ctx context.Context, name string, jobID, sourceID int64, _
 		}
 		s.since = t
 	}
+	if cfg.SinceCommit != "" && cfg.BranchRootCommit != "" {
+		return errors.New("git: since_commit and branch_root_commit are mutually exclusive")
+	}
+	for _, rev := range []string{cfg.SinceCommit, cfg.BranchRootCommit} {
+		if strings.HasPrefix(rev, "-") || strings.ContainsAny(rev, "\x00\n\r") {
+			return fmt.Errorf("git: invalid revision %q", rev)
+		}
+	}
+	s.sinceCommit = cfg.SinceCommit
+	s.branchRootCommit = cfg.BranchRootCommit
 	for _, p := range append(append([]string{}, cfg.Include...), cfg.Exclude...) {
 		if _, err := filepath.Match(p, "x"); err != nil {
 			return fmt.Errorf("git: bad glob %q: %w", p, err)
@@ -311,6 +333,23 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	s.nextState = nil
 
 	stops := s.previousHeads()
+	rangeStops, err := s.resolveRangeStops(repo)
+	if err != nil {
+		return err
+	}
+	s.rangeStops = rangeStops
+	if s.ranged() {
+		// A range scan does not cover the excluded ancestry, so it must not
+		// advance the incremental checkpoint: the next full run would
+		// otherwise stop at heads whose history was never scanned.
+		stops = append(stops, rangeStops...)
+		candidateState = nil
+		if s.previousState != nil {
+			previous := *s.previousState
+			previous.Heads = append([]string(nil), s.previousState.Heads...)
+			candidateState = &previous
+		}
+	}
 	if s.nativeFastPathEligible(len(starts)) {
 		if gitBin, lookupErr := exec.LookPath("git"); lookupErr == nil {
 			supported, probeErr := s.nativeFastPathSupported(ctx, gitBin, starts[0])
@@ -664,6 +703,12 @@ type commitRef struct {
 // the older commit, so its ancestry never needs to be enumerated up front.
 func (s *Source) collectCommits(ctx context.Context, repo *git.Repository, starts []plumbing.Hash, stops []plumbing.Hash) ([]commitRef, error) {
 	seen := boundarySet(stops)
+	// Range boundaries need their whole ancestry excluded: boundarySet's
+	// head-only pruning assumes append-only incremental heads, but a side
+	// branch that forked before the range base would otherwise walk past it.
+	if err := markAncestors(ctx, repo, s.rangeStops, seen); err != nil {
+		return nil, err
+	}
 
 	var refs []commitRef
 
@@ -1750,4 +1795,70 @@ func newIncrementalState(starts []plumbing.Hash) *incrementalState {
 func writeHash(h hash.Hash, s string) {
 	_, _ = h.Write([]byte(s))
 	_, _ = h.Write([]byte{0})
+}
+
+func (s *Source) ranged() bool { return s.sinceCommit != "" || s.branchRootCommit != "" }
+
+// resolveRangeStops resolves --since-commit / --branch-root-commit to the
+// exclusive boundary hashes. An unresolvable revision is an error: silently
+// falling back to a full-history scan would hide the misconfiguration.
+func (s *Source) resolveRangeStops(repo *git.Repository) ([]plumbing.Hash, error) {
+	rev := s.sinceCommit
+	if rev == "" {
+		rev = s.branchRootCommit
+	}
+	if rev == "" {
+		return nil, nil
+	}
+	h, err := repo.ResolveRevision(plumbing.Revision(rev))
+	if err != nil {
+		return nil, fmt.Errorf("git: resolve range revision %q: %w", rev, err)
+	}
+	c, err := repo.CommitObject(*h)
+	if err != nil {
+		return nil, fmt.Errorf("git: range revision %q is not a commit: %w", rev, err)
+	}
+	if s.sinceCommit != "" {
+		return []plumbing.Hash{c.Hash}, nil
+	}
+	// Inclusive root: exclude its parents. A root commit has none, which
+	// correctly scans the full history from that root.
+	return append([]plumbing.Hash(nil), c.ParentHashes...), nil
+}
+
+func markAncestors(ctx context.Context, repo *git.Repository, roots []plumbing.Hash, seen map[plumbing.Hash]bool) error {
+	stack := append([]plumbing.Hash(nil), roots...)
+	for len(stack) > 0 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		h := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if seen[h] && !containsHash(roots, h) {
+			continue
+		}
+		seen[h] = true
+		c, err := repo.CommitObject(h)
+		if err != nil {
+			if errors.Is(err, plumbing.ErrObjectNotFound) {
+				continue // shallow boundary
+			}
+			return fmt.Errorf("git: walk range boundary %s: %w", h, err)
+		}
+		for _, p := range c.ParentHashes {
+			if !seen[p] {
+				stack = append(stack, p)
+			}
+		}
+	}
+	return nil
+}
+
+func containsHash(hs []plumbing.Hash, h plumbing.Hash) bool {
+	for _, x := range hs {
+		if x == h {
+			return true
+		}
+	}
+	return false
 }

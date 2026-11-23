@@ -68,6 +68,7 @@ type Metadata struct {
 	GitLab      *GitLabMeta
 	S3          *S3Meta
 	GCS         *GCSMeta
+	AzureBlob   *AzureBlobMeta
 	Slack       *SlackMeta
 	Confluence  *ConfluenceMeta
 	Jira        *JiraMeta
@@ -143,6 +144,20 @@ type GCSMeta struct {
 	Bucket     string
 	Object     string
 	Generation int64
+}
+
+// AzureBlobMeta locates one blob. Endpoint is scheme://host only; the
+// SAS used to read it is never stored in metadata.
+type AzureBlobMeta struct {
+	Endpoint  string
+	Container string
+	Blob      string
+	ETag      string
+}
+
+// Locator returns the blob's URL without any credential.
+func (m *AzureBlobMeta) Locator() string {
+	return m.Endpoint + "/" + m.Container + "/" + m.Blob
 }
 
 type SlackMeta struct {
