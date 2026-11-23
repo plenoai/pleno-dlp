@@ -45,6 +45,7 @@ const (
 	SourcePostman
 	SourceHuggingFace
 	SourceCircleCI
+	SourceTeams
 )
 
 // Line contract
