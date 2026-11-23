@@ -224,7 +224,7 @@ func TestGCP(t *testing.T) {
 			_, _ = w.Write([]byte(`{}`))
 		}
 	})
-	m := gcp.Mapper{ResourceManagerURL: s.URL, Client: s.Client()}
+	m := gcp.Mapper{ResourceManagerURL: s.URL, IAMURL: s.URL, Client: s.Client()}
 	am, err := m.MapAccess(context.Background(), detectors.AccessCredential{Secret: gcpKey(t, s.URL+"/token")})
 	if err != nil {
 		t.Fatal(err)
@@ -235,6 +235,70 @@ func TestGCP(t *testing.T) {
 	}
 	if _, err := m.MapAccess(context.Background(), detectors.AccessCredential{Secret: "{}"}); err == nil {
 		t.Fatal("expected error for non-key input")
+	}
+}
+
+func TestGCPHierarchyAndImpersonation(t *testing.T) {
+	s := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/token" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"ya29.t","token_type":"Bearer","expires_in":3600}`))
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer ya29.t" {
+			w.WriteHeader(401)
+			return
+		}
+		switch r.URL.Path {
+		case "/v1/projects":
+			if r.URL.Query().Get("pageToken") == "" {
+				_, _ = w.Write([]byte(`{"projects":[{"projectId":"proj-a"}],"nextPageToken":"p2"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"projects":[{"projectId":"proj-b"}]}`))
+		case "/v1/projects/proj-a:testIamPermissions", "/v1/projects/proj-b:testIamPermissions":
+			_, _ = w.Write([]byte(`{"permissions":["storage.buckets.list"]}`))
+		case "/v1/projects/proj-a:getAncestry", "/v1/projects/proj-b:getAncestry":
+			_, _ = w.Write([]byte(`{"ancestor":[{"resourceId":{"type":"project","id":"x"}},{"resourceId":{"type":"folder","id":"55"}},{"resourceId":{"type":"organization","id":"9"}}]}`))
+		case "/v3/folders/55:testIamPermissions":
+			_, _ = w.Write([]byte(`{"permissions":["resourcemanager.folders.get"]}`))
+		case "/v3/organizations/9:testIamPermissions":
+			_, _ = w.Write([]byte(`{"permissions":["resourcemanager.organizations.setIamPolicy"]}`))
+		case "/v1/projects/proj-a/serviceAccounts":
+			_, _ = w.Write([]byte(`{"accounts":[{"email":"sa@proj-a.iam.gserviceaccount.com"},{"email":"deployer@proj-a.iam.gserviceaccount.com"}]}`))
+		case "/v1/projects/proj-b/serviceAccounts":
+			w.WriteHeader(403)
+		case "/v1/projects/-/serviceAccounts/deployer@proj-a.iam.gserviceaccount.com:testIamPermissions":
+			_, _ = w.Write([]byte(`{"permissions":["iam.serviceAccounts.getAccessToken"]}`))
+		default:
+			t.Errorf("unexpected %s", r.URL.Path)
+			w.WriteHeader(404)
+		}
+	})
+	m := gcp.Mapper{ResourceManagerURL: s.URL, IAMURL: s.URL, Client: s.Client()}
+	am, err := m.MapAccess(context.Background(), detectors.AccessCredential{Secret: gcpKey(t, s.URL+"/token")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][]string{}
+	for _, r := range am.Resources {
+		got[r.Type+":"+r.Name] = r.Permissions
+	}
+	for k, want := range map[string][]string{
+		"project:proj-b":               {"storage.buckets.list"},
+		"folder:folders/55":            {"resourcemanager.folders.get"},
+		"organization:organizations/9": {"resourcemanager.organizations.setIamPolicy"},
+		"impersonable_service_account:deployer@proj-a.iam.gserviceaccount.com": {"iam.serviceAccounts.getAccessToken"},
+	} {
+		if !slices.Equal(got[k], want) {
+			t.Fatalf("%s = %v (all %v)", k, got[k], got)
+		}
+	}
+	if _, self := got["impersonable_service_account:sa@proj-a.iam.gserviceaccount.com"]; self || !am.Privileged {
+		t.Fatalf("self-probe or privilege wrong: %+v", am)
+	}
+	if !strings.Contains(strings.Join(am.Limitations, "|"), "serviceAccounts proj-b") {
+		t.Fatalf("limitations %v", am.Limitations)
 	}
 }
 
