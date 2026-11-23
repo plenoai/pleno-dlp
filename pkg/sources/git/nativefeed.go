@@ -56,6 +56,27 @@ func (f *nativeLineFeed) Write(b []byte) (int, error) {
 	return n, nil
 }
 
+// writeLines is Write for p whose lines from body on end at the offsets in
+// ends (the last one len(p)), as the in-process renderer records them; the
+// header before body is split as Write would split it (#1046).
+func (f *nativeLineFeed) writeLines(p []byte, body int, ends []int) error {
+	if f.err != nil || len(f.carry) > 0 || len(ends) == 0 || ends[len(ends)-1] != len(p) {
+		_, err := f.Write(p)
+		return err
+	}
+	if _, err := f.Write(p[:body]); err != nil {
+		return err
+	}
+	start := body
+	for _, end := range ends {
+		if err := f.line(p[start:end]); err != nil {
+			return err
+		}
+		start = end
+	}
+	return nil
+}
+
 // Flush consumes a final unterminated line.
 func (f *nativeLineFeed) Flush() error {
 	if f.err != nil {

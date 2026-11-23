@@ -361,49 +361,90 @@ func indexFoldASCII(b, lit []byte) bool {
 	if len(lit) == 0 {
 		return true
 	}
-	if len(b) < len(lit) {
-		return false
+	return indexFoldRare(b, lit) >= 0
+}
+
+// byteCommonness ranks bytes by how often they occur in source text
+// (higher is commoner); bytes it omits rank 0. Upper-case letters rank
+// with their lower case.
+var byteCommonness = func() (t [256]uint8) {
+	const common = "0123456789-/:,=\"()._\tdcluhrsnioa\n te"
+	for i := 0; i < len(common); i++ {
+		t[common[i]] = uint8(i + 1)
+	}
+	for c := 'a'; c <= 'z'; c++ {
+		if t[c] == 0 {
+			t[c] = 1
+		}
+		t[c-'a'+'A'] = t[c]
+	}
+	return t
+}()
+
+// foldRareIndex returns the index of lit's least common byte, the first
+// one on ties.
+func foldRareIndex(lit []byte) int {
+	r := 0
+	for i := 1; i < len(lit); i++ {
+		if byteCommonness[lit[i]] < byteCommonness[lit[r]] {
+			r = i
+		}
+	}
+	return r
+}
+
+// indexFoldRare returns the first i at which b[i] is lit[0] or its upper
+// case and b[i+1:] starts with lit[1:] ignoring ASCII case, or -1. It
+// steps between occurrences of lit's rarest byte instead of its first:
+// literals like "secret" or "password" start with letters that stop a
+// first-byte scan every few bytes of text (#1046). Candidates still come
+// in increasing order, so the first verified one is the leftmost.
+func indexFoldRare(b, lit []byte) int {
+	last := len(b) - len(lit) + 1
+	if last <= 0 {
+		return -1
 	}
 	c0 := lit[0]
 	u0 := c0
 	if 'a' <= c0 && c0 <= 'z' {
 		u0 = c0 - 'a' + 'A'
 	}
-	hay := b[:len(b)-len(lit)+1]
-	// nextL/nextU cache the next occurrence of each case of the first
-	// byte so every byte is searched at most once per case.
+	r := foldRareIndex(lit)
+	cl, cu := lit[r], lit[r]
+	switch {
+	case 'a' <= cl && cl <= 'z':
+		cu = cl - 'a' + 'A'
+	case r > 0 && 'A' <= cl && cl <= 'Z':
+		// No byte folds to an upper-case letter.
+		return -1
+	case r == 0:
+		cu = u0
+	}
+	hay := b[r : r+last]
 	nextL, nextU := -2, -2
-	if u0 == c0 {
+	if cu == cl {
 		nextU = -1
 	}
 	for i := 0; i < len(hay); {
 		if nextL != -1 && nextL < i {
-			if j := bytes.IndexByte(hay[i:], c0); j >= 0 {
-				nextL = i + j
-			} else {
-				nextL = -1
-			}
+			nextL = indexByteFrom(hay, cl, i)
 		}
 		if nextU != -1 && nextU < i {
-			if j := bytes.IndexByte(hay[i:], u0); j >= 0 {
-				nextU = i + j
-			} else {
-				nextU = -1
-			}
+			nextU = indexByteFrom(hay, cu, i)
 		}
 		k := nextL
 		if k < 0 || (nextU >= 0 && nextU < k) {
 			k = nextU
 		}
 		if k < 0 {
-			return false
+			return -1
 		}
-		if equalFoldASCII(b[k+1:k+len(lit)], lit[1:]) {
-			return true
+		if c := b[k]; (c == c0 || c == u0) && equalFoldASCII(b[k+1:k+len(lit)], lit[1:]) {
+			return k
 		}
 		i = k + 1
 	}
-	return false
+	return -1
 }
 
 func equalFoldASCII(a, lower []byte) bool {

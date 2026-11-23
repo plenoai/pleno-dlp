@@ -277,3 +277,43 @@ func TestNativeSectionSkipper(t *testing.T) {
 		}
 	}
 }
+
+// TestNativeLineFeedWriteLinesMatchesParse pins writeLines (#1046): hunk
+// lines handed over at the renderer's recorded ends yield parse's chunks.
+func TestNativeLineFeedWriteLinesMatchesParse(t *testing.T) {
+	var x xdiffer
+	a := []byte("keep\nold\nctx\nlast")
+	b := []byte("keep\nSECRET=" + strings.Repeat("y", 40) + "\nctx\nlast\n")
+	head := []byte("diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n")
+	patch, any := x.unified(append([]byte(nil), head...), a, b)
+	if !any {
+		t.Fatal("no hunks")
+	}
+	want := feedChunks(t, string(patch), 0)
+	ch := make(chan *sources.Chunk, 64)
+	p := &nativeLogParser{ctx: context.Background(), source: &Source{}, ch: ch,
+		commit: &nativeCommit{hash: strings.Repeat("1", 40)}}
+	feed := &nativeLineFeed{p: p}
+	if err := feed.writeLines(patch, len(head), x.ends); err != nil {
+		t.Fatal(err)
+	}
+	if err := feed.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.finish(); err != nil {
+		t.Fatal(err)
+	}
+	close(ch)
+	var got []*sources.Chunk
+	for c := range ch {
+		got = append(got, c)
+	}
+	if len(got) != len(want) || len(want) == 0 {
+		t.Fatalf("chunks=%d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if string(got[i].Data) != string(want[i].Data) || !reflect.DeepEqual(got[i].SourceMetadata, want[i].SourceMetadata) {
+			t.Fatalf("chunk %d: got %q, want %q", i, got[i].Data, want[i].Data)
+		}
+	}
+}

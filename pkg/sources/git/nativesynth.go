@@ -196,9 +196,12 @@ type nativeSynthLog struct {
 	head    []byte // commit header and raw lines, verbatim
 	entries []nativeRawEntry
 	patch   []byte
-	bufA    []byte
-	bufB    []byte
-	held    []*odbBuf // object-store references for the current file pair
+	// bodyStart is where xd's hunks begin in patch, or -1 when patch has
+	// none; xd.ends then holds the line ends of patch[bodyStart:].
+	bodyStart int
+	bufA      []byte
+	bufB      []byte
+	held      []*odbBuf // object-store references for the current file pair
 	// pending lists the blob responses requested but not yet read.
 	pending []string
 }
@@ -362,7 +365,7 @@ func (r *nativeSynthLog) renderEntries() (int, error) {
 		if err := r.renderPair(e, oldMode, newMode, oldOID, newOID); err != nil {
 			return err
 		}
-		if _, err := r.out.Write(r.patch); err != nil {
+		if err := r.sendPatch(); err != nil {
 			return err
 		}
 		sent++
@@ -411,7 +414,18 @@ func nativeQuotedName(prefix, token string) string {
 	return prefix + token
 }
 
+// sendPatch hands the rendered file pair to the sink. A line feed gets
+// the hunk lines at the offsets xd recorded instead of re-splitting them.
+func (r *nativeSynthLog) sendPatch() error {
+	if feed, ok := r.out.(*nativeLineFeed); ok && r.bodyStart >= 0 {
+		return feed.writeLines(r.patch, r.bodyStart, r.xd.ends)
+	}
+	_, err := r.out.Write(r.patch)
+	return err
+}
+
 func (r *nativeSynthLog) renderPair(e *nativeRawEntry, oldMode, newMode, oldOID, newOID string) error {
+	r.bodyStart = -1
 	oldValid, newValid := oldOID != nativeZeroOID, newOID != nativeZeroOID
 	qa, qb := nativeQuotedName("a/", e.token), nativeQuotedName("b/", e.token)
 	p := r.patch
@@ -499,9 +513,12 @@ func (r *nativeSynthLog) renderPair(e *nativeRawEntry, oldMode, newMode, oldOID,
 	mark := len(r.patch)
 	r.patch = fmt.Appendf(r.patch, "--- %s%s\n+++ %s%s\n", labelA, tabA, labelB, tabB)
 	var any bool
+	body := len(r.patch)
 	r.patch, any = r.xd.unified(r.patch, a, b)
 	if !any {
 		r.patch = r.patch[:mark]
+	} else {
+		r.bodyStart = body
 	}
 	return nil
 }

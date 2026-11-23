@@ -5,9 +5,11 @@ import (
 	"context"
 	"regexp"
 	"regexp/syntax"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 )
 
@@ -236,7 +238,20 @@ func (s *asciiScratch) release() {
 var (
 	formatsMu sync.RWMutex
 	formats   = map[DetectorType][]*Format{}
+	// formatsSnap is an immutable copy of formats republished on every
+	// registration, so the per-window lookup takes no lock and copies
+	// nothing (#1046).
+	formatsSnap atomic.Pointer[map[DetectorType][]*Format]
 )
+
+// formatsView returns t's formats from the current snapshot; callers must
+// not modify the slice.
+func formatsView(t DetectorType) []*Format {
+	if m := formatsSnap.Load(); m != nil {
+		return (*m)[t]
+	}
+	return nil
+}
 
 // RegisterFormats attaches supplementary formats to t. The engine runs
 // them after t's detector and drops candidates the detector already
@@ -255,6 +270,11 @@ func RegisterFormats(t DetectorType, fs ...*Format) {
 		}
 		formats[t] = append(formats[t], f)
 	}
+	snap := make(map[DetectorType][]*Format, len(formats))
+	for k, v := range formats {
+		snap[k] = slices.Clone(v)
+	}
+	formatsSnap.Store(&snap)
 }
 
 // FormatsFor returns the supplementary formats registered for t.
@@ -304,11 +324,32 @@ func AppendFormatResults(t DetectorType, path string, data []byte, results []Res
 // reusing that copy spares every format-bearing detector its own lowering
 // pass (#1020). A nil asciiLower lowers on demand.
 func AppendFormatResultsLower(t DetectorType, path string, data, asciiLower []byte, results []Result) []Result {
-	fs := FormatsFor(t)
+	return AppendFormatResultsHinted(t, path, data, asciiLower, false, results)
+}
+
+// AppendFormatResultsHinted is AppendFormatResultsLower for a caller that
+// already knows no ASCII format keyword of t occurs in the ASCII-lowered
+// data (asciiKeywordsAbsent), as the engine's Aho-Corasick dispatch does:
+// formats keyed only on ASCII keywords are then skipped without searching
+// for them (#1046). The caller must not set it when data holds U+0130 or
+// U+212A, which Unicode lowering maps into ASCII.
+func AppendFormatResultsHinted(t DetectorType, path string, data, asciiLower []byte, asciiKeywordsAbsent bool, results []Result) []Result {
+	fs := formatsView(t)
 	if len(fs) == 0 {
 		return results
 	}
-	return matchFormatsAt(t, fs, path, data, asciiLower, results)
+	return matchFormatsHinted(t, fs, path, data, asciiLower, asciiKeywordsAbsent, results)
+}
+
+// HasUnicodeLowersToASCII reports whether data holds a rune outside ASCII
+// that unicode.ToLower maps into ASCII.
+func HasUnicodeLowersToASCII(data []byte) bool {
+	for _, u := range unicodeLowersToASCII {
+		if bytes.Contains(data, u) {
+			return true
+		}
+	}
+	return false
 }
 
 // MatchFormats is MatchFormatsAt with no source path: path-constrained
@@ -324,10 +365,14 @@ func MatchFormatsAt(t DetectorType, fs []*Format, path string, data []byte, resu
 }
 
 func matchFormatsAt(t DetectorType, fs []*Format, path string, data, asciiLowerData []byte, results []Result) []Result {
-	seen := make(map[string]bool, len(results))
-	for _, r := range results {
-		seen[string(r.Raw)] = true
-	}
+	return matchFormatsHinted(t, fs, path, data, asciiLowerData, false, results)
+}
+
+func matchFormatsHinted(t DetectorType, fs []*Format, path string, data, asciiLowerData []byte, asciiKeywordsAbsent bool, results []Result) []Result {
+	// seen is built on the first candidate: most windows reach no format
+	// match, and those skip hashing every detector result.
+	var seen map[string]bool
+	var kwMemo keywordMemo
 	lower := []byte(nil)
 	var asciiLower asciiScratch
 	if asciiLowerData != nil && len(asciiLowerData) == len(data) {
@@ -339,6 +384,9 @@ func matchFormatsAt(t DetectorType, fs []*Format, path string, data, asciiLowerD
 			continue
 		}
 		if len(f.Keywords) > 0 {
+			if asciiKeywordsAbsent && f.keywordsASCII {
+				continue
+			}
 			var hay []byte
 			if f.keywordsASCII {
 				hay = keywordHaystack(data, &asciiLower)
@@ -348,7 +396,7 @@ func matchFormatsAt(t DetectorType, fs []*Format, path string, data, asciiLowerD
 				}
 				hay = lower
 			}
-			if !anyLowerKeyword(hay, f.lowerKeywords) {
+			if !kwMemo.any(hay, f.lowerKeywords, f.keywordsASCII) {
 				continue
 			}
 		}
@@ -364,6 +412,12 @@ func matchFormatsAt(t DetectorType, fs []*Format, path string, data, asciiLowerD
 				continue
 			}
 			raw := data[secret[0]:secret[1]]
+			if seen == nil {
+				seen = make(map[string]bool, len(results)+1)
+				for _, r := range results {
+					seen[string(r.Raw)] = true
+				}
+			}
 			if len(bytes.TrimSpace(raw)) == 0 || seen[string(raw)] {
 				continue
 			}
@@ -407,13 +461,40 @@ func keywordHaystack(data []byte, lower *asciiScratch) []byte {
 	return lower.get(data)
 }
 
-func anyLowerKeyword(lower []byte, kws [][]byte) bool {
+// keywordMemo remembers, within one window, whether each lowered keyword
+// occurs, so formats of one type sharing keywords search for them once
+// (#1046). ASCII and Unicode haystacks are memoized apart.
+type keywordMemo struct {
+	n       int
+	entries [16]keywordMemoEntry
+}
+
+type keywordMemoEntry struct {
+	kw       []byte
+	uni, hit bool
+}
+
+func (m *keywordMemo) any(hay []byte, kws [][]byte, ascii bool) bool {
 	for _, kw := range kws {
-		if bytes.Contains(lower, kw) {
+		if m.has(hay, kw, !ascii) {
 			return true
 		}
 	}
 	return false
+}
+
+func (m *keywordMemo) has(hay, kw []byte, uni bool) bool {
+	for i := range m.n {
+		if e := &m.entries[i]; e.uni == uni && bytes.Equal(e.kw, kw) {
+			return e.hit
+		}
+	}
+	hit := bytes.Contains(hay, kw)
+	if m.n < len(m.entries) {
+		m.entries[m.n] = keywordMemoEntry{kw: kw, uni: uni, hit: hit}
+		m.n++
+	}
+	return hit
 }
 
 func formatSecret(m []int, group int) []int {

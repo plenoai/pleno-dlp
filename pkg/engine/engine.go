@@ -103,6 +103,9 @@ type Options struct {
 }
 
 type Engine struct {
+	// noFormatHint, set only by tests, makes every window search its
+	// format keywords instead of trusting the dispatch hits (#1046).
+	noFormatHint bool
 	// runGate serializes RunWithStats calls while allowing a queued caller to
 	// abandon acquisition when its context is canceled.
 	runGate               chan struct{}
@@ -1232,6 +1235,14 @@ func (e *Engine) buildPrefilter() {
 		if e.wantsFull[di] {
 			continue
 		}
+		fmtKw := make(map[string]bool)
+		for _, f := range detectors.FormatsFor(d.Type()) {
+			for _, kw := range f.Keywords {
+				if kw != "" {
+					fmtKw[strings.ToLower(kw)] = true
+				}
+			}
+		}
 		own := make(map[string]bool, len(d.Keywords()))
 		for _, kw := range d.Keywords() {
 			if kw != "" {
@@ -1253,7 +1264,7 @@ func (e *Engine) buildPrefilter() {
 				patterns = append(patterns, []byte(lk))
 				detectorIdxByPattern = append(detectorIdxByPattern, nil)
 			}
-			detectorIdxByPattern[id] = append(detectorIdxByPattern[id], patternDetector{di: di, own: noOwn || own[lk]})
+			detectorIdxByPattern[id] = append(detectorIdxByPattern[id], patternDetector{di: di, own: noOwn || own[lk], fmt: fmtKw[lk]})
 		}
 	}
 	if len(patterns) == 0 && !slices.Contains(e.wantsFull, true) {
@@ -1971,8 +1982,11 @@ func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Var
 				if pd.own {
 					spans[len(spans)-1].own = true
 				}
+				if pd.fmt {
+					spans[len(spans)-1].fmt = true
+				}
 			} else {
-				sc.spans[slot-1] = append(spans, vicinitySpan{start, end, pd.own})
+				sc.spans[slot-1] = append(spans, vicinitySpan{start, end, pd.own, pd.fmt})
 			}
 		}
 	})
@@ -1981,6 +1995,10 @@ func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Var
 	}
 	defer putDispatchScratch(sc)
 	sort.Ints(sc.order)
+	// special is computed on the first span without a format-keyword hit:
+	// only then does a format's keyword absence rest on the AC hits, which
+	// Unicode lowering of U+0130/U+212A could extend.
+	special := -1
 	for _, di := range sc.order {
 		spans := sc.spans[sc.slot[di]-1]
 		// Bail out of the per-detector dispatch on cancellation so a
@@ -1989,7 +2007,17 @@ func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Var
 			return
 		}
 		for _, sp := range spans {
-			e.runDetectorWindow(ctx, c, v, archivePath, di, sp.start, v.Data[sp.start:sp.end], lower[sp.start:sp.end], stream, matchCache, base, !sp.own)
+			noFmtKw := false
+			if !sp.fmt && !e.noFormatHint {
+				if special < 0 {
+					special = 0
+					if detectors.HasUnicodeLowersToASCII(v.Data) {
+						special = 1
+					}
+				}
+				noFmtKw = special == 0
+			}
+			e.runDetectorWindow(ctx, c, v, archivePath, di, sp.start, v.Data[sp.start:sp.end], lower[sp.start:sp.end], stream, matchCache, base, !sp.own, noFmtKw)
 		}
 	}
 }
@@ -2033,6 +2061,10 @@ func putDispatchScratch(sc *dispatchScratch) {
 type vicinitySpan struct {
 	start, end int
 	own        bool
+	// fmt reports whether any hit inside it was a format keyword. Every
+	// occurrence of a keyword is a hit merged into the span containing it,
+	// so a span without one holds no ASCII format keyword (#1046).
+	fmt bool
 }
 
 // patternDetector maps an Aho-Corasick pattern to a detector and records
@@ -2041,6 +2073,7 @@ type vicinitySpan struct {
 type patternDetector struct {
 	di  int
 	own bool
+	fmt bool // the pattern is a keyword of a format registered for di's type
 }
 
 // runDetectorOn executes a single detector's FromData against a slice
@@ -2057,7 +2090,7 @@ func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.
 }
 
 func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte, stream bool, matchCache *streamMatchCache, base streamWindowBase) {
-	e.runDetectorWindow(ctx, c, v, archivePath, di, 0, data, nil, stream, matchCache, base, false)
+	e.runDetectorWindow(ctx, c, v, archivePath, di, 0, data, nil, stream, matchCache, base, false, false)
 }
 
 // runDetectorWindow runs detector di over data, which starts at byte winStart
@@ -2068,7 +2101,8 @@ func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decode
 // formatsOnly skips the detector's own FromData and runs only the
 // formats registered for its type: the window was reached solely through
 // a format keyword, so the detector's own keywords are absent (#986).
-func (e *Engine) runDetectorWindow(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, winStart int, data, lowerData []byte, stream bool, matchCache *streamMatchCache, base streamWindowBase, formatsOnly bool) {
+// noFormatKeyword reports that no ASCII format keyword occurs in data.
+func (e *Engine) runDetectorWindow(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, winStart int, data, lowerData []byte, stream bool, matchCache *streamMatchCache, base streamWindowBase, formatsOnly, noFormatKeyword bool) {
 	d := e.dets[di]
 	// Verification defaults to unconditional-true: the bool is the
 	// trufflehog Detector contract, not normally a configurable option.
@@ -2094,7 +2128,7 @@ func (e *Engine) runDetectorWindow(ctx context.Context, c *sources.Chunk, v deco
 			path = findingPath(Finding{Chunk: c})
 		}
 		n := len(results)
-		results = detectors.AppendFormatResultsLower(d.Type(), path, data, lowerData, results)
+		results = detectors.AppendFormatResultsHinted(d.Type(), path, data, lowerData, noFormatKeyword, results)
 		if len(results) > n && !e.opts.NoVerify {
 			// Formats with a Verify hook (paired, signed, or routed to the
 			// provider's verifier) check their own candidates against the

@@ -54,6 +54,15 @@ func (f *xdFile) isChanged(i int) bool {
 
 func (f *xdFile) setChanged(i int, v bool) { f.changed[i+1] = v }
 
+// same reports whether records i and j are equal: by class when both were
+// classified, by bytes otherwise.
+func (f *xdFile) same(i, j int) bool {
+	if ci, cj := f.mph[i], f.mph[j]; ci >= 0 && cj >= 0 {
+		return ci == cj
+	}
+	return bytes.Equal(f.recs[i], f.recs[j])
+}
+
 func (f *xdFile) hash(index int) int32 { return f.mph[f.ref[index]] }
 
 type xdChange struct {
@@ -71,6 +80,16 @@ type xdiffer struct {
 	action1 []byte
 	action2 []byte
 	changes []xdChange
+	// lens is a record-length filter over the middle classes, built on
+	// first use per prepare.
+	lens      [xdLenBits / 64]uint64
+	lensBuilt bool
+	// prepareRef, set only by tests, replaces prepare with the reference
+	// implementation that classifies every record.
+	prepareRef func(x *xdiffer, a, b []byte)
+	// ends holds the offset in out just past each line unified appended,
+	// so a line consumer need not search the rendered text again (#1046).
+	ends []int
 }
 
 func xdlBogosqrt(n uint64) int {
@@ -86,7 +105,11 @@ func xdlBogosqrt(n uint64) int {
 // load: source lines are short, so a per-line bytes.IndexByte call costs
 // more in setup than in scanning.
 func xdlSplitRecords(data []byte, recs [][]byte) [][]byte {
-	recs = recs[:0]
+	return xdlAppendRecords(data, recs[:0])
+}
+
+// xdlAppendRecords appends the records of data to recs.
+func xdlAppendRecords(data []byte, recs [][]byte) [][]byte {
 	const low7, hi, nl = 0x7f7f7f7f7f7f7f7f, 0x8080808080808080, 0x0a0a0a0a0a0a0a0a
 	start, i := 0, 0
 	for ; i+8 <= len(data); i += 8 {
@@ -112,13 +135,43 @@ func xdlSplitRecords(data []byte, recs [][]byte) [][]byte {
 	return recs
 }
 
+// prepare splits and classifies a and b (xdl_prepare_env). Records in the
+// common head and tail are found by comparing bytes, not by hashing: they
+// are identical in both files, so only the changed middle is classified
+// (#1046). Head and tail records keep class -1; they still count toward
+// the occurrence totals of middle classes (cleanupRecords' len1/len2), and
+// compaction compares them by bytes. TestXDiffPrepareMatchesFullClassify
+// pins the result against classifying every record.
 func (x *xdiffer) prepare(a, b []byte) {
 	x.len1, x.len2 = x.len1[:0], x.len2[:0]
+	x.lensBuilt = false
+	headBytes, head := xdlCommonHead(a, b)
+	tailBytes := xdlCommonTail(a[headBytes:], b[headBytes:])
 	x.f1.recs = xdlSplitRecords(a, x.f1.recs)
-	x.f2.recs = xdlSplitRecords(b, x.f2.recs)
-	x.classes.reset(len(x.f1.recs) + len(x.f2.recs))
-	x.f1.mph = x.classify(1, x.f1.recs, x.f1.mph)
-	x.f2.mph = x.classify(2, x.f2.recs, x.f2.mph)
+	n1 := len(x.f1.recs)
+	tail := xdlCountRecords(a[len(a)-tailBytes:])
+	// b's head and tail records are byte-identical to a's: reuse them and
+	// split only b's middle.
+	recs2 := append(x.f2.recs[:0], x.f1.recs[:head]...)
+	recs2 = xdlAppendRecords(b[headBytes:len(b)-tailBytes], recs2)
+	x.f2.recs = append(recs2, x.f1.recs[n1-tail:]...)
+	n2 := len(x.f2.recs)
+
+	if n1 == 0 || n2 == 0 {
+		// An added or deleted file: no record has a match on the other
+		// side, so cleanupRecords discards them all and no class is read
+		// except by compaction, which compares unclassified records by
+		// bytes.
+		x.f1.mph = xdlFillUnclassified(x.f1.mph, n1)
+		x.f2.mph = xdlFillUnclassified(x.f2.mph, n2)
+		x.classes.reset(0)
+	} else {
+		x.classes.reset(n1 + n2 - 2*(head+tail))
+		x.f1.mph = x.classifyRange(1, x.f1.recs, x.f1.mph, head, n1-tail)
+		x.f2.mph = x.classifyRange(2, x.f2.recs, x.f2.mph, head, n2-tail)
+		x.countShared(x.f1.recs[:head])
+		x.countShared(x.f1.recs[n1-tail:])
+	}
 	for _, f := range []*xdFile{&x.f1, &x.f2} {
 		n := len(f.recs) + 2
 		if cap(f.changed) < n {
@@ -128,15 +181,86 @@ func (x *xdiffer) prepare(a, b []byte) {
 			clear(f.changed)
 		}
 		f.ref = f.ref[:0]
-		f.dstart = 0
-		f.dend = len(f.recs) - 1
+		f.dstart = head
+		f.dend = len(f.recs) - tail - 1
 	}
-	x.trimEnds()
+	if n1 == 0 || n2 == 0 {
+		for _, f := range []*xdFile{&x.f1, &x.f2} {
+			for i := range f.recs {
+				f.setChanged(i, true)
+			}
+		}
+		return
+	}
 	x.cleanupRecords()
 }
 
+// xdlCommonHead returns the byte length and record count of the longest
+// run of leading records a and b share.
+func xdlCommonHead(a, b []byte) (int, int) {
+	n := xdlCommonPrefixLen(a, b)
+	end := bytes.LastIndexByte(a[:n], '\n') + 1
+	return end, xdlCountRecords(a[:end])
+}
+
+// xdlCommonTail returns the byte length of the longest run of trailing
+// records a and b share: a common byte suffix that starts at a record
+// boundary in both.
+func xdlCommonTail(a, b []byte) int {
+	n := xdlCommonSuffixLen(a, b)
+	if n == 0 {
+		return 0
+	}
+	sa, sb := len(a)-n, len(b)-n
+	if (sa == 0 || a[sa-1] == '\n') && (sb == 0 || b[sb-1] == '\n') {
+		return n
+	}
+	// The suffix starts mid-record in one file: drop that partial record.
+	i := bytes.IndexByte(a[sa:], '\n')
+	if i < 0 {
+		return 0
+	}
+	return n - i - 1
+}
+
+func xdlCommonPrefixLen(a, b []byte) int {
+	n := min(len(a), len(b))
+	i := 0
+	for ; i+8 <= n; i += 8 {
+		if d := binary.LittleEndian.Uint64(a[i:]) ^ binary.LittleEndian.Uint64(b[i:]); d != 0 {
+			return i + bits.TrailingZeros64(d)>>3
+		}
+	}
+	for ; i < n && a[i] == b[i]; i++ {
+	}
+	return i
+}
+
+func xdlCommonSuffixLen(a, b []byte) int {
+	n := min(len(a), len(b))
+	ea, eb := len(a), len(b)
+	i := 0
+	for ; i+8 <= n; i += 8 {
+		if d := binary.LittleEndian.Uint64(a[ea-i-8:]) ^ binary.LittleEndian.Uint64(b[eb-i-8:]); d != 0 {
+			return i + bits.LeadingZeros64(d)>>3
+		}
+	}
+	for ; i < n && a[ea-i-1] == b[eb-i-1]; i++ {
+	}
+	return i
+}
+
+// xdlCountRecords counts the records xdlSplitRecords would produce.
+func xdlCountRecords(data []byte) int {
+	n := bytes.Count(data, []byte{'\n'})
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		n++
+	}
+	return n
+}
+
+// classify appends the class of each record to mph and counts it for pass.
 func (x *xdiffer) classify(pass int, recs [][]byte, mph []int32) []int32 {
-	mph = mph[:0]
 	for _, rec := range recs {
 		id, added := x.classes.lookup(rec)
 		if added {
@@ -153,26 +277,58 @@ func (x *xdiffer) classify(pass int, recs [][]byte, mph []int32) []int32 {
 	return mph
 }
 
-func (x *xdiffer) trimEnds() {
-	f1, f2 := &x.f1, &x.f2
-	lim := min(len(f1.recs), len(f2.recs))
-	i := 0
-	for ; i < lim; i++ {
-		if f1.mph[i] != f2.mph[i] {
-			break
-		}
+// xdlFillUnclassified returns mph holding class -1 for n records.
+func xdlFillUnclassified(mph []int32, n int) []int32 {
+	mph = mph[:0]
+	for range n {
+		mph = append(mph, -1)
 	}
-	f1.dstart, f2.dstart = i, i
-	lim -= i
-	r1, r2 := len(f1.recs)-1, len(f2.recs)-1
-	for i = 0; i < lim; i, r1, r2 = i+1, r1-1, r2-1 {
-		if f1.mph[r1] != f2.mph[r2] {
-			break
-		}
-	}
-	f1.dend = len(f1.recs) - i - 1
-	f2.dend = len(f2.recs) - i - 1
+	return mph
 }
+
+// classifyRange classifies recs[lo:hi]; the other records get class -1.
+func (x *xdiffer) classifyRange(pass int, recs [][]byte, mph []int32, lo, hi int) []int32 {
+	mph = mph[:0]
+	for range lo {
+		mph = append(mph, -1)
+	}
+	mph = x.classify(pass, recs[lo:hi], mph)
+	for range len(recs) - hi {
+		mph = append(mph, -1)
+	}
+	return mph
+}
+
+// countShared adds each record present in both files once to both
+// occurrence totals of its class, when that class occurs in the middle.
+// Only a class's middle occurrences are read later, so a record whose
+// length no middle record has is skipped without hashing.
+func (x *xdiffer) countShared(recs [][]byte) {
+	if len(x.classes.reps) == 0 {
+		return
+	}
+	if !x.lensBuilt {
+		clear(x.lens[:])
+		for _, r := range x.classes.reps {
+			l := uint(len(r)) % xdLenBits
+			x.lens[l/64] |= 1 << (l % 64)
+		}
+		x.lensBuilt = true
+	}
+	for _, r := range recs {
+		l := uint(len(r)) % xdLenBits
+		if x.lens[l/64]&(1<<(l%64)) == 0 {
+			continue
+		}
+		if id, ok := x.classes.find(r); ok {
+			x.len1[id]++
+			x.len2[id]++
+		}
+	}
+}
+
+// xdLenBits sizes the record-length filter of countShared.
+const xdLenBits = 1024
 
 func xdlCleanMmatch(action []byte, i, length int) bool {
 	s, e := 0, length-1
@@ -508,7 +664,11 @@ func xdlRecsCmp(f1 *xdFile, off1, lim1 int, f2 *xdFile, off2, lim2 int, kvdf, kv
 }
 
 func (x *xdiffer) doDiff(a, b []byte) {
-	x.prepare(a, b)
+	if x.prepareRef != nil {
+		x.prepareRef(x, a, b)
+	} else {
+		x.prepare(a, b)
+	}
 	n1, n2 := len(x.f1.ref), len(x.f2.ref)
 	ndiags := n1 + n2 + 3
 	need := 2*ndiags + 2
@@ -557,7 +717,7 @@ func (f *xdFile) groupPrevious(g *xdGroup) bool {
 }
 
 func (f *xdFile) groupSlideDown(g *xdGroup) bool {
-	if g.end < len(f.recs) && f.mph[g.start] == f.mph[g.end] {
+	if g.end < len(f.recs) && f.same(g.start, g.end) {
 		f.setChanged(g.start, false)
 		g.start++
 		f.setChanged(g.end, true)
@@ -571,7 +731,7 @@ func (f *xdFile) groupSlideDown(g *xdGroup) bool {
 }
 
 func (f *xdFile) groupSlideUp(g *xdGroup) bool {
-	if g.start > 0 && f.mph[g.start-1] == f.mph[g.end-1] {
+	if g.start > 0 && f.same(g.start-1, g.end-1) {
 		g.start--
 		f.setChanged(g.start, true)
 		g.end--
@@ -681,6 +841,7 @@ func (x *xdiffer) unified(out []byte, a, b []byte) ([]byte, bool) {
 	if len(changes) == 0 {
 		return out, false
 	}
+	x.ends = x.ends[:0]
 	f1, f2 := &x.f1, &x.f2
 	n1, n2 := len(f1.recs), len(f2.recs)
 	const maxCommon = 2*xdlContextLen + xdlInterHunkCtx
@@ -728,21 +889,22 @@ func (x *xdiffer) unified(out []byte, a, b []byte) ([]byte, bool) {
 		// that does not start a valid UTF-8 character.
 		out = out[:hdr+gitUTF8Prefix(out[hdr:])]
 		out = append(out, '\n')
+		x.ends = append(x.ends, len(out))
 
 		for ; s2 < xch.i2; s2++ {
-			out = xdlAppendRecord(out, ' ', f2.recs[s2])
+			out = x.appendRecord(out, ' ', f2.recs[s2])
 		}
 		s1, s2 = xch.i1, xch.i2
 		for k := start; ; k++ {
 			c := changes[k]
 			for ; s1 < c.i1 && s2 < c.i2; s1, s2 = s1+1, s2+1 {
-				out = xdlAppendRecord(out, ' ', f2.recs[s2])
+				out = x.appendRecord(out, ' ', f2.recs[s2])
 			}
 			for s1 = c.i1; s1 < c.i1+c.chg1; s1++ {
-				out = xdlAppendRecord(out, '-', f1.recs[s1])
+				out = x.appendRecord(out, '-', f1.recs[s1])
 			}
 			for s2 = c.i2; s2 < c.i2+c.chg2; s2++ {
-				out = xdlAppendRecord(out, '+', f2.recs[s2])
+				out = x.appendRecord(out, '+', f2.recs[s2])
 			}
 			if k == end {
 				break
@@ -751,7 +913,7 @@ func (x *xdiffer) unified(out []byte, a, b []byte) ([]byte, bool) {
 			s2 = c.i2 + c.chg2
 		}
 		for s2 = xche.i2 + xche.chg2; s2 < e2; s2++ {
-			out = xdlAppendRecord(out, ' ', f2.recs[s2])
+			out = x.appendRecord(out, ' ', f2.recs[s2])
 		}
 		start = end + 1
 	}
@@ -770,12 +932,15 @@ func xdlAppendRange(out []byte, s, c int) []byte {
 	return out
 }
 
-func xdlAppendRecord(out []byte, prefix byte, rec []byte) []byte {
+func (x *xdiffer) appendRecord(out []byte, prefix byte, rec []byte) []byte {
 	out = append(out, prefix)
 	out = append(out, rec...)
 	if len(rec) > 0 && rec[len(rec)-1] != '\n' {
-		out = append(out, "\n\\ No newline at end of file\n"...)
+		out = append(out, '\n')
+		x.ends = append(x.ends, len(out))
+		out = append(out, "\\ No newline at end of file\n"...)
 	}
+	x.ends = append(x.ends, len(out))
 	return out
 }
 
@@ -803,6 +968,22 @@ func (t *xdClassTable) reset(records int) {
 	}
 	t.hashes = t.hashes[:0]
 	t.reps = t.reps[:0]
+}
+
+// find returns rec's class without adding one.
+func (t *xdClassTable) find(rec []byte) (int32, bool) {
+	h := maphash.Bytes(xdHashSeed, rec)
+	mask := uint64(len(t.slots) - 1)
+	for i := h & mask; ; i = (i + 1) & mask {
+		slot := t.slots[i]
+		if slot == 0 {
+			return 0, false
+		}
+		id := slot - 1
+		if t.hashes[id] == h && bytes.Equal(t.reps[id], rec) {
+			return id, true
+		}
+	}
 }
 
 func (t *xdClassTable) lookup(rec []byte) (int32, bool) {

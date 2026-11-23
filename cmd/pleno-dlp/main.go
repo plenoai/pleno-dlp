@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"github.com/plenoai/pleno-dlp/pkg/engine/gcfloor"
 	"os"
 	"runtime/debug"
 
@@ -56,6 +57,7 @@ func main() {
 		rt.Monitor(os.Stdin, os.Args[1:])
 		return
 	}
+	gcfloor.Enable()
 	// With crash reports enabled a monitor process receives runtime crash
 	// dumps (other-goroutine panics, fatal errors); Recover handles panics
 	// on the main goroutine. Otherwise no process is started.
