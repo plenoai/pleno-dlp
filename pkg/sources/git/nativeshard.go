@@ -57,9 +57,15 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 func (s *Source) runNativePatchLog(ctx context.Context, repo *gogit.Repository, gitBin string, starts, stops []plumbing.Hash, wantMerges bool, ch chan<- *sources.Chunk) (historyErr, mergeErr error) {
 	shards := s.nativeShardCount()
 	if shards > 1 {
+		costCtx, cancelCost := context.WithCancel(ctx)
+		defer cancelCost()
+		cost := s.startNativeCostPass(costCtx, gitBin, nativeRevisionInput(starts, stops))
 		commits, merges, err := s.nativeSelectedCommits(ctx, gitBin, starts, stops)
 		if err != nil {
 			return err, nil
+		}
+		if len(commits) > nativeCostPlanMaxCommits {
+			cancelCost()
 		}
 		if n := len(commits) / nativeShardMinCommits; n < shards {
 			shards = n
@@ -68,7 +74,7 @@ func (s *Source) runNativePatchLog(ctx context.Context, repo *gogit.Repository, 
 			if !wantMerges {
 				merges = nil
 			}
-			return s.runNativePatchShards(ctx, repo, gitBin, commits, merges, shards, ch), nil
+			return s.runNativePatchShards(ctx, repo, gitBin, commits, merges, shards, cost, ch), nil
 		}
 	}
 	return s.runNativeSingleStream(ctx, repo, gitBin, starts, stops, wantMerges, ch)
@@ -151,7 +157,7 @@ func (s *Source) nativeShardLogArgs() []string {
 	return args
 }
 
-func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repository, gitBin string, commits, merges []string, shards int, ch chan<- *sources.Chunk) error {
+func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repository, gitBin string, commits, merges []string, shards int, cost <-chan nativeCostResult, ch chan<- *sources.Chunk) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	args := s.nativeShardLogArgs()
@@ -176,7 +182,7 @@ func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repositor
 	// behind one heavy shard. Workers instead pull work items from a shared
 	// queue; short histories get a cost-based plan that also splits a heavy
 	// commit by path (#985).
-	batches := append(s.nativeWorkPlan(ctx, gitBin, commits, shards), mergeWorkItems(merges, shards)...)
+	batches := append(s.nativeWorkPlan(commits, shards, cost), mergeWorkItems(merges, shards)...)
 	pathArgs := append([]string{"--literal-pathspecs"}, args...)
 	mergeArgs := s.nativeMergeArgs()
 	itemArgs := func(it nativeWorkItem) []string {
