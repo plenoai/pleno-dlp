@@ -40,7 +40,13 @@ func Variants(data []byte) []Variant {
 func VariantsWithScratch(data, scratch []byte) []Variant {
 	out := []Variant{{Data: data}}
 
-	if v := decodeBase64WithScratch(data, scratch); v != nil {
+	// Hex digits are a subset of the base64 alphabet, so every hex run
+	// lies inside a base64-alphabet run at least minHexRun long. Recording
+	// those spans during the base64 pass lets decodeHex skip a second walk
+	// over the whole window (#1020).
+	var spanBuf [8]byteSpan
+	hexSpans := spanBuf[:0]
+	if v := decodeBase64WithScratch(data, scratch, &hexSpans); v != nil {
 		out = append(out, Variant{Source: "base64", Data: v})
 	}
 	if hasPercentEscapePair(data) {
@@ -48,7 +54,7 @@ func VariantsWithScratch(data, scratch []byte) []Variant {
 			out = append(out, Variant{Source: "percent", Data: v})
 		}
 	}
-	if v := decodeHex(data); v != nil {
+	if v := decodeHexSpans(data, hexSpans); v != nil {
 		out = append(out, Variant{Source: "hex", Data: v})
 	}
 	if src, v := tryUTF16(data); v != nil {
@@ -124,15 +130,30 @@ func parseHex4(s []byte) (uint16, bool) {
 	return v, true
 }
 
-func isBase64Byte(c byte) bool {
-	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-		(c >= '0' && c <= '9') || c == '+' || c == '/' || c == '_' || c == '-'
-}
+const (
+	classBase64 = 1 << iota
+	classHex
+)
 
-func isHexByte(c byte) bool {
-	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
-		(c >= 'A' && c <= 'F')
-}
+// byteClass classifies bytes with one table load instead of a chain of
+// range compares in the per-byte decoder walks.
+var byteClass = func() (t [256]uint8) {
+	for c := 0; c < 256; c++ {
+		b := byte(c)
+		if (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') ||
+			(b >= '0' && b <= '9') || b == '+' || b == '/' || b == '_' || b == '-' {
+			t[c] |= classBase64
+		}
+		if (b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F') {
+			t[c] |= classHex
+		}
+	}
+	return t
+}()
+
+func isBase64Byte(c byte) bool { return byteClass[c]&classBase64 != 0 }
+
+func isHexByte(c byte) bool { return byteClass[c]&classHex != 0 }
 
 func isPercentEscapePair(data []byte) bool {
 	return data[0] == '%' && isHexByte(data[1]) && isHexByte(data[2]) &&
@@ -313,11 +334,11 @@ func decodeUTF16(data []byte, isLE bool) []byte {
 // decodeBase64WithScratch appends accepted runs in source order. It only
 // commits the separator after a run passes decoding and printability checks,
 // so rejected runs cannot overwrite or corrupt earlier accepted output.
-func decodeBase64WithScratch(data, scratch []byte) []byte {
+func decodeBase64WithScratch(data, scratch []byte, hexSpans *[]byteSpan) []byte {
 	var out []byte
 	owned := false
 	scratch = scratch[:0]
-	walkBase64RunsMeta(data, func(run []byte, alphabet byte) {
+	walkBase64Spans(data, hexSpans, func(run []byte, alphabet byte) {
 		needed := base64DecodedLen(run)
 		previousLen := len(out)
 		separator := 0
@@ -379,11 +400,21 @@ func base64DecodedLen(run []byte) int {
 // walkBase64RunsMeta also carries the alphabet marker found while locating a
 // run, so decoding does not scan every accepted run a second time.
 func walkBase64RunsMeta(data []byte, fn func([]byte, byte)) {
+	walkBase64Spans(data, nil, fn)
+}
+
+// byteSpan is a half-open [start, end) range of a scanned window.
+type byteSpan struct{ start, end int }
+
+// walkBase64Spans is walkBase64RunsMeta that also appends to hexSpans
+// (when non-nil) every maximal base64-alphabet run of at least minHexRun
+// bytes, excluding padding.
+func walkBase64Spans(data []byte, hexSpans *[]byteSpan, fn func([]byte, byte)) {
 	start := -1
 	var alphabet byte
 	for i := 0; i < len(data); i++ {
 		c := data[i]
-		if isBase64Byte(c) {
+		if byteClass[c]&classBase64 != 0 {
 			if start < 0 {
 				start = i
 				alphabet = 0
@@ -399,6 +430,9 @@ func walkBase64RunsMeta(data []byte, fn func([]byte, byte)) {
 		if start >= 0 {
 			end := i
 			if i-start >= minBase64Run {
+				if hexSpans != nil && i-start >= minHexRun {
+					*hexSpans = append(*hexSpans, byteSpan{start, end})
+				}
 				pad := 0
 				for pad < 2 && end+pad < len(data) && data[end+pad] == '=' {
 					pad++
@@ -409,6 +443,9 @@ func walkBase64RunsMeta(data []byte, fn func([]byte, byte)) {
 		}
 	}
 	if start >= 0 && len(data)-start >= minBase64Run {
+		if hexSpans != nil && len(data)-start >= minHexRun {
+			*hexSpans = append(*hexSpans, byteSpan{start, len(data)})
+		}
 		fn(data[start:], alphabet)
 	}
 }
@@ -491,7 +528,20 @@ func hexValue(c byte) byte {
 // decodes. Run detection is a linear byte scan over maximal runs,
 // preserving alignment even when the hexadecimal letter case changes.
 func decodeHex(data []byte) []byte {
+	return decodeHexSpans(data, []byteSpan{{0, len(data)}})
+}
+
+// decodeHexSpans is decodeHex restricted to spans, which must cover every
+// hex run of data and start and end at non-hex boundaries.
+func decodeHexSpans(data []byte, spans []byteSpan) []byte {
 	var out []byte
+	for _, sp := range spans {
+		out = appendHexRuns(out, data[sp.start:sp.end])
+	}
+	return out
+}
+
+func appendHexRuns(out, data []byte) []byte {
 	walkHexRuns(data, func(run []byte) {
 		dst := make([]byte, hex.DecodedLen(len(run)))
 		n, err := hex.Decode(dst, run)

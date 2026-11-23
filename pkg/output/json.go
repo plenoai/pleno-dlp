@@ -131,9 +131,8 @@ func toJSONRecord(f engine.Finding) jsonRecord {
 		SecretHash:   hashSecret(f.Result.Raw),
 		ExtraData:    f.Result.ExtraData,
 		SuppressedBy: f.SuppressedBy,
-		Fingerprint:  engine.Fingerprint(f),
-		Path:         engine.FingerprintPath(f),
 	}
+	rec.Fingerprint, rec.Path = engine.FingerprintAndPath(f)
 	rec.SecretHashV2 = hashSecret(f.Result.RawV2)
 	if f.Result.VerificationErr != nil {
 		rec.VerificationError = f.Result.VerificationErr.Error()

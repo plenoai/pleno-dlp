@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"math"
 	"strings"
 	"sync"
+	"unicode"
 	"unicode/utf8"
-	"unsafe"
 
+	"github.com/plenoai/pleno-dlp/pkg/ahocorasick"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 )
 
@@ -94,7 +94,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		if _, dup := seen[secret]; dup {
 			continue
 		}
-		if shannonEntropy(secret) < minEntropy {
+		if detectors.ShannonEntropy(secret) < minEntropy {
 			continue
 		}
 		if looksLikeIdentifier(secret) || looksLikePath(secret) {
@@ -149,23 +149,14 @@ var lowerPool = sync.Pool{New: func() any { b := make([]byte, 0, 16<<10); return
 const lowerPoolKeepMax = 1 << 20
 
 // keywordPositionsIn returns keywordPositions(strings.ToLower(data)).
-// ASCII windows are lowered into a pooled buffer; any non-ASCII byte
-// falls back to the Unicode lowering so offsets stay identical to the
-// historical behaviour.
+// The window is lowered into a pooled buffer with strings.ToLower's exact
+// rune mapping (unicode.ToLower per rune, invalid UTF-8 as U+FFFD), so
+// offsets stay identical to the historical behaviour without allocating a
+// lowered string per non-ASCII window (#1020).
 func keywordPositionsIn(data []byte) []int {
-	for _, c := range data {
-		if c >= utf8.RuneSelf {
-			return keywordPositions(strings.ToLower(detectors.BorrowString(data)))
-		}
-	}
 	bp := lowerPool.Get().(*[]byte)
-	buf := append((*bp)[:0], data...)
-	for i, c := range buf {
-		if 'A' <= c && c <= 'Z' {
-			buf[i] = c + ('a' - 'A')
-		}
-	}
-	spans := keywordPositions(unsafe.String(unsafe.SliceData(buf), len(buf)))
+	buf := appendLower((*bp)[:0], data)
+	spans := keywordPositions(buf)
 	if cap(buf) <= lowerPoolKeepMax {
 		*bp = buf[:0]
 		lowerPool.Put(bp)
@@ -173,19 +164,42 @@ func keywordPositionsIn(data []byte) []int {
 	return spans
 }
 
-func keywordPositions(lower string) []int {
-	var spans []int
-	for _, kw := range keywords {
-		idx := 0
-		for {
-			rel := strings.Index(lower[idx:], kw)
-			if rel < 0 {
-				break
+// appendLower appends strings.ToLower(string(data)) to dst.
+func appendLower(dst, data []byte) []byte {
+	for i := 0; i < len(data); {
+		c := data[i]
+		if c < utf8.RuneSelf {
+			if 'A' <= c && c <= 'Z' {
+				c += 'a' - 'A'
 			}
-			spans = append(spans, idx+rel)
-			idx += rel + len(kw)
+			dst = append(dst, c)
+			i++
+			continue
 		}
+		r, size := utf8.DecodeRune(data[i:])
+		dst = utf8.AppendRune(dst, unicode.ToLower(r))
+		i += size
 	}
+	return dst
+}
+
+// keywordMatcher finds every keyword in one pass. The former loop ran
+// strings.Index once per keyword (43 passes per window, 0.43 CPU-s on django
+// git history, #1020). No keyword is a proper prefix-suffix of itself, so
+// the automaton's occurrences equal the old non-overlapping per-keyword scan.
+var keywordMatcher = sync.OnceValue(func() *ahocorasick.Matcher {
+	patterns := make([][]byte, len(keywords))
+	for i, kw := range keywords {
+		patterns[i] = []byte(kw)
+	}
+	return ahocorasick.New(patterns)
+})
+
+func keywordPositions(lower []byte) []int {
+	var spans []int
+	keywordMatcher().VisitHits(lower, func(h ahocorasick.Hit) {
+		spans = append(spans, h.End+1-len(keywords[h.PatternID]))
+	})
 	return spans
 }
 
@@ -490,27 +504,6 @@ func decodesToPrintableText(s string) bool {
 		}
 	}
 	return true
-}
-
-// shannonEntropy in bits-per-byte. Same shape as
-// pkg/detectors/custom.shannonEntropy but inlined so the generic
-// detector has no cross-package coupling — they evolved independently
-// and we don't want a future tweak to one to silently change the other.
-func shannonEntropy(s string) float64 {
-	if s == "" {
-		return 0
-	}
-	freq := make(map[byte]int, len(s))
-	for i := 0; i < len(s); i++ {
-		freq[s[i]]++
-	}
-	var h float64
-	n := float64(len(s))
-	for _, count := range freq {
-		p := float64(count) / n
-		h -= p * math.Log2(p)
-	}
-	return h
 }
 
 // Generic hits don't have a known prefix structure, so the simplest

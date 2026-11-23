@@ -63,22 +63,111 @@ var assignmentHeadRe = sync.OnceValue(func() *detectors.Regexp {
 	)
 })
 
-func hasAssignmentHead(data []byte) bool {
+// lowerPool holds ASCII-lowercased window copies for assignmentScan so a
+// window does not allocate a lowered duplicate per call (#1020).
+var lowerPool = sync.Pool{New: func() any { b := make([]byte, 0, 8<<10); return &b }}
+
+const lowerPoolKeepMax = 1 << 20
+
+// span is a half-open byte range of a scanned window.
+type span struct{ start, end int }
+
+// assignmentScan reports whether data may hold an assignment and the
+// regions the assignEqRe/yamlValueRe passes must scan (#1020).
+//
+// In ASCII data every match of those grammars contains a keyword and
+// starts on the keyword's line (its leading context is one non-letter or
+// whitespace byte, and identifiers cannot span a newline). A match ends at
+// most three non-blank lines later: assignEqRe's optional [^a-z0-9_] can be
+// the keyword line's newline, letting [^\n=]* consume the next line; it may
+// then cross blank lines on either side of "=" (\s*); and the value itself
+// excludes newlines. Each region therefore runs from a keyword line's start,
+// where (?m)^ still holds, through the next three non-blank lines. Non-ASCII data scans the whole
+// window because RE2 case folding (e.g. long s) can match keywords a byte
+// search misses.
+func assignmentScan(data []byte) (bool, []span) {
+	whole := []span{{0, len(data)}}
 	// Every accepted grammar branch requires an ASCII assignment or mapping
 	// separator. This cheap reject keeps repeated prose keywords out of the
 	// RE2 scan; it also precedes the Unicode case-fold fallback below.
 	if !bytes.ContainsAny(data, "=:") {
-		return false
+		return false, nil
 	}
 	for _, b := range data {
 		if b >= 0x80 {
 			// RE2 also folds Unicode letters such as long s; let it decide.
-			return true
+			return true, whole
 		}
 	}
-	lower := bytes.ToLower(data)
-	return bytes.Contains(lower, []byte("variable")) ||
-		(hasAssignmentCandidate(lower) && assignmentHeadRe().Match(lower))
+	bp := lowerPool.Get().(*[]byte)
+	lower := append((*bp)[:0], data...)
+	for i, c := range lower {
+		if 'A' <= c && c <= 'Z' {
+			lower[i] = c + ('a' - 'A')
+		}
+	}
+	defer func() {
+		if cap(lower) <= lowerPoolKeepMax {
+			*bp = lower[:0]
+			lowerPool.Put(bp)
+		}
+	}()
+	if !bytes.Contains(lower, []byte("variable")) &&
+		!(hasAssignmentCandidate(lower) && assignmentHeadRe().Match(lower)) {
+		return false, nil
+	}
+	return true, keywordRegions(lower)
+}
+
+// keywordRegions returns the merged assignment regions of lower (see
+// assignmentScan), in order.
+func keywordRegions(lower []byte) []span {
+	var regions []span
+	for start := 0; start < len(lower); {
+		end := lineEnd(lower, start)
+		line := lower[start:end]
+		if bytes.Contains(line, []byte("passw")) || bytes.Contains(line, []byte("pwd")) {
+			stop := end
+			for nonBlank := 0; nonBlank < 3 && stop < len(lower); {
+				next := lineEnd(lower, stop+1)
+				if !isBlank(lower[stop+1 : next]) {
+					nonBlank++
+				}
+				stop = next
+			}
+			if stop < len(lower) {
+				stop++ // keep the newline so a trailing \s* sees it
+			}
+			if n := len(regions); n > 0 && start <= regions[n-1].end {
+				regions[n-1].end = max(regions[n-1].end, stop)
+			} else {
+				regions = append(regions, span{start, stop})
+			}
+		}
+		start = end + 1
+	}
+	return regions
+}
+
+// lineEnd returns the index of the newline ending the line at start, or
+// len(b).
+func lineEnd(b []byte, start int) int {
+	if i := bytes.IndexByte(b[start:], '\n'); i >= 0 {
+		return start + i
+	}
+	return len(b)
+}
+
+// isBlank reports whether line holds only RE2 \s bytes.
+func isBlank(line []byte) bool {
+	for _, c := range line {
+		switch c {
+		case ' ', '\t', '\f', '\r':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // Each separator is visited once. After removing RE2 whitespace, an assignment
@@ -328,9 +417,16 @@ func (Scanner) Keywords() []string {
 }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	if !hasAssignmentHead(data) {
+	ok, regions := assignmentScan(data)
+	if !ok {
 		return nil, nil
 	}
+	return scan(data, regions), nil
+}
+
+// scan runs the assignment grammars over data, limiting the assignEqRe and
+// yamlValueRe passes to regions (see assignmentScan).
+func scan(data []byte, regions []span) []detectors.Result {
 	str := detectors.BorrowString(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result
@@ -359,7 +455,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	}
 
 	for _, re := range []*detectors.Regexp{assignEqRe(), yamlValueRe()} {
-		for _, m := range re.FindAllStringSubmatchIndex(str, -1) {
+		for _, m := range findAllIn(re, str, regions) {
 			if len(m) < 4 || m[2] < 0 {
 				continue
 			}
@@ -387,7 +483,24 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		}
 	}
 
-	return detectors.SafeResults(out), nil
+	return detectors.SafeResults(out)
+}
+
+// findAllIn returns re's submatch indexes over each region of str, offset
+// back to str coordinates.
+func findAllIn(re *detectors.Regexp, str string, regions []span) [][]int {
+	var out [][]int
+	for _, r := range regions {
+		for _, m := range re.FindAllStringSubmatchIndex(str[r.start:r.end], -1) {
+			for i := range m {
+				if m[i] >= 0 {
+					m[i] += r.start
+				}
+			}
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 func redact(s string) string {
