@@ -1,18 +1,18 @@
 {
   "checksums": [
     {
-      "id": "github_release/github.com/plenoai/pleno-dlp/v0.71.3/pleno-dlp_darwin_arm64.tar.gz",
-      "checksum": "B0614E88D24936148466687E1AC6DD51C6F320BA39AACE9BB8AEAE3498E29F5A",
+      "id": "github_release/github.com/plenoai/pleno-dlp/v0.72.0/pleno-dlp_darwin_arm64.tar.gz",
+      "checksum": "AB4102B5F6E11E9E8C302100E238E86B092DED12399A2C0DEAF36AD57F541A4E",
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/plenoai/pleno-dlp/v0.71.3/pleno-dlp_linux_arm64.tar.gz",
-      "checksum": "AB38C295E26F14C43ED51C96A85B074CF01A24F6D450CE13C8D879A552012E73",
+      "id": "github_release/github.com/plenoai/pleno-dlp/v0.72.0/pleno-dlp_linux_arm64.tar.gz",
+      "checksum": "C027264B92B0630E84C882E0B0035C947A34FC0A0C13C2C31A77ECCA5267BB63",
       "algorithm": "sha256"
     },
     {
-      "id": "github_release/github.com/plenoai/pleno-dlp/v0.71.3/pleno-dlp_windows_arm64.zip",
-      "checksum": "B6E4BC2913C7D70AC3F8F11702B6B1EE3BD6516ACA20F01014153F75C15BF75E",
+      "id": "github_release/github.com/plenoai/pleno-dlp/v0.72.0/pleno-dlp_windows_arm64.zip",
+      "checksum": "A6F74554BAD91805DF369DD232163B50C6BEC878A1265B603F613A3B00FD25AC",
       "algorithm": "sha256"
     },
     {
