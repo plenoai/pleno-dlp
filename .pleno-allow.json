@@ -14,6 +14,51 @@
       "detector": "JSONConfigSecret",
       "raw": "context-required",
       "reason": "revoke-support status literal in cmd tests"
+    },
+    {
+      "detector": "HardcodedPassword",
+      "raw": "Betterleaks",
+      "reason": "false positive (#886)"
+    },
+    {
+      "detector": "HardcodedPassword",
+      "raw": "return",
+      "reason": "false positive (#886)"
+    },
+    {
+      "detector": "JSONConfigSecret",
+      "raw": "DigitalOcean",
+      "reason": "false positive (#886)"
+    },
+    {
+      "detector": "JSONConfigSecret",
+      "raw": "Postman",
+      "reason": "false positive (#886)"
+    },
+    {
+      "detector": "PagerDuty",
+      "raw": "-authorization-token",
+      "reason": "false positive (#886)"
+    },
+    {
+      "detector": "MySQL",
+      "raw": "password",
+      "reason": "false positive (#886)"
+    },
+    {
+      "detector": "Redis",
+      "raw": "password",
+      "reason": "false positive (#886)"
+    },
+    {
+      "detector": "CloudBees",
+      "raw_regex": "^(detectors\\.CloudBees\\.String|JSONConfigSecret|pleno-[a-z-]+)$",
+      "reason": "false positive (#886)"
+    },
+    {
+      "detector": "Codeship",
+      "raw_regex": "^(required|context-required|pleno-[a-z-]+)$",
+      "reason": "false positive (#886)"
     }
   ]
 }

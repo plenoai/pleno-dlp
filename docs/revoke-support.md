@@ -234,9 +234,26 @@ short-lived tokens already issued.
 
 ### Not yet covered
 
-RubyGems has no detector and no automatic revocation API (#855).
 Twilio Auth Tokens (the `Twilio` detector) cannot be revoked by API;
 Twilio API keys are covered by `TwilioAPIKey` above.
+
+### RubyGems (manual revocation)
+
+The `RubyGems` detector finds and verifies `rubygems_` API keys, but
+RubyGems.org exposes no endpoint that revokes a key with ordinary
+credentials: the key cannot delete itself, and the account-wide
+`DELETE /api/v1/api_key` reset is deliberately not used as a
+substitute because it also kills the owner's unrelated keys.
+Revocation is manual (#855):
+
+1. The key owner signs in to rubygems.org → *Settings* → *API keys*
+   and deletes the key (or the matching scope).
+2. Third parties report the exposure to `security@rubygems.org`;
+   RubyGems.org's authorized secret-scanning partners revoke reported
+   keys on their side.
+
+`detectors list --revoke-support` therefore reports `RubyGems` as
+`unsupported`.
 
 ### AWS access key (context-required)
 

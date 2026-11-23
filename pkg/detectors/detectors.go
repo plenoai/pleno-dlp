@@ -1041,6 +1041,58 @@ const (
 	// 32-char secret; verified via Basic auth and revocable by the
 	// operator's account credentials (#854).
 	TwilioAPIKey
+
+	// kingfisher catalog parity batch 1 (#817): single-request token
+	// formats built on pkg/detectors/tokenverify. Append only.
+	OnePasswordServiceAccount
+	AbuseIPDB
+	Apify
+	Bitly
+	BraveSearch
+	Cartesia
+	CheckoutCom
+	Cloudsmith
+	ConfigCat
+	CratesIO
+	Cursor
+	Databento
+	DataGov
+	DataStaxAstra
+	Disqus
+	FalAI
+	FrameIO
+	Infomaniak
+	InfluxDB
+	Instantly
+	Ionic
+	Labelbox
+	Lichess
+	LightOn
+	LlamaCloud
+	Mem0
+	Mergify
+	Midtrans
+	NuGet
+	Nylas
+	Pinterest
+	Polar
+	Proof
+	RedirectPizza
+	Retell
+	RubyGems
+	Samsara
+	Sourcegraph
+	SSLMate
+	Thunderstore
+	Unkey
+	UpCloud
+	Upstage
+	ValTown
+	WakaTime
+	Weatherstack
+	Xendit
+	Zuplo
+	GCNotify
 )
 
 // Severity classifies a finding for triage. Output formatters map this to

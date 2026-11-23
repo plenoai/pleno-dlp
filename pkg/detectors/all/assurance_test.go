@@ -21,6 +21,8 @@ func TestProviderConfirmedDetectorSetIsExplicitlyAudited(t *testing.T) {
 	want := []string{
 		"AWS", "Apollo", "Datadog", "DocuSign", "GCPServiceAccount", "HubSpot", "IPStack", "OpenAI", "OpenWeather",
 		"SendGrid", "SlackBotToken", "SlackWebhook", "Square", "Twilio", "TwilioAPIKey",
+		// kingfisher parity batch 1 (tokenverify; Valid rules require an authenticated response)
+		"OnePasswordServiceAccount", "AbuseIPDB", "Apify", "Bitly", "BraveSearch", "Cartesia", "CheckoutCom", "Cloudsmith", "ConfigCat", "CratesIO", "Cursor", "Databento", "DataGov", "DataStaxAstra", "Disqus", "FalAI", "FrameIO", "Infomaniak", "InfluxDB", "Instantly", "Ionic", "Labelbox", "Lichess", "LightOn", "LlamaCloud", "Mem0", "Mergify", "Midtrans", "NuGet", "Nylas", "Pinterest", "Polar", "Proof", "RedirectPizza", "Retell", "RubyGems", "Samsara", "Sourcegraph", "SSLMate", "Thunderstore", "Unkey", "UpCloud", "Upstage", "ValTown", "WakaTime", "Weatherstack", "Xendit", "Zuplo", "GCNotify",
 	}
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
