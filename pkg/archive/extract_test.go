@@ -387,12 +387,12 @@ func TestWalkHWPEncryptedIsCoverageGap(t *testing.T) {
 }
 
 func TestWalkGenericOLEStreams(t *testing.T) {
-	data := buildCFB(t, 1, []cfbEntry{{name: "WordDocument", typ: 2, data: []byte("FIXTURE-OLE-STREAM"), child: -1, right: -1}})
+	data := buildCFB(t, 1, []cfbEntry{{name: "Contents", typ: 2, data: []byte("FIXTURE-OLE-STREAM"), child: -1, right: -1}})
 	entries, err := walkEntries(t, "legacy.doc", data, Limits{})
 	if err != nil {
 		t.Fatalf("Walk: %v", err)
 	}
-	requireEntry(t, entries, "legacy.doc!WordDocument", "FIXTURE-OLE-STREAM")
+	requireEntry(t, entries, "legacy.doc!Contents", "FIXTURE-OLE-STREAM")
 }
 
 func TestWalkCorruptOLEIsCoverageGap(t *testing.T) {

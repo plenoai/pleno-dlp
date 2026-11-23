@@ -243,11 +243,86 @@ func (s *walkState) walkOLE(name string, data *spool, depth int) (err error) {
 			}
 			continue
 		}
+		if !hwp {
+			if extract := officeStreamExtractor(st.path); extract != nil {
+				done, err := s.walkOfficeStream(entryName, st, streams, extract)
+				if err != nil {
+					return err
+				}
+				if done {
+					continue
+				}
+			}
+		}
 		if err := s.walkMember(entryName, st.path, input, declared, depth); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+type officeExtractor func(stream []byte, tables map[string][]byte, out *textBuffer) error
+
+// officeStreamExtractor selects the text extractor for the main stream of a
+// legacy Word, Excel, or PowerPoint document.
+func officeStreamExtractor(p string) officeExtractor {
+	switch p {
+	case "WordDocument":
+		return extractWordText
+	case "Workbook", "Book":
+		return func(b []byte, _ map[string][]byte, out *textBuffer) error { return extractBIFFText(b, out) }
+	case "PowerPoint Document":
+		return func(b []byte, _ map[string][]byte, out *textBuffer) error { return extractPPTText(b, out) }
+	}
+	return nil
+}
+
+func readOLEStream(f *mscfb.File) ([]byte, error) {
+	if f.Size > maxExtractorInputBytes {
+		return nil, fmt.Errorf("stream exceeds %d-byte extractor limit", maxExtractorInputBytes)
+	}
+	b := make([]byte, f.Size)
+	if _, err := f.ReadAt(b, 0); err != nil && err != io.EOF {
+		return nil, err
+	}
+	return b, nil
+}
+
+// walkOfficeStream emits the document text of a Word/Excel/PowerPoint main
+// stream. It reports done=false when the stream could not be parsed so the
+// caller scans the raw bytes instead (nothing is lost).
+func (s *walkState) walkOfficeStream(entryName string, st oleStream, streams []oleStream, extract officeExtractor) (bool, error) {
+	body, err := readOLEStream(st.file)
+	if err != nil {
+		s.partial("corrupt-entry", entryName, err)
+		return false, nil
+	}
+	tables := map[string][]byte{}
+	if st.path == "WordDocument" {
+		for _, t := range streams {
+			if t.path == "0Table" || t.path == "1Table" {
+				if b, err := readOLEStream(t.file); err == nil {
+					tables[t.path] = b
+				}
+			}
+		}
+	}
+	out := &textBuffer{limit: s.extractLimit()}
+	parseErr := extract(body, tables, out)
+	if errors.Is(parseErr, errOfficeEncrypted) {
+		s.partial("encrypted", entryName, parseErr)
+		return true, nil
+	}
+	if out.overflow {
+		s.rejectBudget("max-expanded-bytes", entryName, fmt.Errorf("office text %w", errExtractLimit))
+	}
+	if parseErr != nil {
+		s.partial("corrupt-entry", entryName, parseErr)
+		if out.buf.Len() == 0 {
+			return false, nil
+		}
+	}
+	return true, s.emitDerived(entryName+extractedTextSuffix, out.buf.Bytes())
 }
 
 func sanitizeOLEPath(p string) string {
