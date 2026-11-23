@@ -42,3 +42,7 @@ coverage.html
 
 __pycache__/
 *.pyc
+
+# Contributors' global ignores (e.g. *.zip) must never drop test fixtures:
+# v0.71.1 failed because pkg/archive/testdata/zipspan/*.zip were never committed.
+!**/testdata/**
