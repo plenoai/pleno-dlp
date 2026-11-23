@@ -144,6 +144,11 @@ func fingerprintGiteaCompatible(ctx context.Context, provider giteaProvider, cfg
 	if err := requireSecureEndpoint(provider.name, apiBase); err != nil {
 		return "", err
 	}
+	// History has no cheap fingerprint; hashing only comments would let
+	// --incremental skip new commits. Opt out; per-repo git state remains.
+	if parseBool(cfg["history"]) {
+		return "", nil
+	}
 	cli := newGiteaClient(apiBase, token)
 	h := sha256.New()
 	writeFingerprint(h, provider.name+"-v1")

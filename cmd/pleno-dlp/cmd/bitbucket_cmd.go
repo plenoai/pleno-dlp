@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"os"
+	"strconv"
 
 	"github.com/spf13/cobra"
 
@@ -16,6 +17,8 @@ type bitbucketFlags struct {
 	appPassword string
 	token       string
 	apiBase     string
+	history     bool
+	snippets    bool
 }
 
 var (
@@ -47,6 +50,8 @@ func init() {
 	scanBitbucketCmd.Flags().StringVar(&scanBitbucketOpts.appPassword, "app-password", "", "Bitbucket app password (falls back to the BITBUCKET_APP_PASSWORD env var)")
 	scanBitbucketCmd.Flags().StringVar(&scanBitbucketOpts.token, "token", "", "Bitbucket workspace/repository access token (Bearer auth; mutually exclusive with --app-password)")
 	scanBitbucketCmd.Flags().StringVar(&scanBitbucketOpts.apiBase, "api-base", "", "Bitbucket API base URL (default https://api.bitbucket.org/2.0)")
+	scanBitbucketCmd.Flags().BoolVar(&scanBitbucketOpts.history, "history", false, "also clone each repository and scan its full Git history (all branches and tags)")
+	scanBitbucketCmd.Flags().BoolVar(&scanBitbucketOpts.snippets, "include-snippets", false, "also scan the workspace's snippets")
 	scanCmd.AddCommand(scanBitbucketCmd)
 
 	verifyBitbucketCmd.Flags().StringVar(&verifyBitbucketOpts.token, "token", "", "Bitbucket access token")
@@ -68,14 +73,17 @@ func runScanBitbucket(cmd *cobra.Command, _ []string) error {
 	if appPassword != "" && scanBitbucketOpts.username == "" {
 		return errors.New("bitbucket: --username is required when using --app-password")
 	}
-	return runScanSaaS(cmd, "bitbucket", connectors.Config{
+	cfg := connectors.Config{
 		"token":        token,
 		"username":     scanBitbucketOpts.username,
 		"app_password": appPassword,
 		"workspace":    scanBitbucketOpts.workspace,
 		"repo":         scanBitbucketOpts.repo,
 		"api_base":     scanBitbucketOpts.apiBase,
-	})
+	}
+	cfg["history"] = strconv.FormatBool(scanBitbucketOpts.history)
+	cfg["include_snippets"] = strconv.FormatBool(scanBitbucketOpts.snippets)
+	return runScanSaaS(cmd, "bitbucket", cfg)
 }
 
 func runVerifyBitbucket(cmd *cobra.Command, _ []string) error {

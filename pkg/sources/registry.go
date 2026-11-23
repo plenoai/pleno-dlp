@@ -113,6 +113,8 @@ func (t SourceType) String() string {
 		return "circleci"
 	case SourceTeams:
 		return "teams"
+	case SourceAzureDevOps:
+		return "azure-devops"
 	default:
 		return "unknown"
 	}

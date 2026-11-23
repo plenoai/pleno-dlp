@@ -53,7 +53,7 @@ published count.
 with the registry in either direction, and `pkg/detectors/counts_test.go`
 cross-checks the public website and README claims.
 
-**Current value:** 31 wired sources.
+**Current value:** 32 wired sources.
 
 **Where it's quoted:** website/index.html (hero line).
 
