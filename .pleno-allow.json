@@ -6,23 +6,8 @@
       "reason": "HardcodedPassword detector regression fixtures and docs (#863)"
     },
     {
-      "detector": "APIKeyAssignment",
-      "raw": "return",
-      "reason": "false positive on Go `case XAPIKey:\\n return` in registry.go (#886)"
-    },
-    {
-      "detector": "JSONConfigSecret",
-      "raw": "context-required",
-      "reason": "revoke-support status literal in cmd tests"
-    },
-    {
       "detector": "HardcodedPassword",
       "raw": "Betterleaks",
-      "reason": "false positive (#886)"
-    },
-    {
-      "detector": "HardcodedPassword",
-      "raw": "return",
       "reason": "false positive (#886)"
     },
     {
@@ -38,16 +23,6 @@
     {
       "detector": "PagerDuty",
       "raw": "-authorization-token",
-      "reason": "false positive (#886)"
-    },
-    {
-      "detector": "MySQL",
-      "raw": "password",
-      "reason": "false positive (#886)"
-    },
-    {
-      "detector": "Redis",
-      "raw": "password",
       "reason": "false positive (#886)"
     },
     {

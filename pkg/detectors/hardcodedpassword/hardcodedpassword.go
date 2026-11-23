@@ -31,9 +31,11 @@ var (
 		)
 	})
 
+	// The mapping separator and value must share the key's line (#886): a
+	// Go `case XPassword:` label followed by a statement is not YAML.
 	yamlValueRe = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(
-			`(?im)(?:^|\s)(?:[a-z0-9_]*(?:password|passwd|pwd)[a-z0-9_]*)\s*:\s*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
+			`(?im)(?:^|\s)(?:[a-z0-9_]*(?:password|passwd|pwd)[a-z0-9_]*)[ \t]*:[ \t]*["']?([^"'\n\r${}<>%\[\]{} ]{4,64})["']?`,
 		)
 	})
 
@@ -332,7 +334,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		if len(val) < 4 {
 			return
 		}
-		if isPlaceholder(val) || looksLikeCodeReference(val) {
+		if isPlaceholder(val) || looksLikeCodeReference(val) || detectors.HasLeadingEscape(val) {
 			return
 		}
 		if _, dup := seen[val]; dup {

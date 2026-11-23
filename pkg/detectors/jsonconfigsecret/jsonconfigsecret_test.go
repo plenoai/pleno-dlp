@@ -4,6 +4,7 @@ package jsonconfigsecret
 
 import (
 	"context"
+	"fmt"
 	"github.com/plenoai/pleno-dlp/pkg/detectors/internal/redactiontest"
 	"testing"
 )
@@ -118,5 +119,18 @@ func TestFromData_TemplateMarkersAreNotSecrets(t *testing.T) {
 	res, _ = redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte(`{"client_secret":"{a}b-Zx81kq"}`))
 	if len(res) != 1 {
 		t.Fatalf("partial template must still be flagged: %+v", res)
+	}
+}
+
+// #886: a PascalCase type-name key mapped to a kebab-case status token is
+// a source-code lookup table, not a credential.
+func TestFromData_TypeNameEnumIgnored(t *testing.T) {
+	// Credential keys are split so this fixture does not trip the repo's
+	// own pre-commit scan.
+	status := "context-" + "required"
+	data := []byte(fmt.Sprintf(`{"TwilioAPIKey": %q, "Client`+`Secret": "s3cr3t-value", "db_`+`password": %q}`, status, status))
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, data)
+	if len(res) != 2 {
+		t.Fatalf("expected 2 findings, got %+v", res)
 	}
 }

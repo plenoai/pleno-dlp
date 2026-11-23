@@ -36,7 +36,7 @@ var (
 	// embedded in snake_case names like DO_API_KEY still match.
 	assignEqRe = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(
-			`(?im)(?:^|[^a-zA-Z])[a-zA-Z0-9_]*api[_-]?key[a-zA-Z0-9_]*\s*=\s*["']?([^"'\n\r${}<>%\[\]{} #]{4,128})`,
+			`(?im)(?:^|[^a-zA-Z])[a-zA-Z0-9_]*api[_-]?key[a-zA-Z0-9_]*[ \t]*=[ \t]*(["']?)([^"'\n\r${}<>%\[\]{} #]{4,128})`,
 		)
 	})
 	// This is a necessary-syntax gate for the expensive equality grammar. It
@@ -44,12 +44,12 @@ var (
 	// expression remains authoritative after this conservative prefilter.
 	assignEqCandidateRe = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(
-			`api[_-]?key[a-zA-Z0-9_]*\s*=\s*["']?[^"'\n\r${}<>%\[\]{} #]{4}`,
+			`api[_-]?key[a-zA-Z0-9_]*[ \t]*=[ \t]*["']?[^"'\n\r${}<>%\[\]{} #]{4}`,
 		)
 	})
 	assignColonRe = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(
-			`(?im)(?:^|\s)[a-zA-Z0-9_]*api[_-]?key[a-zA-Z0-9_]*\s*:\s*["']?([^"'\n\r${}<>%\[\]{} #]{4,128})`,
+			`(?im)(?:^|\s)[a-zA-Z0-9_]*api[_-]?key[a-zA-Z0-9_]*[ \t]*:[ \t]*(["']?)([^"'\n\r${}<>%\[\]{} #]{4,128})`,
 		)
 	})
 )
@@ -112,6 +112,54 @@ func hasTemplatingMarker(v string) bool {
 	return false
 }
 
+// goKeywords are reserved words that can follow an api-key-named switch
+// case label in source code (#886) but are never a configured key value.
+var goKeywords = map[string]struct{}{
+	"break": {}, "case": {}, "chan": {}, "const": {}, "continue": {},
+	"default": {}, "defer": {}, "else": {}, "fallthrough": {}, "for": {},
+	"func": {}, "go": {}, "goto": {}, "if": {}, "import": {},
+	"interface": {}, "map": {}, "package": {}, "range": {}, "return": {},
+	"select": {}, "struct": {}, "switch": {}, "type": {}, "var": {},
+	"nil": {}, "string": {},
+}
+
+// looksLikeCode reports whether an unquoted right-hand side is source code
+// rather than a config literal: a reserved word, a call, or a digit-free
+// identifier carrying a code signal (trailing statement separator,
+// camelCase, or a credential word), as in Go struct literals that set an
+// api-key field from a variable. Unquoted .env/YAML literals that contain
+// digits stay reportable.
+func looksLikeCode(v string) bool {
+	if strings.ContainsRune(v, '(') {
+		return true
+	}
+	trailing := strings.TrimRight(v, ",;") != v
+	v = strings.TrimRight(v, ",;")
+	if _, ok := goKeywords[v]; ok {
+		return true
+	}
+	if !identRe.MatchString(v) || strings.ContainsAny(v, "0123456789") {
+		return false
+	}
+	if trailing {
+		return true
+	}
+	for i := 1; i < len(v); i++ {
+		if v[i-1] >= 'a' && v[i-1] <= 'z' && v[i] >= 'A' && v[i] <= 'Z' {
+			return true
+		}
+	}
+	lower := strings.ToLower(v)
+	for _, w := range []string{"key", "secret", "token", "cred"} {
+		if strings.Contains(lower, w) {
+			return true
+		}
+	}
+	return false
+}
+
+var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.]*$`)
+
 type Scanner struct{}
 
 func (Scanner) Type() detectors.DetectorType { return detectors.APIKeyAssignment }
@@ -122,8 +170,12 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
-	add := func(raw string) {
+	add := func(quote, raw string) {
 		val := strings.TrimSpace(strings.TrimRight(raw, `"'`))
+		if detectors.HasLeadingEscape(val) || (quote == "" && looksLikeCode(val)) {
+			return
+		}
+		val = strings.TrimRight(val, ",;")
 		if len(val) < 4 {
 			return
 		}
@@ -157,10 +209,10 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	}
 	for _, re := range res {
 		for _, m := range re.FindAllSubmatch(data, -1) {
-			if len(m) < 2 {
+			if len(m) < 3 {
 				continue
 			}
-			add(string(m[1]))
+			add(string(m[1]), string(m[2]))
 		}
 	}
 

@@ -1895,7 +1895,7 @@ func (e *Engine) dispatchAt(ctx context.Context, c *sources.Chunk, v decoder.Var
 			return
 		}
 		for _, sp := range spans {
-			e.runDetectorOnAt(ctx, c, v, archivePath, di, v.Data[sp.start:sp.end], stream, matchCache, base)
+			e.runDetectorWindow(ctx, c, v, archivePath, di, sp.start, v.Data[sp.start:sp.end], stream, matchCache, base)
 		}
 	}
 }
@@ -1916,6 +1916,14 @@ func (e *Engine) runDetectorOn(ctx context.Context, c *sources.Chunk, v decoder.
 }
 
 func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, data []byte, stream bool, matchCache *streamMatchCache, base streamWindowBase) {
+	e.runDetectorWindow(ctx, c, v, archivePath, di, 0, data, stream, matchCache, base)
+}
+
+// runDetectorWindow runs detector di over data, which starts at byte winStart
+// of v.Data. The window offset lets buffered raw-variant findings resolve
+// Raw inside the window the detector actually matched instead of at its
+// earliest occurrence in the chunk (#874).
+func (e *Engine) runDetectorWindow(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, winStart int, data []byte, stream bool, matchCache *streamMatchCache, base streamWindowBase) {
 	d := e.dets[di]
 	// Verification defaults to unconditional-true: the bool is the
 	// trufflehog Detector contract, not normally a configurable option.
@@ -1952,11 +1960,50 @@ func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decode
 		return
 	}
 	for _, r := range results {
-		e.emitDetectorResult(ctx, c, v, archivePath, di, stream, r, matchCache, base)
+		e.emitDetectorResultAt(ctx, c, v, archivePath, di, stream, r, matchCache, base, chunkMatchStart(ctx, d, c, v, stream, winStart, data, r.Raw))
 	}
 }
 
+// chunkMatchStart returns the absolute offset of raw in c.Data when the
+// detector scanned a window of the chunk's own bytes (the undecoded,
+// buffered variant) and raw occurs inside that window, else -1. Decoded
+// variants and stream windows do not share c.Data offsets, so they keep
+// their existing resolution. When raw occurs more than once in the window
+// (keyword windows merge, and detectors dedup values), the first occurrence
+// the detector confirms on its own line wins, else the first occurrence.
+func chunkMatchStart(ctx context.Context, d detectors.Detector, c *sources.Chunk, v decoder.Variant, stream bool, winStart int, data, raw []byte) int {
+	if stream || c == nil || v.Source != "" || len(raw) == 0 || len(v.Data) == 0 ||
+		len(v.Data) != len(c.Data) || &v.Data[0] != &c.Data[0] {
+		return -1
+	}
+	idx := bytes.Index(data, raw)
+	if idx < 0 {
+		return -1
+	}
+	if next := bytes.Index(data[idx+len(raw):], raw); next >= 0 {
+		for i := idx; i >= 0; {
+			if detectorConfirmsLine(ctx, d, data, i, raw) {
+				return winStart + i
+			}
+			n := bytes.Index(data[i+len(raw):], raw)
+			if n < 0 {
+				break
+			}
+			i += len(raw) + n
+		}
+	}
+	return winStart + idx
+}
+
 func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, stream bool, r detectors.Result, matchCache *streamMatchCache, base streamWindowBase) {
+	e.emitDetectorResultAt(ctx, c, v, archivePath, di, stream, r, matchCache, base, -1)
+}
+
+// emitDetectorResultAt finalises one result. matchStart, when >= 0, is the
+// absolute offset of the first occurrence of Raw in c.Data inside the
+// detector's window; it takes precedence over earliest-occurrence line
+// resolution.
+func (e *Engine) emitDetectorResultAt(ctx context.Context, c *sources.Chunk, v decoder.Variant, archivePath string, di int, stream bool, r detectors.Result, matchCache *streamMatchCache, base streamWindowBase, matchStart int) {
 	d := e.dets[di]
 	var hint streamRawHint
 	if stream && base.ok && matchCache != nil && len(r.Raw) > 0 {
@@ -2005,7 +2052,12 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 	}
 	tagBlastRadius(&r)
 	e.stats.findings.Add(1)
-	inline := inlineAllowedIn(v.Data, r.Raw, e.inlineTokens...)
+	var inline bool
+	if matchStart >= 0 {
+		inline = inlineAllowedAt(c.Data, matchStart, matchStart+len(r.Raw), e.inlineTokens...)
+	} else {
+		inline = inlineAllowedIn(v.Data, r.Raw, e.inlineTokens...)
+	}
 	if stream && matchCache != nil && matchCache.pending != nil {
 		if len(matchCache.pending.findings) >= streamFindingBatchLimit {
 			matchCache.pending.flush(ctx, e, c, matchCache)
@@ -2041,10 +2093,16 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 		}
 	}
 	chunk := chunkWithMatchLine(c, r.Raw)
+	if matchStart >= 0 {
+		chunk = chunkWithMatchLineAt(c, r.Raw, matchStart)
+	}
 	if stream {
 		chunk = chunkForFinding(c, line, true)
 	}
 	var rawSpan *[2]int
+	if matchStart >= 0 {
+		rawSpan = &[2]int{matchStart, matchStart + len(r.Raw)}
+	}
 	if stream && matchCache != nil && len(r.Raw) > 0 {
 		if matchErr != nil {
 			if ctx.Err() == nil {
@@ -2057,8 +2115,30 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 	}
 	// Diff-backed input can contain the same secret in multiple files. Resolve
 	// every occurrence before allowlist filtering so an allowed fixture cannot
-	// suppress the same value in a different file.
+	// suppress the same value in a different file (#502). Detectors dedup
+	// values, so an occurrence other than the matched one (matchStart, #874)
+	// is attributed to this result only when the detector also reports Raw on
+	// that occurrence's own line; a common word such as `return` therefore no
+	// longer fans out to every added line. When no occurrence is confirmed
+	// (a decoded-variant or multi-line match), the earliest located one is
+	// reported.
 	if !stream && c.SourceMetadata.Stdin != nil && len(c.SourceMetadata.Stdin.Locations) > 0 && len(r.Raw) > 0 {
+		type located struct {
+			start int
+			loc   sources.LineLocation
+		}
+		var first *located
+		emit := func(o located) {
+			lc := *c
+			lc.SourceMetadata.Stdin = nil
+			lc.SourceMetadata.Filesystem = &sources.FilesystemMeta{Path: o.loc.Path, Line: o.loc.Line}
+			e.sink.Emit(Finding{
+				Result: r, Chunk: &lc, Detector: d.Type(),
+				VerifierBacked: e.isVerifier[di],
+				RawSpan:        &[2]int{o.start, o.start + len(r.Raw)},
+				InlineAllowed:  inlineAllowedAt(c.Data, o.start, o.start+len(r.Raw), e.inlineTokens...),
+			})
+		}
 		emitted := false
 		line := 1
 		for offset := 0; offset < len(c.Data); {
@@ -2069,19 +2149,21 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 			start := offset + index
 			line += bytes.Count(c.Data[offset:start], []byte{'\n'})
 			if loc, ok := c.SourceMetadata.Stdin.Locations[line]; ok && loc.Path != "" && loc.Line > 0 {
-				located := *c
-				located.SourceMetadata.Stdin = nil
-				located.SourceMetadata.Filesystem = &sources.FilesystemMeta{Path: loc.Path, Line: loc.Line}
-				e.sink.Emit(Finding{
-					Result: r, Chunk: &located, Detector: d.Type(),
-					VerifierBacked: e.isVerifier[di],
-					RawSpan:        &[2]int{start, start + len(r.Raw)},
-					InlineAllowed:  inlineAllowedAt(c.Data, start, start+len(r.Raw), e.inlineTokens...),
-				})
-				emitted = true
+				o := located{start: start, loc: loc}
+				if first == nil {
+					first = &o
+				}
+				if start == matchStart || detectorConfirmsLine(ctx, d, c.Data, start, r.Raw) {
+					emit(o)
+					emitted = true
+				}
 			}
 			line += bytes.Count(r.Raw, []byte{'\n'})
 			offset = start + len(r.Raw)
+		}
+		if !emitted && first != nil {
+			emit(*first)
+			emitted = true
 		}
 		if emitted {
 			return
@@ -2095,6 +2177,28 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 		RawSpan:        rawSpan,
 		InlineAllowed:  inline,
 	})
+}
+
+// detectorConfirmsLine reports whether d, run offline over the line(s)
+// holding data[start:start+len(raw)], reports raw again.
+func detectorConfirmsLine(ctx context.Context, d detectors.Detector, data []byte, start int, raw []byte) bool {
+	lo := bytes.LastIndexByte(data[:start], '\n') + 1
+	hi := start + len(raw)
+	if i := bytes.IndexByte(data[hi:], '\n'); i >= 0 {
+		hi += i
+	} else {
+		hi = len(data)
+	}
+	results, err := d.FromData(ctx, false, data[lo:hi])
+	if err != nil {
+		return false
+	}
+	for _, res := range results {
+		if bytes.Equal(res.Raw, raw) {
+			return true
+		}
+	}
+	return false
 }
 
 func applyVerificationPolicy(detector detectors.Detector, result *detectors.Result) {
@@ -2135,10 +2239,20 @@ func maxVerificationAssurance(detector detectors.Detector) detectors.Verificatio
 // when raw is absent so callers leave the existing line untouched rather
 // than reporting a wrong one.
 func computeLineFromMatch(data, raw []byte, base int) int {
+	return computeLineAt(data, raw, base, -1)
+}
+
+// computeLineAt is computeLineFromMatch with an optional known match offset:
+// when start >= 0 and raw occurs at data[start:], the line of that offset is
+// returned instead of the earliest occurrence's.
+func computeLineAt(data, raw []byte, base, start int) int {
 	if len(raw) == 0 {
 		return 0
 	}
-	idx := bytes.Index(data, raw)
+	idx := start
+	if idx < 0 || idx > len(data)-len(raw) || !bytes.Equal(data[idx:idx+len(raw)], raw) {
+		idx = bytes.Index(data, raw)
+	}
 	if idx < 0 {
 		return 0
 	}
@@ -2493,13 +2607,19 @@ func setChunkLine(c *sources.Chunk, line int) {
 // sub-struct is duplicated so per-finding lines never race on the shared
 // chunk.
 func chunkWithMatchLine(c *sources.Chunk, raw []byte) *sources.Chunk {
+	return chunkWithMatchLineAt(c, raw, -1)
+}
+
+// chunkWithMatchLineAt resolves the line of raw at offset start in c.Data
+// (falling back to the earliest occurrence when start < 0 or stale).
+func chunkWithMatchLineAt(c *sources.Chunk, raw []byte, start int) *sources.Chunk {
 	if c == nil {
 		return c
 	}
 	md := &c.SourceMetadata
 	switch {
 	case md.Filesystem != nil:
-		if line := computeLineFromMatch(c.Data, raw, md.Filesystem.Line); line > 0 {
+		if line := computeLineAt(c.Data, raw, md.Filesystem.Line, start); line > 0 {
 			cp := *c
 			m := *md.Filesystem
 			m.Line = line
@@ -2507,7 +2627,7 @@ func chunkWithMatchLine(c *sources.Chunk, raw []byte) *sources.Chunk {
 			return &cp
 		}
 	case md.Git != nil:
-		if line := computeLineFromMatch(c.Data, raw, md.Git.Line); line > 0 {
+		if line := computeLineAt(c.Data, raw, md.Git.Line, start); line > 0 {
 			cp := *c
 			m := *md.Git
 			m.Line = line
@@ -2515,7 +2635,7 @@ func chunkWithMatchLine(c *sources.Chunk, raw []byte) *sources.Chunk {
 			return &cp
 		}
 	case md.GitHub != nil:
-		if line := computeLineFromMatch(c.Data, raw, md.GitHub.Line); line > 0 {
+		if line := computeLineAt(c.Data, raw, md.GitHub.Line, start); line > 0 {
 			cp := *c
 			m := *md.GitHub
 			m.Line = line
@@ -2523,7 +2643,7 @@ func chunkWithMatchLine(c *sources.Chunk, raw []byte) *sources.Chunk {
 			return &cp
 		}
 	case md.Forge != nil:
-		if line := computeLineFromMatch(c.Data, raw, md.Forge.Line); line > 0 {
+		if line := computeLineAt(c.Data, raw, md.Forge.Line, start); line > 0 {
 			cp := *c
 			m := *md.Forge
 			m.Line = line
@@ -2531,7 +2651,7 @@ func chunkWithMatchLine(c *sources.Chunk, raw []byte) *sources.Chunk {
 			return &cp
 		}
 	case md.SQLDump != nil:
-		if line := computeLineFromMatch(c.Data, raw, md.SQLDump.Line); line > 0 {
+		if line := computeLineAt(c.Data, raw, md.SQLDump.Line, start); line > 0 {
 			cp := *c
 			m := *md.SQLDump
 			m.Line = line
@@ -2539,7 +2659,7 @@ func chunkWithMatchLine(c *sources.Chunk, raw []byte) *sources.Chunk {
 			return &cp
 		}
 	case md.DockerImage != nil:
-		if line := computeLineFromMatch(c.Data, raw, md.DockerImage.Line); line > 0 {
+		if line := computeLineAt(c.Data, raw, md.DockerImage.Line, start); line > 0 {
 			cp := *c
 			m := *md.DockerImage
 			m.Line = line
@@ -2551,7 +2671,7 @@ func chunkWithMatchLine(c *sources.Chunk, raw []byte) *sources.Chunk {
 		// to the file it came from. Resolve the finding to FilesystemMeta
 		// so allowlist path rules and output see the real location instead
 		// of a label such as "git-diff-staged".
-		if line := computeLineFromMatch(c.Data, raw, 1); line > 0 {
+		if line := computeLineAt(c.Data, raw, 1, start); line > 0 {
 			if loc, ok := md.Stdin.Locations[line]; ok && loc.Path != "" {
 				cp := *c
 				cp.SourceMetadata.Stdin = nil
