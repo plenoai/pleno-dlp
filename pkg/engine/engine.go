@@ -66,6 +66,16 @@ type Options struct {
 	// scanned chunks. 0 keeps DefaultArchiveMaxDepth; values above
 	// MaxArchiveMaxDepth are clamped.
 	ArchiveMaxDepth int
+	// NoArchiveExtraction scans archive files as opaque bytes instead of
+	// expanding them (--no-extract-archives).
+	NoArchiveExtraction bool
+	// InlineAllowTokens adds same-line inline-allow tokens to the built-in
+	// pleno-dlp:allow / kingfisher:ignore / gitleaks:allow set.
+	InlineAllowTokens []string
+	// DetectorStats records per-detector call counts, result counts and
+	// wall time (--rule-stats). Off by default: it adds two clock reads
+	// per detector pass.
+	DetectorStats bool
 	// NoVerify skips the network round-trip in every Verifier detector's
 	// FromData call (the `verify bool` parameter of the trufflehog
 	// Detector contract is passed false instead of the unconditional
@@ -92,6 +102,8 @@ type Engine struct {
 	// abandon acquisition when its context is canceled.
 	runGate               chan struct{}
 	opts                  Options
+	inlineTokens          [][]byte
+	detStats              []detectorStatCounters
 	dets                  []detectors.Detector
 	isVerifier            []bool
 	verificationCacheable []bool
@@ -1168,6 +1180,8 @@ func NewWithDetectors(dets []detectors.Detector, opts Options, sink Sink) *Engin
 	e := &Engine{
 		runGate:               make(chan struct{}, 1),
 		opts:                  opts,
+		inlineTokens:          compileInlineTokens(opts.InlineAllowTokens),
+		detStats:              newDetectorStatCounters(opts.DetectorStats, len(ordered)),
 		dets:                  ordered,
 		isVerifier:            isVerifier,
 		verificationCacheable: verificationCacheable,
@@ -1347,7 +1361,7 @@ func (e *Engine) scanChunk(ctx context.Context, c *sources.Chunk) {
 		e.scanOpenedChunk(ctx, c)
 		return
 	}
-	if archive.LooksLikeArchive(c.Data) {
+	if !e.opts.NoArchiveExtraction && archive.LooksLikeArchive(c.Data) {
 		e.scanArchive(ctx, c, 5*time.Second)
 		return
 	}
@@ -1384,7 +1398,10 @@ func (e *Engine) scanOpenedChunk(ctx context.Context, c *sources.Chunk) {
 		return
 	}
 
-	isArchive, err := readerLooksLikeArchive(reader, size)
+	isArchive := false
+	if !e.opts.NoArchiveExtraction {
+		isArchive, err = readerLooksLikeArchive(reader, size)
+	}
 	if err != nil {
 		if ctx.Err() == nil {
 			e.recordFailure(ScanFailure{Kind: FailureSource, Source: archiveFailureSource(c), Err: err})
@@ -1906,6 +1923,10 @@ func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decode
 	// set it and every Verifier detector's FromData skips its network
 	// round-trip, keeping the scan fully offline instead of only
 	// filtering verified findings out afterward at the sink layer.
+	var started time.Time
+	if e.detStats != nil {
+		started = time.Now()
+	}
 	results, err := e.fromData(ctx, d, di, data)
 	if err == nil {
 		// Supplementary detection-only formats registered for this type
@@ -1916,6 +1937,9 @@ func (e *Engine) runDetectorOnAt(ctx context.Context, c *sources.Chunk, v decode
 			path = findingPath(Finding{Chunk: c})
 		}
 		results = detectors.AppendFormatResults(d.Type(), path, data, results)
+	}
+	if e.detStats != nil {
+		e.detStats[di].record(time.Since(started), len(results))
 	}
 	if err != nil {
 		// Cancellation of the scan context is the expected shutdown path,
@@ -1981,7 +2005,7 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 	}
 	tagBlastRadius(&r)
 	e.stats.findings.Add(1)
-	inline := inlineAllowedIn(v.Data, r.Raw)
+	inline := inlineAllowedIn(v.Data, r.Raw, e.inlineTokens...)
 	if stream && matchCache != nil && matchCache.pending != nil {
 		if len(matchCache.pending.findings) >= streamFindingBatchLimit {
 			matchCache.pending.flush(ctx, e, c, matchCache)
@@ -2052,7 +2076,7 @@ func (e *Engine) emitDetectorResult(ctx context.Context, c *sources.Chunk, v dec
 					Result: r, Chunk: &located, Detector: d.Type(),
 					VerifierBacked: e.isVerifier[di],
 					RawSpan:        &[2]int{start, start + len(r.Raw)},
-					InlineAllowed:  inlineAllowedAt(c.Data, start, start+len(r.Raw)),
+					InlineAllowed:  inlineAllowedAt(c.Data, start, start+len(r.Raw), e.inlineTokens...),
 				})
 				emitted = true
 			}

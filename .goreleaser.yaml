@@ -38,23 +38,6 @@ archives:
 checksum:
   name_template: 'checksums.txt'
 
-# Generates a Homebrew cask for release.yml to publish only after the
-# GitHub Release is immutable. Deferring the tap update prevents it from ever
-# pointing users at draft assets and makes the cross-repo write retryable.
-homebrew_casks:
-  - name: pleno-dlp
-    binaries:
-      - pleno-dlp
-    repository:
-      owner: plenoai
-      name: homebrew-tap
-      branch: main
-    directory: Casks
-    skip_upload: true
-    homepage: "https://plenoai.com/pleno-dlp/"
-    description: "Unified DLP scanner for secrets and PII across filesystem, git, stdin, and SaaS sources."
-    license: "AGPL-3.0-only"
-
 signs:
   - cmd: cosign
     args:
@@ -98,8 +81,13 @@ release:
     ```
     sha256sum -c checksums.txt
     ```
-    Build-provenance attestations (`gh attestation verify`) require a
-    public repo or GHAS and are skipped while this repo is private.
+    Archives carry GitHub build-provenance attestations:
+    ```
+    gh attestation verify pleno-dlp_<os>_<arch>.tar.gz \
+      --repo plenoai/pleno-dlp \
+      --signer-workflow plenoai/pleno-dlp/.github/workflows/release.yml
+    ```
+    Install with aqua (`aqua g -i plenoai/pleno-dlp`), which runs both checks.
 
 changelog:
   use: github

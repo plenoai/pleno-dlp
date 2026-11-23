@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/plenoai/pleno-dlp/pkg/alerts"
 	"github.com/plenoai/pleno-dlp/pkg/connectors"
@@ -73,6 +74,12 @@ type scanFlags struct {
 	alertFormat        string
 	alertOn            string
 	extractionDepth    int
+	noExtractArchives  bool
+	noDedup            bool
+	ruleStats          bool
+	inlineAllowTokens  []string
+	userAgentSuffix    string
+	outputPath         string
 	listOnly           bool
 	verifyRPSDetector  []string
 	verifyRetries      int
@@ -141,6 +148,7 @@ type fsFlags struct {
 	exclude                []string
 	maxSizeBytes           int64
 	disableDefaultExcludes bool
+	scanNestedRepos        bool
 }
 
 var fsOpts fsFlags
@@ -245,7 +253,7 @@ func init() {
 	scanCmd.PersistentFlags().DurationVar(&scanOpts.verifyTimeout, "verify-timeout", 0,
 		"per-attempt verification HTTP timeout, e.g. 10s (0 = detector defaults)")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.listOnly, "list-only", false,
-		"print the repositories the scan would cover (github, gitlab) and exit without scanning")
+		"print the repositories the scan would cover (github, gitlab, bitbucket, azure-devops, huggingface, gitea family) and exit without scanning")
 	scanCmd.PersistentFlags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.failOn, "fail-on", "high", "minimum severity that triggers exit 1: any|info|low|medium|high|critical "+
@@ -389,6 +397,7 @@ func runScanFilesystem(cmd *cobra.Command, args []string) error {
 		"exclude":                  fsOpts.exclude,
 		"max_size_bytes":           fsOpts.maxSizeBytes,
 		"disable_default_excludes": fsOpts.disableDefaultExcludes,
+		"scan_nested_repos":        fsOpts.scanNestedRepos,
 	})
 	if err != nil {
 		return fmt.Errorf("encode source config: %w", err)
@@ -537,7 +546,7 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	defer stop()
 
 	if scanOpts.listOnly {
-		return fmt.Errorf("--list-only is not supported for scan %s (supported: github, gitlab)", kind)
+		return fmt.Errorf("--list-only is not supported for scan %s (supported: %s)", kind, strings.Join(connectors.ListOnlyConnectors(), ", "))
 	}
 	if scanOpts.extractionDepth < 1 || scanOpts.extractionDepth > engine.MaxArchiveMaxDepth {
 		return fmt.Errorf("--extraction-depth: must be between 1 and %d (got %d)", engine.MaxArchiveMaxDepth, scanOpts.extractionDepth)
@@ -750,6 +759,15 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	if err != nil {
 		return err
 	}
+	auditMeta, _ := sink.(output.AuditMetaSetter)
+	if auditMeta != nil {
+		auditMeta.SetAuditMeta(func(m *output.AuditMeta) {
+			m.Source = kind
+			m.VerifyMode = auditVerifyMode()
+			// Flag names only: values can carry tokens or private paths.
+			cmd.Flags().Visit(func(f *pflag.Flag) { m.Flags = append(m.Flags, f.Name) })
+		})
+	}
 
 	// chain owns Close/Flush for every sink tracked below, so wiring a
 	// new buffering sink into this chain can never again silently drop
@@ -847,12 +865,18 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	}
 	allowed := chain.Track(engine.NewAllowlistWithAudit(allowlist, topSink, suppressedAudit))
 	placeheld := chain.Track(engine.NewPlaceholderFilter(allowed, suppressedAudit))
-	deduped := chain.Track(engine.NewDedup(placeheld))
+	// --no-dedup forwards every finding, including repeats at the same
+	// location, shadow generic hits on a provider detector's bytes, and
+	// every commit a git secret appears in.
+	deduped := placeheld
+	if !scanOpts.noDedup {
+		deduped = chain.Track(engine.NewDedup(placeheld))
+	}
 	// Git-mode cross-commit dedup: collapse the same secret+file across many
 	// commits to a single introducing-commit finding (with occurrence_count).
 	// Wraps the per-location dedup so the counter only sees unique secrets.
 	scanSink := deduped
-	if kind == "git" && !gitOpts.allOccurrences {
+	if kind == "git" && !gitOpts.allOccurrences && !scanOpts.noDedup {
 		scanSink = chain.Track(engine.NewGitCrossCommitDedup(deduped))
 	}
 	defer func() { _ = chain.Close() }()
@@ -882,6 +906,9 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	eng := engine.NewWithDetectors(dets, engine.Options{
 		Concurrency:                  scanOpts.concurrency,
 		ArchiveMaxDepth:              scanOpts.extractionDepth,
+		NoArchiveExtraction:          scanOpts.noExtractArchives,
+		InlineAllowTokens:            scanOpts.inlineAllowTokens,
+		DetectorStats:                scanOpts.ruleStats,
 		NoVerify:                     scanOpts.noVerify,
 		MinimumVerificationAssurance: minimumVerificationAssurance,
 	}, scanSink)
@@ -899,10 +926,16 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	}()
 
 	stats, err := eng.RunWithStats(ctx, src)
+	if scanOpts.ruleStats {
+		printDetectorStats(cmd.ErrOrStderr(), eng.DetectorStats())
+	}
 	var coverageErr *engine.DegradedError
 	if err != nil {
 		var fatalErr error
 		coverageErr, fatalErr = engine.PartitionDegradedErrors(err)
+		if auditMeta != nil && coverageErr != nil {
+			auditMeta.SetAuditMeta(func(m *output.AuditMeta) { m.CoverageGaps = coverageErr.Total })
+		}
 		// Stdin truncation is not a fatal scan error: the chunk that was
 		// read (up to --max-bytes) has already been scanned and any
 		// findings already counted. Treating it as fatal would discard
@@ -920,6 +953,10 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 		} else {
 			return restorePriorIncrementalState(fmt.Errorf("scan: %w", fatalErr))
 		}
+	}
+
+	if auditMeta != nil {
+		auditMeta.SetAuditMeta(func(m *output.AuditMeta) { m.Chunks, m.Bytes = stats.Chunks, stats.Bytes })
 	}
 
 	// Every buffering sink tracked into chain (git cross-commit dedup,
@@ -1345,6 +1382,19 @@ func parseFailOn(s string) (detectors.Severity, error) {
 	default:
 		return 0, fmt.Errorf("--fail-on: unknown value %q (valid: any, info, low, medium, high, critical)", s)
 	}
+}
+
+// auditVerifyMode summarises the verification policy for audit reports.
+func auditVerifyMode() string {
+	switch {
+	case scanOpts.noVerify:
+		return "disabled (--no-verify)"
+	case scanOpts.providerOnly:
+		return "enabled; only provider-confirmed findings emitted"
+	case scanOpts.onlyVerified:
+		return "enabled; only verified findings emitted"
+	}
+	return "enabled (minimum assurance " + scanOpts.verifyMinAssurance + ")"
 }
 
 // scanVerifyPolicy assembles the verification transport policy from

@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -16,56 +17,93 @@ func dogfoodRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
-// TestDogfoodingInstallsReleasedBinaryFromHomebrewTap pins the decision
-// recorded in docs/dogfooding.md: operator machines run the signed release
-// binary from the Homebrew tap, kept current by the release pipeline, rather
-// than an ad-hoc mise go: build.
-func TestDogfoodingInstallsReleasedBinaryFromHomebrewTap(t *testing.T) {
+// TestDogfoodingInstallsReleasedBinaryThroughAqua pins the decision recorded
+// in docs/dogfooding.md: operator machines run the signed release binary
+// through aqua, which verifies the cosign-signed checksums.txt and the GitHub
+// artifact attestation, rather than an ad-hoc mise go: build or a Homebrew tap.
+func TestDogfoodingInstallsReleasedBinaryThroughAqua(t *testing.T) {
 	root := dogfoodRoot(t)
-
-	doc, err := os.ReadFile(filepath.Join(root, "docs", "dogfooding.md"))
-	if err != nil {
-		t.Fatal(err)
+	read := func(rel ...string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(append([]string{root}, rel...)...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
 	}
-	for _, want := range []string{
-		"brew install plenoai/tap/pleno-dlp",
-		"brew upgrade pleno-dlp",
-		"plenoai/homebrew-tap",
-	} {
-		if !strings.Contains(string(doc), want) {
+
+	doc := read("docs", "dogfooding.md")
+	for _, want := range []string{"aqua -c aqua/aqua.yaml i", "plenoai/aqua-registry", "scripts/bump-dogfooding.sh"} {
+		if !strings.Contains(doc, want) {
 			t.Errorf("docs/dogfooding.md must document %q", want)
 		}
 	}
 
-	config, err := os.ReadFile(filepath.Join(root, ".goreleaser.yaml"))
-	if err != nil {
-		t.Fatal(err)
+	aquaConfig := read("aqua", "aqua.yaml")
+	pin := regexp.MustCompile(`(?m)^\s+- name: plenoai/pleno-dlp@(v\d+\.\d+\.\d+)$`).FindStringSubmatch(aquaConfig)
+	if pin == nil {
+		t.Fatal("aqua/aqua.yaml must pin plenoai/pleno-dlp to a released vX.Y.Z")
 	}
-	for _, want := range []string{
-		"homebrew_casks:",
-		"name: homebrew-tap",
-		"owner: plenoai",
-		"skip_upload: true",
-	} {
-		if !strings.Contains(string(config), want) {
-			t.Errorf(".goreleaser.yaml must keep publishing the Homebrew cask: missing %q", want)
-		}
+	if !strings.Contains(aquaConfig, "require_checksum: true") {
+		t.Error("aqua/aqua.yaml must require checksums")
+	}
+	checksums := read("aqua", "aqua-checksums.json")
+	if !strings.Contains(checksums, "github.com/plenoai/pleno-dlp/"+pin[1]+"/pleno-dlp_darwin_arm64.tar.gz") {
+		t.Errorf("aqua/aqua-checksums.json must record %s; run aqua -c aqua/aqua.yaml upc -prune", pin[1])
 	}
 
-	release, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "release.yml"))
-	if err != nil {
-		t.Fatal(err)
+	if !regexp.MustCompile(`(?m)^  - name: plenoai\n    type: github_content\n    repo_owner: plenoai\n    repo_name: aqua-registry\n    ref: [0-9a-f]{40}\n    path: registry.yaml$`).MatchString(aquaConfig) {
+		t.Error("aqua/aqua.yaml must consume the plenoai/aqua-registry github_content registry pinned by commit SHA")
 	}
-	rel := string(release)
-	homebrew := strings.Index(rel, "homebrew:")
-	if homebrew < 0 {
-		t.Fatal("release.yml must keep the homebrew job that updates the tap")
+	if !regexp.MustCompile(`(?m)^  - name: plenoai/pleno-dlp@v\S+\n    registry: plenoai$`).MatchString(aquaConfig) {
+		t.Error("aqua/aqua.yaml must install pleno-dlp from the plenoai registry")
 	}
-	if !strings.Contains(rel[homebrew:], "needs: finalize") {
-		t.Error("the Homebrew tap update must run only after the release is finalized")
+	policy := read("aqua", "aqua-policy.yaml")
+	for _, want := range []string{"type: github_content", "repo_owner: plenoai", "repo_name: aqua-registry", "path: registry.yaml", "- registry: plenoai"} {
+		if !strings.Contains(policy, want) {
+			t.Errorf("aqua/aqua-policy.yaml must allow the plenoai registry: missing %q", want)
+		}
 	}
-	if !strings.Contains(rel, "path=Casks/pleno-dlp.rb") {
-		t.Error("the Homebrew tap update must target Casks/pleno-dlp.rb")
+	if strings.Contains(policy, "ref:") {
+		t.Error("aqua/aqua-policy.yaml must not pin ref; SHA bumps would need policy edits")
+	}
+	if _, err := os.Stat(filepath.Join(root, "aqua", "registry.yaml")); err == nil {
+		t.Error("aqua/registry.yaml must not exist: plenoai/aqua-registry is the single source of truth")
+	}
+	bump := read(".github", "workflows", "dogfooding-bump.yml")
+	for _, want := range []string{"types: [published]", "scripts/bump-dogfooding.sh"} {
+		if !strings.Contains(bump, want) {
+			t.Errorf("dogfooding-bump.yml must contain %q", want)
+		}
+	}
+	if !strings.Contains(read("scripts", "bump-dogfooding.sh"), "pleno-dlp_darwin_arm64.tar.gz") {
+		t.Error("bump-dogfooding.sh must only select releases that ship darwin/arm64")
+	}
+
+	// The registry entry depends on these release asset names and signatures.
+	config := read(".goreleaser.yaml")
+	for _, want := range []string{
+		`name_template: "{{.ProjectName}}_{{.Os}}_{{.Arch}}"`,
+		"name_template: 'checksums.txt'",
+		"artifacts: checksum",
+		`signature: "${artifact}.sigstore.json"`,
+	} {
+		if !strings.Contains(config, want) {
+			t.Errorf(".goreleaser.yaml must keep the asset contract aqua relies on: missing %q", want)
+		}
+	}
+	release := read(".github", "workflows", "release.yml")
+	if !strings.Contains(release, "actions/attest-build-provenance@") || !strings.Contains(release, "dist/*.tar.gz") {
+		t.Error("release.yml must attest the archives aqua verifies")
+	}
+
+	for name, text := range map[string]string{".goreleaser.yaml": config, "release.yml": release} {
+		lower := strings.ToLower(text)
+		for _, banned := range []string{"homebrew", "brew_"} {
+			if strings.Contains(lower, banned) {
+				t.Errorf("%s must not publish to Homebrew (retired; see docs/dogfooding.md): found %q", name, banned)
+			}
+		}
 	}
 }
 
@@ -95,7 +133,7 @@ func TestNoAdHocMisePinForPlenoDLP(t *testing.T) {
 			return nil
 		}
 		if strings.Contains(string(data), pin) {
-			t.Errorf("reintroduced an ad-hoc mise pin in %s; dogfood via the Homebrew tap (docs/dogfooding.md)", path)
+			t.Errorf("reintroduced an ad-hoc mise pin in %s; dogfood via aqua (docs/dogfooding.md)", path)
 		}
 		return nil
 	})

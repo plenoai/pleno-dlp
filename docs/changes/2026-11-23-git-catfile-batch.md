@@ -1,0 +1,3 @@
+Owners: connector-engineer, qa
+
+The native git walker classifies "Binary files differ" patches through one long-lived `git cat-file --batch` process instead of spawning `git cat-file blob` per patch (django full history: 335 s → 19 s wall, identical finding set modulo the pre-existing Miro/Neo4jAura dedup tie), falling back to the one-shot process if the batch pipe loses framing. Author dates with out-of-range timezone offsets that git renders verbatim (rails 8845ae6, `+518:00`) are now parsed instead of aborting the walk, restoring full rails history coverage (145 → 519 findings). Part of #817.

@@ -288,13 +288,6 @@ jobs:
             dist/*.zip
             dist/checksums.txt
 
-      - name: Stage Homebrew formula
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: homebrew-formula
-          path: dist/homebrew/Casks/pleno-dlp.rb
-          if-no-files-found: error
-          retention-days: 30
 
   finalize:
     needs: draft
@@ -526,9 +519,22 @@ jobs:
           pattern: bindings-wheel-*
           path: dist
           merge-multiple: true
-      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          packages-dir: dist
+          python-version: '3.13'
+      # pypa/gh-action-pypi-publish ships an amd64-only container ("exec
+      # format error" on this arm64 pool), so perform the same trusted
+      # publishing exchange directly: GitHub OIDC token -> PyPI mint-token.
+      - name: Publish to PyPI via trusted publishing
+        run: |
+          python -m pip install --disable-pip-version-check twine==6.2.0
+          oidc=$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=pypi" | python -c 'import json,sys;print(json.load(sys.stdin)["value"])')
+          token=$(curl -fsS -X POST https://pypi.org/_/oidc/mint-token \
+            -H 'Content-Type: application/json' -d "{\"token\":\"$oidc\"}" \
+            | python -c 'import json,sys;print(json.load(sys.stdin)["token"])')
+          echo "::add-mask::$token"
+          TWINE_USERNAME=__token__ TWINE_PASSWORD="$token" python -m twine upload --non-interactive dist/*.whl
 
   # npm trusted publishing (OIDC, npm >= 11.5.1) with provenance; the npm
   # package must list this workflow + the `npm` environment as a trusted
@@ -573,100 +579,3 @@ jobs:
           npm ci --no-audit --no-fund
           npm test
           npm publish --provenance --access public
-
-  homebrew:
-    needs: finalize
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: ruby/setup-ruby@f9c4492e86def3e644ab32a0ef185eda5b0c20d0 # v1.342.0
-        with:
-          ruby-version: '3.4'
-
-      - name: Collect Homebrew formula
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: homebrew-formula
-          path: ${{ runner.temp }}/homebrew-formula
-
-      - name: Validate Homebrew formula
-        env:
-          FORMULA: ${{ runner.temp }}/homebrew-formula/pleno-dlp.rb
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          test -f "$FORMULA"
-          test ! -L "$FORMULA"
-          test "$(find "$(dirname "$FORMULA")" -type f | wc -l | tr -d ' ')" = 1
-          ruby -c "$FORMULA"
-          grep -F "version \"${TAG#v}\"" "$FORMULA" >/dev/null
-          for platform in darwin_arm64 linux_arm64; do
-            grep -F "releases/download/v#{version}/pleno-dlp_${platform}.tar.gz" "$FORMULA" >/dev/null
-          done
-          test "$(grep -Ec '^[[:space:]]+sha256 \"[0-9a-f]{64}\"$' "$FORMULA")" = 2
-
-      - name: Mint Homebrew tap token
-        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
-        id: tap-token
-        with:
-          client-id: ${{ vars.HOMEBREW_TAP_APP_ID }}
-          private-key: ${{ secrets.HOMEBREW_TAP_APP_PRIVATE_KEY }}
-          owner: plenoai
-          repositories: homebrew-tap
-
-      - name: Update Homebrew formula
-        env:
-          FORMULA: ${{ runner.temp }}/homebrew-formula/pleno-dlp.rb
-          GH_TOKEN: ${{ steps.tap-token.outputs.token }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          repo=plenoai/homebrew-tap
-          path=Casks/pleno-dlp.rb
-          local_content=$(base64 < "$FORMULA" | tr -d '\n')
-          error_file=$(mktemp)
-          trap 'rm -f "$error_file"' EXIT
-          sha_args=()
-          if remote=$(gh api "repos/$repo/contents/$path?ref=main" 2>"$error_file"); then
-            remote_content=$(jq -r '.content' <<<"$remote" | tr -d '\n')
-            if [ "$local_content" = "$remote_content" ]; then
-              exit 0
-            fi
-            remote_formula=$(jq -r '.content' <<<"$remote" | base64 --decode)
-            remote_version=$(sed -n 's/^[[:space:]]*version "\([^"]*\)"[[:space:]]*$/\1/p' <<<"$remote_formula")
-            target_version=${TAG#v}
-            test -n "$remote_version"
-            version_order=$(ruby -e 'require "rubygems"; puts Gem::Version.new(ARGV[0]) <=> Gem::Version.new(ARGV[1])' "$remote_version" "$target_version")
-            case "$version_order" in
-              1) echo "tap already has newer version $remote_version; refusing downgrade to $target_version"; exit 0 ;;
-              0) echo "::error::tap formula differs for existing version $target_version" >&2; exit 1 ;;
-              -1) ;;
-              *) echo "::error::unexpected version comparison: $version_order" >&2; exit 1 ;;
-            esac
-            sha=$(jq -r '.sha' <<<"$remote")
-            sha_args=(--raw-field sha="$sha")
-          elif ! grep -Fq "HTTP 404" "$error_file"; then
-            cat "$error_file" >&2
-            exit 1
-          fi
-          update_response=$(gh api --method PUT "repos/$repo/contents/$path" \
-            --raw-field message="Brew formula update for pleno-dlp version $TAG" \
-            --raw-field content="$local_content" \
-            "${sha_args[@]}" \
-            --raw-field branch=main)
-          updated_ref=$(jq -er '.commit.sha | select(type == "string" and test("^[0-9a-f]{40}$"))' <<<"$update_response")
-          for attempt in 1 2 3 4 5; do
-            if updated=$(gh api "repos/$repo/contents/$path?ref=$updated_ref" 2>"$error_file"); then
-              if [ "$(jq -r '.content' <<<"$updated" | tr -d '\n')" = "$local_content" ]; then
-                exit 0
-              fi
-            fi
-            if [ "$attempt" -lt 5 ]; then
-              sleep "$((attempt * 2))"
-            fi
-          done
-          cat "$error_file" >&2
-          echo "::error::tap formula read-back did not match commit $updated_ref" >&2
-          exit 1

@@ -94,7 +94,7 @@ func TestGitLab(t *testing.T) {
 		case "/api/v4/user":
 			_, _ = w.Write([]byte(`{"id":3,"username":"dev"}`))
 		case "/api/v4/personal_access_tokens/self":
-			_, _ = w.Write([]byte(`{"scopes":["read_api"]}`))
+			_, _ = w.Write([]byte(`{"scopes":["read_api"],"last_used_at":"2024-03-04T05:06:07.890Z"}`))
 		case "/api/v4/projects":
 			_, _ = w.Write([]byte(`[{"path_with_namespace":"g/p","permissions":{"project_access":{"access_level":30},"group_access":{"access_level":40}}}]`))
 		}
@@ -104,7 +104,7 @@ func TestGitLab(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertSchema(t, am)
-	if am.Identity.Name != "dev" || am.Resources[0].Permissions[0] != "maintainer" || !am.Privileged {
+	if am.Identity.Name != "dev" || am.Resources[0].Permissions[0] != "maintainer" || !am.Privileged || am.Activity == nil || am.Activity.LastUsed != "2024-03-04T05:06:07Z" {
 		t.Fatalf("unexpected %+v", am)
 	}
 }
@@ -317,7 +317,7 @@ func TestRegistryMapResult(t *testing.T) {
 	if err != nil || am.Identity.Name != "octo" {
 		t.Fatalf("am %+v err %v", am, err)
 	}
-	if got := blastradius.Default().Names(); !slices.Equal(got, []string{"airtable", "alibaba", "anthropic", "asana", "aws", "azure", "azure-devops", "azure-storage", "bitbucket", "brevo", "buildkite", "circleci", "confluence", "digitalocean", "fastly", "gcp", "gitea", "github", "gitlab", "harness", "hubspot", "huggingface", "jira", "openai", "pinecone", "sendgrid", "shopify", "slack", "square", "stripe", "terraformcloud", "zendesk"}) {
+	if got := blastradius.Default().Names(); !slices.Equal(got, []string{"airtable", "algolia", "alibaba", "anthropic", "artifactory", "asana", "auth0", "aws", "azure", "azure-devops", "azure-storage", "bitbucket", "brevo", "buildkite", "circleci", "confluence", "digitalocean", "fastly", "gcp", "gitea", "github", "gitlab", "harness", "hubspot", "huggingface", "ibmcloud", "jira", "microsoft-teams", "monday", "mongodb", "mysql", "openai", "paypal", "pinecone", "plaid", "postgres", "salesforce", "sendgrid", "shopify", "slack", "square", "stripe", "terraformcloud", "wandb", "xray", "zendesk"}) {
 		t.Fatalf("names %v", got)
 	}
 }
@@ -344,5 +344,71 @@ func TestCredentialParsing(t *testing.T) {
 		if (err != nil) != tc.wantErr || (!tc.wantErr && (c.Secret != tc.secret || c.Secondary != tc.sec)) {
 			t.Errorf("%s %q: %+v %v", tc.prov, tc.in, c, err)
 		}
+	}
+}
+
+// kingfisherProviders maps every provider module under kingfisher's
+// src/access_map (excluding report/assessment/betterleaks plumbing and the
+// jfrog activity helper shared by artifactory and xray) to its pleno-dlp
+// registry name. Removing a provider breaks parity with the reference.
+var kingfisherProviders = map[string]string{
+	"airtable": "airtable", "algolia": "algolia", "alibaba": "alibaba", "anthropic": "anthropic", "artifactory": "artifactory",
+	"asana": "asana", "auth0": "auth0", "aws": "aws", "azure": "azure", "azure_devops": "azure-devops", "bitbucket": "bitbucket",
+	"buildkite": "buildkite", "circleci": "circleci", "digitalocean": "digitalocean", "fastly": "fastly", "gcp": "gcp", "gitea": "gitea",
+	"github": "github", "gitlab": "gitlab", "harness": "harness", "hubspot": "hubspot", "huggingface": "huggingface", "ibm_cloud": "ibmcloud",
+	"jira": "jira", "microsoft_teams": "microsoft-teams", "monday": "monday", "mongodb": "mongodb", "mysql": "mysql", "openai": "openai",
+	"paypal": "paypal", "pinecone": "pinecone", "plaid": "plaid", "postgres": "postgres", "salesforce": "salesforce", "sendgrid": "sendgrid",
+	"sendinblue": "brevo", "shopify": "shopify", "slack": "slack", "square": "square", "stripe": "stripe", "terraform": "terraformcloud",
+	"weightsandbiases": "wandb", "xray": "xray", "zendesk": "zendesk",
+}
+
+func TestKingfisherProviderParity(t *testing.T) {
+	r := blastradius.Default()
+	var missing []string
+	for kf, name := range kingfisherProviders {
+		if _, ok := r.Lookup(name); !ok {
+			missing = append(missing, kf+"->"+name)
+		}
+	}
+	slices.Sort(missing)
+	if len(missing) > 0 {
+		t.Fatalf("kingfisher providers without a pleno-dlp mapper: %v", missing)
+	}
+}
+
+func TestGitHubAppTokens(t *testing.T) {
+	s := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		switch {
+		case auth == "Bearer ghu_x" && r.URL.Path == "/user":
+			_, _ = w.Write([]byte(`{"login":"octo","id":7,"type":"User"}`))
+		case auth == "Bearer ghu_x" && r.URL.Path == "/user/installations":
+			_, _ = w.Write([]byte(`{"installations":[{"id":9,"app_slug":"ci-bot","account":{"login":"acme"},"permissions":{"contents":"write","metadata":"read"}}]}`))
+		case auth == "Bearer ghu_x" && r.URL.Path == "/user/installations/9/repositories":
+			_, _ = w.Write([]byte(`{"repositories":[{"full_name":"acme/app"}]}`))
+		case auth == "Bearer ghs_x" && r.URL.Path == "/installation/repositories":
+			w.Header().Set("GitHub-Authentication-Token-Expiration", "2026-11-24 10:00:00 UTC")
+			_, _ = w.Write([]byte(`{"total_count":2,"repositories":[{"full_name":"acme/app"}]}`))
+		case auth == "Bearer github_pat_x" && r.URL.Path == "/user":
+			_, _ = w.Write([]byte(`{"login":"octo","id":7}`))
+		case r.URL.Path == "/user/orgs" || r.URL.Path == "/user/repos":
+			_, _ = w.Write([]byte(`[]`))
+		default:
+			w.WriteHeader(403)
+		}
+	})
+	m := github.Mapper{BaseURL: s.URL}
+	am, err := m.MapAccess(context.Background(), detectors.AccessCredential{Secret: "ghu_x"})
+	if err != nil || am.Identity.Type != "app_user_token" || !am.Privileged || len(am.Resources) != 2 || !slices.Equal(am.Resources[0].Permissions, []string{"contents:write", "metadata:read"}) {
+		t.Fatalf("ghu: %+v %v", am, err)
+	}
+	am, err = m.MapAccess(context.Background(), detectors.AccessCredential{Secret: "ghs_x"})
+	if err != nil || am.Identity.Type != "app_installation" || am.Identity.Account != "acme" || len(am.Resources) != 1 || !strings.Contains(strings.Join(am.Limitations, "|"), "capped at 1 of 2") {
+		t.Fatalf("ghs: %+v %v", am, err)
+	}
+	assertSchema(t, am)
+	am, err = m.MapAccess(context.Background(), detectors.AccessCredential{Secret: "github_pat_x"})
+	if err != nil || am.Identity.Type != "fine_grained_pat" || !strings.Contains(strings.Join(am.Limitations, "|"), "fine-grained") {
+		t.Fatalf("pat: %+v %v", am, err)
 	}
 }

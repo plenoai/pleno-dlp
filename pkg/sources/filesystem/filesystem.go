@@ -44,6 +44,10 @@ type Config struct {
 	Include                []string `json:"include,omitempty"`
 	Exclude                []string `json:"exclude,omitempty"`
 	DisableDefaultExcludes bool     `json:"disable_default_excludes,omitempty"`
+	// ScanNestedRepos additionally walks the full Git history of every
+	// repository found under Paths (a directory holding a `.git` dir or
+	// gitlink file), through the registered git source.
+	ScanNestedRepos bool `json:"scan_nested_repos,omitempty"`
 }
 
 type Source struct {
@@ -164,10 +168,18 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 	g, gctx := errgroup.WithContext(ctx)
 	sem := make(chan struct{}, s.concurrency)
 	s.nextState = &incrementalState{Version: 1, Files: map[string]fileIncrementalState{}}
+	var nestedRepos []string
+	seenRepo := map[string]bool{}
 
 	for _, root := range s.cfg.Paths {
 		root := root
 		if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr == nil && s.cfg.ScanNestedRepos && d.Name() == ".git" && (d.IsDir() || d.Type().IsRegular()) {
+				if repo := filepath.Dir(path); !seenRepo[repo] {
+					seenRepo[repo] = true
+					nestedRepos = append(nestedRepos, repo)
+				}
+			}
 			if walkErr != nil {
 				if os.IsPermission(walkErr) || errors.Is(walkErr, fs.ErrPermission) {
 					if d != nil && d.IsDir() {
@@ -239,7 +251,36 @@ func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
 			return err
 		}
 	}
-	return g.Wait()
+	if err := g.Wait(); err != nil {
+		return err
+	}
+	for _, repo := range nestedRepos {
+		if err := s.scanNestedRepo(ctx, repo, ch); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// scanNestedRepo runs the registered git source over repo's history. The
+// git source is resolved through the registry so this package keeps no
+// import edge to pkg/sources/git.
+func (s *Source) scanNestedRepo(ctx context.Context, repo string, ch chan<- *sources.Chunk) error {
+	src := sources.New(sources.SourceGit)
+	if src == nil {
+		return fmt.Errorf("filesystem: --scan-nested-repos requires the git source (missing pkg/sources/all import?)")
+	}
+	cfg, err := json.Marshal(map[string]any{"repo": repo})
+	if err != nil {
+		return err
+	}
+	if err := src.Init(ctx, s.name, s.jobID, s.sourceID, s.verify, cfg, s.concurrency); err != nil {
+		return fmt.Errorf("filesystem: nested repo %s: %w", repo, err)
+	}
+	if err := src.Chunks(ctx, ch); err != nil {
+		return fmt.Errorf("filesystem: nested repo %s: %w", repo, err)
+	}
+	return nil
 }
 
 func (s *Source) SetIncrementalState(previous json.RawMessage) error {
@@ -282,6 +323,10 @@ func (s *Source) fileUnchanged(path string, current fileIncrementalState) bool {
 
 // ResourceFingerprint hashes the resource set without rereading file bytes.
 func (s *Source) ResourceFingerprint(ctx context.Context) (string, error) {
+	if s.cfg.ScanNestedRepos {
+		// Nested histories change without touching working-tree files.
+		return "", nil
+	}
 	h := sha256.New()
 	writeHash(h, "filesystem-v1")
 	for _, root := range s.cfg.Paths {

@@ -1,0 +1,20 @@
+# Dogfooding pin: operator machines run the signed release binary through
+# aqua (docs/dogfooding.md). aqua verifies checksums.txt with the cosign
+# bundle and the archive's GitHub artifact attestation before installing.
+#
+# The package definition lives only in plenoai/aqua-registry, pinned here by
+# commit SHA. scripts/bump-dogfooding.sh (run by
+# .github/workflows/dogfooding-bump.yml) moves both pins on each release.
+checksum:
+  enabled: true
+  require_checksum: true
+registries:
+  - name: plenoai
+    type: github_content
+    repo_owner: plenoai
+    repo_name: aqua-registry
+    ref: a365b2edd4922a9109acc4ad74859e579b40ac28
+    path: registry.yaml
+packages:
+  - name: plenoai/pleno-dlp@v0.70.1
+    registry: plenoai

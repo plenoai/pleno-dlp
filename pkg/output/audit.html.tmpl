@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.Title}}</title>
+<style>
+:root{--bg:#fff;--fg:#1d1d1f;--muted:#6e6e73;--line:#d2d2d7;--v:#b00020;--i:#8a6d00;--u:#3a3a3c}
+@media (prefers-color-scheme:dark){:root{--bg:#161617;--fg:#f5f5f7;--muted:#a1a1a6;--line:#3a3a3c;--v:#ff6b6b;--i:#e3b341;--u:#c7c7cc}}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-serif;margin:0;padding:16px;max-width:1200px;margin-inline:auto}
+h1{font-size:22px}h2{font-size:16px;margin-top:28px}
+table{border-collapse:collapse;width:100%}th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600}dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px}dt{color:var(--muted)}
+code{font-family:ui-monospace,monospace;word-break:break-all}.verified{color:var(--v);font-weight:600}.indeterminate{color:var(--i)}.unverified{color:var(--u)}
+.wrap{overflow-x:auto}
+</style></head><body>
+<h1>{{.Title}}</h1>
+<p>Secret values are never included: each finding shows the detector's redacted display and the SHA-256 of the secret.</p>
+<h2>Scan metadata</h2>
+<dl>
+<dt>Run ID</dt><dd><code>{{.RunID}}</code></dd>
+<dt>Generator</dt><dd>{{.Generator}}</dd>
+<dt>Source</dt><dd>{{if .Meta.Source}}{{.Meta.Source}}{{else}}—{{end}}</dd>
+<dt>Started</dt><dd>{{rfc3339 .Meta.Started}}</dd>
+<dt>Completed</dt><dd>{{rfc3339 .Completed}}</dd>
+<dt>Duration</dt><dd>{{.Duration}}</dd>
+<dt>Verification</dt><dd>{{if .Meta.VerifyMode}}{{.Meta.VerifyMode}}{{else}}—{{end}}</dd>
+<dt>Chunks / bytes scanned</dt><dd>{{.Meta.Chunks}} / {{.Meta.Bytes}}</dd>
+<dt>Coverage gaps</dt><dd>{{.Meta.CoverageGaps}}</dd>
+<dt>Flags set</dt><dd>{{range $i, $f := .Meta.Flags}}{{if $i}}, {{end}}<code>--{{$f}}</code>{{else}}—{{end}}</dd>
+</dl>
+<h2>Validation summary ({{.Total}} findings)</h2>
+<table><thead><tr><th>Verdict</th><th>Count</th></tr></thead><tbody>
+{{range .ByVerdict}}<tr><td class="{{.Key}}">{{.Key}}</td><td>{{.Count}}</td></tr>{{end}}
+</tbody></table>
+<h2>Findings (verified → indeterminate → unverified, then severity)</h2>
+<div class="wrap"><table><thead><tr><th>#</th><th>Verdict</th><th>Assurance</th><th>Severity</th><th>Detector</th><th>Redacted</th><th>Location</th><th>SHA-256</th></tr></thead><tbody>
+{{range .Rows}}<tr><td>{{.Order}}</td><td class="{{.Verdict}}">{{.Verdict}}</td><td>{{.Assurance}}</td><td>{{.Severity}}</td><td>{{.Detector}}</td><td><code>{{.Redacted}}</code></td><td><code>{{.Location}}</code></td><td><code>{{.Hash}}</code></td></tr>
+{{else}}<tr><td colspan="8">No findings.</td></tr>{{end}}
+</tbody></table></div>
+</body></html>

@@ -10,7 +10,7 @@ superset of kingfisher.
 Status values:
 
 - **done** — an equivalent exists (the pleno-dlp spelling is given).
-- **gap** — not yet implemented; tracked in #870.
+- **gap** — not yet implemented (none remain; #870 closed them).
 - **won't** — intentionally not implemented; the rationale is given.
 
 ## Subcommands
@@ -23,16 +23,16 @@ Status values:
 | `scan huggingface` | `scan huggingface` | done (models, datasets, spaces, buckets, users, orgs) |
 | `scan slack` / `teams` / `jira` / `confluence` / `postman` | same names | done |
 | `scan gcs` / `s3` / `azure-blob` / `docker-image` | same names | done |
-| `scan <provider> --list-only` (`ListRepositories`) | `scan github` / `scan gitlab` with `--list-only` | partial (other forges: gap) |
+| `scan <provider> --list-only` (`ListRepositories`) | `--list-only` on `scan github` / `gitlab` / `bitbucket` / `azure-devops` / `huggingface` / Gitea family | done |
 | `rules list` | `detectors list` (`--verify-status`) | done |
-| `rules check` (positive/negative examples) | detector fixture tests (`go test ./pkg/detectors/...`); custom rules validated at load | partial |
+| `rules check` (positive/negative examples) | `detectors check --rules FILE` (custom-rule `examples` / `negative_examples`, offline through the scan pipeline); built-ins via fixture tests | done |
 | `rules compile-cache` / `prune-cache`, `--rule-cache*`, `--no-rule-cache`, `--prune-rule-cache` | — | won't: Go RE2 + Aho-Corasick prefilter compile at start-up in milliseconds; there is no Vectorscan database to cache |
 | `validate --rule R --secret S` | `validate --detector D --secret -` (stdin; table/json; exit 0 only when verified) | done |
 | `revoke` | `revoke` | done |
 | `blast-radius` / `access-map` | `blast-radius`, `scan --blast-radius` | done |
 | `view` | `view` | done |
 | `config` (emit `kingfisher.yaml` from flags) | `config init` (emits `pleno-dlp.yaml`) | done |
-| `self-update`, `--self-update`, `--no-update-check` | — | won't: binaries ship through Homebrew and GoReleaser trusted publishing with signed provenance; an in-place updater would bypass the package manager and the attestation check. `brew upgrade pleno-dlp` is the update path |
+| `self-update`, `--self-update`, `--no-update-check` | — | won't: binaries ship through the aqua registry from GoReleaser releases with a cosign-signed `checksums.txt` and GitHub artifact attestations; an in-place updater would bypass the version pin and those checks. Bumping the `plenoai/pleno-dlp` pin in `aqua.yaml` (`aqua upc`) is the update path |
 
 ## Scan flags
 
@@ -40,8 +40,8 @@ Status values:
 |---|---|---|
 | `--format pretty/json/jsonl/sarif/html` | `--format table/json/jsonl/sarif/html` | done |
 | `--format bson` / `toon` | same | done |
-| `--output/-o` | shell redirection; `view -o` | partial |
-| `--confidence` / `--min-confidence` | `--fail-on` severity tiers | partial (severity, not confidence) |
+| `--output/-o` | `scan --output/-o` (mode 0600); `view -o` | done |
+| `--confidence` / `--min-confidence` | `--fail-on` severity tiers, `--verify-min-assurance` | won't: kingfisher's confidence is a static per-rule label; pleno-dlp expresses the same intent as severity plus runtime verification assurance, and a third axis would split the policy |
 | `--only-valid` | `--only-verified`, `--only-provider-confirmed` | done |
 | `--no-validate` | `--no-verify` | done |
 | `--validation-rps` | `--verify-rps` (per host) | done |
@@ -50,29 +50,30 @@ Status values:
 | `--skip-aws-account`, `--skip-aws-account-file` | same; built-in Thinkst canary list; account decoded offline into `aws_account_id` | done |
 | `--allow-internal-ips`, `--enable-rule-internal-ips` | verifiers refuse non-public IPs; custom-rule `validation` has SSRF guards | done (stricter, not overridable) |
 | `--skip-regex`, `--skip-word` | same | done |
-| `--no-inline-ignore`, `--extra-ignore-comments` | `--no-inline-allow`; pragma `pleno-dlp:allow` | done (custom comment tokens: gap) |
+| `--no-inline-ignore`, `--extra-ignore-comments` | `--no-inline-allow`; pragma `pleno-dlp:allow`; `--inline-allow-token` (repeatable) | done |
 | `--baseline-file`, `--manage-baseline` | `--baseline`, `baseline create/update` | done |
 | `--exclude`, `--skip-path-prefixes`, `--file-extensions` | `--exclude`, `--include` globs | done |
 | `--no-ignore`, `--no-ignore-if-contains` | `--no-default-excludes` | done |
 | `--max-file-size(-mb)` | `--max-size` (bytes) | done |
 | `--no-binary` | binary detection is automatic | done |
-| `--no-extract-archives`, `--extraction-depth` | `pkg/archive` budgets; `--extraction-depth`; git `--git-archive-max-depth` | partial (`--no-extract-archives`: gap) |
-| `--no-dedup` | `scan git --all-occurrences` | partial |
+| `--no-extract-archives`, `--extraction-depth` | `--no-extract-archives`; `--extraction-depth`; git `--git-archive-max-depth` | done |
+| `--no-dedup` | `scan --no-dedup`; `scan git --all-occurrences` | done |
 | `--redact` | redaction is always on | done (stricter) |
 | `--min-entropy` | per-detector entropy thresholds | won't: global override would weaken calibrated detectors |
 | `--rule`, `--exclude-rule`, `--load-builtins/--no-builtins`, `--rules-path` | `--include-detectors`, `--exclude-detectors`, `--rules` | done |
 | `--jobs/-j`, `--num-jobs` | `--concurrency` | done |
-| `--rule-stats` | `--cpu-profile`, `docs/counts.md` | partial |
+| `--rule-stats` | `scan --rule-stats` (per-detector passes, results, wall time on stderr) | done |
 | `--since-commit`, `--branch`, `--branch-root(-commit)`, `--staged` | `scan git --since-commit/--branch/--branch-root-commit`, `protect` | done |
 | `--git-history`, `--git-clone`, `--git-clone-dir`, `--keep-clones`, `--repo-clone-limit`, `--git-repo-timeout` | `--history`, `--repo-clone-timeout`, `--repo-walk-timeout` | done (clone dir retention: won't, clones are ephemeral by design) |
 | `--repo-artifacts`, `--include-contributors` | `--include-issues/--include-pull-requests/--include-wikis/--include-comments` | done |
-| `--scan-nested-repos` | — | gap |
+| `--scan-nested-repos` | `scan filesystem --scan-nested-repos` | done |
 | `--turbo`, `--no-limits`, `--no-timeouts` | — | won't: disabling budgets reopens the archive-bomb and hung-remote classes fixed in #810 |
 | `--blast-radius`, `--access-map` | `--blast-radius` | done |
 | `--audit-log` | `--audit-trail` | done |
+| audit HTML report (scan metadata, validation ordering) | `--format audit-html` | done |
 | `--view-report*` | `view` | done |
 | `--tls-mode`, `--ignore-certs` | — | won't: verification always uses system trust |
-| `--user-agent-suffix` | — | gap |
+| `--user-agent-suffix` | `scan --user-agent-suffix` (HTTP API and verification requests; control characters rejected) | done |
 | `--config` (`kingfisher.yaml`) | `scan --config` / `PLENO_DLP_CONFIG` (`docs/config.md`) | done |
 | `--quiet`, `--verbose`, `--color`, `--progress` | `--quiet` | done |
 | `--warnings-as-errors` | `--fail-on-coverage=any` | done |

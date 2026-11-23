@@ -23,6 +23,8 @@ func NewSink(format string, w io.Writer, version string) (Sink, error) {
 		return newJSONLSink(w), nil
 	case "html":
 		return newHTMLSink(w, version), nil
+	case "audit-html":
+		return newAuditHTMLSink(w, version), nil
 	case "bson":
 		return newBSONSink(w), nil
 	case "toon":
@@ -35,7 +37,7 @@ func NewSink(format string, w io.Writer, version string) (Sink, error) {
 }
 
 // Formats lists every format NewSink accepts.
-var Formats = []string{"json", "jsonl", "sarif", "html", "table", "bson", "toon"}
+var Formats = []string{"json", "jsonl", "sarif", "html", "audit-html", "table", "bson", "toon"}
 
 // FormatsHelp is Formats joined for flag help and errors.
-const FormatsHelp = "json, jsonl, sarif, html, table, bson, toon"
+const FormatsHelp = "json, jsonl, sarif, html, audit-html, table, bson, toon"
