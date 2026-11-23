@@ -541,7 +541,8 @@ jobs:
   # publisher. One package bundles every platform library (~14 MB each).
   npm:
     needs: [finalize, bindings-lib, bindings-smoke-windows-amd64, bindings-smoke-windows-arm64]
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # GitHub-hosted: npm only accepts provenance from github-hosted runners (ADR 0001).
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     environment: npm
     permissions:

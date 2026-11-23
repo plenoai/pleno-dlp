@@ -59,7 +59,7 @@ func TestWorkflowsUsePinnedRunnerPolicy(t *testing.T) {
 				continue
 			}
 			found = true
-			if !strings.HasPrefix(value, "blacksmith-") && hostedOS.MatchString(value) && !(name == "release.yml" && windowsSmokeRunners[job] == value) {
+			if !strings.HasPrefix(value, "blacksmith-") && hostedOS.MatchString(value) && !(name == "release.yml" && githubHostedRunners[job] == value) {
 				t.Errorf("%s:%d: runs-on must not select a GitHub-hosted runner: %q", name, i+1, value)
 			}
 			if !runnerMatchesPolicy(name, job, value) {
@@ -72,18 +72,22 @@ func TestWorkflowsUsePinnedRunnerPolicy(t *testing.T) {
 	}
 }
 
-// windowsSmokeRunners is the only GitHub-hosted exception: cross-linked
-// Windows bindings must load on Windows before publishing (#879, ADR 0001).
-// Blacksmith has no Windows pool and wine cannot run x86-64 PE images on the
-// arm64 pool. The jobs hold no secrets or OIDC token.
-var windowsSmokeRunners = map[string]string{
+// githubHostedRunners are the only GitHub-hosted exceptions (ADR 0001):
+//   - bindings-smoke-windows-*: cross-linked Windows bindings must load on
+//     Windows before publishing (#879); Blacksmith has no Windows pool and wine
+//     cannot run x86-64 PE images on the arm64 pool. No secrets or OIDC token.
+//   - npm: npm rejects provenance bundles built on self-hosted runners
+//     ("Only github-hosted runners are supported when publishing with
+//     provenance", v0.71.4), so the staged npm publish runs GitHub-hosted.
+var githubHostedRunners = map[string]string{
 	"bindings-smoke-windows-amd64": "windows-2025",
 	"bindings-smoke-windows-arm64": "windows-11-arm",
+	"npm":                          "ubuntu-24.04-arm",
 }
 
 func expectedRunnerLabels(workflow, job string) string {
 	if workflow == "release.yml" {
-		if label, ok := windowsSmokeRunners[job]; ok {
+		if label, ok := githubHostedRunners[job]; ok {
 			return label
 		}
 	}
@@ -119,7 +123,10 @@ func TestWindowsSmokeGatesPublishing(t *testing.T) {
 			t.Fatalf("release.yml has no %s job", job)
 		}
 		needs := s[i : i+strings.Index(s[i:], "\n    runs-on:")]
-		for smoke := range windowsSmokeRunners {
+		for smoke := range githubHostedRunners {
+			if !strings.HasPrefix(smoke, "bindings-smoke-windows-") {
+				continue
+			}
 			if !strings.Contains(needs, smoke) {
 				t.Errorf("%s must need %s so an unloadable Windows library never publishes", job, smoke)
 			}
