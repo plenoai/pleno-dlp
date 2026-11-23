@@ -5,74 +5,39 @@ import (
 	"context"
 	"errors"
 	"io"
-	"sort"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/plenoai/pleno-dlp/pkg/archive"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/sources/volumeset"
 )
 
 // volumeSets collects multi-volume archive keys during listing.
 type volumeSets struct {
-	sets  map[string]map[int]objectJob // set key -> volume index -> job
-	ids   map[string]archive.VolumeID  // set key -> volume id of any member
-	order []string
+	sets *volumeset.Sets[objectIncrementalState]
 }
 
 func newVolumeSets() *volumeSets {
-	return &volumeSets{sets: map[string]map[int]objectJob{}, ids: map[string]archive.VolumeID{}}
+	return &volumeSets{sets: volumeset.New[objectIncrementalState]()}
 }
 
 // add records key when it names an archive volume.
 func (v *volumeSets) add(key string, state objectIncrementalState) bool {
-	id, ok := archive.ParseVolumeName(key)
-	if !ok {
-		return false
-	}
-	set := id.Sibling(1)
-	if v.sets[set] == nil {
-		v.sets[set] = map[int]objectJob{}
-		v.ids[set] = id
-		v.order = append(v.order, set)
-	}
-	v.sets[set][id.Index] = objectJob{key: key, state: state}
-	return true
+	return v.sets.Add(key, state.Size, state)
 }
 
-// jobs returns one job per linked set (volumes 1..n present, n >= 2, total
-// within maxTotal) and a plain job for every other volume key.
+// jobs returns one job per linked set and a plain job for every other
+// volume key.
 func (v *volumeSets) jobs(maxTotal int64) []objectJob {
 	var out []objectJob
-	for _, set := range v.order {
-		members := v.sets[set]
-		id := v.ids[set]
-		var chain []objectJob
-		var total int64
-		for i := 1; i <= archive.MaxVolumes; i++ {
-			job, ok := members[i]
-			if !ok || job.key != id.Sibling(i) {
-				break
-			}
-			total += job.state.Size
-			chain = append(chain, job)
+	for _, j := range v.sets.Jobs(maxTotal) {
+		job := objectJob{key: j.Head.Key, state: j.Head.Item, scheme: j.Scheme}
+		for _, m := range j.Volumes {
+			job.volumes = append(job.volumes, objectJob{key: m.Key, state: m.Item})
 		}
-		linked := len(chain) >= 2 && total <= maxTotal
-		if linked {
-			out = append(out, objectJob{key: chain[0].key, state: chain[0].state, volumes: chain[1:], scheme: id.Scheme})
-		}
-		rest := make([]int, 0, len(members))
-		for i, job := range members {
-			if linked && i <= len(chain) && job.key == id.Sibling(i) {
-				continue
-			}
-			rest = append(rest, i)
-		}
-		sort.Ints(rest)
-		for _, i := range rest {
-			out = append(out, members[i])
-		}
+		out = append(out, job)
 	}
 	return out
 }
