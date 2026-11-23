@@ -70,6 +70,7 @@ type scanFlags struct {
 	alertWebhooks      []string
 	alertMinSeverity   string
 	alertDryRun        bool
+	alertFormat        string
 	allowlistPath      string
 	baselinePath       string
 	noInlineAllow      bool
@@ -237,6 +238,8 @@ func init() {
 		"minimum severity included in alerts: info|low|medium|high|critical")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.alertDryRun, "alert-dry-run", false,
 		"print each alert payload to stderr instead of POSTing it")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.alertFormat, "alert-format", "auto",
+		"alert payload shape for every --alert-webhook: auto (infer from host)|slack|teams|discord|mattermost|googlechat|generic")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file that mutes known false positives (auto-discovers .pleno-allow.json from the repo root)")
 	registerSuppressionFlags(scanCmd.PersistentFlags())
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated, case-insensitive Type names; see 'pleno-dlp detectors list'). Custom rules from --rules count as GenericHighEntropy.")
@@ -577,11 +580,18 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	if err != nil {
 		return err
 	}
+	alertFormat, err := alerts.ParseFormat(scanOpts.alertFormat)
+	if err != nil {
+		return err
+	}
 	var alertHooks []alerts.Webhook
 	for _, raw := range scanOpts.alertWebhooks {
 		w, err := alerts.ParseWebhook(raw)
 		if err != nil {
 			return err
+		}
+		if alertFormat != "" {
+			w.Format = alertFormat
 		}
 		alertHooks = append(alertHooks, w)
 	}
