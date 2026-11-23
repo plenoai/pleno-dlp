@@ -1,0 +1,58 @@
+name: dogfooding-bump
+
+# Opens a PR that moves aqua/aqua.yaml to the newest pleno-dlp release and
+# plenoai/aqua-registry commit, with refreshed checksums (docs/dogfooding.md).
+on:
+  release:
+    types: [published]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: dogfooding-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install aqua
+        run: go install github.com/aquaproj/aqua/v2/cmd/aqua@v2.62.2
+      - name: Bump pins
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/bump-dogfooding.sh
+      - name: Open PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet; then
+            echo "dogfooding pins are current"
+            exit 0
+          fi
+          version="$(sed -nE 's|^  - name: plenoai/pleno-dlp@(v[0-9.]+)$|\1|p' aqua/aqua.yaml)"
+          branch="chore/dogfooding-${version}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$branch"
+          git commit -am "chore(aqua): dogfood pleno-dlp ${version}"
+          git push --force origin "$branch"
+          if ! gh pr view "$branch" >/dev/null 2>&1; then
+            gh pr create --base main --head "$branch" \
+              --title "chore(aqua): dogfood pleno-dlp ${version}" \
+              --body "Automated by .github/workflows/dogfooding-bump.yml: moves aqua/aqua.yaml to ${version} and the latest plenoai/aqua-registry commit, with refreshed aqua/aqua-checksums.json."
+          fi

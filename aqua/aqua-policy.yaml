@@ -1,7 +1,10 @@
-# Allows the repository-local registry used by aqua/aqua.yaml.
+# Allows the plenoai/aqua-registry github_content registry used by
+# aqua/aqua.yaml. No `ref`, so registry SHA bumps need no policy change.
 registries:
-  - name: pleno
-    type: local
+  - name: plenoai
+    type: github_content
+    repo_owner: plenoai
+    repo_name: aqua-registry
     path: registry.yaml
 packages:
-  - registry: pleno
+  - registry: plenoai
