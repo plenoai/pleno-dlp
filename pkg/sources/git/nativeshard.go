@@ -22,7 +22,7 @@ import (
 // nativeShardMinCommits is the smallest number of commits each parallel
 // `git log` shard receives. Below it the fork and rev-list overhead outweighs
 // the parallel diff generation, so small histories keep the single stream.
-const nativeShardMinCommits = 100
+var nativeShardMinCommits = 100
 
 // nativeShardBatchesPerWorker and nativeShardMinBatch size the work queue:
 // enough batches per worker to even out skewed commits, but never so small

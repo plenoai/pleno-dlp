@@ -1116,6 +1116,18 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		p.rawPaths = append(p.rawPaths, path)
 		p.rawDeleted = append(p.rawDeleted, deleted)
 		p.rawPathBytes += int64(len(path))
+		if nativeRawTypeChange(line) {
+			// git renders a type change (symlink <-> file) as a deletion
+			// followed by an addition: one raw record, two "diff --git"
+			// headers. Without a second slot every later header in the
+			// commit took its neighbour's path, so a binary-rendered patch
+			// (which has no ---/+++ lines to correct it) was classified and
+			// force-text-diffed under the wrong path or dropped.
+			p.rawDeleted[len(p.rawDeleted)-1] = true
+			p.rawPaths = append(p.rawPaths, path)
+			p.rawDeleted = append(p.rawDeleted, false)
+			p.rawPathBytes += int64(len(path))
+		}
 		return nil
 	}
 	if bytes.HasPrefix(line, []byte("diff --git ")) {
@@ -1788,6 +1800,16 @@ func parseNativePatchPath(raw []byte, prefix string) (string, bool, error) {
 		return "", false, fmt.Errorf("native patch path %q lacks %q prefix", text, prefix)
 	}
 	return strings.TrimPrefix(text, prefix), false, nil
+}
+
+// nativeRawTypeChange reports a raw record with status T (type change).
+func nativeRawTypeChange(line []byte) bool {
+	tab := bytes.IndexByte(line, '\t')
+	if tab < 0 {
+		return false
+	}
+	fields := bytes.Fields(line[:tab])
+	return len(fields) > 0 && fields[len(fields)-1][0] == 'T'
 }
 
 func parseNativeRawPath(line []byte) (string, bool, error) {
