@@ -1289,7 +1289,7 @@ func TestParseNativeMergeResultsStreamsFragmentedAddedLine(t *testing.T) {
 		io.LimitReader(nativeRepeatedByte('x'), 300<<10),
 		strings.NewReader(marker+"\n"),
 	)
-	if err := s.parseNativeMergeResults(context.Background(), repo, "", diff, ch); err != nil {
+	if err := s.parseNativeMergeResults(context.Background(), repo, "", diff, ch, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	close(ch)

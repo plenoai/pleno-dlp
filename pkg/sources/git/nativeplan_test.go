@@ -3,9 +3,11 @@ package git
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A commit costlier than one item is split by path into items that cover
@@ -107,5 +109,86 @@ func TestSplitHeavyCommitMatchesSingleStream(t *testing.T) {
 		if !strings.Contains(joined, fmt.Sprintf("vendored-secret-%02d", i)) {
 			t.Fatalf("missing vendored-secret-%02d", i)
 		}
+	}
+}
+
+func TestMergeWorkItems(t *testing.T) {
+	merges := make([]string, 1200)
+	for i := range merges {
+		merges[i] = fmt.Sprintf("m%04d", i)
+	}
+	items := mergeWorkItems(merges, 30)
+	if len(items) != 3 {
+		t.Fatalf("got %d merge items, want 3 (500-merge minimum)", len(items))
+	}
+	var got []string
+	for _, it := range items {
+		if !it.merge {
+			t.Fatalf("item %+v not marked merge", it)
+		}
+		got = append(got, it.commits...)
+	}
+	if strings.Join(got, ",") != strings.Join(merges, ",") {
+		t.Fatal("merge items do not cover the merges in order")
+	}
+	if mergeWorkItems(nil, 30) != nil {
+		t.Fatal("items for no merges")
+	}
+}
+
+// A conflict resolution in a merge renders as a parallel merge item with
+// the same chunks as the single native stream's spooled merge pass, and
+// its ordinal ranks after every ordinary commit (#978).
+func TestShardedMergeResolutionMatchesSingleStream(t *testing.T) {
+	dir := buildShardRepo(t)
+	write := func(body string) {
+		if err := os.WriteFile(filepath.Join(dir, "conflict.txt"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("base\n")
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "commit", "-qm", "base")
+	gitRun(t, dir, "checkout", "-q", "-b", "left")
+	write("left side\n")
+	gitRun(t, dir, "commit", "-qam", "left")
+	gitRun(t, dir, "checkout", "-q", "main")
+	write("right side\n")
+	gitRun(t, dir, "commit", "-qam", "right")
+	cmd := exec.Command("git", "-C", dir, "-c", "user.name=T", "-c", "user.email=t@example.com", "merge", "-q", "left")
+	_ = cmd.Run() // conflicts by design
+	write("resolved-merge-secret\n")
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "commit", "-qm", "resolve")
+	single := chunkKeys(t, dir, 1<<30)
+	sharded := chunkKeys(t, dir, 1)
+	if strings.Join(single, "\n") != strings.Join(sharded, "\n") {
+		t.Fatalf("sharded merge chunks differ\nsingle:\n%s\nsharded:\n%s", strings.Join(single, "\n"), strings.Join(sharded, "\n"))
+	}
+	if !strings.Contains(strings.Join(sharded, "\n"), "resolved-merge-secret") {
+		t.Fatalf("merge resolution missing:\n%s", strings.Join(sharded, "\n"))
+	}
+
+	old := nativeShardMinCommits
+	nativeShardMinCommits = 1
+	defer func() { nativeShardMinCommits = old }()
+	s := &Source{}
+	mustInit(t, s, Config{Repo: dir})
+	s.concurrency = 4
+	got, err := drain(t, s, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var maxOrdinary, mergeOrdinal int64
+	for _, c := range got {
+		g := c.SourceMetadata.Git
+		if strings.Contains(string(c.Data), "resolved-merge-secret") {
+			mergeOrdinal = g.Ordinal
+		} else if g.Ordinal > maxOrdinary {
+			maxOrdinary = g.Ordinal
+		}
+	}
+	if mergeOrdinal <= maxOrdinary {
+		t.Fatalf("merge ordinal %d does not rank after ordinary ordinal %d", mergeOrdinal, maxOrdinary)
 	}
 }

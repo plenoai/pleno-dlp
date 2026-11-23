@@ -51,23 +51,27 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 // are split into contiguous commit ranges rendered by parallel
 // `git log --no-walk=unsorted` processes. Every selected commit is rendered
 // exactly once either way; only the interleaving of chunks across shards
-// differs. The result is nil, a coverage-only *engine.DegradedError, or a
-// fatal error.
-func (s *Source) runNativePatchLog(ctx context.Context, repo *gogit.Repository, gitBin string, starts, stops []plumbing.Hash, mergeInput io.Writer, ch chan<- *sources.Chunk) error {
+// differs. The history result is nil, a coverage-only *engine.DegradedError,
+// or a fatal error; mergeErr reports a merge-resolution failure (wantMerges)
+// when the history result is not fatal.
+func (s *Source) runNativePatchLog(ctx context.Context, repo *gogit.Repository, gitBin string, starts, stops []plumbing.Hash, wantMerges bool, ch chan<- *sources.Chunk) (historyErr, mergeErr error) {
 	shards := s.nativeShardCount()
 	if shards > 1 {
 		commits, merges, err := s.nativeSelectedCommits(ctx, gitBin, starts, stops)
 		if err != nil {
-			return err
+			return err, nil
 		}
 		if n := len(commits) / nativeShardMinCommits; n < shards {
 			shards = n
 		}
 		if shards > 1 {
-			return s.runNativePatchShards(ctx, repo, gitBin, commits, merges, shards, mergeInput, ch)
+			if !wantMerges {
+				merges = nil
+			}
+			return s.runNativePatchShards(ctx, repo, gitBin, commits, merges, shards, ch), nil
 		}
 	}
-	return s.runNativeLogProcess(ctx, repo, gitBin, s.nativeLogArgs(), nativeRevisionInput(starts, stops), mergeInput, ch, nil, nil)
+	return s.runNativeSingleStream(ctx, repo, gitBin, starts, stops, wantMerges, ch)
 }
 
 func (s *Source) nativeShardCount() int {
@@ -147,29 +151,9 @@ func (s *Source) nativeShardLogArgs() []string {
 	return args
 }
 
-func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repository, gitBin string, commits, merges []string, shards int, mergeInput io.Writer, ch chan<- *sources.Chunk) error {
+func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repository, gitBin string, commits, merges []string, shards int, ch chan<- *sources.Chunk) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	// Shards exclude deleted files (--diff-filter=d), which also drops
-	// merge commits from git-log output, so the merge pass is fed from the
-	// rev-list instead of from the parsers.
-	mergeDone := make(chan error, 1)
-	go func() {
-		if mergeInput == nil {
-			mergeDone <- nil
-			return
-		}
-		for _, m := range merges {
-			if _, err := io.WriteString(mergeInput, m+"\n"); err != nil {
-				mergeDone <- fmt.Errorf("git: feed native merge pass: %w", err)
-				return
-			}
-			if ctx.Err() != nil {
-				break
-			}
-		}
-		mergeDone <- nil
-	}()
 	args := s.nativeShardLogArgs()
 	// Shards finish out of order, so every chunk carries its commit's
 	// oldest-first position for the cross-commit dedup to pick the
@@ -178,15 +162,28 @@ func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repositor
 	for i, c := range commits {
 		ordinals[c] = int64(i + 1)
 	}
+	// Merge resolutions used to arrive after all ordinary history from one
+	// spooled diff-tree pass, so they lost every cross-commit tie on arrival
+	// order and ranked among themselves in rev-list order. They now render
+	// as parallel work items (#978); ordinals past the ordinary history keep
+	// exactly that ranking.
+	mergeOrdinals := make(map[string]int64, len(merges))
+	for i, m := range merges {
+		mergeOrdinals[m] = int64(len(commits) + 1 + i)
+	}
 	// Commit cost is highly skewed (an import commit can dwarf thousands of
 	// one-line fixes), so equal contiguous ranges leave most workers idle
 	// behind one heavy shard. Workers instead pull work items from a shared
 	// queue; short histories get a cost-based plan that also splits a heavy
 	// commit by path (#985).
-	batches := s.nativeWorkPlan(ctx, gitBin, commits, shards)
+	batches := append(s.nativeWorkPlan(ctx, gitBin, commits, shards), mergeWorkItems(merges, shards)...)
 	pathArgs := append([]string{"--literal-pathspecs"}, args...)
+	mergeArgs := s.nativeMergeArgs()
 	itemArgs := func(it nativeWorkItem) []string {
-		if len(it.paths) > 0 {
+		switch {
+		case it.merge:
+			return mergeArgs
+		case len(it.paths) > 0:
 			return pathArgs
 		}
 		return args
@@ -245,7 +242,12 @@ func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repositor
 					batch = &chunkBatcher{ctx: ctx, out: s.inlineBatches}
 					scan = batch.add
 				}
-				err := s.consumeNativeLog(ctx, repo, gitBin, proc, nil, ch, scan, ordinals, blobs)
+				var err error
+				if batches[i].merge {
+					err = s.consumeNativeMerge(ctx, repo, gitBin, proc, ch, scan, mergeOrdinals, blobs)
+				} else {
+					err = s.consumeNativeLog(ctx, repo, gitBin, proc, nil, ch, scan, ordinals, blobs)
+				}
 				if batch != nil {
 					batch.flush()
 				}
@@ -258,9 +260,6 @@ func (s *Source) runNativePatchShards(ctx context.Context, repo *gogit.Repositor
 		}()
 	}
 	wg.Wait()
-	if err := <-mergeDone; err != nil && ctx.Err() == nil {
-		return err
-	}
 	if err := ctx.Err(); err != nil {
 		// Either the caller cancelled or a batch failed; a failed batch
 		// is reported below in preference to the cancellations it caused.
@@ -399,6 +398,31 @@ func (s *Source) consumeNativeLog(ctx context.Context, repo *gogit.Repository, g
 			return errors.Join(parseErr, parser.walkError(fmt.Errorf("git: native log: %w: %s", waitErr, detail)))
 		}
 		return errors.Join(parseErr, parser.walkError(fmt.Errorf("git: native log: %w", waitErr)))
+	}
+	return parseErr
+}
+
+// consumeNativeMerge parses a started merge diff-tree item and waits for it.
+func (s *Source) consumeNativeMerge(ctx context.Context, repo *gogit.Repository, gitBin string, proc *nativeLogProc, ch chan<- *sources.Chunk, scan func(*sources.Chunk), ordinals map[string]int64, blobs *catFileHolder) error {
+	if proc.err != nil {
+		return proc.err
+	}
+	parseErr := s.parseNativeMergeResults(ctx, repo, gitBin, proc.stdout, ch, scan, ordinals, blobs)
+	if parseErr != nil && !isCoverageOnly(parseErr) && proc.cmd.Process != nil {
+		_ = proc.cmd.Process.Kill()
+	}
+	waitErr := proc.cmd.Wait()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if parseErr != nil && !isCoverageOnly(parseErr) {
+		return fmt.Errorf("git: parse native merge patch: %w", parseErr)
+	}
+	if waitErr != nil {
+		if detail := strings.TrimSpace(proc.stderr.String()); detail != "" {
+			return fmt.Errorf("git: native merge raw: %w: %s", waitErr, detail)
+		}
+		return fmt.Errorf("git: native merge raw: %w", waitErr)
 	}
 	return parseErr
 }

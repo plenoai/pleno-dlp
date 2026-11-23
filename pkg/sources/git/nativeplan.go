@@ -29,6 +29,30 @@ type nativeWorkItem struct {
 	commits []string
 	paths   []string
 	cost    int
+	// merge renders commits' dense combined merge patches (diff-tree --cc)
+	// instead of their ordinary history.
+	merge bool
+}
+
+// nativeMergeBatchMin is the smallest number of merges one merge item
+// renders, so small merge sets do not cost a process per worker.
+const nativeMergeBatchMin = 500
+
+// mergeWorkItems splits the merges into at most shards contiguous items.
+func mergeWorkItems(merges []string, shards int) []nativeWorkItem {
+	if len(merges) == 0 {
+		return nil
+	}
+	parts := (len(merges) + nativeMergeBatchMin - 1) / nativeMergeBatchMin
+	if parts > shards {
+		parts = shards
+	}
+	size := (len(merges) + parts - 1) / parts
+	var items []nativeWorkItem
+	for lo := 0; lo < len(merges); lo += size {
+		items = append(items, nativeWorkItem{commits: merges[lo:min(lo+size, len(merges))], merge: true})
+	}
+	return items
 }
 
 // stdin renders the item as `git log --stdin` input. Paths follow a "--"
