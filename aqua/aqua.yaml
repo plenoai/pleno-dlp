@@ -16,5 +16,5 @@ registries:
     ref: a365b2edd4922a9109acc4ad74859e579b40ac28
     path: registry.yaml
 packages:
-  - name: plenoai/pleno-dlp@v0.70.1
+  - name: plenoai/pleno-dlp@v0.70.2
     registry: plenoai
