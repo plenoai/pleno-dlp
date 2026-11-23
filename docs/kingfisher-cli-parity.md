@@ -81,9 +81,9 @@ Status values:
 
 | kingfisher | pleno-dlp | Status |
 |---|---|---|
-| GitHub `--user`, `--organization`, `--all-organizations`, `--exclude`, `--repo-type`, `--include-gists` | `--org`, `--repo`, `--exclude-repo`, `--include-forks/--include-archived`, `--gist` | done (`--user` repos: gap) |
-| GitHub `--public-events`, `--event-lookback-hours` | — | gap |
-| GitLab `--group`, `--user`, `--include-subgroups`, `--include-snippets` | `--group`, `--project`, `--include-snippets` | done (`--user`: gap) |
+| GitHub `--user`, `--organization`, `--all-organizations`, `--exclude`, `--repo-type`, `--include-gists` | `--org`, `--user`, `--repo`, `--exclude-repo`, `--include-forks/--include-archived`, `--gist` | done |
+| GitHub `--public-events`, `--event-lookback-hours` | `--include-user-events`, `--event-lookback-hours` | done |
+| GitLab `--group`, `--user`, `--include-subgroups`, `--include-snippets` | `--group`, `--user`, `--project`, `--include-snippets` | done |
 | Bitbucket `--workspace`, `--project`, `--user`, `--include-snippets` | `--workspace`, `--repo`, snippets | done |
 | Azure `--organization`, `--project`, `--all-projects` | `scan azure-devops` | done |
 | Hugging Face `--model`, `--dataset`, `--space`, `--bucket`, `--user`, `--organization` | `--org`, `--user`, `--bucket`, `--repo`, `--repo-types` | done |

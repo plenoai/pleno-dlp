@@ -13,6 +13,10 @@ func githubScopeFingerprint(cfg Config) string {
 	for _, k := range []string{"org", "repo", "include_repo_globs", "exclude_repo_globs", "include_forks", "include_archived", "expand_members"} {
 		fmt.Fprintf(h, "%s=%s\x00", k, cfg[k])
 	}
+	// Appended only when set so existing org/repo state keeps its scope hash.
+	if u := cfg["user"]; u != "" {
+		fmt.Fprintf(h, "user=%s\x00", u)
+	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 

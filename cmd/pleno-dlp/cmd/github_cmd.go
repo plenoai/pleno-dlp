@@ -18,6 +18,9 @@ import (
 // flags.
 type githubFlags struct {
 	org                           string
+	users                         []string
+	includeUserEvents             bool
+	eventLookbackHours            int
 	repo                          string
 	token                         string
 	apiBase                       string
@@ -70,7 +73,7 @@ var (
 
 var scanGitHubCmd = &cobra.Command{
 	Use:   "github",
-	Short: "Scan a GitHub org or single repo (full commit history by default)",
+	Short: "Scan a GitHub org, user, or single repo (full commit history by default)",
 	Long: "Scan a GitHub org or single repo. Reads --token, falling back to the GITHUB_TOKEN env var.\n" +
 		"--org and --repo are mutually exclusive; one is required. Use --api-base for GitHub Enterprise.\n" +
 		"Each repo is cloned and its full commit history across branches, tags, and GitHub pull-request refs is scanned. Repository history costs zero REST calls per repo; optional collaboration and gist surfaces use REST.",
@@ -94,6 +97,9 @@ var verifyGitHubCmd = &cobra.Command{
 
 func init() {
 	scanGitHubCmd.Flags().StringVar(&scanGitHubOpts.org, "org", "", "GitHub organisation login to scan (mutually exclusive with --repo)")
+	scanGitHubCmd.Flags().StringSliceVar(&scanGitHubOpts.users, "user", nil, "GitHub user login(s) whose owned repositories are scanned; repeatable (mutually exclusive with --org/--repo)")
+	scanGitHubCmd.Flags().BoolVar(&scanGitHubOpts.includeUserEvents, "include-user-events", false, "also scan each --user's public events feed (commit messages, issue/PR/comment bodies, releases)")
+	scanGitHubCmd.Flags().IntVar(&scanGitHubOpts.eventLookbackHours, "event-lookback-hours", 0, "with --include-user-events, only scan events from the last N hours (0 = all retained events)")
 	scanGitHubCmd.Flags().StringVar(&scanGitHubOpts.repo, "repo", "", "single GitHub repository in owner/name form (mutually exclusive with --org)")
 	scanGitHubCmd.Flags().StringVar(&scanGitHubOpts.token, "token", "", "GitHub PAT or installation token (falls back to the GITHUB_TOKEN env var)")
 	scanGitHubCmd.Flags().StringVar(&scanGitHubOpts.apiBase, "api-base", "", "GitHub API base URL (default https://api.github.com; override for GitHub Enterprise)")
@@ -149,8 +155,8 @@ func init() {
 }
 
 func runScanGitHub(cmd *cobra.Command, _ []string) error {
-	if scanGitHubOpts.org == "" && scanGitHubOpts.repo == "" && len(scanGitHubOpts.gistURLs) == 0 && !scanGitHubOpts.includeAuthenticatedGists {
-		return errors.New("github: one of --org, --repo, --gist, or --include-authenticated-gists is required")
+	if scanGitHubOpts.org == "" && scanGitHubOpts.repo == "" && len(scanGitHubOpts.users) == 0 && len(scanGitHubOpts.gistURLs) == 0 && !scanGitHubOpts.includeAuthenticatedGists {
+		return errors.New("github: one of --org, --repo, --user, --gist, or --include-authenticated-gists is required")
 	}
 	for name, valid := range map[string]bool{
 		"git-artifact-max-bytes": scanGitHubOpts.gitArtifactMaxBytes > 0, "git-archive-max-expanded-bytes": scanGitHubOpts.archiveMaxExpandedBytes > 0,
@@ -194,6 +200,7 @@ func githubScannerFingerprintConfig(cfg connectors.Config) ([]byte, error) {
 		"archive_max_depth", "archive_timeout",
 		"include_issues", "include_pull_requests", "collab_timeframe_days",
 		"include_wikis", "gist_urls", "include_authenticated_gists", "include_gist_comments",
+		"include_user_events",
 	}
 	safe := make(connectors.Config, len(keys))
 	for _, key := range keys {
@@ -317,6 +324,19 @@ func scanGitHubConfig(opts githubFlags) (connectors.Config, error) {
 		"include_gist_comments":            fmt.Sprintf("%t", opts.includeGistComments),
 		"state_retention_days":             fmt.Sprintf("%d", opts.stateRetentionDays),
 		"state_retention_runs":             fmt.Sprintf("%d", opts.stateRetentionRuns),
+	}
+	// Set only when used so existing scanner fingerprints stay stable.
+	if len(opts.users) > 0 {
+		cfg["user"] = strings.Join(opts.users, ",")
+	}
+	if opts.includeUserEvents {
+		cfg["include_user_events"] = "true"
+	}
+	if opts.eventLookbackHours < 0 {
+		return nil, errors.New("github: --event-lookback-hours must be non-negative")
+	}
+	if opts.eventLookbackHours > 0 {
+		cfg["event_lookback_hours"] = fmt.Sprintf("%d", opts.eventLookbackHours)
 	}
 	if repoConcurrency < 1 || repoConcurrency > 32 {
 		return nil, fmt.Errorf("github: --repo-concurrency must be between 1 and 32, got %d", repoConcurrency)

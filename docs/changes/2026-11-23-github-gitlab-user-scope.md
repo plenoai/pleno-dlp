@@ -1,0 +1,3 @@
+Owners: connector-engineer, qa
+
+`scan github --user` (repeatable) scans each user's owned repositories through the existing clone-and-walk history path, and `--include-user-events` with optional `--event-lookback-hours` scans each user's public events feed (`/users/{login}/events/public`, newest-first, ≤10 pages, same-origin Link pagination); event payload strings become one chunk per event with `Entity=event`, and a failing feed is an `engine.DegradedError` coverage gap. `scan gitlab --user` scans a user's personal projects via `/users/{user}/projects`. The new scope keys enter the GitHub scope fingerprint and GitLab resource fingerprint only when set, so existing incremental state stays valid (#870).

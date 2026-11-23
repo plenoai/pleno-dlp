@@ -61,6 +61,8 @@ func init() {
 //   - max_blob_bytes per-blob size cap
 //   - concurrency per-project blob fanout
 //   - include_comments scan merge request notes and discussion notes
+//   - user        username whose personal projects are scanned (mutually
+//     exclusive with group and project)
 //   - history     clone each project and walk every branch and tag
 //   - include_snippets scan project snippets and the token owner's snippets
 func scanGitLab(ctx context.Context, cfg Config, emit Emit) error {
@@ -68,12 +70,12 @@ func scanGitLab(ctx context.Context, cfg Config, emit Emit) error {
 	if token == "" {
 		return errors.New("gitlab: token is required (set --token or GITLAB_TOKEN)")
 	}
-	group, project := cfg["group"], cfg["project"]
-	if group == "" && project == "" {
-		return errors.New("gitlab: either group or project must be set")
+	group, project, user := cfg["group"], cfg["project"], cfg["user"]
+	if group == "" && project == "" && user == "" {
+		return errors.New("gitlab: one of group, project, or user must be set")
 	}
-	if group != "" && project != "" {
-		return errors.New("gitlab: group and project are mutually exclusive")
+	if countNonEmpty(group, project, user) > 1 {
+		return errors.New("gitlab: group, project, and user are mutually exclusive")
 	}
 	if project != "" {
 		parts := strings.SplitN(project, "/", 2)
@@ -99,9 +101,13 @@ func scanGitLab(ctx context.Context, cfg Config, emit Emit) error {
 	}
 
 	cli := newGitLabClient(apiBase, token)
-	projects, err := gitlabListProjects(ctx, cli, group, project)
+	projects, err := gitlabListProjects(ctx, cli, group, project, user)
 	if err != nil {
 		return err
+	}
+	if user != "" {
+		// A user's namespace plays the group role in finding metadata.
+		group = user
 	}
 	previousState, err := loadGitLabIncrementalState(cfg[configKeyIncrementalPreviousState])
 	if err != nil {
@@ -199,12 +205,12 @@ func fingerprintGitLab(ctx context.Context, cfg Config) (string, error) {
 	if token == "" {
 		return "", errors.New("gitlab: token is required (set --token or GITLAB_TOKEN)")
 	}
-	group, project := cfg["group"], cfg["project"]
-	if group == "" && project == "" {
-		return "", errors.New("gitlab: either group or project must be set")
+	group, project, user := cfg["group"], cfg["project"], cfg["user"]
+	if group == "" && project == "" && user == "" {
+		return "", errors.New("gitlab: one of group, project, or user must be set")
 	}
-	if group != "" && project != "" {
-		return "", errors.New("gitlab: group and project are mutually exclusive")
+	if countNonEmpty(group, project, user) > 1 {
+		return "", errors.New("gitlab: group, project, and user are mutually exclusive")
 	}
 	apiBase := cfg.Get("api_base", gitlabDefaultAPIBase)
 	if err := requireSecureEndpoint("gitlab", apiBase); err != nil {
@@ -218,7 +224,7 @@ func fingerprintGitLab(ctx context.Context, cfg Config) (string, error) {
 		return "", nil
 	}
 	cli := newGitLabClient(apiBase, token)
-	projects, err := gitlabListProjects(ctx, cli, group, project)
+	projects, err := gitlabListProjects(ctx, cli, group, project, user)
 	if err != nil {
 		return "", err
 	}
@@ -230,6 +236,9 @@ func fingerprintGitLab(ctx context.Context, cfg Config) (string, error) {
 	writeFingerprint(h, "gitlab-v1")
 	writeFingerprint(h, apiBase)
 	writeFingerprint(h, group)
+	if user != "" {
+		writeFingerprint(h, "user="+user)
+	}
 	writeFingerprint(h, project)
 	writeFingerprint(h, cfg.Get("include_comments", "false"))
 	for _, p := range projects {
@@ -424,7 +433,17 @@ func loadGitLabIncrementalState(raw string) (*gitlabIncrementalState, error) {
 	return &state, nil
 }
 
-func gitlabListProjects(ctx context.Context, cli *gitlabClient, group, project string) ([]gitlabProjectRef, error) {
+func countNonEmpty(vals ...string) int {
+	n := 0
+	for _, v := range vals {
+		if v != "" {
+			n++
+		}
+	}
+	return n
+}
+
+func gitlabListProjects(ctx context.Context, cli *gitlabClient, group, project, user string) ([]gitlabProjectRef, error) {
 	if project != "" {
 		encoded := url.PathEscape(project)
 		path := fmt.Sprintf("/projects/%s", encoded)
@@ -437,11 +456,16 @@ func gitlabListProjects(ctx context.Context, cli *gitlabClient, group, project s
 	var projects []gitlabProjectRef
 	next := fmt.Sprintf("/groups/%s/projects?include_subgroups=true&per_page=100&pagination=keyset&order_by=id",
 		url.PathEscape(group))
+	scope := "group " + group
+	if user != "" {
+		next = fmt.Sprintf("/users/%s/projects?per_page=100&pagination=keyset&order_by=id", url.PathEscape(user))
+		scope = "user " + user
+	}
 	for next != "" {
 		var page []gitlabProjectRef
 		resp, err := cli.getJSON(ctx, next, &page)
 		if err != nil {
-			return nil, fmt.Errorf("gitlab: list group %s projects: %w", group, err)
+			return nil, fmt.Errorf("gitlab: list %s projects: %w", scope, err)
 		}
 		projects = append(projects, page...)
 		next = parseLinkHeader(resp.Header.Get("Link"))
