@@ -63,6 +63,13 @@ pleno-dlp blast-radius aws creds.json   # {"access_key_id","secret_access_key","
 | pinecone | `Pinecone` | — | — | indexes |
 | asana | `Asana` | `users/me` | — | workspaces |
 | fastly | `Fastly` | `current_user` | `/tokens/self` scopes | — |
+| airtable | `Airtable` | `meta/whoami` | token scopes | bases (permission level) |
+| hubspot | `HubSpot` | `account-info/v3/details` | — | — |
+| square | `Square` | `merchants/me` | — | locations |
+| brevo | `Brevo` | `/v3/account` | — (full account) | — |
+| zendesk | `Zendesk` | `users/me.json` (api_endpoint + email) | user role | — |
+| azure-devops | `AzureDevOps` | `profiles/me` | — | — |
+| shopify | `Shopify` | — (api_endpoint shop URL) | `access_scopes` | — |
 
 AWS evaluation is an over-approximation: statement conditions, permission
 boundaries, SCPs and resource policies are not applied, and `NotAction` is
