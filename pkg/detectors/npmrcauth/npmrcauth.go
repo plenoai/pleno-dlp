@@ -68,7 +68,7 @@ func (Scanner) Type() detectors.DetectorType { return detectors.NpmrcAuth }
 func (Scanner) Keywords() []string { return []string{"_auth", "_authtoken", "_password"} }
 
 func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.Result, error) {
-	str := string(data)
+	str := detectors.BorrowString(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
@@ -96,7 +96,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			Raw:          []byte(val),
 			Redacted:     redact(val),
 			ExtraData: map[string]string{
-				"key": key,
+				"key": strings.Clone(key),
 			},
 			Severity: detectors.SeverityHigh,
 		})

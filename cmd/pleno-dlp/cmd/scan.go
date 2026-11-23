@@ -432,6 +432,7 @@ func runScanStdin(cmd *cobra.Command, _ []string) error {
 }
 
 func runScanGit(cmd *cobra.Command, _ []string) error {
+	capGitScanProcs()
 	src := sources.New(sources.SourceGit)
 	if src == nil {
 		return fmt.Errorf("git source is not registered (missing pkg/sources/all import?)")
@@ -1914,6 +1915,26 @@ func Execute(ctx context.Context) (err error) {
 		}
 	}()
 	return Root.ExecuteContext(ctx)
+}
+
+// gitScanProcs is the Go scheduler width for a local git scan: two
+// thirds of the CPUs, at least 4. The `git log --patch` shard children
+// occupy the remaining cores, so letting Go run on every CPU only adds
+// idle spinning (usleep/kevent/cond_wait were ~4 CPU-s on django).
+// Measured on a 30-CPU host (hyperfine median, CPU incl. git children):
+// croc 2.96→2.77, django 43.4→41.2, rails 44.8→43.7 CPU-s, wall equal or
+// lower. Half the CPUs saved more CPU but cost croc its wall lead over
+// kingfisher (#1018).
+func gitScanProcs(cpus int) int { return max(4, cpus*2/3) }
+
+// capGitScanProcs applies gitScanProcs unless the operator set GOMAXPROCS.
+func capGitScanProcs() {
+	if os.Getenv("GOMAXPROCS") != "" {
+		return
+	}
+	if n := gitScanProcs(runtime.NumCPU()); n < runtime.GOMAXPROCS(0) {
+		runtime.GOMAXPROCS(n)
+	}
 }
 
 // defaultScanConcurrency is the worker count used when --concurrency is not

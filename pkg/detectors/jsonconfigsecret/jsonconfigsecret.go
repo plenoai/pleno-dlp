@@ -140,7 +140,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if bytes.IndexByte(data, '"') < 0 {
 		return nil, nil
 	}
-	str := string(data)
+	str := detectors.BorrowString(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
@@ -165,7 +165,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 			Raw:          []byte(val),
 			Redacted:     redact(val),
 			ExtraData: map[string]string{
-				"key": key,
+				"key": strings.Clone(key),
 			},
 			Severity: detectors.SeverityHigh,
 		})

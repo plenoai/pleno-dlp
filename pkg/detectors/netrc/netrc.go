@@ -92,7 +92,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 	if !hasLogin(data) {
 		return nil, nil
 	}
-	str := string(data)
+	str := detectors.BorrowString(data)
 	seen := map[string]struct{}{}
 	var out []detectors.Result
 
@@ -122,7 +122,7 @@ func (s Scanner) FromData(_ context.Context, _ bool, data []byte) ([]detectors.R
 		seen[key] = struct{}{}
 		extra := map[string]string{}
 		if login != "" {
-			extra["login"] = login
+			extra["login"] = strings.Clone(login)
 		}
 		out = append(out, detectors.Result{
 			DetectorType: detectors.Netrc,
