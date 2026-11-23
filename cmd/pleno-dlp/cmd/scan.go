@@ -21,6 +21,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/plenoai/pleno-dlp/pkg/alerts"
 	"github.com/plenoai/pleno-dlp/pkg/connectors"
 	"github.com/plenoai/pleno-dlp/pkg/detectors"
 	"github.com/plenoai/pleno-dlp/pkg/detectors/custom"
@@ -66,6 +67,9 @@ type scanFlags struct {
 	rulesPath          string
 	failOn             string
 	failOnCoverage     string
+	alertWebhooks      []string
+	alertMinSeverity   string
+	alertDryRun        bool
 	allowlistPath      string
 	includeDetectors   []string
 	excludeDetectors   []string
@@ -192,7 +196,7 @@ var scanSQLDumpCmd = &cobra.Command{
 }
 
 func init() {
-	scanCmd.PersistentFlags().StringVar(&scanOpts.format, "format", "table", "output format: json, sarif, table")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.format, "format", "table", "output format: "+output.FormatsHelp)
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.onlyVerified, "only-verified", false, "legacy compatibility mode: emit, count, and optionally revoke detector-verified findings regardless of assurance; indeterminate findings are kept by default — see --drop-indeterminate and --only-provider-confirmed")
 	scanCmd.PersistentFlags().BoolVar(&scanOpts.providerOnly, "only-provider-confirmed", false,
 		"verify, emit, count, and optionally revoke only findings from detectors whose semantics were audited as provider-confirmed; unaudited and weaker verification requests are skipped")
@@ -218,6 +222,12 @@ func init() {
 		"including that lower tier, once the repo's baseline is clean; applies to all source kinds, including stdin)")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.failOnCoverage, "fail-on-coverage", "gap",
 		"incomplete coverage that triggers a non-zero exit: gap (real coverage gaps only; corrupt or over-budget archives skipped by policy are reported but do not fail) or any (also fail on policy-limited archive skips)")
+	scanCmd.PersistentFlags().StringArrayVar(&scanOpts.alertWebhooks, "alert-webhook", nil,
+		"POST a redacted findings summary to this webhook when the scan reports findings (repeatable; Slack/Teams payload inferred from host, generic JSON otherwise; delivery failures warn and never change the exit code)")
+	scanCmd.PersistentFlags().StringVar(&scanOpts.alertMinSeverity, "alert-min-severity", "medium",
+		"minimum severity included in alerts: info|low|medium|high|critical")
+	scanCmd.PersistentFlags().BoolVar(&scanOpts.alertDryRun, "alert-dry-run", false,
+		"print each alert payload to stderr instead of POSTing it")
 	scanCmd.PersistentFlags().StringVar(&scanOpts.allowlistPath, "allowlist", "", "path to a JSON allowlist file that mutes known false positives (auto-discovers .pleno-allow.json from the repo root)")
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.includeDetectors, "include-detectors", nil, "only run these detectors (comma-separated, case-insensitive Type names; see 'pleno-dlp detectors list'). Custom rules from --rules count as GenericHighEntropy.")
 	scanCmd.PersistentFlags().StringSliceVar(&scanOpts.excludeDetectors, "exclude-detectors", nil, "skip these detectors (comma-separated, case-insensitive Type names). Applied after --include-detectors.")
@@ -520,6 +530,18 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	if err != nil {
 		return err
 	}
+	var alertHooks []alerts.Webhook
+	for _, raw := range scanOpts.alertWebhooks {
+		w, err := alerts.ParseWebhook(raw)
+		if err != nil {
+			return err
+		}
+		alertHooks = append(alertHooks, w)
+	}
+	alertMin, err := parseAlertMinSeverity(scanOpts.alertMinSeverity)
+	if err != nil {
+		return err
+	}
 	if scanOpts.failOnCoverage != "gap" && scanOpts.failOnCoverage != "any" {
 		return fmt.Errorf("invalid --fail-on-coverage %q: want gap or any", scanOpts.failOnCoverage)
 	}
@@ -654,7 +676,15 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	//   - allowlist sits inside placeholder so suppressed entries
 	//     don't poison the dedup map (a different finding nearby
 	//     should still emit).
-	counter := &countingSink{inner: sink, threshold: threshold}
+	// The alert collector tees the exact findings the counter (and the
+	// user) see, recording only their redacted projection.
+	var counterInner engine.Sink = sink
+	var alertCollector *alerts.Collector
+	if len(alertHooks) > 0 {
+		alertCollector = &alerts.Collector{Inner: sink, MinSeverity: alertMin}
+		counterInner = alertCollector
+	}
+	counter := &countingSink{inner: counterInner, threshold: threshold}
 	chain.Track(counter)
 	// PIIDB classification sits between counter and the upstream
 	// chain. PII findings are buffered, classified in batch at Close,
@@ -794,6 +824,15 @@ func runScanCommon(cmd *cobra.Command, src sources.Source, cfg []byte, kind stri
 	// incremental state; the deferred Close remains as idempotent cleanup.
 	if err := chain.Close(); err != nil {
 		return restorePriorIncrementalState(fmt.Errorf("sink chain close: %w", err))
+	}
+
+	if alertCollector != nil {
+		if fs := alertCollector.Findings(); len(fs) > 0 {
+			n := &alerts.Notifier{Webhooks: alertHooks, Retries: 2, DryRun: scanOpts.alertDryRun, Log: cmd.ErrOrStderr()}
+			if err := n.Send(ctx, alerts.BuildSummary(toolVersion, kind, alertMin, fs)); err != nil {
+				termsafe.Fprintf(cmd.ErrOrStderr(), "warning: alert delivery failed: %v\n", err)
+			}
+		}
 	}
 
 	// End-of-scan summary on stderr so it doesn't pollute --format json /
@@ -1194,6 +1233,18 @@ func parseFailOn(s string) (detectors.Severity, error) {
 	default:
 		return 0, fmt.Errorf("--fail-on: unknown value %q (valid: any, info, low, medium, high, critical)", s)
 	}
+}
+
+// parseAlertMinSeverity parses --alert-min-severity.
+func parseAlertMinSeverity(s string) (detectors.Severity, error) {
+	if strings.EqualFold(strings.TrimSpace(s), "any") {
+		return 0, fmt.Errorf("--alert-min-severity: unknown value %q (valid: info, low, medium, high, critical)", s)
+	}
+	sev, err := parseFailOn(s)
+	if err != nil || strings.TrimSpace(s) == "" {
+		return 0, fmt.Errorf("--alert-min-severity: unknown value %q (valid: info, low, medium, high, critical)", s)
+	}
+	return sev, nil
 }
 
 // gateBelowLabel names the severities strictly below threshold, for the
