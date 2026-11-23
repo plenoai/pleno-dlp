@@ -60,6 +60,7 @@ without invoking the orchestrator.
 
 | Date | Owners | Change |
 |---|---|---|
+| 2026-11-23 | architect, core-engineer, qa | Add the stable embeddable API `pkg/dlp` (JSON shape frozen by `TestJSONContractFrozen`), the c-shared C ABI `cmd/libpleno-dlp`, and Python/Node bindings under `bindings/`; release.yml builds Linux arm64/amd64 libraries and publishes PyPI/npm via OIDC after `finalize` (ADR 0001, #816). |
 | 2026-11-23 | connector-engineer, core-engineer, qa | Add `--since-commit` (exclusive `rev..tip`) and `--branch-root-commit` (inclusive) to `scan git` and `scan github`; boundaries feed the existing stop-set (full ancestry on the go-git path), unresolvable revisions fail, ranged runs never advance git checkpoints, and the GitHub history policy includes the range so the next unranged run rescans fully (#815). |
 | 2026-11-23 | core-engineer, connector-engineer, qa | Add `detectors.AccessMapper` and the `pleno-dlp.access-map/v1` schema; `scan --blast-radius` attaches identity/permission/resource maps to verified AWS, GCP service-account, GitHub, GitLab, and Slack findings, and `pleno-dlp blast-radius <provider>` maps one credential (#808). |
 | 2026-11-23 | connector-engineer, qa | Add the shared `pkg/connectors/remote_git.go` clone-and-walk helper (ForgeMeta provenance, per-repo git checkpoints in `forgeIncrementalState.Repos`) and `--history`/`--clone-url` for Gitea-family forges; tokens reach HTTP(S) remotes only (#811). |
