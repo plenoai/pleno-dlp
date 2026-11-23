@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"strconv"
 	"sync"
+
+	"github.com/plenoai/pleno-dlp/pkg/sources"
 )
 
 // dedupSink wraps a downstream Sink and suppresses duplicate findings.
@@ -117,12 +119,27 @@ func collisionKey(f Finding) string {
 // by committer date ascending), so the first buffered finding for a key is
 // the introducing commit. Parallel native history shards break arrival
 // order; they stamp GitMeta.Ordinal and the lowest ordinal wins instead.
+type replicatedFinding struct {
+	f   Finding
+	seq uint64
+}
+
 type gitCrossCommitSink struct {
 	inner       Sink
 	mu          sync.Mutex
 	counts      map[string]int     // gitHashFileKey → occurrence count
 	first       map[string]Finding // gitHashFileKey → introducing-commit finding
 	insertOrder []string           // preserves emission order of first occurrences
+	// firstSeq is the arrival sequence of first[key]. Arrival order
+	// decides between commits whose ordinal is unknown (merge
+	// resolutions), so expanded replicas compete at their scanned copy's
+	// arrival position.
+	firstSeq map[string]uint64
+	seq      uint64
+	// replicated holds findings from chunks that stand for several
+	// identical diffs (GitMeta.Replicas). The replica set is final only
+	// once the walk ends, so the replicas are expanded in Flush.
+	replicated []replicatedFinding
 }
 
 // NewGitCrossCommitDedup wraps inner with cross-commit deduplication for git
@@ -131,9 +148,10 @@ type gitCrossCommitSink struct {
 // extra_data.occurrence_count. Non-git findings pass through immediately.
 func NewGitCrossCommitDedup(inner Sink) Sink {
 	return &gitCrossCommitSink{
-		inner:  inner,
-		counts: make(map[string]int),
-		first:  make(map[string]Finding),
+		inner:    inner,
+		counts:   make(map[string]int),
+		first:    make(map[string]Finding),
+		firstSeq: make(map[string]uint64),
 	}
 }
 
@@ -142,18 +160,63 @@ func (g *gitCrossCommitSink) Emit(f Finding) {
 		g.inner.Emit(f)
 		return
 	}
-	key := gitHashFileKey(f)
 	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.seq++
+	if f.Chunk.SourceMetadata.Git.Replicas != nil {
+		g.replicated = append(g.replicated, replicatedFinding{f: f, seq: g.seq})
+		meta := *f.Chunk.SourceMetadata.Git
+		meta.Replicas = nil
+		f = withGitMeta(f, meta)
+	}
+	g.emitLocked(f, g.seq)
+}
+
+func (g *gitCrossCommitSink) emitLocked(f Finding, seq uint64) {
+	key := gitHashFileKey(f)
 	g.counts[key]++
 	if prev, exists := g.first[key]; !exists {
 		g.first[key] = f
+		g.firstSeq[key] = seq
 		g.insertOrder = append(g.insertOrder, key)
-	} else if older(f, prev) {
+	} else if olderAt(f, seq, prev, g.firstSeq[key]) {
 		// Parallel history shards deliver commits out of order; keep the
 		// introducing (lowest-ordinal) commit rather than the first arrival.
 		g.first[key] = f
+		g.firstSeq[key] = seq
 	}
-	g.mu.Unlock()
+}
+
+// olderAt is older with explicit arrival sequences: across commits whose
+// ordinal is unknown the earlier arrival wins. For findings emitted in
+// arrival order (seq increasing) it is exactly older.
+func olderAt(f Finding, fseq uint64, prev Finding, pseq uint64) bool {
+	fg, pg := f.Chunk.SourceMetadata.Git, prev.Chunk.SourceMetadata.Git
+	if (fg.Commit != pg.Commit || fg.Repository != pg.Repository) && (fg.Ordinal <= 0 || pg.Ordinal <= 0) {
+		return fseq < pseq
+	}
+	return older(f, prev)
+}
+
+// expandReplicas re-emits every replicated finding once per identical-diff
+// replica (the scanned copy was emitted on arrival), exactly as if each copy had
+// been scanned. Callers hold g.mu.
+func (g *gitCrossCommitSink) expandReplicas() {
+	pending := g.replicated
+	g.replicated = nil
+	for _, p := range pending {
+		meta := *p.f.Chunk.SourceMetadata.Git
+		for _, r := range meta.Replicas.List() {
+			g.emitLocked(withGitMeta(p.f, r.Apply(meta)), p.seq)
+		}
+	}
+}
+
+func withGitMeta(f Finding, m sources.GitMeta) Finding {
+	cp := *f.Chunk
+	cp.SourceMetadata.Git = &m
+	f.Chunk = &cp
+	return f
 }
 
 // Flush forwards every buffered introducing-commit finding to inner and
@@ -163,12 +226,14 @@ func (g *gitCrossCommitSink) Emit(f Finding) {
 // piidb.Sink's Flush/Close split for the same reason.
 func (g *gitCrossCommitSink) Flush() error {
 	g.mu.Lock()
+	g.expandReplicas()
 	order := g.insertOrder
 	counts := g.counts
 	first := g.first
 	g.insertOrder = nil
 	g.counts = make(map[string]int)
 	g.first = make(map[string]Finding)
+	g.firstSeq = make(map[string]uint64)
 	g.mu.Unlock()
 
 	for _, key := range order {

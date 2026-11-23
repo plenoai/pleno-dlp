@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"sync"
 )
 
 type SourceType int32
@@ -102,6 +103,54 @@ type GitMeta struct {
 	// history shards). 0 means unknown: consumers fall back to arrival
 	// order. Never serialized.
 	Ordinal int64 `json:"-"`
+	// Replicas, when non-nil, lists the other commits whose diff of File
+	// is byte-identical to this chunk's (same path, pre-image, and
+	// post-image blob), so the source scanned the diff only once. The
+	// git cross-commit dedup sink expands every finding of such a chunk
+	// into one occurrence per replica before choosing the introducing
+	// commit, so findings and occurrence counts match a scan of every
+	// copy. Never serialized.
+	Replicas *DiffReplicas `json:"-"`
+}
+
+// DiffReplica is the commit-level provenance of one skipped identical diff.
+type DiffReplica struct {
+	Commit       string
+	Email        string
+	Author       string
+	AuthoredDate string
+	Message      string
+	Ordinal      int64
+}
+
+// DiffReplicas collects the commits sharing one identical file diff. It is
+// safe for concurrent use: parallel history shards append while others
+// may already have emitted the scanned copy.
+type DiffReplicas struct {
+	mu   sync.Mutex
+	list []DiffReplica
+}
+
+// Add records one more commit carrying the identical diff.
+func (r *DiffReplicas) Add(d DiffReplica) {
+	r.mu.Lock()
+	r.list = append(r.list, d)
+	r.mu.Unlock()
+}
+
+// List returns a snapshot of the recorded replicas.
+func (r *DiffReplicas) List() []DiffReplica {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]DiffReplica(nil), r.list...)
+}
+
+// Apply returns a copy of m attributed to commit d. Repository, File, and
+// Line are kept: an identical diff renders identical lines.
+func (d DiffReplica) Apply(m GitMeta) GitMeta {
+	m.Commit, m.Email, m.Author, m.AuthoredDate, m.Message, m.Ordinal = d.Commit, d.Email, d.Author, d.AuthoredDate, d.Message, d.Ordinal
+	m.Replicas = nil
+	return m
 }
 
 // GitHubMeta is populated by the GitHub source / SaaS connector. The legacy

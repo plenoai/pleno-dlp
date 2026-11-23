@@ -65,6 +65,9 @@ type VolumeID struct {
 // ParseVolumeName reports whether name (a base name or a full path/key)
 // looks like one volume of a multi-volume archive.
 func ParseVolumeName(name string) (VolumeID, bool) {
+	if !volumeNameCandidate(name) {
+		return VolumeID{}, false
+	}
 	if m := eggVolumeName.FindStringSubmatch(name); m != nil {
 		n, _ := strconv.Atoi(m[2])
 		volPos := len(m[1])
@@ -90,6 +93,21 @@ func ParseVolumeName(name string) (VolumeID, bool) {
 		return VolumeID{Scheme: VolumeZipSpan, Base: m[1], Index: 0, suffix: m[2]}, true
 	}
 	return VolumeID{}, false
+}
+
+// volumeNameCandidate is a cheap suffix test that every volume pattern
+// implies (".egg", ".zip", or a trailing digit), so the per-chunk call from
+// the engine skips the four regexps for ordinary file names.
+func volumeNameCandidate(name string) bool {
+	n := len(name)
+	if n < 5 {
+		return false
+	}
+	if last := name[n-1]; last >= '0' && last <= '9' {
+		return true
+	}
+	suffix := strings.ToLower(name[n-4:])
+	return suffix == ".egg" || suffix == ".zip"
 }
 
 // Terminal names the last volume of a set whose final volume is not

@@ -845,6 +845,14 @@ type nativeLogParser struct {
 	// ordinals maps commit hash to its 1-based oldest-first position for
 	// parallel shards (see sources.GitMeta.Ordinal); nil otherwise.
 	ordinals map[string]int64
+	// replicas is the identical-diff set the current file's chunks carry
+	// (see sources.GitMeta.Replicas); skipDiff marks a file whose
+	// identical diff was already claimed, so its lines are ignored.
+	replicas *sources.DiffReplicas
+	skipDiff bool
+	// nested marks a forced-text re-render of a file the parent parser
+	// already claimed; it inherits the parent's replicas and never claims.
+	nested bool
 	// seq numbers commits in arrival order for the single-stream walk,
 	// whose git log output is already oldest-first; nil elsewhere.
 	seq *int64
@@ -1013,6 +1021,9 @@ func readNativeLineRemainder(reader *bufio.Reader, fragment []byte, limit int) (
 }
 
 func (p *nativeLogParser) fragmentedHunkLine(line []byte) bool {
+	if p.skipDiff && len(line) > 0 && line[0] != nativeRecordSeparator && !bytes.HasPrefix(line, []byte("diff --git ")) {
+		return true
+	}
 	if !p.inHunk || len(line) == 0 {
 		return false
 	}
@@ -1025,6 +1036,16 @@ func (p *nativeLogParser) fragmentedHunkLine(line []byte) bool {
 }
 
 func (p *nativeLogParser) consumeFragmentedHunkLine(reader *bufio.Reader, first []byte) (readErr, parseErr error) {
+	if p.skipDiff {
+		// The identical diff was claimed elsewhere: drain the overlong
+		// line without buffering it.
+		for {
+			_, err := reader.ReadSlice('\n')
+			if !errors.Is(err, bufio.ErrBufferFull) {
+				return err, nil
+			}
+		}
+	}
 	marker := first[0]
 	if marker == '+' {
 		p.beginAddedLine()
@@ -1135,6 +1156,9 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 			return err
 		}
 		p.file = nativeFilePatch{}
+		if !p.nested {
+			p.replicas, p.skipDiff = nil, false
+		}
 		if p.rawIndex < len(p.rawPaths) {
 			p.file.path = p.rawPaths[p.rawIndex]
 			p.file.deleted = p.rawDeleted[p.rawIndex]
@@ -1142,8 +1166,14 @@ func (p *nativeLogParser) consumeLine(line []byte) error {
 		}
 		return nil
 	}
+	if p.skipDiff {
+		return nil
+	}
 	if !p.inHunk && bytes.HasPrefix(line, []byte("index ")) {
 		p.file.newOID = parseNativeIndexNewOID(line)
+		if !p.nested && !p.file.deleted {
+			p.replicas, p.skipDiff = p.source.diffReplicas.claim(p.file.path, string(line), p.commit)
+		}
 		return nil
 	}
 	if !p.inHunk && bytes.HasPrefix(line, []byte("--- ")) {
@@ -1523,6 +1553,7 @@ func (p *nativeLogParser) emitSegments(path string, segments []diffSegment) erro
 				AuthoredDate: p.commit.authoredDate,
 				Message:      p.commit.message,
 				Ordinal:      p.commit.ordinal,
+				Replicas:     p.replicas,
 			}},
 		}
 		if p.scan != nil {
@@ -1697,7 +1728,7 @@ func (p *nativeLogParser) emitForcedTextPatch(path string) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start forced text diff: %w", err)
 	}
-	parser := nativeLogParser{ctx: p.ctx, source: p.source, repo: p.repo, gitBin: p.gitBin, ch: p.ch, commit: p.commit, blobs: p.blobs, scan: p.scan, ordinals: p.ordinals}
+	parser := nativeLogParser{ctx: p.ctx, source: p.source, repo: p.repo, gitBin: p.gitBin, ch: p.ch, commit: p.commit, blobs: p.blobs, scan: p.scan, ordinals: p.ordinals, replicas: p.replicas, nested: true}
 	parseErr := parser.parse(stdout)
 	if parseErr != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
