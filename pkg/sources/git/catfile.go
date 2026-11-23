@@ -27,9 +27,13 @@ type catFileBatch struct {
 }
 
 func startCatFileBatch(ctx context.Context, gitBin, repoAbs string) (*catFileBatch, error) {
+	return startCatFileBatchArgs(ctx, gitBin, repoAbs, "--batch")
+}
+
+func startCatFileBatchArgs(ctx context.Context, gitBin, repoAbs string, mode ...string) (*catFileBatch, error) {
 	b := &catFileBatch{}
 	b.stderr.limit = nativeStderrLimit
-	b.cmd = exec.CommandContext(ctx, gitBin, "-C", repoAbs, "cat-file", "--batch")
+	b.cmd = exec.CommandContext(ctx, gitBin, append([]string{"-C", repoAbs, "cat-file"}, mode...)...)
 	b.cmd.Env = nativeGitEnv()
 	b.cmd.Stderr = &b.stderr
 	stdin, err := b.cmd.StdinPipe()
