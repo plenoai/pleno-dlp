@@ -1,0 +1,6 @@
+{
+  "entries": [
+    {"detector": "HardcodedPassword", "raw_regex": "^(appPassword|oauth2|hunter2|dbSecret|correcthorse)([^A-Za-z0-9].{0,4})?$",
+     "reason": "HardcodedPassword detector regression fixtures and docs (#863)"}
+  ]
+}
