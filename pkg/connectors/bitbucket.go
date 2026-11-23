@@ -1,14 +1,18 @@
 // Bitbucket Cloud connector. Single-file Lambda-handler shape.
 //
-// Surface: workspace or single-repo default-branch files. Issues / PRs /
-// pipelines / wikis are out of scope.
+// Surface: workspace or single-repo default-branch files, optional full Git
+// history (HTTPS clone link through the shared scanRemoteGitRepo walker;
+// the x-token-auth user for access tokens, the username for app
+// passwords), and optional workspace snippets. Issues / PRs / pipelines /
+// wikis are out of scope.
 //
 // Auth: Bearer token (workspace / repository access token) takes priority
 // over HTTP Basic (username + app password). Both are accepted; the
 // caller picks one.
 //
 // Pagination: Bitbucket returns absolute "next" URLs in JSON response
-// bodies. We follow them verbatim, no cursor arithmetic.
+// bodies. We follow them verbatim, but only while they stay on the API
+// origin so credentials are never sent to another host.
 
 package connectors
 
@@ -22,6 +26,7 @@ import (
 	"hash"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,6 +42,8 @@ const (
 	bitbucketDefaultAPIBase      = "https://api.bitbucket.org/2.0"
 	bitbucketDefaultMaxFileBytes = int64(5 * 1024 * 1024)
 	bitbucketRequestTimeout      = 60 * time.Second
+	// bitbucketTokenCloneUser is the HTTPS clone user for access tokens.
+	bitbucketTokenCloneUser = "x-token-auth"
 )
 
 func init() {
@@ -57,6 +64,8 @@ func init() {
 //   - api_base          override https://api.bitbucket.org/2.0
 //   - max_file_bytes    per-file size cap
 //   - concurrency       per-repo file fanout
+//   - history           clone each repo and walk every branch and tag
+//   - include_snippets  scan the workspace's snippets
 func scanBitbucket(ctx context.Context, cfg Config, emit Emit) error {
 	token := cfg["token"]
 	appPassword := cfg["app_password"]
@@ -120,7 +129,28 @@ func scanBitbucket(ctx context.Context, cfg Config, emit Emit) error {
 			}
 			continue
 		}
+		if parseBool(cfg["history"]) {
+			target := remoteGitRepo{Key: repoKey, CloneURL: r.httpsCloneURL()}
+			if strings.HasPrefix(target.CloneURL, "https://") || strings.HasPrefix(target.CloneURL, "http://") {
+				target.Username, target.Password = bitbucketCloneAuth(token, username, appPassword)
+			}
+			history, err := scanRemoteGitRepo(ctx, "bitbucket", target, prevRepo.History, emit)
+			if err != nil {
+				return err
+			}
+			nextRepo.History = history
+		}
 		nextState.Repos[repoKey] = nextRepo
+	}
+	if parseBool(cfg["include_snippets"]) {
+		ws := workspace
+		if ws == "" {
+			ws, _, _ = strings.Cut(repo, "/")
+		}
+		nextState.Snippets = map[string]string{}
+		if err := scanBitbucketSnippets(ctx, cli, ws, previousState.Snippets, nextState.Snippets, emit); err != nil {
+			return err
+		}
 	}
 	data, err := json.Marshal(nextState)
 	if err != nil {
@@ -165,6 +195,11 @@ func fingerprintBitbucket(ctx context.Context, cfg Config) (string, error) {
 	apiBase := cfg.Get("api_base", bitbucketDefaultAPIBase)
 	if err := requireSecureEndpoint("bitbucket", apiBase); err != nil {
 		return "", err
+	}
+	// Non-default branches and snippets have no cheap fingerprint; hashing
+	// only default-branch files would let --incremental skip their changes.
+	if parseBool(cfg["history"]) || parseBool(cfg["include_snippets"]) {
+		return "", nil
 	}
 	cli := newBitbucketClient(apiBase, username, appPassword, token)
 	repos, err := bitbucketListRepos(ctx, cli, workspace, repo)
@@ -223,6 +258,58 @@ type bitbucketRepoRef struct {
 		Name string `json:"name"`
 	} `json:"mainbranch"`
 	IsPrivate bool `json:"is_private"`
+	Links     struct {
+		Clone []struct {
+			Name string `json:"name"`
+			Href string `json:"href"`
+		} `json:"clone"`
+	} `json:"links"`
+}
+
+// httpsCloneURL returns the repository's HTTPS clone link with any
+// embedded userinfo (Bitbucket adds "user@") removed; credentials are
+// supplied separately by scanRemoteGitRepo.
+func (r *bitbucketRepoRef) httpsCloneURL() string {
+	for _, c := range r.Links.Clone {
+		if c.Name != "https" {
+			continue
+		}
+		u, err := url.Parse(c.Href)
+		if err != nil {
+			return ""
+		}
+		u.User = nil
+		return u.String()
+	}
+	return ""
+}
+
+type bitbucketSnippet struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	UpdatedOn string `json:"updated_on"`
+	Files     map[string]struct {
+		Links struct {
+			Self struct {
+				Href string `json:"href"`
+			} `json:"self"`
+		} `json:"links"`
+	} `json:"files"`
+}
+
+// UnmarshalJSON accepts Bitbucket's numeric or string snippet ids.
+func (s *bitbucketSnippet) UnmarshalJSON(b []byte) error {
+	type alias bitbucketSnippet
+	var raw struct {
+		alias
+		ID json.RawMessage `json:"id"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	*s = bitbucketSnippet(raw.alias)
+	s.ID = strings.Trim(string(raw.ID), `"`)
+	return nil
 }
 
 func (r *bitbucketRepoRef) workspaceSlug() string {
@@ -257,11 +344,15 @@ type bitbucketPaginatedRepos struct {
 type bitbucketIncrementalState struct {
 	Version int                                      `json:"version"`
 	Repos   map[string]bitbucketRepoIncrementalState `json:"repos"`
+	// Snippets maps snippet id -> updated_on.
+	Snippets map[string]string `json:"snippets,omitempty"`
 }
 
 type bitbucketRepoIncrementalState struct {
 	Branch string                                   `json:"branch,omitempty"`
 	Files  map[string]bitbucketFileIncrementalState `json:"files,omitempty"`
+	// History is the git source's per-ref state for the cloned repository.
+	History json.RawMessage `json:"history,omitempty"`
 }
 
 type bitbucketFileIncrementalState struct {
@@ -431,6 +522,9 @@ func newBitbucketClient(base, username, appPassword, bearerToken string) *bitbuc
 	if base == "" {
 		base = bitbucketDefaultAPIBase
 	}
+	// Every request path already carries its own /2.0 prefix; keeping it on
+	// the base as well produced https://api.bitbucket.org/2.0/2.0/... .
+	base = strings.TrimSuffix(strings.TrimRight(base, "/"), "/2.0")
 	return &bitbucketClient{
 		base:        base,
 		username:    username,
@@ -447,7 +541,11 @@ func (c *bitbucketClient) do(ctx context.Context, method, path string, body io.R
 		if err := c.waitForBucket(ctx); err != nil {
 			return nil, err
 		}
-		req, err := http.NewRequestWithContext(ctx, method, c.url(path), body)
+		target := c.url(path)
+		if err := c.sameOrigin(target); err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(ctx, method, target, body)
 		if err != nil {
 			return nil, err
 		}
@@ -556,4 +654,94 @@ func bitbucketBackoff(resp *http.Response, attempt int) time.Duration {
 		d = time.Minute
 	}
 	return d
+}
+
+// sameOrigin rejects absolute URLs (pagination "next" links, snippet file
+// links) that leave the API origin, so credentials stay on it.
+func (c *bitbucketClient) sameOrigin(target string) error {
+	t, err := url.Parse(target)
+	if err != nil {
+		return fmt.Errorf("bitbucket: malformed URL")
+	}
+	b, err := url.Parse(c.base)
+	if err != nil || t.Scheme != b.Scheme || t.Host != b.Host {
+		return fmt.Errorf("bitbucket: refusing request to foreign origin %s://%s", t.Scheme, t.Host)
+	}
+	return nil
+}
+
+// scanBitbucketSnippets lists /2.0/snippets/{workspace} and emits every file
+// of each snippet whose updated_on changed since the previous run.
+func scanBitbucketSnippets(ctx context.Context, cli *bitbucketClient, workspace string, prev, next map[string]string, emit Emit) error {
+	if workspace == "" {
+		return errors.New("bitbucket: workspace is required for snippets")
+	}
+	listPath := fmt.Sprintf("/2.0/snippets/%s?pagelen=100", url.PathEscape(workspace))
+	for listPath != "" {
+		var page struct {
+			Values []bitbucketSnippet `json:"values"`
+			Next   string             `json:"next,omitempty"`
+		}
+		if _, err := cli.getJSON(ctx, listPath, &page); err != nil {
+			return fmt.Errorf("bitbucket: list snippets: %w", err)
+		}
+		for _, sn := range page.Values {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if sn.UpdatedOn != "" && prev[sn.ID] == sn.UpdatedOn {
+				next[sn.ID] = sn.UpdatedOn
+				continue
+			}
+			var full bitbucketSnippet
+			if _, err := cli.getJSON(ctx, fmt.Sprintf("/2.0/snippets/%s/%s", url.PathEscape(workspace), url.PathEscape(sn.ID)), &full); err != nil {
+				return fmt.Errorf("bitbucket: get snippet %s: %w", sn.ID, err)
+			}
+			names := make([]string, 0, len(full.Files))
+			for name := range full.Files {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				href := full.Files[name].Links.Self.Href
+				if href == "" {
+					href = fmt.Sprintf("/2.0/snippets/%s/%s/files/%s", url.PathEscape(workspace), url.PathEscape(sn.ID), url.PathEscape(name))
+				}
+				data, err := bitbucketFetchRaw(ctx, cli, href, bitbucketDefaultMaxFileBytes)
+				if err != nil {
+					return err
+				}
+				if err := emit(data, sources.Metadata{Bitbucket: &sources.BitbucketMeta{
+					Workspace: workspace,
+					Path:      "snippet:" + sn.ID + ":" + name,
+				}}); err != nil {
+					return err
+				}
+			}
+			next[sn.ID] = sn.UpdatedOn
+		}
+		listPath = page.Next
+	}
+	return nil
+}
+
+func bitbucketFetchRaw(ctx context.Context, cli *bitbucketClient, path string, maxBytes int64) ([]byte, error) {
+	resp, err := cli.do(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("bitbucket: GET snippet file: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("bitbucket: GET snippet file -> %s", resp.Status)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+}
+
+// bitbucketCloneAuth returns the HTTPS clone credentials: access tokens
+// use the fixed x-token-auth user, app passwords the account username.
+func bitbucketCloneAuth(token, user, pass string) (string, string) {
+	if token != "" {
+		return bitbucketTokenCloneUser, token
+	}
+	return user, pass
 }
