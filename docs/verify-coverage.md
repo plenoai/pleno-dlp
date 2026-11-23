@@ -32,7 +32,7 @@ when a detector leaves severity unset. Per-detector overrides usually
 raise it; the one lowering exception is `SalesforceRefresh` (see the
 class (b) table).
 
-## (a) Verify implemented — 638 detectors
+## (a) Verify implemented — 643 detectors
 
 Detector type satisfies `detectors.Verifier`. The detector calls the
 upstream provider and returns `(true, nil)` on success, `(false, nil)`
@@ -56,7 +56,7 @@ patterns). The extracted tenant is combined with the matched
 AzureAD/AzureApp verifiers cannot yet distinguish a rejected credential
 from an unreachable token endpoint.
 
-## (b) Unverified-by-design — 76 detectors
+## (b) Unverified-by-design — 80 detectors
 
 These detectors deliberately do not implement `Verify`. The rationale
 is one of:
@@ -172,9 +172,12 @@ declarative request modelled on kingfisher's validator, or a signed
 scheme (Alibaba RPC HMAC-SHA1, Exoscale EXO2-HMAC-SHA256, Polymarket and
 Packagist HMAC-SHA256, OVH `$1$`, Azure App Configuration HMAC and
 Service Bus SAS, OIDC JWKS signature checks). Hosts with a check are
-Verifiers (class a) and are not listed. The hosts below have no
-kingfisher validator: class (c) hosts have a provider API that is not
-wired yet; class (b) hosts cannot be verified by design.
+Verifiers (class a) and are not listed. Hosts that need a second value
+(Finicity App-Key and partner ID, Freemius plugin ID and public key,
+KuCoin passphrase, LinkedIn client ID, SettleMint deployment URL pinned
+to `settlemint.com`) resolve it from the surrounding text and report a
+missing partner as indeterminate, never invalid (#956). The hosts below
+cannot be verified by design (class b); no class (c) host remains.
 
 Supplementary formats attached to existing provider types
 (`detectors.RegisterFormats`) are verified when they carry a check
@@ -192,22 +195,17 @@ signatures; heuristic for the offline secp256k1 key check.
 |---|---|---|
 | AgeSecretKey | b | offline age X25519 identity; no provider endpoint exists (kingfisher catalog host, detection-only) |
 | Bittrex | b | exchange shut down in 2023; no live API remains (kingfisher catalog host, detection-only) |
-| Clojars | c | kingfisher catalog host, detection-only in kingfisher too; deploy tokens authenticate only with the account username in Basic auth; no reliable username context pattern yet (#950 follow-up) |
-| Coveralls | c | kingfisher catalog host, detection-only in kingfisher too; no documented identity endpoint for personal API tokens; repo-scoped endpoints need an owner/repo partner (#950 follow-up) |
+| Clojars | b | deploy tokens are accepted only by the repository deploy (PUT) endpoint; Clojars has no authenticated read or whoami call, so verifying would require attempting a write (kingfisher catalog host, detection-only; #956) |
+| Coveralls | b | personal API tokens have no identity endpoint, and the repo endpoints answer public repositories without a token, so a 200 cannot separate an accepted token from public access (kingfisher catalog host, detection-only; #956) |
 | CurlAuth | b | credential belongs to the arbitrary host on the same curl command line (kingfisher catalog host, detection-only) |
 | DockerSwarm | b | self-hosted swarm manager, host not in chunk (kingfisher catalog host, detection-only) |
-| Finicity | c | kingfisher catalog host, detection-only in kingfisher too; needs App-Key plus partner ID alongside the secret; three-part pairing not yet modelled (#950 follow-up) |
-| Freemius | c | kingfisher catalog host, detection-only in kingfisher too; requests are HMAC-signed with developer ID and public key partners (#950 follow-up) |
-| Greptile | c | kingfisher catalog host, detection-only in kingfisher too; no account endpoint; API calls need a GitHub token and repository partner (#950 follow-up) |
-| KuCoin | c | kingfisher catalog host, detection-only in kingfisher too; HMAC-signed requests need the API passphrase as a third partner (#950 follow-up) |
+| Greptile | b | every API call requires a GitHub/GitLab token alongside the key; verifying would send a second, unrelated provider credential found in the scan to Greptile (kingfisher catalog host, detection-only; #956) |
 | KubernetesSecret | b | self-hosted cluster, API server not in chunk (kingfisher catalog host, detection-only) |
-| LinkedIn | c | kingfisher catalog host, detection-only in kingfisher too; client_credentials is disabled for most apps, so a probe cannot separate a bad secret from an unauthorized app (#950 follow-up) |
 | Mattermost | b | self-hosted server URL; a host derived from scanned text cannot be allowlisted (kingfisher catalog host, detection-only) |
 | MicrosoftTeamsWebhook | b | the only probe posts a message (destructive); no read-only endpoint (kingfisher catalog host, detection-only) |
 | OpenShift | b | self-hosted cluster, API server not in chunk (kingfisher catalog host, detection-only) |
-| PrivateAI | c | kingfisher catalog host, detection-only in kingfisher too; no documented account or metrics endpoint for API keys (#950 follow-up) |
+| PrivateAI | b | keys are plan-bound to different hosts (community API, cloud API, self-hosted container) with no account endpoint; a rejection from one host does not invalidate a key for another (kingfisher catalog host, detection-only; #956) |
 | RapidAPI | b | key is only accepted by each subscribed API's own host; no account endpoint to probe (kingfisher catalog host, detection-only) |
-| SettleMint | c | kingfisher catalog host, detection-only in kingfisher too; tokens authenticate against a per-deployment platform URL not present in the token (#950 follow-up) |
 <!-- END kingfisher catalog hosts -->
 
 ## Machine-readable block
@@ -220,9 +218,9 @@ The `coverage-machine` block pins counts and per-detector class.
 
 ```coverage-machine
 total=723
-a=638
-b=76
-c=9
+a=643
+b=80
+c=0
 type=APIKeyAssignment class=b
 type=APNs class=b
 type=AWSS3PresignedURL class=b
@@ -293,22 +291,17 @@ type=Zoho class=b
 # BEGIN kingfisher catalog hosts
 type=AgeSecretKey class=b
 type=Bittrex class=b
-type=Clojars class=c
-type=Coveralls class=c
+type=Clojars class=b
+type=Coveralls class=b
 type=CurlAuth class=b
 type=DockerSwarm class=b
-type=Finicity class=c
-type=Freemius class=c
-type=Greptile class=c
-type=KuCoin class=c
+type=Greptile class=b
 type=KubernetesSecret class=b
-type=LinkedIn class=c
 type=Mattermost class=b
 type=MicrosoftTeamsWebhook class=b
 type=OpenShift class=b
-type=PrivateAI class=c
+type=PrivateAI class=b
 type=RapidAPI class=b
-type=SettleMint class=c
 # END kingfisher catalog hosts
 ```
 

@@ -53,7 +53,7 @@ generic class with stricter false-positive gates.
 | | kingfisher validates | pleno-dlp verifies |
 |---|---|---|
 | validated parity | 266 | 266 |
-| pleno-only verified | 0 | 138 |
+| pleno-only verified | 0 | 147 |
 
 ## Rules
 
@@ -66,7 +66,7 @@ missing=0
 context=47
 validated=266
 verified=266
-pleno_only_verified=138
+pleno_only_verified=147
 rule=betterleaks.1password-secret-key validation=- status=covered detector=OnePasswordServiceAccount verified=native
 rule=betterleaks.1password-service-account-token validation=Betterleaks status=covered detector=OnePasswordServiceAccount verified=native
 rule=betterleaks.abuseipdb-api-key.1 validation=Betterleaks status=covered detector=AbuseIPDB verified=native
@@ -222,8 +222,8 @@ rule=betterleaks.fal-api-key.1 validation=Betterleaks status=covered detector=Fa
 rule=betterleaks.fastly-api-token validation=Betterleaks status=covered detector=Fastly verified=native
 rule=betterleaks.figma-personal-access-header-token validation=Betterleaks status=covered detector=Figma verified=base:Figma
 rule=betterleaks.figma-personal-access-token validation=Betterleaks status=covered detector=Figma verified=native
-rule=betterleaks.finicity-api-token validation=- status=covered detector=Finicity verified=-
-rule=betterleaks.finicity-client-secret validation=- status=covered detector=Finicity verified=-
+rule=betterleaks.finicity-api-token validation=- status=covered detector=Finicity verified=http
+rule=betterleaks.finicity-client-secret validation=- status=covered detector=Finicity verified=http
 rule=betterleaks.finnhub-access-token validation=- status=covered detector=Finnhub verified=http
 rule=betterleaks.flickr-access-token validation=- status=covered detector=Flickr verified=http
 rule=betterleaks.flutterwave-encryption-key validation=- status=covered detector=Flutterwave verified=native
@@ -231,7 +231,7 @@ rule=betterleaks.flutterwave-public-key validation=- status=covered detector=Flu
 rule=betterleaks.flutterwave-secret-key validation=- status=covered detector=Flutterwave verified=native
 rule=betterleaks.flyio-access-token validation=Betterleaks status=covered detector=FlyMachines verified=native
 rule=betterleaks.frameio-api-token validation=Betterleaks status=covered detector=FrameIO verified=native
-rule=betterleaks.freemius-secret-key validation=- status=covered detector=Freemius verified=-
+rule=betterleaks.freemius-secret-key validation=- status=covered detector=Freemius verified=signed
 rule=betterleaks.freshbooks-access-token validation=Betterleaks status=covered detector=FreshBooks verified=http
 rule=betterleaks.fullstory-api-key validation=Betterleaks status=covered detector=FullStory verified=http
 rule=betterleaks.gcp-api-key validation=Betterleaks status=covered detector=GCPAPIKey verified=native
@@ -298,8 +298,8 @@ rule=betterleaks.kimi-api-key validation=Betterleaks status=covered detector=Ope
 rule=betterleaks.klaviyo-api-key validation=Betterleaks status=covered detector=Klaviyo verified=native
 rule=betterleaks.kraken-access-token validation=- status=covered detector=Kraken verified=native
 rule=betterleaks.kubernetes-secret-yaml validation=- status=covered detector=KubernetesSecret verified=-
-rule=betterleaks.kucoin-access-token validation=- status=covered detector=KuCoin verified=-
-rule=betterleaks.kucoin-secret-key validation=- status=covered detector=KuCoin verified=-
+rule=betterleaks.kucoin-access-token validation=- status=covered detector=KuCoin verified=signed
+rule=betterleaks.kucoin-secret-key validation=- status=covered detector=KuCoin verified=signed
 rule=betterleaks.labelbox-api-key validation=Betterleaks status=covered detector=Labelbox verified=native
 rule=betterleaks.labelbox-recursion-api-key validation=Betterleaks status=covered detector=Labelbox verified=http
 rule=betterleaks.langchain-langsmith-personal-access-token validation=Betterleaks status=covered detector=LangSmith verified=native
@@ -314,7 +314,7 @@ rule=betterleaks.lighton-paradigm-api-key validation=Betterleaks status=covered 
 rule=betterleaks.linear-api-key validation=Betterleaks status=covered detector=Linear verified=native
 rule=betterleaks.linear-client-secret validation=- status=covered detector=Linear verified=native
 rule=betterleaks.linkedin-client-id validation=- status=covered detector=LinkedIn verified=-
-rule=betterleaks.linkedin-client-secret validation=- status=covered detector=LinkedIn verified=-
+rule=betterleaks.linkedin-client-secret validation=- status=covered detector=LinkedIn verified=http
 rule=betterleaks.llama-cloud-api-key.1 validation=Betterleaks status=covered detector=LlamaCloud verified=native
 rule=betterleaks.lob-api-key validation=- status=covered detector=Lob verified=http
 rule=betterleaks.lob-pub-api-key validation=- status=covered detector=Lob verified=-
@@ -441,9 +441,9 @@ rule=betterleaks.sendinblue-api-token validation=Betterleaks status=covered dete
 rule=betterleaks.sentry-access-token validation=- status=covered detector=Sentry verified=-
 rule=betterleaks.sentry-org-token validation=- status=covered detector=Sentry verified=-
 rule=betterleaks.sentry-user-token validation=- status=covered detector=SentryUser verified=native
-rule=betterleaks.settlemint-application-access-token validation=- status=covered detector=SettleMint verified=-
-rule=betterleaks.settlemint-personal-access-token validation=- status=covered detector=SettleMint verified=-
-rule=betterleaks.settlemint-service-access-token validation=- status=covered detector=SettleMint verified=-
+rule=betterleaks.settlemint-application-access-token validation=- status=covered detector=SettleMint verified=http
+rule=betterleaks.settlemint-personal-access-token validation=- status=covered detector=SettleMint verified=http
+rule=betterleaks.settlemint-service-access-token validation=- status=covered detector=SettleMint verified=http
 rule=betterleaks.shippo-api-token validation=- status=covered detector=Shippo verified=native
 rule=betterleaks.shopify-access-token validation=- status=covered detector=Shopify verified=native
 rule=betterleaks.shopify-custom-access-token validation=- status=covered detector=Shopify verified=native

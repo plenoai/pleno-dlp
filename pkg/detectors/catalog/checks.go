@@ -395,6 +395,18 @@ var checks = map[string]*check{
 	"betterleaks.gcp-application-default-credentials":       {assurance: pc, fn: gcpADC},
 	"betterleaks.ovh-application-secret":                    {partners: p("appkey", pOVHAppKey, "consumer", pOVHConsumerKey), assurance: pc, fn: ovh},
 	"veles.secrets/packagistsecret":                         {partners: p("key", pPackagistKey), assurance: pc, prefix: "packagist_acs_", fn: packagistHMAC},
+
+	// Catalog hosts whose second value comes from the surrounding text
+	// (issue #956, paired.go). A missing partner is indeterminate.
+	"betterleaks.finicity-client-secret":              {partners: p("key", pFinicityAppKey, "partner", pFinicityPartnerID), assurance: pc, http: finicity("secret", "key")},
+	"betterleaks.finicity-api-token":                  {partners: p("psecret", pFinicitySecret, "partner", pFinicityPartnerID), assurance: pc, http: finicity("psecret", "secret")},
+	"betterleaks.freemius-secret-key":                 {partners: p("id", pFreemiusID, "public", pFreemiusPublic), assurance: pc, fn: freemius},
+	"betterleaks.kucoin-access-token":                 {partners: p("sk", pKuCoinSecret, "passphrase", pKuCoinPassphrase), assurance: pc, fn: kucoin(true)},
+	"betterleaks.kucoin-secret-key":                   {partners: p("key", pKuCoinKey, "passphrase", pKuCoinPassphrase), assurance: pc, fn: kucoin(false)},
+	"betterleaks.linkedin-client-secret":              {partners: p("client", pLinkedInClientID), assurance: rc, http: linkedin()},
+	"betterleaks.settlemint-application-access-token": {partners: p("url", pSettleMintURL), assurance: rc, prefix: "sm_aat_", http: settlemint()},
+	"betterleaks.settlemint-personal-access-token":    {partners: p("url", pSettleMintURL), assurance: rc, prefix: "sm_pat_", http: settlemint()},
+	"betterleaks.settlemint-service-access-token":     {partners: p("url", pSettleMintURL), assurance: rc, prefix: "sm_sat_", http: settlemint()},
 }
 
 func devcycle() *httpCheck {

@@ -30,6 +30,8 @@ func TestProviderConfirmedDetectorSetIsExplicitlyAudited(t *testing.T) {
 		// pleno-only catalog checks (#950): identity, account resource, or issued token.
 		"Adafruit", "Contentful", "DefinedNetworking", "EndorLabs", "Facebook", "Intra42", "Lob", "MaxMind",
 		"ReadMe", "Scalingo", "Sendbird", "Typeform", "Yandex",
+		// paired catalog checks (#956): issued token or signed account request.
+		"Finicity", "Freemius", "KuCoin",
 	}
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
