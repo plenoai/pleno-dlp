@@ -42,15 +42,19 @@ in Python and `koffi` in Node.js. Exchange JSON across the boundary.
 - Each target platform needs its own library build with a C toolchain.
   Release builds Linux arm64 natively and Linux x86-64 with a GNU cross
   compiler, both on the pinned Blacksmith arm64 pool
-  (`tests/ci/self_hosted_runner_test.go`). macOS and Windows packages wait
-  until the runner policy admits those hosts or a cross toolchain is
-  adopted; until then those users build the library locally and set
-  `PLENO_DLP_LIBRARY`.
+  (`tests/ci/self_hosted_runner_test.go`). macOS (arm64, x86-64) and
+  Windows (x86-64, arm64) cross-link with a checksum-pinned `zig cc` on the
+  same pool, so the runner policy stays unchanged (#853). Darwin links
+  against text-based stubs (`scripts/darwin-stubs`) that export only the
+  CoreFoundation/Security symbols the Go runtime imports, instead of the
+  macOS SDK; a symbol a future Go release adds fails the link rather than
+  shipping a broken library. Cross-built libraries are not executed in
+  release; the darwin/arm64 build is verified on a Mac before adoption.
 - The Go runtime starts inside the host process. One process loads one
   copy of the runtime; repeated calls reuse it.
 - Calls are synchronous. Async wrappers are left to callers (worker
   threads, thread pools) rather than added to the contract.
-- The npm package bundles every Linux library (about 14 MB each) instead of
+- The npm package bundles every platform library (about 14 MB each) instead of
   per-platform packages, so one trusted-publisher entry covers it.
 - The library is AGPL-3.0-only, like the CLI. Embedding programs inherit
   those terms.
