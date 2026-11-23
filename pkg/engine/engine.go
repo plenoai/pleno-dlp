@@ -1526,6 +1526,8 @@ func archiveRootName(c *sources.Chunk) string {
 		return md.GitHub.File
 	case md.S3 != nil:
 		return md.S3.Key
+	case md.GCS != nil:
+		return md.GCS.Object
 	}
 	return c.SourceName
 }
@@ -1536,6 +1538,10 @@ func archiveFailureSource(c *sources.Chunk) string {
 	if c != nil && c.SourceMetadata.S3 != nil {
 		sum := sha256.Sum256([]byte(c.SourceMetadata.S3.Key))
 		return fmt.Sprintf("s3-object-sha256:%x", sum)
+	}
+	if c != nil && c.SourceMetadata.GCS != nil {
+		sum := sha256.Sum256([]byte(c.SourceMetadata.GCS.Object))
+		return fmt.Sprintf("gcs-object-sha256:%x", sum)
 	}
 	return archiveRootName(c)
 }

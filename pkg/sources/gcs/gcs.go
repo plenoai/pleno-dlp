@@ -1,7 +1,10 @@
-// Package gcs lists objects in a GCS bucket and emits one chunk per
-// text object. Authentication uses Application Default Credentials
-// (GOOGLE_APPLICATION_CREDENTIALS, gcloud auth, Workload Identity) —
-// no pleno-dlp-specific auth.
+// Package gcs lists objects in a GCS bucket and emits one chunk per text
+// object and one chunk per archive object, which the engine expands under
+// its archive budgets. Multi-volume archives ("<name>.vol1.egg",
+// "<name>.zip.001", ...) are joined across objects with archive.JoinVolumes
+// before expansion. Authentication uses Application Default Credentials
+// (GOOGLE_APPLICATION_CREDENTIALS, gcloud auth, Workload Identity) — no
+// pleno-dlp-specific auth.
 package gcs
 
 import (
@@ -13,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"hash"
-	"io"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -21,15 +23,18 @@ import (
 
 	"cloud.google.com/go/storage"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
+	"github.com/plenoai/pleno-dlp/pkg/engine"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
+	"github.com/plenoai/pleno-dlp/pkg/sources/volumeset"
 )
 
 const (
 	defaultMaxObjectSize int64 = 10 * 1024 * 1024 // 10 MiB
+	maxArchiveObjectSize int64 = 50 * 1024 * 1024 // 50 MiB compressed, shared with S3
 	binarySniffLen             = 512
+	maxCoverageExamples        = 32
 )
 
 func init() {
@@ -60,6 +65,9 @@ type Source struct {
 	include            []string
 	exclude            []string
 	serviceAccountJSON string
+
+	// openBucket is replaced in tests with a fake; nil uses the GCS client.
+	openBucket func(ctx context.Context) (bucketAPI, func(), error)
 
 	hasPreviousState bool
 	previousState    *incrementalState
@@ -126,52 +134,124 @@ func (s *Source) newClient(ctx context.Context) (*storage.Client, error) {
 	return storage.NewClient(ctx)
 }
 
-func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
+func (s *Source) connect(ctx context.Context) (bucketAPI, func(), error) {
+	if s.openBucket != nil {
+		return s.openBucket(ctx)
+	}
 	client, err := s.newClient(ctx)
 	if err != nil {
-		return fmt.Errorf("gcs: create client: %w", err)
+		return nil, nil, fmt.Errorf("gcs: create client: %w", err)
 	}
-	defer client.Close()
+	return storageBucket{bkt: client.Bucket(s.bucket)}, func() { _ = client.Close() }, nil
+}
+
+// eligible applies the listing filters shared by Chunks and the fingerprint.
+func (s *Source) eligible(o objectInfo) bool {
+	return !strings.HasSuffix(o.Name, "/") && o.State.Size <= s.maxSizeBytes && s.keyAllowed(o.Name)
+}
+
+func (s *Source) Chunks(ctx context.Context, ch chan<- *sources.Chunk) error {
+	bkt, closeFn, err := s.connect(ctx)
+	if err != nil {
+		return err
+	}
+	defer closeFn()
 
 	s.nextState = &incrementalState{Version: 1, Objects: map[string]objectIncrementalState{}}
-	bkt := client.Bucket(s.bucket)
-
-	query := &storage.Query{}
-	if s.prefix != "" {
-		query.Prefix = s.prefix
+	var coverage []engine.ScanFailure
+	coverageTotal := 0
+	recordFailure := func(name string, err error) {
+		coverageTotal++
+		if len(coverage) < maxCoverageExamples {
+			source := "gcs-listing"
+			if name != "" {
+				source = safeObjectLocator(name)
+			}
+			coverage = append(coverage, engine.ScanFailure{Kind: engine.FailureSource, Source: source, Err: err})
+		}
 	}
+	complete := func(o objectInfo) { s.nextState.Objects[o.Name] = o.State }
 
-	it := bkt.Objects(ctx, query)
-	for {
+	// Volume objects are held back until listing ends so siblings that
+	// span pages are grouped before dispatch.
+	volumes := volumeset.New[objectInfo]()
+	listErr := bkt.List(ctx, s.prefix, func(o objectInfo) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		attrs, err := it.Next()
-		if errors.Is(err, iterator.Done) {
-			break
+		if !s.eligible(o) {
+			return nil
+		}
+		if s.objectUnchanged(o.Name, o.State) || o.State.Size == 0 {
+			complete(o)
+			return nil
+		}
+		if volumes.Add(o.Name, o.State.Size, o) {
+			return nil
+		}
+		if err := s.emitObject(ctx, bkt, o, ch); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			recordFailure(o.Name, err)
+			return nil
+		}
+		complete(o)
+		return nil
+	})
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if listErr != nil {
+		recordFailure("", redactCoverageError("list objects", listErr))
+	}
+	for _, job := range volumes.Jobs(s.archiveLimit()) {
+		all := job.All()
+		if len(job.Volumes) > 0 && s.allUnchanged(all) {
+			for _, m := range all {
+				complete(m.Item)
+			}
+			continue
+		}
+		var err error
+		if len(job.Volumes) == 0 {
+			err = s.emitObject(ctx, bkt, job.Head.Item, ch)
+		} else {
+			err = s.emitVolumes(ctx, bkt, job, ch)
 		}
 		if err != nil {
-			return fmt.Errorf("gcs: list objects: %w", err)
-		}
-		if strings.HasSuffix(attrs.Name, "/") {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			recordFailure(job.Head.Key, err)
 			continue
 		}
-		if attrs.Size > s.maxSizeBytes {
-			continue
+		// A set is checkpointed only as a whole: a failure in any volume
+		// leaves every volume eligible for the next run.
+		for _, m := range all {
+			complete(m.Item)
 		}
-		if !s.keyAllowed(attrs.Name) {
-			continue
-		}
-		objState := stateForAttrs(attrs)
-		s.nextState.Objects[attrs.Name] = objState
-		if s.objectUnchanged(attrs.Name, objState) {
-			continue
-		}
-		if err := s.emitObject(ctx, bkt, attrs.Name, attrs.Generation, ch); err != nil {
-			return err
+	}
+	if coverageTotal > 0 {
+		s.nextState = &incrementalState{Version: 1, Objects: map[string]objectIncrementalState{}}
+		return &engine.DegradedError{
+			Total:    coverageTotal,
+			Counts:   map[engine.FailureKind]int{engine.FailureSource: coverageTotal},
+			Failures: coverage,
 		}
 	}
 	return nil
+}
+
+func (s *Source) archiveLimit() int64 { return min(s.maxSizeBytes, maxArchiveObjectSize) }
+
+func (s *Source) allUnchanged(ms []volumeset.Member[objectInfo]) bool {
+	for _, m := range ms {
+		if !s.objectUnchanged(m.Key, m.Item.State) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Source) SetIncrementalState(previous json.RawMessage) error {
@@ -214,17 +294,11 @@ func (s *Source) objectUnchanged(name string, current objectIncrementalState) bo
 
 // ResourceFingerprint hashes bucket + prefix + object listing (name + generation).
 func (s *Source) ResourceFingerprint(ctx context.Context) (string, error) {
-	client, err := s.newClient(ctx)
+	bkt, closeFn, err := s.connect(ctx)
 	if err != nil {
-		return "", fmt.Errorf("gcs: create client for fingerprint: %w", err)
+		return "", err
 	}
-	defer client.Close()
-
-	bkt := client.Bucket(s.bucket)
-	query := &storage.Query{}
-	if s.prefix != "" {
-		query.Prefix = s.prefix
-	}
+	defer closeFn()
 
 	h := sha256.New()
 	writeHash(h, "gcs-v1")
@@ -236,29 +310,17 @@ func (s *Source) ResourceFingerprint(ctx context.Context) (string, error) {
 		generation int64
 	}
 	var entries []entry
-
-	it := bkt.Objects(ctx, query)
-	for {
+	err = bkt.List(ctx, s.prefix, func(o objectInfo) error {
 		if err := ctx.Err(); err != nil {
-			return "", err
+			return err
 		}
-		attrs, err := it.Next()
-		if errors.Is(err, iterator.Done) {
-			break
+		if s.eligible(o) {
+			entries = append(entries, entry{name: o.Name, generation: o.Generation})
 		}
-		if err != nil {
-			return "", fmt.Errorf("gcs: list objects for fingerprint: %w", err)
-		}
-		if strings.HasSuffix(attrs.Name, "/") {
-			continue
-		}
-		if attrs.Size > s.maxSizeBytes {
-			continue
-		}
-		if !s.keyAllowed(attrs.Name) {
-			continue
-		}
-		entries = append(entries, entry{name: attrs.Name, generation: attrs.Generation})
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("gcs: list objects for fingerprint: %w", err)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].name < entries[j].name })
 	for _, e := range entries {
@@ -266,44 +328,6 @@ func (s *Source) ResourceFingerprint(ctx context.Context) (string, error) {
 		writeHash(h, strconv.FormatInt(e.generation, 10))
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func (s *Source) emitObject(ctx context.Context, bkt *storage.BucketHandle, name string, generation int64, ch chan<- *sources.Chunk) error {
-	obj := bkt.Object(name).Generation(generation)
-	r, err := obj.NewReader(ctx)
-	if err != nil {
-		// Per-object errors are skipped, not fatal.
-		return nil
-	}
-	defer r.Close()
-
-	data, err := io.ReadAll(io.LimitReader(r, s.maxSizeBytes))
-	if err != nil {
-		return nil
-	}
-	if isBinary(data) {
-		return nil
-	}
-
-	chunk := &sources.Chunk{
-		SourceID:   s.sourceID,
-		SourceType: sources.SourceGCS,
-		SourceName: s.name,
-		Data:       data,
-		SourceMetadata: sources.Metadata{
-			GCS: &sources.GCSMeta{
-				Bucket:     s.bucket,
-				Object:     name,
-				Generation: generation,
-			},
-		},
-	}
-	select {
-	case ch <- chunk:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }
 
 func stateForAttrs(attrs *storage.ObjectAttrs) objectIncrementalState {
