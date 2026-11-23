@@ -735,3 +735,29 @@ func containsAKIA(entries []Entry, akia string) bool {
 	}
 	return false
 }
+
+func TestWalkStreamWithRawFallbackReplaysBodyOnFailure(t *testing.T) {
+	body := []byte("PK\x03\x04 truncated AKIA-raw")
+	var raw []byte
+	err := WalkStreamWithRawFallback(context.Background(), context.Background(), "x.zip", bytes.NewReader(body), int64(len(body)), Limits{},
+		func(StreamEntry) error { return nil },
+		func(r io.Reader) error { var e error; raw, e = io.ReadAll(r); return e })
+	var partial *PartialError
+	if !errors.As(err, &partial) {
+		t.Fatalf("err = %v, want PartialError", err)
+	}
+	if !bytes.Equal(raw, body) {
+		t.Fatalf("raw fallback got %q, want the full outer body", raw)
+	}
+
+	var ok bytes.Buffer
+	zw := zip.NewWriter(&ok)
+	w, _ := zw.Create("a.txt")
+	_, _ = w.Write([]byte("x"))
+	_ = zw.Close()
+	called := false
+	if err := WalkStreamWithRawFallback(context.Background(), context.Background(), "ok.zip", bytes.NewReader(ok.Bytes()), int64(ok.Len()), Limits{},
+		func(StreamEntry) error { return nil }, func(io.Reader) error { called = true; return nil }); err != nil || called {
+		t.Fatalf("clean archive: err=%v rawCalled=%v", err, called)
+	}
+}

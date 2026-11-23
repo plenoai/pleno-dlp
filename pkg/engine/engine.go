@@ -1419,7 +1419,7 @@ func (e *Engine) scanOpenedChunk(ctx context.Context, c *sources.Chunk) {
 	if isArchive {
 		// SectionReader supplies the archive walker a bounded view of the
 		// source's replayable body without copying the outer archive.
-		e.scanArchiveReader(ctx, c, io.NewSectionReader(reader, 0, size), size, 5*time.Second)
+		e.scanArchiveReader(ctx, c, reader, size, 5*time.Second)
 		return
 	}
 	if !e.opts.NoArchiveExtraction {
@@ -1466,16 +1466,24 @@ func readerLooksLikeArchive(reader io.ReaderAt, size int64) (bool, error) {
 func (e *Engine) scanArchive(ctx context.Context, c *sources.Chunk, budget time.Duration) {
 	e.scanArchiveWith(ctx, c, budget, func(walkCtx context.Context, limits archive.Limits, visit func(archive.StreamEntry) error) error {
 		return archive.WalkBytesContext(walkCtx, archiveRootName(c), c.Data, limits, visit)
-	})
+	}, func() { e.scanChunkLeaf(ctx, c, "") })
 }
 
-func (e *Engine) scanArchiveReader(ctx context.Context, c *sources.Chunk, input io.Reader, size int64, budget time.Duration) {
+func (e *Engine) scanArchiveReader(ctx context.Context, c *sources.Chunk, input io.ReaderAt, size int64, budget time.Duration) {
 	e.scanArchiveWith(ctx, c, budget, func(walkCtx context.Context, limits archive.Limits, visit func(archive.StreamEntry) error) error {
-		return archive.WalkStreamContext(walkCtx, archiveRootName(c), input, size, limits, visit)
-	})
+		return archive.WalkStreamContext(walkCtx, archiveRootName(c), io.NewSectionReader(input, 0, size), size, limits, visit)
+	}, func() { e.scanChunkLeafReader(ctx, c, "", input, size) })
 }
 
-func (e *Engine) scanArchiveWith(ctx context.Context, c *sources.Chunk, budget time.Duration, walk func(context.Context, archive.Limits, func(archive.StreamEntry) error) error) {
+// scanArchiveWith expands one archive. When expansion fails or stops early
+// (corrupt container, truncated stream, unsupported method, lone split
+// volume, budget exhaustion) the coverage gap is recorded AND rawFallback
+// scans the outer body as a plain leaf, so plaintext secrets and stored
+// members are never hidden behind an unparseable container (#970). The
+// leaf scanner applies the same windowing and size budgets as any other
+// chunk; detection does not depend on a text/binary heuristic.
+
+func (e *Engine) scanArchiveWith(ctx context.Context, c *sources.Chunk, budget time.Duration, walk func(context.Context, archive.Limits, func(archive.StreamEntry) error) error, rawFallback func()) {
 	archiveCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	started := time.Now()
@@ -1531,6 +1539,9 @@ func (e *Engine) scanArchiveWith(ctx context.Context, c *sources.Chunk, budget t
 			Kind: FailureArchive, Source: archiveFailureSource(c),
 			Err: &redactedArchiveCoverageError{cause: err},
 		})
+		if ctx.Err() == nil && rawFallback != nil {
+			rawFallback()
+		}
 	}
 }
 

@@ -751,8 +751,10 @@ func TestChunks_ArchiveExpandedLimitReturnsDegradedCoverage(t *testing.T) {
 	if !errors.As(err, &partial) || partial.Kind != "max-expanded-bytes" {
 		t.Fatalf("Chunks error = %v, want max-expanded-bytes PartialError", err)
 	}
-	if len(got) != 0 {
-		t.Fatalf("over-limit archive emitted %d chunk(s), want none", len(got))
+	// #970: the over-limit archive keeps its gap, and its raw blob bytes
+	// (which contain the stored member) are still scanned as one leaf.
+	if len(got) != 1 || !bytes.Contains(got[0].Data, []byte("content beyond")) || got[0].SourceMetadata.Git == nil || got[0].SourceMetadata.Git.File != "payload.zip" {
+		t.Fatalf("over-limit archive emitted %d chunk(s), want the raw payload.zip blob", len(got))
 	}
 	if state := s.IncrementalState(); len(state) != 0 {
 		t.Fatalf("degraded archive scan advanced checkpoint: %s", state)

@@ -987,11 +987,14 @@ func (w *offlineWalk) emitBlob(ctx context.Context, commit nativeCommit, path, s
 			if isArchive {
 				archiveCtx, cancel := context.WithTimeout(ctx, w.source.archiveTimeout)
 				defer cancel()
-				walkErr := archivepkg.WalkStreamContext(archiveCtx, path, body, size, w.source.archiveLimits, func(entry archivepkg.StreamEntry) error {
+				walkErr := archivepkg.WalkStreamWithRawFallback(ctx, archiveCtx, path, body, size, w.source.archiveLimits, func(entry archivepkg.StreamEntry) error {
 					return streamBlob(archiveCtx, entry.Reader, entry.Size, func(segment diffSegment) error {
 						segment.path = entry.Path
 						return emit(segment)
 					})
+				}, func(raw io.Reader) error {
+					// Unparseable or partial archive: scan the blob bytes too (#970).
+					return streamBlob(ctx, raw, size, emit)
 				})
 				if err := ctx.Err(); err != nil {
 					return err

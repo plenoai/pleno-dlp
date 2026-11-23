@@ -962,10 +962,15 @@ func (s *Source) emitCommit(ctx context.Context, c *object.Commit, ch chan<- *so
 						return fmt.Errorf("git: open archive %s at %s: %w", path, c.Hash, err)
 					}
 					archiveCtx, cancel := context.WithTimeout(ctx, s.archiveTimeout)
-					walkErr := archivepkg.WalkStreamContext(archiveCtx, path, reader, to.Size, s.archiveLimits, func(entry archivepkg.StreamEntry) error {
+					walkErr := archivepkg.WalkStreamWithRawFallback(ctx, archiveCtx, path, reader, to.Size, s.archiveLimits, func(entry archivepkg.StreamEntry) error {
 						return streamBlob(archiveCtx, entry.Reader, entry.Size, func(segment diffSegment) error {
 							segment.path = entry.Path
 							return emitSegment(archiveCtx, segment)
+						})
+					}, func(raw io.Reader) error {
+						// Unparseable or partial archive: scan the blob bytes too (#970).
+						return streamBlob(ctx, raw, to.Size, func(segment diffSegment) error {
+							return emitSegment(ctx, segment)
 						})
 					})
 					closeErr := reader.Close()

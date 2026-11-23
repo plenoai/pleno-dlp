@@ -516,6 +516,11 @@ func (s *Source) emitObject(ctx context.Context, client s3API, key string, sizeH
 		// after listing instead of treating the LimitReader EOF as success.
 		archiveLimit := min(s.maxSizeBytes, maxArchiveObjectSize)
 		if sizeHint > archiveLimit {
+			// Too large to expand: stream the raw bytes under the object limit
+			// as text windows and keep the coverage gap (#970).
+			if _, err := s.emitTextObject(ctx, key, out, prefix, limited, atEOF, ch); err != nil {
+				return objectOutcome{}, errors.Join(errArchiveObjectTooLarge, err)
+			}
 			return objectOutcome{}, errArchiveObjectTooLarge
 		}
 		data, err := readArchiveObject(limited, prefix, sizeHint, archiveLimit)
