@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/plenoai/pleno-dlp/pkg/output"
 	"github.com/plenoai/pleno-dlp/pkg/sources"
 	"github.com/plenoai/pleno-dlp/pkg/sources/stdin"
 )
@@ -58,7 +59,7 @@ func init() {
 		"path to the git repository root (default: cwd)")
 
 	// Mirror the scan-wide flags onto protectCmd (same scanOpts as scan.go).
-	protectCmd.Flags().StringVar(&scanOpts.format, "format", "table", "output format: json, sarif, table")
+	protectCmd.Flags().StringVar(&scanOpts.format, "format", "table", "output format: "+output.FormatsHelp)
 	protectCmd.Flags().IntVar(&scanOpts.verifyRPS, "verify-rps", 10, "per-host requests-per-second cap during verification (0 = disable)")
 	protectCmd.Flags().IntVar(&scanOpts.concurrency, "concurrency", 8, "number of scan workers")
 	protectCmd.Flags().StringVar(&scanOpts.rulesPath, "rules", "", "path to a custom rules JSON file (org-specific patterns)")

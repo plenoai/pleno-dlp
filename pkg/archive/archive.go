@@ -1,4 +1,4 @@
-// Package archive expands zip, tar, gzip, and bzip2 payloads into leaf entries.
+// Package archive expands zip, tar, gzip, bzip2, xz, and zstd payloads into leaf entries.
 package archive
 
 import (
@@ -17,6 +17,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/klauspost/compress/zstd"
+	"github.com/ulikunitz/xz"
 )
 
 // SpillThreshold is the in-memory cutoff for WithSpoolContext and Git object
@@ -99,7 +102,7 @@ func (l *Limits) withDefaults() {
 
 func LooksLikeArchive(data []byte) bool {
 	switch detect(data) {
-	case kindZip, kindTar, kindGzip, kindBzip2:
+	case kindZip, kindTar, kindGzip, kindBzip2, kindXz, kindZstd:
 		return true
 	}
 	return false
@@ -283,6 +286,10 @@ func (s *walkState) walk(name string, data *spool, depth int) error {
 		return s.walkGzip(name, data, depth)
 	case kindBzip2:
 		return s.walkBzip2(name, data, depth)
+	case kindXz:
+		return s.walkXz(name, data, depth)
+	case kindZstd:
+		return s.walkZstd(name, data, depth)
 	default:
 		return s.emitEntry(name, data)
 	}
@@ -586,13 +593,38 @@ func gzipSizeHint(data *spool, threshold int64) int64 {
 }
 
 func (s *walkState) walkBzip2(name string, data *spool, depth int) error {
-	value, accepted, err := s.expandedSpool(name, bzip2.NewReader(data.reader()), -1)
+	return s.walkStream(name, ".bz2", "!bz2", bzip2.NewReader(data.reader()), depth)
+}
+
+func (s *walkState) walkXz(name string, data *spool, depth int) error {
+	reader, err := xz.NewReader(data.reader())
+	if err != nil {
+		return &PartialError{Kind: "corrupt-archive", Entry: name, Err: err}
+	}
+	return s.walkStream(name, ".xz", "!xz", reader, depth)
+}
+
+func (s *walkState) walkZstd(name string, data *spool, depth int) error {
+	// Cap the decoder window so a crafted frame header cannot force a large
+	// allocation before the expanded-bytes budget applies.
+	decoder, err := zstd.NewReader(data.reader(), zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxWindow(64<<20), zstd.WithDecoderLowmem(true))
+	if err != nil {
+		return &PartialError{Kind: "corrupt-archive", Entry: name, Err: err}
+	}
+	defer decoder.Close()
+	return s.walkStream(name, ".zst", "!zst", decoder, depth)
+}
+
+// walkStream expands a single-member compressed stream within the entry and
+// expanded-bytes budgets, then recurses into the decompressed payload.
+func (s *walkState) walkStream(name, suffix, fallback string, input io.Reader, depth int) error {
+	value, accepted, err := s.expandedSpool(name, input, -1)
 	if err != nil || !accepted {
 		return err
 	}
-	innerName := strings.TrimSuffix(name, ".bz2")
+	innerName := strings.TrimSuffix(name, suffix)
 	if innerName == name {
-		innerName = name + "!bz2"
+		innerName = name + fallback
 	}
 	walkErr := s.walk(innerName, value, depth+1)
 	cleanupErr := value.close()
@@ -715,6 +747,8 @@ const (
 	kindTar
 	kindGzip
 	kindBzip2
+	kindXz
+	kindZstd
 )
 
 // detect inspects magic bytes to classify the chunk. Returns kindNone for
@@ -731,6 +765,10 @@ func detect(data []byte) kind {
 		return kindTar
 	case len(data) >= 3 && bytes.HasPrefix(data, []byte{0x42, 0x5a, 0x68}):
 		return kindBzip2
+	case len(data) >= 6 && bytes.HasPrefix(data, []byte{0xfd, '7', 'z', 'X', 'Z', 0x00}):
+		return kindXz
+	case len(data) >= 4 && bytes.HasPrefix(data, []byte{0x28, 0xb5, 0x2f, 0xfd}):
+		return kindZstd
 	}
 	return kindNone
 }

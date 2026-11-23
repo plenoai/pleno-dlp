@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<meta name="referrer" content="no-referrer">
+<title>{{.Title}}</title>
+<style>
+:root{--bg:#fff;--fg:#1d1d1f;--mut:#6b6b70;--line:#e3e3e6;--crit:#b3261e;--high:#d9480f;--med:#b08800;--low:#2f6f4f;--chip:#f3f3f5}
+@media (prefers-color-scheme:dark){:root{--bg:#141416;--fg:#ececef;--mut:#9a9aa1;--line:#2c2c31;--chip:#222227}}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+header,main{padding:16px 24px}header{border-bottom:1px solid var(--line)}
+h1{font-size:18px;margin:0 0 4px}.mut{color:var(--mut)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.chip{background:var(--chip);border-radius:12px;padding:2px 10px;font-size:12px}
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}input,select{font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+.wrap{overflow-x:auto}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;cursor:pointer;white-space:nowrap}code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
+.sev-critical{color:var(--crit);font-weight:600}.sev-high{color:var(--high);font-weight:600}.sev-medium{color:var(--med)}.sev-low,.sev-info{color:var(--low)}
+.v-verified{font-weight:600}
+</style>
+</head>
+<body>
+<header>
+<h1>{{.Title}}</h1>
+<div class="mut">{{.Total}} finding(s){{if .Generator}} · {{.Generator}}{{end}} · generated {{.Generated.Format "2006-01-02T15:04:05Z07:00"}}{{if .Reports}} · reports: {{join .Reports ", "}}{{end}}</div>
+<div class="chips">{{range .BySeverity}}<span class="chip sev-{{.Key}}">{{.Key}}: {{.Count}}</span>{{end}}{{range .ByTool}}<span class="chip">{{.Key}}: {{.Count}}</span>{{end}}</div>
+</header>
+<main>
+<div class="controls">
+<input id="q" type="search" placeholder="Filter (detector, file, repository…)" aria-label="Filter">
+<select id="sev" aria-label="Severity"><option value="">All severities</option><option>critical</option><option>high</option><option>medium</option><option>low</option><option>info</option></select>
+<select id="ver" aria-label="Verdict"><option value="">All verdicts</option><option>verified</option><option>unverified</option><option>indeterminate</option></select>
+<span id="shown" class="mut"></span>
+</div>
+<div class="wrap">
+<table id="t">
+<thead><tr><th data-k="0">Severity</th><th data-k="1">Detector</th><th data-k="2">Verdict</th><th data-k="3">Location</th><th data-k="4">Redacted</th><th data-k="5">Tools</th></tr></thead>
+<tbody>
+{{range .Findings}}<tr data-sev="{{.Severity}}" data-ver="{{.Verdict}}">
+<td class="sev-{{.Severity}}">{{.Severity}}</td>
+<td>{{.Detector}}</td>
+<td class="v-{{.Verdict}}">{{.Verdict}}</td>
+<td>{{with safeLink .Link}}<a href="{{.}}" rel="noopener noreferrer">{{end}}<code>{{if .Repository}}{{.Repository}} {{end}}{{if .Commit}}@{{short .Commit}} {{end}}{{.File}}{{if .Line}}:{{.Line}}{{end}}</code>{{if safeLink .Link}}</a>{{end}}{{if .SourceType}} <span class="mut">({{.SourceType}})</span>{{end}}</td>
+<td><code>{{.Redacted}}</code></td>
+<td>{{if .Tools}}{{join .Tools ", "}}{{else}}{{.Tool}}{{end}}</td>
+</tr>
+{{end}}</tbody>
+</table>
+</div>
+</main>
+<script>
+(function(){
+var q=document.getElementById('q'),sev=document.getElementById('sev'),ver=document.getElementById('ver'),shown=document.getElementById('shown');
+var body=document.querySelector('#t tbody'),rows=Array.prototype.slice.call(body.rows);
+function apply(){var s=q.value.toLowerCase(),n=0;rows.forEach(function(r){var ok=(!s||r.textContent.toLowerCase().indexOf(s)>=0)&&(!sev.value||r.dataset.sev===sev.value)&&(!ver.value||r.dataset.ver===ver.value);r.hidden=!ok;if(ok)n++;});shown.textContent=n+' shown';}
+[q,sev,ver].forEach(function(e){e.addEventListener('input',apply);});
+var dir={};document.querySelectorAll('#t th').forEach(function(th){th.addEventListener('click',function(){var k=+th.dataset.k;dir[k]=!dir[k];rows.sort(function(a,b){var x=a.cells[k].textContent,y=b.cells[k].textContent;return (dir[k]?1:-1)*x.localeCompare(y,undefined,{numeric:true});});rows.forEach(function(r){body.appendChild(r);});});});
+apply();
+})();
+</script>
+</body>
+</html>
