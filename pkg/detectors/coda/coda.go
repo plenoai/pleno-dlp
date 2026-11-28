@@ -44,6 +44,9 @@ func (s Scanner) FromData(ctx context.Context, verify bool, data []byte) ([]dete
 		if _, dup := seen[token]; dup {
 			continue
 		}
+		if inLockChecksum(data, m[2]) {
+			continue
+		}
 		if !nearKeyword(lower, m[2], m[3]) {
 			continue
 		}
@@ -104,11 +107,43 @@ func nearKeyword(lower string, start, end int) bool {
 	}
 	window := lower[from:to]
 	for _, kw := range contextKeywords {
-		if strings.Contains(window, kw) {
-			return true
+		for off := 0; ; {
+			i := strings.Index(window[off:], kw)
+			if i < 0 {
+				break
+			}
+			i += off
+			// A keyword embedded in a longer alnum run (e.g. "cOda" inside a
+			// base64 checksum) is not context.
+			if i == 0 || !isAlnum(window[i-1]) {
+				return true
+			}
+			off = i + 1
 		}
 	}
 	return false
+}
+
+// inLockChecksum reports whether the candidate at start lies inside a
+// Terraform lock file checksum value (`h1:` base64 SHA-256 or `zh:` hex).
+func inLockChecksum(data []byte, start int) bool {
+	i := start
+	for i > 0 && isBase64(data[i-1]) {
+		i--
+	}
+	if i < 3 {
+		return false
+	}
+	p := strings.ToLower(string(data[i-3 : i]))
+	return p == "h1:" || p == "zh:"
+}
+
+func isAlnum(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+}
+
+func isBase64(c byte) bool {
+	return isAlnum(c) || c == '+' || c == '/' || c == '=' || c == '_' || c == '-'
 }
 
 func redact(t string) string {

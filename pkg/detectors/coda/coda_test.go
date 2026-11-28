@@ -104,3 +104,26 @@ func TestVerify_TransportError(t *testing.T) {
 		t.Fatal("expected verified=false on transport error")
 	}
 }
+
+func TestFromData_TerraformLockChecksums(t *testing.T) {
+	body := []byte(`provider "registry.terraform.io/hashicorp/random" {
+  version = "3.9.1"
+  hashes = [
+    "h1:PlW+UZ4EElQF3NQwf41KQwavFujab3Czc51zu9dyVM8=",
+    "h1:g40qr7yDmIpaur4SsK5BcOda3HSo1RJ6zHVMqN4EJ+0=",
+    "zh:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  ]
+}
+`)
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, body)
+	if len(res) != 0 {
+		t.Fatalf("expected 0 for lock file checksums, got %d", len(res))
+	}
+}
+
+func TestFromData_EmbeddedKeywordIsNotContext(t *testing.T) {
+	res, _ := redactiontest.FromData(t, Scanner{}, context.Background(), false, []byte("x=AbCOda1\nX="+dummy))
+	if len(res) != 0 {
+		t.Fatalf("expected 0 with embedded keyword only, got %d", len(res))
+	}
+}
